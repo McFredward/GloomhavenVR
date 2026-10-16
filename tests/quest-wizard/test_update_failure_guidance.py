@@ -104,6 +104,19 @@ class UpdateFailureGuidanceTests(unittest.TestCase):
         self.assertIn('Kompatibilitätsprüfung', error.message['de'])
         self.assertIn('code-player.apk', error.parameters['updateGuidance']['nextSteps']['de'])
 
+    def test_assembly_registry_rejection_retains_native_output_without_rebuild_choice(self):
+        for cause in ('Player assembly registry is invalid.',
+                      'Player assembly registry has conflicting classifications: original Foo.dll [16, 2]'):
+            with self.subTest(cause=cause):
+                error = self.fail(cause)
+                guidance = error.parameters['updateGuidance']
+                self.assertEqual(guidance['kind'], 'compact-project')
+                self.assertIn('Assembly', error.message['de'])
+                self.assertIn('code-player.apk', guidance['nextSteps']['de'])
+                self.assertTrue(error.parameters['completedWorkRetained'])
+                self.assertNotIn('newBuild', guidance)
+                self.assertIn(cause, error.parameters['cause'])
+
     def test_update_inspection_has_choices_but_ordinary_build_and_memory_keep_existing_flow(self):
         self.assertEqual(self.fail('The existing Quest APK could not be read.', 'inspect-update').parameters['updateGuidance']['kind'], 'source-apk')
         self.assertNotIn('updateGuidance', self.fail('The existing Quest APK could not be read.', 'build').parameters)
