@@ -223,7 +223,16 @@ class LocalServer(ThreadingHTTPServer):
         value["artwork"] = [{"id": row["id"], "url": "/api/artwork?session=" + session + "&id=" + row["id"], "altCode": row["altCode"]} for row, _ in rows]
         if not rows and self.promo: value['artwork'] = self.promo.visible()
         value["capabilities"] = {"artwork": bool(rows)}
-        if session in self.job_errors: value["requestError"] = self.job_errors[session]
+        if session in self.job_errors:
+            failure = self.job_errors[session]
+            value["requestError"] = failure
+            if failure.get("code") == "workspace_metadata_busy":
+                # The failed mandatory write may have left the previous state
+                # readable but unable to save its blocked action. Project only
+                # this live error into the response, preserving durable choices
+                # and receipts; this is presentation, never completion authority.
+                value["status"] = "blocked"
+                value["needsActions"] = [copy.deepcopy(failure)]
         return value
 
     def run_session(self, session):

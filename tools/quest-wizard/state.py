@@ -243,9 +243,11 @@ class Store:
         try: yield state
         finally:
             with self._lock:
-                self._timing.close(state)
-                self.save(state)
-                self._live.pop(session, None)
+                try:
+                    self._timing.close(state)
+                    self.save(state)
+                finally:
+                    self._live.pop(session, None)
 
     def _state(self, session):
         return self._live.get(session) or read_json(self.session_dir(session) / "state.json")

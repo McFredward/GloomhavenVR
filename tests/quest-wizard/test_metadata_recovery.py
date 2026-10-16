@@ -171,6 +171,14 @@ class MetadataRecoveryTests(unittest.TestCase):
         replace.assert_not_called()
         self.assertEqual(json.loads(outside.read_bytes()), self.old)
 
+    def test_failed_mandatory_state_publication_does_not_leave_a_live_runner(self):
+        saved = self.store.create(wizard.choices({"gameRoot": str(self.store.root / "game")}))
+        with patch.object(self.store, "save", side_effect=state.WizardError("workspace_metadata_busy", "still locked")):
+            with self.assertRaises(state.WizardError):
+                with self.store.active(saved):
+                    self.assertIn(saved["session"], self.store._live)
+        self.assertNotIn(saved["session"], self.store._live)
+
 
 class StartupFailureEvidenceTests(unittest.TestCase):
     def setUp(self):
@@ -220,6 +228,19 @@ class StartupFailureEvidenceTests(unittest.TestCase):
         self.assertEqual(action["parameters"]["errorType"], "PermissionError")
         self.assertIn("Access is denied", action["parameters"]["cause"])
         self.assertEqual(action["parameters"]["retryAttempts"], 6)
+
+    def test_live_metadata_action_remains_visible_if_saving_the_error_is_also_refused(self):
+        error = metadata_io.busy_error(self.store.root / "sessions/state.json", denied(), state.WizardError, attempts=6)
+        with patch.object(self.store, "event", side_effect=error):
+            http = self.fail_before_stage(error)
+        durable = self.store.load(self.session)
+        self.assertEqual(durable["status"], "ready")
+        visible = http.visible_state(self.session, durable)
+        self.assertEqual(visible["status"], "blocked")
+        self.assertEqual(visible["needsActions"][0]["code"], "workspace_metadata_busy")
+        self.assertEqual(visible["needsActions"][0]["parameters"]["path"], error.parameters["path"])
+        self.assertEqual(durable["choices"], visible["choices"])
+        self.assertNotIn("needsActions", visible["requestError"].get("parameters", {}))
 
     def test_unexpected_programming_exception_is_exposed_instead_of_leaving_an_active_spinner(self):
         self.fail_before_stage(TypeError("controlled startup failure"))
