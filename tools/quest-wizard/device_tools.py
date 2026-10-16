@@ -53,6 +53,16 @@ def _cleanup_module(repo):
             else: sys.modules[name] = previous
 
 
+def _wireless_module(repo):
+    """Use the same endpoint qualification as completed USB installations."""
+    with discovery._LOADER_LOCK:
+        name = "_quest_wizard_remember_wireless"
+        spec = importlib.util.spec_from_file_location(name, repo / "tools/quest-installer/wireless.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+
 def _modules(repo):
     """Bind the real collector to its installer without polluting other imports."""
     with discovery._LOADER_LOCK:
@@ -299,7 +309,7 @@ class DeviceTools:
         self.cleanup_plan = None
         self.cleanup_helper = None
         self._publish(progress, progress={"done": 0, "total": self.total, "percent": 0, "label": "adb-setup"}, activity=None,
-            status="connecting", operation=operation, capture=None, storagePlan=None, storageResult=None, launch=None,
+            status="connecting", operation=operation, capture=None, storagePlan=None, storageResult=None, launch=None, wireless=None,
             startedAt=time.time(), log=None, error=None,
             message={"en": "Preparing Android platform-tools; missing tools are downloaded automatically.",
                      "de": "Android platform-tools vorbereiten; fehlende Werkzeuge werden automatisch heruntergeladen."})
@@ -381,10 +391,31 @@ class DeviceTools:
             config = installer.connection_settings(config, address, hardware, adb.executable)
             transport = config["transport"]
             self._publish(progress, transport=transport)
+            wireless = None
+            if transport == "usb":
+                # Connecting remains read-only unless wireless setup was
+                # explicitly chosen. Merely remembering an already authorized
+                # endpoint never changes the selected USB transport or adbd.
+                try:
+                    config, wireless = _wireless_module(self.repo).remember_after_usb(
+                        adb, address, hardware, config, enable=False)
+                except Cancelled: raise
+                except (OSError, RuntimeError, ValueError, ImportError) as error:
+                    # Optional Wi-Fi qualification must not turn an already
+                    # verified cable connection into a connection failure.
+                    wireless = {"status": "unavailable", "reason": "wireless-helper-unavailable",
+                                "detail": str(error)[:600], "message": {
+                        "en": "USB is connected. The optional wireless endpoint check was unavailable; previous settings were retained.",
+                        "de": "USB ist verbunden. Die optionale WLAN-Prüfung war nicht verfügbar; bisherige Einstellungen bleiben erhalten."}}
+                self._cancel(cancel)
             atomic_json(self.config, config)
-            return self._step(progress, 4, 4, "connected", status="connected", message={
+            message = {
                 "en": "Quest connected over " + ("USB" if transport == "usb" else "Wi-Fi") + ". The verified headset identity is remembered.",
-                "de": "Quest über " + ("USB" if transport == "usb" else "WLAN") + " verbunden. Die geprüfte Headset-Identität ist gespeichert."})
+                "de": "Quest über " + ("USB" if transport == "usb" else "WLAN") + " verbunden. Die geprüfte Headset-Identität ist gespeichert."}
+            if wireless is not None:
+                message = {locale: text + " " + wireless["message"][locale] for locale, text in message.items()}
+            return self._step(progress, 4, 4, "connected", status="connected", message=message,
+                              endpoint=config.get("endpoint") or address, wireless=wireless)
         except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
             return self._failure(error, progress)
 
@@ -478,7 +509,7 @@ class DeviceTools:
             if selected["host"]: selected["host"] = installer.endpoint(selected["host"])
             serial, hardware, transport = collector.choose_capture_device(adb, SimpleNamespace(**selected), config)
             self._cancel(cancel)
-            self._step(progress, 3, self.total, "runtime-logs", status="capturing", serial=serial, hardwareSerial=hardware,
+            self._step(progress, 3, self.total, "runtime-logs", status="capturing", serial=serial, hardwareSerial=hardware, transport=transport,
                 message={"en": "Collecting bounded runtime logs. APKs, game assets and savegames are not copied.",
                          "de": "Begrenzte Laufzeit-Logs erfassen. APKs, Spielassets und Spielstände werden nicht kopiert."})
             identity = uuid.uuid4().hex
