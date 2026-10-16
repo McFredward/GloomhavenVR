@@ -1,5 +1,54 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## r5 complete recording-path repair checked and pushed; fresh device permission pending, 2026-10-17
+
+Fork dev 4a7146d is pushed. Exact hosted CI 38975977337 succeeds: 130 CTests
+in 94.09 seconds, both optional diagnostic builds, Windows cross-build and
+protocol sanitizer step. The complete bounded recording-route review is recorded
+in fork `docs/research/native-recording-route-review-20261017.md`.
+
+All former direct UnknownRoute adapters now retain exact operation/core-KHR,
+complete bounded public header census, generations and phase. Portable original
+Begin/Next/End shapes are preserved without rewriting native arguments. Six
+additional core/KHR forwarding pairs retain the exact queried entry. These are
+source-proven repairs; the actual r4 callback remains unknown until new evidence.
+Unknown/vendor/secondary semantics, later-draw and source/lifetime protections
+remain refused. Independent review closes false first-cause attribution under
+contention. There are no new callback allocations, file I/O, logs or waits.
+
+Evidence: decoder 131, transaction contexts 95, Bridge contexts 58, actual-TU
+public hooks 766 and complete recording-route hooks 1615 checks, each normal
+and ASan/UBSan/leak. Private pinned definitions plus fake dispatch are explicitly
+not native GPU execution. Root's seven merged CTests and three actual host loader
+cases pass. Existing unchanged r4 GPU proofs are inherited, not repeated or
+relabelled. Exact final ARM 460,736B SHA256
+abd099d50de47d09158a3fe531b855acf872f2113c2a62379c24fddb76345ea0
+has three exports, RELRO/NOW/nonexecstack and 82 imports (new basic_ios::clear at
+GLIBCXX_3.4). Actual provider resolution/isolated load remains mandatory before
+activation. Exact-byte private staging, inode/byte idempotence, unarmed state and
+rollback pass. The initial staging fixture correctly refused shared writable
+project ancestry; only the fixture's private source copy was repaired.
+
+Unique inert prepared plan: fork
+`build/private-native-ssbo-run-20261017-r1/next-run-plan.json`. Payload 580,317B;
+payload plus staged library 1,041,053B. Same one paired source capture, combined
+64MiB plus 128B record. Progress remains 512KiB/256 events; ordinary JSON 16KiB.
+Manual arm, agreed loading restart and separately agreed rollback only; no auto
+expiry/restart. Fresh concrete device permission/readiness is still required.
+No Frame contact occurred this round. The prior original UI remains confirmed
+normal; standby is safe. This is not working native streaming passthrough.
+
+All three r5 worktrees are removed after exact source comparison. Completed
+compile caches are removed; small logs/results/source pins, native references,
+captures and current ARM package survive. Root evidence is in fork
+`build/private-native-r5-integration-20261017/`. Existing Build677 registration/
+test-pattern protocol is unchanged; unrelated main Build678 intro work is not
+part of this receiver repair. Main full/wire gates are not repeated for these
+coordination edits. This documentation checkpoint is not independently pushed
+while unrelated main fixture commit 3d8ef95a1 awaits its owner's focused timing
+validation; do not accidentally publish it with a skip-CI head. Receiver runtime
+source and its exact CI are already published on fork dev.
+
 ## r4 hardware complete and restored; recording-path review offline, 2026-10-17
 
 The approved r4 hardware run is complete and manually rolled back. Native
