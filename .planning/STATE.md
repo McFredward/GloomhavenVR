@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest cached update-tool handoff, 2026-10-16: feature / B672.**
+
+Support105340 identifies the current failed update, not a new device error.
+The Wizard's cached signing-tool packet contains its host identifier; the
+update reader rejects that producer field before inspecting or modifying the
+existing APK. Accept the explicitly validated optional metadata and legacy
+packets; retain strict required-path/schema checks and the completed tool
+receipt. Only this exact host-only driver revision inherits the existing
+preparation/code producer identity. Resume the failed update with `.ghvrq`,
+APK and game banks preserved; no new Unity export is required for this repair.
+The previous Android bank-metadata repair still awaits its hardware run.
+See [QUEST-UPDATE-TOOLS-105340-20261016.md](QUEST-UPDATE-TOOLS-105340-20261016.md).
+
 **Quest runtime bank access and retained updates, 2026-10-16: feature / B672.**
 
 Capture074040 confirms the installed B672/inputd4e76da00ec2 and completed USB

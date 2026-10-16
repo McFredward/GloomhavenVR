@@ -127,6 +127,10 @@ UPDATE_DOWNLOAD_FIXED = {'path': 'tools/quest-builder/update_driver.py', 'size':
 # unchanged; unknown driver bodies remain independent source identities.
 UPDATE_RETAINED_APK_FIXED = {"path": "tools/quest-builder/update_driver.py", "size": 73081,
     "sha256": "ec085d07994c319ea7c35366be96e3e1c38bf6494920d243d3d8bbe01f1fac3b"}
+# Accept the Wizard's cached host metadata without changing any runtime or
+# preparation producer. Alias only these complete reviewed reader bytes.
+UPDATE_TOOL_HANDOFF_FIXED = {"path": "tools/quest-builder/update_driver.py", "size": 74433,
+    "sha256": "7dcb5d94d4d20acab4cb1e6c88a718de8016983742588106bd2f73698b153838"}
 
 def _memory_row(row):
     if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE, MEMORY_POLICY_MINIMUM, MEMORY_POLICY_PARALLEL):
@@ -620,7 +624,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     if original_prefix:
         reviewed = []
         for row in rows:
-            if row in (UPDATE_DOWNLOAD_FIXED, UPDATE_DOWNLOAD_PARALLEL_PREVIOUS, UPDATE_RETAINED_APK_FIXED): row = UPDATE_DOWNLOAD_PREVIOUS
+            if row in (UPDATE_DOWNLOAD_FIXED, UPDATE_DOWNLOAD_PARALLEL_PREVIOUS, UPDATE_RETAINED_APK_FIXED, UPDATE_TOOL_HANDOFF_FIXED): row = UPDATE_DOWNLOAD_PREVIOUS
             if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
             if row == COMPUTE_OWNER_DELIVERY_ROW:
                 row = LATE_DELIVERY_ROWS[row['path']][1]

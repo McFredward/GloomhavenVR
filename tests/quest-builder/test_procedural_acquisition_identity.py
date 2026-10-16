@@ -54,7 +54,7 @@ class PinnedNativeCacheTests(unittest.TestCase):
     def test_acquisition_repair_leaves_actual_seven_native_sources_unchanged(self):
         self.assertEqual({name: storage.digest(RUNTIME / name) for name in NATIVE_BASELINE}, NATIVE_BASELINE)
         self.assertEqual(row(identity.PROTON_DOWNLOAD_FIXED["path"]), identity.PROTON_DOWNLOAD_FIXED)
-        self.assertEqual(row(identity.UPDATE_RETAINED_APK_FIXED["path"]), identity.UPDATE_RETAINED_APK_FIXED)
+        self.assertEqual(row(identity.UPDATE_TOOL_HANDOFF_FIXED["path"]), identity.UPDATE_TOOL_HANDOFF_FIXED)
         self.assertEqual(driver._PROTON_DOWNLOAD_ROWS,
                          (identity.PROTON_DOWNLOAD_PREVIOUS, identity.PROTON_DOWNLOAD_FIXED))
 
@@ -167,6 +167,18 @@ class PreparationAcquisitionTests(unittest.TestCase):
         current["mod"]["files"][-1]["sha256"] = "f" * 64
         self.assertNotEqual(self.scope(previous, original_prefix=True), self.scope(current, original_prefix=True))
 
+    def test_exact_tool_handoff_repair_keeps_completed_preparation_ownership(self):
+        previous = self.inputs(identity.PROTON_DOWNLOAD_FIXED, driver_row=identity.UPDATE_RETAINED_APK_FIXED)
+        current = self.inputs(identity.PROTON_DOWNLOAD_FIXED, driver_row=identity.UPDATE_TOOL_HANDOFF_FIXED)
+        unknown = copy.deepcopy(current)
+        unknown["mod"]["files"][-1]["sha256"] = "f" * 64
+        for completed in (False, True):
+            with self.subTest(completed=completed):
+                self.assertEqual(self.scope(previous, original_prefix=True, completed=completed),
+                                 self.scope(current, original_prefix=True, completed=completed))
+                self.assertNotEqual(self.scope(previous, original_prefix=True, completed=completed),
+                                    self.scope(unknown, original_prefix=True, completed=completed))
+
     def test_asset_recovery_recipe_does_not_change_for_procedural_acquisition_sources(self):
         previous = self.inputs(identity.PROTON_DOWNLOAD_PREVIOUS)
         current = self.inputs(identity.PROTON_DOWNLOAD_FIXED)
@@ -176,6 +188,24 @@ class PreparationAcquisitionTests(unittest.TestCase):
 
 
 class UpdateAcquisitionTests(unittest.TestCase):
+    def test_actual_tool_handoff_revision_needs_no_unity_but_unknown_driver_does(self):
+        previous = [identity.PROTON_DOWNLOAD_FIXED, identity.UPDATE_RETAINED_APK_FIXED]
+        current = [identity.PROTON_DOWNLOAD_FIXED, identity.UPDATE_TOOL_HANDOFF_FIXED]
+        base = {"manifest": {"proceduralBackend": BACKEND, "mod": {"files": previous, "modBuild": 672}},
+                "capsule": {"packageAbi": "fixture"}}
+        selected_builder = SimpleNamespace(preparation_identity=identity)
+        with patch.object(driver, "payload_producer", return_value=None), \
+                patch.object(driver, "package_fingerprint", return_value="fixture"):
+            result = driver.update_requirements(selected_builder, ROOT, base, current, 672)
+            self.assertEqual(result["rebuildReasons"], [])
+            for name in ("requiresUnity", "codeChanged", "artChanged"):
+                self.assertFalse(result[name], name)
+            changed = copy.deepcopy(current)
+            changed[-1]["sha256"] = "f" * 64
+            result = driver.update_requirements(selected_builder, ROOT, base, changed, 672)
+            self.assertTrue(result["requiresUnity"])
+            self.assertTrue(result["codeChanged"])
+
     def test_exact_acquisition_repair_can_retain_proton_native_payload(self):
         self.assertEqual(driver.rebuild_reasons([identity.PROTON_DOWNLOAD_FIXED], [identity.PROTON_DOWNLOAD_PREVIOUS],
                                               procedural_backend=BACKEND), [])
