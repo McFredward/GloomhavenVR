@@ -1,5 +1,39 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Cold definitions, replay and restoration checkpoint, 2026-10-16
+
+Current forkdev a22c059 is pushed with green CI38924350522:116CTest/72.84s,
+uniform+definition-observer compilation, Windows and8,482 sanitizer checks.
+Main source/build677 stays unchanged. Workers cb7f386/0b33af3/17b9dc7/1066721/
+a20b7fb integrate as82a1eaa/9c4bbdc/4301453/3e4306a/3142cc0. Primary factory
+a0880ec and optional creation-only wiring a22c059 remain independently reviewed.
+
+Owned GPU proofs: reused recording3×1005checks/driver with actual changing source
+and ordered GPUfill, causal no-reset mismatch on second execution; distinct Set0
+prefix+push compatibility2×222checks/driver with bitexact restored output; actual
+cold factory1×154checks/driver AFTER original objects/source arrays are retired.
+All final GPU profiles have active validation/zero errors; initial WAR and missing
+VS extension failures remain. The factory proof does not draw. Noncoherent/native
+compatibility, frame/eye and alpha authority are not inferred. JournalTSAN cannot
+start successfully, so only normal/ASan/UBSan/ARM evidence is claimed.
+
+The final native candidate is330,320B SHA90c116c5a4bb0cbe7a55e68ab66709b9f1ff79e1a1cf591b72d9bc218c0fe189,
+creation-only definitionsON, old uniform copyOFF. Exact private exports and local
+isolated staging/idempotence/manual rollback are checked. No Frame access or
+installation has occurred. Native create/layout/resource-definition facts are
+still needed before enabling the already host-proven observer pipeline. Source
+binding type/count/stages are now retained by the existing acquisition report.
+Do not silently enlarge actual native arrays, invent immutable-object leases or
+promote current() to a lifetime lease. No startup shader override is introduced.
+
+All five workers completed, their changed paths match pushed dev, and their
+worktrees are removed (30,020,631B). Completed private compiler/validation caches
+are removed after reaping; original captures, .keep pins, failures/results and
+current deliverables stay. Evidence is retained in fork build/private-native-*
+and build/private-definition-layer-integration-20261016/. Another Frame run needs
+fresh concrete permission/readiness only once the whole package is ready. No
+automatic expiry, rollback timer or restart is authorized.
+
 ## Current-image and128-byte observation integration, 2026-10-16
 
 Reviewed forkdev ef2ea0d is pushed; CI38918802046 succeeds (112 CTests including

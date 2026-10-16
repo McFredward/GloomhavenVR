@@ -1,5 +1,56 @@
 # State — where the project stands
 
+**Steam Link cold definition integration, 2026-10-16: Build677 unchanged.**
+
+Forkdev a22c059 is pushed; hosted CI38924350522 is green on that exact source:
+116 CTests/72.84s, optional uniform+definition-observer compilation, Windows
+cross-build and8,482 sanitizer checks. No main-mod code/build/full gate changed.
+Local integration runs only new CPU entries, the unchanged-default loader smoke,
+three optional-observer loader cases and new helper compilation. Initial compiler,
+validation and assertion failures remain separate from repaired focused evidence.
+
+The owned reused-CB proof passes3cohorts/1005checks per Intel/llvmpipe; its legal
+no-reset control reproduces FIRST128Brecord/LASTsource on the second execution.
+Distinct identically-defined Set0 objects plus identical push ranges pass
+2cases/222checks per driver: bind ONLYSet1 for the probe, immediately restore
+original pipeline, no Set0/push/dynamic rewrite; original/restored output bitexact.
+Initial incoming-RP transition WAR and its narrow tested repair are retained.
+
+Cold definitions own22,664B and the per-device creation journal120,136B. Exact
+module pins/full supported arrays/push/RP/state are captured before call inputs
+expire; native handles are diagnostic provenance, never cold operational leases.
+Epoch/generation/entry-destroy cancellation survive reuse. Definition controls
+142public/171private plus final3; journal688public/778private plus final5 have
+normal/sanitizer/ARM evidence. JournalTSAN fails at runtime startup, not a pass.
+
+The production cold factory has2338 current fake-dispatch lifecycle checks,
+inheriting2326 sanitizer controls before a test-only mapping assertion addition.
+Both actual drivers additionally pass1case/154checks: create exact original
+VS/PS/pipeline, capture recipe, destroy originals/overwrite inputs, then successfully
+create/release the actual owned factory. No draws/submits/waits; coherent memory
+only. The native-VS extension rejection and fixture-only repair remain recorded.
+
+Optional FRAME_PIXEL_SSBO_DEFINITION_JOURNAL observes successful native creates
+and entry-time destruction only. OFF by default; no clone/factory linkage or
+native shader/draw/submit change. ABI exceptions make the history sticky-ineligible.
+Bounded private background receipts expose actual enabled features/definition
+refusals; existing acquisition metadata now includes original descriptor type,
+count and stages. Native compatibility is still unknown, especially the actual
+binding9 definition versus the private fragment's declared image array.
+
+The current offline ARM candidate is330,320B, SHA90c116c5a4bb0cbe7a55e68ab66709b9f1ff79e1a1cf591b72d9bc218c0fe189,
+definition journalON/uniform companionOFF, exact three private exports. Its
+prepare/idempotent-prepare/unarmed/manual-rollback succeeds in an isolated host
+fixture; native execution is NOT claimed. Source/CI/artifact/cleanup evidence is
+in fork build/private-definition-layer-integration-20261016/. Five completed
+worker checkouts (30,020,631B) and completed private build caches are removed.
+Captures, originals, source pins, failures, reviews and current deliverables stay.
+
+No Frame/SSH access, install, restart or timer occurs. The headset stays restored
+and safe for standby. A fresh concrete agreement is required for the next native
+definition/source observation, after the package is fully ready; no passive
+agreement is treated as permission for a shader override or live passthrough.
+
 **Steam Link current-image registration and buffer observation, 2026-10-16: Build677 unchanged.**
 
 Forkdev ef2ea0d is pushed and hosted CI38918802046 is green on that exact source:
