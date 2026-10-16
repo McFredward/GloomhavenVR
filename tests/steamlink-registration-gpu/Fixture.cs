@@ -51,6 +51,37 @@ public static class RegistrationGpuFixture
         public bool negative, srgb_write, source_srgb, target_srgb;
     }
 
+    public static IEnumerator RunUnrendered(string evidence)
+    {
+        _evidence = evidence;
+        Check(SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null && SystemInfo.supportsGraphicsFence,
+            "Unrendered-cohort control requires the actual graphics/fence provider");
+        using (var owner = new RegistrationTextures())
+        {
+            owner.Prepare(10);
+            var old = owner.ActiveContext ?? throw new Exception("First unrendered pair is prepared");
+            owner.Prepare(11); // Neither eye from10 has begun: discard that whole pair.
+            var next = owner.ActiveContext ?? throw new Exception("Next unrendered pair is prepared");
+            Check(!ReferenceEquals(old, next) && next.PairId == old.PairId + 1, "Discard consumes the old ID without relabeling it");
+            Check(owner.CompletedPairs == 0, "Discarded unrendered cohorts are never completed stereo pairs");
+            Check(!owner.TakeCompletedReceipt(out _, out _), "Discarded unrendered cohorts create no completed receipt");
+            var finish = Graphics.CreateGraphicsFence(GraphicsFenceType.CPUSynchronisation, SynchronisationStageFlags.AllGPUOperations);
+            GL.Flush();
+            var clock = Stopwatch.StartNew();
+            while (!finish.passed)
+            {
+                Check(clock.Elapsed.TotalSeconds < 15, "Bounded unrendered-control GPU completion");
+                yield return null;
+            }
+            owner.Dispose();
+            Check(!owner.TryBeginEye(ProbeEye.Left, 11, out _) && !owner.TryBeginEye(ProbeEye.Right, 11, out _),
+                "Dispose closes the new untouched pair without output");
+            Emit(new Event { name = "unrendered", pair_id = next.PairId,
+                detail = "Prepare10(no callbacks)->Prepare11 discarded ID1; CompletedPairs0 and no receipt; actual upload fence passed" });
+        }
+        Emit(new Event { name = "complete", checks = _checks, detail = "Only new unrendered adapter control; existing GPU image evidence inherited" });
+    }
+
     public static IEnumerator Run(string evidence)
     {
         _evidence = evidence;

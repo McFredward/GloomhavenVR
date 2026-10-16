@@ -117,6 +117,7 @@ def main():
     parser.add_argument("--backend", choices=("vulkan", "glcore"), default="vulkan")
     parser.add_argument("--color-space", choices=("linear", "gamma", "both"), default="both")
     parser.add_argument("--reuse-build", type=Path, help="Reuse a prior passing exact-source fixture DLL for a remaining profile")
+    parser.add_argument("--case", choices=("output", "unrendered"), default="output")
     args = parser.parse_args()
     args.source_root = args.source_root.resolve()
     assert args.unity.is_file(), "Actual Unity2021.3.5 is required"
@@ -158,14 +159,17 @@ def main():
         else:
             previous = args.reuse_build.resolve()
             original = json.loads((previous / "source-hashes.json").read_text())
-            assert json.loads((previous / "results.json").read_text())["exit_code"] == 0
+            prior_result = json.loads((previous / "results.json").read_text())
+            assert prior_result["exit_code"] == 0
             assert original["production"] == hashes, "Prior compile belongs to different production sources"
             assert all(original["fixture"][name] == digest((FIXTURE / name).read_bytes())
                        for name in ("Fixture.cs", "RegistrationGpu.csproj")), "Prior compiled fixture sources differ"
             assert (previous / assembly.name).stat().st_size < 8 * 1024 * 1024
+            assert prior_result.get("fixture_dll_sha256") == digest((previous / assembly.name).read_bytes()), "Prior fixture binary digest is missing or differs"
             shutil.copyfile(previous / assembly.name, assembly)
             results["inherited_compile_evidence"] = str(previous)
             code = 0
+        results["fixture_dll_sha256"] = digest(assembly.read_bytes())
         receipt = cleanup("steamlink-registration-gpu", code, completion, args.retention_checkout, process_reaped=True)
         (run / "cleanup-build.json").write_text(json.dumps(receipt, indent=2) + "\n")
         profiles = ("linear", "gamma") if args.color_space == "both" else (args.color_space,)
@@ -183,6 +187,8 @@ def main():
             command = ["xvfb-run", "-a", "-s", "-screen 0 800x600x24", str(args.unity), "-batchmode", "-force-" + args.backend,
                 "-projectPath", str(unity), "-executeMethod", "RegistrationRunner.Start", "-registrationEvidence", str(evidence),
                 "-registrationAssembly", str(assembly), "-logFile", str(evidence / "unity.log")]
+            if args.case == "unrendered":
+                command += ["-registrationMethod", "RunUnrendered"]
             environment = os.environ.copy()
             if args.backend == "vulkan" and Path("/usr/share/vulkan/icd.d/intel_icd.json").is_file():
                 environment["VK_DRIVER_FILES"] = "/usr/share/vulkan/icd.d/intel_icd.json"
@@ -191,19 +197,28 @@ def main():
                 code = native_code or 1  # A later failed pixel/header assertion must never record success.
                 result_path = evidence / "editor-result.json"
                 assert native_code == 0 and result_path.is_file() and json.loads(result_path.read_text())["passed"], "Actual Unity failed: " + str(evidence)
-                results["profiles"][profile] = verify_pixels(evidence, probe)
-                actual_color = results["profiles"][profile]["events"][0]["detail"]
-                assert ("color=Linear" if profile == "linear" else "color=Gamma") in actual_color
+                if args.case == "output":
+                    results["profiles"][profile] = verify_pixels(evidence, probe)
+                    actual_color = results["profiles"][profile]["events"][0]["detail"]
+                    assert ("color=Linear" if profile == "linear" else "color=Gamma") in actual_color
+                else:
+                    events = [json.loads(line) for line in (evidence / "runtime.jsonl").read_text().splitlines()]
+                    assert [event["name"] for event in events] == ["unrendered", "complete"]
+                    assert events[0]["pair_id"] == 2 and events[-1]["checks"] >= 5
+                    results["profiles"][profile] = {"case": "unrendered", "events": events,
+                        "xr_callbacks_executed": False, "passthrough_authorized": False}
                 code = 0
             finally:
                 receipt = cleanup("steamlink-registration-gpu", code, completion, args.retention_checkout, process_reaped=True)
                 (evidence / "cleanup.json").write_text(json.dumps(receipt, indent=2) + "\n")
         code = 0
     finally:
-        results["exit_code"] = code
         results["validated_source_root"] = str(args.source_root)
         results["production_changed_during_run"] = [name for name in SOURCES
             if digest((args.source_root / "src/GloomhavenVR/Core/SteamLink" / name).read_bytes()) != hashes[name]]
+        if results["production_changed_during_run"]:
+            code = 1
+        results["exit_code"] = code
         (run / "results.json").write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
         receipt = cleanup("steamlink-registration-gpu", code, completion, args.retention_checkout, process_reaped=True)
         (run / "cleanup.json").write_text(json.dumps(receipt, indent=2) + "\n")

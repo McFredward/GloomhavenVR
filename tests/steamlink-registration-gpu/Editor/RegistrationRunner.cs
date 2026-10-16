@@ -7,7 +7,7 @@ using UnityEngine;
 
 public static class RegistrationRunner
 {
-    private static string result, evidence, assembly;
+    private static string result, evidence, assembly, method;
     private static IEnumerator run;
     private static bool started;
     public static void Start()
@@ -15,6 +15,8 @@ public static class RegistrationRunner
         string[] args = Environment.GetCommandLineArgs();
         evidence = args[Array.IndexOf(args, "-registrationEvidence") + 1];
         assembly = args[Array.IndexOf(args, "-registrationAssembly") + 1];
+        int methodIndex = Array.IndexOf(args, "-registrationMethod");
+        method = methodIndex < 0 ? "Run" : args[methodIndex + 1];
         result = Path.Combine(evidence, "editor-result.json");
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload | EnterPlayModeOptions.DisableSceneReload;
@@ -30,7 +32,7 @@ public static class RegistrationRunner
             {
                 started = true;
                 run = (IEnumerator)Assembly.LoadFile(assembly).GetType("RegistrationGpuFixture", true)
-                    .GetMethod("Run").Invoke(null, new object[] { evidence });
+                    .GetMethod(method).Invoke(null, new object[] { evidence });
             }
             if (run.MoveNext()) { EditorApplication.QueuePlayerLoopUpdate(); return; }
             File.WriteAllText(result, "{\"passed\":true,\"xr_callbacks_executed\":false}\n");

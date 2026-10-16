@@ -29,3 +29,5 @@ the exact tested bytes. Processes are reaped before completion cache cleanup.
 After a bounded fixture repair, use `--color-space linear` or `gamma` for only
 the affected profile. A remaining profile can use `--reuse-build <passing-run>`;
 this refuses unless all production and compiled fixture hashes still match.
+`--case unrendered --color-space linear` executes only the explicit adapter
+discard of a prepared cohort with no eye callbacks, without repeating image runs.
