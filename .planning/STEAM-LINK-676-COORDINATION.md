@@ -1,5 +1,31 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Changing-source receiver capture secured and Frame restored, 2026-10-16
+
+The maintainer approved the ready ordinary sampler package and its single
+SteamVR restart, then confirmed the moving source pattern in the PC VR stream.
+Capture b5ff764e7af8867a94aff07a56c555db completed without producer refusal.
+All three artifacts were transferred separately and their exact byte lengths
+and SHA256 values match the device reads. Independent offline review accepts
+the original metadata, owned fence and exact reusable-generation retirement.
+Uniform companion and live mask remain OFF. This does not establish the app
+tuple carried by the native image or any native spatial/eye/alpha authority.
+
+After separate manual-rollback agreement, activation files were removed,
+SteamVR restarted once, and the unmapped owned library removed. Certain final
+scans find no owned or foreign diagnostic mappings. Native UI health is ready
+and the maintainer separately confirms normal visible/usable UI. Standby is safe;
+no further Frame access is needed for offline analysis. The capture and all
+receipts remain under the fork's ignored
+build/private-registration-source-run-20261016-r1/.
+
+Fresh PC logs from this exact run are still required. The current main Player
+log is byte-identical to the earlier677 source run. Never substitute a session
+read from native pixels as its own independently expected source identity.
+Two unchanged fitted-map hypotheses are prepared without identity discovery.
+No compiler/Unity caches or worker worktrees were created for this acquisition;
+all capture/transfer processes are reaped and original evidence is preserved.
+
 ## Actual changing PC source, 2026-10-16
 
 The maintainer confirms visible movement. Build677's actual Direct3D11/OpenXR
