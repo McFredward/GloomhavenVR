@@ -2,11 +2,13 @@
 
 ## Cold definitions, replay and restoration checkpoint, 2026-10-16
 
-Current forkdev a22c059 is pushed with green CI38924350522:116CTest/72.84s,
+Current forkdev f3d335b is pushed with green CI38925547452:116CTest/96.54s,
 uniform+definition-observer compilation, Windows and8,482 sanitizer checks.
 Main source/build677 stays unchanged. Workers cb7f386/0b33af3/17b9dc7/1066721/
 a20b7fb integrate as82a1eaa/9c4bbdc/4301453/3e4306a/3142cc0. Primary factory
 a0880ec and optional creation-only wiring a22c059 remain independently reviewed.
+Final f3d335b only retains exact refusal indices/types/kind, with independent
+review and three affected optional-loader cases; no older GPU suite is repeated.
 
 Owned GPU proofs: reused recording3×1005checks/driver with actual changing source
 and ordered GPUfill, causal no-reset mismatch on second execution; distinct Set0
@@ -17,7 +19,7 @@ VS extension failures remain. The factory proof does not draw. Noncoherent/nativ
 compatibility, frame/eye and alpha authority are not inferred. JournalTSAN cannot
 start successfully, so only normal/ASan/UBSan/ARM evidence is claimed.
 
-The final native candidate is330,320B SHA90c116c5a4bb0cbe7a55e68ab66709b9f1ff79e1a1cf591b72d9bc218c0fe189,
+The final native candidate is330,320B SHA034defdc829cecf32ed8e2f8787f33f2ec42b03152887f128cc3e2475626ac68,
 creation-only definitionsON, old uniform copyOFF. Exact private exports and local
 isolated staging/idempotence/manual rollback are checked. No Frame access or
 installation has occurred. Native create/layout/resource-definition facts are

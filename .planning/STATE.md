@@ -2,8 +2,8 @@
 
 **Steam Link cold definition integration, 2026-10-16: Build677 unchanged.**
 
-Forkdev a22c059 is pushed; hosted CI38924350522 is green on that exact source:
-116 CTests/72.84s, optional uniform+definition-observer compilation, Windows
+Forkdev f3d335b is pushed; hosted CI38925547452 is green on that exact source:
+116 CTests/96.54s, optional uniform+definition-observer compilation, Windows
 cross-build and8,482 sanitizer checks. No main-mod code/build/full gate changed.
 Local integration runs only new CPU entries, the unchanged-default loader smoke,
 three optional-observer loader cases and new helper compilation. Initial compiler,
@@ -38,13 +38,19 @@ refusals; existing acquisition metadata now includes original descriptor type,
 count and stages. Native compatibility is still unknown, especially the actual
 binding9 definition versus the private fragment's declared image array.
 
-The current offline ARM candidate is330,320B, SHA90c116c5a4bb0cbe7a55e68ab66709b9f1ff79e1a1cf591b72d9bc218c0fe189,
+The current offline ARM candidate is330,320B, SHA034defdc829cecf32ed8e2f8787f33f2ec42b03152887f128cc3e2475626ac68,
 definition journalON/uniform companionOFF, exact three private exports. Its
 prepare/idempotent-prepare/unarmed/manual-rollback succeeds in an isolated host
 fixture; native execution is NOT claimed. Source/CI/artifact/cleanup evidence is
 in fork build/private-definition-layer-integration-20261016/. Five completed
 worker checkouts (30,020,631B) and completed private build caches are removed.
 Captures, originals, source pins, failures, reviews and current deliverables stay.
+The final bounded f3d335b delta retains offending index/type/kind in background
+refusals, so native unknown definitions have actionable context. Only its three
+affected optional loader cases/native artifact staging are repeated locally;
+earlier CPU/GPU evidence is unchanged. The superseded joint ARM compile binary
+is also removed (3,048,912B including its generated manifest). Next-run scope,
+permission requirement and exact manual rollback are pinned in next-run-plan.json.
 
 No Frame/SSH access, install, restart or timer occurs. The headset stays restored
 and safe for standby. A fresh concrete agreement is required for the next native
