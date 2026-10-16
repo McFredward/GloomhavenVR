@@ -557,6 +557,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
 
     private void OnSceneLoaded(SceneLoadedEvent e)
     {
+        NoteQuestTrackingScene(e.Scene.name);
         _sceneRecheck = true;
         _sceneRecheckName = e.Scene.name;
         // Every Light and LightFlicker the stabiliser recorded belonged to the scene that is going
@@ -1020,6 +1021,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
 
         // Everything we destroy here is OURS — the anchor game camera was never
         // reparented or modified, so there is nothing to restore on it.
+        StopQuestTrackingEvidence();
         if (_poseDriver != null)
         {
             Destroy(_poseDriver);
