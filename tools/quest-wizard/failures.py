@@ -402,6 +402,10 @@ def tool_failure(root, stage, log, started, executable, exit_code):
                       or "ModuleNotFoundError:" in parameters["cause"])
     certificate_failure = re.search(r"(?i)(CERTIFICATE_VERIFY_FAILED|certificate verify failed|TLS certificate (?:verification|validation) failed)",
                                     parameters["cause"] + " " + parameters.get("builderError", ""))
+    if not certificate_failure:
+        from update_failure_guidance import update_failure
+        update_error = update_failure(parameters)
+        if update_error is not None: return update_error
     if certificate_failure:
         en = "An HTTPS download for a build dependency failed certificate verification. Keep the workspace so completed conversions can be reused. Check the system date and any HTTPS proxy/filter, then retry; the precise download error is in the logs."
         de = "Ein HTTPS-Download für eine Build-Abhängigkeit ist an der Zertifikatsprüfung gescheitert. Arbeitsordner behalten, damit fertige Konvertierungen wiederverwendet werden. Systemdatum und gegebenenfalls HTTPS-Proxy/Filter prüfen, dann erneut versuchen; der genaue Downloadfehler steht im Protokoll."

@@ -166,6 +166,7 @@ input::placeholder{color:#777e86}
 .action-needed.failure{margin:0 0 20px;border:1px solid #d88e7cb3;border-left-width:4px;background:#8f342b21}
 .action-needed.failure strong{font-size:15px;color:#f2b29f}
 .action-needed.failure #failure-cause{font-size:12px;color:#f5cdc2;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}
+.action-needed #failure-location{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}
 .failure-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
 .action-needed.installation:not(.failure){border-color:#93b08f80;border-left-width:4px;background:#93b08f0c}
 .action-needed.installation:not(.failure) strong{font-size:15px;color:var(--green)}
