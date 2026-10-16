@@ -80,6 +80,158 @@ public static class InteractionProgram
             pixels[y * 16 + x] = new Color(x < 8 ? 1 : 0, y < 4 ? 1 : 0, .25f, 1);
         texture.SetPixels(pixels); texture.Apply(); return texture;
     }
+    static void ExplicitViewportStateProbe()
+    {
+        // A direct draw observes the state left by the production consumer;
+        // unlike Camera.Render it does not silently establish a fresh viewport.
+        // This is a state characterization, not an OpenXR rendering surrogate.
+        var eye = new RenderTexture(128, 96, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        var source = new RenderTexture(256, 64, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        var left = new RenderTexture(320, 80, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        var right = new RenderTexture(320, 80, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        foreach (var target in new[] { eye, source, left, right }) target.Create();
+        var camera = new GameObject("explicit-viewport-native-producer").AddComponent<Camera>();
+        camera.targetTexture = source; camera.clearFlags = CameraClearFlags.SolidColor;
+        camera.backgroundColor = Color.blue; camera.cullingMask = 0;
+        FlatScreen.Capture(camera, source);
+        var decoded = Decoded();
+        var marker = new Material(Resources.Load<Shader>("QuestCameraVideo"));
+        marker.mainTexture = Texture2D.whiteTexture;
+        marker.SetVector("_UvTransform", new Vector4(1, 1, 0, 0));
+        marker.SetFloat("_Alpha", 1); marker.SetFloat("_Plane", 0);
+        marker.SetInt("_ZTest", (int)CompareFunction.Always);
+        var previous = RenderTexture.active;
+        int DrawAndCount(Action mutation)
+        {
+            RenderTexture.active = eye;
+            GL.Clear(true, true, Color.black);
+            GL.Viewport(new Rect(16, 12, 64, 40));
+            mutation();
+            Check(RenderTexture.active == eye, "offscreen consumer restores the previous active color target");
+            Check(marker.SetPass(0), "viewport probe marker pass is supported");
+            GL.Begin(GL.QUADS);
+            GL.TexCoord2(0, 0); GL.Vertex3(-1, -1, 0);
+            GL.TexCoord2(1, 0); GL.Vertex3(1, -1, 0);
+            GL.TexCoord2(1, 1); GL.Vertex3(1, 1, 0);
+            GL.TexCoord2(0, 1); GL.Vertex3(-1, 1, 0);
+            GL.End();
+            var readback = new Texture2D(eye.width, eye.height, TextureFormat.RGBA32, false, true);
+            try
+            {
+                readback.ReadPixels(new Rect(0, 0, eye.width, eye.height), 0, 0); readback.Apply();
+                return readback.GetPixels().Count(pixel => pixel.r > .9f && pixel.g > .9f && pixel.b > .9f);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(readback); }
+        }
+        using (var output = new QuestCameraVideoOutput(null!, "explicit-viewport-probe"))
+        {
+            try
+            {
+                int baseline = DrawAndCount(() => { });
+                Check(baseline == 64 * 40, "explicit viewport probe has exact independent partial-viewport pixels");
+                output.Apply(camera, decoded, VideoRenderMode.CameraNearPlane, VideoAspectRatio.Stretch, 1, 1, 1);
+                camera.Render();
+                int near = DrawAndCount(output.CompleteCapture);
+                int shifted = DrawAndCount(() => SharedStereoFixture.Sample(source, left, right, .02f));
+                output.Apply(camera, decoded, VideoRenderMode.CameraFarPlane, VideoAspectRatio.Stretch, 1, 1, 1);
+                camera.Render();
+                int far = DrawAndCount(output.CompleteCapture);
+                UnityEngine.Debug.Log("Video fixture direct GPU viewport state API=" + SystemInfo.graphicsDeviceType
+                    + " baseline=" + baseline + " near=" + near + " stereoShift=" + shifted + " far=" + far
+                    + " partialExpected=" + (64 * 40) + " fullTarget=" + (eye.width * eye.height)
+                    + " boundary=immediate-draw-without-camera-reset OpenXRNotEmulated=true");
+                var head = new GameObject("viewport-lifecycle-head").AddComponent<Camera>();
+                var previousHead = QuestStandalonePlatform.HeadCamera;
+                bool previousEnabled = QuestStandalonePlatform.Enabled;
+                head.targetTexture = eye; head.cullingMask = 0;
+                QuestStandalonePlatform.HeadCamera = head;
+                QuestStandalonePlatform.FlatScreenVideoSampling += output.CompleteCapture;
+                // The seam supplies decoded pixels instead of a codec. Invoke
+                // the adapter's actual private callback and queue unchanged so
+                // the test covers its mono fallback and deferred GPU probes.
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var beforeCull = (Camera.CameraCallback)Delegate.CreateDelegate(typeof(Camera.CameraCallback), output,
+                    typeof(QuestCameraVideoOutput).GetMethod("BeforeCull", flags)!);
+                var queueConsumer = (Action)Delegate.CreateDelegate(typeof(Action), output,
+                    typeof(QuestCameraVideoOutput).GetMethod("QueueConsumerEvidence", flags)!);
+                typeof(QuestCameraVideoOutput).GetField("consumerEvidencePending", flags)!.SetValue(output, true);
+                typeof(QuestCameraVideoOutput).GetField("probeFailed", flags)!.SetValue(output, true);
+                FlatScreen.Consumer(camera, marker);
+                int consumerLogs = 0; string? consumerPhase = null; string phase = "outside-render";
+                Application.LogCallback observeConsumer = (message, stack, kind) =>
+                {
+                    if (message.StartsWith("[Quest startup] original movie consumer ") && message.Contains("bindingObservation="))
+                    { consumerLogs++; consumerPhase = phase; }
+                };
+                Application.logMessageReceived += observeConsumer;
+                Camera.CameraCallback markCullPhase = rendering => { if (rendering == head) phase = "pre-cull"; };
+                Camera.onPreCull += markCullPhase;
+                Camera.onPreCull += beforeCull;
+                Camera.onPreCull += SharedStereoFixture.BeforeCull;
+                QuestStandalonePlatform.FlatScreenVideoSampled += queueConsumer;
+                int latePixels = -1, queuePixels = -1;
+                Camera.CameraCallback observeLateDraw = rendering =>
+                {
+                    if (rendering == head)
+                    {
+                        phase = "pre-render";
+                        latePixels = DrawAndCount(() => SharedStereoFixture.BeforeRender(rendering));
+                        queuePixels = DrawAndCount(QuestStandalonePlatform.ObserveFlatScreenVideoSample);
+                    }
+                };
+                Camera.onPreRender += observeLateDraw;
+                try
+                {
+                    QuestStandalonePlatform.Enabled = true;
+                    output.Apply(camera, decoded, VideoRenderMode.CameraNearPlane, VideoAspectRatio.Stretch, 1, 1, 1);
+                    camera.Render();
+                    SharedStereoFixture.Setup(source, left, right, .02f, marker);
+                    head.Render();
+                    Check(latePixels == baseline, "Quest head pre-render preserves the prepared partial viewport");
+                    Check(queuePixels == baseline, "queued consumer evidence performs no target-changing draw in head pre-render");
+                    Check(consumerLogs == 0, "consumer evidence waits for a subsequent head pre-cull");
+                    Color shiftedPixel = Pixel(left, 8, 8);
+                    Close(shiftedPixel.b, .25f, "actual Quest head pre-cull completes current movie and shifted eye pixels");
+                    Close(shiftedPixel.r, 1, "actual Quest head pre-cull retains current decoded color");
+                    head.Render();
+                    Check(consumerLogs == 1 && consumerPhase == "pre-cull", "actual adapter reads queued consumer pixels only at next head pre-cull");
+                    Check(queuePixels == baseline, "completed consumer evidence never repeats a late GPU readback");
+                    Camera.onPreCull -= SharedStereoFixture.BeforeCull;
+                    output.Apply(camera, decoded, VideoRenderMode.CameraNearPlane, VideoAspectRatio.Stretch, 1, 1, 1);
+                    camera.Render(); head.Render();
+                    Close(Pixel(source, 8, 8).b, .25f, "actual adapter pre-cull fallback completes video without an active stereo compositor");
+                    Camera.onPreCull += SharedStereoFixture.BeforeCull;
+                    QuestStandalonePlatform.Enabled = false;
+                    SharedStereoFixture.Setup(source, left, right, .02f, marker);
+                    head.Render();
+                    Check(latePixels == eye.width * eye.height, "desktop retains its existing pre-render copy timing");
+                    UnityEngine.Debug.Log("Video fixture production callback lifecycle API=" + SystemInfo.graphicsDeviceType
+                        + " questLateViewportPixels=" + baseline + " desktopLateViewportPixels=" + latePixels
+                        + " currentShiftBeforeHeadDraw=true OpenXRNotEmulated=true");
+                }
+                finally
+                {
+                    Camera.onPreCull -= SharedStereoFixture.BeforeCull;
+                    Camera.onPreCull -= beforeCull;
+                    Camera.onPreCull -= markCullPhase;
+                    Camera.onPreRender -= observeLateDraw;
+                    QuestStandalonePlatform.FlatScreenVideoSampling -= output.CompleteCapture;
+                    QuestStandalonePlatform.FlatScreenVideoSampled -= queueConsumer;
+                    Application.logMessageReceived -= observeConsumer;
+                    QuestStandalonePlatform.HeadCamera = previousHead;
+                    QuestStandalonePlatform.Enabled = previousEnabled;
+                    UnityEngine.Object.DestroyImmediate(head.gameObject);
+                }
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                foreach (var target in new[] { eye, source, left, right }) { target.Release(); UnityEngine.Object.DestroyImmediate(target); }
+                UnityEngine.Object.DestroyImmediate(camera.gameObject); UnityEngine.Object.DestroyImmediate(decoded);
+                UnityEngine.Object.DestroyImmediate(marker); FlatScreen.ClearFixture();
+            }
+        }
+    }
     static void UnequalHeadContextPixels()
     {
         Camera? previousHead = QuestStandalonePlatform.HeadCamera;
@@ -397,7 +549,12 @@ public static class InteractionProgram
     {
         checks = 0;
         UnequalHeadContextPixels();
-        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Vulkan) return VulkanCameraPlanePixels();
+        if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Vulkan)
+        {
+            VulkanCameraPlanePixels();
+            ExplicitViewportStateProbe();
+            return checks;
+        }
         ScreenStereoPixels();
         UnityEngine.Debug.Log("Video fixture actual API=" + SystemInfo.graphicsDeviceType
             + " graphicsUVStartsAtTop=" + SystemInfo.graphicsUVStartsAtTop);
@@ -589,6 +746,7 @@ public static class InteractionProgram
         Close(anamorphic.y, 4, "native nonsquare video pixels preserved");
         UnityEngine.Object.DestroyImmediate(texture); UnityEngine.Object.DestroyImmediate(go); UnityEngine.Object.DestroyImmediate(target);
         FlatScreen.ClearFixture();
+        ExplicitViewportStateProbe();
         return checks;
     }
 }

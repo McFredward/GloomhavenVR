@@ -22,13 +22,22 @@ def main():
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
     runtime = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestCameraVideoOutput.cs"
     original = runtime.read_text()
+    camera_callback = original[original.index("        void BeforeCamera(Camera rendering)"):
+        original.index("        // Only presentation state is changed.")]
+    queue_callback = original[original.index("        void QueueConsumerEvidence()"):
+        original.index("        void SampleConsumer()")]
+    late_gpu_operations = ("Graphics.", "RenderTexture.active", "QuestTextureCopy.",
+        "PrepareFlatScreenVideoSample(", "SampleConsumer(", "Probe(")
+    if any(token in camera_callback or token in queue_callback for token in late_gpu_operations):
+        raise RuntimeError("Production head pre-render/queue callback performs a target-changing GPU operation.")
     world_shader = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestWorldScreen.shader"
     world_original = world_shader.read_text()
     glass_shader = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestWorldScreenGlass.shader"
     glass_original = glass_shader.read_text()
     platform = (ROOT / "src/GloomhavenVR/Core/QuestStandalonePlatform.cs").read_text()
     shader_start = platform.index('    internal const string FlatScreenShaderName =')
-    shader_end = platform.index('    /// <summary>Quest output adapters', shader_start)
+    shader_end = platform.rindex('    /// <summary>', shader_start,
+        platform.index('    public static event Action? FlatScreenVideoSampling;', shader_start))
     material_bridge = "using System; using UnityEngine;\nnamespace GloomhavenVR.Core { internal static partial class QuestStandalonePlatform {\n" + platform[shader_start:shader_end] + "\n} }\n"
     flat = ROOT / "src/GloomhavenVR/WorldUI/FlatScreen"
     bridge = (flat / "FlatScreen.6.VideoCapture.cs").read_text()
@@ -40,6 +49,8 @@ def main():
         ("production", "", "", ""),
         ("game-debug-shadows-output", "    using Debug = UnityEngine.Debug;", "", "movie pixel evidence survives the original game's conditional global Debug"),
         ("head-capture-view-leak", "            RenderTexture previous = RenderTexture.active;\n            try\n            {\n                if (farOutput)", "            RenderTexture previous = RenderTexture.active;\n            if (GloomhavenVR.Core.QuestStandalonePlatform.HeadCamera != null) GloomhavenVR.Core.QuestStandalonePlatform.HeadCamera.worldToCameraMatrix = camera.worldToCameraMatrix;\n            try\n            {\n                if (farOutput)", "unequal native capture and eye targets preserve actual head projection viewport and tracked geometry"),
+        ("quest-eye-copy-in-pre-render", "", "", "Quest head pre-render preserves the prepared partial viewport"),
+        ("consumer-readback-in-pre-render", "            if (consumerEvidencePending) consumerEvidenceReady = true;", "            if (consumerEvidencePending) SampleConsumer();", "queued consumer evidence performs no target-changing draw in head pre-render"),
         ("world-screen-array-sampler", "", "", "actual instanced left eye renders owned Tex2D screen pixels"),
         ("world-screen-mono-reset-omitted", "", "", "same persistent screen clears stale right capture on Intro suspension"),
         ("world-screen-left-only", "", "", "actual instanced right eye samples its distinct owned capture"),
@@ -63,9 +74,9 @@ def main():
     graphics = os.environ.get("QUEST_VIDEO_TEST_GRAPHICS_API", "glcore")
     if graphics not in ("glcore", "vulkan"):
         raise RuntimeError("Unknown real Unity graphics API fixture selection.")
-    vulkan_controls = {"game-debug-shadows-output", "head-capture-view-leak", "render-target-projection-ignored", "automatic-mips-generated-explicitly",
+    vulkan_controls = {"game-debug-shadows-output", "head-capture-view-leak", "quest-eye-copy-in-pre-render", "render-target-projection-ignored", "automatic-mips-generated-explicitly",
         "glass-alpha-multiplied-twice", "glass-forced-opaque"}
-    variants = [entry for entry in variants if entry[0] in ("production", "head-capture-view-leak", "game-debug-shadows-output")
+    variants = [entry for entry in variants if entry[0] in ("production", "head-capture-view-leak", "game-debug-shadows-output", "quest-eye-copy-in-pre-render", "consumer-readback-in-pre-render")
         or (entry[0] in vulkan_controls) == (graphics == "vulkan")]
     selected = os.environ.get("QUEST_VIDEO_TEST_CASES")
     if selected:
@@ -148,12 +159,26 @@ def main():
         (production / "Bridge.cs").write_text(bridge)
         (production / "Routing.cs").write_text(routing)
         per_eye = (flat / "FlatScreenStereo.4.PerEye.cs").read_text()
-        consumer_start = per_eye.index("        QuestStandalonePlatform.PrepareFlatScreenVideoSample();")
-        consumer_end = per_eye.index("        Camera.MonoOrStereoscopicEye eye", consumer_start)
+        consumer_method = per_eye.index("    private void PrepareVideoEyes()")
+        consumer_start = per_eye.index("        QuestStandalonePlatform.PrepareFlatScreenVideoSample();", consumer_method)
+        consumer_end = per_eye.index("\n    }", consumer_start)
         consumer = per_eye[consumer_start:consumer_end]
         if name == "stereo-copy-before-composition":
             consumer = consumer.replace("        QuestStandalonePlatform.PrepareFlatScreenVideoSample();", "") + "        QuestStandalonePlatform.PrepareFlatScreenVideoSample();\n"
-        bind_start = per_eye.index("        RenderTexture? target;", consumer_end)
+        pre_cull_start = per_eye.index("        if (!_active)", per_eye.index("    private void OnPreCullCamera(Camera cam)"))
+        pre_cull_end = per_eye.index("        // Drive the real game map camera", pre_cull_start)
+        pre_cull = per_eye[pre_cull_start:pre_cull_end]
+        pre_render_start = per_eye.index("        Camera? head = Rig.VRRigDriver.HeadCamera;", per_eye.index("    private void OnPreRenderCamera(Camera cam)"))
+        pre_render_end = per_eye.index("        Camera.MonoOrStereoscopicEye eye", pre_render_start)
+        pre_render = per_eye[pre_render_start:pre_render_end]
+        if name == "quest-eye-copy-in-pre-render":
+            before = "        if (!QuestStandalonePlatform.Enabled)\n            PrepareVideoEyes();"
+            if pre_render.count(before) != 1:
+                raise RuntimeError("Quest pre-render mutation binding drift.")
+            pre_render = pre_render.replace(before, "        PrepareVideoEyes();")
+            # The historical late path also performed its first copy here.
+            pre_cull = pre_cull.replace("            PrepareVideoEyes();", "            return;")
+        bind_start = per_eye.index("        RenderTexture? target;", pre_render_end)
         bind_end = per_eye.index("        QuestStandalonePlatform.ObserveFlatScreenVideoSample();", bind_start)
         eye_binding = per_eye[bind_start:bind_end]
         compositor = (flat / "FlatScreenStereo.2.Compositor.cs").read_text()
@@ -168,7 +193,13 @@ def main():
         overscan = next(line.strip() for line in state.splitlines() if "const float VideoOverscan =" in line)
         (production / "StereoSampling.cs").write_text("using UnityEngine; using GloomhavenVR.Core;\ninternal static class SharedStereoFixture {\n"
             + overscan + "\nstatic int _shiftBlitFrame=-1; static bool _videoShift=true; static RenderTexture _leftRt=null!,_rtRight=null!,_rtLeftShifted=null!; static float _videoShiftUv;\n"
-            + "internal static void Sample(RenderTexture source, RenderTexture left, RenderTexture right, float requestedShift) { _leftRt=source; _rtLeftShifted=left; _rtRight=right; _videoShiftUv=requestedShift; _shiftBlitFrame=-1;\n" + consumer + "}\n}\n")
+            + "static bool _active=true; static Material? _quadMaterial;\n"
+            + "internal static void Setup(RenderTexture source, RenderTexture left, RenderTexture right, float requestedShift, Material? material=null) { _leftRt=source; _rtLeftShifted=left; _rtRight=right; _videoShiftUv=requestedShift; _shiftBlitFrame=-1; _quadMaterial=material; }\n"
+            + "internal static void BeforeCull(Camera cam) {\n" + pre_cull + "}\n"
+            + "internal static void BeforeRender(Camera cam) {\n" + pre_render + "}\n"
+            + "static void PrepareVideoEyes() {\n" + consumer + "}\n"
+            + "internal static void Sample(RenderTexture source, RenderTexture left, RenderTexture right, float requestedShift) { Setup(source,left,right,requestedShift); PrepareVideoEyes(); }\n}\n"
+            + "namespace Rig { internal static class VRRigDriver { internal static Camera? HeadCamera => QuestStandalonePlatform.HeadCamera; } }\n")
         project = case / "Runtime.csproj"
         shutil.copyfile(fixture / "Runtime.csproj", project)
         assembly = "QuestVideoOutput_" + name.replace("-", "_")
@@ -208,11 +239,13 @@ def main():
         "worldMaterialBridge": hashlib.sha256(material_bridge.encode()).hexdigest(),
         "captureOwnership": hashlib.sha256(bridge.encode()).hexdigest(), "actualCaptureRouting": hashlib.sha256(routing.encode()).hexdigest(),
         "sharedStereoSampling": hashlib.sha256(per_eye[consumer_start:consumer_end].encode()).hexdigest(),
+        "sharedStereoPreCull": hashlib.sha256(per_eye[pre_cull_start:pre_cull_end].encode()).hexdigest(),
+        "sharedStereoPreRender": hashlib.sha256(per_eye[pre_render_start:pre_render_end].encode()).hexdigest(),
         "sharedEyeBinding": hashlib.sha256(eye_binding.encode()).hexdigest(),
         "sharedDeactivateBinding": hashlib.sha256(reset_binding.encode()).hexdigest(),
         "fixture": hashlib.sha256((fixture / "Program.cs").read_bytes()).hexdigest(),
         "graphicsApi": graphics,
-        "boundary": "Production completed-capture and camera-depth snapshot, actual shared eye-copy body, real head/world shader/mip/foreground pixels and bounded sync readback; controlled late write reproduces B620 but does not prove Android native ordering"}, indent=2))
+        "boundary": "Production capture/snapshot and shared eye-copy/lifecycle gates; actual GL/Vulkan partial-viewport pixels identify target-switch state changes, and live pre-cull/pre-render callbacks prove source ordering. Desktop cameras do not emulate OpenXR stereo setup or prove headset distortion resolution."}, indent=2))
     command = [str(unity), "-batchmode", "-force-" + graphics, "-projectPath", str(project),
         "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path), "-logFile", str(run / "unity.log")]
     if not os.environ.get("DISPLAY"):
