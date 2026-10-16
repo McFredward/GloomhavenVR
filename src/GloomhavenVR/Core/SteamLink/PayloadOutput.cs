@@ -27,6 +27,7 @@ namespace GloomhavenVR.Core.SteamLink
         private Camera? _camera;
         private ProbePolicy? _policy;
         private ProbeTexture? _left, _right;
+        private RegistrationTextures? _registration;
         private readonly Observation[] _observations = new Observation[3];
         private readonly bool[] _pending = new bool[3];
         private readonly bool[] _seen = new bool[3];
@@ -45,6 +46,17 @@ namespace GloomhavenVR.Core.SteamLink
             _policy = policy;
             _left = left;
             _right = right;
+            _initialized = true;
+        }
+
+        public void Initialize(Camera camera, ProbePolicy policy, RegistrationTextures registration)
+        {
+            if (_initialized || camera == null || camera.gameObject != gameObject
+                || camera.name != ProbePolicy.HeadCameraName || policy == null || registration == null)
+                throw new InvalidOperationException("Registration output initialization is invalid.");
+            _camera = camera;
+            _policy = policy;
+            _registration = registration;
             _initialized = true;
         }
 
@@ -86,8 +98,34 @@ namespace GloomhavenVR.Core.SteamLink
                     if (selected != ProbeEye.Unknown)
                     {
                         // Existing public Unity blit, no custom shader, camera state or native hook.
-                        BlitPreservingState(selected == ProbeEye.Left ? _left!.Texture : _right!.Texture, destination);
-                        submitted = true;
+                        if (_registration == null)
+                        {
+                            BlitPreservingState(selected == ProbeEye.Left ? _left!.Texture : _right!.Texture, destination);
+                            submitted = true;
+                        }
+                        else if (_registration.TryBeginEye(selected, Time.frameCount, out Texture2D? texture))
+                        {
+                            BlitPreservingState(texture, destination);
+                            if (_registration.NeedsSubmissionReceipt)
+                            {
+                                Camera.StereoscopicEye stereoEye = selected == ProbeEye.Left
+                                    ? Camera.StereoscopicEye.Left : Camera.StereoscopicEye.Right;
+                                _registration.CompleteEye(selected, new RegistrationTextures.EyeSubmission
+                                {
+                                    ActualXrCallback = true,
+                                    View = _camera.GetStereoViewMatrix(stereoEye),
+                                    Projection = _camera.GetStereoProjectionMatrix(stereoEye),
+                                SourceWidth = source!.width, SourceHeight = source.height,
+                                    HasDestination = destination != null,
+                                    DestinationWidth = destination == null ? 0 : destination.width,
+                                    DestinationHeight = destination == null ? 0 : destination.height,
+                                    SourceSrgb = source.sRGB, DestinationSrgb = destination != null && destination.sRGB,
+                                    SrgbWrite = GL.sRGBWrite, ColorSpace = QualitySettings.activeColorSpace
+                                });
+                            }
+                            else _registration.CompleteEye(selected);
+                            submitted = true;
+                        }
                     }
                 }
             }

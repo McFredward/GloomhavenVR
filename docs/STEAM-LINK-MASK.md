@@ -94,6 +94,42 @@ logs retain the significant start/stop/failure context without per-frame output.
 
 ## Immutable source and rendering scope
 
+The changing registration source uses a fresh nonzero128-bit app session and
+monotonic64-bit app-owned pair IDs. A Unity frame number is only a callback
+cohort, never a Steam Link video-frame key. Update reserves one immutable pair;
+the two distinct successful eye callbacks must consume it in that cohort.
+Duplicate/unknown/stale eye admission or an incomplete begun pair refuses output.
+No original Steam sender is modified.
+
+On graphics providers with CPU graphics fences, three fixed owned stereo slots
+carry deterministic dense asymmetric color/coverage patterns. Pattern generation,
+SHA/CRC work, top-down-to-Unity conversion and texture uploads occur in Update,
+never in eye callbacks. Both eye textures are published together. Before retiring
+a slot, the next Update closes its old callback latch and queues a CPU fence
+after all previous blits; only `fence.passed` permits another upload. A busy pool
+skips an entire cohort rather than mixing/overwriting eyes. Unsupported providers
+explicitly retain the earlier static diagnostic and log that distinction; a
+claimed fence that fails its API check stops preparation. D3D11 capability is
+not inferred from the backend's name or from a local OpenGL/Vulkan result.
+
+`frame-app-registration-source-v1` distinguishes the new source profile from the
+old trusted static artwork. The132-byte header/CRC layout remains unchanged;
+its content ID now means the app-owned pair ID. Session, pair and eye reproduce
+the exact expected source offline. The128 phases move small asymmetric marks
+and an irregular fractional-coverage silhouette; code values0/64/128/191/255
+and a192 overlap patch remain explicit numeric test inputs. This is synthetic
+coverage, not game alpha. No old full-canvas trust gate is loosened to accept it.
+
+At Debug only, the first four completed CPU pairs retain source records and
+actual callback eye matrices, target extents and transfer observations. Getters
+are not sampled on every later frame and no unbounded per-frame history/log is
+created. These receipts prove neither GPU completion nor native eye/frame/ray
+association. Menu opening still restores the normal game immediately; there is
+no test expiry or timer. No Frame installation/restart is implied by this build.
+
+The earlier embedded static profile remains available for providers without
+CPU-fence support:
+
 Four small original files are embedded in the existing mod DLL under
 `GloomhavenVR.Assets.SteamLink.*`: `left.png`, `right.png`, and their respective
 `*-source.json` manifests. There is no temporary extraction or user path. The
@@ -145,6 +181,15 @@ build separately verifies the actual integrated config/VR/options types. No test
 claims a complete headset or native transport result. Each completed/failed run
 reaps its processes and uses the common cache-cleanup API, retaining logs,
 results and source/hash evidence. This focused scope is not a new full-suite gate.
+
+It also runs the production changing-source pair and deterministic pattern
+controls from `tests/steamlink-registration-source`. Use `--registration-only`
+for a bounded repair there. The independent optional `oracle.py` accepts the
+unchanged fork `tools/app_payload_probe.py` to compare exact header bytes, all
+three decoded copies, CRC, placements and hashes; it explicitly refuses to call
+the new dense canvas the old static artwork. GPU/upload/fence evidence belongs
+to the separate local `tests/steamlink-registration-gpu` fixture and does not
+simulate actual XR or the Frame decoder.
 
 Before native presentation work, recover both planes and their IDs from one
 selected decoded resource and establish complete composition and mapping during

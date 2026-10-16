@@ -37,6 +37,7 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--compile-runtime', action='store_true', help='Also type-check runtime against actual local Unity references')
     mode.add_argument('--compile-only', action='store_true', help='Recheck only actual Unity-reference typing after a bounded repair')
+    mode.add_argument('--registration-only', action='store_true', help='Recheck only changing-source pair/pattern production controls')
     parser.add_argument('--output-root', type=Path, default=ROOT / '.planning/debug/steamlink-mask-runtime')
     parser.add_argument('--retention-checkout', type=Path, default=ROOT)
     args = parser.parse_args()
@@ -52,15 +53,17 @@ def main():
               'xr_callbacks_tested': False, 'native_carriage_proved': False, 'stages': []}
     code = 1
     try:
-        projects = [('portable', 'Controls')]
-        if args.compile_runtime: projects.append(('compile', 'RuntimeCompile'))
-        if args.compile_only: projects = [('compile', 'RuntimeCompile')]
-        for folder, name in projects:
+        registration = ROOT / 'tests/steamlink-registration-source'
+        projects = [('portable', 'Controls', source), ('registration', 'RegistrationSourceControls', registration)]
+        if args.compile_runtime: projects.append(('compile', 'RuntimeCompile', source))
+        if args.compile_only: projects = [('compile', 'RuntimeCompile', source)]
+        if args.registration_only: projects = [('registration', 'RegistrationSourceControls', registration)]
+        for folder, name, fixture_source in projects:
             project_dir = run / folder
             project_dir.mkdir()
             project = project_dir / (name + '.csproj')
-            shutil.copy2(source / (name + '.csproj'), project)
-            command = [dotnet, 'build', '--disable-build-servers', str(project), '--configfile', str(source / 'NuGet.Config'),
+            shutil.copy2(fixture_source / (name + '.csproj'), project)
+            command = [dotnet, 'build', '--disable-build-servers', str(project), '--configfile', str(fixture_source / 'NuGet.Config'),
                        '-c', 'Release', '-p:SourceRoot=' + str(ROOT), '-p:UseSharedCompilation=false']
             if folder == 'compile':
                 command.append('-p:FrameworkReferenceDir=' + str(framework))
@@ -68,10 +71,12 @@ def main():
             result['stages'].append({'name': folder + '-build', 'exit_code': code})
             if code:
                 return code
-            if folder == 'portable':
-                dll = project_dir / 'bin/Release/net8.0/Controls.dll'
-                code = execute([dotnet, str(dll), str(ROOT / 'src/GloomhavenVR/Assets/SteamLink')], run / 'controls.json')
-                result['stages'].append({'name': 'production-lifecycle-controls', 'exit_code': code})
+            if folder in ('portable', 'registration'):
+                dll = project_dir / ('bin/Release/net8.0/' + name + '.dll')
+                arguments = [str(ROOT / 'src/GloomhavenVR/Assets/SteamLink')] if folder == 'portable' else []
+                log_name = 'controls.json' if folder == 'portable' else 'registration-controls.json'
+                code = execute([dotnet, str(dll)] + arguments, run / log_name)
+                result['stages'].append({'name': 'production-lifecycle-controls' if folder == 'portable' else 'production-registration-controls', 'exit_code': code})
                 if code:
                     return code
         code = 0

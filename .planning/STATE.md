@@ -1,5 +1,35 @@
 # State — where the project stands
 
+**Build677 changing Steam Link registration source, 2026-10-16: dev1.1.1.**
+
+The approved676 native capture now includes exact final-draw GPU-copied uniform
+bytes; its four artifacts and all digests independently match. Native lookup
+algebra is checked against the original fragment instructions. This proves no
+physical eye/application-ray/video-frame association and enables no passthrough.
+The diagnostic is removed, original UI health is verified and the maintainer
+confirms a normal usable Frame. The headset is no longer needed for offline work.
+See STEAM-LINK-676-COORDINATION and the fork's native-uniform capture report.
+
+The mod's existing opt-in test now prepares fresh app sessions, changing stereo
+pair IDs and deterministic dense asymmetric synthetic coverage in Update. Both
+actual eye callbacks consume one frozen cohort. Three fixed GPU texture pairs
+cannot be uploaded again before their following-Update CPU fence passes. Whole
+cohorts may skip under pool pressure; a begun incomplete pair stops. Providers
+without CPU fences explicitly keep the already tested static profile. No backend
+name is treated as proof of D3D11 capability. Menu/switch/boot-off behavior and
+camera/session/ownership guards remain; no timer or native sender/Frame mutation.
+
+CPU evidence: existing1,225 lifecycle controls, new64,789 pair/pattern controls,
+167 independent unchanged-header/CRC/SHA controls and actual Unity-reference
+typing pass. Actual Debug and Release builds are0 warnings/0 errors. Surface
+667 config keys/236 Harmony patches/4,797 tokens and options coverage pass.
+Independent production review found and repaired partial-texture cleanup and
+unnecessary repeated metadata getters; Debug receipts stop after four pairs.
+The first integration runtime-typing failure was a new nullable annotation only;
+only that compile was repeated. Unchanged wire/native/menu/binder evidence is
+inherited676/675, not presented as another complete221-suite gate. Actual dynamic
+GPU fixture and final integration outcomes follow in the677 coordination record.
+
 **Build676 manual-only Steam Link source test, 2026-10-15: dev1.1.1.**
 
 The maintainer rejects the automatic30-second test expiry. Remove the complete

@@ -61,6 +61,7 @@ internal static class SteamLinkMaskRuntime
     {
         private SteamLinkMaskLifecycle _lifecycle = new();
         private ProbeTexture? _left, _right;
+        private RegistrationTextures? _registration;
         private Camera? _camera;
         private PayloadOutput? _output;
         private bool _pcSource;
@@ -83,7 +84,7 @@ internal static class SteamLinkMaskRuntime
         {
             bool requested = SteamLinkMaskConfig.Requested;
             // Ordinary players pay one request/ownership check; no menu/camera sampling while off.
-            if (!requested && !_lifecycle.HasRequest && _output == null && _left == null && _right == null)
+            if (!requested && !_lifecycle.HasRequest && _output == null && _left == null && _right == null && _registration == null)
                 return;
             if (_output != null) DrainObservations();
             if (_renderStop)
@@ -99,6 +100,17 @@ internal static class SteamLinkMaskRuntime
             switch (step)
             {
                 case SteamLinkMaskStep.Prepare:
+                    if (SystemInfo.supportsGraphicsFence)
+                    {
+                        _registration = new RegistrationTextures(VRLog.WantsDebug);
+                        if (VRLog.WantsDebug)
+                            VRLog.Debug(Scope, "PAYLOAD registration prepared session=" + _registration.Session
+                                + " profile=" + RegistrationSource.Profile + " pool_pairs=" + RegistrationTextures.PoolSize
+                                + " graphics=" + SystemInfo.graphicsDeviceType + "; no native video/eye/UV authority.");
+                        break;
+                    }
+                    // Preserve the already hardware-tested static diagnostic on
+                    // providers without a CPU fence; never label it dynamic.
                     _left = ProbeTexture.Load("left");
                     _right = ProbeTexture.Load("right");
                     ProbeManifest.CheckPair(_left.Manifest, _right.Manifest);
@@ -115,13 +127,27 @@ internal static class SteamLinkMaskRuntime
                     StopCurrent(!_pcSource ? "PC streaming source required" : "request, VR session or camera ended");
                     break;
             }
+            if (_output != null && _registration != null)
+            {
+                _registration.Prepare(Time.frameCount);
+                if (_registration.TakeCompletedReceipt(out RegistrationSourceRecord? left, out RegistrationSourceRecord? right)
+                    && VRLog.WantsDebug)
+                {
+                    VRLog.Debug(Scope, "PAYLOAD registration CPU pair committed left="
+                        + System.Text.Encoding.UTF8.GetString(left!.ToJsonBytes()));
+                    VRLog.Debug(Scope, "PAYLOAD registration CPU pair committed right="
+                        + System.Text.Encoding.UTF8.GetString(right!.ToJsonBytes()));
+                    LogSubmission("left", left!.PairId, _registration.LastReportedLeftSubmission);
+                    LogSubmission("right", right!.PairId, _registration.LastReportedRightSubmission);
+                }
+            }
         }
 
         private void StartOutput()
         {
             Camera? target = VRRigDriver.HeadCamera;
             if (target == null || !target.enabled || !target.gameObject.activeInHierarchy
-                || target.name != ProbePolicy.HeadCameraName || _left == null || _right == null
+                || target.name != ProbePolicy.HeadCameraName || (_registration == null && (_left == null || _right == null))
                 || target.GetComponent<PayloadOutput>() != null)
             {
                 StopCurrent("authorized head camera unavailable");
@@ -138,13 +164,24 @@ internal static class SteamLinkMaskRuntime
             }
             _camera = target;
             _output = target.gameObject.AddComponent<PayloadOutput>();
-            _output.Initialize(target, _lifecycle.Policy, _left, _right);
-            VRLog.Note(Scope, "PAYLOAD source test started; static diagnostic generation only, no passthrough. "
-                + "Remains active until the menu is opened or the setting is switched off.");
+            if (_registration != null)
+            {
+                _output.Initialize(target, _lifecycle.Policy, _registration);
+                VRLog.Note(Scope, "PAYLOAD registration source test started; changing app-owned pairs only, no passthrough. "
+                    + "Remains active until the menu is opened or the setting is switched off.");
+            }
+            else
+            {
+                _output.Initialize(target, _lifecycle.Policy, _left!, _right!);
+                VRLog.Note(Scope, "PAYLOAD source test started; static diagnostic generation only, no passthrough. "
+                    + "Remains active until the menu is opened or the setting is switched off.");
+                VRLog.Note(Scope, "PAYLOAD dynamic registration unavailable: CPU graphics fences unsupported; static source retained.");
+            }
             if (VRLog.WantsDebug)
             {
                 VRLog.Debug(Scope, "PAYLOAD attached camera_id=" + target.GetInstanceID() + " stereo=" + XRSettings.stereoRenderingMode
-                    + " xr_device=" + XRSettings.loadedDeviceName + " graphics=" + SystemInfo.graphicsDeviceType);
+                    + " xr_device=" + XRSettings.loadedDeviceName + " graphics=" + SystemInfo.graphicsDeviceType
+                    + " cpu_fences=" + SystemInfo.supportsGraphicsFence);
                 MonoBehaviour[] components = target.GetComponents<MonoBehaviour>();
                 int count = Math.Min(components.Length, 32), effects = 0;
                 for (int index = 0; index < count; index++)
@@ -181,7 +218,7 @@ internal static class SteamLinkMaskRuntime
         internal void StopCurrent(string reason)
         {
             bool ownsRequest = SteamLinkMaskCallbackGate.OwnsRequest(_driver, this);
-            bool active = (ownsRequest && SteamLinkMaskConfig.Requested) || _lifecycle.HasRequest || _left != null || _right != null;
+            bool active = (ownsRequest && SteamLinkMaskConfig.Requested) || _lifecycle.HasRequest || _left != null || _right != null || _registration != null;
             _lifecycle.Stop(); // Admission closes before component/texture destruction.
             if (ownsRequest) SteamLinkMaskConfig.SetRequested(false);
             if (_output != null)
@@ -193,6 +230,12 @@ internal static class SteamLinkMaskRuntime
             }
             _output = null;
             _camera = null;
+            if (_registration != null && VRLog.WantsDebug)
+                VRLog.Debug(Scope, "PAYLOAD registration totals session=" + _registration.Session
+                    + " complete_cpu_pairs=" + _registration.CompletedPairs + " skipped_whole_cohorts=" + _registration.SkippedCohorts
+                    + "; CPU callbacks are not native video-frame or GPU-completion receipts.");
+            _registration?.Dispose();
+            _registration = null;
             _left?.Dispose();
             _right?.Dispose();
             _left = _right = null;
@@ -225,6 +268,27 @@ internal static class SteamLinkMaskRuntime
         }
 
         private static string Bounded(string message) => message.Length > 512 ? message.Substring(0, 512) : message;
+
+        private static void LogSubmission(string eye, ulong pair, RegistrationTextures.EyeSubmission value)
+        {
+            VRLog.Debug(Scope, "PAYLOAD registration submission eye=" + eye + " pair=" + pair
+                + " actual_xr_callback=" + value.ActualXrCallback + " source=" + value.SourceWidth + "x" + value.SourceHeight
+                + " destination_present=" + value.HasDestination + " destination=" + value.DestinationWidth + "x" + value.DestinationHeight
+                + " srgb=" + value.SourceSrgb + "/" + value.DestinationSrgb + "/" + value.SrgbWrite
+                + " color_space=" + value.ColorSpace + " view=" + MatrixWords(value.View)
+                + " projection=" + MatrixWords(value.Projection) + "; application callback only, native composition unproved.");
+        }
+
+        private static string MatrixWords(Matrix4x4 value)
+        {
+            var result = new System.Text.StringBuilder(192);
+            for (int index = 0; index < 16; index++)
+            {
+                if (index != 0) result.Append(',');
+                result.Append(value[index].ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            return result.ToString();
+        }
 
         private void OnDestroy()
         {

@@ -1,5 +1,24 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Build677 integration in progress
+
+Portable worker8c9f7f3e6 is adopted as51fb12851. Primary owns the new
+RegistrationTextures adapter, PayloadOutput/Driver connection, existing focused
+runner extension,677 build note and docs. Three owned stereo slots close their
+old callback latch before queuing a following-Update CPU graphics fence; no
+upload/reuse precedes its completion. Pattern/hash/upload work stays outside
+callbacks. Actual first-four-pair eye matrices/target observations are Debug-only
+bounded receipts, not native frame/eye/ray authority. Unsupported CPU-fence
+providers retain and explicitly identify the unchanged static diagnostic.
+
+Composed validation currently passes existing1,225 plus new64,789 production
+controls,167 independent old-format header/CRC/SHA checks, net472 Unity-reference
+typing, Debug/Release0/0, unchanged667/236/4797 surfaces and options coverage.
+A new nullable annotation needed one compile-only repeat; unchanged successful
+controls were not replayed. The two independent production review findings
+(partial texture cleanup and repeated metadata getters) are fixed. Final actual
+GPU results, package scope and cleanup will be recorded before a headset request.
+
 ## Current checkpoint: final-draw bytes and restored Frame, 2026-10-16
 
 The approved fork446027e capture e5138e4b1410ff2f888365cbe66659e5 retains

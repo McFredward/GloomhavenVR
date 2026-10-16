@@ -612,7 +612,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 676;
+    public const ushort ModBuild = 677;
+
+    // ModBuild677 — changing app-owned Steam Link registration source.
+    // The successful676 static source/native-uniform capture does not establish
+    // current video-frame or application-ray association. Add fresh sessions,
+    // monotonic pair IDs and asymmetric deterministic per-eye synthetic coverage.
+    // Reserve/upload both eyes in Update; actual distinct eye callbacks consume
+    // one frozen cohort. Three owned GPU slots retire through CPU graphics fences
+    // before reuse. Unsupported providers explicitly keep the tested static source;
+    // API faults or incomplete begun pairs stop, never imply dynamic success.
+    // Keep menu/switch/boot-off and camera/session/ownership guards, with no timer,
+    // native Steam sender modification, Frame installation or live game-alpha output.
+    // Bounded first-four-pair Debug receipts do not grant native eye/UV/frame rights.
+    // No gameplay, config-key/default, asset-bundle or wire-schema changes.
 
     // ModBuild676 — manual-only Steam Link source test; no automatic expiry.
     // The maintainer explicitly rejects Build675's30-second limit. Remove the
