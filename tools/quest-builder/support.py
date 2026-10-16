@@ -435,6 +435,45 @@ def device_tool_evidence(root, replacements):
     except (BuildError, OSError, ValueError, TypeError, AttributeError): return None, []
 
 
+def compact_compiler_output_stats(build_root, route):
+    """Expose the selected compiler boundary without opening or hashing its APK.
+
+    Support205558 has a completed native player but no qualified update stage:
+    post-build registry validation fails. Retain that distinction in diagnostics
+    rather than losing the already-written compiler receipt to historical logs.
+    This optional report is an observation, never authority to reuse outputs.
+    """
+    if (not isinstance(route, dict) or route.get('updateStrategy') != 'compact-code'
+            or not re.fullmatch(r'[0-9a-f]{64}', str(route.get('updateKey', '')))):
+        return None
+    try:
+        folder = ordinary(build_root / 'updates' / route['updateKey'])
+        receipt = read_object(folder / 'code-player.apk.code-build.json', limit=65536)
+        if (not isinstance(receipt, dict) or receipt.get('schema') != 1
+                or receipt.get('scope') != 'quest-code-update-v1'
+                or receipt.get('abi') != 'arm64-v8a'
+                or receipt.get('originalAssetsImported') is not False
+                or receipt.get('buildResult') not in ('Succeeded', 'Failed', 'Cancelled', 'Unknown')
+                or not re.fullmatch(r'20\d{2}\.\d+\.\d+[abfp]\d+', str(receipt.get('unityVersion', '')))
+                or not re.fullmatch(r'[0-9a-f]{64}', str(receipt.get('packageAbi', '')))):
+            return None
+        files = receipt.get('files')
+        required = {'lib/arm64-v8a/libil2cpp.so', 'assets/bin/Data/Managed/Metadata/global-metadata.dat'}
+        if (not isinstance(files, list) or len(files) != 2
+                or any(not isinstance(row, dict) or row.get('path') not in required
+                       or type(row.get('size')) is not int or not 0 < row['size'] <= 1073741824
+                       or not re.fullmatch(r'[0-9a-f]{64}', str(row.get('sha256', ''))) for row in files)
+                or {row['path'] for row in files} != required):
+            return None
+        apk = ordinary(folder / 'code-player.apk')
+        return {key: receipt[key] for key in ('schema', 'scope', 'abi', 'unityVersion', 'packageAbi', 'buildResult')} | {
+            'files': [{key: row[key] for key in ('path', 'size', 'sha256')} for row in files],
+            'apkPresent': apk.is_file(), 'apkBytes': apk.stat().st_size if apk.is_file() else None,
+            'contentVerified': False, 'updatePublicationVerified': False}
+    except (BuildError, OSError, ValueError, TypeError, RecursionError):
+        return None
+
+
 def signing_recovery_stats(root, session_root, state, *, diagnostic=None, require_run_build=False):
     """Summarize only the current installation's explicitly named transaction.
 
@@ -454,6 +493,7 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None, requir
         if diagnostic is not None:
             diagnostic.update(reason=code, hardwareVerified=False)
         return None
+
 
     try:
         if not installation_logs(root, session_root, state): return None
@@ -923,6 +963,8 @@ def export_support(state_root, session=None, destination=None):
     build_root = ordinary(root / 'build') if session_root else root / 'build'
     route = update_route_stats(build_root, state, replacements)
     if route: meta['updateRoute'] = route
+    compiler = compact_compiler_output_stats(build_root, route)
+    if compiler: meta['compactCompilerOutput'] = compiler
     signing_diagnostic = {}
     signing = signing_recovery_stats(root, session_root, state, diagnostic=signing_diagnostic) if session_root else None
     if signing: meta['signingRecovery'] = signing

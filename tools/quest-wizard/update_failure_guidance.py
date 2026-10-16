@@ -48,6 +48,14 @@ def update_failure(parameters):
                    "Check update inputs if another APK or game copy was selected. You can explicitly set up a new build below; that opens the selection form and does not start conversion or delete saved results.")
         next_de = ("Vorhandene APK und Arbeitsordner behalten. Logs für eine gezielte Reparatur exportieren und dieses gespeicherte Update danach mit dem korrigierten Builder erneut versuchen. "
                    "Update-Eingaben prüfen, falls eine andere APK oder Spielkopie ausgewählt wurde. Unten lässt sich ausdrücklich ein neuer Build einrichten; das öffnet die Auswahl und startet keine Konvertierung oder Löschung gespeicherter Ergebnisse.")
+    elif "APK has conflicting MonoScript identities" in error:
+        kind = "compact-project"
+        en = "The compiled update contains conflicting script registry entries and has not passed compatibility validation."
+        de = "Das kompilierte Update enthält widersprüchliche Skripteinträge und hat die Kompatibilitätsprüfung noch nicht bestanden."
+        next_en = ("Keep the existing APK and workspace, including code-player.apk and its compiler receipt. Save diagnostics and retry this saved update with the corrected Builder. "
+                   "Compatible completed native output can be rechecked without recompiling; no full game conversion is started by this error.")
+        next_de = ("Vorhandene APK und Arbeitsordner einschließlich code-player.apk und Compilerbeleg behalten. Logs exportieren und dieses gespeicherte Update mit dem korrigierten Builder erneut versuchen. "
+                   "Passende fertig kompilierte Ergebnisse können ohne erneute Kompilierung geprüft werden; dieser Fehler startet keine vollständige Spielkonvertierung.")
     elif "Compact update OpenXR preparation failed:" in error:
         kind = "compact-project"
         en = "Unity could not finish registering the update project's OpenXR settings after one automatic retry."
