@@ -124,17 +124,19 @@ namespace GloomhavenVR.Quest.Editor
             // MonoScript assets carry only class identity/property metadata.
             // They make the original roster available to the linker and the
             // output gate without loading original scenes, prefabs or textures.
-            Progress("update-code-preload", 0, 3, "Preserving original serialized script roots");
+            Progress("update-code-preload", 0, 4, "Preserving original serialized script roots");
             var preloaded = roots.ToArray();
             if (!PlayerSettings.GetPreloadedAssets().SequenceEqual(preloaded)) PlayerSettings.SetPreloadedAssets(preloaded);
-            Progress("update-code-preload", 1, 3, "Original serialized script roots retained");
+            Progress("update-code-preload", 1, 4, "Original serialized script roots retained");
+            PrepareOpenXRForBuild();
+            Progress("update-code-preload", 2, 4, "OpenXR compiler settings registered before native build callbacks");
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             Directory.CreateDirectory("Assets/QuestCodeUpdate");
             const string scenePath = "Assets/QuestCodeUpdate/CodeOnly.unity";
             EditorSceneManager.SaveScene(scene, scenePath);
-            Progress("update-code-preload", 2, 3, "Minimal native-code compilation scene saved");
+            Progress("update-code-preload", 3, 4, "Minimal native-code compilation scene saved");
             AssetDatabase.SaveAssets();
-            Progress("update-code-preload", 3, 3, "Minimal native-code project preparation complete");
+            Progress("update-code-preload", 4, 4, "Minimal native-code project preparation complete");
             string output = Required("GHVR_QUEST_CODE_OUTPUT");
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             Progress("update-code-handover", 0, 1, "Handing the prepared code-only project to the Android compiler");
@@ -161,6 +163,41 @@ namespace GloomhavenVR.Quest.Editor
             if (result.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Code-only Android build failed: " + result.summary.result + ", errors=" + result.summary.totalErrors);
             Debug.Log("[Quest code update] matching ARM64 IL2CPP native pair built; original asset conversion/import was not run.");
+        }
+
+        internal static void PrepareOpenXRForBuild()
+        {
+            // Support172343 reaches BuildPipeline after admitting all 2636
+            // script rows. OpenXR1.13 then finds its persisted package settings
+            // without an EditorBuildSettings registration and rejects loading
+            // them once isBuildingPlayer is true. The public target accessor
+            // alone cannot fix this: it only reads already registered config.
+            // RefreshFeatures is the package's public admission path: it loads
+            // or creates the compiler-local container and refreshes its Android
+            // subassets before the build snapshots configuration. It preserves
+            // feature enabled flags and does not assign an XR runtime loader.
+            // The original player's XR presentation/settings stay in the APK.
+            // Resolve only this pinned package API so script-roster fixtures
+            // may compile without importing XR packages or original game data.
+            if (BuildPipeline.isBuildingPlayer)
+                throw new InvalidOperationException("OpenXR compiler preparation must precede the native build.");
+            var helpers = Type.GetType("UnityEditor.XR.OpenXR.Features.FeatureHelpers, Unity.XR.OpenXR.Editor", true);
+            var refresh = helpers.GetMethod("RefreshFeatures", BindingFlags.Public | BindingFlags.Static,
+                null, new[] { typeof(BuildTargetGroup) }, null);
+            var settings = Type.GetType("UnityEngine.XR.OpenXR.OpenXRSettings, Unity.XR.OpenXR", true);
+            var getSettings = settings.GetMethod("GetSettingsForBuildTargetGroup", BindingFlags.Public | BindingFlags.Static,
+                null, new[] { typeof(BuildTargetGroup) }, null);
+            if (refresh == null || getSettings == null)
+                throw new InvalidDataException("The pinned OpenXR package cannot prepare its compiler settings.");
+            var targetSettings = getSettings.Invoke(null, new object[] { BuildTargetGroup.Android }) as UnityEngine.Object;
+            if (targetSettings == null)
+            {
+                refresh.Invoke(null, new object[] { BuildTargetGroup.Android });
+                targetSettings = getSettings.Invoke(null, new object[] { BuildTargetGroup.Android }) as UnityEngine.Object;
+            }
+            if (targetSettings == null || !EditorUtility.IsPersistent(targetSettings))
+                throw new InvalidDataException("OpenXR Android compiler settings were not registered as a retained asset.");
+            Debug.Log("[Quest code update] OpenXR compiler settings registered; original XR loader configuration retained in source APK.");
         }
 
         // Support163304 spent 2265 seconds repeatedly importing the same game
