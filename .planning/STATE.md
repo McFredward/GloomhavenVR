@@ -36,6 +36,8 @@ CMake subset; existing unrelated evidence is inherited, not rerun. No live
 shader replacement, mask presenter, game coverage export, PC sender modification
 or new mod build is enabled. No Frame access follows from this offline work.
 Forkdev931c99e contains the source, CMake registration and developer evidence.
+ForkCI38896812394 is green:109 CTest entries, optional native-uniform build,
+Windows cross-build and protocol sanitizer step. This is not a new main-mod gate.
 Both worker worktrees and completed private package/compiler caches are removed
 after reaping; originals, failed controls, source pins and final reviews remain.
 
