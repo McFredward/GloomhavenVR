@@ -34,6 +34,7 @@ class ApkUpdateTests(unittest.TestCase):
         self.metadata = struct.pack("<II", 0xFAB11BAF, 29) + b"fixture metadata"
         self.values = {update.INPUT: json.dumps(self.input).encode(), update.INSTALLATION: json.dumps({"schema": 1, "inputKey": "a" * 64}).encode(),
                        update.CAPSULE: json.dumps(self.capsule).encode(), update.LIBRARY: bytes(self.library), update.METADATA: self.metadata,
+                       "assets/bin/Data/unity_app_guid": b"00000000-0000-4000-8000-000000000001",
                        update.INITIALIZERS: b'{"root":[]}', update.ASSEMBLIES: b'{"names":["GH.Runtime.dll"],"types":[16]}',
                        "assets/bin/Data/level0": b"unchanged serialized scene" * 1000,
                        "assets/game-textures.resource": b"original texture bytes" * 10000,

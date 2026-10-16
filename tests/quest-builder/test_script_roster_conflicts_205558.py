@@ -212,7 +212,8 @@ class QualifiedNativePairRosterTests(unittest.TestCase):
         self.members = registry_members([(SCRIPTS, 11, row), (DEFAULTS, 22, {**row, "executionOrder": 7})])
         callback = {"assemblyName": "QuestGame.Campaign", "nameSpace": "GloomhavenVR.Quest", "className": "QuestOfflineProfile",
                     "methodName": "Initialize", "loadTypes": 1, "isUnityClass": False}
-        self.members.update({name: self.fixture.values[name] for name in (update.LIBRARY, update.METADATA, update.ASSEMBLIES)})
+        self.members.update({name: self.fixture.values[name] for name in
+                            (update.LIBRARY, update.METADATA, update.ASSEMBLIES, "assets/bin/Data/unity_app_guid")})
         self.members[update.INITIALIZERS] = json.dumps({"root": [callback]}).encode()
         self.fixture.write_zip(self.compiled, self.members)
         self.receipt = {"schema": 1, "scope": "quest-code-update-v1", "buildResult": "Succeeded", "originalAssetsImported": False,

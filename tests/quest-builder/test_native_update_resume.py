@@ -56,6 +56,7 @@ class NativeUpdateResumeTests(unittest.TestCase):
             core.INSTALLATION: storage.canonical({"schema": 1, "inputKey": "a" * 64}),
             core.CAPSULE: storage.canonical(capsule), core.LIBRARY: bytes(lib),
             core.METADATA: struct.pack("<II", 0xFAB11BAF, 29),
+            "assets/bin/Data/unity_app_guid": b"00000000-0000-4000-8000-000000000001",
             core.ASSEMBLIES: storage.canonical({"names": ["GH.Runtime.dll"], "types": [16]}),
             core.INITIALIZERS: storage.canonical({"root": []}),
             core.MANAGED_RESOURCES + "original-resources.dat": b"original managed resources"}

@@ -54,6 +54,7 @@ class AssemblyRegistryTests(unittest.TestCase):
                        update.INSTALLATION: storage.canonical({"schema": 1, "inputKey": "a" * 64}),
                        update.CAPSULE: storage.canonical(capsule), update.LIBRARY: bytes(library),
                        update.METADATA: struct.pack("<II", 0xFAB11BAF, 29) + b"paired fixture metadata",
+                       "assets/bin/Data/unity_app_guid": b"00000000-0000-4000-8000-000000000001",
                        update.ASSEMBLIES: storage.canonical(self.registry),
                        update.INITIALIZERS: storage.canonical({"root": [self.old_callback]}),
                        update.MANAGED_RESOURCES + "GH.Runtime.dll-resources.dat": b"original managed resource",
