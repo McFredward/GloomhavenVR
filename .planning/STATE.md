@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest compact native-output retention and registry diagnostics, 2026-10-16: feature / B673.**
+
+Support205558 proves Unity native compilation succeeded on Windows; the host
+then rejects conflicting MonoScript identities during post-build collection.
+Close native production independently, qualify the single owned prior output
+against exact compiler inputs, and reuse it across host parser repairs without
+weaving/SDK/native work. Admit only original-qualified execution-order duplicates;
+keep differing serialized layouts rejected and report their exact locations and
+values. The old report lacks those values, so the actual conflict classification
+is pending a read-only metadata probe. No new game conversion, local APK build
+or headset outcome. Preserve the completed code-player and .ghvrq. See
+[QUEST-UPDATE-COMPILER-205558-20261016.md](QUEST-UPDATE-COMPILER-205558-20261016.md).
+
 **Quest compact OpenXR pre-build settings, 2026-10-16: feature / B673.**
 
 Support172343 confirms all2636original script rows and zero order repairs on
