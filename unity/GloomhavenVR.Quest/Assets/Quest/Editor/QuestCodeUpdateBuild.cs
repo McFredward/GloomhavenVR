@@ -17,7 +17,18 @@ namespace GloomhavenVR.Quest.Editor
     /// <summary>Compiles complete player code while importing no original game assets.</summary>
     public static class QuestCodeUpdateBuild
     {
-        [Serializable] sealed class ScriptType { public string assembly, @namespace, @class, propertiesHash; public int executionOrder; }
+        [Serializable] internal sealed class ScriptType { public string assembly, @namespace, @class, propertiesHash; public int executionOrder; }
+        [Serializable] sealed class PreparationProgress
+        {
+            public int schema = 1, done, total;
+            public string operation = "update-code", unit = "tasks", phase, status, detail;
+        }
+        sealed class ScriptOrder
+        {
+            public MonoScript script;
+            public string key;
+            public int previous, expected;
+        }
         [Serializable] sealed class Input
         {
             public int schema, versionCode;
@@ -108,66 +119,25 @@ namespace GloomhavenVR.Quest.Editor
         static void BuildPlayer()
         {
             var input = Configure();
-            var scripts = new Dictionary<string, MonoScript>(StringComparer.Ordinal);
-            foreach (var script in MonoImporter.GetAllRuntimeMonoScripts())
-            {
-                // The original native roster also contains partial/static
-                // source-file scripts for which GetClass returns null. Their
-                // exact MonoScript metadata, not reflection alone, is the key.
-                var serialized = new SerializedObject(script);
-                var assembly = serialized.FindProperty("m_AssemblyName");
-                var ns = serialized.FindProperty("m_Namespace");
-                var name = serialized.FindProperty("m_ClassName");
-                Type type = script.GetClass();
-                string assemblyName, namespaceName, className;
-                if (assembly != null && ns != null && name != null && !string.IsNullOrEmpty(assembly.stringValue) && !string.IsNullOrEmpty(name.stringValue))
-                { assemblyName = assembly.stringValue; namespaceName = ns.stringValue; className = name.stringValue; }
-                else if (type != null)
-                { assemblyName = type.Assembly.GetName().Name + ".dll"; namespaceName = type.Namespace ?? ""; className = type.Name; }
-                else
-                {
-                    string path = AssetDatabase.GetAssetPath(script);
-                    if (!path.EndsWith(".cs", StringComparison.Ordinal)) continue;
-                    assemblyName = CompilationPipeline.GetAssemblyNameFromScriptPath(path);
-                    namespaceName = ""; className = Path.GetFileNameWithoutExtension(path);
-                    if (string.IsNullOrEmpty(assemblyName)) continue;
-                }
-                if (!assemblyName.EndsWith(".dll", StringComparison.Ordinal)) assemblyName += ".dll";
-                string key = assemblyName + "|" + namespaceName + "|" + className;
-                if (!scripts.ContainsKey(key)) scripts.Add(key, script);
-            }
-            var roots = new List<UnityEngine.Object>();
-            foreach (var row in input.scriptTypes)
-            {
-                string key = row.assembly + "|" + row.@namespace + "|" + row.@class;
-                if (!scripts.TryGetValue(key, out MonoScript script))
-                {
-                    // Engine default scripts are already emitted by the same
-                    // exact editor's default resource bank, even when the public
-                    // MonoImporter catalog excludes those native assets. The
-                    // closed output roster still must prove every one matches.
-                    if (row.assembly.StartsWith("UnityEngine.", StringComparison.Ordinal) && row.assembly.EndsWith("Module.dll", StringComparison.Ordinal)) continue;
-                    throw new InvalidDataException("Retained original serialized script is missing: " + key + "; a full build is required.");
-                }
-                // Source/package metadata can differ from the original player
-                // (for example the private UGUI EventSystem). Preserve its
-                // actual imported order before writing the replacement roster.
-                MonoImporter.SetExecutionOrder(script, row.executionOrder);
-                if (MonoImporter.GetExecutionOrder(script) != row.executionOrder)
-                    throw new InvalidDataException("Retained original script execution order could not be restored: " + key);
-                roots.Add(script);
-            }
+            var roots = PrepareOriginalScripts(input.scriptTypes);
             // MonoScript assets carry only class identity/property metadata.
             // They make the original roster available to the linker and the
             // output gate without loading original scenes, prefabs or textures.
-            PlayerSettings.SetPreloadedAssets(roots.ToArray());
+            Progress("update-code-preload", 0, 3, "Preserving original serialized script roots");
+            var preloaded = roots.ToArray();
+            if (!PlayerSettings.GetPreloadedAssets().SequenceEqual(preloaded)) PlayerSettings.SetPreloadedAssets(preloaded);
+            Progress("update-code-preload", 1, 3, "Original serialized script roots retained");
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             Directory.CreateDirectory("Assets/QuestCodeUpdate");
             const string scenePath = "Assets/QuestCodeUpdate/CodeOnly.unity";
             EditorSceneManager.SaveScene(scene, scenePath);
+            Progress("update-code-preload", 2, 3, "Minimal native-code compilation scene saved");
             AssetDatabase.SaveAssets();
+            Progress("update-code-preload", 3, 3, "Minimal native-code project preparation complete");
             string output = Required("GHVR_QUEST_CODE_OUTPUT");
             Directory.CreateDirectory(Path.GetDirectoryName(output));
+            Progress("update-code-handover", 0, 1, "Handing the prepared code-only project to the Android compiler");
+            Progress("update-code-handover", 1, 1, "Android native-code compilation starting");
             var result = BuildPipeline.BuildPlayer(new BuildPlayerOptions {
                 target = BuildTarget.Android, scenes = new[] { scenePath },
                 locationPathName = output, options = BuildOptions.Development
@@ -190,6 +160,137 @@ namespace GloomhavenVR.Quest.Editor
             if (result.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Code-only Android build failed: " + result.summary.result + ", errors=" + result.summary.totalErrors);
             Debug.Log("[Quest code update] matching ARM64 IL2CPP native pair built; original asset conversion/import was not run.");
+        }
+
+        // Support163304 spent 2265 seconds repeatedly importing the same game
+        // plugin before it ever reached the native compiler. SetExecutionOrder
+        // imports even an unchanged value. Validate the whole original roster
+        // first, retain exact roots, and batch only actual metadata repairs.
+        // Kept callable so the real Editor fixture exercises this production
+        // boundary without converting game assets or building an Android APK.
+        internal static List<UnityEngine.Object> PrepareOriginalScripts(ScriptType[] rows)
+        {
+            if (rows == null || rows.Length == 0) throw new InvalidDataException("The original serialized script roster is empty.");
+            var scripts = new Dictionary<string, MonoScript>(StringComparer.Ordinal);
+            var catalog = MonoImporter.GetAllRuntimeMonoScripts();
+            Progress("update-code-catalog", 0, catalog.Length, "Reading the imported runtime script catalog");
+            int catalogDone = 0;
+            foreach (var script in catalog)
+            {
+                string key = ScriptIdentity(script);
+                if (key != null && !scripts.ContainsKey(key)) scripts.Add(key, script);
+                CountedProgress("update-code-catalog", ++catalogDone, catalog.Length, key ?? "Non-runtime script inspected");
+            }
+            var roots = new List<UnityEngine.Object>();
+            var orders = new Dictionary<int, ScriptOrder>();
+            Progress("update-code-roster", 0, rows.Length, "Matching the retained original serialized script roster");
+            for (int i = 0; i < rows.Length; ++i)
+            {
+                var row = rows[i];
+                if (row == null || string.IsNullOrEmpty(row.assembly) || string.IsNullOrEmpty(row.@class))
+                    throw new InvalidDataException("The original serialized script roster contains an invalid row.");
+                string key = row.assembly + "|" + row.@namespace + "|" + row.@class;
+                if (!scripts.TryGetValue(key, out MonoScript script))
+                {
+                    // Engine default scripts are already emitted by the same
+                    // exact editor's default resource bank, even when the public
+                    // MonoImporter catalog excludes those native assets. The
+                    // closed output roster still must prove every one matches.
+                    if (row.assembly.StartsWith("UnityEngine.", StringComparison.Ordinal) && row.assembly.EndsWith("Module.dll", StringComparison.Ordinal))
+                    { CountedProgress("update-code-roster", i + 1, rows.Length, key); continue; }
+                    throw new InvalidDataException("Retained original serialized script is missing: " + key + "; a full build is required.");
+                }
+                // Source/package metadata can differ from the original player
+                // (for example the private UGUI EventSystem). Preserve its
+                // actual imported order before writing the replacement roster.
+                int id = script.GetInstanceID();
+                if (orders.TryGetValue(id, out ScriptOrder previous))
+                {
+                    if (previous.expected != row.executionOrder)
+                        throw new InvalidDataException("The original serialized script roster has conflicting execution orders: " + key);
+                }
+                else orders.Add(id, new ScriptOrder { script = script, key = key,
+                    previous = MonoImporter.GetExecutionOrder(script), expected = row.executionOrder });
+                roots.Add(script);
+                CountedProgress("update-code-roster", i + 1, rows.Length, key);
+            }
+            var repairs = orders.Values.Where(order => order.previous != order.expected).ToArray();
+            int done = 0, total = repairs.Length + orders.Count + (repairs.Length == 0 ? 0 : 1);
+            Progress("update-code-orders", 0, total, "Preserving original script execution orders; repairs=" + repairs.Length);
+            var applied = new List<ScriptOrder>();
+            try
+            {
+                if (repairs.Length != 0)
+                {
+                    AssetDatabase.StartAssetEditing();
+                    try
+                    {
+                        foreach (var repair in repairs)
+                        {
+                            applied.Add(repair);
+                            MonoImporter.SetExecutionOrder(repair.script, repair.expected);
+                            CountedProgress("update-code-orders", ++done, total, repair.key);
+                        }
+                    }
+                    finally { AssetDatabase.StopAssetEditing(); }
+                    Progress("update-code-orders", ++done, total, "Changed script metadata imported as one batch");
+                }
+                foreach (var order in orders.Values)
+                {
+                    if (MonoImporter.GetExecutionOrder(order.script) != order.expected)
+                        throw new InvalidDataException("Retained original script execution order could not be restored: " + order.key);
+                    CountedProgress("update-code-orders", ++done, total, order.key);
+                }
+            }
+            catch
+            {
+                if (applied.Count != 0)
+                {
+                    AssetDatabase.StartAssetEditing();
+                    try { foreach (var order in applied) MonoImporter.SetExecutionOrder(order.script, order.previous); }
+                    finally { AssetDatabase.StopAssetEditing(); }
+                }
+                throw;
+            }
+            Debug.Log("[Quest code update] original script roster prepared; rows=" + rows.Length +
+                ", uniqueScripts=" + orders.Count + ", executionOrderRepairs=" + repairs.Length);
+            return roots;
+        }
+
+        static string ScriptIdentity(MonoScript script)
+        {
+            // Partial/static source-file scripts can have a null GetClass.
+            // Keep their exact MonoScript identity instead of reflection alone.
+            var serialized = new SerializedObject(script);
+            var assembly = serialized.FindProperty("m_AssemblyName");
+            var ns = serialized.FindProperty("m_Namespace");
+            var name = serialized.FindProperty("m_ClassName");
+            Type type = script.GetClass();
+            string assemblyName, namespaceName, className;
+            if (assembly != null && ns != null && name != null && !string.IsNullOrEmpty(assembly.stringValue) && !string.IsNullOrEmpty(name.stringValue))
+            { assemblyName = assembly.stringValue; namespaceName = ns.stringValue; className = name.stringValue; }
+            else if (type != null)
+            { assemblyName = type.Assembly.GetName().Name + ".dll"; namespaceName = type.Namespace ?? ""; className = type.Name; }
+            else
+            {
+                string path = AssetDatabase.GetAssetPath(script);
+                if (!path.EndsWith(".cs", StringComparison.Ordinal)) return null;
+                assemblyName = CompilationPipeline.GetAssemblyNameFromScriptPath(path);
+                namespaceName = ""; className = Path.GetFileNameWithoutExtension(path);
+                if (string.IsNullOrEmpty(assemblyName)) return null;
+            }
+            if (!assemblyName.EndsWith(".dll", StringComparison.Ordinal)) assemblyName += ".dll";
+            return assemblyName + "|" + namespaceName + "|" + className;
+        }
+
+        static void CountedProgress(string phase, int done, int total, string detail)
+        {
+            if (done == total || done % 32 == 0) Progress(phase, done, total, detail);
+        }
+        static void Progress(string phase, int done, int total, string detail)
+        {
+            Debug.Log("GHVRQ_PROGRESS " + JsonUtility.ToJson(new PreparationProgress { phase = phase,
+                done = done, total = total, status = done == total ? "complete" : "progress", detail = detail }));
         }
 
         sealed class AndroidToolsOverride : IDisposable
