@@ -1,5 +1,41 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Actual changing PC source, 2026-10-16
+
+The maintainer confirms visible movement. Build677's actual Direct3D11/OpenXR
+MultiPass run selects the dynamic source with CPU graphics fences supported,
+4040x4040 Gamma targets and no other head-camera image effects. Session
+f23421f555a346c88615b1677e34c280 completes757 CPU pairs with757 Left/Right
+callbacks,fallback0 and skipped_whole_cohorts0. The first four pairs contain
+eight matching source and actual-eye receipts; stereo cohorts1969..1972 agree,
+projections are eye-specific and stable, and camera views change. Production C#
+regeneration of all eight explicit tuples matches every actual manifest field,
+including source plane/canvas SHA and complete original headers. The strict
+new reader validates those canonical artifacts. No full suite is repeated.
+
+Opening VR Options logs immediate manual restoration and request-off. No
+SteamLink error occurs. A separate stackless NullReferenceException appears only
+after native shutdown; its cause is unassigned and it does not establish a
+failure of the active diagnostic. Early WaterVR/Overlay lookup errors are
+followed by successful WaterVR bundle resolution. Do not diagnose either as a
+new passthrough-source defect. Independent log review is retained in the fork's
+build/private-registration-hardware-20261016/independent-review.json.
+
+These facts settle the actual PC provider's dynamic-path choice and observed
+changing output, not native decoded pair carriage, physical eye/UV mapping,
+shader consumption, game coverage or live alpha presentation. Next prepare a
+strict offline unknown-pair bootstrap from three identical complete CRC-valid
+headers with an independently supplied session/eye, then regenerate exactly that
+C# tuple and compare every header byte. All output remains diagnostic-only.
+The next receiver package needs no uniform companion; post-draw copied uniforms
+cannot supply the missing native consumption contract. No Frame access,
+installation or restart is authorized by the supplied PC logs. Prepare/review
+the complete package before requesting fresh headset/readiness agreement.
+
+Preserved inputs, source records, canonical bytes and comparison reports live
+under .planning/debug/steamlink677/hardware-20261016/. Completed compilation
+caches are cleaned after reaping; keep original logs and current deliverables.
+
 ## Build677 changing-source integration
 
 Final native-evidence caveat: the post-draw uniform companion has no recorded

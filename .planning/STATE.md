@@ -2,6 +2,17 @@
 
 **Build677 changing Steam Link registration source, 2026-10-16: dev1.1.1.**
 
+The maintainer now confirms visibly moving output on the actual PC. Its new
+paired logs show Direct3D11/OpenXR MultiPass with CPU graphics fences supported,
+4040x4040 eye targets,757 completed source pairs,757 callbacks per eye,zero
+fallbacks and zero skipped cohorts. Opening VR Options manually stops the source
+and restores ordinary output. The eight bounded source records regenerate
+byte-exactly through the production C# generator, including every manifest
+field and both plane/header digests. Independent log review finds no source-test
+failure. This is actual PC-source evidence, not a decoded native-frame/UV or
+streamed-passthrough proof. Original inputs and checks are retained under
+`.planning/debug/steamlink677/hardware-20261016/`.
+
 The approved676 native capture now includes exact final-draw GPU-copied uniform
 bytes; its four artifacts and all digests independently match. Native lookup
 algebra is checked against the original fragment instructions. This proves no
@@ -34,8 +45,9 @@ unrendered-cohort6 controls:48 exact original headers, zero RGB8 error, actual
 pending-resource guards and texture reuse after completed fences. Gamma inherited
 the exact successful compile; later bounded fixture-only repairs inherited those
 unchanged image methods. True flip, changed-source and corrupted reused-DLL
-controls refuse. No XR callback, Windows D3D11 or native decoded mapping is
-claimed. Evidence and cleanup are in the677 coordination record; the Frame stays
+controls refuse. That fixture alone claims no XR callback, Windows D3D11 or
+native decoded mapping; the later actual PC log evidence is recorded above.
+Evidence and cleanup are in the677 coordination record; the Frame stays
 restored, with no new connection/installation/restart authorized by these tests.
 
 **Build676 manual-only Steam Link source test, 2026-10-15: dev1.1.1.**
