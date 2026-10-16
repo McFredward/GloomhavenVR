@@ -1,5 +1,44 @@
 # State — where the project stands
 
+**Full-startup receiver repair pushed and checked offline, 2026-10-16: Build677 unchanged.**
+
+Fork devb609bde integrates the r2 follow-up: separate small layout identities and
+shared immutable Set0 facts,128 Set/256 Layout/256 Pass instances,384 fact slots,
+strict legacy-equivalent RP2 creation and original core/KHR Begin/End2 forwarding.
+Journal1,066,816B; no live-object eviction or extra native-lifetime authority.
+The synthetic107-layout/107-RP2/108-pipeline startup model retains all six late
+targets; the old16-limit negative control fails. Actual archived107 layouts are
+not claimed all qualifying, and missing native full payloads are not replayed.
+Affected Journal2,883 and new RP2 contract42 checks pass normal/sanitized/ARM.
+
+Actual Intel/lavapipe RP2-to-owned-legacy compatibility proof passes197 checks
+each, two cases/six indexed draws, complete128B record, bit-identical color and
+zero active Vulkan/sync errors. Actual Snapshot exported core/KHR callback tests
+pass99 public/989 with private pins, normally and sanitized; these are fake
+dispatch, separate from GPU proof. Independent review found a pre-existing cold
+Boundary-to-Bridge cancellation gap (not the r2 cause); sticky DefinitionHistory
+closes it with219 focused normal/sanitized controls across five phases.
+
+Progress now preserves64 keyed rejection contexts, exact inventory/fact occupancy
+and16 top-level creation shapes.11 preflight/32 session tests pass; actual r2
+now reports the capacity/unknown-layout evidence without inventing nested cause.
+Separate progress cap256KiB/256 events keeps ordinary JSON16KiB. Two phases stay
+explicit: no streamed target is required before requesting a stream; canonical
+profile, actual queue and complete recipe are mandatory before manual arm.
+
+Final ARM442,936B SHA146dc3e5da9b9e208442dc15b69888bb1207f0f060a3f4050467fde9915c89e3
+retains79 imports and exact three exports. Three real host-loader controls and
+exact-artifact isolated staging/idempotence/unarmed/rollback pass. Exact hosted
+CI38968827113 is green:125CTest/98.87s, both optional builds/Windows and8,482
+protocol sanitizer controls included.
+Evidence: fork build/private-native-definition-repair-integration-20261016/.
+Prepared r3 payload562,379B, source+staged-copy1,005,315B, one paired source capture
+plus128B SSBO; no live mask/color/UV change. Frame stays original, restored and
+user-confirmed usable. Fresh concrete permission/readiness remains required.
+All completed own worker checkouts/caches are removed; sources, failures,
+hardware records, pins and current deliverables remain. No main runtime gate
+is repeated for these coordination-only changes.
+
 **Second receiver run refused before arming and restored, 2026-10-16: Build677 unchanged.**
 
 The maintainer approved the corrected r2 package and one SteamVR restart. All79

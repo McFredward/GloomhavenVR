@@ -1,5 +1,34 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Full-startup repair complete offline; no new Frame action yet, 2026-10-16
+
+Forkdevb609bde is pushed and exact CI38968827113 succeeds:125CTest/98.87s,
+both optional builds, Windows and8,482 protocol sanitizer controls. Runtime now separates
+layout identities from shared immutable Set0 facts with finite128/256/256
+Set/Layout/Pass budgets and384 fact slots (Journal1,066,816B). Six target variants
+survive a synthetic107-layout/107-RP2/108-pipeline startup model; restoring the old
+16-slot limit fails. Do not call this a replay of missing native full payloads.
+Strict equivalent RP2 create/recording replaces blanket refusal only for fully
+represented ordinary semantics. Unknown fields/routes remain refused.
+
+Evidence: Journal2,883 plus RP2 contract42 normal/sanitized controls and ARM;
+actual Intel/lavapipe compatibility197 each with bit-identical color/zero VVL/sync;
+actual Snapshot exports99 public/989 private-pin fake-dispatch controls each normal
+and sanitized. Review also closes pre-existing Boundary-history cancellation
+with219 targeted controls; it is not asserted to cause r2. Eleven preflight and
+32 session tests preserve two phases and explain actual r2 capacity/unknown-layout
+without invented detail. Progress256KiB/256 events is separate from JSON16KiB.
+
+ARM442,936B SHA146dc3e5da9b9e208442dc15b69888bb1207f0f060a3f4050467fde9915c89e3,
+unchanged79 imports/three exports, actual host loader3 controls and isolated exact
+artifact staging/rollback pass. Prepared inert r3 plan in fork
+build/private-native-ssbo-run-20261016-r3/: payload562,379B, total staged1,005,315B,
+same one paired moving-chart capture plus128B. No extra PC Steam sender change,
+live alpha/color/UV change or automatic timer/restart. Another installation and
+restart require fresh concrete permission/readiness after all final preparation.
+Original Frame UI remains user-confirmed usable; standby safe. Completed own
+workers/caches removed and evidence retained. Main runtime/Build677 unchanged.
+
 ## Corrected r2 admission refused; Frame fully restored, 2026-10-16
 
 The approved r2 library441,880B loads successfully, including79 exact-provider
