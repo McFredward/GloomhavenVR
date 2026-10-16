@@ -1,5 +1,22 @@
 # State — where the project stands
 
+**Quest compact update imports, measured progress and ADB lifetime, 2026-10-16: feature / B673.**
+
+Support163304 confirms the current compact update without new original asset
+conversion. Its2265second cancelled run repeatedly calls Unity's API-Updater
+before native compilation:141completions and107GH.Runtime imports. Restore only
+actual script-order differences in one import batch, after complete roster
+admission. The real small Unity fixture restores3orders across128MonoScripts
+with1import; unchanged retry has0imports and identical metadata/script roots.
+
+The Supervisor previously dropped every valid update owner against the ordinary
+build plan, leaving its overview pending0/X. Retain the selected update plan,
+count compact host/compiler preparation scopes and distinguish measured progress
+from log activity. Wizard-owned foreground ADB servers now have parent-lifetime
+cleanup, with a Windows kill-on-close job; already-running external servers are
+borrowed. Preserve .ghvrq, APK/banks and compiler Library. No new local APK or
+Quest picture proof. See [QUEST-UPDATE-PROGRESS-163304-20261016.md](QUEST-UPDATE-PROGRESS-163304-20261016.md).
+
 **Quest compact plugin import and explicit rebuild choice, 2026-10-16: feature / B673.**
 
 Support153412 proves an actual unnecessary new original-game export after the

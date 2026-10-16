@@ -87,6 +87,22 @@ Code-only updates capture a separately owned small source subset, omitting unuse
 prebuilt converters, procedural-runtime archives and unchanged authored banks.
 The signed update still records the complete actual mod source identity.
 
+Support163304 exposed repeated compact script imports before the native compiler:
+an unconditional execution-order setter reimported GH.Runtime107times. Compact
+preparation now validates the whole roster, changes only differing orders in one
+import batch and verifies exact results. An unchanged retry performs no setter
+or reimport. Finite catalog, roster, order, preload and handover counters describe
+that preparation; SDK and native compilation remain separate measured scopes.
+The update overview accepts its own operation names and preserves completed
+input/source work. Log activity is distinct from actual counted progress.
+
+The Wizard gives a newly created host ADB daemon an owned lifetime. A detached
+pipe watcher handles console closure; a Windows process job also owns the
+foreground server. Both CLI and binary transfers use the same private endpoint.
+An existing configured/shared ADB server is borrowed and remains external to
+that cleanup. This does not restart headset adbd or remove remembered wireless
+addresses. The two newest small ADB lifetime logs enter support exports.
+
 | Phase | Required work and reuse policy |
 | --- | --- |
 | Host tools | Reuse closed Windows Git/.NET receipts across sessions with actual accepted-file witnesses; unchanged archives are not rehashed/extracted. Legacy ownership is seeded after a closed tool stage. Linux system Git keeps its ordinary qualification. |
