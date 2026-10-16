@@ -98,17 +98,17 @@ internal static class Standalone
             string path = overrides != null && File.Exists(Path.Combine(overrides, name)) ? Path.Combine(overrides, name) : Path.Combine(managed, name);
             report.InputAssemblies[name] = Hash(path); return path;
         }
-        using AssemblyDefinition game = AssemblyDefinition.ReadAssembly(Input("GH.Runtime.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
-        using AssemblyDefinition platforms = AssemblyDefinition.ReadAssembly(Input("SM.Consoles.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
-        using AssemblyDefinition apparance = AssemblyDefinition.ReadAssembly(Input("Apparance.Unity.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
+        using AssemblyDefinition game = AssemblyDefinition.ReadAssembly(Input("GH.Runtime.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true, MetadataImporterProvider = TargetMetadata.Importer });
+        using AssemblyDefinition platforms = AssemblyDefinition.ReadAssembly(Input("SM.Consoles.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true, MetadataImporterProvider = TargetMetadata.Importer });
+        using AssemblyDefinition apparance = AssemblyDefinition.ReadAssembly(Input("Apparance.Unity.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true, MetadataImporterProvider = TargetMetadata.Importer });
         using AssemblyDefinition? utilities = target != "startup" ? AssemblyDefinition.ReadAssembly(Input("Utilities.dll"),
-            new ReaderParameters { AssemblyResolver = resolver, InMemory = true }) : null;
+            new ReaderParameters { AssemblyResolver = resolver, InMemory = true, MetadataImporterProvider = TargetMetadata.Importer }) : null;
         using AssemblyDefinition? voiceApi = target == "game" ? AssemblyDefinition.ReadAssembly(Input("PhotonVoice.API.dll"),
-            new ReaderParameters { AssemblyResolver = resolver, InMemory = true }) : null;
+            new ReaderParameters { AssemblyResolver = resolver, InMemory = true, MetadataImporterProvider = TargetMetadata.Importer }) : null;
         using AssemblyDefinition? nativeApi = target != "startup" ? AssemblyDefinition.ReadAssembly(Input("Apparance.Net.dll"),
-            new ReaderParameters { AssemblyResolver = resolver, InMemory = true }) : null;
+            new ReaderParameters { AssemblyResolver = resolver, InMemory = true, MetadataImporterProvider = TargetMetadata.Importer }) : null;
         using AssemblyDefinition? odin = target == "game" ? AssemblyDefinition.ReadAssembly(Input("OdinSerializer.dll"),
-            new ReaderParameters { AssemblyResolver = resolver, InMemory = true }) : null;
+            new ReaderParameters { AssemblyResolver = resolver, InMemory = true, MetadataImporterProvider = TargetMetadata.Importer }) : null;
         if (game.MainModule.Resources.Any(r => r.Name == "QuestGame.Standalone.v1")) throw new InvalidDataException("Standalone input was already adapted.");
         var assemblies = new[] { game, platforms, apparance }.Concat(utilities == null ? Array.Empty<AssemblyDefinition>() : new[] { utilities })
             .Concat(voiceApi == null ? Array.Empty<AssemblyDefinition>() : new[] { voiceApi })
@@ -140,7 +140,7 @@ internal static class Standalone
         {
             il.Emit(OpCodes.Ldstr, fallback);
             if (target == "game")
-                il.Emit(OpCodes.Call, assembly.MainModule.ImportReference(typeof(Runtime.OfflineProfile).GetMethod(accessor)!));
+                il.Emit(OpCodes.Call, TargetMetadata.RuntimeMethod(assembly.MainModule, "QuestWeaver.Runtime.OfflineProfile", accessor));
         }
         void ProfileGetter(string type, string method, string accessor, string fallback)
             => Replace(Method(game, type, method, "System.String"), il =>
@@ -203,7 +203,7 @@ internal static class Standalone
                     Instruction next = Instruction.Create(OpCodes.Nop);
                     il.Emit(OpCodes.Ldarg_1); il.Emit(OpCodes.Ldc_I4, flag); il.Emit(OpCodes.Bne_Un, next);
                     il.Emit(OpCodes.Ldc_I4, profile.OwnedDlcMask);
-                    il.Emit(OpCodes.Call, game.MainModule.ImportReference(typeof(Runtime.OfflineProfile).GetMethod("OwnedDlcMask")!));
+                    il.Emit(OpCodes.Call, TargetMetadata.RuntimeMethod(game.MainModule, "QuestWeaver.Runtime.OfflineProfile", "OwnedDlcMask"));
                     il.Emit(OpCodes.Ldc_I4, flag); il.Emit(OpCodes.And); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un); il.Emit(OpCodes.Ret); il.Append(next);
                 }
                 il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ret);
@@ -326,7 +326,7 @@ internal static class Standalone
         // its existing public IO setting at the original initialization boundary,
         // after the verified owned files are available. Never rewrite the rule
         // DLL, suppress validation, change parser decisions, or skip shared rules.
-        using (AssemblyDefinition rules = AssemblyDefinition.ReadAssembly(Input("ScenarioRuleLibrary.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true }))
+        using (AssemblyDefinition rules = AssemblyDefinition.ReadAssembly(Input("ScenarioRuleLibrary.dll"), new ReaderParameters { AssemblyResolver = resolver, InMemory = true, MetadataImporterProvider = TargetMetadata.Importer }))
         {
             TypeDefinition lazyPaths = rules.MainModule.GetType("ScenarioRuleLibrary.LazyLoadingConstants")
                 ?? throw new InvalidDataException("Original lazy rule path type is missing.");

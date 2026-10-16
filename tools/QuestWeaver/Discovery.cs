@@ -50,7 +50,7 @@ internal sealed class Discovery : IDisposable
     {
         if (!File.Exists(modPath)) throw new FileNotFoundException("Mod assembly is missing.", modPath);
         if (!Directory.Exists(managedPath)) throw new DirectoryNotFoundException(managedPath);
-        var resolver = new DefaultAssemblyResolver();
+        var resolver = new TargetMetadata.Resolver();
         resolver.AddSearchDirectory(managedPath);
         resolver.AddSearchDirectory(Path.GetDirectoryName(modPath)!);
         // A compiler's reference facade is useful only for metadata resolution; target bodies
@@ -59,7 +59,7 @@ internal sealed class Discovery : IDisposable
         string packages = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
         string harmony = Path.Combine(packages, "harmonyx", "2.7.0", "lib", "netstandard2.0");
         if (Directory.Exists(harmony)) resolver.AddSearchDirectory(harmony);
-        var mod = AssemblyDefinition.ReadAssembly(modPath, new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
+        var mod = AssemblyDefinition.ReadAssembly(modPath, new ReaderParameters { AssemblyResolver = resolver, InMemory = true, MetadataImporterProvider = TargetMetadata.Importer });
         return new Discovery(modPath, managedPath, resolver, mod);
     }
 

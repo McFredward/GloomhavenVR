@@ -29,6 +29,12 @@ int assertions = 0;
 void Check(bool condition, string message) { assertions++; if (!condition) throw new Exception(message); }
 try
 {
+    if (args.Length == 1 && args[0] == "--target-metadata-only")
+    {
+        TargetMetadataTests.Run(projectRoot, Path.Combine(temp, "target-metadata"), Check);
+        Console.WriteLine($"Quest target metadata imports: {assertions} assertions passed.");
+        return;
+    }
     if (args.Length == 1 && args[0] == "--package-api-only")
     {
         PackageApiTests.Run(temp + "-package-api", Check);
@@ -201,6 +207,12 @@ try
     }
     context.Unload();
     HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
+    if (args.Length == 1 && args[0] == "--weaver-core-only")
+    {
+        TargetMetadataTests.Run(projectRoot, Path.Combine(temp, "target-metadata"), Check);
+        Console.WriteLine($"QuestWeaver core executable and target metadata: {assertions} assertions passed.");
+        return;
+    }
     StartupTests.Run(projectRoot, Check);
     DlcTests.Run(projectRoot, Check);
     StandaloneProfileTests.Run(projectRoot, Check);
@@ -209,6 +221,7 @@ try
     StandaloneGuildmasterTests.Run(projectRoot, Check);
     StandaloneExportTests.Run(projectRoot, Path.Combine(temp, "native-export"), Check);
     PackageApiTests.Run(temp + "-package-api", Check);
+    TargetMetadataTests.Run(projectRoot, Path.Combine(temp, "target-metadata"), Check);
     Console.WriteLine($"QuestWeaver executable fixture: {assertions} assertions passed.");
 }
 finally { if (Directory.Exists(temp)) Directory.Delete(temp, true); }
