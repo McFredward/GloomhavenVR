@@ -325,10 +325,12 @@ class Store:
             atomic_json(path, {"schema": 1, "session": state["session"]})
         except WizardError as error:
             if error.code != "workspace_metadata_busy": raise
+            state["restartHintDeferred"] = True
             self.event(state, "workspace_metadata_deferred", **error.parameters, buildContinues=True,
                        message={"en": "The optional restart hint is busy; the selected run continues.",
                                 "de": "Der optionale Startverweis ist gesperrt; der gewählte Lauf wird fortgesetzt."})
             return False
+        state.pop("restartHintDeferred", None)
         return True
 
     def event(self, state, code, stage=None, **parameters):

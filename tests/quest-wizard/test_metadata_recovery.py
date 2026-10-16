@@ -113,6 +113,8 @@ class MetadataRecoveryTests(unittest.TestCase):
 
     def test_optional_restart_pointer_does_not_block_a_real_selected_workflow(self):
         choices = wizard.choices({"gameRoot": str(self.store.root / "owned-game"), "install": False})
+        older = self.store.create(choices)
+        self.old = {"schema": 1, "session": older["session"]}
         calls, refusal = self.refusal()
         actions = []
         def perform(row, supervisor):
@@ -131,7 +133,9 @@ class MetadataRecoveryTests(unittest.TestCase):
         self.assertEqual(result["needsActions"], [])
         self.assertTrue(any(row["code"] == "workspace_metadata_deferred" for row in result["events"]))
         self.assertEqual(json.loads(self.path.read_bytes()), self.old)
+        self.assertEqual(discovery.recent_sessions(self.store)[1], saved["session"])
         self.assertTrue(self.store.remember_session(result))
+        self.assertNotIn("restartHintDeferred", result)
         self.assertEqual(json.loads(self.path.read_bytes())["session"], saved["session"])
 
     def test_no_permission_repair_for_unowned_or_hardlinked_metadata(self):

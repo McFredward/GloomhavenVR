@@ -154,7 +154,8 @@ def recent_sessions(store, *, limit=8):
                 continue
             recent.append({"session": session, "status": value["status"],
                            "gameRoot": selected["gameRoot"], "updated": updated,
-                           "created": value.get("created", updated), "mode": selected.get("mode", "build")})
+                           "created": value.get("created", updated), "mode": selected.get("mode", "build"),
+                           **({"restartHintDeferred": True} if value.get("restartHintDeferred") is True else {})})
         except (OSError, ValueError, KeyError, WizardError):
             continue
     recent.sort(key=lambda row: (row["updated"], row["session"]), reverse=True)
@@ -164,6 +165,14 @@ def recent_sessions(store, *, limit=8):
         if any(row["session"] == pointer for row in recent): latest = pointer
     except (OSError, ValueError, WizardError):
         pass
+    if latest is not None:
+        selected = next(row for row in recent if row["session"] == latest)
+        deferred = next((row for row in recent if row.get("restartHintDeferred") and row["updated"] > selected["updated"]), None)
+        if deferred is not None:
+            # Windows may have prevented publishing only the optional pointer.
+            # The newer durable selected run records that exact deferral; do
+            # not offer its older predecessor as the default after restarting.
+            latest = deferred["session"]
     if latest is None and recent: latest = recent[0]["session"]
     visible = recent if limit is None else recent[:limit]
     if latest is not None and not any(row["session"] == latest for row in visible):

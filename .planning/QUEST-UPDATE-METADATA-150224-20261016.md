@@ -37,6 +37,8 @@ If latest-session.json remains busy, Store.remember_session records the precise
 deferral and continues the selected run. It does not waive required session
 state/receipt writes or change ownership, signing, original game or output
 qualification. A later attempt can publish the restart hint when access returns.
+Homepage discovery respects a newer durable run's explicit hint-deferral flag,
+so reopening the Builder does not select the stale predecessor by default.
 Do not repair this by deleting .ghvrq, changing the APK or repeating conversion.
 
 Mandatory metadata that remains inaccessible raises workspace_metadata_busy,
