@@ -45,6 +45,16 @@ access or mutation occurred; it remains restored and user-confirmed usable.
 The next human check must establish the actual PC provider's dynamic/static
 choice and successful changing eye output before a newly agreed receiver run.
 
+Final hosted CI is green: main38876870626 at5c47cea32 and fork38877591803
+at5aaef75, including all configured runtime shards and their aggregate. Local
+scope remains the focused/composed evidence above, not an invented221-suite
+local rerun. All three completed677 worker worktrees and their private compiler,
+Unity/CMake caches are removed; the owned completed-cache audit finds none
+remaining. Original capture/output/source/deliverable evidence remains pinned;
+other agents' work was not scanned or cleaned. The maintainer is now asked only
+to install/test PC677 through the existing toggle. No renewed Frame installation,
+restart or capture permission is requested by that ordinary source-output check.
+
 ## Current checkpoint: final-draw bytes and restored Frame, 2026-10-16
 
 The approved fork446027e capture e5138e4b1410ff2f888365cbe66659e5 retains
