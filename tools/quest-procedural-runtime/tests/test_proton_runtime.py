@@ -119,10 +119,12 @@ class ActualLoaderBoundary(unittest.TestCase):
         compiler = shutil.which("cc")
         if not compiler or not sys.platform.startswith("linux"):
             raise unittest.SkipTest("Actual ELF process/dynamic-loader witness requires Linux and a C compiler.")
-        cls.temporary = tempfile.TemporaryDirectory(prefix="GHPR Proton & Paths ")
+        # Android's nativeLibraryDir contains no loader separators. Retain the
+        # spaced/ampersand payload witness independently of LD_PRELOAD parsing.
+        cls.temporary = tempfile.TemporaryDirectory(prefix="ghpr-proton-")
         cls.root = Path(cls.temporary.name)
         cls.native = cls.root / "native"
-        cls.wine = cls.root / "wine"
+        cls.wine = cls.root / "Wine & Payload"
         cls.native.mkdir()
         origin = cls.wine / "lib/wine/aarch64-unix/ntdll.so"
         origin.parent.mkdir(parents=True)
@@ -134,8 +136,19 @@ class ActualLoaderBoundary(unittest.TestCase):
         args = [compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror"]
         subprocess.run(args + ["-fPIE", "-pie", "-fvisibility=hidden", "-Wl,--export-dynamic", "-I", str(cls.root),
                               str(ROOT / "proton_launcher.c"), "-ldl", "-pthread", "-o", str(cls.native / "libquest_proton.so")], check=True)
+        subprocess.run(args + ["-shared", "-fPIC", "-fvisibility=hidden", "-DGHPR_PROTON_BACKEND=1",
+                              str(ROOT / "bridge.c"), "-ldl", "-pthread", "-o", str(cls.native / "libQuestApparance.so")], check=True)
         server = cls.root / "server.c"
-        server.write_text("int main(void) { return 42; }\n")
+        server.write_text('''#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
+int main(void) {
+    const char *preload = getenv("LD_PRELOAD");
+    assert(preload && strstr(preload, "/libQuestApparance.so"));
+    assert(!strcmp(getenv("GHPR_SERVER_ENV_WITNESS"), "retained & value"));
+    return 42;
+}
+''')
         subprocess.run(args + [str(server), "-o", str(cls.native / "libquest_proton_server.so")], check=True)
         fixture = cls.root / "native_fixture.c"
         fixture.write_text(r'''
@@ -154,6 +167,7 @@ extern char **environ;
 static const unsigned char frame[20] = {'G','H','P','R',1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0};
 void __wine_main(int argc, char **argv) {
     assert(argc == 2 && !strcmp(argv[0], "wine"));
+    assert(!getenv("LD_PRELOAD") || !*getenv("LD_PRELOAD"));
     assert(wine_main_preload_info == NULL);
     Dl_info info; char expected[4096];
     snprintf(expected, sizeof expected, "%s/lib/wine/aarch64-unix/ntdll.so", getenv("GHPR_WINE_ROOT"));
@@ -172,6 +186,9 @@ void __wine_main(int argc, char **argv) {
         snprintf(expected, sizeof expected, "%s/lib/wine/../../bin/wineserver", getenv("GHPR_WINE_ROOT"));
         char *server[] = {expected, NULL}; pid_t pid = 0; int status;
         assert(!posix_spawn(&pid, expected, NULL, NULL, server, environ));
+        assert(waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 42);
+        pid = fork(); assert(pid >= 0);
+        if (!pid) { execv(expected, server); _exit(124); }
         assert(waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 42);
         pid = fork(); assert(pid >= 0);
         if (!pid) {
@@ -197,7 +214,8 @@ void __wine_main(int argc, char **argv) {
     def launch(self, state, **changes):
         state.mkdir(exist_ok=True)
         env = dict(os.environ, GHPR_NATIVE_DIR=str(self.native), GHPR_WINE_ROOT=str(self.wine),
-                   GHPR_STATE_DIR=str(state), WINEPREFIX=str(state / "proton-prefix"))
+                   GHPR_STATE_DIR=str(state), WINEPREFIX=str(state / "proton-prefix"),
+                   LD_PRELOAD="", GHPR_SERVER_ENV_WITNESS="retained & value")
         env.update(changes)
         return subprocess.run([str(self.native / "libquest_proton.so"), "contract-fixture"], env=env,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)

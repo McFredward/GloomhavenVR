@@ -224,10 +224,46 @@ static const char *mapped_executable(const char *path, char *normalized, size_t 
     return path;
 }
 
+static char **server_environment(char *const original[]) {
+    /* Only wineserver needs the existing bridge's narrow /proc/self/exe NLS
+       origin adapter. Never preload it into the loader, PE worker or Unity.
+       The original environment remains caller-owned and byte-for-byte intact.
+     */
+    char bridge[LIMIT];
+    if (!join(bridge, sizeof bridge, native_dir, "libQuestApparance.so")) { errno = ENAMETOOLONG; return NULL; }
+    size_t count = 0;
+    const char *previous = "";
+    while (original && original[count]) {
+        if (!strncmp(original[count], "LD_PRELOAD=", 11)) previous = original[count] + 11;
+        count++;
+    }
+    char **result = calloc(count + 2, sizeof *result);
+    if (!result) return NULL;
+    size_t size = strlen(bridge) + strlen(previous) + 13;
+    result[0] = malloc(size);
+    if (!result[0]) { free(result); return NULL; }
+    snprintf(result[0], size, "LD_PRELOAD=%s%s%s", bridge, *previous ? ":" : "", previous);
+    size_t next = 1;
+    for (size_t index = 0; index < count; index++)
+        if (strncmp(original[index], "LD_PRELOAD=", 11)) result[next++] = original[index];
+    return result;
+}
+
+static void free_server_environment(char **environment) {
+    free(environment[0]); free(environment);
+}
+
 EXPORTED int execv(const char *path, char *const argv[]) {
     pthread_once(&libc_once, resolve_libc);
     char normalized[LIMIT]; const char *mapped = mapped_executable(path, normalized, sizeof normalized);
     if (!mapped) return -1;
+    if (initialized && !strcmp(mapped, native_server)) {
+        char **environment = server_environment(environ);
+        if (!environment) return -1;
+        execve(mapped, argv, environment);
+        int failure = errno;
+        free_server_environment(environment); errno = failure; return -1;
+    }
     return real_execv(mapped, argv);
 }
 
@@ -236,6 +272,12 @@ EXPORTED int posix_spawn(pid_t *pid, const char *path, const posix_spawn_file_ac
     pthread_once(&libc_once, resolve_libc);
     char normalized[LIMIT]; const char *mapped = mapped_executable(path, normalized, sizeof normalized);
     if (!mapped) return ENAMETOOLONG;
+    if (initialized && !strcmp(mapped, native_server)) {
+        char **environment = server_environment(env);
+        if (!environment) return errno ? errno : ENOMEM;
+        int result = real_spawn(pid, mapped, actions, attributes, argv, environment);
+        free_server_environment(environment); return result;
+    }
     return real_spawn(pid, mapped, actions, attributes, argv, env);
 }
 

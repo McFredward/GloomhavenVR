@@ -1,6 +1,9 @@
 /* ARM64 Android ABI shim. The original x64 engine executes in a separate worker. */
 #define _GNU_SOURCE
 #include "protocol.h"
+#if defined(GHPR_PROTON_BACKEND) && !defined(GHPR_HOST_PROOF)
+#include <dlfcn.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -17,6 +20,65 @@
 #include <unistd.h>
 #define API __attribute__((visibility("default")))
 extern char **environ;
+#if defined(GHPR_PROTON_BACKEND) && !defined(GHPR_HOST_PROOF)
+/* Capture135518: the separately executed wineserver discovers NLS data from
+ * realpath("/proc/self/exe"), not Wine's client-side dladdr adapter. Its APK
+ * executable is intentionally outside the data tree. The launcher preloads
+ * this existing bridge into that exact child only. Do not change realpath for
+ * Unity, Wine clients, unrelated executables or arbitrary filesystem paths.
+ */
+static pthread_once_t realpath_once = PTHREAD_ONCE_INIT;
+static char *(*libc_realpath)(const char *, char *);
+static void resolve_realpath(void) {
+    void *symbol = dlsym(RTLD_NEXT, "realpath");
+    memcpy(&libc_realpath, &symbol, sizeof symbol);
+}
+static int absolute_layout_root(const char *path) {
+    if (!path || path[0] != '/' || !path[1] || strlen(path) >= 4096) return 0;
+    const char *part = path + 1;
+    while (*part) {
+        const char *end = strchr(part, '/');
+        size_t length = end ? (size_t)(end - part) : strlen(part);
+        if (!length || (length == 1 && part[0] == '.') ||
+            (length == 2 && part[0] == '.' && part[1] == '.')) return 0;
+        if (!end) return 1;
+        part = end + 1;
+    }
+    return 0;
+}
+API char *realpath(const char *path, char *resolved) {
+    pthread_once(&realpath_once, resolve_realpath);
+    if (!libc_realpath) { errno = ENOSYS; return NULL; }
+    if (path && !strcmp(path, "/proc/self/exe")) {
+        const char *native = getenv("GHPR_NATIVE_DIR"), *wine = getenv("GHPR_WINE_ROOT");
+        if (absolute_layout_root(native) && absolute_layout_root(wine)) {
+            char actual[4096], expected[4096], logical[4096];
+            ssize_t length = readlink("/proc/self/exe", actual, sizeof actual - 1);
+            int count = snprintf(expected, sizeof expected, "%s/libquest_proton_server.so", native);
+            if (length > 0 && length < (ssize_t)sizeof actual - 1 && count > 0 && (size_t)count < sizeof expected) {
+                actual[length] = 0;
+                /* lib/ exists in every staged Wine tree; bin/ is deliberately
+                 * absent because Android executes only nativeLibraryDir code.
+                 * The pinned server's bin-to-share relative suffix therefore
+                 * resolves lib/../share/wine/nls in the existing data tree.
+                 */
+                count = snprintf(logical, sizeof logical, "%s/lib/wineserver", wine);
+                if (!strcmp(actual, expected) && count > 0 && (size_t)count < sizeof logical) {
+                    char directory[4096]; struct stat info;
+                    int size = snprintf(directory, sizeof directory, "%s/lib", wine);
+                    if (size > 0 && (size_t)size < sizeof directory && !stat(directory, &info) && S_ISDIR(info.st_mode)) {
+                        fprintf(stderr, "[GHPR Proton] wineserver NLS data origin uses the retained Wine payload.\n");
+                        if (!resolved) return strdup(logical);
+                        memcpy(resolved, logical, (size_t)count + 1);
+                        return resolved;
+                    }
+                }
+            }
+        }
+    }
+    return libc_realpath(path, resolved);
+}
+#endif
 typedef void (*LogFn)(const char *, int);
 typedef struct Log { struct Log *next; int level; char text[]; } Log;
 typedef struct { uint8_t *data; uint32_t length; } Buffer;
