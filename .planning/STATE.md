@@ -1,5 +1,34 @@
 # State — where the project stands
 
+**Steam Link r4 native clone admitted; recording refused and fully restored, 2026-10-17.**
+
+The approved r4 hardware run is complete and manually rolled back. Native
+imports, isolated load, sampler/device/UI gates and the moving PC-VR pattern
+succeed. For the first time the selected native pipeline clone is ready, and
+actual command generation 25175 is adopted. Recording then refuses
+`unknown_route` (transaction 17) before any observer draw substitution; no
+original-invocation SSBO record is produced. The existing scalar reason cannot
+identify the exact callback or public recording header. Do not label a guessed
+Begin extension or original Vulkan failure as the cause.
+
+All six exact target observations select subpass 0 with the same nine dynamic
+states; recipe receipts use two-subpass RP2/KHR passes. Three available capture
+artifacts are saved and SHA256-verified (raw P010, sampled component codes,
+metadata). They are not reconstructed native RGB or source-frame/eye mapping.
+Fork dev 5cdbe48 records the actual result in
+`docs/research/native-recording-r4-20261017.md`; private evidence and consumed
+operators remain in `build/private-native-ssbo-run-20261016-r4/`.
+
+Rollback confirms no activation, run library or loaded diagnostic mappings,
+healthy original startup and the maintainer's normally visible/usable UI.
+Standby is safe. No timer, automatic rollback or additional device action is
+active. The r4 plan is consumed. Offline r5 workers audit the whole recording
+route with bounded exact operation/header/phase provenance and portable
+Begin/Next/End support; unknown semantics stay refused. Fresh device permission
+will be requested only after the complete next package is reviewed and checked.
+Registration Build677 needs no change. Unrelated main Build678 intro work stays
+outside this task; main runtime gates are not repeated for these docs-only edits.
+
 **Steam Link receiver r4 prepared and checked offline, 2026-10-17.**
 
 The Frame remains restored and user-confirmed normally visible/usable; standby
