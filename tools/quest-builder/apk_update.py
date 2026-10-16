@@ -584,6 +584,38 @@ def collect_code_update(base, compiled_apk, compiled_receipt, *, package_abi):
         names = [LIBRARY, METADATA, INITIALIZERS, ASSEMBLIES] + sorted(n for n in entries if n.startswith(MANAGED_RESOURCES) and n.endswith("-resources.dat"))
         for name in names:
             if name not in replacements: replacements[name] = compiled.read(name)
+        # Capture213445 reaches il2cpp_init with the new native library but
+        # Unity says "Same Unity build, not extracting il2cpp resources." The
+        # pinned Android Player compares this exact APK GUID with files/il2cpp/
+        # unity.ver before copying Managed (including global-metadata.dat).
+        # Preserve the compiler's GUID with its qualified native pair; keeping
+        # the old APK GUID can silently pair a new library with extracted old
+        # metadata before any managed repair/startup code can run. No app data
+        # removal or installer/debugger cache workaround is needed.
+        app_guid = "assets/bin/Data/unity_app_guid"
+        if app_guid not in entries or entries[app_guid].file_size != 36:
+            raise BuildError("Compact native output lacks its bounded Unity IL2CPP cache identity: " + app_guid)
+        guid = compiled.read(app_guid)
+        if (not re.fullmatch(rb"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", guid)
+                or not guid.replace(b"-", b"").strip(b"0")):
+            raise BuildError("Compact native output has an invalid Unity IL2CPP cache identity: " + app_guid)
+        original_entries = _entries(original)
+        if app_guid in original_entries and original_entries[app_guid].file_size == 36 and original.read(app_guid) == guid:
+            # Reusing the same compiled pair is valid. A changed pair with the
+            # same GUID cannot refresh Unity's extraction cache and must never
+            # be published. Only this exceptional equality path reads the old
+            # native pair; a fresh compiler GUID requires no full base scan.
+            cached_payload = {name: body for name, body in replacements.items()
+                              if name == LIBRARY or name.startswith("assets/bin/Data/Managed/")}
+            for name, actual in cached_payload.items():
+                if name not in original_entries or original_entries[name].file_size != len(actual):
+                    raise BuildError("Compact native output changed its IL2CPP payload without changing the Unity cache identity; retain the compiler output for a targeted repair.")
+                previous = hashlib.sha256()
+                with original.open(name) as stream:
+                    while chunk := stream.read(1024 * 1024): previous.update(chunk)
+                if previous.digest() != hashlib.sha256(actual).digest():
+                    raise BuildError("Compact native output changed its IL2CPP payload without changing the Unity cache identity; retain the compiler output for a targeted repair.")
+        replacements[app_guid] = guid
     # The original registry is the authority for retained game data. New mod
     # types need no original serialized references; old types must stay exact.
     capsule = {**capsule, "dynamicProfile": True}
@@ -693,7 +725,8 @@ def _resource_member(name):
 
 def _replaceable(name):
     return name in {LIBRARY, METADATA, INITIALIZERS, ASSEMBLIES, CAPSULE, UPDATE, PROFILE,
-                    "AndroidManifest.xml", INSTALLATION, "assets/quest-mod-content.zip", PROTON_CONTRACT} or name in PROTON_HELPERS or _resource_member(name) or (name.startswith(MANAGED_RESOURCES) and name.endswith("-resources.dat"))
+                    "AndroidManifest.xml", INSTALLATION, "assets/quest-mod-content.zip", PROTON_CONTRACT,
+                    "assets/bin/Data/unity_app_guid"} or name in PROTON_HELPERS or _resource_member(name) or (name.startswith(MANAGED_RESOURCES) and name.endswith("-resources.dat"))
 
 
 def _qualify_proton_helpers(base, info, replacements, update_manifest, evidence):
@@ -1008,6 +1041,8 @@ Neither callback is optional: unsigned output is never an installable result.
     replacements = dict(replacements)
     if set(replacements) & {LIBRARY, METADATA} and not {LIBRARY, METADATA}.issubset(replacements):
         raise BuildError("IL2CPP library and global metadata must be updated together.")
+    if "assets/bin/Data/unity_app_guid" in replacements and LIBRARY not in replacements:
+        raise BuildError("Unity IL2CPP cache identity requires the qualified matching native pair.")
     info = inspect_base(base, validate_update_contracts=not repair_update_contracts)
     _qualify_proton_helpers(base, info, replacements, update_manifest, native_helper_evidence)
     if LIBRARY in replacements:
@@ -1019,7 +1054,7 @@ Neither callback is optional: unsigned output is never an installable result.
         for name, expected in code_evidence.get("replacementSha256", {}).items():
             if name not in replacements or hashlib.sha256(replacements[name]).hexdigest() != expected:
                 raise BuildError("A qualified code payload changed before APK publication: " + name)
-        if not {LIBRARY, METADATA, INITIALIZERS, ASSEMBLIES, CAPSULE}.issubset(code_evidence.get("replacementSha256", {})):
+        if not {LIBRARY, METADATA, INITIALIZERS, ASSEMBLIES, CAPSULE, "assets/bin/Data/unity_app_guid"}.issubset(code_evidence.get("replacementSha256", {})):
             raise BuildError("Native code evidence lacks the required matching player sidecars.")
     if (update_manifest.get("schema") != 1 or update_manifest.get("gameInputKey") != info["inputKey"]
             or not _SHA.fullmatch(update_manifest.get("updateKey", ""))):
