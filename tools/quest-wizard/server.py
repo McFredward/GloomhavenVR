@@ -1000,8 +1000,15 @@ def serve(store, ui_root, *, port=0, open_browser=False):
     if (REPO / "quest-builder-release.json").is_file() and not (REPO / ".git").exists():
         discovery.local_support_module(REPO, "release").verified_source_inventory(REPO)
     server = LocalServer(store, ui_root, port=port, promotional=True)
-    print(json.dumps({"schema": 1, "event": "server", "url": server.url}), flush=True)
-    if open_browser: webbrowser.open(server.url, new=2)
-    try: server.serve_forever(poll_interval=0.2)
+    spec = importlib.util.spec_from_file_location("_ghvr_quest_adb_lifetime", REPO / "tools/quest-installer/adb_lifetime.py")
+    lifetime = importlib.util.module_from_spec(spec); spec.loader.exec_module(lifetime)
+    adb_session = lifetime.Session(store.root / "logs")
+    try:
+        adb_session.start()
+        print(json.dumps({"schema": 1, "event": "server", "url": server.url}), flush=True)
+        if open_browser: webbrowser.open(server.url, new=2)
+        server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt: pass
-    finally: server.close_owned()
+    finally:
+        try: server.close_owned()
+        finally: adb_session.close()

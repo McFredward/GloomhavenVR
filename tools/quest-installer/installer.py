@@ -574,6 +574,20 @@ class Adb:
         self._transport_aliases = {}
         self._probing_connection = False
 
+    def ensure_owned_server(self):
+        if not os.environ.get("GHVRQ_ADB_LIFETIME"):
+            return
+        name = "_ghvr_quest_adb_lifetime"
+        module = sys.modules.get(name)
+        if module is None:
+            spec = importlib.util.spec_from_file_location(name, REPO / "tools/quest-installer/adb_lifetime.py")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            sys.modules[name] = module
+        try: module.ensure_server(self.executable)
+        except (OSError, RuntimeError, ValueError) as error:
+            raise InstallError("The Wizard's local ADB server could not start: " + str(error)) from error
+
     def transport(self, serial):
         return self._transport_aliases.get(serial, serial)
 
@@ -612,6 +626,7 @@ class Adb:
             self._probing_connection = False
 
     def binary_stream(self, serial, local, script, timeout, report=None):
+        self.ensure_owned_server()
         # Isolated -I launchers do not put sibling modules on sys.path. Cache
         # this process's current helper; it is independent of game build input.
         name = "_ghvr_quest_adb_binary"
@@ -634,6 +649,7 @@ class Adb:
                 self.wait_for_connection(serial)
 
     def _run_once(self, *args, timeout=20, positive=None, check_text=True, input_text=None, empty_exit_codes=()):
+        self.ensure_owned_server()
         operands = list(map(str, args))
         serial = operands[1] if len(operands) > 1 and operands[0] == "-s" else None
         if serial: operands[1] = self.transport(serial)
