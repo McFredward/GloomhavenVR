@@ -10,6 +10,16 @@ namespace GloomhavenVR.Core
     internal static class PerfFrameSplit { }
     internal static class VRSession { internal static bool IsRunning; internal static HarmonyLib.Harmony? Harmony; }
     internal static class PerfConfig { internal static bool UnusedCamerasSuspended; }
+    internal static class QuestStandalonePlatform { internal static bool Enabled; }
+    // Observe the exact production clear call while delegating its original
+    // arguments to the real Unity API. Editor default-target pixels cannot
+    // establish an Android XR framebuffer boundary.
+    internal static class FixtureGL
+    {
+        internal static int ClearCalls;
+        internal static void Clear(bool clearDepth, bool clearColor, Color backgroundColor)
+        { ClearCalls++; UnityEngine.GL.Clear(clearDepth, clearColor, backgroundColor); }
+    }
     internal static class VRLog
     {
         internal static int StereoCorrections;
@@ -68,6 +78,7 @@ namespace GloomhavenVR.WorldUI
         }
         internal void End() { ReleaseStack(); GloomhavenVR.Core.VRCameraPolicy.RestoreAll(); RestoreDesktopMirrorMode(); ReleaseDesktopScrub("fixture teardown"); }
         internal RenderTexture? Sink => _scrubRt;
+        internal bool OwnsDesktopMirror => _mirrorModeCaptured || _mirrorModeApplied;
         internal void Pre(Camera camera) => OnScrubPreCull(camera);
         internal void Post(Camera camera) => OnScrubPostRender(camera);
         internal void Handoff(Camera camera, RenderTexture capture)
@@ -82,7 +93,7 @@ namespace GloomhavenVR.WorldUI
         private void RegisterFixtureCapture(Camera camera)
         {
             if (CapturedSet.ContainsKey(camera)) return;
-            var record = new CapturedCamera { Camera = camera, OriginalClearFlags = camera.clearFlags,
+            var record = new CapturedCamera { Owner = this, Camera = camera, OriginalClearFlags = camera.clearFlags,
                 OriginalBackground = camera.backgroundColor, WasEnabled = camera.isActiveAndEnabled, IsUi = false };
             _captured.Add(record); CapturedSet.Add(camera, record);
         }

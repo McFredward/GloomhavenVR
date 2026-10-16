@@ -38,6 +38,8 @@ def main():
     routing = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class FlatScreen\n{\n" + stack[start:end] + "\n}\n"
     variants = [
         ("production", "", "", ""),
+        ("game-debug-shadows-output", "    using Debug = UnityEngine.Debug;", "", "movie pixel evidence survives the original game's conditional global Debug"),
+        ("head-capture-view-leak", "            RenderTexture previous = RenderTexture.active;\n            try\n            {\n                if (farOutput)", "            RenderTexture previous = RenderTexture.active;\n            if (GloomhavenVR.Core.QuestStandalonePlatform.HeadCamera != null) GloomhavenVR.Core.QuestStandalonePlatform.HeadCamera.worldToCameraMatrix = camera.worldToCameraMatrix;\n            try\n            {\n                if (farOutput)", "unequal native capture and eye targets preserve actual head projection viewport and tracked geometry"),
         ("world-screen-array-sampler", "", "", "actual instanced left eye renders owned Tex2D screen pixels"),
         ("world-screen-mono-reset-omitted", "", "", "same persistent screen clears stale right capture on Intro suspension"),
         ("world-screen-left-only", "", "", "actual instanced right eye samples its distinct owned capture"),
@@ -61,9 +63,9 @@ def main():
     graphics = os.environ.get("QUEST_VIDEO_TEST_GRAPHICS_API", "glcore")
     if graphics not in ("glcore", "vulkan"):
         raise RuntimeError("Unknown real Unity graphics API fixture selection.")
-    vulkan_controls = {"render-target-projection-ignored", "automatic-mips-generated-explicitly",
+    vulkan_controls = {"game-debug-shadows-output", "head-capture-view-leak", "render-target-projection-ignored", "automatic-mips-generated-explicitly",
         "glass-alpha-multiplied-twice", "glass-forced-opaque"}
-    variants = [entry for entry in variants if entry[0] == "production"
+    variants = [entry for entry in variants if entry[0] in ("production", "head-capture-view-leak", "game-debug-shadows-output")
         or (entry[0] in vulkan_controls) == (graphics == "vulkan")]
     selected = os.environ.get("QUEST_VIDEO_TEST_CASES")
     if selected:
@@ -94,7 +96,9 @@ def main():
     (boundary / "build.log").write_text(boundary_build.stdout + boundary_build.stderr)
     if boundary_build.returncode:
         raise SystemExit("Actual Quest/mod assembly boundary failed: " + str(boundary / "build.log"))
-    manifest = {"result": str(run / "results.txt"), "cases": []}
+    manifest = {"result": str(run / "results.txt"),
+        "managed": str((ROOT / "ressources/GH_Data/Managed").resolve()),
+        "dependencies": str(ROOT / "src/GloomhavenVR/bin/Release/net472"), "cases": []}
     print("Quest camera video output evidence: " + str(run), flush=True)
     for name, before, after, expected in variants:
         case = run / name

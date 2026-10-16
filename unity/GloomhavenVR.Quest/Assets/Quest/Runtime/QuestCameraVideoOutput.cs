@@ -7,6 +7,9 @@ using UnityEngine.Video;
 
 namespace GloomhavenVR.Quest
 {
+    // GH.Runtime's global Debug conditionally removes Log/LogWarning calls.
+    // Movie-output evidence belongs to Unity's captured startup-log channel.
+    using Debug = UnityEngine.Debug;
     /// <summary>
     /// Android camera-plane output adapter. B620 proves native decoded frames
     /// and an attached output buffer, but the headset still shows grey. Complete

@@ -21,7 +21,9 @@ internal sealed partial class FlatScreen
     /// </summary>
     public void OnEndOfFrame()
     {
-        if (!VRSession.IsRunning || DesktopMirrorLeftEye)
+        // Null RenderTexture is not evidence of a separate desktop framebuffer
+        // on Android XR. Standalone never owns the PC spectator's black clear.
+        if (QuestStandalonePlatform.Enabled || !VRSession.IsRunning || DesktopMirrorLeftEye)
             return;
         RenderTexture? previous = RenderTexture.active;
         try

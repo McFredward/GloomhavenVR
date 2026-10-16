@@ -10,6 +10,9 @@ using UnityEngine.Video;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game also defines a global Debug class. Its conditional Log
+    // methods are omitted from this assembly; retain the bounded Unity evidence.
+    using Debug = UnityEngine.Debug;
     [Serializable] public sealed class QuestGameMovieManifest
     {
         public int schema = 0;

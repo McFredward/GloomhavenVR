@@ -14,6 +14,18 @@ internal static class Fixture
         throw new InvalidOperationException("worker-api: " + api);
     }
 }
+
+// Match the original GH.Runtime compiler scope. Without the explicit production
+// alias, its global Debug shadows UnityEngine.Debug and drops lifecycle records.
+// Existing bounded prepared/started/frame assertions must detect that regression.
+internal static class Debug
+{
+    [System.Diagnostics.Conditional("ENABLE_LOGS")]
+    public static void Log(object message) => UnityEngine.Debug.Log(message);
+    [System.Diagnostics.Conditional("ENABLE_LOGS")]
+    public static void LogWarning(object message) => UnityEngine.Debug.Log(message);
+    public static void LogError(object message) => UnityEngine.Debug.LogError(message);
+}
 namespace UnityEngine
 {
     public class Object

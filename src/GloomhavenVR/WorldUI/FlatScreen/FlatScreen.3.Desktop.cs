@@ -29,6 +29,11 @@ internal sealed partial class FlatScreen
     /// </summary>
     private void TickDesktopMirrorMode()
     {
+        // Quest's Android player has no separate desktop spectator endpoint.
+        // A null target does not identify a separate monitor; a PC mirror
+        // preference must not reconfigure standalone presentation.
+        if (QuestStandalonePlatform.Enabled)
+            return;
         if (!VRSession.IsRunning)
         {
             RestoreDesktopMirrorMode();

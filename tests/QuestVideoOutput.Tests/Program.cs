@@ -17,7 +17,7 @@ namespace GloomhavenVR.Core
         internal static bool IsFlatScreenVideoTarget(Camera camera) => Enabled && FlatScreen.OwnsVideoCapture(camera);
         internal static bool DebugLogging => false;
     }
-    internal static class VRLog { internal static void Info(string area, string message) => Debug.Log(message); }
+    internal static class VRLog { internal static void Info(string area, string message) => UnityEngine.Debug.Log(message); }
     internal static partial class QuestStandalonePlatform
     {
         internal static Camera? HeadCamera = null;
@@ -80,6 +80,84 @@ public static class InteractionProgram
             pixels[y * 16 + x] = new Color(x < 8 ? 1 : 0, y < 4 ? 1 : 0, .25f, 1);
         texture.SetPixels(pixels); texture.Apply(); return texture;
     }
+    static void UnequalHeadContextPixels()
+    {
+        Camera? previousHead = QuestStandalonePlatform.HeadCamera;
+        var head = new GameObject("different-size-head-render-context").AddComponent<Camera>();
+        QuestStandalonePlatform.HeadCamera = head;
+        head.fieldOfView = 65; head.nearClipPlane = .1f; head.farClipPlane = 20;
+        head.cullingMask = 1 << 29; head.clearFlags = CameraClearFlags.SolidColor;
+        head.backgroundColor = new Color(.05f, .15f, .25f, 1);
+        var eye = new RenderTexture(192, 128, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        var source = new RenderTexture(256, 64, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        var left = new RenderTexture(320, 80, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        var right = new RenderTexture(320, 80, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        eye.Create(); source.Create(); left.Create(); right.Create();
+        head.targetTexture = eye;
+        var native = new GameObject("different-size-native-capture").AddComponent<Camera>();
+        native.transform.position = new Vector3(.3f, -.5f, .4f);
+        native.targetTexture = source; native.cullingMask = 0; native.clearFlags = CameraClearFlags.SolidColor;
+        native.backgroundColor = Color.blue; FlatScreen.Capture(native, source);
+        var marker = GameObject.CreatePrimitive(PrimitiveType.Quad); marker.layer = 29;
+        marker.transform.position = new Vector3(.25f, .1f, 2.5f);
+        marker.transform.localScale = new Vector3(.6f, .45f, 1);
+        var markerMaterial = new Material(Shader.Find("Unlit/Color")) { color = Color.red };
+        marker.GetComponent<Renderer>().sharedMaterial = markerMaterial;
+        var decoded = Decoded();
+        Color[] Pixels()
+        {
+            RenderTexture previous = RenderTexture.active;
+            var copy = new Texture2D(eye.width, eye.height, TextureFormat.RGBA32, false, true);
+            try { RenderTexture.active = eye; copy.ReadPixels(new Rect(0, 0, eye.width, eye.height), 0, 0); copy.Apply(); return copy.GetPixels(); }
+            finally { RenderTexture.active = previous; UnityEngine.Object.DestroyImmediate(copy); }
+        }
+        using (var output = new QuestCameraVideoOutput(null!, "unequal-head-context"))
+        {
+            Camera.CameraCallback consume = camera =>
+            {
+                if (camera != head) return;
+                output.CompleteCapture();
+                SharedStereoFixture.Sample(source, left, right, .02f);
+            };
+            try
+            {
+                for (int pose = 0; pose < 3; pose++)
+                {
+                    head.transform.SetPositionAndRotation(new Vector3(pose * .08f, pose * -.03f, 0), Quaternion.Euler(pose * 3, pose * -4, 0));
+                    head.rect = pose == 2 ? new Rect(.1f, .2f, .8f, .7f) : new Rect(0, 0, 1, 1);
+                    head.Render(); Color[] expected = Pixels();
+                    Check(expected.Count(color => color.r > .9f && color.g < .1f) > 30, "unequal context fixture has visible tracked marker");
+                    output.Apply(native, decoded, VideoRenderMode.CameraNearPlane, VideoAspectRatio.Stretch, 1, 1, 1);
+                    native.Render();
+                    Camera.onPreRender += consume;
+                    try { head.Render(); }
+                    finally { Camera.onPreRender -= consume; }
+                    Color[] actual = Pixels();
+                    int different = actual.Where((color, index) => Mathf.Abs(color.r - expected[index].r) > .018f
+                        || Mathf.Abs(color.g - expected[index].g) > .018f || Mathf.Abs(color.b - expected[index].b) > .018f).Count();
+                    UnityEngine.Debug.Log("Video fixture unequal head context pose=" + pose + " eye=192x128 capture=256x64 shift=320x80 differingPixels=" + different);
+                    Check(different == 0, "unequal native capture and eye targets preserve actual head projection viewport and tracked geometry");
+                }
+                string? evidence = null;
+                Application.LogCallback observed = (message, stack, kind) =>
+                { if (message.Contains("stage=fixture-native-debug-shadow")) evidence = message; };
+                Application.logMessageReceived += observed;
+                try { output.Probe(decoded, "fixture-native-debug-shadow", false); }
+                finally { Application.logMessageReceived -= observed; }
+                Check(evidence != null && evidence.Contains("samples=128") && evidence.Contains("rgbMax=255"),
+                    "movie pixel evidence survives the original game's conditional global Debug");
+            }
+            finally
+            {
+                Camera.onPreRender -= consume;
+                foreach (var target in new[] { eye, source, left, right }) { target.Release(); UnityEngine.Object.DestroyImmediate(target); }
+                UnityEngine.Object.DestroyImmediate(head.gameObject); UnityEngine.Object.DestroyImmediate(native.gameObject);
+                UnityEngine.Object.DestroyImmediate(marker); UnityEngine.Object.DestroyImmediate(markerMaterial); UnityEngine.Object.DestroyImmediate(decoded);
+                QuestStandalonePlatform.HeadCamera = previousHead;
+                FlatScreen.ClearFixture();
+            }
+        }
+    }
     static void GlassCapturePixels()
     {
         var ui = new GameObject("native-UI-camera").AddComponent<Camera>();
@@ -114,7 +192,7 @@ public static class InteractionProgram
         try
         {
             Canvas.ForceUpdateCanvases(); ui.Render(); head.Render();
-            Debug.Log("Glass fixture actual API=" + SystemInfo.graphicsDeviceType + " producer=" + Pixel(ui.targetTexture,64,32)
+            UnityEngine.Debug.Log("Glass fixture actual API=" + SystemInfo.graphicsDeviceType + " producer=" + Pixel(ui.targetTexture,64,32)
                 + " head=" + Pixel(head.targetTexture,64,32));
             Close(Pixel(ui.targetTexture,64,32).r, 1, "native Canvas producer emits current UI pixels");
             Close(Pixel(head.targetTexture,64,32).r, 1, "opaque native UI capture reaches owned head camera");
@@ -221,12 +299,12 @@ public static class InteractionProgram
         RenderEyes();
         Graphics.CopyTexture(eyes, 0, 0, planar, 0, 0);
         Color leftPixel = Pixel(planar, 8, 8);
-        Debug.Log("World screen fixture instanced left pixel=" + leftPixel + " shader=" + material.shader.name);
+        UnityEngine.Debug.Log("World screen fixture instanced left pixel=" + leftPixel + " shader=" + material.shader.name);
         Close(leftPixel.b, .25f, "actual instanced left eye renders owned Tex2D screen pixels");
         Close(leftPixel.r, 1, "world screen geometry projection and orientation retained");
         Graphics.CopyTexture(eyes, 1, 0, planar, 0, 0);
         Color rightPixel = Pixel(planar, 8, 8);
-        Debug.Log("World screen fixture instanced right pixel=" + rightPixel);
+        UnityEngine.Debug.Log("World screen fixture instanced right pixel=" + rightPixel);
         Close(rightPixel.b, .875f, "actual instanced right eye samples its distinct owned capture");
         Close(rightPixel.g, .5f, "actual right eye keeps intended native disparity source");
         Close(rightPixel.a, 1, "opaque background ignores captured zero alpha");
@@ -318,9 +396,10 @@ public static class InteractionProgram
     public static int Run()
     {
         checks = 0;
+        UnequalHeadContextPixels();
         if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Vulkan) return VulkanCameraPlanePixels();
         ScreenStereoPixels();
-        Debug.Log("Video fixture actual API=" + SystemInfo.graphicsDeviceType
+        UnityEngine.Debug.Log("Video fixture actual API=" + SystemInfo.graphicsDeviceType
             + " graphicsUVStartsAtTop=" + SystemInfo.graphicsUVStartsAtTop);
         var go = new GameObject("native-captured-camera");
         var camera = go.AddComponent<Camera>(); camera.enabled = true; camera.clearFlags = CameraClearFlags.SolidColor;
@@ -352,7 +431,7 @@ public static class InteractionProgram
             screen.GetComponent<Renderer>().sharedMaterial = displayMaterial;
             view.Render();
             Color displayed = Pixel(view.targetTexture, 8, 8);
-            Debug.Log("Video fixture consumer shader=" + displayMaterial.shader.name + " pixel=" + displayed);
+            UnityEngine.Debug.Log("Video fixture consumer shader=" + displayMaterial.shader.name + " pixel=" + displayed);
             Close(displayed.b, .25f, "native decoded pixels reach actual world-quad display shader");
             screen.transform.localScale = new Vector3(.5f, .5f, 1);
             view.Render();
@@ -433,7 +512,7 @@ public static class InteractionProgram
             foreground.GetComponent<Renderer>().sharedMaterial = foregroundMaterial;
             camera.cullingMask = -1;
             output.Apply(camera, texture, VideoRenderMode.CameraFarPlane, VideoAspectRatio.Stretch, 1, 1, 1); camera.Render();
-            Debug.Log("Video fixture foreground before final draw=" + Pixel(target, 32, 32));
+            UnityEngine.Debug.Log("Video fixture foreground before final draw=" + Pixel(target, 32, 32));
             Close(Pixel(target, 32, 32).b, 1, "native foreground is present before output adaptation");
             output.CompleteCapture();
             Color center = Pixel(target, 32, 32);
