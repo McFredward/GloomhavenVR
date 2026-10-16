@@ -184,3 +184,44 @@ actual current-provider/native-health gates remain required before activation.
 There is no automatic expiry/rollback/restart. Source-frame/eye/UV/foveation and
 working streamed passthrough are still open. Source676, mod defaults, gameplay,
 wire and unrelated concurrent trailer edits remain untouched.
+
+## Sampler cold refusal, complete restoration and local query repair
+
+The approved291248-byte sampler package reached healthy native UI startup but
+reported device_admission_complete=false and sampler_ready=false before a
+stream was requested or the run armed. No image/metadata output was created.
+The old sampler result-8 is its unattempted sentinel, not a returned driver
+failure; default YCbCr/compute flags do not identify which input was refused.
+The precise native input cause remains unknown. Native evidence is pinned in
+fork build/private-sampler-run-20261016-r1; the fork documents the attempt in
+docs/PIXEL-SAMPLER-ATTEMPT-20261016.md.
+
+The maintainer separately approved rollback. All activation files and run
+library were removed; fresh original native UI health returned ready, complete
+protected-map scan found no owned/foreign mappings or uncertainty, and rollback
+had no errors. The user was immediately told standby is safe. No automatic
+expiry/restart, PC sender mutation, source676 change or capture occurred.
+
+The fork's repaired deva2893cb now reports all21 incomplete-admission branches
+with bounded reason/input context, actual feature-observed distinctions and
+whether sampler preparation was attempted. Per-recording core/indexed query-
+begin history replaces a blanket enabled-statistics-feature refusal, preserving
+the original native query calls/results. Unknown future routes are excluded;
+at most two background route observations are possible per device.
+
+Focused helper180 normal/sanitized, six route tests, strict host/ARM builds and
+independent review pass. Two new actual software-Vulkan query-loader cases
+exercise both hooks and preserve native zero/available results. Oldb16 fails
+the same minimal feature-only input specifically at incomplete admission;
+this proves the old policy overly broad locally, not the old Frame's cause.
+Unchanged tracker/shader/GPU/14-loader evidence is inherited locally. Full fork
+CI38861075778 passes the exact final source, without a repeated main-mod gate.
+
+New local ARM291776bytes SHA
+01d371a143bbf77b60a1d89cec1693e657c12cbcad728916cd3c3abb539445ed
+retains three private exports, no TLS/direct Vulkan dependency and BIND_NOW/
+RELRO. Its package/source/CI hashes match. Owned worker trees and build caches
+are removed; native evidence/results/current deliverables remain. This package
+has not been deployed: fresh Frame readiness/restart approval and actual native
+provider/health checks remain required. Working passthrough and native source/
+frame/eye/UV association are still unproved. Main source676 remains unchanged.
