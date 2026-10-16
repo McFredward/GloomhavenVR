@@ -99,7 +99,10 @@ namespace UnityEngine.Video
         public bool isPlaying, isPaused, isPrepared;
         public long frame = -1;
         public UnityEngine.Texture texture = null!;
-        public string url = string.Empty;
+        public string url { get; set; } = string.Empty;
+        public string PlayedUrl = string.Empty;
+        public int PlayCalls;
+        public void Play() { PlayCalls++; PlayedUrl = url; isPlaying = true; started?.Invoke(this); }
     }
 }
 namespace UnityEngine.EventSystems
@@ -125,6 +128,20 @@ public sealed class VideoCamera : UnityEngine.Component
     public int Completions;
     public bool RewardInputLocked;
     public Action? Completed;
+    public string OriginalUrl = string.Empty;
+    public int NativeSetupCalls;
+    // Controlled native-shaped caller: execute the actual Harmony patch, not the helper
+    // in isolation. This setter is followed by native setup and exactly one initial Play.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public bool PlayFullscreenVideo(string name, Action onCompletedCallback, bool reenableDisabledObjects)
+    {
+        Completed = onCompletedCallback;
+        m_VideoPlayer.url = OriginalUrl;
+        NativeSetupCalls++;
+        RewardInputLocked = reenableDisabledObjects;
+        m_VideoPlayer.Play();
+        return true;
+    }
     public void Stop() { m_VideoPlayer.isPlaying = false; }
     private void EndReached(UnityEngine.Video.VideoPlayer player)
     {

@@ -5,10 +5,13 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <VideoSource Condition="'$(VideoSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs</VideoSource>
+    <MovieSource Condition="'$(MovieSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs</MovieSource>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(VideoSource)" Link="Production/NativeVideoWindow.cs" />
+    <Compile Include="$(MovieSource)" Link="Production/NativeVideoMovies.cs" />
     <Compile Include="$(ChromeSweepSource)" Link="Production/ModalChromeSweep.cs" />
     <Compile Include="$(PointerGuardSource)" Link="Production/PointerGuard.cs" />
   </ItemGroup>
+  <ItemGroup><PackageReference Include="Lib.Harmony" Version="2.4.2" /></ItemGroup>
 </Project>

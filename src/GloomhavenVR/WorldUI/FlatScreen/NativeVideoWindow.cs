@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Reflection;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands.Interact;
@@ -101,41 +100,10 @@ internal static class NativeVideoWindow
     // Native callers select only CP_Intro/GH_CP_Intro or Heroes/<ECharacter>. A peer may name
     // those assets, never an arbitrary file, network URL or path traversal. Keep the resolver
     // separate from existence so malformed keys can be exercised without the installed game.
-    internal static bool IsPlaybackKey(string key)
-    {
-        if (string.IsNullOrEmpty(key) || key.Length > 128) return false;
-        string extension = Application.platform == RuntimePlatform.Switch ? ".mp4" : ".mov";
-        if (!key.EndsWith(extension, StringComparison.Ordinal)) return false;
-        string stem = key.Substring(0, key.Length - extension.Length);
-        if (stem == "CP_Intro/GH_CP_Intro") return true;
-        if (!stem.StartsWith("Heroes/", StringComparison.Ordinal) || stem.Length <= 7) return false;
-        for (int i = 7; i < stem.Length; i++)
-        {
-            char c = stem[i];
-            if (!(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z')
-                && !(c >= '0' && c <= '9') && c != '_' && c != '-') return false;
-        }
-        return true;
-    }
+    internal static bool IsPlaybackKey(string key) => NativeVideoMovies.IsPlaybackKey(key);
 
-    internal static bool TryResolvePlaybackKey(string key, out string url)
-    {
-        url = string.Empty;
-        if (!IsPlaybackKey(key)) return false;
-        string root;
-        if (Application.platform == RuntimePlatform.OSXPlayer)
-            root = Path.Combine(Application.dataPath, "Resources", "Data", "StreamingAssets", "Movies");
-        else
-        {
-            string folder = Application.platform == RuntimePlatform.Switch ? "Movies_MP4_30"
-                : Application.platform == RuntimePlatform.GameCoreXboxOne ? "Movies_MOV_30" : "Movies";
-            root = Path.Combine(Application.dataPath, "StreamingAssets", folder);
-        }
-        string candidate = Path.Combine(root, key.Replace('/', Path.DirectorySeparatorChar));
-        if (!File.Exists(candidate)) return false;
-        url = candidate;
-        return true;
-    }
+    internal static bool TryResolvePlaybackKey(string key, out string url) =>
+        NativeVideoMovies.TryResolvePlaybackKey(key, out url);
 
     internal static bool TryGetGrab(out GrabbableModal? grab)
     {

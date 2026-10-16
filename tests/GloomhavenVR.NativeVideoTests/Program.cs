@@ -31,6 +31,7 @@ static class Program
 
     static void Main()
     {
+        MovieResolutionTests.Run(Check);
         CanvasConversion.WorldCamera = new GameObject("Head").AddComponent<Camera>();
         var owner = new GameObject("Native").AddComponent<VideoCamera>();
         owner.m_Camera = owner.gameObject.AddComponent<Camera>();

@@ -41,6 +41,7 @@ PY
 dotnet run --project "$project" --configuration Release \
     --property:ChromeSweepSource="$mutation_dir/ChromeSweep.fixture" \
     --property:PointerGuardSource="$mutation_dir/PointerGuard.fixture"
+python3 "$repo_root/tests/GloomhavenVR.NativeVideoTests/MoviePackagingTests.py" "$repo_root"
 cp "$repo_root/tests/GloomhavenVR.NativeVideoTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
 for mutation in premature-frame orphan-sweep retirement-sweep scene-lifetime content-binding pointer-guard hero-stop; do
@@ -72,6 +73,7 @@ PY
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$mutation_dir/NativeVideoWindow.fixture" \
+        --property:MovieSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs" \
         --property:ChromeSweepSource="$sweep" \
         --property:PointerGuardSource="$pointer_guard" > "$mutation_dir/mutant.log" 2>&1; then
         cat "$mutation_dir/mutant.log"
@@ -83,4 +85,43 @@ PY
         exit 1
     fi
     echo "Native video negative control: $mutation rejected."
+done
+
+# Intercept the actual patched caller: a direct helper-only assertion would stay green
+# if Harmony stopped replacing the setter, broadened the requested name or left peers native.
+for mutation in movie-interception movie-exact-name movie-peer-resolution; do
+    # An intentionally unhandled negative-control assertion may terminate .NET before
+    # finally cleanup. This output belongs exclusively to this serial mktemp fixture.
+    rm -rf "$mutation_dir/bin/Release/net8.0/Movies"
+    python3 - "$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs" "$mutation_dir/NativeVideoMovies.fixture" "$mutation" <<'PY'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+mutations = {
+    'movie-interception': ('if (count != 1)', 'if (count != 0)'),
+    'movie-exact-name': ('requestedName == IntroName && Application.platform', 'Application.platform'),
+    'movie-peer-resolution': ('if (TryModIntro(key, out url)) return true;', ''),
+}
+before, after = mutations[sys.argv[3]]
+assert source.count(before) == 1
+pathlib.Path(sys.argv[2]).write_text(source.replace(before, after))
+PY
+    case "$mutation" in
+        movie-interception) expected='actual Harmony interception assigns mod intro before the single native Play and setup' ;;
+        movie-exact-name) expected='actual Harmony interception leaves Hero playback and canonical identity unchanged' ;;
+        movie-peer-resolution) expected='remote canonical intro key resolves the same optional mod movie' ;;
+    esac
+    if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
+        --property:VideoSource="$source_file" \
+        --property:MovieSource="$mutation_dir/NativeVideoMovies.fixture" \
+        --property:ChromeSweepSource="$mutation_dir/ChromeSweep.fixture" \
+        --property:PointerGuardSource="$mutation_dir/PointerGuard.fixture" > "$mutation_dir/movie-mutant.log" 2>&1; then
+        cat "$mutation_dir/movie-mutant.log"
+        echo "FAIL: $mutation escaped native movie interception test." >&2
+        exit 1
+    fi
+    if ! rg -q "$expected" "$mutation_dir/movie-mutant.log"; then
+        cat "$mutation_dir/movie-mutant.log"
+        exit 1
+    fi
+    echo "Native movie negative control: $mutation rejected."
 done

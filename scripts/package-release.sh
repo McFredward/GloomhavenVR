@@ -7,6 +7,9 @@
 #   INSTALL.txt                                        <- packaging/INSTALL.txt.in
 #   INSTALL-DEUTSCH.txt                                <- packaging/INSTALL.de.txt.in
 #   BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll
+#   BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov
+#                                                         <- approved first-save intro;
+#                                                            original game movie stays intact
 #   BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll     <- RuntimeDepsLoader.RuntimeDepsDir
 #                                                         (= <plugin dir>/RuntimeDeps)
 #   BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle   <- HandVisuals/WorldUIAssets probe
@@ -67,6 +70,11 @@ if [[ ! -f "$ENVIRONMENT_BUNDLE" ]]; then
     exit 1
 fi
 echo "Asset bundle source: $BUNDLE"
+INTRO_MOVIE="$ROOT/src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov"
+if [[ ! -f "$INTRO_MOVIE" ]]; then
+    echo "error: missing approved campaign intro: $INTRO_MOVIE" >&2
+    exit 1
+fi
 
 # ---- version from the plugin csproj ------------------------------------------------------
 VERSION="$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' "$ROOT/src/GloomhavenVR/GloomhavenVR.csproj" | head -1)"
@@ -119,6 +127,8 @@ FRAMESETUP="$PLUGDIR/FrameSetup"
 mkdir -p "$PLUGDIR/RuntimeDeps" "$PATCHDIR/Natives" "$FRAMESETUP"
 
 cp "$PLUGIN" "$PLUGDIR/"
+mkdir -p "$PLUGDIR/Movies/CP_Intro"
+cp "$INTRO_MOVIE" "$PLUGDIR/Movies/CP_Intro/GH_CP_Intro.mov"
 cp "${RUNTIMEDEPS[@]}" "$PLUGDIR/RuntimeDeps/"
 [[ -f "$ROOT/libs/RuntimeDeps/versions.json" ]] && cp "$ROOT/libs/RuntimeDeps/versions.json" "$PLUGDIR/RuntimeDeps/"
 cp "$PRELOADER" "$PATCHDIR/"
@@ -247,6 +257,7 @@ unzip -l "$ZIP"
 LISTING="$(unzip -l "$ZIP")"
 for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
+    "BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov" \
     "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle" \
     "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle" \
     "BepInEx/plugins/GloomhavenVR/ghvr-environment.bundle" \
