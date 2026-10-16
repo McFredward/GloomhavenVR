@@ -78,3 +78,23 @@ managed producer and small Editor import/load fixture are recorded in the
 ignored B673-update-route-153412-20261016 evidence directory. No full game
 conversion, APK build, Quest transfer or hardware picture is claimed for this
 repair. This host compiler repair does not bump runtimeB673.
+
+Primary integration checks pass61compact update cases,27Wizard handoff cases and
+8support cases. The Wizard worker passes36focused Python cases and42model/Chrome
+cases, including actual retained-run rejection, cancellation, explicit setup
+confirmation and preserved reasons after language changes. These counts overlap;
+they are not a complete unrelated multiplayer/test gate.
+
+The managed worker passes84weaver-core assertions (including15target-import
+assertions),20offline-profile and48package API assertions. The real selected mod
+weaves291targets, retains5398unchanged game types, and binds76plugins against the
+retained actual Android SDK. Its real Unity2021.3.5 Editor fixture exits0,
+loads6critical assemblies and3named script types, and enumerates2737runtime
+MonoScripts. This is a load/import proof, not an IL2CPP build or validation of
+the user's complete signed B672 script roster, which was not included locally.
+
+An attempted broader QuestWeaver run fails the existing Unicode lifecycle-log
+assertion in StartupTests.cs:35. A separate harness using exact baseline45faa64
+sources reproduces that failure. The unrelated logger was not changed and no
+broader-suite success is claimed. Build publication/extracted-delivery receipts
+record their own exact source/archive identity after integration.
