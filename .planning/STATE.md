@@ -1,5 +1,59 @@
 # State — where the project stands
 
+**Steam Link native definition run restored; composed output proved offline, 2026-10-16: Build677 unchanged.**
+
+The maintainer approved the 330,320 B package (SHA256 prefix034defdc) and its one SteamVR restart.
+Actual current-provider79 imports/isolated load and native UI health pass. After
+explicit visible moving-pattern confirmation, one paired acquisition completes:
+15,925,248 B P010 +21,233,664 B sampled components +2,505 B metadata, all SHA-verified.
+Capture d22946257c69859d2b165ad50324bf3a lives in fork
+build/private-native-definitions-run-20261016-r1/. Actual fragmentStoresAndAtomics
+is enabled through Features2; optional definitions stop at chain index4,
+VkPhysicalDeviceTimelineSemaphoreFeatures1000207000. This is our strict profile's
+refusal, not a native create failure. No native shader/pipeline was changed.
+
+Manual rollback is complete: activation/config/arm and owned run library absent,
+no owned/foreign mappings or uncertainty, fresh original native UI health ready.
+The user confirmed visible usable original UI and was told standby is safe.
+No automatic expiry/rollback/restart, main-mod source change or live passthrough occurred.
+
+The acquired binding9 has sampled-image type2/count1/stages2147483647. Both exact
+pinned fragment accesses use constant0, but actual Intel/lvp validation rejects
+an unmodified declared array3 with count1 (VUID07991). An attempted cold-profile
+relaxation is REVERTED before deployment. The original profile still requires3.
+A separate explicit owned count1 module-interface adapter is now GPU-proven; it
+changes only the owned B9 variable type and adds three fresh declarations after
+full original-pin/use checks. Native layouts and executed image accesses stay unchanged.
+
+The new single-attachment premultiplied-output proof composes both native cones,
+independent color/coverage weights and original aperture exactly once. Each of
+Intel/lvp passes64 asymmetric stereo cases for each ordinary3 and specialized1
+variant, including16 actual GPU overlapping-transparency sources/64 original-PS
+color oracles per enabled run. Maxerror7.45e-8; positive VVL/sync errors0; original/
+off recovery bit-identical. Missing RGB premultiplication and double-aperture
+mutants fail precisely. Five Python methods pass. Exact private proof/initial
+failures/source pins remain in fork build/private-packed-output-20261016/.
+
+Fork355ca86 is pushed; exact hosted CI38929648477 is green, including the
+new registrations, optional diagnostic compilation, Windows cross-build and
+protocol sanitizer checks. Affected23 raw-fact/700 journal/154 initial definition
+controls pass normal/sanitized/ARM, followed only by156 final definition controls
+for the restored strict extent. Three affected real-loader cases pass; only the
+new CMake Python entry and owned fixture compilation repeat after integration.
+The raw observer now copies all up-to32 device headers and four ordinary Set9
+shapes independently of admission (2724B); unsupported fields remain refused,
+never a recipe/lifetime authority. Full main-mod gate is not repeated.
+
+The user explicitly rejected endless small native diagnostic rounds. Do not ask
+for another headset action before the remaining integration is coherently ready.
+Owned output/linear RGBA32F fixtures are NOT native P010/eye/ray/frame proof. The
+next work must resolve native compatible creation/state/lifetime admission,
+original same-invocation coordinate binding and source chart/eye/frame validity,
+then the actual alpha presenter and real Gloomhaven coverage exporter. No native
+output or sender hook is enabled, and the Frame remains original/restored.
+Own completed caches/executables/validation extraction and worker checkout are
+removed after reaping (~65 MB this round), preserving captures and small evidence.
+
 **Steam Link cold definition integration, 2026-10-16: Build677 unchanged.**
 
 Forkdev f3d335b is pushed; hosted CI38925547452 is green on that exact source:

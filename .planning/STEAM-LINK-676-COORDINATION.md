@@ -718,3 +718,48 @@ are removed; native evidence/results/current deliverables remain. This package
 has not been deployed: fresh Frame readiness/restart approval and actual native
 provider/health checks remain required. Working passthrough and native source/
 frame/eye/UV association are still unproved. Main source676 remains unchanged.
+
+
+## Native cold observations restored; switch to composed integration
+
+2026-10-16: the exact approved330,320B package completed one user-confirmed
+moving-pattern acquisition, then the separately agreed rollback. Capture
+ d22946257c69859d2b165ad50324bf3a and all three SHA-verified files, current79-import
+preflight, original visible-UI confirmation and complete no-mapping rollback are
+retained in fork build/private-native-definitions-run-20261016-r1/. Frame is safe
+for standby; no active experiment or automatic restart remains.
+
+Actual enabled fragmentStoresAndAtomics is observed. The first cold profile
+refusal is unrelated timeline-feature structure1000207000. New offline discovery
+copies complete bounded headers/Set9 shape metadata independently of strict
+admission, avoiding one blind hardware round for each unknown header. It grants
+no compatibility, lifetime or activation. The native sampled-image count1 versus
+original declared array3 contradiction is retained. Static constant0 use alone
+DOES NOT waive Vulkan's layout interface: actual Intel/lvp VUID07991 negatives
+reject the unmodified profile. Its attempted relaxation is reverted before any
+deployment; the default original clone profile still requires count3.
+
+Forkdev355ca86 integrates the checked single-attachment premultiplied output and
+an enabled-only owned count1 interface specialization. Both GPUs pass64 cases
+per variant, including actual overlapping GPU transparency, asymmetric stereo,
+independent original-shader oracles, precise causal negatives and exact off
+recovery. Source access instructions/native layouts are unchanged; positive
+validation/sync errors0 and maxerror7.45e-8. Tests/evidence and the explicit
+remaining native requirements are documented in the fork's
+ docs/NATIVE-DEFINITION-ATTEMPT-20261016.md and
+ tests/native-fragment-packed-output-gpu/README.md. Main Build677 is untouched.
+
+The maintainer asks for fewer device diagnoses and a concrete path to visible MR.
+Do not promise next-test passthrough or request readiness before preparation.
+Continue offline integration of native state/lifetime and same-invocation
+source/eye/chart admission, preserving opaque fallback, then connect actual
+Gloomhaven coverage and the native presenter. A software source encoding or
+caller-supplied affine is not a native proof. No Frame access is currently needed.
+Current owned output/definition checks are focused; earlier unchanged GPU/full
+main receipts are inherited honestly. Generated outputs/caches/private validation
+and the completed worker worktree are cleaned; native originals/captures and
+small receipts remain.
+
+Hosted CI38929648477 is green on exact fork355ca86, including both new test
+registrations, optional diagnostics, Windows cross-build and protocol sanitizers.
+Own worker removal receipt: fork build/private-packed-output-integration-20261016/worker-cleanup.json.
