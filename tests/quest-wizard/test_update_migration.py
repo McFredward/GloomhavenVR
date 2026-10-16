@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -141,7 +140,7 @@ class UpdateMigrationTests(unittest.TestCase):
         self.store.save(saved)
         return saved
 
-    def test_inspect_carries_qualified_strategy_and_full_capacity_reserve(self):
+    def test_inspect_full_strategy_pauses_for_decision_without_full_capacity_reserve(self):
         saved = self.stage_context(); engine = wizard.Engine(self.store)
         root = self.store.root / "build"
         plan = {"schema": 1, "mode": "update-mod", "updateKey": "c" * 64, "gameInputKey": "a" * 64,
@@ -149,30 +148,32 @@ class UpdateMigrationTests(unittest.TestCase):
                 "updateStrategy": "cached-full-build", "requiresUnity": True, "rebuildReasons": ["Changed native runtime"]}
         state.atomic_json(root / "latest-update-input.json", {"schema": 1, "plan": "updates/" + "c" * 64 + "/plan.json"})
         state.atomic_json(root / "updates" / ("c" * 64) / "plan.json", plan)
+        supervisor = Mock()
         with self.store.active(saved), patch.object(provision_environment(), "environment", return_value={}):
-            _, details = engine.stage_inspect(saved, Mock())
-            self.assertEqual(details["updateStrategy"], "cached-full-build")
-            self.assertTrue(details["requiresUnity"])
-            saved["completed"]["inspect"]["details"] = details
+            with self.assertRaises(state.WizardError) as caught:
+                engine.stage_inspect(saved, supervisor)
+            self.assertEqual(caught.exception.code, "update_rebuild_decision_required")
+            self.assertTrue(caught.exception.parameters["updateGuidance"]["newBuild"])
+            self.assertIn("Changed native runtime", caught.exception.parameters["cause"])
+            supervisor.run.assert_called_once()
             with patch.object(qualification, "qualify", return_value={"workspaceRoot": str(self.store.root), "freeBytes": 1, "requiredFreeBytes": 1}) as capacity:
                 engine.qualify(saved, stage="build")
-            self.assertEqual(capacity.call_args.kwargs["mode"], "build")
+            self.assertEqual(capacity.call_args.kwargs["mode"], "update-mod")
+        self.assertEqual(json.loads((root / "updates" / ("c" * 64) / "plan.json").read_text()), plan)
 
-    def test_declared_migration_runs_same_update_command_with_current_unity_and_full_overview(self):
+    def test_saved_full_strategy_cannot_launch_child_or_convert_original_contents(self):
         saved = self.stage_context(); engine = wizard.Engine(self.store)
-        root = self.store.root / "build"; apk = root / "builds/current.apk"; apk.parent.mkdir(parents=True); apk.write_bytes(b"published fixture")
-        state.atomic_json(root / "latest-build.json", {"schema": 1, "receipt": "receipts/build/current.json"})
-        helper = SimpleNamespace(verified_latest_build=lambda output: (apk, {"apkSha256": "d" * 64, "inputKey": "e" * 64}))
-        def build_child(argv, log, env):
-            self.assertIn("update-mod", argv); self.assertIn("--unity-editor", argv)
-            self.assertEqual(self.row()["progress"]["stageTotal"], 23)
-            self.feed(phase="operation:game-inputs", done=1, total=1, unit="operations", operation="game-inputs", status="complete")
-            self.feed(phase="operation:unity-import", done=None, total=None, unit="operations", operation="unity-import", status="start")
-        supervisor = SimpleNamespace(run=build_child)
-        with self.store.active(saved), patch.object(wizard.discovery, "builder", return_value=helper), patch.object(provision_environment(), "environment", return_value={}):
-            _, details = engine.stage_build(saved, supervisor)
-        self.assertEqual(details["apk"], str(apk))
-        self.assertEqual(self.row()["progress"]["stageOperation"], "unity-import")
+        self.migrate()  # Historical fallback display is not current consent.
+        saved = self.store.load(self.session)
+        supervisor = Mock()
+        with self.store.active(saved):
+            with self.assertRaises(state.WizardError) as caught:
+                engine.stage_build(saved, supervisor)
+        supervisor.run.assert_not_called()
+        self.assertEqual(caught.exception.code, "update_rebuild_decision_required")
+        self.assertEqual(self.row()["progress"]["stageTotal"], len(stage_plan.UPDATE_PLANS["update-mod"]))
+        self.assertEqual(stage_plan.workflow(self.row()), "update-mod")
+        self.assertEqual(self.apk.read_bytes(), b"selected old APK fixture")
 
     def test_saved_false_fallback_does_not_reserve_full_recovery_space_before_current_inspect(self):
         saved = self.stage_context(); engine = wizard.Engine(self.store)
@@ -182,7 +183,7 @@ class UpdateMigrationTests(unittest.TestCase):
                 engine.qualify(saved, stage=stage)
                 self.assertEqual(capacity.call_args.kwargs['mode'], 'update-mod')
             engine.qualify(saved, stage='build')
-            self.assertEqual(capacity.call_args.kwargs['mode'], 'build')
+            self.assertEqual(capacity.call_args.kwargs['mode'], 'update-mod')
 
 
 def provision_environment():

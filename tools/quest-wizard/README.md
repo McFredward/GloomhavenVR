@@ -77,6 +77,16 @@ prerequisite decision. Corrected compact routes retire an old fallback overview,
 retaining the visible progress floor without claiming its old game-conversion
 steps completed any current native-code task.
 
+An incompatible compact update pauses with `update_rebuild_decision_required`;
+neither a newly inspected `cached-full-build` strategy nor an older saved fallback
+receipt authorizes original-content conversion. The CLI's current
+`Compact update needs a rebuild decision:` error uses the same localized choices.
+Retry/input review/diagnostics retain the selected update. Choosing a full build
+opens a separate confirmation explaining its time and disk cost; acceptance opens
+new-build setup without launching work or deleting the existing APK/run. Unity
+plugin import failures instead request targeted compiler-project repair, because
+failure to load a DLL does not prove serialized game-content incompatibility.
+
 Closed pinned Windows Git/.NET tool receipts can cross session boundaries using
 the existing strong file witnesses, so a fresh update need not recheck/extract the
 same large archives. Changed/missing files return to ordinary pinned provisioning.

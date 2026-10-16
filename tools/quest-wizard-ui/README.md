@@ -47,6 +47,13 @@ only explicitly choosing "Set up a new build" clears the UI's selected session.
 That action does not delete saved sessions, receipts, downloads or game exports.
 An inaccessible session remains visible and blocks accidental new planning
 until it is reopened or the user explicitly chooses a new build.
+If an update needs a full rebuild decision, both its inline and footer new-build
+actions first show a bilingual confirmation with the exact bounded cause and
+time/disk implications. Declining preserves the current update; acceptance opens
+new-build setup with the selected PC game/profile/DLC choices. Neither action
+posts a plan, launches conversion or deletes a retained result. A normal explicit
+start after setup remains required. Plugin import errors offer targeted repair
+guidance rather than this compatibility decision.
 Backend receipts decide safe reuse; opening a saved run is not a claim that
 cancelled/interrupted work is verified complete. Polling stops
 for inactive sessions; cancellation remains pending until backend confirmation.

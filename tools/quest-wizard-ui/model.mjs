@@ -138,7 +138,8 @@ export function failureView(state) {
   const action=state?.needsActions?.find(value=>value&&typeof value==='object')??{};
   const memoryBlocked=state?.status==='blocked'&&action.code==='native_memory_unavailable';
   const workspaceBlocked=state?.status==='blocked'&&action.code==='workspace_metadata_busy';
-  if(state?.status!=='failed'&&!memoryBlocked&&!workspaceBlocked)return null;
+  const rebuildBlocked=state?.status==='blocked'&&action.code==='update_rebuild_decision_required';
+  if(state?.status!=='failed'&&!memoryBlocked&&!workspaceBlocked&&!rebuildBlocked)return null;
   const parameters=action.parameters??{};
   const cause=typeof parameters.cause==='string'?parameters.cause:typeof parameters.builderError==='string'?parameters.builderError:'';
   // Show one concrete, bounded diagnostic rather than a traceback wall. Text
@@ -148,7 +149,7 @@ export function failureView(state) {
     !/[\u0000-\u001f\u007f]/.test(parameters.path)?parameters.path:null;
   return {stage:typeof parameters.failureStage==='string'?parameters.failureStage:action.stage??state.stages?.find(row=>row.status==='failed')?.id,
     message:action.message??null,cause:lines.at(-1)?.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360)??'',
-    ...(memoryBlocked||workspaceBlocked?{blocked:true}:{}),...(workspaceBlocked?{workspace:true}:{}),...(workspacePath?{workspacePath}:{})};
+    ...(memoryBlocked||workspaceBlocked||rebuildBlocked?{blocked:true}:{}),...(workspaceBlocked?{workspace:true}:{}),...(workspacePath?{workspacePath}:{})};
 }
 export function updateFailureView(state) {
   if(!failureView(state)||!['update-mod','update-profile'].includes(state?.choices?.mode))return null;
@@ -156,13 +157,15 @@ export function updateFailureView(state) {
   const value=action.parameters?.updateGuidance;
   const directStage=['inspect-update','update-mod','update-profile'].includes(action.parameters?.failureStage);
   const legacyStage=['inspect','build'].includes(action.parameters?.failureStage)&&action.parameters?.workflowMode===state.choices.mode;
-  if(action.code!=='build_tool_failed'||!directStage&&!legacyStage||
-    !value||value.schema!==1||!['compact-project','project-ownership','owned-input','signing','source-apk','unknown'].includes(value.kind)||
+  const rebuildDecision=action.code==='update_rebuild_decision_required'&&value?.kind==='rebuild-decision'&&value.newBuild===true;
+  if(action.code!=='build_tool_failed'&&!rebuildDecision||!directStage&&!legacyStage||
+    !value||value.schema!==1||!['compact-project','project-ownership','owned-input','signing','source-apk','unknown','rebuild-decision'].includes(value.kind)||
+    (value.kind==='rebuild-decision')!==rebuildDecision||
     value.retryRetained!==true||value.editInputs!==true)return null;
   const nextSteps=value.nextSteps;
   if(!nextSteps||!['en','de'].every(language=>typeof nextSteps[language]==='string'&&nextSteps[language].length>0&&
     nextSteps[language].length<=2048&&!/[\u0000-\u001f\u007f]/.test(nextSteps[language])))return null;
-  return {kind:value.kind,nextSteps:{en:nextSteps.en,de:nextSteps.de},editInputs:true};
+  return {kind:value.kind,nextSteps:{en:nextSteps.en,de:nextSteps.de},editInputs:true,...(rebuildDecision?{newBuild:true}:{})};
 }
 export function activityView(stage,now=Date.now()/1000) {
   const updated=stage?.progress?.updatedAt;

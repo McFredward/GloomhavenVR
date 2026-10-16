@@ -8,6 +8,7 @@ import time
 repo = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(repo / 'tools/quest-wizard'))
 from failures import tool_failure
+from update_failure_guidance import rebuild_decision
 from state import Store, WizardError, atomic_json
 
 with tempfile.TemporaryDirectory(prefix='quest-update-guidance-') as directory:
@@ -26,4 +27,5 @@ with tempfile.TemporaryDirectory(prefix='quest-update-guidance-') as directory:
         path=r'C:\Users\Fixture\.ghvrq\sessions\current\state.json', retryable=True,
         completedWorkRetained=True, cause='PermissionError: [WinError 5] Access is denied', retryAttempts=4)
     print(json.dumps({name: {'code': error.code, 'stage': 'build', 'message': error.message, 'parameters': error.parameters}
-                      for name, error in (('update', update), ('metadata', metadata))}))
+                      for name, error in (('update', update), ('metadata', metadata),
+                                          ('decision', rebuild_decision('Serialized script roster changed: Fixture.Script')))}))

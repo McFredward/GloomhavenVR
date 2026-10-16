@@ -22,6 +22,7 @@ let automaticBaseApk='',workflowMode=null,workflowPage=0;
 let packageInfo=null,packageBusy=false,packagePollTimer=null,automaticPackageSource='',automaticPackageDestination='';
 let eventsUnavailable=false,stageLogUnavailable=false,lastFailureFocus='',eventsRequest=null,stageLogRequest=null;
 let pendingRestoreChoice=null;
+let pendingUpdateRebuild=null;
 let manualLaunchWaitSince=null;
 let buildFocus=false;const buildGroupChoices=new Map();
 let publisherArtwork=[],ownedArtwork=[],artworkSource='';
@@ -54,6 +55,7 @@ function setLanguage(value) {
   if(discovery) renderGames();updateView();
   renderRestoreChoiceDialog();
   renderDeviceCleanupDialog();
+  renderUpdateRebuildDialog();
 }
 function form() { return {gameRoot:$('game-root').value,provider:$('provider').value,unityEditor:$('unity-editor').value,hostSystem:discovery?.host?.system,
   mode:$('build-mode').value,baseApk:$('base-apk').value,signingRoot:$('signing-root').value,signingMode:$('signing-mode').value,
@@ -932,8 +934,8 @@ function renderProgress() {
   // failure with a misleading "waiting for user" presentation.
   const waiting=(active||blocked)?state.stages?.find(row=>row.waiting)?.waiting:null;
   $('action-needed-title').textContent=t(waiting||blocked?'actionNeeded':'failureTitle');
-  $('progress-title').textContent=t(failure?.blocked?'blockedTitle':failure?'failureTitle':waiting?'actionNeeded':done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
-  $('progress-copy').textContent=t(failure?.workspace?'workspaceMetadataBlockedCopy':failure?.blocked?'nativeMemoryBlockedCopy':failure?'failureCopy':done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':state.status==='ready'?'readyCopy':'progressCopy');
+  $('progress-title').textContent=t(updateFailure?.newBuild?'updateRebuildPausedTitle':failure?.blocked?'blockedTitle':failure?'failureTitle':waiting?'actionNeeded':done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
+  $('progress-copy').textContent=t(updateFailure?.newBuild?'updateRebuildPausedCopy':failure?.workspace?'workspaceMetadataBlockedCopy':failure?.blocked?'nativeMemoryBlockedCopy':failure?'failureCopy':done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':state.status==='ready'?'readyCopy':'progressCopy');
   if(installIssue){
     $('progress-title').textContent=t(installation.connectionRequired?'questConnectionTitle':installation.recoveryRequired?'installationRecoveryTitle':'installationFailedTitle');
     $('progress-copy').textContent=t(installation.connectionRequired?'questConnectionCopy':installation.recoveryRequired?'installationRecoveryCopy':'installationFailedCopy');
@@ -1035,6 +1037,8 @@ function renderProgress() {
   $('failure-retry').disabled=locked;
   $('failure-edit-inputs').hidden=!updateFailure?.editInputs;
   $('failure-edit-inputs').disabled=locked;
+  $('failure-new-build').hidden=!updateFailure?.newBuild;
+  $('failure-new-build').disabled=locked;
   $('install-skip').hidden=!installation?.canSkip;$('install-skip').disabled=locked;
   $('install-keep-saves').hidden=!installation?.canUseSaves;$('install-keep-saves').disabled=locked;
   $('install-content-reinstall').hidden=!installation?.canReinstallContent;$('install-content-reinstall').disabled=locked||deviceActive();
@@ -1060,6 +1064,7 @@ function renderProgress() {
     if(installation.backupPath)$('action-needed-copy').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
   }
   if(pendingRestoreChoice&&(state.session!==pendingRestoreChoice.session||installation?.restoreActionNonce!==pendingRestoreChoice.nonce))closeRestoreChoiceDialog();
+  if(pendingUpdateRebuild&&(state.session!==pendingUpdateRebuild.session||!updateFailure?.newBuild))closeUpdateRebuildDialog();
   const failureKey=installIssue?state.session+':install:'+installation.cause:failure?state.session+':'+failure.stage+':'+failure.cause:'';
   if(failureKey&&failureKey!==lastFailureFocus){$('action-needed').focus({preventScroll:true});$('action-needed').scrollIntoView({block:'nearest'});}
   lastFailureFocus=failureKey;
@@ -1305,21 +1310,43 @@ function preselectUpdateApk(){
   const selected=previousApkSelection();
   $('base-apk').value=selected.path;automaticBaseApk=selected.explicit?'':selected.path;
 }
-function beginBuild(mode='build',force=false){
+function beginBuild(mode='build',force=false,prefill=null){
   if(busy||isActive(state)||storageActive()||deviceActive()||packageActive())return;
   if(!force&&workflowMode===mode&&state?.status!=='complete'){navigatePage(workflowPage,workflowPage===0?'game-root':workflowPage===1?'setup-page':'progress-title');preselectUpdateApk();updateView();return;}
   const previousApk=previousApkSelection();
   // This is an explicit opt-out. Removing a UI selection never deletes the
   // backend session, completed receipts or owner recovery/download workspace.
   clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();state=null;resumeFailed=null;restoredSession=null;qualification=null;page=0;after=0;log=[];
-  restoreChoices({install:true});resetArtwork();clearLoadedLog();clearError();renderGames();
+  restoreChoices(prefill?{...prefill,mode,baseApk:'',signingRoot:'',signingMode:'auto'}:{install:true});resetArtwork();clearLoadedLog();clearError();renderGames();
   $('build-mode').value=mode;workflowMode=mode;workflowPage=0;
   if(mode!=='build'&&previousApk.path){$('base-apk').value=previousApk.path;automaticBaseApk=previousApk.explicit?'':previousApk.path;}
   if(mode==='update-profile')document.querySelector('#game-page .advanced').open=true;
-  if(discovery?.games?.length===1)selectGame(discovery.games[0]);
+  if(!prefill?.gameRoot&&discovery?.games?.length===1)selectGame(discovery.games[0]);
   updateView();$('game-root').focus();
 }
-$('new-build').addEventListener('click',()=>beginBuild('build',true));
+$('new-build').addEventListener('click',()=>updateFailureView(state)?.newBuild?showUpdateRebuildDialog():beginBuild('build',true));
+function closeUpdateRebuildDialog(){
+  pendingUpdateRebuild=null;
+  if($('update-rebuild-dialog').open)$('update-rebuild-dialog').close();
+}
+function renderUpdateRebuildDialog(){
+  if(pendingUpdateRebuild)$('update-rebuild-reason').textContent=pendingUpdateRebuild.cause;
+}
+function showUpdateRebuildDialog(){
+  if(!updateFailureView(state)?.newBuild||busy||actionBusy||storageActive()||deviceActive()||packageActive()||isActive(state))return;
+  pendingUpdateRebuild={session:state.session,cause:failureView(state)?.cause??''};
+  renderUpdateRebuildDialog();$('update-rebuild-dialog').showModal();$('update-rebuild-cancel').focus();
+}
+function confirmUpdateRebuild(){
+  if(!pendingUpdateRebuild||pendingUpdateRebuild.session!==state?.session||!updateFailureView(state)?.newBuild||
+     busy||actionBusy||storageActive()||deviceActive()||packageActive()||isActive(state)){closeUpdateRebuildDialog();return;}
+  const retained=structuredClone(state.choices);
+  closeUpdateRebuildDialog();beginBuild('build',true,retained);
+}
+$('failure-new-build').addEventListener('click',showUpdateRebuildDialog);
+$('update-rebuild-confirm').addEventListener('click',confirmUpdateRebuild);
+$('update-rebuild-cancel').addEventListener('click',closeUpdateRebuildDialog);
+$('update-rebuild-dialog').addEventListener('cancel',closeUpdateRebuildDialog);
 $('home-build').addEventListener('click',()=>beginBuild());
 $('home-mod').addEventListener('click',()=>beginBuild('update-mod'));
 $('home-profile').addEventListener('click',()=>beginBuild('update-profile'));

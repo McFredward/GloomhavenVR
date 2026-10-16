@@ -9,6 +9,15 @@ from __future__ import annotations
 from state import WizardError
 
 UPDATE_STAGES = frozenset(("inspect-update", "update-mod", "update-profile"))
+REBUILD_DECISION_PREFIX = "Compact update needs a rebuild decision:"
+
+
+def rebuild_decision(cause, *, stage="update-mod"):
+    """Pause before original-content work; a diagnostic is never rebuild consent."""
+    cause = str(cause)[:16384]
+    return update_failure({"workflowMode": "update-mod", "failureStage": stage,
+                           "builderError": REBUILD_DECISION_PREFIX + " " + cause,
+                           "cause": cause})
 
 
 def update_failure(parameters):
@@ -30,7 +39,24 @@ def update_failure(parameters):
                "Use Check update inputs to review the PC game, APK/ZIP and signing selection. A new full build is a separate choice on the start page.")
     next_de = ("Diesen Run erneut versuchen, um passende gespeicherte Ergebnisse zu verwenden. Tritt dieselbe Ursache wieder auf, Logs exportieren und den Arbeitsordner für eine gezielte Reparatur behalten. "
                "Unter Update-Eingaben prüfen lassen sich PC-Spiel, APK/ZIP und Signaturauswahl kontrollieren. Ein vollständiger neuer Build ist eine gesonderte Wahl auf der Startseite.")
-    if any(text in error for text in ("Compact update repair required:", "The retained private UGUI package changed;",
+    decision = REBUILD_DECISION_PREFIX in error
+    if decision:
+        kind = "rebuild-decision"
+        en = "The compact update cannot continue automatically. A full rebuild requires your explicit choice."
+        de = "Das kompakte Update kann nicht automatisch fortgesetzt werden. Ein vollständiger Neuaufbau benötigt deine ausdrückliche Entscheidung."
+        next_en = ("Keep the existing APK and workspace. Save diagnostics for a targeted repair, then retry this saved update with the corrected Builder. "
+                   "Check update inputs if another APK or game copy was selected. You can explicitly set up a new build below; that opens the selection form and does not start conversion or delete saved results.")
+        next_de = ("Vorhandene APK und Arbeitsordner behalten. Logs für eine gezielte Reparatur exportieren und dieses gespeicherte Update danach mit dem korrigierten Builder erneut versuchen. "
+                   "Update-Eingaben prüfen, falls eine andere APK oder Spielkopie ausgewählt wurde. Unten lässt sich ausdrücklich ein neuer Build einrichten; das öffnet die Auswahl und startet keine Konvertierung oder Löschung gespeicherter Ergebnisse.")
+    elif "Compact update plugin import failed:" in error:
+        kind = "compact-project"
+        en = "Unity could not load the required update plugins. This does not establish that the game contents need rebuilding."
+        de = "Unity konnte die benötigten Update-Plugins nicht laden. Das belegt keinen nötigen Neuaufbau der Spielinhalte."
+        next_en = ("Keep the existing APK, converted game contents and workspace. Save diagnostics for a targeted plugin repair, then retry this saved update with the corrected Builder. "
+                   "Close any Unity Editor using the update project before retrying. Repeating the same attempt without a fix will not resolve an incompatible plugin.")
+        next_de = ("Vorhandene APK, konvertierte Spielinhalte und Arbeitsordner behalten. Logs für eine gezielte Plugin-Reparatur exportieren und dieses gespeicherte Update danach mit dem korrigierten Builder erneut versuchen. "
+                   "Vor dem Wiederholen einen Unity Editor schließen, der das Update-Projekt verwendet. Derselbe Versuch ohne Korrektur behebt kein inkompatibles Plugin.")
+    elif any(text in error for text in ("Compact update repair required:", "The retained private UGUI package changed;",
                                       "A rewritten original assembly needs one recovered DLL and its retained .meta:",
                                       "The code-update package API binding is incomplete", "The code update did not compile the actual Android package APIs.")):
         kind = "compact-project"
@@ -80,7 +106,8 @@ def update_failure(parameters):
                    "Then retry. If the same file is still rejected, save diagnostics rather than repeatedly rebuilding the game.")
         next_de = ("Kopieren, Herunterladen oder Synchronisieren der APK/ZIP zuerst abschließen lassen. Update-Eingaben prüfen wählen und die fertige Quest-APK oder exportierte Quest-ZIP auswählen; auch das vorhandene Ergebnis aus .ghvrq lässt sich nutzen. "
                    "Danach erneut versuchen. Wird dieselbe Datei weiter abgelehnt, Logs exportieren, statt das Spiel wiederholt neu zu bauen.")
-    return WizardError("build_tool_failed", en, de,
+    return WizardError("update_rebuild_decision_required" if decision else "build_tool_failed", en, de,
                        **dict(parameters, completedWorkRetained=True, updateGuidance={
                            "schema": 1, "kind": kind, "nextSteps": {"en": next_en, "de": next_de},
-                           "retryRetained": True, "editInputs": True}))
+                           "retryRetained": True, "editInputs": True,
+                           **({"newBuild": True} if decision else {})}))

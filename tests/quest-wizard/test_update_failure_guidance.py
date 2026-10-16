@@ -65,6 +65,25 @@ class UpdateFailureGuidanceTests(unittest.TestCase):
         self.assertIn('separate choice', error.parameters['updateGuidance']['nextSteps']['en'])
         self.assertIn('Unrecognized compiler failure 123', error.parameters['cause'])
 
+    def test_rebuild_decision_is_a_pause_and_never_implicit_repair_or_delete_consent(self):
+        cause = 'Compact update needs a rebuild decision: Retained original serialized script is missing: ApparanceAbout'
+        error = self.fail(cause)
+        self.assertEqual(error.code, 'update_rebuild_decision_required')
+        self.assertEqual(error.parameters['updateGuidance']['kind'], 'rebuild-decision')
+        self.assertTrue(error.parameters['updateGuidance']['newBuild'])
+        self.assertTrue(error.parameters['completedWorkRetained'])
+        self.assertIn('benötigt deine ausdrückliche Entscheidung', error.message['de'])
+        self.assertIn('does not start conversion or delete', error.parameters['updateGuidance']['nextSteps']['en'])
+        self.assertFalse(any(key in error.parameters for key in ('delete', 'autoRepair', 'rebuildApproved')))
+
+    def test_plugin_import_failure_requests_targeted_repair_without_rebuild_choice(self):
+        error = self.fail('Compact update plugin import failed: Unity could not load Apparance.Unity.dll')
+        self.assertEqual(error.code, 'build_tool_failed')
+        self.assertEqual(error.parameters['updateGuidance']['kind'], 'compact-project')
+        self.assertNotIn('newBuild', error.parameters['updateGuidance'])
+        self.assertIn('does not establish', error.message['en'])
+        self.assertIn('gezielte Plugin-Reparatur', error.parameters['updateGuidance']['nextSteps']['de'])
+
     def test_update_inspection_has_choices_but_ordinary_build_and_memory_keep_existing_flow(self):
         self.assertEqual(self.fail('The existing Quest APK could not be read.', 'inspect-update').parameters['updateGuidance']['kind'], 'source-apk')
         self.assertNotIn('updateGuidance', self.fail('The existing Quest APK could not be read.', 'build').parameters)
