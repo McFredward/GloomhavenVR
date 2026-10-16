@@ -101,9 +101,10 @@ internal sealed partial class FlatScreenStereo
     /// MultiPass renders the head camera twice per frame with
     /// <c>stereoActiveEye</c> = Left/Right; if a runtime ever reports Mono instead,
     /// a per-frame pass-parity fallback (first pass = Left) takes over seamlessly.
-    /// While the video depth shift is engaged, the first pass of each frame also
+    /// On desktop, while the video depth shift is engaged, the first pass also
     /// refreshes BOTH per-eye shifted copies of the left RT (class doc VIDEO DEPTH
     /// SHIFT — the freshest possible copy, one pair of blits per frame).
+    /// Quest prepares those copies at head pre-cull before stereo draw setup.
     /// Nothing is restored afterwards — the desktop mirror blits the left RT
     /// directly and every pass re-asserts its own texture.
     /// ALSO: for the mod albedo camera (campaign map), this is where the unlit worldMap
@@ -118,6 +119,14 @@ internal sealed partial class FlatScreenStereo
     {
         if (!_active)
             return;
+        // Quest movie completion and the two ordinary 2D depth copies must finish
+        // before Unity enters the head's stereo draw setup. They bind non-XR
+        // targets (and change the viewport); restoring RenderTexture.active alone
+        // is not a stereo render-state boundary. Source cameras have lower depth
+        // than the head, so their completed capture is already available here.
+        if (QuestStandalonePlatform.Enabled && cam == Rig.VRRigDriver.HeadCamera
+            && _quadMaterial != null)
+            PrepareVideoEyes();
         // Drive the real game map camera to our computed pose right before it culls/renders, so the game's
         // on-map marker projection and click raycasts (both via CameraController.m_Camera) align with our
         // render. Safe: the VR rig uses m_Camera only as a build-time anchor and never follows its transform.
@@ -242,27 +251,10 @@ internal sealed partial class FlatScreenStereo
         if (mat == null)
             return;
 
-        // The Quest decoder adapter must finish the owned source capture BEFORE
-        // these shared eye blits. Desktop takes the original path unchanged.
-        QuestStandalonePlatform.PrepareFlatScreenVideoSample();
-
-        if (_videoShift && _shiftBlitFrame != Time.frameCount
-            && _leftRt != null && _rtRight != null && _rtLeftShifted != null)
-        {
-            _shiftBlitFrame = Time.frameCount;
-            // Behind-the-screen (uncrossed) disparity displaces each eye's IMAGE
-            // toward that eye — left −x, right +x — and a blit offset moves the
-            // SAMPLING window, i.e. the negative of the image shift, on top of the
-            // centered overscan margin.
-            float zoom = 1f / VideoOverscan;
-            float margin = (1f - zoom) * 0.5f;
-            float shift = _videoShiftUv;
-            var scale = new Vector2(zoom, zoom);
-            RenderTexture? previous = RenderTexture.active;
-            QuestTextureCopy.Copy(_leftRt, _rtLeftShifted, scale, new Vector2(margin + shift, margin));
-            QuestTextureCopy.Copy(_leftRt, _rtRight, scale, new Vector2(margin - shift, margin));
-            RenderTexture.active = previous;
-        }
+        // Desktop retains its existing timing. Quest already completed these
+        // target-changing draws at head pre-cull; this callback only routes eyes.
+        if (!QuestStandalonePlatform.Enabled)
+            PrepareVideoEyes();
 
         Camera.MonoOrStereoscopicEye eye = cam.stereoActiveEye;
         bool right;
@@ -372,6 +364,30 @@ internal sealed partial class FlatScreenStereo
         else
             QuestStandalonePlatform.SetFlatScreenEyes(mat, leftEye, rightEye);
         QuestStandalonePlatform.ObserveFlatScreenVideoSample();
+    }
+
+    private void PrepareVideoEyes()
+    {
+        // Complete the owned movie before copying its per-eye depth images.
+        QuestStandalonePlatform.PrepareFlatScreenVideoSample();
+        if (_videoShift && _shiftBlitFrame != Time.frameCount
+            && _leftRt != null && _rtRight != null && _rtLeftShifted != null)
+        {
+            _shiftBlitFrame = Time.frameCount;
+            // Behind-screen disparity moves each image toward that eye; source
+            // sampling offsets have the opposite sign, within centered overscan.
+            float zoom = 1f / VideoOverscan;
+            float margin = (1f - zoom) * 0.5f;
+            float shift = _videoShiftUv;
+            var scale = new Vector2(zoom, zoom);
+            RenderTexture? previous = RenderTexture.active;
+            try
+            {
+                QuestTextureCopy.Copy(_leftRt, _rtLeftShifted, scale, new Vector2(margin + shift, margin));
+                QuestTextureCopy.Copy(_leftRt, _rtRight, scale, new Vector2(margin - shift, margin));
+            }
+            finally { RenderTexture.active = previous; }
+        }
     }
 
     /// <summary>

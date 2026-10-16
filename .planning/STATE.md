@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest movie work before stereo draw setup, 2026-10-17: feature / B674.**
+
+Capture215640 confirms working Intro/menu/video, but head-dependent distortion
+and large blue pointer-hit areas remain reported. CPU poses/views/projections
+are consistent. A small GPU probe proves ordinary target restoration loses a
+partial viewport, while normal mono camera drawing resets it; this does not
+establish the OpenXR cause. Move Quest movie/depth copies and bounded readbacks
+to head pre-cull, keep eye texture selection at pre-render and desktop timing.
+Add bounded settled-menu/provider and real pointer geometry evidence. Deliver
+via compact Mod Update; no game reconversion or local full APK build. Headset
+outcome remains unverified. See [QUEST-RENDER-215640-20261017.md](QUEST-RENDER-215640-20261017.md).
+
 **Quest compact update IL2CPP extraction identity, 2026-10-16: feature / B673.**
 
 Capture213445 proves the new B673 APK is installed, then crashes in il2cpp_init

@@ -142,7 +142,7 @@ public static class QuestStandalonePlatform
         material.SetFloat("_StereoCapture", 1f);
     }
 
-    /// <summary>Quest output adapters prepare a completed capture before the shared eye sampler.</summary>
+    /// <summary>Prepare ordinary Quest captures at head pre-cull, before stereo draw setup.</summary>
     public static event Action? FlatScreenVideoSampling;
     public static event Action? FlatScreenVideoSampled;
 

@@ -34,7 +34,7 @@ namespace GloomhavenVR.Quest
         Material material;
         Mesh quad;
         Texture texture;
-        bool disposed, logged, failed, consumerEvidencePending, probeFailed;
+        bool disposed, logged, failed, consumerEvidencePending, consumerEvidenceReady, probeFailed;
         int captureGeneration, completedGeneration = -1, snapshotGeneration = -1, evidenceSamples;
         float nextEvidence;
 
@@ -45,9 +45,10 @@ namespace GloomhavenVR.Quest
             Camera.onPostRender += AfterCamera;
             if (player != null)
             {
+                Camera.onPreCull += BeforeCull;
                 Camera.onPreRender += BeforeCamera;
                 GloomhavenVR.Core.QuestStandalonePlatform.FlatScreenVideoSampling += CompleteCapture;
-                GloomhavenVR.Core.QuestStandalonePlatform.FlatScreenVideoSampled += SampleConsumer;
+                GloomhavenVR.Core.QuestStandalonePlatform.FlatScreenVideoSampled += QueueConsumerEvidence;
             }
         }
 
@@ -63,18 +64,26 @@ namespace GloomhavenVR.Quest
             return GloomhavenVR.Core.QuestStandalonePlatform.IsFlatScreenVideoTarget(candidate);
         }
 
+        void BeforeCull(Camera rendering)
+        {
+            if (disposed || rendering != GloomhavenVR.Core.QuestStandalonePlatform.HeadCamera) return;
+            // Read back the previous observed binding outside the late head
+            // draw callback: probes themselves bind ordinary render targets.
+            if (consumerEvidenceReady) SampleConsumer();
+            // Also covers mono/suspended/split fallback with no compositor hook.
+            // Completion is generation-guarded, so callback registration order
+            // cannot blend twice. The compositor then copies this completed RT.
+            GloomhavenVR.Core.QuestStandalonePlatform.PrepareFlatScreenVideoSample(rendering);
+        }
+
         void BeforeCamera(Camera rendering)
         {
             if (disposed) return;
-            // Also serves the mono/suspended/split-fallback path, where the
-            // stereo compositor has no active head hook. Its explicit hook runs
-            // BEFORE the eye blits when stereo depth is active.
-            GloomhavenVR.Core.QuestStandalonePlatform.PrepareFlatScreenVideoSample(rendering);
             if (consumerEvidencePending && rendering == GloomhavenVR.Core.QuestStandalonePlatform.HeadCamera
                 && camera != null)
             {
                 Material consumer = GloomhavenVR.Core.QuestStandalonePlatform.FlatScreenVideoConsumer(camera);
-                if (consumer != null && consumer.mainTexture == captured) SampleConsumer();
+                if (consumer != null && consumer.mainTexture == captured) QueueConsumerEvidence();
             }
             if (player == null) { Detach(); return; }
             // The head/other camera passes are irrelevant. Gate them before
@@ -223,7 +232,7 @@ namespace GloomhavenVR.Quest
         /// Camera events do not establish that Android's native camera-plane
         /// resolve has finished. B620 attached a valid buffer yet hardware still
         /// showed grey. Finish only this actual owned color/depth capture at its
-        /// consumer boundary, before the existing eye shift/sampling. Late native
+        /// head pre-cull boundary, before stereo draw setup and eye sampling. Late native
         /// output ordering remains a hypothesis until the bounded GPU evidence
         /// identifies it; no decoder, audio or original controller is replaced.
         /// </summary>
@@ -286,12 +295,19 @@ namespace GloomhavenVR.Quest
             }
         }
 
+        void QueueConsumerEvidence()
+        {
+            if (consumerEvidencePending) consumerEvidenceReady = true;
+        }
+
         void SampleConsumer()
         {
             if (!consumerEvidencePending || disposed || camera == null || !CapturedTarget(camera)) return;
             consumerEvidencePending = false;
+            consumerEvidenceReady = false;
             Material consumer = GloomhavenVR.Core.QuestStandalonePlatform.FlatScreenVideoConsumer(camera);
             Debug.Log("[Quest startup] original movie consumer " + context
+                    + " bindingObservation=previous-head-pass readbackPhase=head-pre-cull"
                     + " shader=" + (consumer == null ? "none" : consumer.shader.name)
                     + " texture=" + (consumer == null || consumer.mainTexture == null ? "none" : consumer.mainTexture.name)
                     + " headDepth=" + (GloomhavenVR.Core.QuestStandalonePlatform.HeadCamera == null ? "none"
@@ -445,6 +461,7 @@ namespace GloomhavenVR.Quest
         {
             if (disposed) return;
             disposed = true;
+            Camera.onPreCull -= BeforeCull;
             Camera.onPreRender -= BeforeCamera;
             Camera.onPostRender -= AfterCamera;
             Detach();
@@ -456,7 +473,7 @@ namespace GloomhavenVR.Quest
             if (ordinaryCopyMaterial != null) UnityEngine.Object.Destroy(ordinaryCopyMaterial);
             if (quad != null) UnityEngine.Object.Destroy(quad);
             GloomhavenVR.Core.QuestStandalonePlatform.FlatScreenVideoSampling -= CompleteCapture;
-            GloomhavenVR.Core.QuestStandalonePlatform.FlatScreenVideoSampled -= SampleConsumer;
+            GloomhavenVR.Core.QuestStandalonePlatform.FlatScreenVideoSampled -= QueueConsumerEvidence;
             completion = null; material = null; quad = null; texture = null;
             farDraw = null; farSnapshot = null; cameraPixels = null;
             ordinaryCopyMaterial = null;

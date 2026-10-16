@@ -612,7 +612,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 673;
+    public const ushort ModBuild = 674;
+
+    // ModBuild674 — Quest offscreen movie work before stereo draw setup.
+    // Capture215640 confirms visible Intro/menu/video, but reports head-dependent
+    // distortion and menu-sized blue areas when the pointer hits. Its CPU head
+    // poses/views/projections are consistent; that does not prove GPU state.
+    // A real small GPU fixture proves ordinary movie/stereo target switches
+    // restore the active target but reset a partial viewport to the full target.
+    // Complete Quest movies, copy depth-shifted eyes and take bounded readbacks
+    // at head pre-cull; keep late pre-render limited to per-eye texture routing.
+    // Desktop retains its existing timing. Original video/audio/depth and saved
+    // quality settings remain authoritative. Bounded Debug observations now
+    // cover settled menu visits, provider render parameters and hit geometry.
+    // No XR pose/FOV compensation, asset conversion or new local APK build.
+    // Mono GPU pixels do not establish the Quest outcome; verify on hardware.
 
     // ModBuild673 — Quest render ownership and retained native helper repair.
     // Capture135518 reaches the real menu after both existing content banks are
