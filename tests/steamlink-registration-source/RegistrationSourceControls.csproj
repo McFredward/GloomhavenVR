@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RegistrationTargetFramework Condition="'$(RegistrationTargetFramework)' == ''">net8.0</RegistrationTargetFramework>
+    <TargetFramework>$(RegistrationTargetFramework)</TargetFramework><OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors><Nullable>enable</Nullable><LangVersion>latest</LangVersion>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+    <FrameworkPathOverride Condition="'$(TargetFramework)' == 'net472'">$(FrameworkReferenceDir)</FrameworkPathOverride>
+    <SourceRoot Condition="'$(SourceRoot)' == ''">$(MSBuildProjectDirectory)/../..</SourceRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/ProbePolicy.cs" Link="ProbePolicy.cs" />
+    <Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/ProbeManifest.cs" Link="ProbeManifest.cs" />
+    <Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/RegistrationPairPolicy.cs" Link="RegistrationPairPolicy.cs" />
+    <Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/RegistrationSource.cs" Link="RegistrationSource.cs" />
+    <Compile Include="$(SourceRoot)/tests/steamlink-registration-source/Program.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
+    <Reference Include="System.Runtime.Serialization" />
+  </ItemGroup>
+</Project>
