@@ -796,7 +796,10 @@ def _bind_code_packages(builder, args, output, source, game, project, tools, env
     if evidence != {"schema": 1, "target": "Android", "backend": "IL2CPP", "compilation": "Player",
                     "options": "DevelopmentBuild|Assertions", "unityVersion": "2021.3.5f1"}:
         raise builder.BuildError("The code update did not compile the actual Android package APIs.")
-    plugins = sorted((project / "Assets/Plugins/QuestGame").glob("*.dll"))
+    # Match the full player's binding census. Original package DLLs are disabled
+    # intermediate weaving references; the compiled Android SDK owns their API.
+    plugins = sorted(path for path in (project / "Assets/Plugins/QuestGame").glob("*.dll")
+                     if path.stem not in builder.REPLACED_PACKAGES)
     root = output / "updates" / update_key / "package-api"
     original, rewritten = root / "input", root / "output"
     original.mkdir(parents=True, exist_ok=True)

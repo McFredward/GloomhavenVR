@@ -18,7 +18,7 @@ import tempfile
 import zipfile
 from xml.sax.saxutils import escape
 
-from storage import BuildError, digest, value_hash, write_json
+from storage import BuildError, digest, value_hash, write_json, _ordinary_owned
 from profile import validate_identity, ProfileError
 
 CAPSULE = "assets/Quest/update-capsule.json"
@@ -280,6 +280,36 @@ def _validate_capsule(value, manifest):
         keys.add(key)
 
 
+def _stage_disabled_package_references(project, managed_dir):
+    """Retain the full player's disabled original-package deployment boundary.
+
+    Support143919: weaving legitimately emits UnityEngine.UI.dll, but the compact
+    project omitted its reference plugin. Deployment then failed before SDK
+    compilation. As in the full player, these copies retain intermediate woven
+    outputs only; actual Unity package source supplies the compiled assemblies.
+    Never add these references to the runtime asmdef or package-API input census.
+    Reconcile this bounded set even for an already ready pre-repair project;
+    preserve its regular woven plugins and expensive Unity/Bee Library.
+    """
+    plugins = _ordinary_owned(Path(project) / "Assets/Plugins/QuestGame")
+    for name in sorted(REPLACED_PACKAGES):
+        original = Path(managed_dir) / (name + ".dll")
+        if not original.is_file():
+            continue  # Only original packages actually present in the owned game.
+        target = _ordinary_owned(plugins / original.name)
+        metadata = _ordinary_owned(plugins / (original.name + ".meta"))
+        if not target.is_file():
+            plugins.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(original, target)
+        importer = ("fileFormatVersion: 2\nguid: " + hashlib.sha256(("quest-code-plugin:" + original.name).encode()).hexdigest()[:32] +
+            "\nPluginImporter:\n  serializedVersion: 2\n  iconMap: {}\n  executionOrder: {}\n"
+            "  defineConstraints: []\n  isPreloaded: 0\n  isOverridable: 0\n  isExplicitlyReferenced: 1\n"
+            "  validateReferences: 1\n  platformData:\n  - first:\n      Any:\n    second:\n"
+            "      enabled: 0\n      settings: {}\n  userData:\n  assetBundleName:\n  assetBundleVariant:\n")
+        if not metadata.is_file() or metadata.read_text(encoding="utf-8") != importer:
+            metadata.write_text(importer, encoding="utf-8")
+
+
 def stage_code_project(repo, project, base, managed_dir, *, profile, version_code, version_name, package_abi, packages_manifest=None, code_key=None,
                        retain_compatible_library=False):
     """Stage only runtime code, managed plugins and their script-reference roster.
@@ -314,6 +344,7 @@ def stage_code_project(repo, project, base, managed_dir, *, profile, version_cod
         if not matching and not compatible:
             raise BuildError("Code-only project belongs to a different update; retain it and use this update's own output folder.")
         if matching and previous.get("state") == "ready":
+            _stage_disabled_package_references(project, managed_dir)
             return {"project": str(project), "capsule": capsule, "gameInputKey": metadata["inputKey"],
                     "originalAssetsImported": False, "reused": True}
         if previous.get("state") not in ("ready", "staging"): raise BuildError("Code-only project owner state is invalid.")
@@ -369,6 +400,7 @@ def stage_code_project(repo, project, base, managed_dir, *, profile, version_cod
                 "\nPluginImporter:\n  serializedVersion: 2\n  iconMap: {}\n" + order_text +
                 "  defineConstraints: []\n  isPreloaded: 0\n  isOverridable: 0\n  isExplicitlyReferenced: " + ("1" if dll.name == "GH.Runtime.dll" else "0") +
                 "\n  validateReferences: 1\n  platformData:\n  - first:\n      Any:\n    second:\n      enabled: 1\n      settings: {}\n  userData:\n  assetBundleName:\n  assetBundleVariant:\n", encoding="utf-8")
+    _stage_disabled_package_references(project, managed_dir)
     write_json(runtime / "QuestGame.Campaign.asmdef", {"name": "QuestGame.Campaign", "rootNamespace": "GloomhavenVR.Quest",
         "references": ["Unity.InputSystem", "Unity.Addressables", "Unity.ResourceManager", "UnityEngine.UI", "Unity.TextMeshPro", "Unity.XR.Management", "Unity.XR.OpenXR", "Unity.XR.CoreUtils"],
         "overrideReferences": True, "precompiledReferences": [p.name for p in dlls], "autoReferenced": True,

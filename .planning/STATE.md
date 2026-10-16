@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest compact update package handoff, 2026-10-16: feature / B673.**
+
+Support143919 confirms Builder17c14b3dc, the retained B672 APK and a genuine
+compact update. Current mod compilation and static weaving complete; deployment
+then rejects the omitted original UnityEngine.UI reference plugin. Mirror the
+full player's disabled original-package boundary in the small compiler project,
+including targeted repair of already-ready projects. Exclude all eight replaced
+packages from the subsequent active plugin binding census. Preserve the original
+game/SDK inputs, regular plugin identity and Unity/Bee Library. Runtime remains
+B673; this is a host-side repair, with no new rendering or native helper changes.
+See [QUEST-UPDATE-UI-143919-20261016.md](QUEST-UPDATE-UI-143919-20261016.md).
+
 **Quest original menu render ownership and native helpers, 2026-10-16: feature / B673.**
 
 Capture135518 passes both cached content banks, all11mod modules and the original
