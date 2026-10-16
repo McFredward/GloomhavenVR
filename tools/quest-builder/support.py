@@ -832,6 +832,24 @@ def procedural_logs(build_root):
     return result
 
 
+def adb_lifetime_logs(root):
+    """Keep the two newest owned guard logs without inspecting devices or caches."""
+    try:
+        folder = ordinary(root / 'logs')
+        if not folder.is_dir(): return []
+        rows = []
+        for index, path in enumerate(folder.iterdir()):
+            if index >= 2048: break
+            if not re.fullmatch(r'adb-lifetime-[0-9a-f]{12}\.log', path.name): continue
+            try:
+                path = ordinary(path)
+                if path.is_file(): rows.append((path.stat().st_mtime_ns, path))
+            except (OSError, BuildError): continue
+        return [path for _, path in sorted(rows, key=lambda row: row[0], reverse=True)[:2]]
+    except (OSError, BuildError):
+        return []
+
+
 def export_support(state_root, session=None, destination=None):
     """Snapshot owned workspace, live or retired run without altering receipts."""
     root = ordinary(state_root)
@@ -955,6 +973,8 @@ def export_support(state_root, session=None, destination=None):
     for name in ('wizard-requests.log', 'wizard-requests.previous.log', 'storage-cleanup.log', 'storage-cleanup.previous.log',
                  'package-export.jsonl', 'package-export.previous.jsonl', 'metadata-repair.jsonl'):
         add_log(candidates, 'wizard/' + name, root / 'logs' / name, False, omitted)
+    for path in adb_lifetime_logs(root):
+        add_log(candidates, 'wizard/' + path.name, path, False, omitted)
     log_sources = [(build_root / 'logs', 'build', lambda name: bool(BUILD_LOG.fullmatch(name)) or name in UPDATE_LOGS)]
     if session_root:
         log_sources.insert(0, (session_root / 'logs', 'wizard', lambda name: bool(WIZARD_LOG.fullmatch(name))))
@@ -1001,7 +1021,8 @@ def export_support(state_root, session=None, destination=None):
         # preserve these two bounded utility/request records even when the
         # current build event history only reports a disk-capacity stop.
         return (7 if name in installation_names else
-                6 if name in ('wizard/storage-cleanup.log', 'wizard/wizard-requests.log', 'wizard/storage-analysis.json') else
+                6 if name in ('wizard/storage-cleanup.log', 'wizard/wizard-requests.log', 'wizard/storage-analysis.json')
+                     or re.fullmatch(r'wizard/adb-lifetime-[0-9a-f]{12}\.log', name) else
                 5 if name == failed_log else 4 if structured else
                 3 if name in ('wizard/build.log', 'wizard/install.log', 'wizard/progress.log') or name.startswith('device/') else
                 2 if name.startswith('build/') and name[6:] in UPDATE_LOGS else 1)
