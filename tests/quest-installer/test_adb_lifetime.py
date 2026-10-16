@@ -20,7 +20,7 @@ installer = importlib.util.module_from_spec(SPEC); sys.modules[SPEC.name] = inst
 
 def _fake_adb(root):
     path = root / "adb"
-    path.write_text("#!" + sys.executable + "\n" + '''import json,os,socket,sys
+    path.write_text("#!" + str(Path(sys.executable).resolve()) + "\n" + '''import json,os,socket,sys
 from pathlib import Path
 assert sys.argv[1] == '-L' and sys.argv[3:] == ['server', 'nodaemon']
 port=int(sys.argv[2].rsplit(':',1)[1]); root=Path(__file__).parent
