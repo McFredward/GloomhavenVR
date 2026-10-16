@@ -2,6 +2,19 @@
 
 ## Build677 changing-source integration
 
+Final native-evidence caveat: the post-draw uniform companion has no recorded
+host-visible/map/write history or proved native CPU-writer completion contract.
+Its owned fence/retirement proves copy publication, not identity with every
+shader-consumed byte. The captured matrix comparisons remain valid as byte
+comparisons only; native_draw_coherence_proven stays false. Do not promote them
+to a live mapping admission. Original PS-q can be consumed directly from the
+original varying, so another lens-mesh capture is unnecessary. The missing
+app-canvas-to-decoded W mapping and the native consumption contract remain
+separate blockers. Read-only algebra/facts are retained under the fork's
+build/private-native-ray-algebra-20261016/. No source/build/Frame change follows
+from this clarified limitation; the user has been explicitly told the earlier
+shader-consumption wording was too strong.
+
 Portable worker8c9f7f3e6 is adopted as51fb12851. Primary owns the new
 RegistrationTextures adapter, PayloadOutput/Driver connection, existing focused
 runner extension,677 build note and docs. Three owned stereo slots close their
