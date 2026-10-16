@@ -2714,7 +2714,7 @@
     }
   },
   "campaign_intro": {
-    "status": "media-and-browser-reviewed-runtime-integrated-full-regression-running",
+    "status": "media-browser-reviewed-runtime-integrated-local-validation-complete",
     "source_accepted_opening": "First 46 seconds of current v11; all three opening AI shots retained at source tempo.",
     "modbuild": 678,
     "asset": "src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov",
@@ -2732,6 +2732,18 @@
     "hardware_verified": false,
     "date": "2026-10-17",
     "private_browser_receipt": ".planning/debug/trailer/remake-v1/game-intro-v1/independent-review/final-navigation.json",
-    "private_debug_package_receipt": ".planning/debug/trailer/remake-v1/game-intro-v1/debug-package.json"
+    "private_debug_package_receipt": ".planning/debug/trailer/remake-v1/game-intro-v1/debug-package.json",
+    "private_verification_receipt": ".planning/debug/trailer/remake-v1/game-intro-v1/verification.json",
+    "validation": {
+      "source_suites": 16,
+      "initial_complete_local_passed": 218,
+      "initial_complete_local_total": 221,
+      "focused_repair_passed": 3,
+      "inherited_unchanged_suites": 218,
+      "fresh_complete_local_pass": false,
+      "wire_golden_assertions": 300518,
+      "debug_release_errors": 0,
+      "debug_release_warnings": 0
+    }
   }
 }

@@ -1,5 +1,37 @@
 # State — where the project stands
 
+**Approved campaign intro delivered, 2026-10-17: Build 678.**
+
+The accepted trailer opening now ships as the plugin-local first-save movie.
+The existing GloomhavenVR artwork replaces the opening rating/title card;
+approved O01/E01/E02 shots keep their original clock and speed. The game's
+native closing fade/tail preserves the 48.85s / 2931-frame completion duration.
+The approved name patch and unofficial fan-mod label remain. No new paid calls.
+Game StreamingAssets and the provisional full-trailer gameplay edit are unchanged.
+
+The registered native transpiler replaces its existing URL assignment before
+the first Play, preserving native volume, skip, completion and continuation.
+Remote cosmetic players resolve the same canonical key to their installed movie.
+Missing optional media falls back to the game file. Both installers and release
+packaging include the asset. The Debug update and desktop/mobile review are at
+`.planning/debug/trailer/remake-v1/game-intro-v1/REVIEW.html`; developer details
+and exact media provenance are in `docs/trailer/game-intro.md`.
+
+Root and independent media/browser/download review pass. All 2566 retained body
+frames match their original source addresses; native ending and audio checks
+pass. Integrated playback has 93/466/35 assertions with 10/5 mutation controls.
+Debug and Release builds have zero errors/warnings; docs i18n and all 16 source
+suites pass. The complete local run passed 218/221 suites. A seven-line missing
+logging stub in the unrelated native-atlas fixture was repaired; the three
+atlas/recovery/scenery suites pass serially with unchanged deadlines and controls.
+This composes 221-suite coverage with the unchanged 218 earlier passes; it is
+not a fresh complete-gate pass. Wire golden vectors pass 300,518 assertions.
+Remaining bundle/surface checks pass. Compiled comparison against historical
+Build601 baseline 98fba1a8d is nonempty (202 changed, 160 added/removed), not an
+intro-only equivalence proof; no baseline was overwritten. Failed attempts,
+scope proofs and cleanup receipts are retained beside `verification.json`.
+Actual headset first-save/skip and paired viewing remain unverified.
+
 **Steam Link r5 complete offline; exact CI green, fresh device permission pending, 2026-10-17.**
 
 Fork dev 4a7146d is pushed. Exact hosted CI 38975977337 succeeds: 130 CTests
