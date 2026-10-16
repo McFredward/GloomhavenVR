@@ -32,6 +32,13 @@ def _proton_helpers():
     return module
 
 
+def _native_resume():
+    spec = importlib.util.spec_from_file_location("quest_native_update_resume", Path(__file__).with_name("native_update_resume.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def preflight(builder, game_root, base_apk, mode=None, *, output=None, progress=None, cancel=None):
     """Always read the selected owned installation before downloads/build reuse."""
     if not base_apk:
@@ -113,6 +120,7 @@ def inspect(builder, args, repo, output, data=None):
             "updateStrategy": "cached-full-build" if reasons else "compact-code" if mode == "update-mod" else "profile-only",
             "rebuildReasons": reasons, "requiresUnity": bool(reasons or code_changed or art_changed or native_helper_changed),
             "codeChanged": code_changed, "artChanged": art_changed, "nativeHelperChanged": native_helper_changed,
+            "nativeCompilerRecipe": _native_resume().compiler_recipe(builder, __file__),
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
                 ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py")}}
     plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name not in ("baseApk", "sourcePackage")})
@@ -759,16 +767,50 @@ def _compact_player_command(builder, argv, launch_log, unity_log, env):
             raise
 
 
+def _native_producer_rows(files):
+    host_parsers = {"tools/quest-builder/apk_update.py", "tools/quest-builder/update_driver.py"}
+    selected = {}
+    for selector in (_code_rows, _payload_rows, _native_rows, _art_rows):
+        for row in selector(files):
+            if row["path"] not in host_parsers: selected[row["path"]] = row
+    return [selected[name] for name in sorted(selected)]
+
+
 def _compile_code(builder, args, inputs, output, source, game, project, base, tools, root):
     core = _core(builder)
     builder.build_progress.operation("update-code", detail="Compiling the current mod and Quest-only original-game bindings.")
     package_abi = package_fingerprint(builder, source, inputs)
     compiled = root / "code-player.apk"
     compiled_receipt = Path(str(compiled) + ".code-build.json")
-    if builder.Stages(output).valid("update-code", root.name):
+    stages = builder.Stages(output)
+    current_plan = _native_resume().current_plan(builder, __file__, inputs, root)
+    closed = stages.valid("update-code", root.name)
+    if closed:
+        compiled, compiled_receipt = _native_resume().closed_paths(builder, output, root, closed)
         result = core.collect_code_update(base, compiled, compiled_receipt, package_abi=package_abi)
         builder.build_progress.operation("update-code", complete=True, detail="Completed native code and metadata reused; no compiler rerun.")
         return result
+    retained = _native_resume().retained_player(builder, __file__, inputs, output, source, project,
+                                                base, root, package_abi, producer_rows=_native_producer_rows, current=current_plan)
+    if retained:
+        compiled, compiled_receipt, result = retained
+        stages.run("update-code", root.name, lambda: ([compiled, compiled_receipt], {"nativePairQualified": True}))
+        builder.build_progress.operation("update-code", complete=True,
+            detail="Retained completed native Player passed current compatibility checks; no weaving, SDK or native compiler rerun.")
+        return result
+    # Native production closes independently of the post-build compatibility
+    # parser. A later parser repair can requalify these exact bytes directly.
+    stages.run("update-code-production", root.name, lambda: _build_code_player(
+        builder, args, inputs, output, source, game, project, base, tools, root, package_abi, compiled, compiled_receipt))
+    result = core.collect_code_update(base, compiled, compiled_receipt, package_abi=package_abi)
+    stages.run("update-code", root.name, lambda: ([compiled, compiled_receipt], {"nativePairQualified": True}))
+    builder.build_progress.operation("update-code", complete=True, detail="Matched ARM64 code, metadata and original script types compiled.")
+    return result
+
+
+def _build_code_player(builder, args, inputs, output, source, game, project, base, tools, root,
+                       package_abi, compiled, compiled_receipt):
+    core = _core(builder)
     core.stage_code_project(source, project, base, game / "Managed", profile=inputs["profile"], package_abi=package_abi,
                             version_code=inputs["mod"]["modBuild"],
                             version_name="0.1.0.B" + str(inputs["mod"]["modBuild"]) + "." + root.name[:12], code_key=root.name,
@@ -796,17 +838,11 @@ def _compile_code(builder, args, inputs, output, source, game, project, base, to
     launcher = builder.host_resources.prepare_bee_launcher(dotnet, output)
     env = builder.host_resources.unity_native_environment(tools["editor"], launcher, policy["jobs"], dotnet, env)
     _bind_code_packages(builder, args, output, source, game, project, tools, env, root.name)
-    def compile_player():
-        _compact_player_command(builder, builder.unity_launcher(tools["editor"]) + ["-quit", "-projectPath", str(project),
+    _compact_player_command(builder, builder.unity_launcher(tools["editor"]) + ["-quit", "-projectPath", str(project),
                         "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestCodeUpdateBuild.Build",
                         "-logFile", str(output / "logs/update-code-unity.log")], output / "logs/update-code-launch.log",
                         output / "logs/update-code-unity.log", env)
-        core.collect_code_update(base, compiled, compiled_receipt, package_abi=package_abi)
-        return [compiled, compiled_receipt], {"nativePairQualified": True}
-    builder.Stages(output).run("update-code", root.name, compile_player)
-    result = core.collect_code_update(base, compiled, compiled_receipt, package_abi=package_abi)
-    builder.build_progress.operation("update-code", complete=True, detail="Matched ARM64 code, metadata and original script types compiled.")
-    return result
+    return [compiled, compiled_receipt], {"nativePlayerProduced": True}
 
 
 def _bind_code_packages(builder, args, output, source, game, project, tools, env, update_key):

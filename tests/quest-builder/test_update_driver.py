@@ -772,7 +772,10 @@ class UpdateDriverTests(unittest.TestCase):
         source = self.root / "source"; manifest = source / "unity/GloomhavenVR.Quest/Packages/manifest.json"
         storage.write_json(manifest, {"dependencies": {}})
         self.builder.ORIGINAL_UGUI_SHA256 = "3" * 64; self.builder.UGUI_LAYOUT_SOURCE_SHA256 = "4" * 64
-        stage_root = self.output / "updates" / ("5" * 64); stage_root.mkdir(parents=True)
+        plan = {"schema": 1, "mode": "update-mod", "updateStrategy": "compact-code", "codeChanged": True,
+                "inputs": self.manifest, "nativeCompilerRecipe": driver._native_resume().compiler_recipe(self.builder, driver.__file__)}
+        key = storage.value_hash(plan); plan["updateKey"] = key
+        stage_root = self.output / "updates" / key; storage.write_json(stage_root / "plan.json", plan)
         compiled = stage_root / "code-player.apk"; compiled.write_bytes(b"matched compiler fixture")
         receipt = Path(str(compiled) + ".code-build.json"); receipt.write_text("{}")
         storage.Stages(self.output).run("update-code", stage_root.name, lambda: ([compiled, receipt], {}))
