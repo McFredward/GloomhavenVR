@@ -13,6 +13,8 @@ internal static class Program
     }
     static void Invoke(QuestGameBootstrap bootstrap, string method) => typeof(QuestGameBootstrap).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(bootstrap, null);
     static int Count(string text, string needle) => text.Split(needle, StringSplitOptions.None).Length - 1;
+    static int LogCounter(QuestGameStartupLog log, string name) => (int)typeof(QuestGameStartupLog)
+        .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(log)!;
     static void Main(string[] args)
     {
         string root = args[0]; Directory.CreateDirectory(root);
@@ -148,6 +150,68 @@ internal static class Program
         Check(text.Contains("original scene loaded=MainMenu") && text.Contains("original movie URL bound MainMenu"), "detail-reserve: detailed observations swallowed final menu lifecycle and video binding");
         Check(Count(text, "presentation diagnostic log limit reached") == 1 && text.Contains("full later stack"), "detail-reserve: bounded detail stream lost first errors or repeated its cap marker");
         Check(new FileInfo(path).Length <= QuestGameStartupLog.MaxBytes, "detail-reserve: independent lanes exceeded the global byte ceiling");
+
+        // Saturated movie/widget observations must not swallow the actual XR
+        // provider and laser bounds used to diagnose the B673 hardware picture.
+        details.Append("[Quest startup] presentation provider actual-render-boundary");
+        details.Append("[Quest startup] presentation laser actual-marker-bounds");
+        details.Append("[Quest startup] presentation laser actual-marker-bounds");
+        text = File.ReadAllText(path);
+        Check(text.Contains("provider actual-render-boundary") && Count(text, "laser actual-marker-bounds") == 1,
+            "priority-reserve: general presentation saturation lost or duplicated provider/laser evidence");
+        Check(LogCounter(details, "priorityDetailRecords") == 2 && LogCounter(details, "detailRecords") == 96,
+            "priority-partition: reserved observations consumed general presentation slots");
+
+        path = Path.Combine(root, "priority-record-cap.log");
+        var priority = new QuestGameStartupLog(path, "priority record cap");
+        for (int i = 0; i < 1000; i++)
+        {
+            priority.Append("[Quest startup] presentation provider sample=" + i);
+            priority.Append("[Quest startup] presentation laser sample=" + i);
+        }
+        text = File.ReadAllText(path); size = new FileInfo(path).Length;
+        Check(Count(text, "presentation provider ") == 32 && Count(text, "presentation laser ") == 32
+            && Count(text, "provider and laser diagnostic log limit reached") == 1,
+            "priority-record-bound: priority samples or limit marker exceeded their reserved record share");
+        priority.Append("[Quest startup] presentation provider after cap");
+        Check(new FileInfo(path).Length == size && LogCounter(priority, "priorityDetailRecords") == 64,
+            "priority-record-bound: capped priority lane kept growing");
+        priority.Append("[Quest startup] presentation camera after priority cap");
+        priority.Append("[Quest startup] original scene loaded=after-priority-cap");
+        priority.AppendOriginalError("failure after priority cap", "first cause retained");
+        text = File.ReadAllText(path);
+        Check(text.Contains("camera after priority cap") && text.Contains("loaded=after-priority-cap")
+            && text.Contains("first cause retained"), "priority-isolation: priority saturation swallowed another lane");
+
+        // Exercise all five independent lanes at their record ceiling, then
+        // repeat with multi-byte payloads to exercise each byte ceiling instead.
+        foreach (bool longMessages in new[] { false, true })
+        {
+            path = Path.Combine(root, "all-lanes-" + longMessages + ".log");
+            var all = new QuestGameStartupLog(path, "all lane bounds");
+            string payload = longMessages ? new string('漢', 20000) : "sample";
+            for (int i = 0; i < 1100; i++)
+            {
+                string value = i + " " + payload;
+                all.Append("ordinary " + value);
+                all.Append("[Quest startup] lifecycle " + value);
+                all.Append("[Quest startup] presentation camera " + value);
+                all.Append("[Quest startup] presentation provider " + value);
+                all.Append("[Quest startup] presentation laser " + value);
+                all.AppendOriginalError("failure " + value, "stack " + payload);
+            }
+            text = File.ReadAllText(path);
+            Check(new FileInfo(path).Length <= QuestGameStartupLog.MaxBytes,
+                "all-lanes-byte-bound: combined streams exceeded256KiB, longMessages=" + longMessages);
+            Check(LogCounter(all, "records") + LogCounter(all, "startupRecords") + LogCounter(all, "detailRecords")
+                + LogCounter(all, "priorityDetailRecords") + all.OriginalErrors + 5 <= QuestGameStartupLog.MaxRecords,
+                "all-lanes-record-bound: combined streams and five markers exceeded512records");
+            foreach (string marker in new[] { "diagnostic log limit reached;", "original error log limit reached;",
+                "startup lifecycle log limit reached;", "presentation diagnostic log limit reached;", "provider and laser diagnostic log limit reached;" })
+                Check(text.Contains(marker), "all-lanes-markers: missing cap marker " + marker);
+            Check(LogCounter(all, "priorityDetailBytes") <= 24 * 1024 && LogCounter(all, "detailBytes") <= 40 * 1024,
+                "priority-byte-partition: presentation sublanes exceeded the existing64KiB share");
+        }
 
         var frames = new QuestFrameEvidence();
         Check(frames.Observe("MainMenu", true, false, 1, 0, 0, true) == null && !frames.Snapshot.sampling, "frame-debug: normal logging ran frame sampling");

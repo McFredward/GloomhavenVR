@@ -17,14 +17,19 @@ namespace GloomhavenVR.Quest
         // Capture135518 needs bounded pose/matrix, active-EULA and real movie
         // evidence together. Reallocate the ordinary trace share, retaining the
         // same256KiB/512record ceiling and unchanged first-error/startup reserves.
-        const int DetailBytes = 64 * 1024, DetailRecords = 160;
-        const int LifecycleBytes = MaxBytes / 2 - StartupBytes - DetailBytes, ErrorBytes = MaxBytes / 2;
-        const int LifecycleRecords = MaxRecords - MaxOriginalErrors - StartupRecords - DetailRecords - 4;
+        // Capture215640 filled presentation evidence before the provider and hit
+        // marker observations needed to distinguish projection from large meshes.
+        // Reserve their share WITHIN the existing64KiB/160record detail budget.
+        const int DetailBytes = 40 * 1024, DetailRecords = 96;
+        const int PriorityDetailBytes = 24 * 1024, PriorityDetailRecords = 64;
+        const int LifecycleBytes = MaxBytes / 2 - StartupBytes - DetailBytes - PriorityDetailBytes, ErrorBytes = MaxBytes / 2;
+        const int LifecycleRecords = MaxRecords - MaxOriginalErrors - StartupRecords - DetailRecords - PriorityDetailRecords - 5;
         // Retain the existing grep token; it now caps only lifecycle records.
         const string LifecycleLimit = "[Quest startup] diagnostic log limit reached; further records suppressed.\n";
         const string ErrorLimit = "[Quest startup] original error log limit reached; further distinct causes suppressed.\n";
         const string StartupLimit = "[Quest startup] startup lifecycle log limit reached; further records suppressed.\n";
         const string DetailLimit = "[Quest startup] presentation diagnostic log limit reached; further records suppressed.\n";
+        const string PriorityDetailLimit = "[Quest startup] provider and laser diagnostic log limit reached; further records suppressed.\n";
         static readonly Encoding Utf8 = new UTF8Encoding(false);
         readonly string path;
         readonly object sync = new object();
@@ -32,9 +37,12 @@ namespace GloomhavenVR.Quest
         readonly HashSet<string> errorsSeen = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<string> startupSeen = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<string> detailSeen = new HashSet<string>(StringComparer.Ordinal);
+        readonly HashSet<string> priorityDetailSeen = new HashSet<string>(StringComparer.Ordinal);
         int startupBytes, startupRecords;
         int detailBytes, detailRecords;
         bool detailCapped;
+        int priorityDetailBytes, priorityDetailRecords;
+        bool priorityDetailCapped;
         bool startupCapped;
         int bytes, records;
         int errorBytes, originalErrors;
@@ -78,6 +86,20 @@ namespace GloomhavenVR.Quest
                     // actual video output arrived. Give detailed presentation
                     // samples their own bounded lane; retain the same total byte
                     // and record ceilings and original first-error reserve.
+                    if (IsPriorityPresentationDetail(message))
+                    {
+                        if (priorityDetailCapped) return;
+                        string priorityKey = Clip(message, 4096);
+                        if (priorityDetailSeen.Contains(priorityKey)) return;
+                        string priorityLine = Line(priorityKey, null);
+                        int priorityLength = Utf8.GetByteCount(priorityLine);
+                        if (priorityDetailRecords >= PriorityDetailRecords || priorityDetailBytes + priorityLength + Utf8.GetByteCount(PriorityDetailLimit) > PriorityDetailBytes)
+                        {
+                            File.AppendAllText(path, PriorityDetailLimit, Utf8); priorityDetailBytes += Utf8.GetByteCount(PriorityDetailLimit); priorityDetailCapped = true; return;
+                        }
+                        File.AppendAllText(path, priorityLine, Utf8); priorityDetailBytes += priorityLength; priorityDetailRecords++; priorityDetailSeen.Add(priorityKey);
+                        return;
+                    }
                     if (IsPresentationDetail(message))
                     {
                         if (detailCapped) return;
@@ -115,6 +137,11 @@ namespace GloomhavenVR.Quest
                 }
                 File.AppendAllText(path, line, Utf8); bytes += length; records++; seen.Add(key);
             }
+        }
+        static bool IsPriorityPresentationDetail(string message)
+        {
+            return message.StartsWith("[Quest startup] presentation provider ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation laser ", StringComparison.Ordinal);
         }
         static bool IsPresentationDetail(string message)
         {
