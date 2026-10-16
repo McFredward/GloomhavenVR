@@ -36,6 +36,25 @@ Preserved inputs, source records, canonical bytes and comparison reports live
 under .planning/debug/steamlink677/hardware-20261016/. Completed compilation
 caches are cleaned after reaping; keep original logs and current deliverables.
 
+The next offline bootstrap is integrated in fork35c5a55/98c9cd4; hosted
+CI38890763436 is green. Nine focused methods and independent review pass.
+Eight real C# source tuples integrate with discovery and the unchanged strict
+reader; an actual pair129 with pair1's repeated phase cannot pass as pair1.
+The next ordinary ARM sampler package has its uniform companion OFF,14 real
+host loader cases, strict ELF/source pins and an independent final review.
+Wrapper fixes close all producer refusal/failure suffixes and recheck fresh
+resumed native UI health before arming. The private old-map adapter recovers all
+three original static headers, without claiming a changing/native mapping.
+
+Preparation/evidence and the ready manual runbook are retained in the fork's
+build/private-registration-receiver-prep-20261016/. Only its3.4MB completed
+CMake caches, the small owned C# compile caches and the finished discovery worker
+worktree were removed. Retained-cache reports, original captures and current
+deployables remain; no other agent's workspace was cleaned. No Frame access or
+mutation occurred. The next action needs the maintainer's fresh installation
+and readiness agreement; do not request the stream before native health and
+the complete pre-stream gate pass. Existing PC Build677 is sufficient.
+
 ## Build677 changing-source integration
 
 Final native-evidence caveat: the post-draw uniform companion has no recorded
