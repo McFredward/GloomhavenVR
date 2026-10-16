@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest compact assembly registry duplicates, 2026-10-16: feature / B673.**
+
+Support211749 confirms native output reuse in19.611seconds without Unity/weaving/
+SDK commands, and admits the previous two order-only script duplicates. The next
+post-build gate rejects duplicate assembly names indiscriminately. A real retained
+Unity Player has two identical name/classification duplicates; normalize only
+identical rows for comparison and preserve the original ordered sidecar bytes.
+Conflicting classifications and original assembly changes remain rejected with
+precise context. The parser-only repair keeps the existing compiler recipe and
+completed output reusable. No new local APK build or headset outcome. See
+[QUEST-UPDATE-ASSEMBLIES-211749-20261016.md](QUEST-UPDATE-ASSEMBLIES-211749-20261016.md).
+
 **Quest compact native-output retention and registry diagnostics, 2026-10-16: feature / B673.**
 
 Support205558 proves Unity native compilation succeeded on Windows; the host
