@@ -706,11 +706,13 @@ def rebuild_reasons(current_files, previous_files, *, payload_producer=None, pre
 
 
 def _compact_player_command(builder, argv, launch_log, unity_log, env):
-    """Recognize only the current compiler's explicit serialized migration.
+    """Distinguish fresh plugin import failures from serialized incompatibility.
 
     Unity can reject a removed old script before writing a native-pair receipt.
-    That one producer exception requests preparation; a stale log, ordinary
-    shader/compiler failure or unrelated exception never authorizes a rebuild.
+    A missing MonoScript is not an asset migration proof when Unity could not
+    load its assembly. Capture153412 demonstrated that distinction: host CLR
+    references prevented import, then the missing-script fallback unnecessarily
+    converted the entire game. Neither case authorizes an automatic rebuild.
     """
     unity_log = Path(unity_log)
     def stamp():
@@ -730,6 +732,11 @@ def _compact_player_command(builder, argv, launch_log, unity_log, env):
                 text = stream.read(65536).decode("utf-8", errors="replace")
             migration = re.search(r"(?:^|\n)(?:InvalidDataException: )?(Retained original serialized script is missing: [^\r\n]{1,512}; a full build is required\.)\r?(?:\n|$)", text)
             if migration and stamp() == after:
+                imports = re.search(r"[^\r\n]{0,240}(?:Unable to resolve reference|references itself\.|Reference has errors)[^\r\n]{0,240}", text)
+                if imports:
+                    raise builder.BuildError("Compact update plugin import failed: " + imports[0].strip()
+                        + ". The missing script is not evidence that game assets need conversion. "
+                        "Keep the existing APK and workspace; retry with the corrected Builder.") from exc
                 raise _core(builder).RebuildRequired(migration[1]) from exc
         raise
 
@@ -999,7 +1006,7 @@ def run(builder, args, repo, output):
     tools = signing_tools(builder, args, output)
     sign, verify = _run_signers(builder, args, output, base_apk, tools, plan["signing"])
     if plan["updateStrategy"] == "cached-full-build":
-        return _rebuild(builder, args, plan, repo, output)
+        _require_rebuild_decision(builder, plan, output)
     retained = _retain_current_apk(builder, plan, base, output)
     if retained is not None:
         return retained
@@ -1101,10 +1108,10 @@ def run(builder, args, repo, output):
     try:
         receipt = builder.Stages(output).run("build", update_key, produce)
     except core.RebuildRequired as exc:
-        # A valid compiled registry can prove a serialized migration is
-        # necessary. This is not a completed update stage; keep its independent
-        # compiler receipts and route only typed compatibility to preparation.
-        return _rebuild(builder, args, plan, repo, output, reason=str(exc))
+        # Preserve independent compiler results and the selected signed APK.
+        # A genuinely incompatible registry needs the user's separate new-build
+        # decision; choosing Update mod never authorizes original asset export.
+        _require_rebuild_decision(builder, plan, output, reason=str(exc))
     builder.write_json(output / "latest-build.json", {"schema": 1, "apk": apk.relative_to(output).as_posix(),
                        "receipt": "receipts/build/" + update_key + ".json", "details": receipt["details"]})
     print("update: " + str(apk), flush=True)
@@ -1126,17 +1133,17 @@ def observe_repacked_output(builder, output, apk, update_key, result):
     return result["sha256"]
 
 
-def _rebuild(builder, args, plan, repo, output, *, reason=None):
+def _require_rebuild_decision(builder, plan, output, *, reason=None):
+    """Record a bounded diagnosis without touching any original game results."""
     selected = copy.deepcopy(plan)
-    selected["updateStrategy"] = "cached-full-build"
-    selected["requiresUnity"] = True
+    selected["rebuildDecisionRequired"] = True
     if reason and reason not in selected["rebuildReasons"]:
         selected["rebuildReasons"].append(reason)
     root = output / "updates" / selected["updateKey"]
     builder.write_json(root / "plan.json", selected)
-    builder.build_progress.event("update-rebuild-required", detail="; ".join(selected["rebuildReasons"]),
+    explanation = "; ".join(selected["rebuildReasons"])
+    builder.build_progress.event("update-rebuild-decision", detail=explanation,
                                  operation="update-code", status="progress")
-    callback = getattr(builder, "rebuild_update", None)
-    if not callable(callback):
-        raise builder.BuildError("The selected APK requires current Quest asset/native patches; this Builder lacks the cache-aware migration path. Keep the workspace and use the current Builder.")
-    return callback(args, selected, repo, output)
+    raise builder.BuildError("Compact update needs a rebuild decision: " + explanation
+        + ". The existing APK, converted game data and completed compiler results are retained. "
+        "No full build was started. Keep this update for a corrected Builder, or explicitly choose Create Quest version to build again.")

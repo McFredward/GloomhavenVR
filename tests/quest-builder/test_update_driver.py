@@ -467,7 +467,7 @@ class UpdateDriverTests(unittest.TestCase):
         self.assertEqual(proof["normalizer"], actual[1])
         self.assertEqual(proof["sha256"], preparation_identity.builder_producer_digest((ROOT / actual[0]["path"]).read_bytes()))
 
-    def test_known_current_payload_rebuild_skips_compact_compiler_and_preserves_base(self):
+    def test_known_incompatible_payload_requires_a_decision_without_conversion(self):
         self.args.command = "update-mod"
         files = [{"path": "tools/quest-native/passthrough.cpp", "size": 4, "sha256": "7" * 64}]
         self.builder.source_inventory = lambda repo: (files, "8" * 40, False)
@@ -480,10 +480,14 @@ class UpdateDriverTests(unittest.TestCase):
              patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
              patch.object(driver, "_compile_code", side_effect=AssertionError("Known asset migration must not compile twice")), \
              patch.object(apk_update, "repack", side_effect=AssertionError("Old payload must not be stamped as current")):
-            self.assertEqual(driver.run(self.builder, self.args, ROOT, self.output), migrated)
-        call = self.builder.rebuild_update.call_args
-        self.assertEqual(call.args[1]["inputs"]["mod"]["files"], files)
-        self.assertEqual(call.args[1]["updateStrategy"], "cached-full-build")
+            with self.assertRaisesRegex(storage.BuildError, "Compact update needs a rebuild decision:"):
+                driver.run(self.builder, self.args, ROOT, self.output)
+        self.builder.rebuild_update.assert_not_called()
+        selected = json.loads((self.output / "latest-update-input.json").read_text())
+        plan = json.loads((self.output / selected["plan"]).read_text())
+        self.assertEqual(plan["inputs"]["mod"]["files"], files)
+        self.assertEqual(plan["updateStrategy"], "cached-full-build")
+        self.assertTrue(plan["rebuildDecisionRequired"])
         self.assertEqual(self.apk.read_bytes(), original)
         self.assertFalse((self.output / "latest-build.json").exists())
         # Feed the event into the production schema too: a mock accepting an
@@ -494,21 +498,36 @@ class UpdateDriverTests(unittest.TestCase):
         value = progress.event(*emitted.args, **emitted.kwargs, stream=io.StringIO())
         self.assertEqual(value["status"], "progress")
 
-    def test_only_typed_valid_compatibility_failure_dispatches_rebuild(self):
+    def test_typed_registry_incompatibility_preserves_results_and_never_converts(self):
         self.args.command = "update-mod"
         self.builder.source_inventory = lambda repo: ([], "8" * 40, False)
         self.builder.mod_build = lambda repo: 671
         self.builder.snapshot = Mock()
         self.builder.rebuild_update = Mock(return_value=self.output / "recovered.apk")
+        retained = {}
+        for name in ("latest-build.json", "cache/full-original-recovery/old/completed.asset",
+                     "projects/old/Library/native-object", "receipts/update-code/old.json"):
+            path = self.output / name; path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(("retained " + name).encode()); retained[path] = path.read_bytes()
+        original = self.apk.read_bytes()
         with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]), \
              patch.object(driver, "signing_tools", return_value={}), \
              patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
              patch.object(driver, "_game_subset"), \
              patch.object(driver, "_compile_code", side_effect=apk_update.RebuildRequired("Serialized script layout changed")):
-            self.assertEqual(driver.run(self.builder, self.args, ROOT, self.output), self.output / "recovered.apk")
-        self.assertIn("Serialized script layout changed", self.builder.rebuild_update.call_args.args[1]["rebuildReasons"])
-        self.assertFalse((self.output / "latest-build.json").exists())
-        self.builder.rebuild_update.reset_mock()
+            for _ in range(2):
+                with self.assertRaisesRegex(storage.BuildError, "Compact update needs a rebuild decision:"):
+                    driver.run(self.builder, self.args, ROOT, self.output)
+        self.builder.rebuild_update.assert_not_called()
+        selected = json.loads((self.output / "latest-update-input.json").read_text())
+        plan = json.loads((self.output / selected["plan"]).read_text())
+        self.assertIn("Serialized script layout changed", plan["rebuildReasons"])
+        self.assertEqual(plan["updateStrategy"], "compact-code")
+        self.assertTrue(plan["rebuildDecisionRequired"])
+        self.assertEqual(self.apk.read_bytes(), original)
+        for path, contents in retained.items(): self.assertEqual(path.read_bytes(), contents)
+        self.assertFalse((self.output / "inputs/game").exists())
+        self.assertFalse((self.output / "builds").exists())
         with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]), \
              patch.object(driver, "signing_tools", return_value={}), \
              patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
@@ -553,6 +572,21 @@ class UpdateDriverTests(unittest.TestCase):
         with self.assertRaises(storage.BuildError) as ordinary:
             driver._compact_player_command(self.builder, ["Unity", "fixture"], self.output / "launch.log", log, {})
         self.assertNotIsInstance(ordinary.exception, apk_update.RebuildRequired)
+
+    def test_fresh_missing_script_with_failed_plugin_import_is_not_asset_incompatibility(self):
+        log = self.output / "logs/update-code-unity.log"
+        for import_error in ("Unable to resolve reference 'System.Private.CoreLib'",
+                             "GH.Runtime references itself.",
+                             "Reference has errors 'GloomhavenVR'"):
+            def failed_import(*args, **kwargs):
+                log.parent.mkdir(parents=True, exist_ok=True)
+                log.write_text(import_error + "\nInvalidDataException: Retained original serialized script is missing: Apparance.Unity.dll||ApparanceAbout; a full build is required.\n")
+                raise storage.BuildError("Actual Unity player failed")
+            self.builder.command = failed_import
+            with self.subTest(import_error=import_error), self.assertRaisesRegex(storage.BuildError, "Compact update plugin import failed:") as failure:
+                driver._compact_player_command(self.builder, ["Unity", "fixture"], self.output / "launch.log", log, {})
+            self.assertNotIsInstance(failure.exception, apk_update.RebuildRequired)
+            self.assertIn("not evidence that game assets need conversion", str(failure.exception))
 
     def test_profile_publish_and_cached_retry_each_require_the_owned_install(self):
         with patch.object(driver, "signing_tools", return_value={}) as tools, \
