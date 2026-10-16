@@ -88,3 +88,25 @@ from an external server and is not killed automatically. Close that old daemon
 once before testing the new owned lifetime. New private servers remain bound
 to the current Wizard, including abrupt console closure; original wireless
 configuration and headset-side adbd remain unchanged.
+
+The existing raw capture replay now retains2of6completed update operations,
+selects update-code, closes4of6compiler host subtasks and computes24.231631%
+whole-step progress. These are reconstructed work shares from observed logs,
+not a retroactive time estimate. Actual Chrome fixtures exercise counted
+roster progress, completed rows and the immediate native handover display.
+Seven compact regressions additionally separate late SDK tails from the next
+native invocation; no local SDK completion can close that native build.
+
+Primary integration passes142focused progress/observer/plan cases,27update
+handoff cases,87Wizard/device cases,61compact APK cases and10support-log cases.
+Worker evidence includes148focused progress Python cases and27current UI cases
+with actual Chrome (20earlier UI cases are explicitly inherited). Counts overlap
+and do not constitute a new unrelated complete suite. The primary integration
+also updates the existing progress-record schema assertion for the two explicit
+activity/progress timestamps. The worker corrected an existing shader assertion
+that incorrectly treated a single100%local pass as completing the whole shader
+phase; its old failure was reproduced unchanged at baseline.
+
+Final archive/source identities and extracted-delivery checks are recorded in
+the game-free handoff receipt after integration. Actual Windows console cleanup,
+complete compact IL2CPP publication and the next Quest run remain hardware gates.
