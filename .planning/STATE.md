@@ -1,5 +1,69 @@
 # State — where the project stands
 
+**Steam Link current-image registration and buffer observation, 2026-10-16: Build677 unchanged.**
+
+Forkdev ef2ea0d is pushed and hosted CI38918802046 is green on that exact source:
+112 CTests, optional uniform build, Windows cross-build and8,482 sanitizer checks.
+The new locator's full hosted entry passes in95.73s. Locally only the two new/
+changed Python CMake entries run (14 methods); the locator reuses composed6+4
+controls and both final actual CLI records. Its CMake registration is checked
+without a duplicate full local replay. The new SSBO host target compiles; no
+previous original-GPU experiments or full main-mod gate are repeated.
+
+Without historical fit inputs, current sampled-G header edges recover both
+encoded source-eye labels in captureb5ff764e7af8867a94aff07a56c555db: independent
+sessiona0bff9cdfd7e4deda4181c33a88df645, pair682/phase41. All six full headers
+match canonical C# source/DLL/artifact provenance. Each eye passes221background
+and220color held-out marker cells. Six source-selected7x7 homogeneous coverage
+levels have >=846 samples/level, maxcodeerror0left/1right. Header-only fit ranges
+are finite sampled uncertainty, not exactB/nativeouter/physical-eye/temporal proof.
+An initial grid failure, failed heldout candidate and240s synthetic-test timeout
+remain. A bounded exact-header-byte cache repairs test overhead without merging
+candidates or changing the strict reader; it does not make this offline locator
+real-time. Source4e57ba9/8837a47 integrates as44fad90/2b512d6.
+
+Original-invocation buffer prototype73bdfe1 integrates ascee2fcd: one128-byte
+owned SSBO, one actual color attachment, no new native descriptors and one input
+FragCoord load. Each driver passes36/8124 normal and36/4848 unselected-pixel
+checks, originalRGBA36/36bit-exact, Khronos/sync errors0. Actual feature-OFF
+refuses before pipeline creation. R1/rawflag/legalcanary mutants and module
+exception teardown are causal. Review has no inert-contract blocker.
+
+No Frame access, installation or restart occurs. The headset stays restored.
+Completed worker worktrees, Unity projects, compiler caches and private validation
+packages are removed after reaping; source pins, original inputs and results stay.
+Next offline work covers the reusable-CB first-SSA/last-image gap via ordered
+per-execution GPU reset and a bounded owned cold-clone definition contract. No
+native override, real game-alpha exporter or streamed passthrough is enabled.
+
+**Steam Link packed-coordinate and game-coverage prototypes, 2026-10-16: Build677 unchanged.**
+
+The direct packed-u prototype now targets Pc=B Tc B^-1 and Pa=B Ta B^-1 from
+originalu538. It reuses native R1/other already consumed values in the same
+invocation instead of joining a CPU-copied uniform. Strict q/W entry behavior is
+unchanged: four original binary/record before/after comparisons agree. Ten focused
+Python methods pass. Intel and llvmpipe each pass48ON/48OFF plus two24-case q
+comparisons,10,700 positive checks/driver with active Khronos validation/zero
+errors. Packed originaloutput0 is48/48 bit-identical; the q comparisons retain
+previously documented Intel rounding within2e-6. Actual direct color oracles
+number44 (four zero-panel-aperture exclusions); raw-G oracles48. Valid wrong-chart
+and shared-weight mutants fail causally. Worker21eb396 integrates as fork2c61102.
+
+An independent inert Unity fixture copies four actual owned shader families into
+disposable projects; it changes no production shader or enabled runtime path.
+Unity2021.3.5/Vulkan/Intel passes36 cases/319 checks each in Gamma and Linear,
+with admittedARGBFloat1/2/4/8MSAA. Original half-opacity layers actually accumulate
+alpha.25/.375; private corrected variants produce.5/.75 with retained RGB and
+additive emission atA0. These are interior pixels only: noMSAAedge, subsequent
+stencil test, softmaskedge, D3D11, unknown game shader or whole-game alpha proof.
+Fixture source forkda29ac3; detailed limits in GAME-COVERAGE-PROTOTYPE-20261016.
+
+An independent review accepts both inert contracts. New native registration and
+same-invocation buffer observation remain separate work. No Frame connection,
+shader installation, service change, live alpha or Steam sender modification
+occurs. Owned temporary Unity projects and the51MB validation package are removed
+after reaping/cleanup; source pins, failures and small results remain private.
+
 **Steam Link inert atlas reconstruction, 2026-10-16: Build677 unchanged.**
 
 The fork now reconstructs separate scene and raw component-G panels using

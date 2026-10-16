@@ -1,5 +1,68 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Current-image and128-byte observation integration, 2026-10-16
+
+Reviewed forkdev ef2ea0d is pushed; CI38918802046 succeeds (112 CTests including
+full locator95.73s, optional uniform build, Windows cross-build,8,482 sanitizer
+checks). No main source/build change. Local integration executes only atlas/SSBO
+Python CMake entries14methods and compiles only the new SSBO helper; locator
+registration is enumerated without replaying its complete local file. Worker
+composed6+4 controls, preserved timeout and strict actualleft/right CLI records
+remain honest inherited evidence.
+
+The locator uses current header edges/CRC-only coarse+edge+fine fitting. Canonical
+source provenance and221+220 held-out marker cells per eye validate afterwards;
+all6 headers recover sessiona0bff...645/pair682/phase41. Six homogeneous coverage
+levels maxerror0left/1right. Exact captured-byte/CaptureID/image/view/command
+identities are recorded, not called a decoded-video epoch or outer-band proof.
+
+InertSSBO source73bdfe1→cee2fcd uses one128-byte record/one color attachment;
+36normal/8124checks +36NoPixel/4848checks per driver, nativeexpression36/36bitexact,
+validation0, enabledfeatureOff refuses beforepipeline. Legalmutants and exception
+cleanup pass. Both final source/evidence reviews are retained under fork
+build/private-packed-binding-review-20261016/. Finished locator/SSBO worktrees
+are removed only after byte-identical source comparison and push; current next
+workers remain protected.
+
+Next workers start from2b512d6 (reusable GPUcohort proof, newfixturefilesonly) and
+ef2ea0d (bounded cold-clone contract/newheader+testonly), respectively. Primary
+owns CMake/docs/integration; reviewer is read-only. A current first-claim SSBO
+must NEVER be joined to later reused-CB image copies. The proposed GPUfill before
+each execution needs actual same-CB serial replay evidence before native adoption.
+Full enabled features/owned CI, lifetime, Set0 array/immutable sampler and state
+restoration gates remain unproved on the Frame. No native package permission is
+inferred; no device connection or automatic timer/restart occurs.
+
+## Packed coordinates and real shader coverage, 2026-10-16
+
+Continue offline while the Frame remains restored, user-confirmed usable and safe
+for standby. No new device agreement is inferred. Worker packed21eb396 from
+forke73e7cd integrates as2c61102; all three owned source files agree with its
+pins. It preserves strict old-q API/binaries and adds direct originalu538 packed-B
+conjugation, same-invocation original metadata, independent sample weights and
+owned diagnostic outputs only. Intel/llvmpipe each pass10,700 positive checks
+(48ON/48OFF plus24+24 q equivalents), activeKhronos/zeroerrors. Direct packed
+stockoutput isbit-exact48/48; qvariants retain old boundedrounding.44 colorGPU
+oracles/48raw-Goracles; four zeroaperturecolorcases excluded explicitly. Wrong
+chart/sharedweight validmutants fail at designatedoracles. TenPython methods and
+four oldqbinary/recordparities pass; no oldfullmodgate isrepeated.
+
+Primary's separate inertfixture tests four original ownedUnityshaderfamilies,
+copying them and alpha-only candidates into disposable projects. Both Gamma and
+Linear Vulkan/Intel profiles pass36cases/319checks, admittedARGBFloat/MSAA1/2/4/8.
+Legacy halfopacityalpha.25/.375 contrasts with candidate.5/.75; additiveRGB atA0
+isretained. It changes no mainproduction source. Interiorpixel scope excludes
+MSAAedges/alphatocoverage, subsequentstencilcomposite, softmaskedge, D3D11 and
+unknown nativegamefamilies. Source checkpointforkda29ac3; privateproof at
+build/private-game-coverage-20261016/run-ip8a9jdk/.
+
+The next registrar frome73e7cd owns only newlocator/tooltest files; a new
+original-SSA bufferprototype from2c61102 owns only newSSBOtool/test/GPUfixture.
+Both areoffline, noFrame/SSH. Primary retainsCMake/docs/integration; reviewer
+read-only. No nativefeature/layout, perdecodedimageepoch or livepresenter
+permission follows. Failedcontrols/sourcepins/originals stay; completedowned
+compiler/package/Unity caches arecleaned afterreaping.
+
 ## Inert dual-panel reconstruction, 2026-10-16
 
 The maintainer requests continued progress. Native Frame state remains restored;
