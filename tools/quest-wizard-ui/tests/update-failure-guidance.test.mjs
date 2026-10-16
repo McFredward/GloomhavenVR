@@ -41,4 +41,5 @@ test('only an explicit current rebuild pause exposes the new-build decision',()=
   for(const status of ['running','complete','cancelled'])assert.equal(updateFailureView({...state,status}),null);
   for(const language of ['en','de'])for(const key of ['updateRebuildPausedCopy','updateRebuildChoice','updateRebuildConfirmTitle','updateRebuildConfirmCopy','updateRebuildConfirm','updateRebuildCancel'])assert.equal(typeof strings[language][key],'string');
   assert.match(translate('en','updateRebuildConfirmCopy'),/several hours.*additional disk space.*retained/s);
+  for(const language of ['en','de'])assert.equal(typeof strings[language]['phase_update-rebuild-decision'],'string');
 });

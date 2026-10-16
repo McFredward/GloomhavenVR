@@ -44,7 +44,10 @@ test('rebuild needs an explicit reversible confirmation; setup alone launches no
     await client.evaluate("document.getElementById('failure-new-build').click()");
     await client.wait("document.getElementById('update-rebuild-dialog').open");
     assert.equal(await client.evaluate('document.activeElement.id'),'update-rebuild-cancel');
+    assert.match(await client.evaluate("document.getElementById('update-rebuild-reason').textContent"),/Fixture.Script/);
     assert.match(await client.evaluate("document.getElementById('update-rebuild-copy').textContent"),/mehrere Stunden.*zusätzlichen Speicher/s);
+    assert.equal(await client.evaluate("document.getElementById('update-rebuild-reason').checkVisibility()"),true);
+    await client.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
     await client.picture('update-rebuild-decision-de');
     await client.evaluate("document.getElementById('update-rebuild-cancel').click()");
     assert.equal(await client.evaluate("document.getElementById('update-rebuild-dialog').open"),false);
@@ -53,8 +56,14 @@ test('rebuild needs an explicit reversible confirmation; setup alone launches no
     // The existing footer entry must obey the same confirmation boundary.
     await client.evaluate("document.getElementById('new-build').click()");
     await client.wait("document.getElementById('update-rebuild-dialog').open");
+    assert.match(await client.evaluate("document.getElementById('update-rebuild-reason').textContent"),/Fixture.Script/);
+    assert.equal(await client.evaluate("document.getElementById('update-rebuild-reason').checkVisibility()"),true);
+    await client.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
     await client.evaluate("document.querySelector('[data-language=en]').click()");
     assert.match(await client.evaluate("document.getElementById('update-rebuild-copy').textContent"),/several hours.*retained/s);
+    assert.match(await client.evaluate("document.getElementById('update-rebuild-reason').textContent"),/Fixture.Script/);
+    assert.equal(await client.evaluate("document.getElementById('update-rebuild-reason').checkVisibility()"),true);
+    await client.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
     await client.picture('update-rebuild-decision-en');
     await client.evaluate("document.getElementById('update-rebuild-confirm').click()");
     await client.wait("!document.getElementById('game-page').hidden");
