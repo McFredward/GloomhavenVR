@@ -1,5 +1,32 @@
 # State — where the project stands
 
+**Second receiver run refused before arming and restored, 2026-10-16: Build677 unchanged.**
+
+The maintainer approved the corrected r2 package and one SteamVR restart. All79
+native imports, exact-provider isolated loading, native UI health and the full
+12-header device contract pass. The maintainer confirms the moving test pattern
+in the PC-VR stream. The pre-arm gate then refuses
+`no_complete_pipeline_definition_observed`: the canonical profile and actual
+queue are present, but no complete recipe is recorded. No arm file is created,
+no observer pipeline is bound and no image/SSBO acquisition occurs.
+
+Actual final refusal bits1152 mean Capacity plus UnknownLayout; the19 retained
+objects do not identify which inventory is full. The earlier bounded report also
+contains Contract and UnsupportedRoute. Its global firstRefusal remains NoReady,
+so it cannot identify the later nested causes. A source/archived-startup review
+proves16 layout slots cannot cover107 distinct layout handles before/among the
+six late distortion variants. RP2 creation and recording are also blanket
+unsupported; actual target RP2 usage is not established by the old archive.
+Fix the full bounded cold-definition route and its evidence before another
+headset request; do not solve this by removing the pre-arm gate.
+
+Manual rollback is complete: activation and owned run library absent, no loaded
+diagnostic mappings or uncertainty, fresh original native UI healthy. The user
+confirms visible/usable original UI; standby is safe. Exact results and consumed
+plan: fork `build/private-native-ssbo-run-20261016-r2/completion.json`. No timer,
+automatic restart or main runtime change was introduced. Workers now investigate
+offline in isolated fork worktrees; the Frame needs no further action meanwhile.
+
 **Steam Link receiver run refused before arming and restored, 2026-10-16: Build677 unchanged.**
 
 The maintainer approved the441,496B library/551,042B user-home package and one

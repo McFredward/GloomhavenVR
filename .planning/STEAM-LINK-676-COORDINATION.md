@@ -1,5 +1,30 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Corrected r2 admission refused; Frame fully restored, 2026-10-16
+
+The approved r2 library441,880B loads successfully, including79 exact-provider
+imports. Native UI health and all12 device feature headers pass. After the
+maintainer confirms the moving streamed pattern, the pre-arm gate correctly
+refuses: canonical profile and actual queue exist, but no complete pipeline
+recipe has been retained. No arm, shader bind or acquisition occurs.
+
+Final journal reasons1152 are Capacity plus UnknownLayout; created19 is an
+aggregate, not a per-kind census. The global firstRefusal=NoReady masks the
+later causes. Source plus archived startup proves a16-slot layout inventory can
+be consumed by unrelated layouts before the late target variants (107 distinct
+layout handles in108 pipeline creates). Also review both original RP2 create and
+recording paths, currently blanket unsupported; the archive alone does not prove
+which target uses them. Preserve strict native admission and generation/lifetime
+checks while fixing the whole cold route and useful bounded refusal context.
+
+Manual agreed rollback succeeds; all activation/run-library entries are absent,
+no diagnostic mappings remain, and fresh original UI health plus the maintainer's
+visible/usable confirmation pass. Standby is safe. CaptureID
+3af7cb2ed87c8a75734ac13cbb1f22ca; no acquisition files exist, which is expected
+for an unarmed refusal. Exact audit and consumed plan are in fork
+`build/private-native-ssbo-run-20261016-r2/`. No additional device action is
+authorized by this checkpoint; prepare and review the offline repair first.
+
 ## Receiver run refused unarmed and fully restored, 2026-10-16
 
 Approved441,496B library loads against all79 actual native imports/providers;
