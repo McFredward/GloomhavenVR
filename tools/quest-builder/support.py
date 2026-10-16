@@ -349,6 +349,8 @@ def update_route_stats(build_root, state, replacements=()):
         result = {key: safe_json(value[key], replacements) for key in
                   ('mode', 'updateKey', 'gameInputKey', 'baseApkSha256', 'updateStrategy',
                    'requiresUnity', 'codeChanged', 'artChanged', 'rebuildReasons') if key in value}
+        if type(value.get('rebuildDecisionRequired')) is bool:
+            result['rebuildDecisionRequired'] = value['rebuildDecisionRequired']
         result['hardwareVerified'] = False
         original = value.get('inputs', {}).get('game', {})
         result['retainedGameKey'] = original.get('key')

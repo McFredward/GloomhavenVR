@@ -53,12 +53,20 @@ same export view. The resume tile appears only for an unfinished selected run;
 a successful latest run does not revive an older failed run's resume prompt.
 
 Code-compatible updates retain the original game payload and compile the current
-managed/native code pair. Changed Quest scenes, shaders, native programs or their
-asset recipes switch to the ordinary cached build in the same workspace. The
-Wizard reports that migration and its actual remaining phases. Independently
+managed/native code pair. If changed Quest scenes, shaders, native programs or
+asset recipes require a new build, the update pauses with the concrete reason.
+The user must explicitly confirm a new build before original conversion can
+start. Choosing Update mod never silently authorizes that work. Independently
 compatible recovery, preparation and Unity imports stay owned; unknown producer
 changes never authorize reuse of obsolete generated content. Original PC inputs,
 current profile/DLC selection and the source APK signature are still qualified.
+
+Capture153412 exposed a false fallback after the compact compiler could not load
+generated plugins. A missing serialized script is not an asset incompatibility
+proof while Unity reports unresolved/self assembly references. Such import
+failures retain the APK, game banks and completed compiler results for a targeted
+producer repair. Even a genuine incompatible registry requires a user decision;
+neither a current error nor an old migration receipt starts a full build itself.
 
 The 2026-10-12 support capture114856 proves a false full migration from B665 to
 B671: the raw original export alone took 6,531.928 seconds (about109 minutes),

@@ -58,6 +58,17 @@ class UpdateSupportTests(unittest.TestCase):
         self.assertEqual(value['observedGameDelta']['changedCount'], 1)
         self.assertFalse(value['observedGameDelta']['contentVerified'])
 
+    def test_rebuild_pause_retains_compact_route_and_records_decision_without_scans(self):
+        self.plan.update(updateStrategy='compact-code', rebuildDecisionRequired=True)
+        self.save_plan()
+        with patch.object(support, 'digest', side_effect=AssertionError('Decision diagnostics must not scan game files')):
+            value = support.update_route_stats(self.build, self.state)
+        self.assertEqual(value['updateStrategy'], 'compact-code')
+        self.assertTrue(value['rebuildDecisionRequired'])
+        self.assertNotIn('observedGameDelta', value)
+        self.plan['rebuildDecisionRequired'] = 'unqualified'; self.save_plan()
+        self.assertNotIn('rebuildDecisionRequired', support.update_route_stats(self.build, self.state))
+
     def test_unrelated_or_escaped_plan_cannot_describe_this_run(self):
         self.plan['baseApkSha256'] = '0' * 64; self.save_plan()
         self.assertIsNone(support.update_route_stats(self.build, self.state))

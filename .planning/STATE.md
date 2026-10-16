@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Quest compact plugin import and explicit rebuild choice, 2026-10-16: feature / B673.**
+
+Support153412 proves an actual unnecessary new original-game export after the
+compact compiler failed to load its generated DLLs. The old APK and previous
+closed recovery receipts remain present; the new raw tree is separate and
+incomplete at capture time. Repair self assembly references in woven hook
+signatures and import OfflineProfile calls from target metadata instead of the
+host CLR. The real small Unity2021 import loads all required fixture assemblies,
+including ApparanceAbout; no full game conversion or APK build is involved.
+
+Update rejection now pauses with retained results and a concrete cause. Both
+initial and late genuine incompatibility require an explicit new-build decision;
+plugin import failure is not a serialized asset migration proof. The Wizard's
+EN/DE confirmation explains cost and opens setup only after acceptance. The
+current B673 compact native compilation/publication and headset picture still
+need Windows/hardware testing. Preserve .ghvrq and retry Mod Update with the
+new Builder. See [QUEST-UPDATE-IMPORT-153412-20261016.md](QUEST-UPDATE-IMPORT-153412-20261016.md).
+
 **Quest Windows workspace metadata recovery, 2026-10-16: feature / B673.**
 
 Support150224 confirms Builder754cfc456 and a new run blocked before any tool
