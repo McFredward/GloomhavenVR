@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest compact update IL2CPP extraction identity, 2026-10-16: feature / B673.**
+
+Capture213445 proves the new B673 APK is installed, then crashes in il2cpp_init
+before managed startup. The exact Unity engine compares unity_app_guid with its
+private extracted-cache marker; the update retained the old GUID while replacing
+the native pair, and this launch skips extraction. Carry the exact qualified
+compiler GUID, reject incomplete identity/pair publication and preserve saves.
+Allow reuse on the already published B673 base only after signed publication-plan,
+producer/owner/ABI and actual native-pair equality proofs. No game conversion or
+new local APK/native build; hardware crash resolution remains unverified. See
+[QUEST-IL2CPP-CACHE-213445-20261016.md](QUEST-IL2CPP-CACHE-213445-20261016.md).
+
 **Quest compact assembly registry duplicates, 2026-10-16: feature / B673.**
 
 Support211749 confirms native output reuse in19.611seconds without Unity/weaving/
