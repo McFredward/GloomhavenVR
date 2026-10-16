@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Rig;
 using UnityEngine;
@@ -33,6 +35,9 @@ internal sealed class RayInteractor : IPickProvider
 
     private LineRenderer? _laser;
     private Transform? _reticle;
+    private bool _questHitMarkerVisible;
+    private const int QuestLaserEvidenceLimit = 6;
+    private static int _questLaserEvidenceSamples;
     private bool _enabled = true;
     private PickPose _current;
 
@@ -977,6 +982,7 @@ internal sealed class RayInteractor : IPickProvider
         {
             if (_reticle!.gameObject.activeSelf)
                 _reticle.gameObject.SetActive(false);
+            CaptureQuestHitEvidence(false);
             return;
         }
 
@@ -1054,6 +1060,107 @@ internal sealed class RayInteractor : IPickProvider
         {
             _reticle.gameObject.SetActive(false);
         }
+        CaptureQuestHitEvidence(_current.HasHit || uiHit, head);
+    }
+
+    // Capture215640 reaches the original menu/video, but touching the menu produces
+    // large blue areas beyond its edges. Only a small blue sphere is enabled at a
+    // hit in this component. Observe its actual renderer bounds and material on
+    // enter/exit, alongside the line and head context, before blaming mesh size or
+    // changing pointer geometry. These are Update-time facts, not final GPU pixels.
+    private void CaptureQuestHitEvidence(bool visible, Camera? head = null)
+    {
+        // The normal log level and desktop path query no renderer/material state
+        // and allocate no diagnostic strings. The shared cap survives hand rebuilds.
+        if (!Core.QuestStandalonePlatform.Enabled || !Core.VRLog.WantsDebug
+            || _questLaserEvidenceSamples >= QuestLaserEvidenceLimit)
+            return;
+        visible = visible && _reticle != null && _reticle.gameObject.activeInHierarchy;
+        if (visible == _questHitMarkerVisible)
+            return;
+        _questHitMarkerVisible = visible;
+        int sample = ++_questLaserEvidenceSamples;
+        try
+        {
+            head = head != null ? head : VRRigDriver.HeadCamera;
+            var text = new StringBuilder(2304);
+            text.Append("[Quest startup] presentation laser sample=").Append(sample)
+                .Append(" frame=").Append(Time.frameCount).Append(" phase=visuals-update side=").Append(_hand.Side)
+                .Append(" hitMarker=").Append(visible).Append(" uiHit=")
+                .Append(_uiHitOverride.HasValue && Time.frameCount - _uiHitOverrideFrame <= 1)
+                .Append(" physicsHit=").Append(_current.HasHit);
+            AppendQuestLaserTransform(text, "hand", _hand.transform);
+            if (_reticle != null)
+            {
+                AppendQuestLaserTransform(text, "marker", _reticle);
+                AppendQuestLaserRenderer(text, "marker", _reticle.GetComponent<Renderer>());
+            }
+            if (_laser != null)
+            {
+                AppendQuestLaserRenderer(text, "line", _laser);
+                AppendQuestLaserVector(text, "lineStart", _laser.GetPosition(0));
+                AppendQuestLaserVector(text, "lineEnd", _laser.GetPosition(1));
+                text.Append(" lineWorldSpace=").Append(_laser.useWorldSpace).Append(" lineWidth=")
+                    .Append(_laser.widthMultiplier.ToString("F4", CultureInfo.InvariantCulture));
+            }
+            AppendQuestLaserCamera(text, "head", head);
+            // Camera.current can be stale outside rendering; label it separately.
+            AppendQuestLaserCamera(text, "currentCameraObservation", Camera.current);
+            UnityEngine.Debug.Log(text.ToString());
+        }
+        catch (System.Exception error)
+        {
+            // Diagnostic reads must never interrupt pointer input or rendering.
+            UnityEngine.Debug.Log("[Quest startup] presentation laser unavailable sample=" + sample
+                + " error=" + error.GetType().Name + ": " + error.Message);
+        }
+    }
+
+    private static void AppendQuestLaserTransform(StringBuilder text, string name, Transform transform)
+    {
+        AppendQuestLaserVector(text, name + "Position", transform.position);
+        AppendQuestLaserVector(text, name + "LocalPosition", transform.localPosition);
+        AppendQuestLaserVector(text, name + "Scale", transform.lossyScale);
+        AppendQuestLaserVector(text, name + "LocalScale", transform.localScale);
+    }
+
+    private static void AppendQuestLaserVector(StringBuilder text, string name, Vector3 value)
+    {
+        text.Append(' ').Append(name).AppendFormat(CultureInfo.InvariantCulture,
+            "=({0:F4},{1:F4},{2:F4})", value.x, value.y, value.z);
+    }
+
+    private static void AppendQuestLaserRenderer(StringBuilder text, string name, Renderer? renderer)
+    {
+        text.Append(' ').Append(name).Append("Present=").Append(renderer != null);
+        if (renderer == null)
+            return;
+        text.Append(' ').Append(name).Append("Enabled=").Append(renderer.enabled)
+            .Append(' ').Append(name).Append("Active=").Append(renderer.gameObject.activeInHierarchy);
+        Bounds bounds = renderer.bounds;
+        AppendQuestLaserVector(text, name + "BoundsCenter", bounds.center);
+        AppendQuestLaserVector(text, name + "BoundsSize", bounds.size);
+        Material material = renderer.sharedMaterial;
+        Shader? shader = material != null ? material.shader : null;
+        text.Append(' ').Append(name).Append("Shader=").Append(shader != null ? shader.name : "none")
+            .Append(' ').Append(name).Append("ShaderSupported=").Append(shader != null && shader.isSupported)
+            .Append(' ').Append(name).Append("Queue=").Append(material != null ? material.renderQueue : -1)
+            .Append(' ').Append(name).Append("SortingOrder=").Append(renderer.sortingOrder);
+    }
+
+    private static void AppendQuestLaserCamera(StringBuilder text, string name, Camera? camera)
+    {
+        text.Append(' ').Append(name).Append('=').Append(camera != null ? camera.name : "none");
+        if (camera == null)
+            return;
+        AppendQuestLaserTransform(text, name, camera.transform);
+        Rect viewport = camera.pixelRect;
+        text.Append(' ').Append(name).Append("Target=")
+            .Append(camera.targetTexture != null ? camera.targetTexture.name : "backbuffer")
+            .Append(' ').Append(name).Append("Stereo=").Append(camera.stereoEnabled)
+            .Append(' ').Append(name).Append("Eye=").Append(camera.stereoTargetEye)
+            .Append(' ').Append(name).AppendFormat(CultureInfo.InvariantCulture,
+                "Viewport=({0:F1},{1:F1},{2:F1},{3:F1})", viewport.x, viewport.y, viewport.width, viewport.height);
     }
 
     private void CreateVisuals()
@@ -1142,6 +1249,8 @@ internal sealed class RayInteractor : IPickProvider
             _laser.gameObject.SetActive(active);
         if (_reticle != null && !active)
             _reticle.gameObject.SetActive(false);
+        if (!active)
+            CaptureQuestHitEvidence(false);
     }
 
     // ---- fan occlusion -----------------------------------------------------------------
