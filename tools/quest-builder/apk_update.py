@@ -538,12 +538,37 @@ def collect_code_update(base, compiled_apk, compiled_receipt, *, package_abi):
     with zipfile.ZipFile(base) as original, zipfile.ZipFile(compiled_apk) as compiled:
         if _native(compiled) != capsule["metadataVersion"]: raise RebuildRequired("IL2CPP metadata ABI changed; use a full build.")
         old_assemblies, new_assemblies = _json(original, ASSEMBLIES), _json(compiled, ASSEMBLIES)
-        def assembly_map(value):
+        def assembly_map(value, source):
             names, types = value.get("names"), value.get("types")
-            if not isinstance(names, list) or not isinstance(types, list) or len(names) != len(types) or len(set(names)) != len(names):
-                raise BuildError("Player assembly registry is invalid.")
-            return dict(zip(names, types))
-        old_map, new_map = assembly_map(old_assemblies), assembly_map(new_assemblies)
+            def invalid(reason, **detail):
+                context = {"source": source, "member": ASSEMBLIES, "reason": reason, **detail}
+                raise BuildError("Player assembly registry is invalid: " + json.dumps(context, ensure_ascii=True, separators=(",", ":")))
+            if not isinstance(names, list) or not isinstance(types, list):
+                invalid("names-and-types-must-be-arrays")
+            if not names or len(names) != len(types):
+                invalid("array-lengths", names=len(names), types=len(types))
+            result, indices = {}, {}
+            for index, (name, kind) in enumerate(zip(names, types)):
+                try:
+                    valid_name = (isinstance(name, str) and 4 < len(name.encode("utf-8")) <= 1024
+                                  and name.endswith(".dll") and name == name.strip()
+                                  and not any(ord(c) < 32 or ord(c) == 127 or c in "/\\:" for c in name))
+                except UnicodeError:
+                    valid_name = False
+                if not valid_name:
+                    invalid("assembly-name", index=index, value=repr(name)[:256])
+                if type(kind) is not int or not 0 <= kind <= 0x7fffffff:
+                    invalid("classification", index=index, name=name[:256], value=repr(kind)[:256])
+                if name in result and result[name] != kind:
+                    invalid("conflicting-classifications", name=name[:256], indices=[indices[name], index], types=[result[name], kind])
+                # The pinned Unity2021 player contains repeated registrations
+                # under the same name/classification. Compare that exact
+                # relation once; never deduplicate or reorder the emitted JSON,
+                # whose arrays remain the compiler's ordered player registry.
+                if name not in result:
+                    result[name], indices[name] = kind, index
+            return result
+        old_map, new_map = assembly_map(old_assemblies, "original"), assembly_map(new_assemblies, "compiled")
         if any(new_map.get(name) != kind for name, kind in old_map.items()):
             raise RebuildRequired("Code build removed or reclassified an original player assembly; use a full build.")
         callbacks = _callbacks(_json(compiled, INITIALIZERS))
