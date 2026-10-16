@@ -1,5 +1,74 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Encoded changing pair682 recovered from the actual receiver, 2026-10-16
+
+The fresh independent PC input is now preserved. It uniquely identifies session
+a0bff9cdfd7e4deda4181c33a88df645, unlike the earlier f234 source run. Both fixed
+historical fitted hypotheses recover pair682/phase41. All three full headers per
+source-eye label agree and pass CRC. Exactly that tuple is regenerated using the
+pinned real C# emitter; every header byte and both plane digest claims agree.
+The unchanged strict registration reader accepts both measurements. A bounded
+extra emitter-only confirmation repairs missing invocation provenance: actual
+commands/exit/stdout, assembly and five source digests, and all ten emitted files
+are recorded and match the first canonical artifacts. No rebuild/full suite.
+
+Independent reviews reproduce the frozen maps, headers, source artifacts and
+numeric results. All882 coordinate-marker observations match without fitting or
+search; minimum observed contrast52 against the fixed32 diagnostic threshold.
+The first marker selector erroneously added uint8 codes before comparing with
+256. Its zero-population report is preserved as invalid; int16 plus a required
+population of at least100 per region prevents a vacuous success. No mapping
+conclusion was drawn from that failed selector.
+
+For each eye8,138/61,440 homogeneous5x5 coverage interiors retain the source to
+within one8-bit code. Fractional interiors number6,158 per eye and also stay
+within one code. Full coverage MAE2.9687/2.8814 and maximum173/170 remain; boundary
+filtering/resampling/compression are plausible, not individually proven causes.
+The sampled-G comparison is not reconstructed scene RGB. The PC's4,746 completed
+pairs and two fallback callbacks are recorded honestly; the detailed mono fallback
+occurs after XR EXITING with XR inactive and no destination.
+
+This identifies an encoded app pair in one owned native acquisition. It does not
+establish a native video-frame counter, physical-eye placement, generic PC/app W,
+per-frame source/body coherence, real game coverage or live alpha composition.
+The Frame is restored and user-confirmed usable; no further device access occurs.
+
+The bounded offline implementation stays in the fork only. Two workers started
+at forkdev63b0dd7 in separate worktrees with disjoint new transformer/test and
+GPU-fixture files. Primary owns integration/CMake/docs. The prototype preserves
+original native instruction bodies and output0, exporting already-consumed SSA
+values into owned offscreen outputs without second UBO loads. Raw flags and
+tint bits use an integer attachment. No native module is redistributed.
+
+Privately enabling the official Ubuntu Khronos layer exposed a fixture error:
+the original declares three sampled images but its first test layout had one.
+The old numerical results are retained without a valid-Vulkan claim. The repaired
+fixture uses all three descriptors with the same owned source view; no native
+source-index equivalence is inferred. The independent reviewer also found a
+partial shader-module construction leak. A missing-third-module control
+reproduces the old leak and validates clean teardown after repair.
+
+Corrected Intel RPL-P and llvmpipe each pass36 cases/671 checks with Khronos
+validation enabled and zero errors. Output0 is bit-identical; original branch
+and selected-eye patch changes are causal. A valid wrong-R0-export mutation is
+rejected after output0 equivalence passes, without validation errors. Four
+expected baseline warnings concern only unwritten extra attachments that are
+never compared. Six private-input Python methods and owned vertex validation
+pass via the new two-test CMake subset. Unchanged runtime/suite evidence is
+inherited, not rerun. Independent final review has no inert/offline blocker.
+
+It is not linked into a native layer or installed on the Frame. Fresh native W
+and coverage/live presenter admissions remain closed. A separate read-only audit
+finds that opaque game clears and transparent/additive blend conventions prevent
+ordinary source.a from serving as real coverage; no exporter is implemented.
+No unrelated NPC/Quest source is changed. Private reviews, failed controls and
+cleanup receipts remain in fork build/private-native-ssa-*-20261016/.
+The integrated fork checkpoint is dev931c99e. Both clean worker worktrees are
+removed after byte-identical owned-source comparison against that integration.
+The privately extracted validation package, generated native modules, test
+executables and primary CMake cache are removed after process completion; small
+results, original inputs and compile/source identity receipts are retained.
+
 ## Changing-source receiver capture secured and Frame restored, 2026-10-16
 
 The maintainer approved the ready ordinary sampler package and its single
@@ -19,10 +88,11 @@ no further Frame access is needed for offline analysis. The capture and all
 receipts remain under the fork's ignored
 build/private-registration-source-run-20261016-r1/.
 
-Fresh PC logs from this exact run are still required. The current main Player
-log is byte-identical to the earlier677 source run. Never substitute a session
-read from native pixels as its own independently expected source identity.
-Two unchanged fitted-map hypotheses are prepared without identity discovery.
+At acquisition completion the main Player log was still byte-identical to the
+earlier677 source run. Fresh logs have since arrived and their independent
+comparison is recorded above. Never substitute a session read from native pixels
+as its own independently expected source identity. The two unchanged fitted-map
+hypotheses remain diagnostic only.
 No compiler/Unity caches or worker worktrees were created for this acquisition;
 all capture/transfer processes are reaped and original evidence is preserved.
 

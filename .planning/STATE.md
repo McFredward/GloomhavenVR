@@ -1,5 +1,44 @@
 # State — where the project stands
 
+**Steam Link changing-source receiver recovery, 2026-10-16: Build677 unchanged.**
+
+The newly supplied PC logs independently select app session
+a0bff9cdfd7e4deda4181c33a88df645. The approved native one-shot acquisition
+recovers app pair682/phase41 for both encoded source-eye labels. All six complete
+headers, including both declared source-plane digests, match exact regeneration
+through the previously pinned production C# emitter. The strict existing reader,
+actual invocation provenance and independent recovery review pass. All882 dense
+coordinate-marker observations match at the unchanged fitted coordinates;
+minimum observed complementary contrast52. This is one captured encoded pair,
+not native video-frame/physical-eye/application-ray mapping authority.
+
+Homogeneous5x5 coverage interiors differ by at most one8-bit code; this applies
+to8,138 of61,440 source pixels per eye. Full-plane MAE2.97/2.88 and maximum
+173/170 remain at transitions and cannot be advertised as an exact mask. The
+complete PC run records4,746 CPU pairs, no skipped cohorts and two fallback
+callbacks; the detailed fallback is mono with XR already exiting and inactive.
+Do not rewrite the fallback count as zero or infer a live XR image failure.
+
+Manual restoration is complete: no activation files, owned library or uncertain/
+foreign/owned diagnostic mappings remain. Native UI health is ready and the
+maintainer confirms visible usable UI; standby is safe. No further Frame access
+is needed for current offline work. Original inputs and all reviewed receipts
+remain in the fork's build/private-registration-source-run-20261016-r1/.
+The inert offscreen SSA-observation prototype is integrated from two separate
+fork worktrees and independently reviewed. It preserves original shader bodies
+and output0 while exporting already-consumed values without new UBO loads.
+Private Khronos validation found and prompted repair of an undersized fixture
+image array and partial shader-module cleanup. Corrected Intel and llvmpipe runs
+each pass36 cases/671 checks with validation enabled/zero errors; a valid wrong
+R0 export and the old cleanup leak are causally detected. Six private-input
+Python methods plus the owned vertex validation pass through the new two-test
+CMake subset; existing unrelated evidence is inherited, not rerun. No live
+shader replacement, mask presenter, game coverage export, PC sender modification
+or new mod build is enabled. No Frame access follows from this offline work.
+Forkdev931c99e contains the source, CMake registration and developer evidence.
+Both worker worktrees and completed private package/compiler caches are removed
+after reaping; originals, failed controls, source pins and final reviews remain.
+
 **Build677 changing Steam Link registration source, 2026-10-16: dev1.1.1.**
 
 The maintainer now confirms visibly moving output on the actual PC. Its new
