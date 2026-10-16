@@ -394,8 +394,9 @@ def _code_rows(files, *, normalizer=None):
         fixed = getattr(normalizer, "UPDATE_DOWNLOAD_FIXED", None)
         previous = getattr(normalizer, "UPDATE_DOWNLOAD_PREVIOUS", None)
         preceding = getattr(normalizer, "UPDATE_DOWNLOAD_PARALLEL_PREVIOUS", None)
+        retained = getattr(normalizer, "UPDATE_RETAINED_APK_FIXED", None)
         if fixed is not None and previous is not None:
-            rows = [previous if row in (fixed, preceding) else row for row in rows]
+            rows = [previous if row in (fixed, preceding, retained) else row for row in rows]
     return sorted(rows, key=lambda row: row["path"])
 
 
@@ -878,6 +879,75 @@ def retained_source_package(builder, apk, output, fallback=None):
     return fallback
 
 
+def _retain_current_apk(builder, plan, base, output):
+    """Keep a qualified current workspace artifact when no delivered bytes change.
+
+    The maintainer's 2026-10-16 startup test needs a host-side storage repair,
+    not another rewrite/signature/transfer of the same Player. Signed runtime
+    provenance remains inside that exact APK; the new host inventory and owned
+    PC qualification belong in this invocation's separate plan/report. Never
+    replace the original build receipt or adjacent report with an APK-only one:
+    discovery, cleanup and portable export still own its complete game banks.
+    A borrowed/non-current source keeps the ordinary owned-output repack path.
+    """
+    signing = plan.get("signing", {})
+    certificate = signing.get("certificateSha256")
+    if (plan.get("requiresUnity") or plan.get("rebuildReasons") or plan.get("codeChanged")
+            or plan.get("artChanged") or signing.get("mode") != "original"
+            or not isinstance(certificate, str) or not re.fullmatch(r"[0-9a-f]{64}", certificate)
+            or certificate != signing.get("sourceCertificateSha256")
+            or plan["inputs"]["mod"]["modBuild"] != base.get("modBuild")
+            or plan["inputs"]["profile"] != base.get("currentProfile")):
+        return None
+    apk = Path(plan["baseApk"])
+    try:
+        relative = apk.relative_to(output).as_posix()
+        if not re.fullmatch(r"(?:builds|updates)/[0-9a-f]{64}/[A-Za-z0-9._-]+\.apk", relative): return None
+        latest_path = builder._ordinary_owned(output / "latest-build.json")
+        if latest_path.stat().st_size > 2 * 1024 * 1024: return None
+        latest = json.loads(latest_path.read_text(encoding="utf-8"))
+        if not isinstance(latest, dict): return None
+        receipt_name = latest.get("receipt")
+        if (latest.get("schema") != 1 or latest.get("apk") != relative
+                or not isinstance(receipt_name, str)
+                or not re.fullmatch(r"receipts/build/[0-9a-f]{64}\.json", receipt_name)
+                or apk.parent.name != Path(receipt_name).stem):
+            return None
+        details = latest.get("details", {})
+        if (not isinstance(details, dict) or details.get("apkSha256") != plan["baseApkSha256"]
+                or details.get("inputKey") != base["inputKey"]
+                or details.get("modBuild") != base.get("modBuild") or details.get("isDiagnostic") is not False
+                or not builder._ordinary_owned(Path(str(apk) + ".build.json")).is_file()):
+            return None
+        before = _core(builder)._base_stamp(apk)
+        change_before = _selection_stamp(builder, [apk])
+        receipt = builder.Stages(output).valid("build", Path(receipt_name).stem)
+        if not receipt or receipt.get("details") != details: return None
+        matches = [row for row in receipt.get("outputs", []) if row.get("path") == relative]
+        if len(matches) != 1 or matches[0].get("sha256") != plan["baseApkSha256"]: return None
+        # Reuse real native file-change witnesses; unknown/changed physical
+        # identities rehash. A signed plan alone never proves current bytes.
+        if builder.apk_input_hashes.digest_apk(apk, output) != plan["baseApkSha256"]:
+            raise builder.BuildError("The selected APK changed after update qualification; retry with the current source.")
+        if before != _core(builder)._base_stamp(apk) or change_before != _selection_stamp(builder, [apk]):
+            raise builder.BuildError("The selected APK changed while retaining its completed build evidence.")
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    report = {"schema": 1, "buildResult": "Succeeded", "scope": "Retained APK",
+              "updateKey": plan["updateKey"], "mode": plan["mode"], "apk": relative,
+              "apkSha256": plan["baseApkSha256"], "inputKey": base["inputKey"],
+              "modBuild": base["modBuild"], "retainedApk": True, "noPayloadChanges": True,
+              "hostModSource": plan["inputs"]["mod"], "signedModSource": base.get("currentMod"),
+              "ownedGame": plan["ownedGame"], "signing": signing,
+              "retainedBuildReceipt": receipt_name}
+    builder.write_json(output / "updates" / plan["updateKey"] / "unchanged-apk.json", report)
+    for operation in ("update-mod-source", "update-code", "update-art", "update-profile", "update-repack", "update-verify"):
+        builder.build_progress.operation(operation, complete=True,
+            detail="Existing signed APK and content are unchanged; no compilation, copy or signing is required.")
+    print("update: retained unchanged " + str(apk), flush=True)
+    return apk
+
+
 def run(builder, args, repo, output):
     # Do not authorize a cached update from yesterday's absent PC installation.
     plan = inspect(builder, args, repo, output)
@@ -889,6 +959,9 @@ def run(builder, args, repo, output):
     sign, verify = _run_signers(builder, args, output, base_apk, tools, plan["signing"])
     if plan["updateStrategy"] == "cached-full-build":
         return _rebuild(builder, args, plan, repo, output)
+    retained = _retain_current_apk(builder, plan, base, output)
+    if retained is not None:
+        return retained
 
     def produce():
         replacements = {}
