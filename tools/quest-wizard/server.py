@@ -233,7 +233,7 @@ class LocalServer(ThreadingHTTPServer):
                 raise WizardError("already_running", "Another wizard run owns this workspace.", "Ein anderer Wizard-Lauf verwendet diesen Arbeitsordner.")
             def work():
                 try: self.engine_factory(self.store).run(session)
-                except (WizardError, OSError, ValueError) as error:
+                except Exception as error:
                     code = error.code if isinstance(error, WizardError) else "stage_failed"
                     message = error.message if isinstance(error, WizardError) else {"en": str(error), "de": str(error)}
                     if code == "already_running":
@@ -241,9 +241,25 @@ class LocalServer(ThreadingHTTPServer):
                         # request must never overwrite that runner's live state.
                         self.job_errors[session] = {"code": code, "message": message}
                         return
-                    state = self.store.load(session)
-                    state.update(status="blocked", needsActions=[{"code": code, "message": message}])
-                    self.store.event(state, code)
+                    # Support150224 failed before the first stage. The old
+                    # catch saved only an empty stage_failed event, so the root
+                    # access refusal was absent from progress.log. Preserve the
+                    # actual exception and structured user recovery, including
+                    # when mandatory session metadata is itself still locked.
+                    parameters = dict(error.parameters) if isinstance(error, WizardError) else {}
+                    parameters.setdefault("errorType", type(error).__name__)
+                    parameters.setdefault("cause", str(error)[:2048])
+                    parameters["traceback"] = traceback.format_exc()[-16384:]
+                    self.job_errors[session] = {"code": code, "message": message, "parameters": parameters}
+                    try: self.request_failure(error)
+                    except (OSError, RuntimeError, ValueError, ImportError): pass
+                    try:
+                        state = self.store.load(session)
+                        state.update(status="blocked", needsActions=[{"code": code, "message": message,
+                                                                      "parameters": parameters}])
+                        self.store.event(state, code, **{**parameters, "message": message})
+                    except (OSError, RuntimeError, ValueError):
+                        pass  # requestError and the independent log retain the cause.
             job = threading.Thread(target=work, name="quest-wizard-" + session, daemon=False)
             self.job_errors.pop(session, None)
             self.jobs[session] = job; job.start()

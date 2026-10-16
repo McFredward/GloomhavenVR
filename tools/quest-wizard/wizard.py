@@ -173,7 +173,7 @@ class Engine:
             raise WizardError("choices_changed", "Saved choices changed; create a new session.")
         # Remember the explicitly continued run, including an older selection.
         # Read-only discovery/status never changes this restart preference.
-        atomic_json(self.store.root / "latest-session.json", {"schema": 1, "session": session})
+        self.store.remember_session(state)
         installation_candidate = self.installation_resume_candidate(state)
         previous_work_key = None if installation_candidate else self.build_work_key(state)
         delivery_candidate = not installation_candidate and self.delivery_resume_candidate(state)

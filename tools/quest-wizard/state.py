@@ -14,6 +14,7 @@ import stat
 import threading
 import time
 import uuid
+import metadata_io
 import stage_plan
 import timing
 
@@ -137,8 +138,15 @@ def atomic_json(path, value):
     try:
         with temp.open("xb") as stream:
             stream.write(canonical(value) + b"\n"); stream.flush(); os.fsync(stream.fileno())
-        os.replace(temp, path)
-    finally: temp.unlink(missing_ok=True)
+        return metadata_io.replace(temp, path, ordinary, WizardError)
+    except OSError as error:
+        if metadata_io.access_error(error):
+            raise metadata_io.busy_error(path, error, WizardError) from error
+        raise
+    finally:
+        try: temp.unlink(missing_ok=True)
+        except OSError as error:
+            metadata_io.record(path, ordinary, "metadata-temp-cleanup-deferred", errorType=type(error).__name__)
 
 
 def read_json(path, limit=2 * 1048576):
@@ -299,8 +307,27 @@ class Store:
                  "needsActions": [], "lastEvent": 0, "events": [], "created": time.time(),
                  "progress": {"completed": 0, "total": len(STAGES), "phase": None, "percent": None}}
         self.save(state)
-        atomic_json(self.root / "latest-session.json", {"schema": 1, "session": session})
+        self.remember_session(state)
         return state
+
+    def remember_session(self, state):
+        """A locked restart hint must not block the selected durable run.
+
+        Support150224 fails before any stage because Windows refuses replacing
+        latest-session.json. Session state and receipts own the real work; this
+        convenience pointer only selects a homepage default. Try the bounded
+        metadata repair, then record the deferral and continue the chosen run.
+        """
+        path = self.root / "latest-session.json"
+        try:
+            atomic_json(path, {"schema": 1, "session": state["session"]})
+        except WizardError as error:
+            if error.code != "workspace_metadata_busy": raise
+            self.event(state, "workspace_metadata_deferred", **error.parameters, buildContinues=True,
+                       message={"en": "The optional restart hint is busy; the selected run continues.",
+                                "de": "Der optionale Startverweis ist gesperrt; der gewählte Lauf wird fortgesetzt."})
+            return False
+        return True
 
     def event(self, state, code, stage=None, **parameters):
         with self._lock: return self._event(state, code, stage, **parameters)

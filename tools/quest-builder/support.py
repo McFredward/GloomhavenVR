@@ -133,7 +133,7 @@ def run_summary(state, removed, replacements):
     # showed an old compiler failure at the top while its live ADB timeout was
     # visible only inside progress.log. Preserve each blocked run's current
     # small action independently of historical build/last-failure.json.
-    if state.get('status') == 'blocked' and isinstance(state.get('needsActions'), list):
+    if state.get('status') in ('blocked', 'failed') and isinstance(state.get('needsActions'), list):
         actions = []
         for action in state['needsActions'][:4]:
             if not isinstance(action, dict) or not re.fullmatch(r'[a-z0-9_-]{1,80}', str(action.get('code', ''))): continue
@@ -141,7 +141,8 @@ def run_summary(state, removed, replacements):
             parameters = action.get('parameters', {})
             if isinstance(parameters, dict):
                 item['parameters'] = {key: safe_json(parameters[key], replacements) for key in
-                    ('failedDependencies', 'completedWorkRetained') if key in parameters}
+                    ('failedDependencies', 'completedWorkRetained', 'path', 'cause', 'errorType', 'retryable',
+                     'winerror', 'retryAttempts', 'readOnlyRepaired', 'failureStage') if key in parameters}
             actions.append(item)
         if actions: result['needsActions'] = actions
     if isinstance(choices, dict) and choices.get('mode') in ('build', 'update-mod', 'update-profile'):
@@ -871,6 +872,17 @@ def export_support(state_root, session=None, destination=None):
     else:
         # A deleted or absent run is not an invented current build.
         for key in ('stages', 'needsActions', 'events'): meta.pop(key)
+        # A pre-stage Wizard failure can be newer than last-failure.json from
+        # an earlier compiler attempt. Expose its actual run action directly;
+        # keep the individual workspace summaries as the source of this fact.
+        recent = [row for row in workspace.get('runs', []) if not row.get('removed')]
+        def recent_time(row):
+            value = row.get('updated', row.get('created', 0))
+            return value if type(value) in (int, float) and math.isfinite(value) else 0
+        recent.sort(key=lambda row: (recent_time(row), row.get('session', '')), reverse=True)
+        if recent and recent[0].get('status') in ('blocked', 'failed') and recent[0].get('needsActions'):
+            meta['currentRunIssue'] = {key: recent[0][key] for key in
+                                      ('session', 'status', 'updated', 'mode', 'needsActions') if key in recent[0]}
     if device_summary: meta['deviceTools'] = device_summary
     repo = Path(__file__).resolve().parents[2]
     protocol = ordinary(repo / 'src/GloomhavenVR/Net/NetProtocol.cs')
@@ -939,7 +951,7 @@ def export_support(state_root, session=None, destination=None):
                     replacements.append((row['gameRoot'], '<owned-game>'))
         add_log(candidates, 'wizard/storage-analysis.json', root / 'logs/storage-analysis.json', True, omitted)
     for name in ('wizard-requests.log', 'wizard-requests.previous.log', 'storage-cleanup.log', 'storage-cleanup.previous.log',
-                 'package-export.jsonl', 'package-export.previous.jsonl'):
+                 'package-export.jsonl', 'package-export.previous.jsonl', 'metadata-repair.jsonl'):
         add_log(candidates, 'wizard/' + name, root / 'logs' / name, False, omitted)
     log_sources = [(build_root / 'logs', 'build', lambda name: bool(BUILD_LOG.fullmatch(name)) or name in UPDATE_LOGS)]
     if session_root:
