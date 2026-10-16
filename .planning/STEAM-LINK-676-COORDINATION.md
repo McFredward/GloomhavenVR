@@ -1,5 +1,47 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Receiver run refused unarmed and fully restored, 2026-10-16
+
+Approved441,496B library loads against all79 actual native imports/providers;
+native compositor/UI health succeeds. The cold device definition rejects known
+HostQueryReset1000261000 at index5. No stream, manual arm or observer bind occurs.
+This run first supplies the verified full12-header native census; the older
+native record stopped at the timeline-feature refusal. Handle the complete new
+census together; another incremental one-header headset round is not valid.
+
+The independent operator gate must check device-definition eligibility as well
+as native UI/sampler and actual transaction state. Before manual arm require the
+canonical profile, actual queue and a complete recipe receipt. The exact clone
+must follow the actual post-arm candidate; requiring it before arm would form a
+cycle. The old UI-ready=true receipt is not diagnostic readiness.
+The new gate causally rejects the exact stored failed-admission receipt offline.
+
+Manual rollback succeeds: activation/run-library absent, no diagnostic mappings,
+fresh original native UI healthy and user-confirmed visible/usable. Standby safe.
+Evidence: fork build/private-native-ssbo-run-20261016-r1/completion.json. Its old
+plan is marked consumed; no automatic rollback/restart timer was used. The next
+package remains offline until full-chain review, focused checks and fresh actual
+readiness; do not contact/wake the Frame or request a stream meanwhile.
+
+Corrected forkdevb525bd1 integrates the complete known12-header device decoder
+(1192 focused normal/sanitized controls, ARM compile), independent six-test
+operator gate and exact actual-draw pipeline selection. The archive proves six
+creates/distinct layouts/12 modules, but only finaltwo pipelines draw (147 each).
+16 slots per inventory and exact generation lookup replace firstReady/firstCB
+coupling; the4-receipt reporting allowance remains separate.228 tracker controls,
+affected bridge511/final selector227 controls, journal scope and independent
+source review pass; these mocked proofs are not a native GPU/visual outcome.
+
+Final corrected ARM441,880B SHA1c94f6f75cf0309cb5cf5fee961fe55d4e5d41bb54e656b78256446d83e42dd8
+has the baseline79 imports/exact three private exports. Actual optional loader3
+cases, CMake readiness registration and isolated exact-artifact staging/rollback
+pass. Fresh r2 plan: fork build/private-native-ssbo-run-20261016-r2/, payload
+556,232B; source+staged-copy998,112B. No Frame contact after restored confirmation;
+exact hosted CI38942752089 is green (124CTest/99.35s, both optional builds,
+Windows,8,482 sanitizer controls); actual restart readiness remains pending.
+Own completed caches/workers
+are removed; ARM/source/captures/results retained. Build677 remains unchanged.
+
 ## Original-invocation receiver package, 2026-10-16
 
 Forkdev278e7a5 is pushed. It joins canonical Sparse32/count1 shader creation,

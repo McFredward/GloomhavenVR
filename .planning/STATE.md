@@ -1,5 +1,52 @@
 # State — where the project stands
 
+**Steam Link receiver run refused before arming and restored, 2026-10-16: Build677 unchanged.**
+
+The maintainer approved the441,496B library/551,042B user-home package and one
+SteamVR restart. Current native79 imports and exact-provider isolated loading
+pass; compositor/browser/renderer UI health is ready. The cold definition profile
+stops at known HostQueryReset header1000261000, index5, despite enabled fragment
+storage. No stream is requested, no capture is armed, and no observer is bound.
+This is our admission refusal, not a native Vulkan create or startup failure.
+
+Manual rollback is complete, no activation or diagnostic mappings remain, and
+fresh original UI health plus the user's visible/usable confirmation pass. The
+Frame is safe for standby. Exact audit/results: fork
+build/private-native-ssbo-run-20261016-r1/completion.json; do not redeploy that plan.
+
+This run supplies the first verified full12-header native census; the previous
+native library reported only the first timeline-feature refusal. Review all12
+together before another device request. The old operator
+also incorrectly treated healthy UI/sampler as receiver readiness; its stored
+ready=true result is explicitly superseded by activation-audit.json. The new cold
+gate rejects that exact preserved receipt and has five focused Python tests.
+The complete device-chain repair is integrated in forkdevb525bd1:1,192 focused
+normal/sanitized controls plus ARM compilation. Independent readiness gating has
+six Python tests, including the exact recorded healthy-UI/refused-device case.
+
+Further read-only review found a separate deterministic selector defect: the
+native archive creates six distinct distortion variants/layouts and12 shader
+modules, but294 draw_recorded events use only the final two variants. First-ready
+recipe and first candidate command could disagree, and4-slot inventories/report
+coupling could discard the used variants. Exact selected-draw pipeline identity
+now reaches a cold, generation-checked lookup after manual arm. All inventories
+have16 slots (Journal558,576B), independent of the unchanged4-receipt log budget.
+No clone is required before arm: canonical profile/actual queue/one complete
+recipe are required, then exact candidate selection prepares its clone off-thread
+and only the next actual Begin can instrument.228 tracker controls pass normally
+and sanitized; affected bridge511 plus final selector227 controls, journal scope
+and a second independent source review cover the new flow without repeating
+unchanged GPU proofs or main gate.
+
+Corrected ARM441,880B SHA1c94f6f75cf0309cb5cf5fee961fe55d4e5d41bb54e656b78256446d83e42dd8,
+same79 imports, exact three exports, local exact-artifact prepare/idempotence/
+unarmed/rollback, three actual optional-loader cases and the CMake readiness
+entry pass. New payload556,232B, staged package+library998,112B; plan in fork
+build/private-native-ssbo-run-20261016-r2/. Exact hosted CI38942752089 is green:
+124CTest/99.35s, both optional builds, Windows and8,482 sanitizer controls. Fresh
+actual restart readiness remains required before another device action. All completed
+own workers/caches are removed; source/results/originals and ARM package remain.
+
 **Steam Link original-invocation receiver assembled offline, 2026-10-16: Build677 unchanged.**
 
 Forkdev278e7a5 integrates the owned count1/Sparse32 original-output observer,
