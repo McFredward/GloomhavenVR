@@ -27,8 +27,16 @@ Independent production review found and repaired partial-texture cleanup and
 unnecessary repeated metadata getters; Debug receipts stop after four pairs.
 The first integration runtime-typing failure was a new nullable annotation only;
 only that compile was repeated. Unchanged wire/native/menu/binder evidence is
-inherited676/675, not presented as another complete221-suite gate. Actual dynamic
-GPU fixture and final integration outcomes follow in the677 coordination record.
+inherited676/675, not presented as another complete221-suite gate.
+
+Actual Unity2021.3.5/Intel Vulkan now passes Linear113/Gamma110 plus the isolated
+unrendered-cohort6 controls:48 exact original headers, zero RGB8 error, actual
+pending-resource guards and texture reuse after completed fences. Gamma inherited
+the exact successful compile; later bounded fixture-only repairs inherited those
+unchanged image methods. True flip, changed-source and corrupted reused-DLL
+controls refuse. No XR callback, Windows D3D11 or native decoded mapping is
+claimed. Evidence and cleanup are in the677 coordination record; the Frame stays
+restored, with no new connection/installation/restart authorized by these tests.
 
 **Build676 manual-only Steam Link source test, 2026-10-15: dev1.1.1.**
 

@@ -1,6 +1,6 @@
 # Steam Link manual-only source test, 2026-10-15
 
-## Build677 integration in progress
+## Build677 changing-source integration
 
 Portable worker8c9f7f3e6 is adopted as51fb12851. Primary owns the new
 RegistrationTextures adapter, PayloadOutput/Driver connection, existing focused
@@ -16,8 +16,34 @@ controls,167 independent old-format header/CRC/SHA checks, net472 Unity-referenc
 typing, Debug/Release0/0, unchanged667/236/4797 surfaces and options coverage.
 A new nullable annotation needed one compile-only repeat; unchanged successful
 controls were not replayed. The two independent production review findings
-(partial texture cleanup and repeated metadata getters) are fixed. Final actual
-GPU results, package scope and cleanup will be recorded before a headset request.
+(partial texture cleanup and repeated metadata getters) are fixed.
+
+Actual Unity2021.3.5/Intel Vulkan passes Linear113 and Gamma110 with48 exact
+source headers, zero RGB8 code error, three genuinely pending/unchanged slots
+per profile and two actual passed-fence texture reuses per profile. The optional
+unrendered branch was not reached under real pool pressure, so a separate small
+actual GPU invocation checks only that new case:6 controls. No full image rerun.
+Runner source-change and reused-DLL-digest guards are causally checked; real
+vertical-flip output is refused by the unchanged decoder. Worker GPU commits
+f25cec733/f23309650 are adopted asb50a60b25/4e1527c38. Primary reviewed their
+source and retained receipts. Main actual runtime sources remain byte-identical
+to their successful Debug/Release and GPU fixture versions.
+
+The separate fork reader647197a pins the new wrapper/header/tuple without
+weakening old static gates. Ten focused methods and its CMake registration pass.
+Actual C#-generated/Unity-rendered Linear-left pair1 and Gamma-right pair4 also
+pass the new CLI with exact code agreement; the actual GPU flip refuses. These
+are explicit source-canvas measurements, not native decoded acquisitions. The
+reader grants no native spatial/video, source authenticity or alpha authority.
+
+All reports, source snapshots, failed controls and lossless output bytes remain
+under main .planning/debug/steamlink677 and fork
+build/private-registration-{gpu-review,reader,integration}-20261016. Completed
+private compiler/CMake/Unity caches and owned worktrees are cleaned after reaping;
+keep borrowed game references and other agents' work untouched. No new Frame
+access or mutation occurred; it remains restored and user-confirmed usable.
+The next human check must establish the actual PC provider's dynamic/static
+choice and successful changing eye output before a newly agreed receiver run.
 
 ## Current checkpoint: final-draw bytes and restored Frame, 2026-10-16
 
