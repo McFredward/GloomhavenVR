@@ -33,6 +33,7 @@ class UpdateFailureGuidanceTests(unittest.TestCase):
     def test_exact_generated_project_refusals_name_retained_retry_and_diagnostics(self):
         for cause in ('The retained private UGUI package changed; no native update was produced.',
                       'A rewritten original assembly needs one recovered DLL and its retained .meta: UnityEngine.UI.dll',
+                      'Compact update repair required: the compiler could not resolve retained script Unity.InputSystem.ForUI.dll|UnityEngine.InputSystem.Plugins.InputForUI|InputSystemProvider.',
                       'The code-update package API binding is incomplete or differs from its actual inputs.'):
             with self.subTest(cause=cause):
                 error = self.fail(cause)
@@ -42,6 +43,7 @@ class UpdateFailureGuidanceTests(unittest.TestCase):
                 self.assertIn('gespeicherten Run erneut versuchen', error.parameters['updateGuidance']['nextSteps']['de'])
                 self.assertIn('Logs exportieren', error.parameters['updateGuidance']['nextSteps']['de'])
                 self.assertTrue(error.parameters['completedWorkRetained'])
+                self.assertNotIn('newBuild', error.parameters['updateGuidance'])
 
     def test_specific_input_signing_and_source_choices_are_not_automatic_authority(self):
         cases = {'project-ownership': 'Code-only project belongs to a different update; retain it and use this update\'s own output folder.',

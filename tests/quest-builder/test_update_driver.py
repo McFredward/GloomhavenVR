@@ -552,15 +552,31 @@ class UpdateDriverTests(unittest.TestCase):
             driver.run(self.builder, self.args, ROOT, self.output)
         self.builder.rebuild_update.assert_not_called()
 
-    def test_fresh_editor_serialized_migration_is_typed_but_other_errors_are_not(self):
+    def test_fresh_missing_catalog_entry_requires_compiler_repair_not_asset_migration(self):
         log = self.output / "logs/update-code-unity.log"
-        message = "InvalidDataException: Retained original serialized script is missing: GH.Runtime.dll:Fixture:Original; a full build is required.\n"
-        def compiler_migration(*args, **kwargs):
-            log.parent.mkdir(parents=True, exist_ok=True); log.write_text(message)
+        identity = "Unity.InputSystem.ForUI.dll|UnityEngine.InputSystem.Plugins.InputForUI|InputSystemProvider"
+        def missing_catalog(*args, **kwargs):
+            log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text("InvalidDataException: Retained original serialized script is missing: " + identity + "; a full build is required.\n")
             raise storage.BuildError("Actual Unity player failed")
-        self.builder.command = compiler_migration
-        with self.assertRaisesRegex(apk_update.RebuildRequired, "serialized script is missing"):
+        self.builder.command = missing_catalog
+        original = self.apk.read_bytes()
+        retained = self.output / "projects/retained/Library/native-object"
+        retained.parent.mkdir(parents=True); retained.write_bytes(b"completed compiler object")
+        self.builder.rebuild_update = Mock()
+        with self.assertRaisesRegex(storage.BuildError, "Compact update repair required:") as missing:
             driver._compact_player_command(self.builder, ["Unity", "fixture"], self.output / "launch.log", log, {})
+        self.assertNotIsInstance(missing.exception, apk_update.RebuildRequired)
+        self.assertIn(identity, str(missing.exception))
+        self.assertNotIn("a full build is required", str(missing.exception))
+        self.assertEqual(self.apk.read_bytes(), original)
+        self.assertEqual(retained.read_bytes(), b"completed compiler object")
+        self.builder.rebuild_update.assert_not_called()
+
+    def test_stale_catalog_errors_and_unrelated_current_failures_are_not_migration_proof(self):
+        log = self.output / "logs/update-code-unity.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("InvalidDataException: Retained original serialized script is missing: GH.Runtime.dll|Fixture|Original; a full build is required.\n")
         self.builder.command = Mock(side_effect=storage.BuildError("Editor did not start"))
         with self.assertRaises(storage.BuildError) as stale:
             driver._compact_player_command(self.builder, ["Unity", "fixture"], self.output / "launch.log", log, {})

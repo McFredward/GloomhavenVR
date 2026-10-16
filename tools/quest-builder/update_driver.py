@@ -706,13 +706,13 @@ def rebuild_reasons(current_files, previous_files, *, payload_producer=None, pre
 
 
 def _compact_player_command(builder, argv, launch_log, unity_log, env):
-    """Distinguish fresh plugin import failures from serialized incompatibility.
+    """Keep compiler preparation failures separate from asset migration proof.
 
-    Unity can reject a removed old script before writing a native-pair receipt.
-    A missing MonoScript is not an asset migration proof when Unity could not
-    load its assembly. Capture153412 demonstrated that distinction: host CLR
-    references prevented import, then the missing-script fallback unnecessarily
-    converted the entire game. Neither case authorizes an automatic rebuild.
+    Support153412 failed plugin import; Support170547 lost a conditional package
+    script's namespace while reading the Editor catalog. Neither missing entry
+    establishes a changed serialized asset layout. Only the qualified compiled
+    player comparison may require migration. Preserve the old APK and compiler
+    results rather than proposing a full build for a preparation defect.
     """
     unity_log = Path(unity_log)
     def stamp():
@@ -730,14 +730,16 @@ def _compact_player_command(builder, argv, launch_log, unity_log, env):
             with unity_log.open("rb") as stream:
                 stream.seek(max(0, after[2] - 65536))
                 text = stream.read(65536).decode("utf-8", errors="replace")
-            migration = re.search(r"(?:^|\n)(?:InvalidDataException: )?(Retained original serialized script is missing: [^\r\n]{1,512}; a full build is required\.)\r?(?:\n|$)", text)
-            if migration and stamp() == after:
+            missing = re.search(r"(?:^|\n)(?:InvalidDataException: )?Retained original serialized script is missing: ([^\r\n]{1,512}); a full build is required\.\r?(?:\n|$)", text)
+            if missing and stamp() == after:
                 imports = re.search(r"[^\r\n]{0,240}(?:Unable to resolve reference|references itself\.|Reference has errors)[^\r\n]{0,240}", text)
                 if imports:
                     raise builder.BuildError("Compact update plugin import failed: " + imports[0].strip()
                         + ". The missing script is not evidence that game assets need conversion. "
                         "Keep the existing APK and workspace; retry with the corrected Builder.") from exc
-                raise _core(builder).RebuildRequired(migration[1]) from exc
+                raise builder.BuildError("Compact update repair required: the compiler could not resolve retained script "
+                    + missing[1] + ". The Editor catalog is incomplete; this does not establish that game assets need conversion. "
+                    "Keep the existing APK and workspace for a targeted compiler repair.") from exc
         raise
 
 
