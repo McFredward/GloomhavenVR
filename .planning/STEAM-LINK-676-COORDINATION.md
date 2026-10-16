@@ -37,6 +37,18 @@ these small reports, original captures and current deliverables. The maintainer
 clarified that cleanup stays within our passthrough area; do not clean another
 agent's NPC/trailer/Quest worktrees or inputs.
 
+The subsequent fork checkpoint6f44ef2 adds two inert uniform-evidence primitives
+and their focused registration:1,261 metadata controls,193 copy controls and33
+actual Intel GPU sequencing checks pass; normal/sanitizer and ARM syntax
+evidence is retained separately. Complete hosted fork CI38865974112 is green.
+They are not linked into the installed pixel diagnostic. Live final-draw,
+buffer-sharing/alias/queue ownership and actual native parameter association
+remain work before another device package; see the fork's
+docs/NATIVE-UNIFORM-PROOF-PLAN-20261016.md. Mod676 remains byte-unchanged.
+Both new worker worktrees and integration CMake caches are removed after push;
+the extra audit also removes13MB of old owned test executables, retaining all
+sources, logs, captures, native references and current deployment packages.
+
 ## Earlier integration history
 
 The maintainer explicitly rejects the30-second automatic source-test timeout.
