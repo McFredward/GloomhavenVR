@@ -6,6 +6,8 @@ using UnityEngine;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game has a global conditional Debug facade.
+    using Debug = UnityEngine.Debug;
     /// <summary>Read-only bounded Debug evidence; the original audio controller owns playback.</summary>
     public sealed class QuestGameAudioEvidence
     {

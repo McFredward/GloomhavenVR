@@ -6,6 +6,8 @@ using UnityEngine;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game has a global conditional Debug facade.
+    using Debug = UnityEngine.Debug;
     /// <summary>Exposes the original invite keyboard to the diagnostic pointer, retaining its key pipeline.</summary>
     public sealed class QuestGameKeyboard : MonoBehaviour
     {

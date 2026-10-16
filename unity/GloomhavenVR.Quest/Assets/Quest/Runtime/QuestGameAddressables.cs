@@ -12,6 +12,8 @@ using UnityEngine.ResourceManagement.ResourceLocations;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game has a global conditional Debug facade.
+    using Debug = UnityEngine.Debug;
     [Serializable] public sealed class QuestGameAddressableAlias { public string key, assetGuid; public string[] assetKeys; }
     [Serializable] public sealed class QuestGameAddressablesManifest
     {

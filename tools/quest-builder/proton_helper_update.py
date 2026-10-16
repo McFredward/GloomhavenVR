@@ -120,7 +120,7 @@ def _compile(builder, source, output, tools):
         exports = {}
         for index, arguments in enumerate(commands):
             builder.build_progress.event("update-proton-helpers", index, 6, "tasks", Path(arguments[0]).name,
-                                         operation="update-code")
+                                         operation="update-art")
             builder.command(arguments, cache / ("compile-" + str(index + 1) + ".log"))
         for index, name in enumerate(NATIVE_NAMES):
             path = cache / name
@@ -129,7 +129,7 @@ def _compile(builder, source, output, tools):
             listing = builder.command(arguments, cache / (name + ".symbols.log"))
             exports[name] = sorted({line.split()[-1] for line in listing.splitlines() if line.split()})
             builder.build_progress.event("update-proton-helpers", index + 5, 6, "tasks", name,
-                                         operation="update-code")
+                                         operation="update-art")
         required = set(runtime.EXPORTS) | {"quest_apparance_configure", "quest_apparance_last_error", "realpath"}
         if not required.issubset(exports[NATIVE_NAMES[0]]) or not {
                 "dladdr", "dlopen", "execv", "posix_spawn", "wine_main_preload_info", "wine_r_debug"}.issubset(exports[NATIVE_NAMES[1]]):

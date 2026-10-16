@@ -6,6 +6,8 @@ using UnityEngine;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game has a global conditional Debug facade.
+    using Debug = UnityEngine.Debug;
     /// <summary>Requests the native host/local save flow when Android suspends the app.</summary>
     public sealed class QuestGameSaveLifecycle : MonoBehaviour
     {

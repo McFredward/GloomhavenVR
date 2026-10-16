@@ -10,6 +10,8 @@ using UnityEngine.XR;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game has a global conditional Debug facade.
+    using Debug = UnityEngine.Debug;
     /// <summary>Pose data from the owning XR rig; all positions/directions are world-space.</summary>
     [Serializable] public struct QuestProbeTrackingSnapshot
     {

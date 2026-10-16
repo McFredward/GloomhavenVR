@@ -9,6 +9,8 @@ using UnityEngine;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game has a global conditional Debug facade.
+    using Debug = UnityEngine.Debug;
     /// <summary>One startup recovery pass; original SaveData owns all subsequent gameplay IO.</summary>
     internal static class QuestGameSaveStorage
     {

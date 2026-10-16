@@ -131,3 +131,10 @@ namespace GloomhavenVR.Rig
         public void Start()=>StartQuestTrackingEvidence();public void Stop()=>StopQuestTrackingEvidence();public void Scene(string scene)=>NoteQuestTrackingScene(scene);
     }
 }
+
+// The original game exports this global conditional logging facade.
+internal static class Debug
+{
+    [System.Diagnostics.Conditional("ENABLE_LOGS")]
+    public static void Log(object value) { }
+}

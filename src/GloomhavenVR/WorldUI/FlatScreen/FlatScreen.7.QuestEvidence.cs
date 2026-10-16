@@ -51,7 +51,7 @@ internal sealed partial class FlatScreen
             UnityEngine.Debug.Log("[Quest startup] presentation menu-producer scene=" + menu.name
                 + " sample=" + sample + " ui=" + capture.IsUi + " " + QuestCameraFacts(capture.Camera));
         }
-        try { QuestCanvasEvidence(menu.name, sample); }
+        try { if (QuestStandalonePlatform.DebugLogging) QuestCanvasEvidence(menu.name, sample); }
         catch (System.Exception error)
         {
             UnityEngine.Debug.LogWarning("[Quest startup] presentation menu-canvas evidence=unavailable detail=" + error.Message);
@@ -70,6 +70,8 @@ internal sealed partial class FlatScreen
             + ",depth=" + camera.depth + ",clear=" + camera.clearFlags
             + ",pose=" + camera.transform.position + ",near=" + camera.nearClipPlane + ",far=" + camera.farClipPlane
             + ",path=" + camera.actualRenderingPath + ",ortho=" + camera.orthographic
+            + ",orthoSize=" + camera.orthographicSize + ",fov=" + camera.fieldOfView
+            + ",aspect=" + camera.aspect + ",rect=" + camera.pixelRect
             + ",eye=" + camera.stereoTargetEye + ",target=" + (camera.targetTexture == null ? "backbuffer"
                 : camera.targetTexture.name + "," + camera.targetTexture.width + "x" + camera.targetTexture.height);
 
@@ -175,11 +177,15 @@ internal sealed partial class FlatScreen
             // Native graphics can raycast and play sounds while their inherited
             // alpha is zero, their renderer is culled, or their material is blank.
             // Observe those states; never override native fades or interaction.
+            // Capture135518 exhausted the shared widget budget in the hidden
+            // main-options canvas before reaching the active first-run EULA.
+            // Keep a per-canvas share and a bounded total at Debug only.
+            int canvasGraphics = 0;
             foreach (Graphic graphic in canvas.GetComponentsInChildren<Graphic>(false))
             {
                 if (graphic == null || !graphic.isActiveAndEnabled || graphic.canvas != canvas) continue;
-                if (graphicCount >= 12) break;
-                graphicCount++;
+                if (graphicCount >= 24 || canvasGraphics >= 8) break;
+                graphicCount++; canvasGraphics++;
                 CanvasRenderer renderer = graphic.canvasRenderer;
                 Material? material = renderer.materialCount > 0 ? renderer.GetMaterial(0) : graphic.material;
                 Texture? texture = graphic.mainTexture;

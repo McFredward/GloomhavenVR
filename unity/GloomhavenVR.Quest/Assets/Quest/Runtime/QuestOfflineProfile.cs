@@ -9,6 +9,8 @@ using UnityEngine;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game has a global conditional Debug facade.
+    using Debug = UnityEngine.Debug;
     /// <summary>Loads a small signed APK asset before original scene Awake callbacks.</summary>
     public static class QuestOfflineProfile
     {

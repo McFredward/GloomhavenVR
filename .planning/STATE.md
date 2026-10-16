@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Quest original menu render ownership and native helpers, 2026-10-16: feature / B673.**
+
+Capture135518 passes both cached content banks, all11mod modules and the original
+menu scenes, advancing beyond the previous app-access failure. The player still
+reports unseen Intro/menu and distorted hands. Quest now skips desktop mirror
+controls/default-target clears; wall diagnostic MPBs are allocated after native
+construction. Quest logs explicitly bind UnityEngine.Debug, closing a real game
+conditional-facade blind spot. Bounded head/device/stereo and active-EULA evidence
+distinguishes picture defects without forcing alpha, poses or viewport settings.
+
+Proton's server searches for already present NLS data beside the APK native file.
+Repair its exact server-child path discovery through two existing small native
+helpers. The reviewed compact update compiles only those helpers and the changed
+managed code, replaces both native contract copies, and retains game/Wine banks
+and authored art. No full conversion or shader census is needed for this repair.
+Actual Android picture, tracking and procedural execution remain unverified.
+See [QUEST-RENDER-135518-20261016.md](QUEST-RENDER-135518-20261016.md).
+
 **Quest cached update-tool handoff, 2026-10-16: feature / B672.**
 
 Support105340 identifies the current failed update, not a new device error.

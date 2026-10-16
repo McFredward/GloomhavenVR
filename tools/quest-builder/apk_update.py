@@ -30,6 +30,8 @@ LIBRARY = "lib/arm64-v8a/libil2cpp.so"
 METADATA = "assets/bin/Data/Managed/Metadata/global-metadata.dat"
 INITIALIZERS = "assets/bin/Data/RuntimeInitializeOnLoads.json"
 ASSEMBLIES = "assets/bin/Data/ScriptingAssemblies.json"
+PROTON_HELPERS = {"lib/arm64-v8a/libQuestApparance.so", "lib/arm64-v8a/libquest_proton.so"}
+PROTON_CONTRACT = "assets/Quest/procedural-native.json"
 MANAGED_RESOURCES = "assets/bin/Data/Managed/Resources/"
 MAX_JSON = 8 * 1024 * 1024
 MAX_MEMBER = 1024 * 1024 * 1024
@@ -38,6 +40,7 @@ REPLACED_PACKAGES = {"UnityEngine.UI", "Unity.InputSystem", "Unity.Addressables"
 _SHA = re.compile(r"[0-9a-f]{64}")
 _UNITY = re.compile(r"20\d{2}\.\d+\.\d+[abfp]\d+")
 _resource_proofs = set()
+_resource_value_proofs = {}
 _UINT32_SENTINEL = 0xffffffff
 _MAX_ZIP_DIRECTORY = 64 * 1024 * 1024
 
@@ -525,7 +528,7 @@ Pass one name/value, or a name→value mapping. Supplying previously returned
     """
     import UnityPy
     updates = name if isinstance(name, dict) and value is None else {name: value}
-    if not updates or set(updates) - {"quest-build", "quest-profile", "quest-mod-content", "quest-mod-bundles"}:
+    if not updates or set(updates) - {"quest-build", "quest-profile", "quest-mod-content", "quest-mod-bundles", "quest-procedural-native"}:
         raise BuildError("Unsupported Quest JSON TextAsset update scope.")
     result = dict(replacements or {})
     with zipfile.ZipFile(base) as apk:
@@ -545,6 +548,7 @@ Pass one name/value, or a name→value mapping. Supplying previously returned
         if found != set(updates): raise BuildError("Quest JSON resource is missing from the original native registry.")
         for member, selected in groups.items():
             raw = result[member] if member in result else apk.read(member)
+            inherited = dict(_resource_value_proofs.get((_base_stamp(base), member, hashlib.sha256(raw).hexdigest()), {}))
             env = UnityPy.load(raw)
             if len(env.files) != 1: raise BuildError("Quest Resources must be one serialized player file.")
             file = next(iter(env.files.values())); objects = {obj.path_id: obj for obj in env.objects}
@@ -565,7 +569,13 @@ Pass one name/value, or a name→value mapping. Supplying previously returned
                 if isinstance(actual, bytes): actual = actual.decode("utf-8")
                 if json.loads(actual) != updates[key]: raise BuildError("Quest TextAsset update failed its readback.")
             result[member] = cooked
-            _resource_proofs.add((_base_stamp(base), member, hashlib.sha256(cooked).hexdigest()))
+            proof_key = (_base_stamp(base), member, hashlib.sha256(cooked).hexdigest())
+            _resource_proofs.add(proof_key)
+            # Later build/profile patches may share this serialized file. Carry
+            # forward only values proven in these exact input bytes; untargeted
+            # object bodies above remain byte-identical through composition.
+            inherited.update({key: hashlib.sha256(_json_bytes(updates[key])).hexdigest() for key in selected})
+            _resource_value_proofs[proof_key] = inherited
     return result
 
 
@@ -575,7 +585,83 @@ def _resource_member(name):
 
 def _replaceable(name):
     return name in {LIBRARY, METADATA, INITIALIZERS, ASSEMBLIES, CAPSULE, UPDATE, PROFILE,
-                    "AndroidManifest.xml", INSTALLATION, "assets/quest-mod-content.zip"} or _resource_member(name) or (name.startswith(MANAGED_RESOURCES) and name.endswith("-resources.dat"))
+                    "AndroidManifest.xml", INSTALLATION, "assets/quest-mod-content.zip", PROTON_CONTRACT} or name in PROTON_HELPERS or _resource_member(name) or (name.startswith(MANAGED_RESOURCES) and name.endswith("-resources.dat"))
+
+
+def _qualify_proton_helpers(base, info, replacements, update_manifest, evidence):
+    """Admit only the reviewed helper pair, with its actual old/new byte proof."""
+    touched = set(replacements) & (PROTON_HELPERS | {PROTON_CONTRACT})
+    if not touched:
+        if evidence is not None:
+            raise BuildError("Native helper evidence has no matching replacement pair.")
+        return
+    if touched != PROTON_HELPERS | {PROTON_CONTRACT}:
+        raise BuildError("Proton helper replacements require the complete pair and native contract.")
+    if (not isinstance(evidence, dict) or evidence.get("schema") != 1
+            or evidence.get("scope") != "proton-nls-helper-update-v1"
+            or evidence.get("backend") != "proton-arm64ec-fex"
+            or evidence.get("androidDeviceExecutionVerified") is not False
+            or any(evidence.get(key) is not False for key in
+                   ("wineBinaryChanged", "winePayloadChanged", "originalGameAssetsRebuilt"))
+            or update_manifest.get("nativeHelpers") != evidence):
+        raise BuildError("Proton helper replacements lack their qualified static update evidence.")
+    spec = importlib.util.spec_from_file_location("quest_apk_proton_helper", Path(__file__).with_name("proton_helper_update.py"))
+    helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+    original = info["manifest"]
+    previous = (info.get("update") or {}).get("mod", original["mod"])["files"]
+    current = update_manifest.get("mod", {}).get("files", [])
+    allowed = helper.changed_rows(current, previous, original.get("proceduralBackend"))
+    if not allowed:
+        raise BuildError("Proton helper source transition is not the exact reviewed repair.")
+    selected = {row["path"]: row for row in current}
+    preceding = {row["path"]: row for row in previous}
+    rows = evidence.get("sourceFiles")
+    expected_paths = {helper.PREFIX + name for name in helper.SOURCE_NAMES}
+    if (not isinstance(rows, list) or len(rows) != len(expected_paths)
+            or {row.get("path") for row in rows if isinstance(row, dict)} != expected_paths
+            or any(row != selected.get(row["path"]) for row in rows)
+            or any(row != preceding.get(row["path"]) for row in rows if row["path"] not in allowed)):
+        raise BuildError("Proton helper evidence differs from its unchanged native ABI inputs.")
+    with zipfile.ZipFile(base) as archive:
+        old = _json(archive, PROTON_CONTRACT)
+        old_rows = {row["path"]: row for row in old.get("files", [])}
+        actual_previous = []
+        native_rows = evidence.get("nativeFiles", [])
+        prefix = "Assets/Quest/Plugins/Android/arm64-v8a/"
+        if (not isinstance(native_rows, list) or len(native_rows) != 2
+                or not all(isinstance(row, dict) for row in native_rows)
+                or {row.get("path") for row in native_rows} !=
+                {prefix + Path(name).name for name in PROTON_HELPERS}):
+            raise BuildError("Proton helper evidence has an invalid program inventory.")
+        for row in native_rows:
+            member = "lib/arm64-v8a/" + Path(row["path"]).name
+            body = replacements[member]
+            if (not isinstance(body, bytes) or not 64 <= len(body) <= 4 * 1024 * 1024
+                    or body[:7] != b"\x7fELF\x02\x01\x01" or struct.unpack_from("<HHI", body, 16) != (3, 183, 1)
+                    or row.get("size") != len(body) or row.get("sha256") != hashlib.sha256(body).hexdigest()):
+                raise BuildError("Qualified Proton helper bytes changed before publication: " + member)
+            prior = old_rows.get(row["path"])
+            entry = archive.getinfo(member)
+            if (prior is None or not 64 <= entry.file_size <= 4 * 1024 * 1024
+                    or entry.file_size != prior.get("size")
+                    or hashlib.sha256(archive.read(entry)).hexdigest() != prior.get("sha256")):
+                raise BuildError("Source Proton helper differs from its signed native contract: " + member)
+            actual_previous.append(prior)
+    prior_rows = evidence.get("previousNativeFiles")
+    if (not isinstance(prior_rows, list) or len(prior_rows) != 2
+            or not all(isinstance(row, dict) and isinstance(row.get("path"), str) for row in prior_rows)
+            or sorted(prior_rows, key=lambda row: row["path"]) != sorted(actual_previous, key=lambda row: row["path"])):
+        raise BuildError("Proton helper evidence names a different source program pair.")
+    updated = copy.deepcopy(old)
+    replacements_by_path = {row["path"]: row for row in native_rows}
+    updated["files"] = [replacements_by_path.get(row["path"], row) for row in old["files"]]
+    updated["helperUpdate"] = evidence
+    if json.loads(replacements[PROTON_CONTRACT]) != updated:
+        raise BuildError("Repaired Proton native contract changed unrelated program records.")
+    expected = hashlib.sha256(_json_bytes(updated)).hexdigest()
+    if not any(_resource_value_proofs.get((_base_stamp(base), member, hashlib.sha256(body).hexdigest()), {}).get(
+            "quest-procedural-native") == expected for member, body in replacements.items() if _resource_member(member)):
+        raise BuildError("Repaired Proton Resources contract lacks its exact composed TextAsset proof.")
 
 
 def _signature(name):
@@ -801,7 +887,7 @@ def check_alignment(path, *, shared_library_alignment=16384):
 
 
 def repack(base, output, replacements, *, update_manifest, signer, verifier, progress=None, code_evidence=None,
-           repair_update_contracts=False):
+           repair_update_contracts=False, native_helper_evidence=None):
     """Publish a verified signed update atomically, retaining compressed game bytes.
 
 signer(temp_path) and verifier(temp_path) must raise on failure. A verifier may
@@ -815,6 +901,7 @@ Neither callback is optional: unsigned output is never an installable result.
     if set(replacements) & {LIBRARY, METADATA} and not {LIBRARY, METADATA}.issubset(replacements):
         raise BuildError("IL2CPP library and global metadata must be updated together.")
     info = inspect_base(base, validate_update_contracts=not repair_update_contracts)
+    _qualify_proton_helpers(base, info, replacements, update_manifest, native_helper_evidence)
     if LIBRARY in replacements:
         if (not isinstance(code_evidence, dict) or code_evidence.get("nativePairQualified") is not True
                 or code_evidence.get("gameInputKey") != info["inputKey"]

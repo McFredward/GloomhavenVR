@@ -13,6 +13,8 @@ using UnityEngine.XR;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game has a global conditional Debug facade.
+    using Debug = UnityEngine.Debug;
     /// <summary>Temporary XR presentation of original menu objects and callbacks. Not the VR mod.</summary>
     public sealed class QuestGameMenu : MonoBehaviour
     {

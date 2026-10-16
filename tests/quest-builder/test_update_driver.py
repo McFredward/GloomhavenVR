@@ -245,7 +245,7 @@ class UpdateDriverTests(unittest.TestCase):
             path = source / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
         rows = [storage.record_file(source / name, name) for name in
                 ("tools/quest-builder/builder.py", "tools/quest-builder/preparation_identity.py")]
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "storage.py", "profile.py", "dlcs.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py"):
             (source / "tools/quest-builder" / name).write_bytes((ROOT / "tools/quest-builder" / name).read_bytes())
         self.manifest["mod"]["files"] = copy.deepcopy(rows)
         self.current_mod["files"] = copy.deepcopy(rows)
@@ -389,7 +389,7 @@ class UpdateDriverTests(unittest.TestCase):
         self.current_mod.update(files=previous, modBuild=671); self.write_apk()
         self.args.command = "update-mod"; self.builder.mod_build = lambda repo: 671
         self.builder.source_inventory = lambda repo: (current, commit, dirty)
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py"):
             path = source / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / "tools/quest-builder" / name, path)
         with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]), \
@@ -424,7 +424,7 @@ class UpdateDriverTests(unittest.TestCase):
                   "unity/GloomhavenVR.Assets/Assets/unchanged.asset": b"unchanged authored asset" * 4096}
         for name, body in values.items():
             path = repo / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py"):
             path = repo / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / "tools/quest-builder" / name, path)
         rows = [storage.record_file(repo / name, name) for name in values]

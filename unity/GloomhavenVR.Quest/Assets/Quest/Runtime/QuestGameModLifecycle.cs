@@ -11,6 +11,8 @@ using UnityEngine.XR.Management;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game has a global conditional Debug facade.
+    using Debug = UnityEngine.Debug;
     /// <summary>Adopts Unity's XR session and starts the original, statically woven mod.</summary>
     public sealed class QuestGameModLifecycle : MonoBehaviour
     {

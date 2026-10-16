@@ -33,6 +33,7 @@ def main():
     assert "Debug.Log(text.ToString());" in source and '"[Quest startup] presentation tracking ' in source
     controls = [
         ("production", None, None, None),
+        ("game-debug-facade", "UnityEngine.Debug.Log(text.ToString())", "global::Debug.Log(text.ToString())", "first actual head render sample"),
         ("desktop-subscribed", "if (!QuestStandalonePlatform.Enabled)\n            return;", "if (QuestStandalonePlatform.Enabled && !QuestStandalonePlatform.Enabled)\n            return;", "desktop has no diagnostic subscription or queries"),
         ("normal-level-queried", " || !VRLog.Wants(VRLogLevel.Debug)", "", "normal level performs no device clock matrix or transform queries"),
         ("right-eye-aliased", "rendering.GetStereoProjectionMatrix(Camera.StereoscopicEye.Right)", "rendering.GetStereoProjectionMatrix(Camera.StereoscopicEye.Left)", "rightProjectionSlopes=(-0.5500,0.4500,-0.3750,0.1250)"),

@@ -612,7 +612,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 672;
+    public const ushort ModBuild = 673;
+
+    // ModBuild673 — Quest render ownership and retained native helper repair.
+    // Capture135518 reaches the real menu after both existing content banks are
+    // accepted; the first-run UI/intro and head/hand picture remain hardware
+    // defects, not content conversion. Quest skips desktop spectator clearing
+    // and mirror controls. Video/presentation logging binds UnityEngine.Debug
+    // explicitly instead of the original game's conditional global facade.
+    // Head-pre-cull Debug evidence compares actual device/rig poses, projection
+    // matrices and viewports with a six-record bound, without changing tracking.
+    // Wall draw diagnostics allocate native MPBs after construction, preventing
+    // the observed constructor exception and subsequent partial-ledger failure.
+    // Proton's packaged server resolves its retained NLS data via an exact
+    // server-only native layout adapter. Compact updates compile/replace just
+    // the two small helpers plus current matched IL2CPP code/metadata; no game
+    // asset conversion, Wine rebuild or bank replacement. Android runtime and
+    // final headset pixels remain unverified until the next hardware capture.
 
     // ModBuild672 — separate wall visibility from VR foreground and verify Frame launch setup.
     // Through-wall native health/effect widgets now sample the original visible depth of

@@ -8,6 +8,7 @@ not supported. APK signing secrets never enter update manifests or support logs.
 from __future__ import annotations
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,15 @@ import zipfile
 def _core(builder):
     # Captured while the installer's isolated local dependency aliases exist.
     return builder.apk_updates
+
+
+def _proton_helpers():
+    # The installer loads this driver in an isolated dependency context. Resolve
+    # the new optional helper by its delivered sibling, never a global import.
+    spec = importlib.util.spec_from_file_location("quest_proton_helper_update", Path(__file__).with_name("proton_helper_update.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def preflight(builder, game_root, base_apk, mode=None, *, output=None, progress=None, cancel=None):
@@ -81,9 +91,10 @@ def inspect(builder, args, repo, output, data=None):
                          "commit": commit, "dirty": dirty, "modBuild": builder.mod_build(repo)}
         requirements = update_requirements(builder, repo, base, files, inputs["mod"]["modBuild"])
         reasons, code_changed, art_changed = (requirements[name] for name in ("rebuildReasons", "codeChanged", "artChanged"))
+        native_helper_changed = requirements["nativeHelperChanged"]
     else:
         reasons = []
-        code_changed = art_changed = False
+        code_changed = art_changed = native_helper_changed = False
     # Owned game and DLC qualification above must precede any local key creation.
     source_stamp = _core(builder)._base_stamp(base_apk)
     source_change_stamp = _selection_stamp(builder, [base_apk])
@@ -100,10 +111,10 @@ def inspect(builder, args, repo, output, data=None):
             "signing": identity, "sourcePackage": base.get("sourcePackage"),
             "ownedGame": proof, "inputs": inputs,
             "updateStrategy": "cached-full-build" if reasons else "compact-code" if mode == "update-mod" else "profile-only",
-            "rebuildReasons": reasons, "requiresUnity": bool(reasons or code_changed or art_changed),
-            "codeChanged": code_changed, "artChanged": art_changed,
+            "rebuildReasons": reasons, "requiresUnity": bool(reasons or code_changed or art_changed or native_helper_changed),
+            "codeChanged": code_changed, "artChanged": art_changed, "nativeHelperChanged": native_helper_changed,
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
-                ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py")}}
+                ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py")}}
     plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name not in ("baseApk", "sourcePackage")})
     root = output / "updates" / plan["updateKey"]
     builder.write_json(root / "plan.json", plan)
@@ -419,7 +430,7 @@ def _code_rows(files, *, normalizer=None):
     return sorted(rows, key=lambda row: row["path"])
 
 
-def _update_source_rows(files, *, art_changed):
+def _update_source_rows(files, *, art_changed, native_changed=False):
     """Snapshot only consumed compiler sources on an independently owned path.
 
     Retain the full captured mod identity in the signed update. A code compiler
@@ -433,8 +444,11 @@ def _update_source_rows(files, *, art_changed):
     prefixes = ("src/", "tools/QuestWeaver/", "unity/GloomhavenVR.Quest/", "libs/RefAsm/", "libs/RuntimeDeps/")
     # The release inventory describes complete inputs; this private partial
     # compiler snapshot must not advertise itself as another complete release.
+    native_paths = ({"tools/quest-procedural-runtime/" + name for name in (*_proton_helpers().SOURCE_NAMES, "runtime.py", "upstream.lock.json")}
+                    | {"tools/quest-builder/proton_helper_update.py"}) if native_changed else set()
     return [row for row in files if row["path"] != "quest-builder-release.json" and
             (row["path"].startswith(prefixes)
+             or row["path"] in native_paths
              or "/" not in row["path"] and row["path"].endswith((".props", ".targets", ".config", ".json")))]
 
 
@@ -658,14 +672,18 @@ def update_requirements(builder, source, base, files, mod_build):
     code_changed = (_code_rows(files, normalizer=normalizer) != _code_rows(current_mod["files"], normalizer=normalizer)
                     or mod_build != base.get("modBuild", current_mod.get("modBuild")))
     art_changed = _art_rows(files) != _art_rows(current_mod["files"])
+    native_changed = bool(_proton_helpers().changed_rows(_native_rows(files), _native_rows(current_mod["files"]),
+                                                       original.get("proceduralBackend")))
     return {"rebuildReasons": reasons, "codeChanged": code_changed, "artChanged": art_changed,
-            "requiresUnity": bool(reasons or code_changed or art_changed),
+            "nativeHelperChanged": native_changed,
+            "requiresUnity": bool(reasons or code_changed or art_changed or native_changed),
             "updateStrategy": "cached-full-build" if reasons else "compact-code"}
 
 
 def rebuild_reasons(current_files, previous_files, *, payload_producer=None, previous_producer=None, procedural_backend=None):
     """Classify real unsupported payload changes without reading game banks."""
     reasons = []
+    helper_rows = _proton_helpers().changed_rows(_native_rows(current_files), _native_rows(previous_files), procedural_backend)
     for name, selected in (("Native Quest programs or interop sources", _native_rows),
                            ("Quest scenes, shaders, package settings or game-asset producers", _payload_rows)):
         current = {row["path"]: row for row in selected(current_files)}
@@ -676,6 +694,7 @@ def rebuild_reasons(current_files, previous_files, *, payload_producer=None, pre
                          and not (selected is _native_rows and procedural_backend == "proton-arm64ec-fex"
                                   and current.get(path) in _PROTON_DOWNLOAD_ROWS
                                   and previous.get(path) in _PROTON_DOWNLOAD_ROWS)
+                         and not (selected is _native_rows and path in helper_rows)
                          and not (selected is _payload_rows and
                                   (path == "tools/quest-builder/builder.py" and same_builder
                                    or _audit_only_change(path, current.get(path), previous.get(path)))))
@@ -985,22 +1004,25 @@ def run(builder, args, repo, output):
     def produce():
         replacements = {}
         code = None
+        native_helpers = None
         if args.command == "update-profile":
             builder.build_progress.operation("update-profile", detail="Preparing the signed offline profile.")
             replacements.update(core.profile_update(base_apk, inputs["profile"]))
             builder.build_progress.operation("update-profile", complete=True, detail="Signed offline profile prepared; no Unity build.")
         else:
             changed_art = plan["artChanged"]
-            if plan["codeChanged"] or changed_art:
+            if plan["codeChanged"] or changed_art or plan.get("nativeHelperChanged"):
                 builder.build_progress.operation("update-mod-source", detail="Freezing the current mod source.")
-                source_rows = _update_source_rows(inputs["mod"]["files"], art_changed=changed_art)
+                source_rows = _update_source_rows(inputs["mod"]["files"], art_changed=changed_art,
+                                                 native_changed=bool(plan.get("nativeHelperChanged")))
                 source_key = builder.value_hash({"mod": inputs["mod"]["key"], "files": source_rows,
                                                 "scope": "compact-update-source-v1"})
                 source = output / "updates/source-inputs" / source_key
                 builder.snapshot(repo, source_rows, source, phase="update-source-snapshot")
                 builder.build_progress.operation("update-mod-source", complete=True, detail="Current mod source snapshot retained.")
-                game = output / "updates/game-inputs" / inputs["game"]["key"] / ("with-art" if changed_art else "code")
-                _game_subset(builder, inputs, builder.game_data(args.game_root), game, art_changed=changed_art)
+                if plan["codeChanged"] or changed_art:
+                    game = output / "updates/game-inputs" / inputs["game"]["key"] / ("with-art" if changed_art else "code")
+                    _game_subset(builder, inputs, builder.game_data(args.game_root), game, art_changed=changed_art)
             else:
                 builder.build_progress.operation("update-mod-source", complete=True,
                     detail="Runtime/compiler and authored art sources are unchanged; no new source or game snapshot.")
@@ -1015,7 +1037,12 @@ def run(builder, args, repo, output):
                 replacements.update(code["replacements"])
             else:
                 builder.build_progress.operation("update-code", complete=True,
-                    detail="Signed runtime code and metadata retained; no Unity or native compilation.")
+                    detail="Signed managed runtime retained; no IL2CPP compilation." if plan.get("nativeHelperChanged")
+                    else "Signed runtime code and metadata retained; no Unity or native compilation.")
+            if plan.get("nativeHelperChanged"):
+                builder.build_progress.operation("update-art", detail="Compiling two small Proton helpers; existing game and Wine data are retained.")
+                replacements, native_helpers = _proton_helpers().produce(
+                    builder, source, output, tools, base_apk, root, core, replacements)
             if changed_art:
                 builder.build_progress.operation("update-art", detail="Building changed authored mod banks; original game assets are retained.")
                 # Only authored VR banks and their original-derived environment
@@ -1040,6 +1067,8 @@ def run(builder, args, repo, output):
                   "modBuild": inputs["mod"]["modBuild"], "profile": inputs["profile"],
                   "mod": inputs["mod"], "ownedGame": plan["ownedGame"], "signing": plan["signing"],
                   "sourceCertificateSha256": plan["signing"]["sourceCertificateSha256"]}
+        if native_helpers is not None:
+            update["nativeHelpers"] = native_helpers
         replacements.update(core.patch_resource_json(base_apk, {
             "quest-build": {"schema": 1, "inputKey": base["inputKey"], "modBuild": inputs["mod"]["modBuild"]},
             "quest-profile": inputs["profile"]}, replacements=replacements))
@@ -1047,6 +1076,7 @@ def run(builder, args, repo, output):
             inputs["mod"]["modBuild"], "0.1.0.B" + str(inputs["mod"]["modBuild"]) + "." + base["inputKey"][:12])
         builder.build_progress.operation("update-repack", detail="Reusing unchanged APK payloads and signing the update.")
         result = core.repack(base_apk, apk, replacements, update_manifest=update, signer=sign, verifier=verify, code_evidence=code,
+                             native_helper_evidence=native_helpers,
                              progress=lambda done, total, name: builder.build_progress.event(
                                  "update-apk-copy", done, total, "bytes", name, operation="update-repack"))
         output_hash = observe_repacked_output(builder, output, apk, update_key, result)

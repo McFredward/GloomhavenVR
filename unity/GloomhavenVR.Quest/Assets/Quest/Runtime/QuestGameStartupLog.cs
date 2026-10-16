@@ -14,7 +14,10 @@ namespace GloomhavenVR.Quest
         internal const int MaxBytes = 256 * 1024, MaxRecords = 512;
         internal const int MaxOriginalErrors = 64;
         const int StartupBytes = 32 * 1024, StartupRecords = 96;
-        const int DetailBytes = 32 * 1024, DetailRecords = 128;
+        // Capture135518 needs bounded pose/matrix, active-EULA and real movie
+        // evidence together. Reallocate the ordinary trace share, retaining the
+        // same256KiB/512record ceiling and unchanged first-error/startup reserves.
+        const int DetailBytes = 64 * 1024, DetailRecords = 160;
         const int LifecycleBytes = MaxBytes / 2 - StartupBytes - DetailBytes, ErrorBytes = MaxBytes / 2;
         const int LifecycleRecords = MaxRecords - MaxOriginalErrors - StartupRecords - DetailRecords - 4;
         // Retain the existing grep token; it now caps only lifecycle records.

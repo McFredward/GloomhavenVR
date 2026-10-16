@@ -7,6 +7,8 @@ using UnityEngine;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game has a global conditional Debug facade.
+    using Debug = UnityEngine.Debug;
     /// <summary>Bounded Debug proof using original serializers, without touching player saves.</summary>
     internal static class QuestGameSaveValidation
     {

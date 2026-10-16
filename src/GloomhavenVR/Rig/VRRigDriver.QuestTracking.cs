@@ -80,12 +80,12 @@ internal sealed partial class VRRigDriver
             AppendTrackingMatrix(text, "monoView", rendering.worldToCameraMatrix);
             AppendTrackingMatrix(text, "leftView", rendering.GetStereoViewMatrix(Camera.StereoscopicEye.Left));
             AppendTrackingMatrix(text, "rightView", rendering.GetStereoViewMatrix(Camera.StereoscopicEye.Right));
-            Debug.Log(text.ToString());
+            UnityEngine.Debug.Log(text.ToString());
         }
         catch (System.Exception error)
         {
             // Observation is optional and may never prevent the owned camera rendering.
-            Debug.Log("[Quest startup] presentation tracking unavailable sample=" + _questTrackingSamples
+            UnityEngine.Debug.Log("[Quest startup] presentation tracking unavailable sample=" + _questTrackingSamples
                 + " scene=" + _questTrackingScene + " error=" + error.GetType().Name + ": " + error.Message);
         }
     }

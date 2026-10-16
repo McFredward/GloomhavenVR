@@ -10,6 +10,8 @@ using CommonUsages = UnityEngine.XR.CommonUsages;
 
 namespace GloomhavenVR.Quest
 {
+    // The original game has a global conditional Debug facade.
+    using Debug = UnityEngine.Debug;
     /// <summary>Explicitly diagnostic hardware scene, never presented as the recovered game.</summary>
     public sealed class QuestHardwareProbe : MonoBehaviour
     {

@@ -2,7 +2,7 @@
 
 The native-cache fixtures contain inert bytes. They exercise the real cache
 inventory and preparation/update identity boundaries, never guest execution or
-Android compilation. Baseline hashes identify the actual B672 native sources.
+Android compilation. Baseline hashes identify the actual B673 helper repair; acquisition aliases remain bounded separately.
 """
 import copy
 import hashlib
@@ -25,11 +25,11 @@ import update_driver as driver
 RUNTIME = ROOT / "tools/quest-procedural-runtime"
 BACKEND = "proton-arm64ec-fex"
 NATIVE_BASELINE = {
-    "proton_runtime.py": "66c4da1a384090d0959fd8930230d6f456445c723b0be485c2b24ee750cacb15",
+    "proton_runtime.py": "de8ca6e814838507592e23b99ed96c496de1733b8825a32d066da125b0ad8d79",
     "proton_layout.py": "656e626e5097e62c702e29e3845a833fb0ad4f776b76ad3c07677a54ce8f924c",
-    "proton_launcher.c": "266e85b860c39deabf19407b68a511c9cf9e45c33baddc0d04727cb216892133",
+    "proton_launcher.c": "b4b2758cbc723b945c5a200d6ff911a5dcdf507acbe64f93df317d5cd4ea116a",
     "proton.lock.json": "0f833bf80c23ee3d394880a11b0e332f0a7e52f02912b73cc8c39fcd4cb73f94",
-    "bridge.c": "b0854b7b8216d6029cdcb5ae1029acb1bb0439111db4013a10bdffbf10393339",
+    "bridge.c": "91957a6740d335667a2cab972421b4fa5824d4bfa9f13defee6efe6bc4a94c86",
     "worker.c": "e8f27b055a2e06f6a68678f00f49a49cf42d44c2e9ceeccfd65982c273ff3d48",
     "protocol.h": "ff353f38e7ff9d1aabd7c48ccba93248e4764111e8a4d29649cd4435fac323a5",
 }
@@ -51,10 +51,9 @@ def row(name):
 
 
 class PinnedNativeCacheTests(unittest.TestCase):
-    def test_acquisition_repair_leaves_actual_seven_native_sources_unchanged(self):
+    def test_actual_seven_native_sources_match_reviewed_current_runtime(self):
         self.assertEqual({name: storage.digest(RUNTIME / name) for name in NATIVE_BASELINE}, NATIVE_BASELINE)
         self.assertEqual(row(identity.PROTON_DOWNLOAD_FIXED["path"]), identity.PROTON_DOWNLOAD_FIXED)
-        self.assertEqual(row(identity.UPDATE_TOOL_HANDOFF_FIXED["path"]), identity.UPDATE_TOOL_HANDOFF_FIXED)
         self.assertEqual(driver._PROTON_DOWNLOAD_ROWS,
                          (identity.PROTON_DOWNLOAD_PREVIOUS, identity.PROTON_DOWNLOAD_FIXED))
 

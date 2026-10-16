@@ -127,7 +127,7 @@ def build(output_cache: Path, ndk: Path, *, helpers: dict) -> tuple[Path, dict]:
         run([clang, *target, "-std=c11", "-O2", "-fPIC", "-shared", "-fvisibility=hidden",
              "-Wall", "-Wextra", "-Werror", "-DGHPR_PROTON_BACKEND=1",
              '-DGHPR_NATIVE_INPUT_KEY="' + key + '"', str(snapshot / "bridge.c"),
-             "-Wl,--no-undefined", "-Wl,-soname,libQuestApparance.so", "-pthread",
+             "-Wl,--no-undefined", "-Wl,-soname,libQuestApparance.so", "-ldl", "-pthread",
              "-o", str(native / "libQuestApparance.so")])
         run([clang, *target, "-std=c11", "-O2", "-fPIE", "-pie", "-fvisibility=hidden",
              "-Wall", "-Wextra", "-Werror", str(snapshot / "proton_launcher.c"),
