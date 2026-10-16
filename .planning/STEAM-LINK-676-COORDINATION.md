@@ -1,5 +1,40 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Original-invocation receiver package, 2026-10-16
+
+Forkdev278e7a5 is pushed. It joins canonical Sparse32/count1 shader creation,
+exact original pipeline/layout generation association, prior ordinary direct/
+indexed draws and independent raw-copy versus observer execution counts. The
+selected reusable recording must retire and complete before publication. Empty
+native draws advance both ordinal observers. The owned original-output pipeline
+is immediately restored after the selected draw. No live mask is presented.
+Exact hosted CI38938224108 is green:123CTest/100.57s, uniform/definition and
+newSSBO optional builds, Windows cross-build and8,482 sanitizer checks.
+
+Evidence:281 private callback controls normal+ASan/UBSan,162 inherited tracker
+controls, five new public registrations and three actual optional host-loader
+cases after a strict optional-event harness repair. Host GPU color/record and
+premultiplied/additive proofs are inherited; the new callback fixture is mocked.
+Sparse32 replaces unrestricted atomic election only for the receiver: actual
+Intel2304² baseline2.264ms/sparse2.270ms/fullCAS13.784ms, not Frame estimates.
+
+Offline final ARM441,496B SHA73576094c073b477bc63d5885d785eaf5b770a2f35091845f3facb34fcd9e9c8
+has exactly three private exports and the baseline79 native imports. Exact local
+staging/idempotence/unarmed/manual rollback passes; all own build/test processes
+are reaped and completed caches/checkouts removed. Logs, failures, capture/source
+pins and current deliverables remain. Build677 and the restored Frame are unchanged.
+
+Fresh package+permission plan: fork build/private-native-ssbo-run-20261016-r1/.
+551,042B payload, owned user-home paths only, FOUR capture files including128B
+SSBO. Fresh current-provider/isolated-load checks precede activation. Permission
+must explicitly cover the first owned original-output shader bind and manual
+SteamVR install/rollback restarts. No automatic timer/restart. Do not request
+stream/readiness before final package/CI review; respond immediately once ready.
+
+Actual native clone/queue/submit admission and invocation/source association,
+then real eye/frame/ray validity, alpha presentation and game coverage remain.
+This candidate is not advertised as working streamed mixed reality.
+
 ## Cold definitions, replay and restoration checkpoint, 2026-10-16
 
 Current forkdev f3d335b is pushed with green CI38925547452:116CTest/96.54s,

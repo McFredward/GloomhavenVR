@@ -1,5 +1,40 @@
 # State — where the project stands
 
+**Steam Link original-invocation receiver assembled offline, 2026-10-16: Build677 unchanged.**
+
+Forkdev278e7a5 integrates the owned count1/Sparse32 original-output observer,
+actual creation-generation tracker tickets, direct/indexed original draws and
+same-generation reusable source-copy pairing. The original pipeline is restored
+immediately; unknown routes refuse publication. This is not live passthrough.
+The Frame remains restored and user-confirmed usable; no contact this round.
+Exact hosted CI38938224108 succeeds:123CTest/100.57s, both optional diagnostic
+builds, Windows cross-build and8,482 protocol sanitizer checks.
+
+The receiver passes281 private fake-dispatch callback checks normally and under
+ASan/UBSan; these are not GPU proofs.162 tracker checks and the earlier factory/
+transaction controls are inherited. Five new public registrations pass; after a
+bounded harness-profile repair, three actual optional host-loader cases pass.
+Original shader color/sparse-record proofs remain valid on Intel/lavapipe. A
+separate actual Intel2304² cost control found full-fragment election13.784ms
+versus baseline2.264ms/Sparse32 2.270ms; these are not Frame timings.
+
+The exact ARM candidate is441,496B SHA73576094c073b477bc63d5885d785eaf5b770a2f35091845f3facb34fcd9e9c8,
+with exact three private exports and the same79 dynamic imports as the last
+successful native package. Local exact-artifact prepare/idempotence/unarmed/
+rollback passes in an isolated host fixture. It does not establish native loading.
+The next reviewed operator package totals551,042B and transfers FOUR immutable
+files, including the new128B original-invocation record. Plan/evidence live in
+fork build/private-native-ssbo-run-20261016-r1/ and
+build/private-native-transaction-integration-20261016/. It requires fresh concrete
+permission because it first binds an owned original-output shader, unlike the
+earlier source-only approval. No automatic expiry/restart/rollback is added.
+
+Next: actual native admission and matching invocation/source values, followed by
+changing-source chart/eye/frame validation, live alpha presentation and real game
+coverage export. Software proofs and timestamps are not those authorities.
+Own completed caches/worktrees are removed after reaping; captures, source,
+failures/results and the ARM deliverable remain. No main runtime or gate changed.
+
 **Steam Link native definition run restored; composed output proved offline, 2026-10-16: Build677 unchanged.**
 
 The maintainer approved the 330,320 B package (SHA256 prefix034defdc) and its one SteamVR restart.
