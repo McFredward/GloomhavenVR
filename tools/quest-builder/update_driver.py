@@ -142,12 +142,30 @@ def signing_tools(builder, args, output):
         path = Path(args.apk_tools_json)
         if path.stat().st_size > 65536:
             raise builder.BuildError("APK signing tool selection is excessive.")
-        selected = json.loads(path.read_text(encoding="utf-8"))
-        if selected.pop("schema", None) != 1 or set(selected) != {"java", "keytool", "jdk", "aapt", "apksigner", "zipalign"}:
+        try:
+            selected = json.loads(path.read_text(encoding="utf-8"))
+        except (UnicodeError, ValueError) as exc:
+            raise builder.BuildError("APK signing tool selection has an unsupported schema.") from exc
+        paths = {"java", "keytool", "jdk", "aapt", "apksigner", "zipalign"}
+        # Capture105340 reaches the no-Unity update path with the actual
+        # profile_tools packet. Its host describes the pinned native download;
+        # it is provenance, not another signing command. Accept only this
+        # declared optional field, including already cached packets, then pass
+        # the same six validated paths to consumers. Unknown/null metadata must
+        # not turn a malformed selection into a fallback compiler invocation.
+        if (not isinstance(selected, dict) or type(selected.get("schema")) is not int
+                or selected["schema"] != 1
+                or set(selected) not in (paths | {"schema"}, paths | {"schema", "host"})
+                or ("host" in selected and selected["host"] not in ("windows-x64", "linux-x64"))
+                or any(not isinstance(selected[name], str) or not selected[name]
+                       or len(selected[name]) > 32767 or "\0" in selected[name] for name in paths)):
             raise builder.BuildError("APK signing tool selection has an unsupported schema.")
+        selected = {name: selected[name] for name in paths}
         for name in ("java", "keytool", "aapt", "apksigner", "zipalign"):
             if not Path(selected[name]).is_file():
                 raise builder.BuildError("APK signing tool is missing: " + name)
+        if not Path(selected["jdk"]).is_dir():
+            raise builder.BuildError("APK signing tool is missing: jdk")
         return normalized_signing_tools(builder, selected)
     return normalized_signing_tools(builder, builder.toolchain(args, output))
 
@@ -395,8 +413,9 @@ def _code_rows(files, *, normalizer=None):
         previous = getattr(normalizer, "UPDATE_DOWNLOAD_PREVIOUS", None)
         preceding = getattr(normalizer, "UPDATE_DOWNLOAD_PARALLEL_PREVIOUS", None)
         retained = getattr(normalizer, "UPDATE_RETAINED_APK_FIXED", None)
+        tool_handoff = getattr(normalizer, "UPDATE_TOOL_HANDOFF_FIXED", None)
         if fixed is not None and previous is not None:
-            rows = [previous if row in (fixed, preceding, retained) else row for row in rows]
+            rows = [previous if row in (fixed, preceding, retained, tool_handoff) else row for row in rows]
     return sorted(rows, key=lambda row: row["path"])
 
 
