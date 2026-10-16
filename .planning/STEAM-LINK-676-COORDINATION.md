@@ -1,5 +1,44 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Latest checkpoint: native sampled source recovered, 2026-10-16
+
+The approved query-history diagnostic at fork a2893cb completed one paired
+1152x4608 acquisition. All three files were transferred separately and verified:
+15,925,248-byte P010 copy, 21,233,664-byte native sampled components, and
+2,412-byte metadata. Shared image/view/command generations, owned fence and exact
+reusable-generation retirement are independently verified. Native admission
+observed the enabled YCbCr/statistics features and complete query coverage.
+
+The unchanged strict production decoder now recovers all three complete original
+CRC headers for each trusted static eye source from sampled G. Expected session,
+content7, encoded eye and source digests match. Static coverage/calibration
+interiors preserve fractional codes exactly; full-plane edge errors remain.
+The same acquisition's raw-copy representation fails this recovery. Stop CPU
+untile speculation and use logical native GPU sampling for the next proof.
+
+These are fitted offline pixel-center coordinates, with multiple passing fits,
+not native runtime eye/UV/foveation/reprojection or changing video-frame proof.
+All native spatial/temporal and passthrough authority remains false. No real
+scene alpha composition or native shader/sender replacement occurred. Mod676
+and its DLL remain unchanged; no complete mod test suite is repeated.
+
+The user separately approved rollback, which completed with fresh native UI
+health ready, activation and run library absent, no diagnostic mappings and no
+errors. The user was told standby is safe. No further Frame connection is needed
+for offline work; a future install/restart needs fresh agreement. No automatic
+expiry, rollback or restart was introduced.
+
+See the fork's docs/PIXEL-SAMPLER-CAPTURE-20261016.md. Private captures and two
+independent reviews are retained under its
+build/private-query-admission-run-20261016-r1/; strict recovery, source hashes,
+controls and measurements under build/private-paired-source-analysis-20261016/.
+Our worker worktrees and regenerable build/test caches are removed; preserve
+these small reports, original captures and current deliverables. The maintainer
+clarified that cleanup stays within our passthrough area; do not clean another
+agent's NPC/trailer/Quest worktrees or inputs.
+
+## Earlier integration history
+
 The maintainer explicitly rejects the30-second automatic source-test timeout.
 This primary reserves ModBuild676, STATE's new676 entry, Core/SteamLink, their
 focused runtime controls, the SteamLink EN/DE help/config strings and
