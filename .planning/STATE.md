@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest Windows workspace metadata recovery, 2026-10-16: feature / B673.**
+
+Support150224 confirms Builder754cfc456 and a new run blocked before any tool
+or update child starts. Its workspace run summary names WinError5 while replacing
+latest-session.json; the top-level UGUI error is historical. Atomic Wizard JSON
+publication now retries short Windows access/sharing conflicts and may clear
+read-only on one verified owned ordinary JSON leaf. A persistently busy optional
+restart pointer records a deferral and lets the selected durable run continue.
+Required state/receipt failures remain explicit, actionable pauses. Current
+startup exceptions retain their cause in progress/request logs and home support.
+The UI offers retained-run retry, diagnostics and appropriate update-input review.
+No runtime/native/art change or new APK build. See
+[QUEST-UPDATE-METADATA-150224-20261016.md](QUEST-UPDATE-METADATA-150224-20261016.md).
+
 **Quest compact update package handoff, 2026-10-16: feature / B673.**
 
 Support143919 confirms Builder17c14b3dc, the retained B672 APK and a genuine
