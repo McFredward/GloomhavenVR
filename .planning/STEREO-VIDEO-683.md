@@ -13,6 +13,14 @@ intro, eleven character videos and seven ambient backgrounds. The current
 mod-local, notice-free intro remains the source for its later conversion.
 Embedded startup/promotion videos still require a complete asset census.
 
+A subsequent read-only census of native scene/sharedasset files found eight
+serialized VideoPlayers and two additional embedded VideoClips: `gameplay_trailer`
+(1920x1080, 6501frames/30fps, 216.7s) and the Twin Sails logo (1920x1080,
+240frames/30fps, 8s). The private source-hashed inventory is
+`.planning/debug/stereo-video/serialized-video-inventory.json`. These are two
+additional candidate film sources; their live activation and addressable content
+still need classification before claiming complete in-game coverage.
+
 ## Implementation and ownership
 
 - The exact `--ghvr-stereo-video-calibration` argv token opts in once. The normal
@@ -21,11 +29,15 @@ Embedded startup/promotion videos still require a complete asset census.
   It runs only in the actual offline MainMenu/MainMenu_gamepad scene with VR and
   world UI active. A click closes it; leaving that context or shutting down also
   releases its owned resources. No native movie or continuation is borrowed.
+  Opening and manual closure use a150ms CanvasGroup fade on the shared update
+  clock. Errors, context loss and shutdown still release immediately; cosmetic
+  continuation never holds native flow.
 - The fixed, yaw-only picture is 1.2 real metres wide, 1.6 metres ahead at spawn.
   It retains that pose. Full SBS has 1920x1080 per eye; the display aspect is 16:9.
 - A small embedded Windows64 UI shader bundle is built with Unity 2021.3.5f1.
   Actual MultiPass eye callbacks select the packed half, preserve UI masks/alpha
-  and prevent filtering across the eye seam. Mono cameras select the left half.
+  and prevent filtering across the eye seam. Paired callbacks restore the outer
+  eye after nested camera renders. Mono cameras select the left half.
   Unsupported shader/render-mode preflight selects the independent mono chart.
 - The existing native intro, heroes, ambient compositor, audio, skip/completion,
   gameplay, wire, configuration and defaults are unchanged. No inference or paid
@@ -56,6 +68,16 @@ The lifecycle test reproduced destroyed-object equality accepting late queued
 Prepared/Failed callbacks after teardown. Live-object checks and exact reference
 identity now reject those callbacks. Managed surface cleanup also runs after
 external Unity root/player destruction; a completed attempt cannot restart.
+
+A real nested-camera pixel test also reproduced a right-eye draw becoming the
+left picture after an auxiliary mono camera rendered inside the head callback.
+Paired pre/post callbacks now restore the enclosing eye. Root reviewed both
+failed red and repaired green readbacks, and the per-eye aspect witness.
+
+The initial integrated compile caught a missing interaction-namespace import
+which the lifecycle fixture's substitute namespace had hidden. Both the import
+and the fixture namespace were corrected; final production compilation remains
+an independent requirement alongside substituted lifecycle tests.
 
 Final integration checks and exact counts are recorded below after completion.
 
