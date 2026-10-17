@@ -3,6 +3,7 @@ namespace GloomhavenVR.Core
     // Existing bridge's configuration/platform policy is verified by the Quest
     // platform suite. This seam selects its result for the actual row filter.
     internal static class QuestStandalonePlatform { internal static bool Enabled; }
+    internal static class FrameNativePassthrough { internal static bool Required; }
 }
 namespace GloomhavenVR.WorldUI
 {

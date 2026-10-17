@@ -21,7 +21,8 @@ internal static class Program
                     string[] key = row.Split('\t');
                     var item = new ConfigCatalog.ConfigItem(key[0], key[1]);
                     object value = item.PersistedValue;
-                    bool excluded = row == "MixedReality\tKeyColor" || row == "WorldUI\tDesktopMirrorLeftEye";
+                    bool excluded = row == "MixedReality\tKeyColor" || row == "WorldUI\tDesktopMirrorLeftEye"
+                        || row == "Compat\tDisableComponents";
                     Check(VROptionsTab.Visible(item) == (!quest || !excluded), quest ? "Quest exact exclusions match live keys" : "desktop all live options remain visible");
                     Check(ReferenceEquals(item.PersistedValue, value), "visibility leaves persisted value untouched");
                 }
@@ -29,7 +30,8 @@ internal static class Program
                 {
                     new[] { "MixedReality", "FuturePassthroughSetting" }, new[] { "WorldUI", "FutureWindowSetting" },
                     new[] { "FutureModSection", "NewPerformanceToggle" }, new[] { "OtherSection", "KeyColor" },
-                    new[] { "OtherSection", "DesktopMirrorLeftEye" }, new[] { "MixedReality", "keycolor" }
+                    new[] { "OtherSection", "DesktopMirrorLeftEye" }, new[] { "MixedReality", "keycolor" },
+                    new[] { "OtherSection", "DisableComponents" }, new[] { "Compat", "FutureCompatibilitySetting" }
                 })
                     Check(VROptionsTab.Visible(new ConfigCatalog.ConfigItem(key[0], key[1])), "future and unrelated mod options automatically remain visible");
                 var folded = new ConfigCatalog.ConfigItem("MixedReality", "Enabled");
@@ -38,6 +40,13 @@ internal static class Program
                 folded.VariantVisible = true; folded.DependencySatisfied = false; Check(!VROptionsTab.Visible(folded), "platform policy retains dependency fold");
                 folded.DependencySatisfied = true; Check(VROptionsTab.Visible(folded), "Quest native mixed-reality switch remains offered");
             }
+            QuestStandalonePlatform.Enabled = false;
+            FrameNativePassthrough.Required = true;
+            Check(!VROptionsTab.Visible(new ConfigCatalog.ConfigItem("MixedReality", "KeyColor")),
+                "Frame native passthrough retains its key-color exclusion");
+            Check(VROptionsTab.Visible(new ConfigCatalog.ConfigItem("Compat", "DisableComponents")),
+                "Quest inert component suppression does not alter the desktop catalog");
+            FrameNativePassthrough.Required = false;
             Console.WriteLine("PASS Quest option visibility: " + assertions + " behavioral assertions over " + rows.Length + " live default keys");
             return 0;
         }

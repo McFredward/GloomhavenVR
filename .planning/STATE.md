@@ -1,5 +1,21 @@
 # State — where the project stands
 
+**Quest essential lifecycle and actual artwork sources, 2026-10-17: feature / B680.**
+
+Capture095625 verifies B679. Both new screenshots were inspected; the maintainer
+confirms visible pile icons and substantially improved clarity. Retain those
+repairs. The native Tutorial has no generated content or entity handles and its
+engine is inactive. Ignore/hide Quest's free-form component kill setting under
+the maintainer's new essential-element ruling. Admit one narrowly guarded repair
+only for a unique original engine whose component alone is disabled after a
+stable initial scenario request; native Start/Update own continuation. Capture
+actual component/hierarchy/duplicate ownership within the existing probe budget.
+Direct card/stat and adopted initiative observations now include parked native
+capture sources and preserve paired pixels. Retained original image/shader GPU
+fixtures contain the complete artwork; the Android clipping cause remains open.
+Compact code update only; no changed game/art/native-helper banks. See
+[QUEST-TUTORIAL-095625-20261017.md](QUEST-TUTORIAL-095625-20261017.md).
+
 **Quest comparable density and missing Tutorial surfaces, 2026-10-17: feature / B679.**
 
 Capture091104 verifies B678 twice and all three new screenshots were inspected.

@@ -42,11 +42,13 @@ def main():
     for path in (source / "src/GloomhavenVR/Defaults").glob("*.cs"):
         keys.update(re.findall(r"//\s*=>\s*\[([^\]]+)\]\s+([A-Za-z0-9_]+)", path.read_text()))
     assert ("MixedReality", "KeyColor") in keys and ("WorldUI", "DesktopMirrorLeftEye") in keys
+    assert ("Compat", "DisableComponents") in keys
     assert '_file.Bind("MixedReality", "KeyColor", Defaults.KeyColor,' in (source / "src/GloomhavenVR/Core/MixedReality/MixedReality.cs").read_text()
     assert '_file.Bind("WorldUI", "DesktopMirrorLeftEye",' in (source / "src/GloomhavenVR/WorldUI/WorldUIConfig.cs").read_text()
     controls = [
         ("quest-key-color-leaks", "QuestOptionVisibility.cs", '"KeyColor"', '"NeverMatch"', "Quest exact exclusions match live keys"),
         ("quest-monitor-eye-leaks", "QuestOptionVisibility.cs", '"DesktopMirrorLeftEye"', '"NeverMatch"', "Quest exact exclusions match live keys"),
+        ("quest-essential-suppression-option-leaks", "QuestOptionVisibility.cs", '"DisableComponents"', '"NeverMatch"', "Quest exact exclusions match live keys"),
         ("desktop-platform-gate-inverted", "QuestOptionVisibility.cs", "!questStandalone", "questStandalone", "desktop all live options remain visible"),
         ("own-page-fold-lost", "Options.fixture", "!HasItsOwnPage(item)", "true", "platform policy retains own-page fold"),
         ("variant-fold-lost", "Options.fixture", "IsShownForCurrentVariant(item)", "true", "platform policy retains variant fold"),
@@ -61,6 +63,7 @@ def main():
              "liveDefaultKeys": len(keys), "menuBindings": bindings, "cases": [],
              "limit": "Production policy/shared row filter with managed catalog/platform seams; native headset layout remains unverified."}
     print("Quest option visibility proof: " + str(run), flush=True)
+    print("Quest options completion evidence: " + str(run), flush=True)
     for name, filename, before, after, expected in [("production", "", "", "", "")] + controls:
         case = run / name
         case.mkdir()

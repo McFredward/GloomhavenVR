@@ -612,7 +612,30 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 679;
+    public const ushort ModBuild = 680;
+
+    // ModBuild680 — protect Quest native lifecycles and observe actual artwork.
+    // Capture095625 verifies B679; the maintainer confirms pile icons and improved
+    // density, but missing card/portrait regions and a black Tutorial remain.
+    // No generated room exists yet: zero native handles/children, engine inactive.
+    // The engineActive aggregate does not establish component vs hierarchy/clone.
+    // Ignore the legacy free-form DisableComponents setting on Quest and hide its
+    // row, preserving the saved key and desktop compatibility behavior. After a
+    // stable initial-generation request, restore only a unique original-scene
+    // engine whose component alone is disabled. Foreground, settled scenes,
+    // active populated entities and absent generated/native content are required.
+    // One attempt per engine; native Start/Update own continuation. Never activate
+    // roots/renderers, invent readiness, tick native code or reset worker state.
+    // Reuse the world probe's dormant GPU slot for bounded engine-owner evidence.
+    // Fix PartialParameterOverride observation: it is an original property.
+    // Observe actual direct card/stat fields and adopted initiative subtree even
+    // while native capture hosts are parked. Preserve both pixel samples under
+    // the existing record limit by compressing metadata, not dropping pixels.
+    // Retained native Sprite/PNG/shader Vulkan fixtures show complete upper art;
+    // no current image repair or game-asset reconversion is justified by them.
+    // Keep B675/B677/B679 confirmed viewport/primitive/density repairs untouched.
+    // Focused real Unity tests and strict compilation are recorded; no complete
+    // wire gate, local full APK build or verified new headset outcome is claimed.
 
     // ModBuild679 — Quest density reference and remaining Tutorial draw inputs.
     // Capture091104 verifies B678 (both startup banners), but card/portrait tops,

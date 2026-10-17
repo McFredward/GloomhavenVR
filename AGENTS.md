@@ -63,6 +63,14 @@ snapshots. Check active process references and incoming symlinks before removal;
 never follow shared links into other agents' work or the read-only references.
 Record measured reclaimed space rather than summing potentially shared extents.
 
+**Quest essential-component ruling, 2026-10-17:** no VR setting may disable an
+essential game element. The legacy free-form `Compat/DisableComponents` value
+must be inert and its row hidden on Quest; keep persisted values and ordinary
+desktop compatibility behavior. Reviewed built-in stereo effect exclusions
+remain explicit. Restore a native lifecycle only under source-qualified original
+owner/readiness conditions; never use this ruling to force hidden room renderers
+or gameplay state.
+
 The maintainer requested integration of `feature/immersive-town-services` into
 `dev`. All subsequent NPC, Steam Frame, and other development now integrates and
 pushes to `dev`; create worker worktrees from the current `dev` commit. The NPC
