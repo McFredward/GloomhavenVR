@@ -1,6 +1,13 @@
 # Steam Link availability repair coordination, 2026-10-17
 
-## Follow-up in progress: cache preparation and Proton, next Build689
+## Follow-up published: cache preparation and Proton, Build689
+
+Published origin/dev is f71a97db4 (689), focused2/2 and source4/4, strict Release
+0W/0E, actual embedded payloads/build confirmed. Shared dev incorporates it through
+merge4e4929f49, retaining all stereo checkpoints. Its exact new helper pin is
+cec82e68968441902e717c6bc595ff0ae0b0b03ffe72bc5eb26cbfe19c40a30f.
+The stereo thread confirmed690 or later for its complete batch. No need to rerun
+the bounded identity suites when only its independent movie files change.
 
 The maintainer tested688/fc5c954e7. Its exact SDK resource name,826688-byte
 length and SHA256 were verified from the installed DLL in PowerShell; no Local
@@ -12,7 +19,7 @@ Windows-only vrserver.exe/vrcompositor.exe census: Linux hosts run this Windows
 game/helper under Proton, whose native SteamVR is reached through its existing
 C:\\vrclient bridge. The SDK Background initialization owns the no-server guard.
 
-Please reserve **689 for this bounded follow-up** and move the extended stereo
+**689 is this published bounded follow-up**; move the extended stereo
 handover to690 or later. This lane still owns no movie/runtime/UI/installer paths
 and will not touch unfinished media. NetProtocol/STATE changes will be limited to
 the new note/number at integration. No Frame action or new receiver install.
@@ -20,8 +27,8 @@ the new note/number at integration. No Frame action or new receiver install.
 Publication boundary: shared dev currently contains four independent, unpushed
 stereo-library checkpoints through cd1092c30. Their22-file installer preflight
 cannot yet succeed without the remaining conversions. To avoid publishing an
-unfinished batch, the root will validate/push only its bounded689 repair on top
-of the latest published origin/dev fc5c954e7, then merge that published head into
+unfinished batch, the root validated/pushed only its bounded689 repair on top
+of the then-published origin/dev fc5c954e7, then merged that published head into
 the shared local dev. The stereo checkpoints remain intact and unpublished until
 their owning thread completes them. Do not publish the partial media catalogue
 merely to deliver this identity fix. No worker branch is pushed.
