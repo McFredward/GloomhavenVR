@@ -222,10 +222,14 @@ internal static class SteamLinkConnection
         catch (Exception ex) { return new Snapshot(Reason.NativeUnavailable, detail: "reader process:" + ex.GetType().Name); }
     }
 
+    // Never use path.Skip(2): the real GH.Runtime global StringExtensions.Skip
+    // starts at count-1, so it leaves ':' and rejects EVERY drive path. Source-only
+    // fixtures without that game reference silently bound a different overload.
+    // Keep the framework call explicit and cover the game extension's presence.
     internal static bool LocalWindowsPath(string path) => path != null && path.Length >= 4 && path.Length < 1024
         && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z'))
         && path[1] == ':' && path[2] == '\\'
-        && !path.Skip(2).Any(c => c < 32 || c == '"' || c == '/' || c == ':')
+        && !System.Linq.Enumerable.Skip(path, 2).Any(c => c < 32 || c == '"' || c == '/' || c == ':')
         && !path.Substring(3).Split('\\').Any(part => part == "." || part == "..")
         ;
 
