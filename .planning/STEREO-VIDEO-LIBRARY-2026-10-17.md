@@ -57,9 +57,9 @@ fire-title pictures were statically inspected. See
 Independent workers were initialized from dev9f48730df with disjoint media,
 runtime and localized UI ownership. The integrator owns native patch registration,
 inventory, version notes, installer roster, private baseline and final gate.
-Worker branches are not published. The independent688/689 identity repairs are
-retained; the later bounded691 repair uses its separate publication lane.
-690 is an internal source candidate only; final stereo handover uses692 or later.
+Worker branches are not published. The independent688/689/691/693 identity
+repairs are retained through their separate publication lane. Builds690 and692
+are internal source candidates only; final stereo handover uses694 or later.
 
 Movies are explicit separate Content beside the DLL. `packaging/movie-files.txt`
 names22 files:20 stereo subjects, the approved mono intro and original mono
@@ -75,8 +75,11 @@ part of this handover; the user's ordinary install script creates its archive.
 Retained root evidence lives under `.planning/debug/stereo-library688/`; the
 directory name is preserved across later build-number reservations. The exact
 hardware687 logs/review, logo render/verification and decoded cue reviews live
-there. Native source, runtime and UI evidence remain in their worker debug roots
-until their processes stop and the integrator archives them.
+there. The completed runtime and UI workers are archived in the main checkout as
+`stereo-library-runtime-worker-b89af9256/` and
+`stereo-library-ui-worker-e3a551635/`. The integrator verified every retained
+file's SHA256 and size before removing either worker worktree. Active media
+evidence remains in its worker until its producers and verification stop.
 
 Completed source-side checks include22-file real-script fixture cases
 (192Python/209PowerShell assertions), source-bound localized UI875 assertions and
@@ -84,14 +87,25 @@ four affected close controls in a combined strict net472 Release0W/0E tree, and
 18 merged library geometry/inventory checks with11 refusal controls. Prior broad
 options/close evidence is reused for unchanged areas; those focused checks are
 not a complete gate. The new GPU fixture is registered as local-only, giving
-226local/100CI/16source inventory. Integrated complete-gate results are pending.
+226local/100CI/16source inventory. The full integrated attempt is running against
+frozen499bdc157/692 in a private validation worktree. Its16 source suites pass.
+The local group exposed an older town-service-options fixture missing explicit
+SteamLink availability, TickGuard and Rebuild ports. Tests-only0796670ba repairs
+that boundary; the affected suite passes173 assertions and9 causal controls.
+The remaining full attempt continues unchanged. Its initial failure is retained;
+later checks and focused repairs will be recorded as composed evidence, not a
+new complete-gate pass.
 
-At this checkpoint the intro, studio, first cave and forest media are verified;
-16 worker subjects remain. Each subject must pass original native-clock/AAC,
+At this checkpoint the intro, studio, two cave films and forest are verified;
+15 worker subjects remain. Each subject must pass original native-clock/AAC,
 all-left-picture, right reprojection, depth receipt/hash and decoded-cue gates
 before its output enters Assets. Desktop cue inspection is distinct from actual
-headset playback. The new logo and library headset pictures, comfort and native
-spawn paths remain unverified until the maintainer's requested in-scenario review.
+headset playback. Independent inspection of all11 original hero title frames
+found that generic protected regions missed some printed symbol edges and banner
+lines. Source-specific early/middle/late union regions are being corrected before
+hero publication, preserving original neural inputs and completed ambient proofs.
+The new logo and library headset pictures, comfort and native spawn paths remain
+unverified until the maintainer's requested in-scenario review.
 
 The complete library and final binary are not handed over at this checkpoint.
 No Frame write, receiver installation or runtime restart is performed here.

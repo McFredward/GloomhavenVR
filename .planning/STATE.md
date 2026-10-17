@@ -111,7 +111,7 @@ payload/provenance/license checks pass30+4. No new complete gate or live Windows
 headset result is claimed. Receipts and completed-cache cleanup are under
 `.planning/debug/steamlink-688-integrated/` and `steamlink-688-loader-worker/`.
 
-**Stereo library and scenario review in progress, 2026-10-17: reserved Build692.**
+**Stereo library and scenario review in progress, 2026-10-17: reserved Build694+.**
 
 The maintainer explicitly approves687's actual headset intro as perfect except
 that the GloomhavenVR wordmark should protrude slightly more. Both supplied logs
@@ -138,15 +138,21 @@ sprite animation; keep its timer, while deliberate review may play the full8s.
 Separate initialized workers from dev9f48730df own offline media, native/shared
 runtime and localized review UI. Local pinned Small/FP32 inference has started;
 no paid inference is used. Root's foreground-wordmark renderer and real22-file
-installer/archive fixture checks pass; the complete media batch and integrated
-runtime/gates are still pending. The verified stronger-wordmark intro, original
-studio companion/stereo clip and first cave ambience are integrated locally;
-The forest ambience is also integrated;16 conversions remain in the serial
-batch. Source review has addressed decoder teardown, native priority and observer
-review closure; the integrated full gate is next. No692 binary or completed library is handed
-over yet. No additional ZIP/HTTP delivery: the normal installation script
+installer/archive fixture checks pass. The stronger-wordmark intro, original
+studio companion/stereo clip, two cave films and forest are integrated locally;
+15 conversions remain. Disjoint ambient and hero neural producers run locally.
+Source review has addressed decoder teardown, native priority and observer review
+closure. Runtime and UI worker evidence is independently hash/size verified and
+archived before their worktrees were removed. A full gate on frozen692 passes
+16 source suites; its226 local suites continue. An older town-options fixture
+compile failure is repaired by tests-only0796670ba and passes173 assertions plus
+9 causal controls separately. Preserve the initial failed attempt and compose
+remaining evidence honestly. Native hero title inspection also requires complete
+source-specific printed-panel masks before hero publication; neural inputs remain
+unchanged. No692 binary or completed library is handed over yet. The final batch
+advances beyond independently published693. No additional ZIP/HTTP delivery: the normal installation script
 continues to create its archive. No Frame write/restart occurs in this work.
-The independent published688/689/691 identity fixes are retained through the shared
+The independent published688/689/691/693 identity fixes are retained through the shared
 dev merge; this unfinished media batch remains unpublished until completion.
 
 To retain storage headroom, completed unpinned687 fixture evidence was archived
