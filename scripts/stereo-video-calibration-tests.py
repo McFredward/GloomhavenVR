@@ -2,7 +2,7 @@
 """Compile full calibration owner/policy/localization with narrow API substitutes.
 
 This is an offline lifecycle proof, not GPU/Unity or native gameplay execution.
-Environment.GetCommandLineArgs is real in each child. All owned build processes
+Legacy command-line tokens remain real in each child but cannot activate the test. All owned build processes
 are reaped before the repository's completion-cache cleanup API runs.
 """
 from __future__ import annotations
@@ -126,8 +126,10 @@ def check(args, directory):
     cases = [("production", None, None, None)]
     if args.self_test:
         mutations = [
-            ("flag-guard", "StereoVideoCalibration.cs", "if (!_requested || _finished) return;", "if (_finished) return;", "no-flag", [], "no exact flag performs no file, shader or decoder work"),
-            ("case-insensitive-argv", "StereoVideoCalibrationPolicy.cs", "StringComparison.Ordinal)", "StringComparison.OrdinalIgnoreCase)", "no-flag", [FLAG.upper()], "no exact flag performs no file, shader or decoder work"),
+            ("request-guard", "StereoVideoCalibration.cs", "if (!_requested) return;", "", "no-flag", [], "without a menu request there is no file, shader or decoder work"),
+            ("active-request-idempotent", "StereoVideoCalibration.cs", "if (_requested) return;", "", "restart", [], "repeated preparation press retains exactly one decoder"),
+            ("explicit-restart", "StereoVideoCalibration.cs", "if (_requested) return;", "if (_requested || _state == State.Closed) return;", "restart", [], "manual restart starts a fresh independent decoder"),
+            ("missing-status", "StereoVideoCalibration.cs", 'Refuse("calibration movie missing: " + path, State.MissingMovie);', 'Refuse("calibration movie missing: " + path);', "errors", [], "missing movie leaves visible installation status"),
             ("online-gate", "StereoVideoCalibrationPolicy.cs", "vr && conversion && !online &&", "vr && conversion &&", "gates", [FLAG], "leaving offline menu stops and detaches the decoder"),
             ("first-frame-gate", "StereoVideoCalibration.cs", " || _player.frame < 0", "", "stereo", [FLAG], "first decoded frame gates picture"),
             ("dimensions-gate", "StereoVideoCalibrationPolicy.cs", "width == EyeWidth * (stereo ? 2 : 1) && height == Height", "true", "dimensions", [FLAG], "invalid decoded dimensions refuse before picture creation"),
@@ -141,7 +143,6 @@ def check(args, directory):
             ("close-decoder-gate", "StereoVideoCalibration.cs", "if (_closing) { TickFade(); return; }", "if (_closing && _player != null && _player.isPrepared) { TickFade(); return; }", "stereo", [FLAG], "manual close fades even if decoder loses preparation"),
             ("surface-dispose", "StereoVideoCalibration.cs", "        _surface?.Dispose();", "", "stereo", [FLAG], "close disposes surface and unregisters pointer canvas"),
             ("external-destroy-cleanup", "StereoVideoCalibration.cs", "            Stop();\n            return;\n        }\n        try", "            return;\n        }\n        try", "external-destroy", [FLAG], "external Unity destruction still disposes managed eye surface"),
-            ("premature-finished", "StereoVideoCalibration.cs", "if (_attempted) _finished = true;", "_finished = true;", "shutdown", [FLAG], "shutdown before any attempt still permits the later allowed menu"),
         ]
         for name, file, old, new, scenario, flags, failure in mutations:
             if sources[file].count(old) != 1:
@@ -165,9 +166,9 @@ def check(args, directory):
         if code:
             raise ValueError(f"Fixture build failed ({name}): {output}")
         scenarios = [scenario] if scenario is not None else [
-            ("policy", []), ("no-flag", []), ("no-flag", [FLAG.upper()]),
+            ("policy", []), ("no-flag", []), ("no-flag", [FLAG]), ("no-flag", [FLAG.upper()]),
             ("no-flag", [FLAG + "=true"]), ("no-flag", [FLAG + "-extra"]),
-            *[(mode, [FLAG]) for mode in ("gates", "stereo", "mono", "errors", "dimensions", "shutdown", "external-destroy")],
+            *[(mode, [FLAG]) for mode in ("gates", "stereo", "mono", "errors", "dimensions", "shutdown", "external-destroy", "restart")],
         ]
         for index, (mode, flags) in enumerate(scenarios):
             log = case / f"{index:02d}-{mode}.log"

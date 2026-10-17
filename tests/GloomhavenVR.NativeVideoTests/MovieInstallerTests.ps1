@@ -1,5 +1,10 @@
 param([string]$Installer, [string]$Fixture)
 $ErrorActionPreference = 'Stop'
+$script:checks = 0
+function Check([bool]$Condition, [string]$Label) {
+    $script:checks++
+    if (-not $Condition) { throw $Label }
+}
 $tokens = $null
 $errors = $null
 [void][System.Management.Automation.Language.Parser]::ParseFile($Installer, [ref]$tokens, [ref]$errors)
@@ -13,9 +18,18 @@ $start = $source.IndexOf('# --- 7. deploy into the game ')
 $end = $source.IndexOf('# Text files a Windows user double-clicks:', $start)
 if ($start -lt 0 -or $end -le $start) { throw 'Native installer deployment block not found.' }
 $deploy = [scriptblock]::Create($source.Substring($start, $end - $start))
-if (-not $source.Contains('"BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov",')) {
-    throw 'Windows release ZIP must require its plugin-local campaign movie.'
+$movieKeys = @('CP_Intro/GH_CP_Intro.mov', 'Calibration/calibration-sbs.mp4', 'Calibration/calibration-mono.mp4')
+foreach ($key in $movieKeys) {
+    Check ($source.Contains('"BepInEx/plugins/GloomhavenVR/Movies/' + $key + '",')) ('Windows ZIP requires movie: ' + $key)
 }
+$start = $source.IndexOf('$script:Utf8Strict =')
+$end = $source.IndexOf('. (Join-Path $PSScriptRoot "frame-archive.ps1")', $start)
+if ($start -lt 0 -or $end -le $start) { throw 'Native archive text helpers not found.' }
+$textHelpers = [scriptblock]::Create($source.Substring($start, $end - $start))
+$start = $source.IndexOf('if (-not $NoPackage) {')
+$end = $source.IndexOf('Write-Host "Deployed commit ', $start)
+if ($start -lt 0 -or $end -le $start) { throw 'Native release packaging block not found.' }
+$package = [scriptblock]::Create($source.Substring($start, $end - $start))
 
 function Step([string]$Text) { }
 $root = $Fixture
@@ -32,24 +46,59 @@ foreach ($Configuration in @('Debug', 'Release')) {
         [IO.File]::WriteAllText($artifact, "$Configuration substitute $project")
     }
     . $preflight
-    $expected = [IO.File]::ReadAllBytes($introMovie)
+    $expected = @{}
+    foreach ($key in $movieKeys) { $expected[$key] = [IO.File]::ReadAllBytes((Join-Path $root ('src/GloomhavenVR/Assets/Movies/' + $key))) }
     . $deploy
-    $installed = Join-Path $GamePath 'BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov'
-    if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($installed)) -ne [Convert]::ToBase64String($expected)) {
-        throw "$Configuration installation lost or changed the campaign movie."
+    foreach ($key in $movieKeys) {
+        $installed = Join-Path $GamePath ('BepInEx/plugins/GloomhavenVR/Movies/' + $key)
+        Check ([Convert]::ToBase64String([IO.File]::ReadAllBytes($installed)) -eq [Convert]::ToBase64String($expected[$key])) `
+            ("$Configuration installer copies exact movie: " + $key)
     }
-    if ([IO.File]::ReadAllText($nativeGameMovie) -ne 'original game movie must remain unchanged') {
-        throw "$Configuration installation overwrote the game's own movie."
-    }
+    Check ([IO.File]::ReadAllText($nativeGameMovie) -eq 'original game movie must remain unchanged') 'Original game movie remains untouched'
     # Force the next configuration to copy different bytes; a stale successful first
     # installation must never make an omitted second deployment look correct.
-    if ($Configuration -eq 'Debug') { [IO.File]::WriteAllText($introMovie, 'second deployment movie') }
+    if ($Configuration -eq 'Debug') {
+        foreach ($key in $movieKeys) {
+            [IO.File]::WriteAllBytes((Join-Path $root ('src/GloomhavenVR/Assets/Movies/' + $key)), [byte[]]($expected[$key] + 42))
+        }
+    }
 }
-Remove-Item -LiteralPath $introMovie
-$rejected = $false
-try { . $preflight } catch {
-    if (-not $_.Exception.Message.Contains('Missing approved campaign intro')) { throw }
-    $rejected = $true
+. $textHelpers
+. (Join-Path $root 'scripts/frame-archive.ps1')
+$figureBanks = @(Get-ChildItem (Join-Path $root 'prebuilt/ghvr-figure-meshes-*.bundle'))
+$NoPackage = $false
+. $package
+$archive = [IO.Compression.ZipFile]::OpenRead($zip)
+try {
+    foreach ($key in $movieKeys) {
+        $stream = $archive.GetEntry('BepInEx/plugins/GloomhavenVR/Movies/' + $key).Open()
+        $bytes = New-Object IO.MemoryStream
+        try { $stream.CopyTo($bytes) } finally { $stream.Dispose() }
+        Check ([Convert]::ToBase64String($bytes.ToArray()) -eq [Convert]::ToBase64String($expected[$key])) `
+            ('Windows package contains exact installed movie: ' + $key)
+        $bytes.Dispose()
+    }
+} finally { $archive.Dispose() }
+foreach ($key in $movieKeys) {
+    $path = Join-Path $root ('src/GloomhavenVR/Assets/Movies/' + $key)
+    $saved = [IO.File]::ReadAllBytes($path)
+    Remove-Item -LiteralPath $path
+    $rejected = $false
+    try { . $preflight } catch {
+        if (-not $_.Exception.Message.Contains('Missing approved campaign intro') -and -not $_.Exception.Message.Contains('Missing stereo calibration movie')) { throw }
+        $rejected = $true
+    } finally { [IO.File]::WriteAllBytes($path, $saved) }
+    Check $rejected ('Missing source rejects installation: ' + $key)
 }
-if (-not $rejected) { throw 'Missing movie must reject developer installation before deployment.' }
-Write-Output 'Native movie PowerShell installer: syntax, actual Debug/Release deployment and missing-asset control passed.'
+foreach ($key in @('Calibration/calibration-sbs.mp4', 'Calibration/calibration-mono.mp4')) {
+    $path = Join-Path $pluginDir ('Movies/' + $key)
+    $saved = [IO.File]::ReadAllBytes($path)
+    Remove-Item -LiteralPath $path
+    $rejected = $false
+    try { . $package } catch {
+        if (-not $_.Exception.Message.Contains('Packaged zip is missing:') -or -not $_.Exception.Message.Contains($key)) { throw }
+        $rejected = $true
+    } finally { [IO.File]::WriteAllBytes($path, $saved) }
+    Check $rejected ('Windows archive validator rejects missing installed movie: ' + $key)
+}
+Write-Output ("Native movie PowerShell installer: $script:checks assertions; actual Debug/Release deployment, Windows ZIP and 5 missing-file controls passed.")

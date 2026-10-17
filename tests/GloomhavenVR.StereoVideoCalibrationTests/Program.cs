@@ -25,11 +25,13 @@ internal static class Program
     private static VideoPlayer Player => VideoPlayer.All.Last();
     private static RawImage? Image => GameObject.All.SelectMany(g => g.Components).OfType<RawImage>().LastOrDefault(i => !i.Destroyed);
     private static void Tick(int count = 1) { for (int i = 0; i < count; i++) StereoVideoCalibration.Tick(); }
-    private static void Reset()
+    private static void Reset(bool request = true)
     {
         StereoVideoCalibration.Stop();
-        foreach (string name in new[] { "_checkedArguments", "_requested", "_attempted", "_finished", "_stereo" })
+        foreach (string name in new[] { "_requested", "_attempted", "_stereo" })
             typeof(StereoVideoCalibration).GetField(name, BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, false);
+        var state = typeof(StereoVideoCalibration).GetField("_state", BindingFlags.Static | BindingFlags.NonPublic)!;
+        state.SetValue(null, Enum.ToObject(state.FieldType, 0));
         GameObject.All.Clear(); VideoPlayer.All.Clear(); UguiPokeSurfaces.Canvases.Clear();
         UguiPokeSurfaces.Registrations = UguiPokeSurfaces.Removals = 0;
         StereoVideoSurface.AvailabilityChecks = StereoVideoSurface.Attachments = StereoVideoSurface.Disposals = 0;
@@ -40,12 +42,10 @@ internal static class Program
         CanvasConversion.WorldCamera = new GameObject("FixtureHead").AddComponent<Camera>();
         Loc.CurrentLanguage = "English"; PanelLayout.WorldScale = 1f; VRLog.Lines.Clear(); VRLayers.Applies = 0;
         Time.unscaledTime = 0f;
+        if (request) StereoVideoCalibration.RequestStart();
     }
     private static void Policy()
     {
-        Check(StereoVideoCalibrationPolicy.Requested(new[] { "game", "--ghvr-stereo-video-calibration" }), "exact command-line argument enables the explicit pilot");
-        foreach (string arg in new[] { "--GHVR-STEREO-VIDEO-CALIBRATION", "--ghvr-stereo-video-calibration=true", "--ghvr-stereo-video-calibration-extra", "prefix--ghvr-stereo-video-calibration", "" })
-            Check(!StereoVideoCalibrationPolicy.Requested(new[] { "game", arg }), "argument matching is exact and case sensitive");
         foreach (bool vr in new[] { false, true }) foreach (bool conversion in new[] { false, true })
         foreach (bool online in new[] { false, true }) foreach (string scene in new[] { "MainMenu", "MainMenu_gamepad", "Gloomhaven_unified", "MainMenu_extra", "Scenario", "" })
             Check(StereoVideoCalibrationPolicy.Allowed(vr, conversion, scene, online) ==
@@ -59,9 +59,9 @@ internal static class Program
     }
     private static void NoFlag()
     {
-        Reset(); int objects = GameObject.All.Count; Tick(100);
+        Reset(false); int objects = GameObject.All.Count; Tick(100);
         Check(FixtureFile.Calls == 0 && StereoVideoSurface.AvailabilityChecks == 0 && VideoPlayer.All.Count == 0,
-            "no exact flag performs no file, shader or decoder work");
+            "without a menu request there is no file, shader or decoder work");
         Check(GameObject.All.Count == objects && SceneController.Reads == 0 && VRLog.Lines.Count == 0,
             "normal startup performs no calibration scene polling, canvas or logging");
     }
@@ -69,20 +69,23 @@ internal static class Program
     {
         foreach (string mode in new[] { "not-vr", "no-conversion", "online", "scenario", "unknown-scene", "no-camera" })
         {
-            Reset();
+            Reset(false);
             if (mode == "not-vr") VRSession.IsRunning = false;
             if (mode == "no-conversion") WorldUIConfig.ConversionActive = false;
             if (mode == "online") FFSNetwork.IsOnline = true;
             if (mode == "scenario") SceneController.Instance!.Scene = "Scenario";
             if (mode == "unknown-scene") SceneController.Instance = null;
             if (mode == "no-camera") CanvasConversion.WorldCamera = null;
-            Tick(10);
+            StereoVideoCalibration.RequestStart(); Tick(10);
+            Check(StereoVideoCalibration.Status == Loc.StereoVideoCalibrationUnavailable, "refused request is visible in the menu: " + mode);
             Check(FixtureFile.Calls == 0 && StereoVideoSurface.AvailabilityChecks == 0 && VideoPlayer.All.Count == 0,
                 "disallowed gate performs no calibration media work: " + mode);
             VRSession.IsRunning = WorldUIConfig.ConversionActive = true; FFSNetwork.IsOnline = false;
             SceneController.Instance = new() { Scene = "MainMenu_gamepad" };
             CanvasConversion.WorldCamera ??= new GameObject("Head").AddComponent<Camera>();
-            Tick(); Check(VideoPlayer.All.Count == 1 && Player.Prepares == 1, "waiting for allowed gamepad menu does not consume the attempt");
+            Tick(10); Check(VideoPlayer.All.Count == 0, "refused request is never queued for a future menu");
+            StereoVideoCalibration.RequestStart(); Tick();
+            Check(VideoPlayer.All.Count == 1 && Player.Prepares == 1, "explicit allowed gamepad menu request starts one decoder");
             var player = Player;
             FFSNetwork.IsOnline = true; Tick();
             Check(player.Stops == 1 && player.Destroyed && player.PreparedSubscribers == 0 && player.ErrorSubscribers == 0,
@@ -166,6 +169,7 @@ internal static class Program
     {
         Reset(); FixtureFile.Present = false; Tick(20);
         Check(FixtureFile.Calls == 1 && VideoPlayer.All.Count == 0 && VRLog.Lines.Count(line => line.Contains("movie missing")) == 1, "missing movie refuses once without decoder retry");
+        Check(StereoVideoCalibration.Status == Loc.StereoVideoCalibrationMissingMovie, "missing movie leaves visible installation status");
         foreach (bool prepared in new[] { false, true })
         {
             Reset(); Tick(); var player = Player;
@@ -198,7 +202,9 @@ internal static class Program
     private static void Shutdown()
     {
         Reset(); StereoVideoCalibration.Stop(); Tick();
-        Check(VideoPlayer.All.Count == 1 && Player.Prepares == 1, "shutdown before any attempt still permits the later allowed menu");
+        Check(VideoPlayer.All.Count == 0, "shutdown cancels a queued request before decoder creation");
+        StereoVideoCalibration.RequestStart(); Tick();
+        Check(VideoPlayer.All.Count == 1 && Player.Prepares == 1, "explicit menu request after shutdown starts normally");
         foreach (string mode in new[] { "preparing", "prepared", "online", "scene", "vr", "conversion", "camera" })
         {
             Reset(); Tick(); var player = Player;
@@ -232,6 +238,50 @@ internal static class Program
             Check(player.Plays == plays && VRLog.Lines.Count == logs, "fake-null stale callbacks cannot start or report a destroyed decoder");
         }
     }
+    private static void Restart()
+    {
+        Reset(false);
+        Check(StereoVideoCalibration.Status == Loc.StereoVideoCalibrationReady, "idle menu status is ready without activation");
+        for (int i = 0; i < 50; i++) { _ = StereoVideoCalibration.Status; Tick(); }
+        Check(FixtureFile.Calls == 0 && SceneController.Reads == 0, "reading menu status never polls media or the native scene");
+        StereoVideoCalibration.RequestStart();
+        Check(StereoVideoCalibration.Status == Loc.StereoVideoCalibrationPreparing, "deliberate press reports preparation immediately");
+        Tick(); var first = Player;
+        var stalePrepared = first.CapturePrepared(); var staleError = first.CaptureError();
+        StereoVideoCalibration.RequestStart(); Tick(10);
+        Check(VideoPlayer.All.Count == 1 && first.Prepares == 1 && FixtureFile.Calls == 1, "repeated preparation press retains exactly one decoder");
+        Ready(first); Tick();
+        Check(StereoVideoCalibration.Status == Loc.StereoVideoCalibrationPlaying, "decoded first picture reports stereo playback");
+        StereoVideoCalibration.RequestStart(); Tick();
+        Check(VideoPlayer.All.Count == 1 && first.Stops == 0 && StereoVideoSurface.Attachments == 1, "repeated playback press never restarts or moves the picture");
+        StereoVideoCalibration.RequestClose(); Time.unscaledTime = .2f; Tick();
+        Check(StereoVideoCalibration.Status == Loc.StereoVideoCalibrationClosed, "picture close reports completion in the menu");
+        Tick(10); Check(VideoPlayer.All.Count == 1, "closed test does not restart by itself");
+        StereoVideoCalibration.RequestStart(); Tick(); var second = Player;
+        Check(VideoPlayer.All.Count == 2 && !ReferenceEquals(first, second) && second.Prepares == 1, "manual restart starts a fresh independent decoder");
+        int logs = VRLog.Lines.Count;
+        stalePrepared!(first); staleError!(first, "old attempt queued callback");
+        Check(second.Plays == 0 && second.Stops == 0 && VRLog.Lines.Count == logs, "old attempt callbacks cannot affect a manually restarted decoder");
+        StereoVideoCalibration.Stop(); Tick();
+        Check(second.Stops == 1 && VideoPlayer.All.Count == 2, "restarted decoder cleanup is independent and does not rearm");
+
+        Reset(); FixtureFile.Present = false; Tick(10);
+        Check(StereoVideoCalibration.Status == Loc.StereoVideoCalibrationMissingMovie && VideoPlayer.All.Count == 0, "missing installation remains a visible idle failure");
+        FixtureFile.Present = true; Tick(10);
+        Check(VideoPlayer.All.Count == 0, "repairing files does not automatically start a failed test");
+        StereoVideoCalibration.RequestStart(); Tick();
+        Check(VideoPlayer.All.Count == 1 && Player.Prepares == 1 && FixtureFile.Calls == 2, "manual retry rechecks repaired installation files");
+        Player.EmitError("fixture retry error");
+        Check(StereoVideoCalibration.Status == Loc.StereoVideoCalibrationFailed, "decoder error has visible menu status");
+        Loc.CurrentLanguage = "German";
+        Check(StereoVideoCalibration.Status.Contains("fehlgeschlagen"), "existing failure status follows current German language");
+        StereoVideoCalibration.RequestStart(); Tick();
+        Check(VideoPlayer.All.Count == 2 && Player.Prepares == 1, "manual retry after decoder failure starts fresh");
+        Check(StereoVideoCalibration.Status.Contains("vorbereitet"), "new preparation status follows current German language");
+        StereoVideoCalibration.Stop(); StereoVideoSurface.Available = false;
+        StereoVideoCalibration.RequestStart(); Tick(); Ready(Player, false); Tick();
+        Check(StereoVideoCalibration.Status == Loc.StereoVideoCalibrationMono, "mono companion is identified in the menu status");
+    }
     private static int Main(string[] args)
     {
         string scenario = args[0];
@@ -248,6 +298,7 @@ internal static class Program
                 case "dimensions": Dimensions(); break;
                 case "shutdown": Shutdown(); break;
                 case "external-destroy": ExternalDestroy(); break;
+                case "restart": Restart(); break;
                 default: throw new Exception("Unknown scenario: " + scenario);
             }
             Console.WriteLine(JsonSerializer.Serialize(new { status = "passed", scenario, assertions = _assertions }));

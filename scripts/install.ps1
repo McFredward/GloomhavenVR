@@ -103,6 +103,13 @@ $introMovie = Join-Path $root "src\GloomhavenVR\Assets\Movies\CP_Intro\GH_CP_Int
 if (-not (Test-Path -LiteralPath $introMovie -PathType Leaf)) {
     Write-Error "Missing approved campaign intro: $introMovie"
 }
+$calibrationMovieDir = Join-Path $root "src\GloomhavenVR\Assets\Movies\Calibration"
+$calibrationMovies = @('calibration-sbs.mp4', 'calibration-mono.mp4')
+foreach ($movie in $calibrationMovies) {
+    if (-not (Test-Path -LiteralPath (Join-Path $calibrationMovieDir $movie) -PathType Leaf)) {
+        Write-Error "Missing stereo calibration movie: $movie"
+    }
+}
 # Prepared native figure derivatives ship as independently indexed parts. Verify this
 # complete set before deployment, including without Python on a Windows developer PC.
 $figureFolder = Join-Path $root "prebuilt"
@@ -355,6 +362,7 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Build failed." }
 # Everything lands where the runtime probes it:
 #   plugin      -> BepInEx\plugins\GloomhavenVR\GloomhavenVR.dll
 #   intro       -> BepInEx\plugins\GloomhavenVR\Movies\CP_Intro\GH_CP_Intro.mov
+#   calibration -> BepInEx\plugins\GloomhavenVR\Movies\Calibration\calibration-{sbs,mono}.mp4
 #   RuntimeDeps -> BepInEx\plugins\GloomhavenVR\RuntimeDeps\*.dll
 #   bundle      -> BepInEx\plugins\GloomhavenVR\gloomhavenvr.bundle
 #   preloader   -> BepInEx\patchers\GloomhavenVR\GloomhavenVR.Preload.dll
@@ -368,15 +376,19 @@ foreach ($artifact in @($plugin, $preloader)) {
 
 $pluginDir      = Join-Path $GamePath "BepInEx\plugins\GloomhavenVR"
 $movieDir       = Join-Path $pluginDir "Movies\CP_Intro"
+$calibrationDst = Join-Path $pluginDir "Movies\Calibration"
 $runtimeDepsDst = Join-Path $pluginDir "RuntimeDeps"
 $patcherDir     = Join-Path $GamePath "BepInEx\patchers\GloomhavenVR"
 $nativesDst     = Join-Path $patcherDir "Natives"
-foreach ($dir in @($pluginDir, $movieDir, $runtimeDepsDst, $patcherDir, $nativesDst)) {
+foreach ($dir in @($pluginDir, $movieDir, $calibrationDst, $runtimeDepsDst, $patcherDir, $nativesDst)) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
 }
 
 Copy-Item $plugin    -Destination $pluginDir  -Force
 Copy-Item -LiteralPath $introMovie -Destination (Join-Path $movieDir "GH_CP_Intro.mov") -Force
+foreach ($movie in $calibrationMovies) {
+    Copy-Item -LiteralPath (Join-Path $calibrationMovieDir $movie) -Destination (Join-Path $calibrationDst $movie) -Force
+}
 Copy-Item $preloader -Destination $patcherDir -Force
 Get-ChildItem (Join-Path $runtimeDepsDir "*.dll") | Copy-Item -Destination $runtimeDepsDst -Force
 Get-ChildItem (Join-Path $nativesDir     "*.dll") | Copy-Item -Destination $nativesDst     -Force
@@ -676,6 +688,8 @@ if (-not $NoPackage) {
     $required = @(
         "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll",
         "BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov",
+        "BepInEx/plugins/GloomhavenVR/Movies/Calibration/calibration-sbs.mp4",
+        "BepInEx/plugins/GloomhavenVR/Movies/Calibration/calibration-mono.mp4",
         "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle",
         "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle",
         "BepInEx/plugins/GloomhavenVR/ghvr-environment.bundle",

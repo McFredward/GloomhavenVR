@@ -1,5 +1,9 @@
 # Stereo video calibration — Build 683
 
+The entry/delivery contract below is historical. Build685 replaces argv activation
+with the Advanced-menu action and ships both movies through normal install ZIPs;
+see [the follow-up](STEREO-VIDEO-MENU-685.md). Shader/media evidence remains valid.
+
 ## Authorized first milestone
 
 The maintainer assigned the stereoscopic in-game video work to this thread and

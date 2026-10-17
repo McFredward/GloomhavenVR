@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 
 namespace GloomhavenVR.WorldUI;
@@ -6,16 +5,8 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>The explicit, local-only entry contract for the first stereoscopic movie experiment.</summary>
 internal static class StereoVideoCalibrationPolicy
 {
-    internal const string Argument = "--ghvr-stereo-video-calibration";
     internal const int EyeWidth = 1920;
     internal const int Height = 1080;
-
-    internal static bool Requested(string[] args)
-    {
-        foreach (string arg in args)
-            if (string.Equals(arg, Argument, StringComparison.Ordinal)) return true;
-        return false;
-    }
 
     internal static bool Allowed(bool vr, bool conversion, string scene, bool online) =>
         vr && conversion && !online && (scene == "MainMenu" || scene == "MainMenu_gamepad");
