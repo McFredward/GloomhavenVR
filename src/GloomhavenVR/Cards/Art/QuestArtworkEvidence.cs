@@ -227,7 +227,14 @@ internal static class QuestArtworkEvidence
         // record. B679's missing observations cannot be diagnosed by dropping the
         // very samples once we finally reach a parked capture source. Compress only
         // metadata; no extra GPU readback, log record or quota is introduced.
-        string samples = " rgba6=" + Sample(source, crop) + " outputRgba6=" + Sample(output, outputCrop);
+        string sourcePixels = Sample(source, crop);
+        string outputPixels = Sample(output, outputCrop);
+        // B681 records sampled the SAME header texture/crop twice and got different
+        // pixels. Such a pair cannot establish damaged source art: retain that
+        // distinction without a third GPU readback or another protected log record.
+        if (ReferenceEquals(source, output) && crop == outputCrop)
+            detail += " sameInput=True copyStable=" + string.Equals(sourcePixels, outputPixels, StringComparison.Ordinal);
+        string samples = " rgba6=" + sourcePixels + " outputRgba6=" + outputPixels;
         string message = "[Quest startup] artwork" + detail + " caller=" + _caller + samples;
         if (Encoding.UTF8.GetByteCount(message) > 1000)
         {
@@ -236,7 +243,9 @@ internal static class QuestArtworkEvidence
             string compact = " role=" + Name(role) + " metadataCompressed=true source=" + Label(source)
                 + " crop=" + Geometry(crop) + " output=" + Label(output) + " outputCrop=" + Geometry(outputCrop)
                 + " enabled=" + image.enabled + " self=" + image.gameObject.activeSelf
-                + " hierarchy=" + image.gameObject.activeInHierarchy + " sourceShader=" + shader;
+                + " hierarchy=" + image.gameObject.activeInHierarchy + " sourceShader=" + shader
+                + (ReferenceEquals(source, output) && crop == outputCrop
+                    ? " sameInput=True copyStable=" + string.Equals(sourcePixels, outputPixels, StringComparison.Ordinal) : string.Empty);
             message = "[Quest startup] artwork" + compact + " caller=" + _caller + samples;
         }
         UnityEngine.Debug.Log(message);
@@ -281,7 +290,8 @@ internal static class QuestArtworkEvidence
         return count == name.Length ? name : name.Substring(0, count);
     }
     private static string Label(Texture texture) => Name(texture.name) + "#" + texture.GetInstanceID()
-        + "@" + texture.updateCount + ":" + texture.width + "x" + texture.height;
+        + "@" + texture.updateCount + ":" + texture.width + "x" + texture.height
+        + ",f" + (int)texture.graphicsFormat + ",r" + (texture is Texture2D image && image.isReadable ? "1" : "0");
     private static string Geometry(Rect rect) => rect.x.ToString("F3", CultureInfo.InvariantCulture) + ","
         + rect.y.ToString("F3", CultureInfo.InvariantCulture) + "," + rect.width.ToString("F3", CultureInfo.InvariantCulture)
         + "," + rect.height.ToString("F3", CultureInfo.InvariantCulture);

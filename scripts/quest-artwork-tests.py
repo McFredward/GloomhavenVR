@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Actual Unity texture-copy, region and changing portrait-cache qualification."""
 import argparse
+import ctypes
 import hashlib
 import json
 import os
@@ -8,6 +9,8 @@ import re
 from pathlib import Path
 import shutil
 import subprocess
+import signal
+import time
 import sys
 import tempfile
 
@@ -22,6 +25,42 @@ def method(source, signature):
     end = source.index('\n    }\n', start) + len('\n    }\n')
     return source[start:end]
 
+
+def reap_fixture_group(group):
+    """Stop/reap this dedicated subreaper's fixture descendants before cleanup.
+
+    Roslyn may create another session. A process-group-only wait would miss it;
+    after Unity exits Linux reparents that orphan to this runner, not PID1.
+    """
+    reaped, adopted = [], set()
+    for signum in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            if group is not None: os.killpg(group, signum)
+        except ProcessLookupError: pass
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            # This process launches only the one fixture; every adopted child
+            # belongs to it. Recheck PPid immediately before signalling so no
+            # shared compiler or other agent's process can become a target.
+            for entry in Path("/proc").iterdir():
+                if not entry.name.isdigit(): continue
+                try:
+                    stat = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+                    if int(stat[1]) != os.getpid(): continue
+                    adopted.add(int(entry.name))
+                    os.kill(int(entry.name), signum)
+                except (FileNotFoundError, ProcessLookupError, PermissionError):
+                    pass
+            try:
+                child, status = os.waitpid(-1, os.WNOHANG)
+            except ChildProcessError:
+                return {"ownedProcessGroup": group, "adoptedChildren": sorted(adopted),
+                        "reapedChildren": reaped, "remainingChildren": 0}
+            if child:
+                reaped.append({"pid": child, "status": status})
+            else:
+                time.sleep(.05)
+    raise RuntimeError("Owned Unity fixture descendants could not be reaped before cleanup")
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -59,12 +98,17 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
 ''' + method(capture, '    private static bool CarryOverInto(') + method(capture, '    private static void ResolveAndMip(') + '\n}\n'
     variants = [
         ('production', '', '', '', ''),
+        ('copy-native-primitive', 'QuestTextureCopy.cs', '_quad = CreateQuad();', '_quad = Resources.GetBuiltinResource<Mesh>("Quad.fbx");', 'owned copy preserves repeated source/crop RGBA despite ambient camera and viewport'),
+        ('copy-source-missing', 'QuestTextureCopy.cs', '_properties.SetTexture("_MainTex", source);', '_properties.SetTexture("_MainTex", Texture2D.whiteTexture);', 'owned copy preserves repeated source/crop RGBA despite ambient camera and viewport'),
+        ('copy-crop-missing', 'QuestTextureCopy.cs', 'new Vector4(scale.x, scale.y, offset.x, offset.y)', 'new Vector4(1, 1, 0, 0)', 'owned copy preserves repeated source/crop RGBA despite ambient camera and viewport'),
+        ('copy-viewport-partial', 'QuestTextureCopy.cs', 'new Rect(0, 0, target.width, target.height)', 'new Rect(0, 0, target.width * .5f, target.height * .5f)', 'owned copy preserves repeated source/crop RGBA despite ambient camera and viewport'),
         ('label-is-content', 'CardFaceMipBake.cs', 'return QuestStandalonePlatform.Enabled ? $"{label}|instance={tex.GetInstanceID()}|update={tex.updateCount}" : label;', 'return label;', 'same-name atlas regions do not alias unrelated content'),
         ('raw-update-stale', 'RawPortrait.cs', 'if (!QuestStandalonePlatform.Enabled || original is not Texture2D live || live == null) return false;', 'if (QuestStandalonePlatform.Enabled || original is not Texture2D live || live == null) return false;', 'already baked raw portrait refreshes changed original contents'),
         ('raw-source-current-copy', 'RawPortrait.cs', 'source = live;', 'source = displayed;', 'already baked raw portrait refreshes changed original contents'),
         ('sprite-update-stale', 'CardFaceMipBake.cs', '&& update == source.texture.updateCount;', '&& true;', 'same-object source update invalidates preparation without GPU hash'),
         ('stale-camera-suppresses-evidence', 'QuestArtworkEvidence.cs', '&& _records < 8 &&', '&& Camera.current == null && _records < 8 &&', 'at most two actual artwork generations per role and eight total records'),
         ('inactive-source-silent', 'QuestArtworkEvidence.cs', 'if (image == null) { Missing(role, "image"); return; }\n            Sprite?', 'if (image == null || !image.isActiveAndEnabled) { Missing(role, "image"); return; }\n            Sprite?', 'Retained native header source and both pixel crops fit the protected Android record while parked' if args.native_header_project else 'inactive capture source and disabled image remain passively observable'),
+        ('same-source-copy-corrupt', 'QuestArtworkEvidence.cs', 'string outputPixels = Sample(output, outputCrop);', "string outputPixels = new string('A', sourcePixels.Length);", 'same source and crop retain repeat-copy consistency and actual texture format within the existing record'),
         ('overflow-drops-pixels', 'QuestArtworkEvidence.cs', 'message = "[Quest startup] artwork" + compact + " caller=" + _caller + samples;', 'message = "[Quest startup] artwork" + compact;', 'long native metadata retains paired pixel samples within the Android byte limit'),
         ('scenario-fallback-silent', 'QuestArtworkEvidence.cs', 'Image(chosen != null ? chosen.headerImage : null, "ability-header");', ';', 'scenario callback reports missing native sources without an adoption callback'),
         ('game-conditional-erases-pixels', 'QuestArtworkEvidence.cs', 'UnityEngine.Debug.Log(message);', 'Debug.Log(message);', 'Actual retained native header emits one bounded source record' if args.native_header_project else 'scenario census reaches actual native header without adoption callback'),
@@ -81,6 +125,11 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
     code = 1
     process = None
+    # Adopt only this runner's orphaned compiler/editor descendants. A completed
+    # Unity parent can otherwise leave Roslyn pinning already deleted cache files.
+    if sys.platform.startswith('linux'):
+        if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), 'Could not own Unity fixture child cleanup')
     try:
         for name, filename, before, after, expected in variants:
             case = run / name
@@ -92,7 +141,7 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
                 (production / path).write_text(source)
             project = case / 'Runtime.csproj'; shutil.copyfile(fixture / 'Runtime.csproj', project)
             assembly = 'QuestArtwork_' + name.replace('-', '_')
-            build = subprocess.run([dotnet, 'build', str(project), '-c', 'Release', '--nologo', '--verbosity', 'quiet',
+            build = subprocess.run([dotnet, 'build', str(project), '-c', 'Release', '--nologo', '--verbosity', 'quiet', '--disable-build-servers', '-p:UseSharedCompilation=false',
                 '-p:CaseName=' + assembly, '-p:FixtureDir=' + str(fixture), '-p:ProductionDir=' + str(production),
                 '-p:UnityManaged=' + str(unity.parent / 'Data/Managed'), '-p:UnityUi=' + str(ROOT / 'ressources/GH_Data/Managed/UnityEngine.UI.dll')], capture_output=True, text=True)
             (case / 'build.log').write_text(build.stdout + build.stderr)
@@ -112,6 +161,10 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
                 'Assets/QuestRecoveredBundles/62ef3d424e9cc164580eaaf46c2f35bf/AC_Brute_Background.asset': 'Assets/Resources/NativeHeader.asset',
                 'Assets/QuestRecoveredBundles/019ed361c43574148b95d6abd6457479/AC_Brute_Background.png': 'Assets/Resources/NativeHeaderTexture.png',
                 'Assets/Shader/GUI_AbilityCard_Shd.shader': 'Assets/Resources/NativeHeaderShader.shader',
+                'Assets/Sprite/Portrait_Brute.asset': 'Assets/Resources/NativeStatPortrait.asset',
+                'Assets/Texture2D/Portrait_Brute.png': 'Assets/Resources/NativeStatPortraitTexture.png',
+                'Assets/_AssetBundles/characterportraits/brute.asset': 'Assets/Resources/NativeInitiativePortrait.asset',
+                'Assets/_AssetBundles/characterportraits/brute.png': 'Assets/Resources/NativeInitiativePortraitTexture.png',
             }
             shader_source = (retained / 'Assets/Shader/GUI_AbilityCard_Shd.shader').read_text()
             for include in set(re.findall(r'#include "(Assets/QuestOriginalCampaign/ShaderPrograms/[^"\n]+)"', shader_source)):
@@ -133,7 +186,7 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
             'hardwareVerified': False}, indent=2) + '\n')
         command = [str(unity), '-batchmode', '-force-' + args.graphics, '-projectPath', str(project), '-executeMethod', 'DiagnosticRunner.Start', '-interactionManifest', str(manifest_path), '-logFile', str(run / 'unity.log')]
         if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a'] + command
-        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True)
         code = process.wait(timeout=240)
         result = Path(manifest['result'])
         if result.is_file(): print(result.read_text(), end='', flush=True)
@@ -141,6 +194,8 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
         print('PASS Quest artwork ' + args.graphics + ': ' + str(len(variants)) + ' production/causal variants', flush=True)
     finally:
         if process is not None and process.poll() is None: process.kill(); process.wait()
+        children = reap_fixture_group(process.pid if process is not None else None)
+        (run / 'process-cleanup.json').write_text(json.dumps(children, indent=2) + '\n')
         cleanup = cleanup_completed_run('quest-artwork', code, log, ROOT, process_reaped=True)
         (run / 'cleanup.json').write_text(json.dumps(cleanup, indent=2) + '\n')
 

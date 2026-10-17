@@ -68,6 +68,7 @@ public static partial class DiagnosticProgram
         var sentinel = Keep(new RenderTexture(7, 9, 0)); sentinel.Create();
         RenderTexture.active = sentinel; GL.sRGBWrite = !sentinel.sRGB;
         Shader.EnableKeyword("STEREO_INSTANCING_ON");
+        QualifyOwnedCopies();
         var atlas = Pattern("ordinary-atlas", 3); var expected = atlas.GetPixels32();
         Check(QuestArtworkRegion.CacheSuffix == "." + QuestTextureCopy.Recipe, "Quest silhouette cache is isolated from old builtin-copy masks");
         foreach (Rect crop in new[] { new Rect(5, 7, 8, 6), new Rect(2, 16, 11, 7), new Rect(0, 0, 32, 24) })
@@ -81,6 +82,7 @@ public static partial class DiagnosticProgram
         Check(RenderTexture.active == sentinel && GL.sRGBWrite == !sentinel.sRGB, "silhouette region restores prior target and color state");
         QualifyPanelCopies();
         QualifyNativeHeader();
+        QualifyNativePortraits();
         QualifyScenarioSources();
         int Count(string field) => ((IDictionary)typeof(CardFaceMipBake).GetField(field, BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Count;
         var source = SpriteOf(atlas, new Rect(5, 7, 8, 6));
@@ -185,6 +187,9 @@ public static partial class DiagnosticProgram
             Check(artworkRecords[5].Contains("crop=") && artworkRecords[5].Contains("outputCrop=")
                 && artworkRecords[5].Contains("enabled=True") && artworkRecords[5].Contains("hierarchy=False"),
                 "metadata compression retains native crops and actual image lifecycle flags");
+            Check(artworkRecords[5].Contains(" sameInput=True copyStable=True")
+                && artworkRecords[5].Contains(",r1") && artworkRecords[5].Contains(",f"),
+                "same source and crop retain repeat-copy consistency and actual texture format within the existing record");
             atlas.name = previousAtlasName;
             imageObject.name = "card-image";
             imageRect.sizeDelta = new Vector2(100, 100); imageRect.anchoredPosition = Vector2.zero;
