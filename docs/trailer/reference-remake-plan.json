@@ -2468,22 +2468,22 @@
     "cleanup_authority": "Latest explicit unused-video/resource deletion instruction overrides historical preserve-all-AI policy. Retain selected used sources and all fal run recovery metadata."
   },
   "current_working_cut": {
-    "phase": "genuine-vr-gameplay-v3",
+    "phase": "genuine-vr-gameplay-v4",
     "status": "provisional-material-trial-reviewed-and-published",
-    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/full-timeline-v1/reference-remake-vr-v12.mp4",
-    "sha256": "f942650d71948b419c95605cef81e062336f3835aece8073ac315eee12009b76",
-    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/REVIEW.html",
-    "base_phase": "genuine VR material trial v11 over accepted cinematic v9",
-    "base_sha256": "6f4007b7db11ebffde14ea92e1585d0bc8f6bb43f48fb6e8d6ba3b21a1d127ee",
+    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/full-timeline-v1/reference-remake-vr-v13.mp4",
+    "sha256": "ea621fa53396e68b1fce34db382dfcc94cfff58b41157c8d519f73b065f264e2",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/REVIEW.html",
+    "base_phase": "genuine VR material trial v12 with accepted cinematic v9 inherited",
+    "base_sha256": "f942650d71948b419c95605cef81e062336f3835aece8073ac315eee12009b76",
     "frames": 14810,
     "fps": 60,
     "container_seconds": 246.861,
     "new_paid_calls": 0,
     "user_acceptance_claimed": false,
     "provisional_material_trial": true,
-    "bytes": 304907418,
+    "bytes": 302549020,
     "review_published": true,
-    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v3/REVIEW.html"
+    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v4/REVIEW.html"
   },
   "genuine_vr_gameplay_pass_v1": {
     "date": "2026-10-16",
@@ -2915,6 +2915,78 @@
       "both_owned_worker_worktrees_removed": true,
       "shared_game_and_other_agent_inputs_untouched": true,
       "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/editor/protected-media-final.json"
+    },
+    "current": false,
+    "superseded_by": "genuine_vr_gameplay_pass_v4"
+  },
+  "genuine_vr_gameplay_pass_v4": {
+    "date": "2026-10-17",
+    "status": "provisional-material-trial-reviewed-and-published",
+    "user_clarification": "Squad formation is the intended demonstration at3:17; original Cragheart identity is optional.",
+    "base_sha256": "f942650d71948b419c95605cef81e062336f3835aece8073ac315eee12009b76",
+    "private_master": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/vr-gameplay-v4/full-timeline-v1/reference-remake-vr-v13.mp4",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/REVIEW.html",
+    "private_selection": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/editor/selection-final.json",
+    "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/NAECHSTE-AUFNAHMEN.txt",
+    "newly_replaced_inventory_regions": [
+      "FG34"
+    ],
+    "VR_regions": 10,
+    "remaining_original_regions": 31,
+    "new_changed_frames": 60,
+    "outside_frames_against_v12": 14750,
+    "source_file": "2026-10-17 09-44-07.mp4",
+    "source_frame_range_exclusive": [
+      4139,
+      4169
+    ],
+    "target_frame_range_exclusive": [
+      11801,
+      11861
+    ],
+    "source_clock": "1x; source frame4139 follows the previous selection ending4138; ordinary30-to60fps repeat, no held ending/interpolation/time fitting.",
+    "demonstrated_action": "Confirm Scoundrel class and open name form; not completed naming/creation.",
+    "user_acceptance_claimed": false,
+    "original_audio_and_accepted_cinematics_inherited": true,
+    "separate_campaign_intro_unchanged": true,
+    "new_paid_calls": 0,
+    "master_sha256": "ea621fa53396e68b1fce34db382dfcc94cfff58b41157c8d519f73b065f264e2",
+    "bytes": 302549020,
+    "technical_review": {
+      "status": "passed",
+      "decoded_frames": 14810,
+      "outside_frames_against_v12": 14750,
+      "new_component_frames": 60,
+      "fanmark_frames": 14810,
+      "AAC_packets_identical_with_clocks_and_codec_config": 11573,
+      "mae_limit_8bit": 2.0,
+      "outside_max_mae_8bit": 0.8880555555555556,
+      "component_max_mae_8bit": 0.677130574452003,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/qc-independent/technical.json"
+    },
+    "visual_review": {
+      "root_actual_final_Watch_cues": 16,
+      "root_distinct_component_frames": 30,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/qc-root/visual-review.json"
+    },
+    "browser_review": {
+      "status": "passed",
+      "focused_1x_passages": 2,
+      "chapter_navigation_checks": 20,
+      "comparison_switches": 12,
+      "mobile_emulation_not_hardware": true,
+      "unchanged_v12_playback_evidence_inherited": true,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/browser-review/final-review.json",
+      "final_navigation_status": "passed",
+      "final_navigation_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/browser-review/final-navigation.json",
+      "postpublication_HTTP_Range_checks": 50
+    },
+    "cleanup": {
+      "status": "complete",
+      "owned_worker_worktree_removed": true,
+      "all_21_media_authorities_hash_preserved": true,
+      "sources_and_separate_intro_preserved": true,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/editor/protected-media-final.json"
     }
   }
 }

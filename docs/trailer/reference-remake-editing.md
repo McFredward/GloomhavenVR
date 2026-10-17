@@ -3,15 +3,16 @@
 The accepted opening also supplies the first-save campaign intro, with a native-style
 GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
 
-The current VR gameplay pass uses the three October 17 recordings. V12 adds
-six corresponding demonstrations and refreshes the card overview to Spellweaver;
-two previous VR demonstrations remain inherited. Source motion stays at 1x.
-Unmatched actions remain original pending new footage. The native forest and
-gold-wipe transitions are preserved around the new pictures; the review labels
-class, item and mode differences. No new inference or runtime change is used.
-The active private review is `vr-gameplay-v3/REVIEW.html`, with source links and
+The current VR gameplay pass uses the three October 17 recordings. V13 follows
+the maintainer's clarification that squad formation does not require Cragheart:
+the remaining Flat class view now continues the genuine Scoundrel selection
+through class confirmation and opening its name form. The neighboring source
+frames are consecutive at 1x; original shot duration and audio remain. Ten
+inventory regions now contain VR pictures. Missing mechanics elsewhere remain
+original pending suitable footage. No new inference or runtime change is used.
+The active private review is `vr-gameplay-v4/REVIEW.html`, with source links and
 a corrected capture list. Original FG13 is a damage-avoidance burn, not a played
-loss; that previous analysis error is explicitly corrected. See
+loss; that earlier analysis error remains corrected. See
 [vr-gameplay-replacement.md](vr-gameplay-replacement.md).
 
 The historical v10 first pass used 20 inserts covering 25 of 41 inventory regions; 16
