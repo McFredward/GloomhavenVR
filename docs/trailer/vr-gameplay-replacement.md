@@ -1,5 +1,47 @@
 # Genuine VR gameplay replacement
 
+## Squad-formation clarification (v13)
+
+The maintainer clarified on October 17 that this passage demonstrates assembling
+a team; the original Cragheart identity is not required. FG34 at
+`[11801,11861)` therefore uses the next 30 actual source frames after the existing
+Scoundrel selection. The class is confirmed and the name form opens. Neither
+completed naming nor completed mercenary creation is claimed in this excerpt.
+
+Source `2026-10-17 09-44-07.mp4` frames `[4139,4169)` repeat normally at 60fps.
+The preceding selection ends at source frame 4138, so the new second continues
+at exact 1x without a camera cut or held ending. It replaces the remaining Flat
+class view and leaves the original timing and soundtrack intact. The explicit
+class-identity relaxation applies to this squad-formation passage; required
+combat mechanics and outcomes elsewhere still need equivalent actual footage.
+
+Current review and capture requests are `vr-gameplay-v4/REVIEW.html` and
+`vr-gameplay-v4/NAECHSTE-AUFNAHMEN.txt`. The Cragheart-specific request is removed.
+Ten inventory regions now have VR pictures; FG33 and FG34 form one continuous
+Scoundrel shot. The v12 delivery evidence below remains the inherited baseline.
+
+V13 SHA256 is
+`ea621fa53396e68b1fce34db382dfcc94cfff58b41157c8d519f73b065f264e2`.
+The assembler passes all 13 media checks. Independent sequential validation
+passes all 14,810 frames, 14,750 outside-window pictures against v12, all 60
+new component frames, the continuous fan mark and all 11,573 unchanged AAC
+packets including clocks/configuration. Maximum 320-by-180 MAE is 0.8881 outside
+and 0.6772 inside, below the unchanged 2.0 limit. This measures lossy fidelity,
+not pixel identity. Exact 11800/11801 and 11860/11861 boundary witnesses pass.
+Root viewed all 30 distinct component frames, five component Watch cues and
+16 actual-export cues on two sheets. Desktop and mobile emulation each play
+only the changed passage at 1x; 20 chapter navigations and 12 time/play-state
+comparisons pass. Unchanged v12 creative/playback evidence is inherited; no
+new complete game-runtime or hardware gate is claimed. Receipts live in
+`vr-gameplay-v4/qc-independent/` and `vr-gameplay-v4/browser-review/`.
+
+Postpublication desktop/mobile navigation reaches v13, all ten chapters and the
+correct source/caption at 3:17; all 50 HTTP/Range requests pass. The separate
+intro section and link remain byte-identical. The owned worker worktree and
+stopped caches are removed; all 21 protected media hashes match after cleanup.
+No new paid inference was used. See `vr-gameplay-v4/browser-review/final-navigation.json`
+and `vr-gameplay-v4/editor/protected-media-final.json`.
+
 ## October 17 recording pass (v12)
 
 The three new recordings were inspected against actual original pictures and the

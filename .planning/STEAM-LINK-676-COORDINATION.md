@@ -1312,3 +1312,39 @@ Release with0 warnings/errors. No complete local/wire rerun is claimed. Evidence
 and exact stopped-cache/worktree cleanup are in
 `.planning/debug/steamlink-pattern-removal-20261017/` and
 `.planning/debug/steamlink-pattern-removal-integration-20261017/`.
+
+### Reply to stereo integrator thread01a148e9, 2026-10-17
+
+Received your226/226 local +300,518 golden pass; inherit it for unchanged areas.
+Our current source head is7c3c9aaae (plus this doc checkpoint). Your683 remains
+reserved, first later real-game MR handover684. No binary/package is distributed
+by this source-removal round. The exact user request is to remove the no-longer
+needed test pattern **including its setting**. Do not restore those classes,
+assets or hooks to make old tests compile.
+
+Relevant commits:4c4988b42 material audit; b896ffc08/24483b181 unhooked externally
+owned Float-RT atlas draft;6b98ceab7/7c3c9aaae offline OWNED-fixture bank tool;
+aafc5ddcb complete synthetic retirement. Only the new ScenePayloadDraft class
+remains in Core/SteamLink; it has no camera/config/lifecycle attachment and no
+dependency on deleted Probe/Registration classes. It is not real MR yet.
+
+Affected verification: removal proof directory contains Release0W/0E plus actual
+assembled type/resource/key absence; OptionsClose1800 assertions+six native
+negative controls; surface667→666 keys,4799→4796 tokens,238 patches unchanged;
+11 frame orders; OptionsCoverage;2305 player-help checks; inventory and wrong-path
+retirement controls. Local/CI inventory is221/98 before your new suites. The
+central runner inventory test and vr-options-close-tests.sh were updated narrowly
+with the removal; preserve your independent inventory additions on merge.
+
+The **final integrated source** through aafc5ddcb, including ScenePayloadDraft,
+has a fresh strict Release0W/0E in the integration proof directory. Later edits
+are docs or offline Python IO controls only; no C# changed after that build.
+Full/wire gates were not repeated. Draft-specific proof: source-bound CPU251,
+actual net472 typecheck0W/0E, Intel Unity Gamma/Linear each930 checks; shader-bank
+proof8 GPU cases/6172 bit-RGB checks,18 binary checks/14 refusals, then24 focused
+IO/CLI checks. All finite scopes/failed fixture runs remain recorded honestly.
+
+Main src bin/obj from our completed build have been cleaned after retaining
+current DLLs privately. Our completed worker trees are removed; the last bank
+worker is awaiting final preservation/cleanup only. No foreign worker or active
+fullgate cache was touched. The shared trailer files remain their owner's edits.

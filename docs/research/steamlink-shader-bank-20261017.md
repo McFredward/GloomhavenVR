@@ -63,6 +63,25 @@ dependency, serialized external, CAB identity, source program and a repinned
 source whose alpha state is property-controlled instead of the literal profile.
 Mutants use real reparsed/saved copies; temporary mutant banks are removed.
 
+A subsequent offline-tool review found two input/output defects: the former
+extent check followed an unbounded `read_bytes`, and the report writer could
+overwrite a source/output alias or an existing report. The repaired reader
+checks the opened regular file before reading, reads at most 4 MiB+1 in bounded
+chunks, and rejects growth or metadata/extent changes. The CLI requires three
+distinct resolved paths, absent nonsymlink outputs, and exclusively reserves
+the report before deriving any candidate. These are tool defects, not observed
+shader, game or headset failures.
+
+The focused `--io-delta` run passes **24 checks**, including actual CLI refusals
+for source/report and output/report aliases, an existing report, a report
+symlink and oversized input. A causal read control proves no content read for
+an already oversized file; a file grown after the initial `fstat` is refused
+after at most 4 MiB+1 bytes. Rejected CLI calls leave no candidate and preserve
+the original bytes. A successful exclusive-output/report call produces exactly
+the derivative bytes already used in the GPU proof above. Its receipts are
+`io-delta.json` and `io-delta-source-pins.json` in the same private evidence
+root. The shader/GPU suite was not repeated for this bounded I/O-only repair.
+
 An initial setup failure is retained: the empty project package manifest let
 BuildPipeline return success while reporting AssetBundle/AssetBundleManifest
 module disablement and producing shader-only content. This is not a valid
