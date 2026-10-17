@@ -11,7 +11,7 @@ using Object = UnityEngine.Object;
 
 public sealed class ArtworkOwner : MonoBehaviour { public Image headerImage = null!; }
 
-public static class DiagnosticProgram
+public static partial class DiagnosticProgram
 {
     public static int Checks;
     public static string Metrics = "";
@@ -69,6 +69,17 @@ public static class DiagnosticProgram
         RenderTexture.active = sentinel; GL.sRGBWrite = !sentinel.sRGB;
         Shader.EnableKeyword("STEREO_INSTANCING_ON");
         var atlas = Pattern("ordinary-atlas", 3); var expected = atlas.GetPixels32();
+        Check(QuestArtworkRegion.CacheSuffix == "." + QuestTextureCopy.Recipe, "Quest silhouette cache is isolated from old builtin-copy masks");
+        foreach (Rect crop in new[] { new Rect(5, 7, 8, 6), new Rect(2, 16, 11, 7), new Rect(0, 0, 32, 24) })
+        {
+            var alphaRegion = Keep(QuestArtworkRegion.Read(atlas, (int)crop.x, (int)crop.y, (int)crop.width, (int)crop.height));
+            var alpha = alphaRegion.GetPixels32();
+            for (int y = 0; y < (int)crop.height; y++) for (int x = 0; x < (int)crop.width; x++)
+                Check(Math.Abs(alpha[y * (int)crop.width + x].a - expected[((int)crop.y + y) * atlas.width + (int)crop.x + x].a) <= 1,
+                    "silhouette crop preserves exact native alpha");
+        }
+        Check(RenderTexture.active == sentinel && GL.sRGBWrite == !sentinel.sRGB, "silhouette region restores prior target and color state");
+        QualifyPanelCopies();
         int Count(string field) => ((IDictionary)typeof(CardFaceMipBake).GetField(field, BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Count;
         var source = SpriteOf(atlas, new Rect(5, 7, 8, 6));
         Sprite? region = CardFaceMipBake.ReplacementFor(source);
@@ -114,7 +125,9 @@ public static class DiagnosticProgram
         var owner = Keep(new GameObject("actual-artwork-owner")).AddComponent<ArtworkOwner>();
         owner.headerImage = image; image.sprite = changed;
         var artworkRecords = new List<string>();
-        Application.LogCallback observe = (message, trace, type) => { if (message.StartsWith("[Quest startup] artwork", StringComparison.Ordinal)) artworkRecords.Add(message); };
+        Application.LogCallback observe = (message, trace, type) => {
+            if (message.StartsWith("[Quest startup] artwork ", StringComparison.Ordinal)) artworkRecords.Add(message);
+        };
         Application.logMessageReceived += observe;
         try
         {
@@ -124,6 +137,11 @@ public static class DiagnosticProgram
             QuestArtworkEvidence.SpriteField(owner, "headerImage", "desktop");
             Check(artworkRecords.Count == 0, "artwork readback is gated before work on desktop and normal log level");
             QuestStandalonePlatform.Enabled = true;
+            Camera previousCamera = Camera.current;
+            var staleCamera = Keep(new GameObject("last-multipass-camera")).AddComponent<Camera>();
+            staleCamera.enabled = false;
+            Camera.SetupCurrent(staleCamera);
+            RenderTexture.active = sentinel; GL.sRGBWrite = !sentinel.sRGB;
             for (int role = 0; role < 4; role++)
             {
                 image.sprite = changed;
@@ -132,17 +150,20 @@ public static class DiagnosticProgram
                 image.sprite = otherRegion;
                 QuestArtworkEvidence.SpriteField(owner, "headerImage", "bounded-" + role);
             }
+            Check(RenderTexture.active == sentinel && GL.sRGBWrite == !sentinel.sRGB, "bounded artwork samples restore target and color state");
+            Camera.SetupCurrent(previousCamera);
+            RenderTexture.active = sentinel; GL.sRGBWrite = !sentinel.sRGB;
             QuestArtworkEvidence.Raw(raw, "after-limit");
             Check(artworkRecords.Count == 8, "at most two actual artwork generations per role and eight total records");
             foreach (string record in artworkRecords)
             {
-                Check(System.Text.Encoding.UTF8.GetByteCount(record) <= 1000, "complete artwork record fits Android logcat");
-                int firstStart = record.IndexOf(" rgba8=", StringComparison.Ordinal) + 7;
-                int secondStart = record.IndexOf(" outputRgba8=", StringComparison.Ordinal) + 13;
-                Check(firstStart >= 7 && secondStart >= 13 && Convert.FromBase64String(record.Substring(firstStart, 344)).Length == 256
-                    && Convert.FromBase64String(record.Substring(secondStart)).Length == 256, "actual paired8x8 source/effective crops fit one record");
+                Check(System.Text.Encoding.UTF8.GetByteCount(record) <= 1000 && record.Contains("rect=") && record.Contains("rectClip="),
+                    "complete artwork consumer and pixels record fits Android logcat");
+                int firstStart = record.IndexOf(" rgba6=", StringComparison.Ordinal) + 7;
+                int secondStart = record.IndexOf(" outputRgba6=", StringComparison.Ordinal) + 13;
+                Check(firstStart >= 7 && secondStart >= 13 && Convert.FromBase64String(record.Substring(firstStart, 192)).Length == 144
+                    && Convert.FromBase64String(record.Substring(secondStart)).Length == 144, "actual paired6x6 source/effective crops and draw state fit one record");
             }
-            Check(RenderTexture.active == sentinel && GL.sRGBWrite == !sentinel.sRGB, "bounded artwork samples restore target and color state");
         }
         finally { Application.logMessageReceived -= observe; VRLog.WantsDebug = false; }
         var budget = typeof(CardFaceMipBake).GetField("s_bakedVramBytes", BindingFlags.Static | BindingFlags.NonPublic)!;
@@ -163,6 +184,7 @@ public static class DiagnosticProgram
             && Count("s_bakedByTexture") <= metadataLimit, "new null verdicts cannot exceed bounded Quest metadata cache");
         Check(CardFaceMipBake.BakedTextureFor(nextPortrait) == next, "metadata cap retains current prepared results");
         Shader.DisableKeyword("STEREO_INSTANCING_ON"); QuestStandalonePlatform.Enabled = false;
+        Check(QuestArtworkRegion.CacheSuffix == string.Empty, "desktop silhouette cache filename stays unchanged");
         // The desktop path deliberately retains its caller's established color
         // write state; the Quest helper is what isolates the earlier sentinel.
         GL.sRGBWrite = QualitySettings.activeColorSpace == ColorSpace.Linear;

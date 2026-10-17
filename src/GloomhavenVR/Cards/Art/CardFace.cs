@@ -1182,6 +1182,9 @@ internal sealed class CardFace
         int rw = Mathf.Clamp(Mathf.RoundToInt(texRect.width), 1, src.width - rx);
         int rh = Mathf.Clamp(Mathf.RoundToInt(texRect.height), 1, src.height - ry);
 
+        if (QuestStandalonePlatform.Enabled)
+            return QuestArtworkRegion.Read(src, rx, ry, rw, rh);
+
         RenderTexture rt = RenderTexture.GetTemporary(
             src.width, src.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
         RenderTexture prev = RenderTexture.active;

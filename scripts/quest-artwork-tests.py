@@ -35,7 +35,7 @@ def main():
     log.write_text('Quest artwork evidence: ' + str(run) + '\n')
     print(log.read_text(), end='', flush=True)
     sources = {}
-    for relative in ('Cards/Art/CardFaceMipBake.cs', 'Core/QuestTextureCopy.cs', 'Cards/Art/QuestArtworkEvidence.cs'):
+    for relative in ('Cards/Art/CardFaceMipBake.cs', 'Core/QuestTextureCopy.cs', 'Cards/Art/QuestArtworkEvidence.cs', 'Cards/Art/QuestArtworkRegion.cs'):
         path = ROOT / 'src/GloomhavenVR' / relative
         sources[path.name] = path.read_text()
     panel = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelMipBake.cs').read_text()
@@ -44,12 +44,25 @@ namespace GloomhavenVR.WorldUI; internal static class PanelMipBake {
 private static readonly Dictionary<int, Texture> s_rawOriginalByBaked = new(16);
 internal static Texture OriginalFor(Texture texture) => s_rawOriginalByBaked.TryGetValue(texture.GetInstanceID(), out Texture original) && original != null ? original : texture;
 ''' + method(panel, '    internal static bool RefreshRawTexture(') + '\n}\n'
+    capture = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs').read_text()
+    sources['ActualPanelCopies.cs'] = '''using GloomhavenVR.Core; using UnityEngine;
+namespace GloomhavenVR.WorldUI; internal static class ActualPanelCopies {
+internal sealed class Entry { internal RenderTexture? Rt, MipRt; internal int ResolveSizeMismatch, MipCount, MotionResolves, StillResolves; internal bool Moving; }
+private static RenderTexture DisplayTexture(Entry e) => e.MipRt != null ? e.MipRt : e.Rt!;
+private static bool IsMoving(Entry e) => e.Moving;
+private static float AskedMipLodOffset() => -.25f;
+private static void ApplyMipLodOffset(RenderTexture target, float asked) => target.mipMapBias = asked;
+internal static bool Carry(Entry e, RenderTexture? previous) => CarryOverInto(e, previous);
+internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, priming);
+''' + method(capture, '    private static bool CarryOverInto(') + method(capture, '    private static void ResolveAndMip(') + '\n}\n'
     variants = [
         ('production', '', '', '', ''),
         ('label-is-content', 'CardFaceMipBake.cs', 'return QuestStandalonePlatform.Enabled ? $"{label}|instance={tex.GetInstanceID()}|update={tex.updateCount}" : label;', 'return label;', 'same-name atlas regions do not alias unrelated content'),
         ('raw-update-stale', 'RawPortrait.cs', 'if (!QuestStandalonePlatform.Enabled || original is not Texture2D live || live == null) return false;', 'if (QuestStandalonePlatform.Enabled || original is not Texture2D live || live == null) return false;', 'already baked raw portrait refreshes changed original contents'),
         ('raw-source-current-copy', 'RawPortrait.cs', 'source = live;', 'source = displayed;', 'already baked raw portrait refreshes changed original contents'),
         ('sprite-update-stale', 'CardFaceMipBake.cs', '&& update == source.texture.updateCount;', '&& true;', 'same-object source update invalidates preparation without GPU hash'),
+        ('stale-camera-suppresses-evidence', 'QuestArtworkEvidence.cs', '&& _records < 8 &&', '&& Camera.current == null && _records < 8 &&', 'at most two actual artwork generations per role and eight total records'),
+        ('silhouette-crop-lost', 'QuestArtworkRegion.cs', 'new Vector2((float)x / source.width, (float)y / source.height)', 'Vector2.zero', 'silhouette crop preserves exact native alpha'),
     ]
     if args.case:
         variants = [row for row in variants if row[0] in args.case]
@@ -84,12 +97,13 @@ internal static Texture OriginalFor(Texture texture) => s_rawOriginalByBaked.Try
             shutil.copyfile(case['dll'], target); case['dll'] = str(target)
         shutil.copyfile(ROOT / 'scripts/card-diagnostic-runtime/Editor/DiagnosticRunner.cs', project / 'Assets/Editor/DiagnosticRunner.cs')
         shutil.copyfile(ROOT / 'unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader', project / 'Assets/Resources/QuestTextureCopy.shader')
+        shutil.copyfile(ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader', project / 'Assets/Resources/PrimitiveOverlay.shader')
         (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project / 'ProjectSettings/ProjectSettings.asset').write_text('%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n  m_ObjectHideFlags: 0\n  serializedVersion: 23\n  m_ActiveColorSpace: ' + ('1' if args.color_space == 'linear' else '0') + '\n')
         manifest_path = run / 'manifest.json'; manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
         (run / 'source-hashes.json').write_text(json.dumps({'sources': {name: hashlib.sha256(text.encode()).hexdigest() for name, text in sources.items()},
-            'panelSource': hashlib.sha256(panel.encode()).hexdigest(), 'graphics': args.graphics, 'colorSpace': args.color_space,
+            'panelSource': hashlib.sha256(panel.encode()).hexdigest(), 'captureSource': hashlib.sha256(capture.encode()).hexdigest(), 'graphics': args.graphics, 'colorSpace': args.color_space,
             'hardwareVerified': False}, indent=2) + '\n')
         command = [str(unity), '-batchmode', '-force-' + args.graphics, '-projectPath', str(project), '-executeMethod', 'DiagnosticRunner.Start', '-interactionManifest', str(manifest_path), '-logFile', str(run / 'unity.log')]
         if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a'] + command

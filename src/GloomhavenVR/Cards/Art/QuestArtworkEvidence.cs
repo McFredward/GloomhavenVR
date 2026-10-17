@@ -9,8 +9,8 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.Cards;
 
-/// <summary>At most eight Debug records of actual scenario artwork sources/draw crops.
-/// These are texture readbacks, not proof of a final headset shader/camera image. Each
+/// <summary>At most eight Debug observations of actual scenario artwork sources/draw crops.
+/// Texture samples and passive consumer state are not proof of final headset output. Each
 /// role keeps at most two observed generations. No frame watcher or native mutation.</summary>
 internal static class QuestArtworkEvidence
 {
@@ -35,6 +35,7 @@ internal static class QuestArtworkEvidence
             string detail = " role=" + role + " sprite=" + Name(source.name) + " source=" + Label(texture)
                 + " crop=" + Geometry(crop) + " output=" + Label(drawn.texture)
                 + " outputCrop=" + Geometry(outputCrop);
+            detail += DrawState(image);
             Emit(detail, texture, crop, drawn.texture, outputCrop);
         }
         catch (Exception error) { Failed(role, error); }
@@ -54,6 +55,7 @@ internal static class QuestArtworkEvidence
                 Rect crop = image.uvRect;
                 string detail = " role=" + role + " source=" + Label(source) + " uv=" + Geometry(crop)
                     + " output=" + Label(drawn);
+                detail += DrawState(image);
                 Emit(detail, source, PixelRect(source, crop), drawn, PixelRect(drawn, crop));
                 return;
             }
@@ -62,7 +64,29 @@ internal static class QuestArtworkEvidence
     }
 
     private static bool CanObserve(string role) => QuestStandalonePlatform.Enabled && VRLog.WantsDebug
-        && Camera.current == null && _records < 8 && (!Seen.TryGetValue(role, out HashSet<int> seen) || seen.Count < 2);
+        && _records < 8 && (!Seen.TryGetValue(role, out HashSet<int> seen) || seen.Count < 2);
+
+    // These three consumers call from Update/LateUpdate. Camera.current is not a
+    // phase marker on MultiPass: Unity may leave the last rendered camera there
+    // between frames (the same B23 finding retained in WorldUIModule). Requiring
+    // null can suppress all observations despite these known lifecycle callers;
+    // B678's capture contains no artwork records, so it cannot expose that state.
+    private static string DrawState(Graphic image)
+    {
+        CanvasRenderer renderer = image.canvasRenderer;
+        Material? material = renderer.materialCount > 0 ? renderer.GetMaterial(0) : null;
+        string shader = material != null && material.shader != null ? Name(material.shader.name) : "none";
+        Color tint = renderer.GetColor();
+        string detail = " graphic=" + Name(image.name) + " shader=" + shader
+            + " rect=" + Geometry(image.rectTransform.rect) + " rectClip=" + renderer.hasRectClipping
+            + " cull=" + renderer.cull + " tint=" + tint.r.ToString("F2", CultureInfo.InvariantCulture)
+            + "," + tint.g.ToString("F2", CultureInfo.InvariantCulture) + "," + tint.b.ToString("F2", CultureInfo.InvariantCulture)
+            + "," + tint.a.ToString("F2", CultureInfo.InvariantCulture);
+        if (image is Image sprite) detail += " type=" + sprite.type + " aspect=" + sprite.preserveAspect
+            + " mesh=" + sprite.useSpriteMesh + " fill=" + sprite.fillAmount.ToString("F2", CultureInfo.InvariantCulture);
+        if (material != null && material.HasProperty("_ClipRect")) detail += " shaderClip=" + material.GetVector("_ClipRect");
+        return detail;
+    }
 
     private static bool Admit(string role, int identity)
     {
@@ -85,18 +109,19 @@ internal static class QuestArtworkEvidence
 
     private static void Emit(string detail, Texture source, Rect crop, Texture output, Rect outputCrop)
     {
-        // Two 8x8 RGBA crops (344 base64 characters each) fit one Android logcat
-        // record with bounded identity/geometry metadata. No full texture readback.
+        // Two 6x6 RGBA crops (192 base64 characters each) leave room for the actual
+        // consumer's clipping/material state within one Android logcat record.
+        // Still at most eight records in the protected startup share, not sixteen.
         string first = Sample(source, crop);
         string second = Sample(output, outputCrop);
-        string message = "[Quest startup] artwork" + detail + " rgba8=" + first + " outputRgba8=" + second;
+        string message = "[Quest startup] artwork" + detail + " rgba6=" + first + " outputRgba6=" + second;
         if (Encoding.UTF8.GetByteCount(message) <= 1000) Debug.Log(message);
         else Debug.Log("[Quest startup] artwork" + detail + " samples=omitted-record-limit");
     }
 
     private static string Sample(Texture texture, Rect pixels)
     {
-        RenderTexture target = RenderTexture.GetTemporary(8, 8, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+        RenderTexture target = RenderTexture.GetTemporary(6, 6, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
         RenderTexture prior = RenderTexture.active;
         Texture2D? readback = null;
         try
@@ -104,8 +129,8 @@ internal static class QuestArtworkEvidence
             QuestTextureCopy.Copy(texture, target, new Vector2(pixels.width / texture.width, pixels.height / texture.height),
                 new Vector2(pixels.x / texture.width, pixels.y / texture.height));
             RenderTexture.active = target;
-            readback = new Texture2D(8, 8, TextureFormat.RGBA32, false, false);
-            readback.ReadPixels(new Rect(0, 0, 8, 8), 0, 0);
+            readback = new Texture2D(6, 6, TextureFormat.RGBA32, false, false);
+            readback.ReadPixels(new Rect(0, 0, 6, 6), 0, 0);
             Color32[] values = readback.GetPixels32();
             var bytes = new byte[values.Length * 4];
             for (int i = 0; i < values.Length; i++)
