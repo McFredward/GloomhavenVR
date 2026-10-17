@@ -1,5 +1,20 @@
 # Steam Link availability repair coordination, 2026-10-17
 
+## Next bounded693 handover: observed Frame Link identity; stereo694+
+
+Fresh691/de978 hardware now completes extraction, child startup and public HMD
+query. Its exact decoded identity is tracking=cv, model=Deckard MP, registered
+empty; only Classify rejects it as WrongHeadset. Admit this empirically confirmed
+exact legacy Frame/Link profile, never generic cv or arbitrary model aliases.
+Keep canonical Steam Frame/vrlink behavior and reject contradictory nonempty
+registered transports. No more path/native/helper/receiver changes are involved.
+
+The independent stereo work currently reserves692 locally. This bounded fix
+therefore takes693 on published691, then merges into shared local dev. The full
+stereo handover advances to694 or later. Keep its unfinished catalogue unpublished.
+Owned paths: SteamLinkConnection.cs, focused connection tests/artifact probe and
+the scoped693 version/state notes. No movie, installer or Frame action.
+
 ## Produced-artifact repair published:691, stereo handover692 or later
 
 Published origin/dev is de9782add/691, merged into shared dev with both the691
