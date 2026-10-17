@@ -612,7 +612,26 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 675;
+    public const ushort ModBuild = 676;
+
+    // ModBuild676 — Quest mesh output with retained eye allocation and capture data.
+    // Capture071329 confirms B675 resolves tracked-picture distortion. Retain
+    // its stopped-display .8 allocation and full viewport without modification.
+    // The menu is now reported black, although actual background/UI/consumer
+    // readbacks contain pixels, and the pointer still produces large blue facets
+    // with neutral native Sprite inputs. Neither is a proven tracking defect.
+    // Use the existing owned mesh shader for Quest MultiPass screen surfaces
+    // and pointer draws, preserving per-eye texture routing, alpha, depth/order
+    // and desktop behavior. Premultiply pointer inputs in their actual material
+    // and vertex color spaces; preserve opaque-screen alpha with the same-quad
+    // black underlay rather than assuming every source texel is opaque.
+    // This avoids the suspect native draw paths; it does not prove their exact
+    // historical GPU failure. No shader assets or game content are changed.
+    // Reserve settled-menu pixels/consumer/draw evidence independently within
+    // the existing256KiB/512record sink. Earlier Intro/provider floods must not
+    // leave the only useful menu proof in Android's evictable logcat ring.
+    // Focused native GPU/compile/update evidence is in the B676 receipt; final
+    // headset menu, pointer and MR outcomes still require hardware verification.
 
     // ModBuild675 — full Quest eye viewports and explicit native pointer inputs.
     // Capture063423/video confirms B674 still clips the tracked picture and

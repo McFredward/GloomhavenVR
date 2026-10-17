@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest mesh output after confirmed viewport repair, 2026-10-17: feature / B676.**
+
+Capture071329 confirms B675 fixes the tracked-picture distortion. Keep that XR
+allocation/full-viewport change. The user now sees a black menu and still sees
+large blue pointer-hit facets; settled-menu readbacks nevertheless contain real
+UI/background/consumer pixels, and actual pointer inputs are neutral. Use the
+existing owned mesh shader for Quest MultiPass screen/pointer output with
+explicit alpha/depth/color-space parity; no shader bank or game reconversion.
+Protect final-menu evidence from earlier diagnostic saturation. Source/GPU
+checks cannot establish the headset result. See
+[QUEST-RENDER-071329-20261017.md](QUEST-RENDER-071329-20261017.md).
+
 **Quest full eye viewport and native pointer inputs, 2026-10-17: feature / B675.**
 
 Capture063423 and the supplied video confirm B674 still clips/distorts the
