@@ -84,7 +84,7 @@ def main():
         + "public void Apply(Renderer renderer, bool quest) { Core.QuestStandalonePlatform.Enabled=quest; ApplyQuestPointerRendererDefaults(renderer); }\n"
         + "public Color VertexColor(Material material, Color color, bool quest) { Core.QuestStandalonePlatform.Enabled=quest; return BeamVertexColor(material, color); }\n"
         + factory + "} }\n"
-        + "namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { internal static bool Enabled; } internal static class VRLog { internal static bool WantsDebug=true; } }\n"
+        + "namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { internal static bool Enabled; } internal enum VRLogLevel { Debug } internal static class VRLog { internal static bool WantsDebug=true; internal static bool Wants(VRLogLevel level) => WantsDebug; } }\n"
         # The actual game has a global conditional Debug facade. Keep that name
         # present so a Debug alias cannot silently compile only in this fixture.
         + "public static class Debug { [System.Diagnostics.Conditional(\"ENABLE_LOGS\")] public static void Log(object value) => throw new System.Exception(\"Original Debug facade was called\"); [System.Diagnostics.Conditional(\"ENABLE_LOGS\")] public static void LogException(System.Exception value) => throw new System.Exception(\"Original Debug facade was called\"); }\n"
@@ -106,6 +106,16 @@ def main():
         evidence_source = evidence_source.replace(before, after)
     (editor / "QuestPointerEvidence.cs").write_text("#nullable enable\n" + evidence_source.replace(
         "namespace GloomhavenVR.Hands.Interact;", "namespace GloomhavenVR.Hands.Interact {") + "\n}\n")
+    copy_source = (ROOT / "src/GloomhavenVR/Core/QuestTextureCopy.cs").read_text()
+    (editor / "QuestTextureCopy.cs").write_text("#nullable enable\n" + copy_source.replace(
+        "namespace GloomhavenVR.Core;", "namespace GloomhavenVR.Core {") + "\n}\n")
+    primitive_source = (ROOT / "src/GloomhavenVR/Core/QuestPrimitiveMesh.cs").read_text()
+    (editor / "QuestPrimitiveMesh.cs").write_text("#nullable enable\n" + primitive_source.replace(
+        "namespace GloomhavenVR.Core;", "namespace GloomhavenVR.Core {") + "\n}\n")
+    resources = project / "Assets/Resources"
+    resources.mkdir()
+    copy_shader = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader"
+    shutil.copyfile(copy_shader, resources / "QuestTextureCopy.shader")
     shader_source = ROOT / "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader"
     shutil.copyfile(shader_source, project / "Assets/PointerOverlay.shader")
     shutil.copyfile(ROOT / "tests/QuestPointerRender.Tests/Probe.cs", editor / "Probe.cs")
@@ -136,9 +146,12 @@ def main():
         if code:
             raise RuntimeError("Native pointer fixture failed: " + str(run / "unity.log"))
         report = json.loads((project / "ProbeOutput/results.json").read_text())
-        assert len(report["cases"]) == 16
+        assert len(report["cases"]) == 20
         (run / "source-hashes.json").write_text(json.dumps({"productionFactory": hashlib.sha256(factory.encode()).hexdigest(),
             "pointerEvidence": hashlib.sha256(evidence_source.encode()).hexdigest(),
+            "textureCopy": hashlib.sha256(copy_source.encode()).hexdigest(),
+            "primitiveMesh": hashlib.sha256(primitive_source.encode()).hexdigest(),
+            "textureCopyShader": hashlib.sha256(copy_shader.read_bytes()).hexdigest(),
             "probe": hashlib.sha256((ROOT / "tests/QuestPointerRender.Tests/Probe.cs").read_bytes()).hexdigest(),
             "ownedShader": hashlib.sha256(shader_source.read_bytes()).hexdigest(),
             "graphics": graphics, "colorSpace": color_space, "hardwareVerified": False}, indent=2) + "\n")

@@ -71,6 +71,22 @@ internal static class QuestPointerEvidence
                 if (texture != null) text.Append('/').Append(texture.width).Append('x').Append(texture.height);
                 text.Append(" tintA=").Append(material != null && material.HasProperty("_Color")
                     ? material.color.a.ToString("F2", CultureInfo.InvariantCulture) : "none");
+                // Intro's six hit-change samples can finish before the missing
+                // marker is encountered in the menu. Enabled/layer/bounds alone
+                // do not establish a draw: retain the actual consumer's masking,
+                // ordinary head-frustum/clip and material depth policy in these
+                // same two bounded records. This never changes that policy or
+                // claims that a CPU frustum result proves stereo GPU pixels.
+                text.Append(" masked=").Append(renderer.forceRenderingOff)
+                    .Append(" headFrustum=").Append(GeometryUtility.TestPlanesAABB(
+                        GeometryUtility.CalculateFrustumPlanes(head), renderer.bounds))
+                    .Append(" clip=").Append(head.nearClipPlane.ToString("G3", CultureInfo.InvariantCulture))
+                    .Append('/').Append(head.farClipPlane.ToString("G3", CultureInfo.InvariantCulture));
+                if (material != null)
+                    text.Append(" shader=").Append(Name(material.shader != null ? material.shader.name : "none", 28))
+                        .Append(" queue=").Append(material.renderQueue)
+                        .Append(" zTest=").Append(material.HasProperty("_ZTest")
+                            ? material.GetFloat("_ZTest").ToString("G3", CultureInfo.InvariantCulture) : "fixed");
             }
         }
         LineRenderer[] lines = Resources.FindObjectsOfTypeAll<LineRenderer>();
@@ -104,10 +120,10 @@ internal static class QuestPointerEvidence
     private static string Point(Vector3 value) => string.Format(CultureInfo.InvariantCulture,
         "{0:F2},{1:F2},{2:F2}", value.x, value.y, value.z);
 
-    private static string Name(string value)
+    private static string Name(string value, int limit = 12)
     {
-        var text = new StringBuilder(12);
-        for (int index = 0; index < Math.Min(value.Length, 12); index++)
+        var text = new StringBuilder(limit);
+        for (int index = 0; index < Math.Min(value.Length, limit); index++)
         {
             char c = value[index];
             text.Append(c >= 33 && c <= 126 ? c : '_');

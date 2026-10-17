@@ -59,6 +59,7 @@ public static class QuestPointerRenderProbe
         var factory = new GloomhavenVR.Hands.Interact.PointerProductionMaterialFactory();
         var sprite = factory.Build(false);
         var owned = factory.Build(true);
+        var productionSphere = GloomhavenVR.Core.QuestPrimitiveMesh.Rebuild(native, "pointer-fixture");
         var occluder = GameObject.CreatePrimitive(PrimitiveType.Cube);
         occluder.transform.position = new Vector3(.1f, .08f, 1);
         occluder.transform.localScale = Vector3.one * .15f;
@@ -209,6 +210,22 @@ public static class QuestPointerRenderProbe
             var afterObservation = Capture("marker-after-passive-pointer-observation", explicitSphere, owned, quest: true);
             SameRgba(afterObservation, beforeObservation,
                 "Pointer observation must preserve every rendered marker RGBA pixel");
+            // B682's same persistent marker is visible in Intro and missing in
+            // later consumers. Exercise the actual ordinary-copy helper and a
+            // separately owned retained camera-copy material between complete
+            // consumer draws. These native GPU pixels qualify the submitted
+            // repair's interaction; they do not reproduce Android XR state.
+            Require(productionSphere != null, "Actual Quest pointer primitive upload must retain the original sphere geometry");
+            var markerBeforeCopies = Capture("marker-before-native-2d-copies", productionSphere, owned, quest: true);
+            SameRgba(markerBeforeCopies, quest, "Actual Quest primitive upload must retain the original marker pixels");
+            CopyInterference(owned, Require);
+            SameRgba(Capture("marker-after-native-2d-copies", productionSphere, owned, quest: true), markerBeforeCopies,
+                "Actual texture copies must preserve every marker RGBA pixel");
+            renderer.enabled = false; line.gameObject.SetActive(true);
+            var lineBeforeCopies = Capture("line-before-native-2d-copies", native, owned, "line", quest: true);
+            CopyInterference(owned, Require);
+            SameRgba(Capture("line-after-native-2d-copies", native, owned, "line", quest: true), lineBeforeCopies,
+                "Actual texture copies must preserve every LineRenderer RGBA pixel");
             File.WriteAllText(Path.Combine(output, "results.json"), JsonUtility.ToJson(report, true) + "\n");
             UnityEngine.Debug.Log("PASS native pointer GPU characterization: " + report.cases.Count + " cases, " + report.assertions + " assertions");
             EditorApplication.Exit(0);
@@ -217,6 +234,7 @@ public static class QuestPointerRenderProbe
         finally
         {
             Object.DestroyImmediate(sprite); Object.DestroyImmediate(owned); Object.DestroyImmediate(explicitSphere);
+            Object.DestroyImmediate(productionSphere);
             Object.DestroyImmediate(occluder); Object.DestroyImmediate(occluderMaterial); Object.DestroyImmediate(line.gameObject);
             Object.DestroyImmediate(sphere); Object.DestroyImmediate(camera.gameObject);
             target.Release(); Object.DestroyImmediate(target);
@@ -245,6 +263,7 @@ public static class QuestPointerRenderProbe
         var beforeMarkerPosition = marker.position;
         var beforeMarkerScale = marker.localScale;
         var beforeMarkerActive = marker.gameObject.activeSelf;
+        bool beforeMarkerMasked = markerRenderer.forceRenderingOff;
         int beforeMeshes = Resources.FindObjectsOfTypeAll<Mesh>().Length;
         try
         {
@@ -261,18 +280,23 @@ public static class QuestPointerRenderProbe
             Require(messages.Count == 0, "Pointer observation must stay idle outside Quest Debug real hit context");
             GloomhavenVR.Hands.Interact.QuestPointerEvidence.Observe(line, marker, camera, true, false, false, true);
             Require(messages.Count == 0, "Pointer observation must stay idle outside Quest Debug real hit context");
+            markerRenderer.forceRenderingOff = true;
             for (int index = 0; index < 12; index++)
                 GloomhavenVR.Hands.Interact.QuestPointerEvidence.Observe(line, marker, camera, true, false, true, true);
-            Require(messages.Count == 1 && messages[0].Contains("context=menu"), "Pointer evidence must retain two contexts across repeated hits and objects");
+            Require(messages.Count == 1 && messages[0].Contains("context=menu") && messages[0].Contains("masked=True")
+                && markerRenderer.forceRenderingOff, "Pointer evidence must retain two contexts across repeated hits and objects");
+            markerRenderer.forceRenderingOff = false;
             for (int index = 0; index < 12; index++)
                 GloomhavenVR.Hands.Interact.QuestPointerEvidence.Observe(line, marker, camera, true, true, false, true);
             Require(messages.Count == 2 && messages[1].Contains("context=scenario"), "Pointer evidence must retain two contexts across repeated hits and objects");
             Require(!GloomhavenVR.Hands.Interact.QuestPointerEvidence.NeedsObservation, "Completed pointer observations never request another scene lookup");
             foreach (string message in messages)
                 Require(System.Text.Encoding.UTF8.GetByteCount(message) <= 500 && message.Contains("points=2")
-                    && message.Contains("activeLines=2") && message.Contains("peers= second-point")
+                    && message.Contains("activeLines=2")
                     && message.Contains("baked=not-requested bounds=") && message.Contains("primary=True")
-                    && message.Contains("drawnLayer=True") && message.Contains("tintA=0.35"),
+                    && message.Contains("drawnLayer=True") && message.Contains("tintA=0.35")
+                    && message.Contains("headFrustum=True") && message.Contains("clip=0.01/10")
+                    && message.Contains("shader=GloomhavenVR/Overlay queue=4600 zTest=4"),
                     "Pointer evidence must contain actual duplicate/native geometry within 500 bytes: " + message);
             Require(line.GetPosition(0) == beforeStart, "Pointer evidence must preserve start");
             Require(line.GetPosition(1) == beforeEnd, "Pointer evidence must preserve end");
@@ -290,8 +314,64 @@ public static class QuestPointerRenderProbe
         finally
         {
             Application.logMessageReceived -= capture;
+            markerRenderer.forceRenderingOff = beforeMarkerMasked;
             line.gameObject.SetActive(beforeLineActive);
             Object.DestroyImmediate(peer.gameObject);
+        }
+    }
+
+    static void CopyInterference(Material pointer, Action<bool, string> require)
+    {
+        Texture originalPointerTexture = pointer.mainTexture;
+        var source = new Texture2D(32, 32, TextureFormat.RGBA32, false, true) { filterMode = FilterMode.Point };
+        var destination = new RenderTexture(32, 32, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        var image = new Texture2D(32, 32, TextureFormat.RGBA32, false, true);
+        var retained = GloomhavenVR.Core.QuestTextureCopy.CreateMaterial();
+        var commands = new CommandBuffer { name = "retained camera-copy interference fixture" };
+        RenderTexture previous = RenderTexture.active;
+        try
+        {
+            require(destination.Create(), "The ordinary copy interference target must exist");
+            var pixels = new Color32[32 * 32];
+            for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++)
+                pixels[y * 32 + x] = new Color32((byte)(x * 8), (byte)(y * 8), 190, 255);
+            source.SetPixels32(pixels); source.Apply(false, false);
+            Color32[] Read()
+            {
+                RenderTexture.active = destination;
+                image.ReadPixels(new Rect(0, 0, 32, 32), 0, 0); image.Apply(false, false);
+                return image.GetPixels32();
+            }
+            GloomhavenVR.Core.QuestStandalonePlatform.Enabled = true;
+            GloomhavenVR.Core.QuestTextureCopy.Copy(source, destination);
+            Color32[] identity = Read();
+            // Each call changes the private helper's crop. A retained camera
+            // copy owns an independent material and must keep its identity crop.
+            for (int index = 0; index < 12; index++)
+            {
+                RenderTexture.active = destination;
+                bool srgb = GL.sRGBWrite;
+                GloomhavenVR.Core.QuestTextureCopy.Copy(source, destination,
+                    new Vector2(.25f + (index % 3) * .125f, .5f), new Vector2(.1f, .25f));
+                require(RenderTexture.active == destination && GL.sRGBWrite == srgb,
+                    "Actual copies preserve caller render target and sRGB state");
+                commands.Clear();
+                commands.Blit(source, destination, retained, 0);
+                Graphics.ExecuteCommandBuffer(commands);
+                Color32[] actual = Read();
+                for (int pixel = 0; pixel < actual.Length; pixel++)
+                    require(actual[pixel].Equals(identity[pixel]),
+                        "Retained copy material must retain its exact independent source crop");
+                require(pointer.mainTexture == originalPointerTexture && pointer.color.a == .35f
+                    && pointer.GetFloat("_ZTest") == (float)CompareFunction.LessEqual,
+                    "Ordinary copies must preserve pointer texture, alpha and depth policy");
+            }
+        }
+        finally
+        {
+            commands.Release(); RenderTexture.active = previous;
+            Object.DestroyImmediate(retained); Object.DestroyImmediate(source); Object.DestroyImmediate(image);
+            destination.Release(); Object.DestroyImmediate(destination);
         }
     }
 
