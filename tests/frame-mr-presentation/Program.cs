@@ -88,6 +88,39 @@ public static class FrameMrPresentationProgram
             Check(MixedReality.BackingsWanted, "existing PC backings remain enabled");
             MixedReality.RestoreAll();
 
+            // Production Tick and the real source owner execute with settings
+            // open. Source preparation/XR stay named boundaries, not a pixel proof.
+            head.enabled = true;
+            GloomhavenVR.WorldUI.VROptionsTab.IsOpen = true;
+            MixedReality.SteamLinkNative.Value = true;
+            MixedReality.Tick();
+            Check(GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active,
+                "open settings applies native streaming immediately");
+            var offered = GloomhavenVR.Core.SteamLink.SceneHeadOutput.Last!;
+            Check(offered.IsOwned, "open settings retains live source ownership");
+            Check(head.backgroundColor == Color.clear && !head.allowHDR && !sky.enabled,
+                "open settings uses transparent native-stream background");
+            Check(MixedReality.BackingsWanted, "live settings retain MR readability backings");
+            GloomhavenVR.WorldUI.VROptionsTab.IsOpen = false; MixedReality.Tick();
+            GloomhavenVR.WorldUI.VROptionsTab.IsOpen = true; MixedReality.Tick();
+            Check(ReferenceEquals(offered, GloomhavenVR.Core.SteamLink.SceneHeadOutput.Last)
+                && offered.IsOwned, "opening settings does not recreate or close the source");
+            MixedReality.SteamLinkNative.Value = false; MixedReality.Tick();
+            Check(!offered.Ready && !GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active,
+                "native toggle off in open settings releases source immediately");
+            Check(head.backgroundColor == Color.green && head.allowHDR,
+                "native toggle off in open settings restores opaque chromakey and HDR");
+            MixedReality.SteamLinkNative.Value = true; MixedReality.Tick();
+            Check(GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active,
+                "native toggle on retries immediately without closing settings");
+            MixedReality.Enabled.Value = false; MixedReality.Tick();
+            Check(!GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active
+                && head.backgroundColor == original && head.allowHDR && sky.enabled,
+                "master MR off in open settings restores ordinary presentation immediately");
+            MixedReality.SteamLinkNative.Value = false;
+            MixedReality.Enabled.Value = true;
+            GloomhavenVR.WorldUI.VROptionsTab.IsOpen = false;
+
             FrameNativePassthrough.Required = true; FrameNativePassthrough.Ready = true;
             MixedReality.Tick(); VRSession.IsRunning = false; MixedReality.Tick();
             Check(head.backgroundColor == original && head.allowHDR && sky.enabled, "XR stop restores active presentation");

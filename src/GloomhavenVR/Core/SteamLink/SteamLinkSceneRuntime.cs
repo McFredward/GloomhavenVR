@@ -1,5 +1,4 @@
 using System;
-using GloomhavenVR.WorldUI;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.XR;
@@ -24,7 +23,7 @@ internal static class SteamLinkSceneRuntime
 
     internal static bool TryEnter(Camera? head)
     {
-        if (head == null || !head.isActiveAndEnabled || !VRSession.IsRunning || VROptionsTab.IsOpen)
+        if (head == null || !head.isActiveAndEnabled || !VRSession.IsRunning)
         {
             Exit();
             return false;
@@ -117,8 +116,7 @@ internal static class SteamLinkSceneRuntime
 
     internal static bool Owns(SceneHeadOutput output, Camera head, ulong epoch) =>
         ReferenceEquals(_output, output) && epoch == _epoch && VRSession.IsRunning
-        && VRCameraPolicy.AllowedHead == head && Requested && MixedReality.Enabled.Value
-        && !VROptionsTab.IsOpen;
+        && VRCameraPolicy.AllowedHead == head && Requested && MixedReality.Enabled.Value;
 }
 
 // Unity invokes this only on the camera it is attached to. Unknown eyes and

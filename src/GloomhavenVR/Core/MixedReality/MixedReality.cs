@@ -471,7 +471,8 @@ internal static partial class MixedReality
             "Experimental native passthrough while streaming to Steam Frame over Steam Link. " +
             "Requires the matching GloomhavenVR Frame receiver to be installed and enabled first. " +
             "Streams the real game image with separate opacity instead of replacing a colour. " +
-            "Opening VR Options restores the ordinary image; no automatic timer is used. " +
+            "Changes apply immediately, including while VR Options is open. " +
+            "Disable this choice or mixed reality to stop it; no automatic timer is used. " +
             "Currently requires MultiPass stereo, SDR and Gamma colour space. " +
             "Does not change Steam Frame standalone passthrough or the Steam PC sender.");
         KeyColor = _file.Bind("MixedReality", "KeyColor", Defaults.KeyColor,
@@ -620,7 +621,11 @@ internal static partial class MixedReality
         bool native = FrameNativePassthrough.Required;
         bool stream = SteamLink.SteamLinkSceneRuntime.Requested;
         bool streamReady = false;
-        if (!native && stream && requested && !WorldUI.VROptionsTab.IsOpen)
+        // The retired full-screen test pattern paused while settings were open.
+        // Real-image MR must retain the settings in its scene and switch live:
+        // otherwise enabling it only restores a black ordinary menu background,
+        // with neither a source-prepared receipt nor any packed eye produced.
+        if (!native && stream && requested)
         {
             Camera? streamHead = VRCameraPolicy.AllowedHead;
             if (streamHead != null)

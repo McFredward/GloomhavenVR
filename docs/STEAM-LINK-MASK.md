@@ -1,12 +1,13 @@
 # Steam Link mixed-reality development
 
-## Real-image source, Build684
+## Real-image source, Build686
 
-`VR Options → Environment → Mixed Reality` now offers **Steam Link native
+`VR Options → World → Scenery` now offers **Steam Link native
 passthrough**, default off. This is the real-image producer, not the retired
 test pattern. It requires the separately prepared matching Frame receiver;
-turning it on without that receiver displays an encoded image. Opening VR
-Options temporarily restores ordinary rendering. Disabling the master MR
+turning it on without that receiver displays an encoded image. Choose the
+Mixed Reality environment, then enable native streaming. Both switches apply
+immediately; opening VR Options does not pause the real-image source. Disabling the master MR
 switch restores the chosen environment; disabling only native streaming returns
 to the existing chroma-key backend. There is no automatic timeout.
 
@@ -21,7 +22,7 @@ Emission at coverage zero is preserved. No CPU pixel readback or second scene
 camera is introduced.
 
 The initial profile is Gamma SDR UNorm/MultiPass. Wrong formats, lost ownership,
-unknown eyes, menu entry and shutdown retain ordinary output and release owned
+unknown eyes and shutdown retain ordinary output and release owned
 commands/materials. The current profile is still experimental: all native VFX,
 refraction, late explicit command-buffer draws and intermediate UI-alpha semantics
 are not certified by the owned shader tests. Actual XR callback order, codec

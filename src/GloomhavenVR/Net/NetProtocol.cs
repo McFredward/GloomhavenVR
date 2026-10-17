@@ -612,7 +612,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 685;
+    public const ushort ModBuild = 686;
+
+    // ModBuild686 — live native Steam Link MR settings in the World category.
+    // The685 trial kept the game visible but changed the expected camera area
+    // from green to black. Both supplied logs show legacy chromakey activation
+    // and no real-scene source/eye receipt. Three options-open gates inherited
+    // the retired full-screen pattern's pause policy: changing the native switch
+    // inside its own menu could not prepare or retain the real-image source.
+    // The maintainer explicitly requests immediate switching, including while
+    // settings are open. Remove those three gates; retain explicit off, head,
+    // session, epoch, format and failure ownership. Settings remain part of the
+    // real scene. Move native streaming/key colour beside the World scenery
+    // chooser, whose existing MR tile owns the master; remove the duplicate
+    // Graphics block and classify MR as Environment in Advanced as well.
+    // No atlas/shader/receiver/sender, native standalone, default, timer, gameplay
+    // or wire change. Focused source-owner/camera lifecycle and causal controls
+    // do not establish correct streamed alpha/codec/headset presentation.
 
     // ModBuild685 — stereo calibration is a repeatable Advanced-menu action.
     // Both supplied683 logs recognized the old argv but reported its separate SBS
