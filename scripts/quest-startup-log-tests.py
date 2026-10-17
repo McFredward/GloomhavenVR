@@ -34,6 +34,7 @@ def main():
         ("menu-spends-general-detail-reserve", "logger", "if (IsMenuPresentationDetail(message))", "if (IsMenuPresentationDetail(message) && message.Length < 0)", 1, "menu-partition"),
         ("primitive-spends-general-detail-reserve", "logger", '\n                || message.StartsWith("[Quest startup] presentation primitive-upload ", StringComparison.Ordinal)', "", 1, "menu-partition"),
         ("consumer-spends-general-detail-reserve", "logger", '\n                || message.StartsWith("[Quest startup] presentation menu-consumer-draw ", StringComparison.Ordinal)', "", 1, "menu-partition"),
+        ("tutorial-spends-filled-detail-reserve", "logger", 'return message.StartsWith("[Quest startup] original movie state ", StringComparison.Ordinal)', 'return message.StartsWith("[Quest startup] scenario ", StringComparison.Ordinal) || message.StartsWith("[Quest startup] original movie state ", StringComparison.Ordinal)', 1, "tutorial-reserve"),
         ("early-spikes-only", "frames", "int index = Snapshot.spikeCursor;", "if (Snapshot.spikeCount == Snapshot.spikeTimes.Length) return null; int index = Snapshot.spikeCursor;", 1, "frame-window"),
     )
     for name, kind, before, after, count, expected in mutations:

@@ -213,6 +213,38 @@ internal static class Program
         Check(new FileInfo(path).Length == size,
             "menu-record-bound: capped menu evidence kept growing");
 
+        // B677's capture contains 65 reserved startup records before tutorial
+        // loading, while ordinary Debug and movie/provider shares are full.
+        // Keep the next bounded scenario/artwork/resolution observations in the
+        // existing startup share, without expanding any byte/record ceiling.
+        path = Path.Combine(root, "tutorial-after-startup.log");
+        var tutorial = new QuestGameStartupLog(path, "B677 tutorial capture replay");
+        for (int i = 0; i < 65; i++)
+            tutorial.Append("[Quest startup] original phase boot=" + i + " " + new string('b', 125));
+        for (int i = 0; i < 1000; i++)
+        {
+            tutorial.Append("[GloomhavenVR] initialization " + i + new string('d', 900));
+            tutorial.Append("[Quest startup] presentation camera " + i + new string('d', 900));
+            tutorial.Append("[Quest startup] presentation provider " + i + new string('d', 900));
+            tutorial.Append("[Quest startup] presentation menu-draw " + i + new string('d', 900));
+        }
+        foreach (string kind in new[] { "scenario", "artwork", "resolution" })
+            for (int i = 0; i < (kind == "resolution" ? 2 : 8); i++)
+            {
+                string observation = "[Quest startup] " + kind + " tutorial=" + i + " " + new string('e', 850);
+                tutorial.Append(observation); tutorial.Append(observation);
+            }
+        text = File.ReadAllText(path);
+        Check(Count(text, "[Quest startup] scenario tutorial=") == 8
+            && Count(text, "[Quest startup] artwork tutorial=") == 8
+            && Count(text, "[Quest startup] resolution tutorial=") == 2,
+            "tutorial-reserve: startup saturation swallowed or duplicated bounded gameplay evidence");
+        Check(LogCounter(tutorial, "startupRecords") == 83
+            && LogCounter(tutorial, "startupBytes") <= 32 * 1024,
+            "tutorial-partition: gameplay evidence left its bounded startup share");
+        Check(new FileInfo(path).Length <= QuestGameStartupLog.MaxBytes,
+            "tutorial-byte-bound: retained gameplay evidence expanded the global budget");
+
         // Exercise all six independent lanes at their record ceiling, then
         // repeat with multi-byte payloads to exercise each byte ceiling instead.
         foreach (bool longMessages in new[] { false, true })
