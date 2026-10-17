@@ -63,7 +63,8 @@ internal sealed partial class VRRigDriver
             + " scenarioMask=" + (native != null ? native.cullingMask.ToString("X8") : "none")
             + " path=" + head.actualRenderingPath + " depth=" + head.depthTextureMode
             + " clips=" + Number(head.nearClipPlane) + "," + Number(head.farClipPlane)
-            + " head=" + Vector(head.transform.position) + " loading=" + (loading != null && (loading.IsLoading || loading.ScenarioIsLoading))
+            + " head=" + Vector(head.transform.position) + " headForward=" + Vector(head.transform.forward)
+            + " loading=" + (loading != null && (loading.IsLoading || loading.ScenarioIsLoading))
             + " ambient=" + RenderSettings.ambientMode + "," + ColorText(RenderSettings.ambientLight)
             + " ambientIntensity=" + Number(RenderSettings.ambientIntensity) + " lights=" + UnityEngine.Object.FindObjectsOfType<Light>().Length
             + " lightmaps=" + LightmapSettings.lightmaps.Length + " wallFade=" + Shader.GetGlobalInt("ToggleWallFade")
@@ -75,12 +76,17 @@ internal sealed partial class VRRigDriver
         ProceduralMapTile[] tiles = UnityEngine.Object.FindObjectsOfType<ProceduralMapTile>(true);
         var renderers = new List<Renderer>();
         var seen = new HashSet<int>();
+        // This is the head Camera's mono frustum, not either OpenXR render pass.
+        // B682's screenshot contains world content while this count is zero;
+        // retain the old grep field but explicitly qualify its diagnostic scope.
         Plane[] frustum = GeometryUtility.CalculateFrustumPlanes(head);
         int active = 0, tileEnabled = 0, all = 0, complete = 0, busy = 0, roots = 0;
         int componentEnabled = 0, hierarchyActive = 0, generatedMeshes = 0;
         int rootActive = 0, rootChildren = 0, populated = 0, handles = 0, frozen = 0, entitiesEnabled = 0, noProcedure = 0, parameterized = 0;
         var loaderStates = new int[8]; // no-loader, empty, never, loading, failed, unassigned, foreign-disabled, done
         int enabled = 0, masked = 0, culled = 0, inView = 0, meshes = 0, vertices = 0, unsupported = 0, missingColor = 0;
+        int unsupportedShown = 0, unloadedShown = 0, roomCount = 0;
+        string rooms = "";
         Renderer? floor = null, other = null, fallback = null;
         int fallbackScore = -1;
         float floorArea = -1f;
@@ -116,17 +122,29 @@ internal sealed partial class VRRigDriver
             }
             renderers.Clear();
             tile.GetComponentsInChildren(true, renderers);
+            bool fullRoom = tile.visibility == ProceduralMapTile.Visibility.All && tile.isActiveAndEnabled;
+            int roomScanned = 0, roomShown = 0;
             foreach (Renderer renderer in renderers)
             {
                 if (renderer == null || seen.Count >= 8192 || !seen.Add(renderer.GetInstanceID())) continue;
+                roomScanned++;
                 bool on = renderer.enabled && renderer.gameObject.activeInHierarchy;
                 if (on) enabled++;
                 if (renderer.enabled) componentEnabled++;
                 if (renderer.gameObject.activeInHierarchy) hierarchyActive++;
-                loaderStates[QuestScenarioLoaderIndex(MaterialLoaderHeal.DescribeForRenderer(renderer))]++;
+                int loaderState = QuestScenarioLoaderIndex(MaterialLoaderHeal.DescribeForRenderer(renderer));
+                loaderStates[loaderState]++;
                 if (renderer.forceRenderingOff) masked++;
                 bool layer = (head.cullingMask & (1 << renderer.gameObject.layer)) != 0;
                 if (!layer) culled++;
+                bool shown = fullRoom && on && layer && !renderer.forceRenderingOff;
+                if (shown) roomShown++;
+                // B682 generated both native rooms. Its 76 unsupported/never-started
+                // entries can include inactive native preview placeholders: the
+                // aggregate must not convict the materials actually being drawn.
+                // Keep visibility and loader ownership observational and distinct.
+                if (fullRoom && renderer.gameObject.activeInHierarchy && layer
+                    && !renderer.forceRenderingOff && (loaderState == 2 || loaderState == 4 || loaderState == 5)) unloadedShown++;
                 bool visible = on && layer && !renderer.forceRenderingOff && GeometryUtility.TestPlanesAABB(frustum, renderer.bounds);
                 if (visible) inView++;
                 Mesh? mesh = renderer.GetComponent<MeshFilter>()?.sharedMesh;
@@ -142,7 +160,8 @@ internal sealed partial class VRRigDriver
                 if (renderer is MeshRenderer && score > fallbackScore) { fallback = renderer; fallbackScore = score; }
                 if (!mesh.HasVertexAttribute(VertexAttribute.Color)) missingColor++;
                 Material material = renderer.sharedMaterial;
-                if (material == null || material.shader == null || !material.shader.isSupported) unsupported++;
+                if (material == null || material.shader == null || !material.shader.isSupported)
+                { unsupported++; if (shown) unsupportedShown++; }
                 if (renderer is not MeshRenderer || !on) continue;
                 if (other == null) other = renderer;
                 Bounds bounds = renderer.bounds;
@@ -150,6 +169,12 @@ internal sealed partial class VRRigDriver
                 bool floorName = mesh.name.IndexOf("floor", StringComparison.OrdinalIgnoreCase) >= 0
                     || renderer.name.IndexOf("floor", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (floorName && (floor == null || area > floorArea)) { floor = renderer; floorArea = area; }
+            }
+            if (roomCount++ < 3)
+            {
+                string name = tile.name.Length > 12 ? tile.name.Substring(0, 12) : tile.name;
+                rooms += name + ":" + tile.visibility + ":" + (tile.IsPlacementCompleted ? 1 : 0)
+                    + ":" + (entity != null && entity.m_EntityHandle != 0 ? 1 : 0) + ":" + roomShown + "/" + roomScanned + ";";
             }
         }
         ApparanceMeshInstances[] instancers = UnityEngine.Object.FindObjectsOfType<ApparanceMeshInstances>(true);
@@ -166,11 +191,13 @@ internal sealed partial class VRRigDriver
             + " parameterized=" + parameterized + " renderers=" + seen.Count + " scanCap=8192 enabled=" + enabled + " masked=" + masked + " layerExcluded=" + culled
             + " componentEnabled=" + componentEnabled + " hierarchyActive=" + hierarchyActive + " generatedMeshes=" + generatedMeshes
             + " ml=no/empty/never/loading/failed/unassigned/foreign/done:" + string.Join(",", loaderStates)
-            + " inHeadFrustum=" + inView + " meshes=" + meshes + " vertices=" + vertices + " meshWithoutColor=" + missingColor + " unsupported=" + unsupported
+            + " inHeadFrustum=" + inView + " frustum=mono meshes=" + meshes + " vertices=" + vertices + " meshWithoutColor=" + missingColor + " unsupported=" + unsupported
+            + " unsupportedShown=" + unsupportedShown + " unloadedShown=" + unloadedShown
             + " instancers=" + instancers.Length + " activeInstancers=" + instanced + " instances=" + instanceCount
             + " tileEnabled=" + tileEnabled + " observers=" + observerEnabled + "/" + observers.Length
             + " engine=" + (engine != null) + " engineActive=" + (engine != null && engine.isActiveAndEnabled) + " engineEntities=" + (engine != null ? engine.EntityComponents.Count : 0)
-            + " engineInstancing=" + (engine != null && engine.EnableInstancedRendering));
+            + " engineInstancing=" + (engine != null && engine.EnableInstancedRendering)
+            + " rooms=name:visibility:complete:handle:shown/scanned(cap3):" + rooms);
         Renderer? representative = floor != null ? floor : other != null ? other : fallback;
         QuestScenarioRenderer(sample, floor != null ? "floor" : other != null ? "other" : "hidden-candidate", representative, head);
         // B679 proves the disabled placeholder mesh can draw the white control;

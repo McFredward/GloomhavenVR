@@ -157,7 +157,9 @@ public static class QuestScenarioEvidenceProbe
             var wall = new GameObject("Native wall", typeof(MeshFilter), typeof(MeshRenderer));
             wall.layer = 11; wall.transform.parent = generated.transform;
             wall.GetComponent<MeshFilter>().sharedMesh = second;
-            wall.GetComponent<MeshRenderer>().sharedMaterial = originalMaterial;
+            wall.GetComponent<MeshRenderer>().sharedMaterial = null;
+            GloomhavenVR.Core.MaterialLoaderHeal.States[floorRenderer.GetInstanceID()] = "never-started loader='active native source'";
+            GloomhavenVR.Core.MaterialLoaderHeal.States[wall.GetComponent<Renderer>().GetInstanceID()] = "never-started loader='excluded preview'";
             var instances = generated.AddComponent<ApparanceMeshInstances>(); instances.instanceCount = 7;
             var driver = root.AddComponent<GloomhavenVR.Rig.VRRigDriver>(); driver.Configure(head, anchor, true);
 
@@ -177,6 +179,12 @@ public static class QuestScenarioEvidenceProbe
             Check(Records[0].Contains("headMask=00000400") && Records[0].Contains("scenarioMask=00000400"), "Actual camera masks are reported");
             Check(Records[1].Contains("tiles=1 active=1 all=1 complete=1 busy=0 generatedRoots=1"), "Actual generation and placement state is reported");
             Check(Records[1].Contains("renderers=2") && Records[1].Contains("layerExcluded=1"), "Actual renderer layer refusal is counted");
+            Check(Records[1].Contains("unsupported=1 unsupportedShown=0 unloadedShown=1"),
+                "Excluded native placeholder materials cannot be diagnosed as shown shader failures");
+            Check(Records[1].Contains("rooms=name:visibility:complete:handle:shown/scanned(cap3):Native tile:All:1:1:1/2;"),
+                "Room visibility, placement and actual admitted renderer counts remain distinct");
+            Check(Records[0].Contains("headForward=0,-0.707,0.707") && Records[1].Contains("frustum=mono"),
+                "Camera direction and mono frustum are not claimed as actual XR eye culling");
             Check(Records[1].Contains("activeInstancers=1 instances=7"), "Native non-renderer instancing is counted independently");
             Check(Records[2].Contains("role=floor") && Records[2].Contains("renderer=Floor main"), "Floor representative is a real native renderer");
             Check(Records[2].Contains("Normal:Float32:3") && Records[2].Contains("TexCoord0:Float32:2"), "Native vertex format and UV inputs are observed");
@@ -190,7 +198,7 @@ public static class QuestScenarioEvidenceProbe
             ApparanceEngine.Instance.enabled = false;
             ApparanceEngine.Instance.EntityComponents[0].m_EntityHandle = 0;
             GloomhavenVR.Core.MaterialLoaderHeal.States[floorRenderer.GetInstanceID()] = "loading 1/2";
-            GloomhavenVR.Core.MaterialLoaderHeal.States[wall.GetComponent<Renderer>().GetInstanceID()] = "no-loader";
+            GloomhavenVR.Core.MaterialLoaderHeal.States[wall.GetComponent<Renderer>().GetInstanceID()] = "never-started loader='inactive preview'";
             driver.RunNow(); Check(Records.Count == 8, "Second observation uses the complete eight-record launch budget");
             Check(Records[5].Contains("enabled=0 ") && Records[5].Contains("componentEnabled=1 hierarchyActive=1"),
                 "Inactive and component-disabled native renderers are counted independently");
@@ -200,8 +208,11 @@ public static class QuestScenarioEvidenceProbe
             Check(Records[7].Contains("nativeEngine instance=") && Records[7].Contains("component=False self=True hierarchy=True")
                 && Records[7].Contains("loaded=1 active=0") && Records[7].Contains("codeStarted=False"),
                 "A dormant world uses its existing GPU slot for exact native engine ownership and startup state");
-            Check(Records[5].Contains("ml=no/empty/never/loading/failed/unassigned/foreign/done:1,0,0,1,0,0,0,0"),
+            Check(Records[5].Contains("ml=no/empty/never/loading/failed/unassigned/foreign/done:0,0,1,1,0,0,0,0"),
                 "Material-loader diagnosis remains independent of renderer enabled and hierarchy flags");
+            Check(Records[5].Contains("unsupported=1 unsupportedShown=0 unloadedShown=0"),
+                "Inactive native preview loaders do not imply a missing visible room material");
+            Check(Records[5].Contains("Native tile:All:0:0:0/2;"), "An ungenerated native room is reported without fabricated completion");
             Check(Records[6].Contains("role=hidden-candidate") && Records[6].Contains("renderer=Floor main")
                 && Records[6].Contains("enabled=False active=True") && Records[6].Contains("ml=loading 1/2"),
                 "A completely black world still reports an actual disabled native mesh and loader state");

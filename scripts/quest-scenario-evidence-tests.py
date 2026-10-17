@@ -54,7 +54,7 @@ def reap_fixture_group(group):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "renderer-state", "entity-parameter-property",
+    parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "renderer-state", "material-admission", "entity-parameter-property",
         "lifecycle-desktop", "lifecycle-inactive", "lifecycle-native-handle", "lifecycle-unrelated-handle", "lifecycle-preview-content", "lifecycle-grace", "lifecycle-repeat", "lifecycle-native-content",
         "lifecycle-playerloop-focus", "lifecycle-playerloop-window", "lifecycle-playerloop-pause", "lifecycle-playerloop-install", "lifecycle-playerloop-failure"))
     parser.add_argument("--gpu", action="store_true")
@@ -81,6 +81,8 @@ def main():
         source = source.replace("if (renderer.enabled) componentEnabled++;", "if (on) componentEnabled++;", 1)
     elif args.control == "entity-parameter-property":
         source = source.replace('GetProperty("PartialParameterOverride")', 'GetField("PartialParameterOverride")', 1)
+    elif args.control == "material-admission":
+        source = source.replace("if (shown) unsupportedShown++;", "unsupportedShown++;", 1)
     (editor / "Scenario.cs").write_text("#nullable enable\n" + source.replace("namespace GloomhavenVR.Rig;", "namespace GloomhavenVR.Rig {") + "\n}\n")
     gpu_source = (ROOT / "src/GloomhavenVR/Rig/VRRigDriver.QuestScenarioGpu.cs").read_text()
     if args.control == "gpu-transform":
@@ -151,6 +153,7 @@ def main():
             expected = {"desktop-gate": "Desktop does not observe native scene", "launch-cap": "Recreated rig cannot reset launch cap",
                         "gpu-transform": "Actual unreadable native mesh produces visible GPU pixels",
                         "renderer-state": "Inactive and component-disabled native renderers are counted independently",
+                        "material-admission": "Excluded native placeholder materials cannot be diagnosed as shown shader failures",
                         "entity-parameter-property": "Native hierarchy and generation admission distinguish a dormant entity from a completed world"}.get(args.control)
             if args.control in lifecycle_controls: expected = lifecycle_controls[args.control][2]
             if code == 0 or expected is None or ("InvalidOperationException: " + expected) not in (run / "unity.log").read_text():
