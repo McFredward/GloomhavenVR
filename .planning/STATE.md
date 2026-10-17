@@ -9,8 +9,10 @@ Retain running-session/OS-pause and original one-shot generation guards while
 testing actual Driver/native lifecycle, with precise bounded admission evidence.
 Close the startup spinner's native-Quad upload gap without changing its artwork
 or desktop path. Keep confirmed full viewport, density, menu and pile repairs.
-Actual card/initiative/stat source fallback no longer depends on private adopted
-UI callbacks. Missing artwork and the thin second laser segment remain hardware
+Explicit Unity logging fixes the actual missing-artwork-record cause: the game's
+global conditional Debug.Log had compiled away those calls. Earlier reachability
+claims were unproven. Source fallback additionally retains independent snapshots.
+Missing artwork and the thin second laser segment remain hardware
 defects, not claimed fixes; bounded actual evidence must identify their source.
 Use compact Mod Update with retained banks; see
 [QUEST-TUTORIAL-105503-20261017.md](QUEST-TUTORIAL-105503-20261017.md).

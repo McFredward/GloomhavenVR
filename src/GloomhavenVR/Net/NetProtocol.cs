@@ -631,8 +631,11 @@ internal static class NetProtocol
     // Apply the owned upload after its original pivot/UV mapping; preserve shape,
     // alpha, shader, timing and desktop behavior. Preserve its two existing Debug
     // observations after movie-detail saturation, without raising logger limits.
-    // Direct artwork observations were still absent. Observe the common card
-    // Offer seam and original settled scenario sources with the same8record cap;
+    // The original global Debug.Log has Conditional(ENABLE_LOGS); unqualified
+    // artwork calls compiled away in the mod. Explicit UnityEngine.Debug binding
+    // and a matching conditional-shadow fixture correct this proven logging bug.
+    // Missing logs did not prove unreachable consumer branches. Also observe
+    // common Offer/original settled sources with the same8record cap;
     // do not infer healthy Android captures from retained-project Vulkan fixtures.
     // The screenshot's thin second laser segment is observed, but its cause is
     // not yet established by two-endpoint/non-dominant policy source. Keep the
