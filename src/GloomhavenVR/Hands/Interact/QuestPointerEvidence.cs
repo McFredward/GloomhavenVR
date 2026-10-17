@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Text;
 using GloomhavenVR.Core;
 using UnityEngine;
-using Debug = UnityEngine.Debug;
 
 namespace GloomhavenVR.Hands.Interact;
 
@@ -27,10 +26,10 @@ internal static class QuestPointerEvidence
         int kind = scenario ? 2 : 1;
         if ((_observedKinds & kind) != 0) return;
         _observedKinds |= kind; // A failure is bounded too, across hands and rig rebuilds.
-        try { Debug.Log(Describe(own, marker, head, primary, scenario)); }
+        try { UnityEngine.Debug.Log(Describe(own, marker, head, primary, scenario)); }
         catch (Exception error)
         {
-            Debug.Log("[Quest startup] pointer context=" + (scenario ? "scenario" : "menu")
+            UnityEngine.Debug.Log("[Quest startup] pointer context=" + (scenario ? "scenario" : "menu")
                 + " unavailable=" + error.GetType().Name);
         }
     }

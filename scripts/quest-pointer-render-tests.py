@@ -35,6 +35,9 @@ def main():
         + "public Color VertexColor(Material material, Color color, bool quest) { Core.QuestStandalonePlatform.Enabled=quest; return BeamVertexColor(material, color); }\n"
         + factory + "} }\n"
         + "namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { internal static bool Enabled; } internal static class VRLog { internal static bool WantsDebug=true; } }\n"
+        # The actual game has a global conditional Debug facade. Keep that name
+        # present so a Debug alias cannot silently compile only in this fixture.
+        + "public static class Debug { public static void Log(object value) => UnityEngine.Debug.Log(value); public static void LogException(System.Exception value) => UnityEngine.Debug.LogException(value); }\n"
         + 'namespace GloomhavenVR.Cards { internal static class PlayTray { internal static bool Missing; internal static Shader OverlayShader() => Missing ? null : UnityEditor.AssetDatabase.LoadAssetAtPath<Shader>("Assets/PointerOverlay.shader"); } }\n'
         + "public static class QuestPointerProbeConfig { public const bool Linear=" + str(color_space == "linear").lower() + "; }\n")
     evidence_source = (ROOT / "src/GloomhavenVR/Hands/Interact/QuestPointerEvidence.cs").read_text()
