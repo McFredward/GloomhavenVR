@@ -29,8 +29,6 @@ of showing a green key or publishing an unadmitted carrier. The scene-output
 owner also recreates resources after a normal OnDisable closure; genuine
 nonempty preparation/render failures keep their existing failed-head refusal.
 
-## Delivery and verification boundary
-
 ## Window edges: measured improvement, report still open
 
 The actual Unity2021.3.5 UI/Default uses premultiplied RGB and correct alpha
@@ -111,6 +109,8 @@ hardware boundary, particularly the mask's residual few-pixel filtering.
   unchanged prior bank; the updated coverage bank has its separate raster proof.
 - Focused source instrumentation:1/1 passes. Do not repeat the unchanged full
   gate merely because the bounded tests were registered with the suite runner.
+
+## Delivery and verification boundary
 
 This is a focused source/presentation repair, not a new complete local gate.
 Unchanged693 classifier/helper/cache/Proton/SDK/native checks are inherited.
