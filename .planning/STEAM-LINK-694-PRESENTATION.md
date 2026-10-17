@@ -31,6 +31,41 @@ nonempty preparation/render failures keep their existing failed-head refusal.
 
 ## Delivery and verification boundary
 
+## Window edges: measured improvement, report still open
+
+The actual Unity2021.3.5 UI/Default uses premultiplied RGB and correct alpha
+blending over the fully opaque MR plate. The historical PanelSupersample blend
+comment was not proof of a defect. Do not ship an unsupported material rewrite.
+The coverage atlas instead stores1024² opacity against2048² scene RGB and adds
+spatial interpolation before video/native filtering. Replace its additional
+linear interpolation weights with a continuous bounded C1 kernel. This never
+thresholds opacity itself and adds no texture reads, RTs, cameras or CPU pixels.
+The rebuilt Windows bank is173185 bytes, SHA256
+`a3f34fab8a68947970e8a8852b5811a9f899cf657e9ae2d395a346561c33019d`.
+
+The actual-bank Vulkan comparison passes571 checks in20 cases. Six UI/opaque
+plate edges average3.282→3.101 source pixels at10–90% (5.52% less). Constant glass
+opacities are unchanged; gradient/fades differ by at most1/255;500 RGB probes
+remain byte-identical. Actual materialisation remains monotonic and reaches zero.
+Clipping/fade delta adds126 passing checks. The old linear bank fails the exact
+edge assertion after valid compilation/raster, rather than a generic crash.
+
+This is explicitly NOT a complete fix for the reported soft window edges.
+Nearest/hybrid and two clamped unsharp candidates were measured under32 moving
+MSAA poses; they narrowed some edges further but increased silhouette movement.
+Unsharp also tripled alpha reads. None is production code. The fixture retains
+these offline comparisons and their reports; no further filter experiments are
+needed until the visible symptom is classified.
+
+The maintainer has been asked whether the complaint is a narrow blurred outer
+contour or a broad transparent strip inside the window. A broad strip cannot
+be assigned to this few-pixel reconstruction footprint without new evidence.
+New693 hardware logs are not currently present. A separate author-window mask
+or higher-resolution receiver reconstruction would be a larger follow-up, not
+something established by this limited filter change. Keep this item open.
+
+## Focused checks
+
 - Source-linked lifecycle plus actual asynchronous Monitor:111 assertions. The
   old camera-dependent lifecycle compiles, then fails the exact loading-regression
   assertion. Unity/XR/session/reader inputs are explicitly controlled ports.
