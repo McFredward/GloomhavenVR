@@ -669,9 +669,10 @@ def update_requirements(builder, source, base, files, mod_build):
     # already contains each exact producer's size and SHA. Only the finite
     # reviewed legacy sources may supply that missing AST identity.
     producer = payload_producer(builder, source, files) if capsule else None
+    managed_startup = _managed_display_startup(builder, source, files, current_mod["files"])
     reasons = rebuild_reasons(files, current_mod["files"], payload_producer=producer,
                               previous_producer=capsule.get("payloadProducer") if capsule else None,
-                              procedural_backend=original.get("proceduralBackend"))
+                              procedural_backend=original.get("proceduralBackend"), managed_startup=managed_startup)
     if capsule is None:
         reasons.append("The older APK has no signed compact compiler/package compatibility capsule.")
     elif capsule["packageAbi"] != package_fingerprint(builder, source, original):
@@ -688,7 +689,49 @@ def update_requirements(builder, source, base, files, mod_build):
             "updateStrategy": "cached-full-build" if reasons else "compact-code"}
 
 
-def rebuild_reasons(current_files, previous_files, *, payload_producer=None, previous_producer=None, procedural_backend=None):
+_DISPLAY_FEATURE = "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestPassthroughFeature.cs"
+_DISPLAY_FEATURE_BASE = {"path": _DISPLAY_FEATURE, "size": 3770,
+                         "sha256": "a80ee075cfbd5e17fa8b8995fae95fa144fffb643d81c2f4a274127ed12588be"}
+_DISPLAY_STARTUP_HOOK = b"""        protected override void OnSubsystemCreate()
+        {
+#if GHVR_QUEST_STARTUP
+            GloomhavenVR.Core.QuestStandalonePlatform.PrepareDisplayBeforeStart();
+#endif
+        }
+"""
+
+
+def _managed_display_startup(builder, source, current_files, previous_files):
+    """Admit one managed callback without rebuilding the unchanged native plugin.
+
+    Strip the exact reviewed startup override, then require every remaining byte
+    (all DllImports, native arguments, methods and library identity) to match the
+    signed historical source. An unknown interop change retains the rebuild gate.
+    Both this callback and its shared implementation remain ordinary code inputs.
+    """
+    previous = [row for row in previous_files if row.get("path") == _DISPLAY_FEATURE]
+    current = [row for row in current_files if row.get("path") == _DISPLAY_FEATURE]
+    if previous != [_DISPLAY_FEATURE_BASE] or len(current) != 1 or current == previous:
+        return set()
+    path = builder._ordinary_owned(Path(source) / _DISPLAY_FEATURE)
+    before = path.lstat()
+    if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > 65536
+            or getattr(before, "st_file_attributes", 0) & 0x400):
+        raise builder.BuildError("Captured display startup source is not a bounded regular owned file.")
+    with path.open("rb") as stream: body = stream.read(65537)
+    after = path.lstat()
+    stamp = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
+    if (stamp(before) != stamp(after) or len(body) != current[0].get("size")
+            or hashlib.sha256(body).hexdigest() != current[0].get("sha256")):
+        raise builder.BuildError("Captured display startup source changed or lacks source provenance.")
+    retained = body.replace(_DISPLAY_STARTUP_HOOK, b"", 1)
+    if (body.count(_DISPLAY_STARTUP_HOOK) == 1 and len(retained) == _DISPLAY_FEATURE_BASE["size"]
+            and hashlib.sha256(retained).hexdigest() == _DISPLAY_FEATURE_BASE["sha256"]):
+        return {_DISPLAY_FEATURE}
+    return set()
+
+
+def rebuild_reasons(current_files, previous_files, *, payload_producer=None, previous_producer=None, procedural_backend=None, managed_startup=None):
     """Classify real unsupported payload changes without reading game banks."""
     reasons = []
     helper_rows = _proton_helpers().changed_rows(_native_rows(current_files), _native_rows(previous_files), procedural_backend)
@@ -703,6 +746,7 @@ def rebuild_reasons(current_files, previous_files, *, payload_producer=None, pre
                                   and current.get(path) in _PROTON_DOWNLOAD_ROWS
                                   and previous.get(path) in _PROTON_DOWNLOAD_ROWS)
                          and not (selected is _native_rows and path in helper_rows)
+                         and not (selected is _native_rows and path in (managed_startup or ()))
                          and not (selected is _payload_rows and
                                   (path == "tools/quest-builder/builder.py" and same_builder
                                    or _audit_only_change(path, current.get(path), previous.get(path)))))
