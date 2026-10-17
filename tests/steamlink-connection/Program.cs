@@ -14,8 +14,14 @@ internal static class Program
     private static int checks;
     private static void Check(bool value,string why) { checks++;if(!value)throw new Exception(why); }
     private static string Message(string model="Steam Frame",string driver="vrlink",string registered="vrlink/frame") => JsonSerializer.Serialize(new { schema="ghvr-steamlink-connection-v1",connected=true,device_class=1,tracking_system=driver,model,registered_type=registered });
-    private static void Main(string[] args)
+    private static int Main(string[] args)
     {
+        if(args.Length==1&&args[0]=="--binding-only")
+        {
+            try { TestPathBinding();Console.WriteLine("{\"binding_checks\":"+checks+"}");return 0; }
+            catch(Exception error) { Console.Error.WriteLine("BINDING_REGRESSION: "+error.Message);return 3; }
+        }
+        TestPathBinding();
         Check(C.Classify(true,1,"vrlink","Steam Frame","vrlink/frame").Available,"live Frame Link");
         Check(C.Classify(true,1,"VRLINK","steam frame","").Available,"exact ASCII insensitive driver/model; optional registered");
         Check(C.Classify(true,1,"","Steam Frame","vrlink/hmd").Available,"registered public driver identity alternative");
@@ -58,6 +64,17 @@ internal static class Program
         TestMonitor();
         TestChild();
         Console.WriteLine("{\"managed_connection_checks\":"+checks+",\"hardware_identity_verified\":false}");
+        return 0;
+    }
+    private static void TestPathBinding()
+    {
+        const string path=@"C:\Users\McFredward\AppData\Local";
+        Check(path.Skip(2)==path.Substring(1),"fixture retains game's count-minus-one overload");
+        Check(path.Skip(2)[0]==':',"game overload includes drive colon");
+        Check(System.Linq.Enumerable.Skip(path,2).SequenceEqual(path.Substring(2)),"explicit framework overload starts after drive colon");
+        Check(C.LocalWindowsPath(path),"game extension must not control production path guard");
+        Check(C.CacheFolder(path,()=>throw new Exception("unexpected known-folder query"))==path,"production cache accepts canonical env with game extension in scope");
+        Check(C.CacheFolder("C:/Users/McFredward/AppData/Local/",()=>"")==path,"normalized cache also survives game extension scope");
     }
     private static void TestPreparation()
     {
