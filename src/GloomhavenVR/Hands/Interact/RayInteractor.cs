@@ -1061,6 +1061,11 @@ internal sealed class RayInteractor : IPickProvider
         {
             _reticle.gameObject.SetActive(false);
         }
+        if (QuestPointerEvidence.NeedsObservation)
+            QuestPointerEvidence.Observe(_laser, _reticle, head, _hand == VRHands.Primary,
+                VRModeStateMachine.ScenarioBoardExists,
+                UnityEngine.SceneManagement.SceneManager.GetSceneByName("MainMenu").isLoaded,
+                _current.HasHit || uiHit);
         CaptureQuestHitEvidence(_current.HasHit || uiHit, head);
     }
 

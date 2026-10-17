@@ -12,6 +12,22 @@ using UnityEngine.UI;
 namespace GloomhavenVR.Core
 {
     internal static class QuestStandalonePlatform { internal static bool Enabled; }
+    internal enum VRLogLevel { Debug }
+    internal static class VRLog { internal static bool Wants(VRLogLevel level) => false; }
+}
+
+namespace GloomhavenVR.Quest.Editor
+{
+    // Only product progress reporting is outside this native geometry fixture.
+    internal static class QuestWizardProgress
+    {
+        internal sealed class Counter
+        {
+            internal Counter(string name, string phase, int total, string unit, string label) { }
+            internal void Report(int done, string detail) { }
+            internal void Complete(string detail) { }
+        }
+    }
 }
 
 public static class InteractionProgram
@@ -132,7 +148,15 @@ public static class InteractionProgram
             Close(actual.yMax, maxY, "native Image trim and preserveAspect drawing bounds");
             var indicator = new LoadingIndicator();
             GameObject quad = indicator.Build(image, basis);
-            Vector3[] converted = quad.GetComponent<MeshFilter>().sharedMesh.vertices;
+            Mesh convertedMesh = quad.GetComponent<MeshFilter>().sharedMesh;
+            if (QuestStandalonePlatform.Enabled)
+            {
+                Check(convertedMesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Color),
+                    "Quest spinner owns explicit vertex color inputs");
+                foreach (Color color in convertedMesh.colors)
+                    Check(color == Color.white, "Quest spinner vertex colors preserve authored tint and alpha");
+            }
+            Vector3[] converted = convertedMesh.vertices;
             float units = Mathf.Max(basis.rectTransform.rect.width, basis.rectTransform.rect.height);
             Vector2 centre = basis.rectTransform.rect.center;
             foreach (Vector3 vertex in vertices)
@@ -147,7 +171,72 @@ public static class InteractionProgram
                 }
                 Check(found, "converted spinner quad preserves original trim scale and pivot");
             }
+            SpinnerPixels(original, quad, image, basis, units, centre);
             UnityEngine.Object.DestroyImmediate(original);
+        }
+    }
+    private static void SpinnerPixels(Mesh native, GameObject quad, Image image, Image basis, float units, Vector2 centre)
+    {
+        Vector3[] nativeVertices = native.vertices;
+        for (int index = 0; index < nativeVertices.Length; index++)
+        {
+            Vector3 local = basis.rectTransform.InverseTransformPoint(image.rectTransform.TransformPoint(nativeVertices[index]));
+            nativeVertices[index] = (local - new Vector3(centre.x, centre.y, 0)) * (.25f / units) + Vector3.forward;
+        }
+        native.vertices = nativeVertices;
+        native.RecalculateBounds();
+        var original = new GameObject("native-spinner-drawing", typeof(MeshFilter), typeof(MeshRenderer));
+        original.layer = quad.layer = 29;
+        original.GetComponent<MeshFilter>().sharedMesh = native;
+        var nativeRenderer = original.GetComponent<MeshRenderer>();
+        var converted = quad.GetComponent<MeshRenderer>();
+        nativeRenderer.sharedMaterial = converted.sharedMaterial;
+        quad.transform.position += Vector3.forward;
+        var camera = new GameObject("native-spinner-gpu-proof").AddComponent<Camera>();
+        camera.enabled = false; camera.orthographic = true; camera.orthographicSize = .2f;
+        camera.nearClipPlane = .1f; camera.farClipPlane = 3; camera.cullingMask = 1 << 29;
+        camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = Color.clear;
+        var target = new RenderTexture(128, 128, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        target.Create(); camera.targetTexture = target;
+        try
+        {
+            converted.enabled = false; camera.Render(); Color[] expected = Pixels(target);
+            converted.enabled = true; nativeRenderer.enabled = false; camera.Render(); Color[] actual = Pixels(target);
+            int visible = 0;
+            int different = 0;
+            for (int index = 0; index < actual.Length; index++)
+                if (Math.Abs(actual[index].r - expected[index].r) >= .02f || Math.Abs(actual[index].a - expected[index].a) >= .02f) different++;
+            if (different != 0)
+            {
+                Debug.Log("Spinner GPU mismatch: quest=" + QuestStandalonePlatform.Enabled + " differences=" + different
+                    + " originalUV=" + string.Join(";", native.uv) + " convertedUV=" + string.Join(";", quad.GetComponent<MeshFilter>().sharedMesh.uv));
+                Directory.CreateDirectory("SpinnerProbe");
+                foreach (bool reference in new[] { true, false })
+                {
+                    var png = new Texture2D(128, 128, TextureFormat.RGBA32, false);
+                    png.SetPixels(reference ? expected : actual); png.Apply();
+                    File.WriteAllBytes("SpinnerProbe/" + (reference ? "native" : "converted") + ".png", png.EncodeToPNG());
+                    UnityEngine.Object.DestroyImmediate(png);
+                }
+            }
+            for (int index = 0; index < actual.Length; index++)
+            {
+                if (expected[index].a > .01f) visible++;
+                Check(Math.Abs(actual[index].r - expected[index].r) < .02f
+                    && Math.Abs(actual[index].g - expected[index].g) < .02f
+                    && Math.Abs(actual[index].b - expected[index].b) < .02f
+                    && Math.Abs(actual[index].a - expected[index].a) < .02f,
+                    "spinner GPU output retains complete native drawing pixels");
+            }
+            Check(visible > 0, "spinner native GPU reference contains visible pixels");
+            Debug.Log("Spinner GPU parity: quest=" + QuestStandalonePlatform.Enabled + " sprite=" + image.sprite.name + " visible=" + visible);
+        }
+        finally
+        {
+            camera.targetTexture = null; target.Release();
+            UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(camera.gameObject);
+            UnityEngine.Object.DestroyImmediate(original);
+            UnityEngine.Object.DestroyImmediate(quad.transform.parent.gameObject);
         }
     }
     private static void ImportedGate()
@@ -240,9 +329,18 @@ public static class InteractionProgram
 
         var sprite = Sprite.Create(texture, new Rect(0, 0, 128, 64), new Vector2(.5f, .5f));
         Image basis = Image(sprite, new Vector2(64, 64), new Vector2(.5f, .5f), true);
+        QuestStandalonePlatform.Enabled = false;
+        CompareImage(basis, basis);
+        QuestStandalonePlatform.Enabled = true;
         CompareImage(basis, basis);
         CompareImage(Image(sprite, new Vector2(64, 96), new Vector2(.2f, .8f), true), basis);
         CompareImage(Image(sprite, new Vector2(64, 96), new Vector2(.2f, .8f), false), basis);
+        // The persisted boot PNG has full identity UVs, unlike a native atlas
+        // crop. It must receive the same owned upload without mutating Unity's
+        // shared Quad, which also belongs to every other primitive consumer.
+        Sprite fullSprite = Sprite.Create(texture, new Rect(0, 0, 512, 512), new Vector2(.5f, .5f));
+        Image fullImage = Image(fullSprite, new Vector2(64, 64), new Vector2(.5f, .5f), true);
+        CompareImage(fullImage, fullImage);
         string ownedBase = "Assets/Sprite/LoadingBase.asset";
         if (File.Exists(ownedBase))
         {

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import signal
 from pathlib import Path
 import shutil
 import subprocess
@@ -33,9 +34,22 @@ def main():
         + "public void Apply(Renderer renderer, bool quest) { Core.QuestStandalonePlatform.Enabled=quest; ApplyQuestPointerRendererDefaults(renderer); }\n"
         + "public Color VertexColor(Material material, Color color, bool quest) { Core.QuestStandalonePlatform.Enabled=quest; return BeamVertexColor(material, color); }\n"
         + factory + "} }\n"
-        + "namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { internal static bool Enabled; } }\n"
+        + "namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { internal static bool Enabled; } internal static class VRLog { internal static bool WantsDebug=true; } }\n"
         + 'namespace GloomhavenVR.Cards { internal static class PlayTray { internal static bool Missing; internal static Shader OverlayShader() => Missing ? null : UnityEditor.AssetDatabase.LoadAssetAtPath<Shader>("Assets/PointerOverlay.shader"); } }\n'
         + "public static class QuestPointerProbeConfig { public const bool Linear=" + str(color_space == "linear").lower() + "; }\n")
+    evidence_source = (ROOT / "src/GloomhavenVR/Hands/Interact/QuestPointerEvidence.cs").read_text()
+    control = os.environ.get("QUEST_POINTER_EVIDENCE_CONTROL", "")
+    controls = {
+        "desktop": ("!QuestStandalonePlatform.Enabled ||", "false ||", "Pointer observation must stay idle outside Quest Debug real hit context"),
+        "repeat": ("if ((_observedKinds & kind) != 0) return;", "if (false) return;", "Pointer evidence must retain two contexts across repeated hits and objects"),
+    }
+    if control:
+        if control not in controls: raise ValueError("Unknown pointer evidence control")
+        before, after, _ = controls[control]
+        assert evidence_source.count(before) == 1, "Pointer evidence control binding drift"
+        evidence_source = evidence_source.replace(before, after)
+    (editor / "QuestPointerEvidence.cs").write_text("#nullable enable\n" + evidence_source.replace(
+        "namespace GloomhavenVR.Hands.Interact;", "namespace GloomhavenVR.Hands.Interact {") + "\n}\n")
     shader_source = ROOT / "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader"
     shutil.copyfile(shader_source, project / "Assets/PointerOverlay.shader")
     shutil.copyfile(ROOT / "tests/QuestPointerRender.Tests/Probe.cs", editor / "Probe.cs")
@@ -53,19 +67,29 @@ def main():
     if not os.environ.get("DISPLAY"):
         command = ["xvfb-run", "-a"] + command
     code = 1
-    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                               start_new_session=os.name == "posix")
     try:
         code = process.wait(timeout=180)
+        if control:
+            if not code or controls[control][2] not in (run / "unity.log").read_text():
+                raise AssertionError("Pointer evidence control was not rejected by its behavioral assertion")
+            print("PASS expected pointer evidence rejection: " + control)
+            return
         if code:
             raise RuntimeError("Native pointer fixture failed: " + str(run / "unity.log"))
         report = json.loads((project / "ProbeOutput/results.json").read_text())
         assert len(report["cases"]) == 14
         (run / "source-hashes.json").write_text(json.dumps({"productionFactory": hashlib.sha256(factory.encode()).hexdigest(),
+            "pointerEvidence": hashlib.sha256(evidence_source.encode()).hexdigest(),
             "probe": hashlib.sha256((ROOT / "tests/QuestPointerRender.Tests/Probe.cs").read_bytes()).hexdigest(),
             "ownedShader": hashlib.sha256(shader_source.read_bytes()).hexdigest(),
             "graphics": graphics, "colorSpace": color_space, "hardwareVerified": False}, indent=2) + "\n")
         print("PASS native pointer GPU material/mesh characterization: " + graphics)
     finally:
+        if os.name == "posix":
+            try: os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError: pass
         if process.poll() is None:
             process.kill(); process.wait()
         cleanup = cleanup_completed_run("quest-pointer-render", code, log, ROOT, process_reaped=True)

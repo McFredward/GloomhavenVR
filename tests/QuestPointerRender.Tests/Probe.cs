@@ -203,6 +203,7 @@ public static class QuestPointerRenderProbe
             SameRgba(Capture("quest-owned-shader-missing-native-fallback", native, fallback, quest: true), desktop,
                 "Missing owned shader does not drop the beam/marker or change its fallback RGBA");
             Object.DestroyImmediate(fallback);
+            PointerEvidence(line, sphere.transform, camera);
             Debug.Log("PASS native pointer GPU characterization: " + report.cases.Count);
             EditorApplication.Exit(0);
         }
@@ -213,6 +214,61 @@ public static class QuestPointerRenderProbe
             Object.DestroyImmediate(occluder); Object.DestroyImmediate(occluderMaterial); Object.DestroyImmediate(line.gameObject);
             Object.DestroyImmediate(sphere); Object.DestroyImmediate(camera.gameObject);
             target.Release(); Object.DestroyImmediate(target);
+        }
+    }
+
+    static void PointerEvidence(LineRenderer line, Transform marker, Camera camera)
+    {
+        int assertions = 0;
+        void Require(bool value, string reason) { assertions++; if (!value) throw new Exception(reason); }
+        var messages = new List<string>();
+        Application.LogCallback capture = (message, stack, kind) =>
+        { if (message.StartsWith("[Quest startup] pointer ", StringComparison.Ordinal)) messages.Add(message); };
+        Application.logMessageReceived += capture;
+        var peer = new GameObject("second-pointer-東京-😀-very-long").AddComponent<LineRenderer>();
+        peer.positionCount = 2; peer.useWorldSpace = false;
+        peer.SetPositions(new[] { new Vector3(.3f, -.3f, 1.5f), new Vector3(.2f, .1f, 1.5f) });
+        line.gameObject.SetActive(true);
+        var beforeStart = line.GetPosition(0); var beforeEnd = line.GetPosition(1);
+        var beforeProjection = camera.projectionMatrix;
+        var beforeMaterial = line.sharedMaterial;
+        try
+        {
+            GloomhavenVR.Core.QuestStandalonePlatform.Enabled = false;
+            Require(!GloomhavenVR.Hands.Interact.QuestPointerEvidence.NeedsObservation, "Desktop never requests pointer context lookups");
+            GloomhavenVR.Hands.Interact.QuestPointerEvidence.Observe(line, marker, camera, true, false, true, true);
+            Require(messages.Count == 0, "Pointer observation must stay idle outside Quest Debug real hit context");
+            GloomhavenVR.Core.QuestStandalonePlatform.Enabled = true;
+            GloomhavenVR.Core.VRLog.WantsDebug = false;
+            GloomhavenVR.Hands.Interact.QuestPointerEvidence.Observe(line, marker, camera, true, false, true, true);
+            Require(messages.Count == 0, "Pointer observation must stay idle outside Quest Debug real hit context");
+            GloomhavenVR.Core.VRLog.WantsDebug = true;
+            GloomhavenVR.Hands.Interact.QuestPointerEvidence.Observe(line, marker, camera, true, false, true, false);
+            Require(messages.Count == 0, "Pointer observation must stay idle outside Quest Debug real hit context");
+            GloomhavenVR.Hands.Interact.QuestPointerEvidence.Observe(line, marker, camera, true, false, false, true);
+            Require(messages.Count == 0, "Pointer observation must stay idle outside Quest Debug real hit context");
+            for (int index = 0; index < 12; index++)
+                GloomhavenVR.Hands.Interact.QuestPointerEvidence.Observe(line, marker, camera, true, false, true, true);
+            Require(messages.Count == 1 && messages[0].Contains("context=menu"), "Pointer evidence must retain two contexts across repeated hits and objects");
+            for (int index = 0; index < 12; index++)
+                GloomhavenVR.Hands.Interact.QuestPointerEvidence.Observe(line, marker, camera, true, true, false, true);
+            Require(messages.Count == 2 && messages[1].Contains("context=scenario"), "Pointer evidence must retain two contexts across repeated hits and objects");
+            Require(!GloomhavenVR.Hands.Interact.QuestPointerEvidence.NeedsObservation, "Completed pointer observations never request another scene lookup");
+            foreach (string message in messages)
+                Require(System.Text.Encoding.UTF8.GetByteCount(message) <= 500 && message.Contains("points=2")
+                    && message.Contains("activeLines=2") && message.Contains("peers= second-point")
+                    && message.Contains("baked=4/") && message.Contains("primary=True"),
+                    "Pointer evidence must contain actual duplicate/native geometry within 500 bytes: " + message);
+            Require(line.GetPosition(0) == beforeStart, "Pointer evidence must preserve start");
+            Require(line.GetPosition(1) == beforeEnd, "Pointer evidence must preserve end");
+            Require(line.sharedMaterial == beforeMaterial && line.enabled, "Pointer evidence must preserve renderer");
+            Require(camera.projectionMatrix == beforeProjection, "Pointer evidence must preserve camera");
+            Debug.Log("PASS pointer observation: " + assertions + " assertions; native two-line census, baked geometry, gates, contexts, bounds and read-only state");
+        }
+        finally
+        {
+            Application.logMessageReceived -= capture;
+            Object.DestroyImmediate(peer.gameObject);
         }
     }
 

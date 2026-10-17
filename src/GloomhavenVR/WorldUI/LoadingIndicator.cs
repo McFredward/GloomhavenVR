@@ -830,6 +830,21 @@ internal sealed class LoadingIndicator
             // Shutdown/BuildVisual destroy it explicitly (mirrors the material bookkeeping).
             meshClone = clone;
         }
+        // B680 still shows the later native spinner but can lose its boot copy.
+        // Cached boot PNGs have identity UVs and keep Unity's shared Quad above;
+        // native trimmed sprites instead allocate a remapped mesh. Neither path
+        // guarantees the explicit COLOR input required by the Sprite program.
+        // Close the same primitive-upload boundary already repaired for Quest's
+        // screen and pointer, after retaining the exact atlas/pivot geometry.
+        // This never mutates the shared original or changes desktop identity.
+        MeshFilter filter = quad.GetComponent<MeshFilter>();
+        Mesh? uploaded = QuestPrimitiveMesh.Rebuild(filter.sharedMesh, "loading-" + name);
+        if (uploaded != null)
+        {
+            filter.sharedMesh = uploaded;
+            DestroyObj(ref meshClone);
+            meshClone = uploaded;
+        }
         Transform t = quad.transform;
         t.SetParent(_root!.transform, worldPositionStays: false);
         t.localPosition = new Vector3(0f, 0f, zOffset); // -z = toward the head (quad front faces the camera)
