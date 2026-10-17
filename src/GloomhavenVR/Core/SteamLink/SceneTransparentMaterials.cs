@@ -37,7 +37,7 @@ namespace GloomhavenVR.Core.SteamLink
         {
             internal Material Source = null!, Clone = null!;
             internal Shader Original = null!;
-            internal bool Dynamic, Current;
+            internal bool Dynamic, Current, Seen;
         }
 
         internal SceneTransparentMaterials(Func<string, Shader?> findVariant)
@@ -65,6 +65,7 @@ namespace GloomhavenVR.Core.SteamLink
             if (_depth != 0) { Reason = Refusal.DuringRender; return false; }
             Restore();
             _faulted = false; SkippedMaterials = 0; UnclassifiedSlots = 0;
+            foreach (Entry entry in _entries) entry.Seen = false;
             var admitted = new List<Renderer>();
             foreach (Renderer renderer in UnityEngine.Object.FindObjectsOfType<Renderer>())
             {
@@ -77,7 +78,9 @@ namespace GloomhavenVR.Core.SteamLink
                     Material source = Canonical(_slots[i]);
                     if (source == null || source.shader == null || !Known(source.shader.name, out bool dynamic))
                     { UnclassifiedSlots++; continue; }
-                    if (!_sources.TryGetValue(source, out Entry entry))
+                    if (_sources.TryGetValue(source, out Entry entry) && entry.Original != source.shader)
+                    { Retire(entry); entry = null!; }
+                    if (entry == null)
                     {
                         Shader? variant = _findVariant(source.shader.name);
                         if (variant == null || !variant.isSupported || variant.name != source.shader.name + Suffix)
@@ -88,11 +91,15 @@ namespace GloomhavenVR.Core.SteamLink
                         entry = new Entry { Source = source, Original = source.shader, Clone = clone, Dynamic = dynamic };
                         _sources.Add(source, entry); _clones.Add(clone, entry);
                     }
+                    entry.Seen = true;
                     found = true;
                 }
                 if (found) admitted.Add(renderer);
                 _slots.Clear();
             }
+            var retired = new List<Entry>();
+            foreach (Entry entry in _entries) if (!entry.Seen) retired.Add(entry);
+            foreach (Entry entry in retired) Retire(entry);
             _renderers = admitted.ToArray(); Reason = _head != null ? Refusal.None : Refusal.Disarmed;
             return true;
         }
@@ -186,15 +193,25 @@ namespace GloomhavenVR.Core.SteamLink
             // Public Unity GetSharedMaterials may grow its list ONCE on this
             // exceptional foreign shape change. Restore exact current slots,
             // preserve foreign writes and close this epoch until cold refresh.
-            Material[] current = _slots.ToArray(); bool changed = false;
-            for (int i = 0; i < current.Length; i++)
-            { Material source = Canonical(current[i]); changed |= source != current[i]; current[i] = source; }
-            if (changed) renderer.sharedMaterials = current;
+            bool changed = false;
+            for (int i = 0; i < _slots.Count; i++) changed |= Canonical(_slots[i]) != _slots[i];
+            if (changed)
+            {
+                Material[] current = _slots.ToArray();
+                for (int i = 0; i < current.Length; i++) current[i] = Canonical(current[i]);
+                renderer.sharedMaterials = current;
+            }
             _slots.Clear(); _faulted = true; Reason = Refusal.SlotOverflow;
         }
 
         private Material Canonical(Material material)
             => material != null && _clones.TryGetValue(material, out Entry entry) ? entry.Source : material;
+
+        private void Retire(Entry entry)
+        {
+            _sources.Remove(entry.Source); _clones.Remove(entry.Clone);
+            if (entry.Clone != null) UnityEngine.Object.Destroy(entry.Clone);
+        }
 
         // Only the audited dynamic source properties, never stale native bag
         // fields. Unknown/feedback blend modes remain the original material.
