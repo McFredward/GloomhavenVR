@@ -2836,6 +2836,63 @@
         "ci"
       ],
       "weight": 8
+    },
+    {
+      "id": "steamlink-loading-lifecycle",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-loading-lifecycle/run.py",
+        "--output",
+        ".planning/debug/steamlink-loading-lifecycle"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
+    },
+    {
+      "id": "steamlink-loading-source",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-loading-source/run.py",
+        "--output",
+        ".planning/debug/steamlink-loading-source"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "steamlink-window-edges",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-window-edges/run.py",
+        "--output",
+        ".planning/debug/steamlink-window-edges"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "steamlink-window-shadow",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-window-shadow/run.py",
+        "--output",
+        ".planning/debug/steamlink-window-shadow"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
     }
   ]
 }

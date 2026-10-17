@@ -12,9 +12,11 @@ namespace GloomhavenVR.Core.SteamLink;
 internal static class SteamLinkConnectionLifecycle
 {
     private static bool _watching;
-    private static Camera? _head;
     private static InputDevice _headDevice;
     private static bool _hasHeadDevice;
+
+    internal static bool Checking => _watching
+        && SteamLinkConnection.Current.State == SteamLinkConnection.Reason.Pending;
 
     internal static void Tick()
     {
@@ -35,13 +37,11 @@ internal static class SteamLinkConnectionLifecycle
             _hasHeadDevice = _headDevice.isValid;
             _watching = true;
         }
-        Camera? head = VRCameraPolicy.AllowedHead;
-        if (_head != head)
-        {
-            _head = head;
-            SteamLinkConnection.Invalidate();
-        }
-        SteamLinkConnection.Tick(head != null && head.isActiveAndEnabled, Time.unscaledTime);
+        // The XR session and connected HMD own this identity, not a scene's
+        // camera. Loading can disable, destroy or replace that camera without
+        // changing either device or transport. Query before the first camera
+        // appears and retain admission across those ordinary loading gaps.
+        SteamLinkConnection.Tick(true, Time.unscaledTime);
     }
 
     private static void DeviceChanged(InputDevice device)
@@ -63,7 +63,6 @@ internal static class SteamLinkConnectionLifecycle
             InputDevices.deviceConfigChanged -= DeviceChanged;
         }
         _watching = false;
-        _head = null;
         _headDevice = default;
         _hasHeadDevice = false;
         SteamLinkConnection.Reset();

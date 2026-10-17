@@ -12,6 +12,13 @@ internal static class MrBackingPaintedBounds
 {
     private static readonly List<Vector3> Vertices = new(128);
     private static readonly List<Color32> Colors = new(128);
+    private static readonly List<UnityEngine.UI.Shadow> Effects = new(4);
+    // Stock UI effects duplicate the existing vertices, with byte alpha and a
+    // constant local translation. Merge equal-alpha pieces: chains remain exact
+    // without exponential meshes, native rebuild callbacks, or a history union.
+    private static readonly Rect[] EffectRects = new Rect[256], NextEffectRects = new Rect[256];
+    private static readonly bool[] EffectUsed = new bool[256], NextEffectUsed = new bool[256];
+
 
     internal static bool TryMeasure(RectTransform host, Graphic? graphic, out Rect bounds,
                                     IReadOnlyDictionary<CanvasRenderer, float>? originalAlpha = null)
@@ -61,8 +68,71 @@ internal static class MrBackingPaintedBounds
             return false;
         // RawImage paints its complete adjusted rectangle. Sliced/tiled images and unknown
         // custom Graphics retain a conservative own rectangle; never substitute the panel host.
-        return RectBounds(draw, toHost, out bounds);
+        if (!RectBounds(draw, toHost, out bounds)) return false;
+        if (graphic is Image || graphic is RawImage)
+            IncludeImageEffects(graphic, toHost, ref bounds);
+        return true;
     }
+
+    private static void IncludeImageEffects(Graphic graphic, Matrix4x4 toHost, ref Rect bounds)
+    {
+        Effects.Clear();
+        graphic.GetComponents(Effects);
+        bool active = false;
+        for (int i = 0; i < Effects.Count; i++)
+            if (StockEffect(Effects[i])) { active = true; break; }
+        if (!active) { Effects.Clear(); return; } // Exact old drawing-rectangle path.
+
+        System.Array.Clear(EffectUsed, 0, EffectUsed.Length);
+        int originalAlpha = ((Color32)graphic.color).a;
+        EffectUsed[originalAlpha] = true;
+        EffectRects[originalAlpha] = bounds;
+        for (int i = 0; i < Effects.Count; i++)
+        {
+            UnityEngine.UI.Shadow effect = Effects[i];
+            if (!StockEffect(effect)) continue;
+            Vector2 distance = effect.effectDistance;
+            if (!Finite(distance.x) || !Finite(distance.y)) continue;
+            int effectAlpha = ((Color32)effect.effectColor).a;
+            System.Array.Copy(EffectUsed, NextEffectUsed, EffectUsed.Length);
+            System.Array.Copy(EffectRects, NextEffectRects, EffectRects.Length);
+            bool outline = effect.GetType() == typeof(UnityEngine.UI.Outline);
+            // Keep alpha-zero geometry between effects: a later stock shadow
+            // with useGraphicAlpha=false can make its translated copies visible.
+            for (int alpha = 0; alpha < EffectUsed.Length; alpha++)
+            {
+                if (!EffectUsed[alpha]) continue;
+                int nextAlpha = effect.useGraphicAlpha ? effectAlpha * alpha / 255 : effectAlpha;
+                AddEffectRect(nextAlpha, EffectRects[alpha], toHost, distance.x, distance.y);
+                if (!outline) continue;
+                AddEffectRect(nextAlpha, EffectRects[alpha], toHost, distance.x, -distance.y);
+                AddEffectRect(nextAlpha, EffectRects[alpha], toHost, -distance.x, distance.y);
+                AddEffectRect(nextAlpha, EffectRects[alpha], toHost, -distance.x, -distance.y);
+            }
+            System.Array.Copy(NextEffectUsed, EffectUsed, EffectUsed.Length);
+            System.Array.Copy(NextEffectRects, EffectRects, EffectRects.Length);
+        }
+        bool any = false;
+        for (int alpha = 1; alpha < EffectUsed.Length; alpha++)
+            if (EffectUsed[alpha]) { bounds = any ? Union(bounds, EffectRects[alpha]) : EffectRects[alpha]; any = true; }
+        Effects.Clear();
+    }
+
+    private static bool StockEffect(UnityEngine.UI.Shadow? effect) => effect != null && effect.isActiveAndEnabled
+        && (effect.GetType() == typeof(UnityEngine.UI.Shadow) || effect.GetType() == typeof(UnityEngine.UI.Outline));
+
+    private static void AddEffectRect(int alpha, Rect source, Matrix4x4 toHost, float x, float y)
+    {
+        Vector3 delta = toHost.MultiplyVector(new Vector3(x, y, 0));
+        if (!Finite(delta.x) || !Finite(delta.y)) return;
+        Rect shifted = new(source.position + new Vector2(delta.x, delta.y), source.size);
+        NextEffectRects[alpha] = NextEffectUsed[alpha] ? Union(NextEffectRects[alpha], shifted) : shifted;
+        NextEffectUsed[alpha] = true;
+    }
+
+    private static Rect Union(Rect a, Rect b) => Rect.MinMaxRect(Mathf.Min(a.xMin,b.xMin),
+        Mathf.Min(a.yMin,b.yMin),Mathf.Max(a.xMax,b.xMax),Mathf.Max(a.yMax,b.yMax));
+    private static bool Finite(float v) => !float.IsNaN(v) && !float.IsInfinity(v);
 
     private static bool MeshBounds(Mesh? mesh, Matrix4x4 toHost, out Rect bounds, out bool pendingGeometry)
     {

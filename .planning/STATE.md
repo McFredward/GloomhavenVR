@@ -1,5 +1,44 @@
 # State — where the project stands
 
+**Native Steam Link loading continuity and window effect bounds, 2026-10-17: Build694.**
+
+The maintainer confirms693 native MR works, then reports green flashes during
+loading and soft window edges. Connection admission incorrectly followed the
+temporary scene head camera. Retain a proven active-session/HMD identity across
+camera absence, disable/re-enable and replacement. Actual HMD events/session stop
+still invalidate, stale async results remain rejected, and an initial/reconnect
+identity check keeps ordinary output instead of flashing green. Normally closed
+scene-output resources reprepare; actual render faults keep their refusal.
+
+Focused lifecycle111 checks plus old-camera semantic mutant pass. Actual Unity
+presentation42 plus pending-key mutant pass. Whole SceneHeadOutput with real
+coverage/packing/material callbacks passes436 checks,11 renders/five resumes;
+the previous owner fails specifically at same-camera re-enable. Named XR/session
+ports are not real headset evidence. Source instrumentation1/1 is green.
+
+MR window geometry also now includes the actually visible stock Image/RawImage
+Shadow/Outline footprint instead of only the pre-modifier DrawingRect. Actual
+Unity meshes/raster prove4,032 visible pixels could extend past the former opaque
+backing in the large-shadow cases; the corrected bounds contain them. Preserve
+byte-alpha/component order, zero-alpha resurrection through later modifiers,
+native hide, aspect and clipping gates without native game mesh rebuilds or a
+new cadence. Actual geometry/raster16 cases plus focused aspect/zero-alpha25
+checks pass; the old path fails the exact shadow bound. PanelInk499 plus31
+mutations pass. These source fixes do not establish the specific693 Story cause.
+
+The rebuilt source coverage bank uses continuous spatial C1 interpolation with
+no extra reads/RTs. Actual GPU571 checks and clipping126 pass; constant glass,
+fades, materialisation and RGB remain covered. Measured average10–90% edge width
+only improves5.52%: DO NOT mark the reported window softness fully fixed.
+Stronger nearest/unsharp variants caused more moving-edge error and remain
+test-only. A clarification on narrow outer blur versus broad inner transparency
+is pending; current hardware logs are still691, not the successful693 run.
+See `.planning/STEAM-LINK-694-PRESENTATION.md` for scoped receipts/boundaries.
+
+Only this bounded694 repair is published over693, then merged into shared dev.
+The unfinished independent stereo catalogue stays local; its delivery advances
+to695+. No new receiver installation, Frame write or restart is required.
+
 **Observed Steam Frame / Steam Link profile admission, 2026-10-17: Build693.**
 
 New691/de978 PC hardware completes extraction, child launch and native public

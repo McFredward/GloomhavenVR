@@ -30,6 +30,7 @@ def main():
     assert codes==p['guard']['codes']
     assert 'p.y>=2400&&p.y<2432' in shader and 'p.x>=64' in shader
     assert 'linear_clamp_sampler' in shader and 'coverageCell(lo+1)' in shader
+    assert 'f=f*f*(3-2*f)' in shader  # Current spatial kernel, not an alpha threshold.
     assert 'scene(first/2048).a' in shader and 'scene((p-float2(32,352))/2048).rgb,1' in shader
     assert 'ReadPixels' not in (ROOT/'src/GloomhavenVR/Core/SteamLink/SceneEyeOutput.cs').read_text()
     # Historical and incorrect footer/profile literals cannot pass this guard.

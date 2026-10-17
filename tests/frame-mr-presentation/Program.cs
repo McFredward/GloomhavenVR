@@ -100,6 +100,14 @@ public static class FrameMrPresentationProgram
             Check(head.backgroundColor == Color.green && head.allowHDR,
                 "unsupported connection preserves chromakey and HDR");
             MixedReality.RestoreAll();
+
+            GloomhavenVR.Core.SteamLink.SteamLinkConnectionLifecycle.Checking = true;
+            MixedReality.Tick();
+            Check(head.backgroundColor == original && head.allowHDR && sky.enabled,
+                "initial identity query never selects the saved green key");
+            Check(!GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active,
+                "pending identity never publishes an unadmitted carrier");
+            GloomhavenVR.Core.SteamLink.SteamLinkConnectionLifecycle.Checking = false;
             GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = true;
 
             // Production Tick and the real source owner execute with settings
@@ -115,6 +123,17 @@ public static class FrameMrPresentationProgram
             Check(head.backgroundColor == Color.clear && !head.allowHDR && !sky.enabled,
                 "open settings uses transparent native-stream background");
             Check(MixedReality.BackingsWanted, "live settings retain MR readability backings");
+            GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = false;
+            GloomhavenVR.Core.SteamLink.SteamLinkConnectionLifecycle.Checking = true;
+            MixedReality.Tick();
+            Check(!offered.Ready && head.backgroundColor == original && sky.enabled,
+                "real HMD revalidation releases carrier without flashing chromakey");
+            GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = true;
+            GloomhavenVR.Core.SteamLink.SteamLinkConnectionLifecycle.Checking = false;
+            MixedReality.Tick();
+            offered = GloomhavenVR.Core.SteamLink.SceneHeadOutput.Last!;
+            Check(offered.IsOwned && head.backgroundColor == Color.clear,
+                "validated reconnect resumes native clear immediately");
             GloomhavenVR.WorldUI.VROptionsTab.IsOpen = false; MixedReality.Tick();
             GloomhavenVR.WorldUI.VROptionsTab.IsOpen = true; MixedReality.Tick();
             Check(ReferenceEquals(offered, GloomhavenVR.Core.SteamLink.SceneHeadOutput.Last)

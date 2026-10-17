@@ -13,6 +13,7 @@ namespace UnityEngine
         public bool enabled = true;
         public string name => gameObject.name;
         public T? GetComponent<T>() where T : Component => gameObject.GetComponent<T>();
+        public void GetComponents<T>(List<T> result) where T : Component => gameObject.GetComponents(result);
     }
     public class Transform : Component
     {
@@ -76,6 +77,9 @@ namespace UnityEngine
         { var component = new T { gameObject = this }; _components.Add(component); return component; }
         public T? GetComponent<T>() where T : Component
         { foreach (var item in _components) if (item is T result) return result; return null; }
+        public void GetComponents<T>(List<T> result) where T : Component
+        { result.Clear(); foreach (var item in _components) if (item is T value) result.Add(value); }
+
     }
     public class Renderer : Component { }
     public class Camera : Component { }
@@ -91,6 +95,8 @@ namespace UnityEngine
         private readonly Transform? _from, _to;
         public Matrix4x4(Transform? from,Transform? to) { _from=from;_to=to; }
         public static Matrix4x4 operator *(Matrix4x4 a,Matrix4x4 b) => new(b._from,a._to);
+        public Vector3 MultiplyVector(Vector3 value)
+        { Vector3 a=MultiplyPoint3x4(value),b=MultiplyPoint3x4(new Vector3(0,0,0));return new Vector3(a.x-b.x,a.y-b.y,a.z-b.z); }
         public Vector3 MultiplyPoint3x4(Vector3 value)
         {
             Vector3 world=_from==null ? value : _from.TransformPoint(value);
@@ -113,6 +119,9 @@ namespace UnityEngine
         public float height { get=>yMax-yMin; set=>yMax=yMin+value; }
         public float x { get=>xMin; set { float w=width;xMin=value;width=w; } }
         public float y { get=>yMin; set { float h=height;yMin=value;height=h; } }
+        public Vector2 position => new(xMin,yMin);
+        public Vector2 size => new(width,height);
+        public Rect(Vector2 position,Vector2 size):this(position.x,position.y,size.x,size.y){}
         public Rect(float x, float y, float w, float h) { xMin = x; yMin = y; xMax = x + w; yMax = y + h; }
         public static Rect MinMaxRect(float x, float y, float right, float top)
             => new Rect(x, y, right - x, top - y);
@@ -121,6 +130,7 @@ namespace UnityEngine
     {
         public float x, y;
         public Vector2(float a, float b) { x = a; y = b; }
+        public static Vector2 operator +(Vector2 a,Vector2 b)=>new(a.x+b.x,a.y+b.y);
         public static Vector2 Min(Vector2 a, Vector2 b) => new(Math.Min(a.x, b.x), Math.Min(a.y, b.y));
         public static Vector2 Max(Vector2 a, Vector2 b) => new(Math.Max(a.x, b.x), Math.Max(a.y, b.y));
     }
@@ -129,7 +139,7 @@ namespace UnityEngine
     public struct UIVertex { public Vector3 position;public Color32 color; }
     public class TextGenerator { public readonly List<UIVertex> verts=new(); }
     public struct Color { public float a; }
-    public struct Color32 { public byte a; }
+    public struct Color32 { public byte a; public static implicit operator Color32(Color value)=>new(){a=(byte)Math.Clamp((int)Math.Round(value.a*255),0,255)}; }
     public enum HideFlags { HideAndDontSave }
     public sealed class Mesh
     {
@@ -179,6 +189,14 @@ namespace UnityEngine.UI
         public UnityEngine.CanvasRenderer canvasRenderer = new();
     }
     public class RawImage : Graphic { }
+    public class Shadow : UnityEngine.Component
+    {
+        public bool isActiveAndEnabled => enabled && gameObject.activeInHierarchy;
+        public UnityEngine.Vector2 effectDistance;
+        public UnityEngine.Color effectColor=new(){a=.5f};
+        public bool useGraphicAlpha=true;
+    }
+    public class Outline : Shadow { }
     public class Image : Graphic
     {
         public enum Type { Simple,Sliced,Tiled,Filled }
