@@ -138,8 +138,11 @@ internal static class Program
         var click = image.gameObject.Components.OfType<StereoVideoCalibrationClick>().Single();
         click.OnPointerClick(new PointerEventData());
         Check(player.Stops == 0 && Near(group.alpha, 1f), "owned picture click begins fading before disposal");
+        // Closing is an owned UI action; loss of decoder preparation must not trap
+        // the last picture in front of the main menu while its close fade is pending.
+        player.isPrepared = false; player.texture = null; player.frame = -1;
         Time.unscaledTime = .225f; Tick();
-        Check(player.Stops == 0 && Near(group.alpha, .5f), "manual close fades on the shared update clock");
+        Check(player.Stops == 0 && Near(group.alpha, .5f), "manual close fades even if decoder loses preparation");
         Time.unscaledTime = .35f; Tick();
         Check(player.Stops == 1 && player.Destroyed && !player.gameObject.Active && image.Destroyed, "owned picture click stops and destroys calibration");
         Check(player.PreparedSubscribers == 0 && player.ErrorSubscribers == 0, "close detaches prepare and error callbacks");

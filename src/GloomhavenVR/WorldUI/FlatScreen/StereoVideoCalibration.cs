@@ -65,6 +65,9 @@ internal static class StereoVideoCalibration
                 return;
             }
             if (!_attempted) Start();
+            // A prepared picture owns its close action even if the decoder later
+            // loses its texture/frame. Never trap the menu behind a pending fade.
+            if (_closing) { TickFade(); return; }
             if (_player == null || !_player.isPrepared || _player.texture == null || _player.frame < 0) return;
             if (!StereoVideoCalibrationPolicy.ValidDimensions(_player.texture.width, _player.texture.height, _stereo))
             {
@@ -74,12 +77,7 @@ internal static class StereoVideoCalibration
             if (_image == null) BuildPicture(CanvasConversion.WorldCamera);
             if (_image != null) _image.texture = _player.texture;
             if (_caption != null) _caption.text = Loc.StereoVideoCalibrationClose;
-            if (_group != null)
-            {
-                float progress = Mathf.Clamp01((Time.unscaledTime - _phaseAt) / FadeSeconds);
-                _group.alpha = _closing ? _fadeFrom * (1f - progress) : progress;
-                if (_closing && progress >= 1f) Stop();
-            }
+            TickFade();
         }
         catch (Exception ex)
         {
@@ -185,6 +183,14 @@ internal static class StereoVideoCalibration
     }
 
     internal static bool OwnsClick(GameObject target) => _image != null && ReferenceEquals(_image.gameObject, target);
+
+    private static void TickFade()
+    {
+        if (_group == null) return;
+        float progress = Mathf.Clamp01((Time.unscaledTime - _phaseAt) / FadeSeconds);
+        _group.alpha = _closing ? _fadeFrom * (1f - progress) : progress;
+        if (_closing && progress >= 1f) Stop();
+    }
 
     internal static void RequestClose()
     {
