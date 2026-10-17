@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Approved VR intro in stereo, 2026-10-17: Build687 source.**
+**Approved VR intro in stereo, 2026-10-17: Build687.**
 
 The maintainer confirmed the685 chart test, then explicitly retired its film and
 menu action and requested the already replaced, currently flat **GloomhavenVR
@@ -42,7 +42,10 @@ warning reset. Inventory is225local/100CI/16source. Fresh final goldens pass
 with five decoded-per-eye aspect contracts; the initial300535/1 failure remains
 recorded. Strict final-candidate Release0W/0E and the compiled-form review use a
 private clean686 baseline; generic per-eye renderer/shader are byte-identical.
-This is not a new complete225-suite gate. Evidence is archived under
+The integrated dev tree also passes strict Debug and Release builds with zero
+warnings/errors, doc i18n and separate-output SHA checks for both real movies.
+Actual DLL resource inspection confirms no embedded video and the unchanged
+reviewed stereo shader. This is not a new complete225-suite gate. Evidence is archived under
 `.planning/debug/stereo-video-intro687/`.
 
 The combined source includes the independent visible686 Steam Link MR follow-up
