@@ -41,3 +41,14 @@ Referenced licence texts retrieved from the publishers on 2026-09-10:
 
 The mod's own GPL-3.0 licence is in ../LICENSE.txt. These separate notices do not
 change upstream terms or grant rights to the game, Unity, or the bundle's art.
+
+Valve OpenVR SDK 1.26.7 (unmodified public win64 openvr_api.dll, embedded in GloomhavenVR.dll)
+  Copyright (c) 2015, Valve Corporation; BSD-3-Clause.
+  https://github.com/ValveSoftware/openvr/tree/751538d6cbde9d060e5906c1d45c8cedeaf0ee18
+  Tag: v1.26.7; commit: 751538d6cbde9d060e5906c1d45c8cedeaf0ee18
+  bin/win64/openvr_api.dll: 826688 bytes
+  SHA256: 5e591aa3f4a991edcc8910921833edafa67a1b117849bbb4e235df9833bed7a3
+  LICENSE -> OpenVR-1.26.7-LICENSE.txt (verbatim)
+  The SDK application loader is distinct from installed SteamVR runtime/provider
+  binaries; none of those installed binaries is redistributed here.
+  Full immutable download and Git-blob pins: Assets/SteamLink/openvr-loader-provenance.json.

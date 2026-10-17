@@ -1,0 +1,39 @@
+{
+  "schema": "gloomhavenvr-openvr-loader-provenance-v1",
+  "component": "Valve OpenVR public application SDK loader",
+  "version": "1.26.7",
+  "scope": "Unmodified redistributable SDK loader; not a SteamVR runtime or device-provider binary.",
+  "upstream": {
+    "repository": "https://github.com/ValveSoftware/openvr",
+    "tag": "v1.26.7",
+    "tag_ref_url": "https://api.github.com/repos/ValveSoftware/openvr/git/ref/tags/v1.26.7",
+    "commit": "751538d6cbde9d060e5906c1d45c8cedeaf0ee18"
+  },
+  "artifact": {
+    "upstream_path": "bin/win64/openvr_api.dll",
+    "path": "openvr_api.dll",
+    "url": "https://raw.githubusercontent.com/ValveSoftware/openvr/751538d6cbde9d060e5906c1d45c8cedeaf0ee18/bin/win64/openvr_api.dll",
+    "bytes": 826688,
+    "sha256": "5e591aa3f4a991edcc8910921833edafa67a1b117849bbb4e235df9833bed7a3",
+    "git_blob_sha1": "9bcb28639e51a3ec22db8afc12475f7eb88d02c6",
+    "format": "PE32+ DLL",
+    "architecture": "AMD64",
+    "embedded_resource": "GloomhavenVR.SteamLink.openvr_api.dll",
+    "required_exports": [
+      "VR_InitInternal2",
+      "VR_GetGenericInterface",
+      "VR_ShutdownInternal"
+    ]
+  },
+  "license": {
+    "spdx": "BSD-3-Clause",
+    "copyright": "Copyright (c) 2015, Valve Corporation",
+    "upstream_path": "LICENSE",
+    "distribution_path": "packaging/licenses/OpenVR-1.26.7-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/ValveSoftware/openvr/751538d6cbde9d060e5906c1d45c8cedeaf0ee18/LICENSE",
+    "bytes": 1488,
+    "sha256": "f56ff606104d4ef18e617921a75c73ad73b5a1a1d70c69590c29de16919e04ad",
+    "git_blob_sha1": "ee83337d7fcb726d14cc10f7dd2fda6799d8a135"
+  },
+  "use": "Loaded only by the isolated background identity-reader process. No VR client initialization in the Unity game process."
+}
