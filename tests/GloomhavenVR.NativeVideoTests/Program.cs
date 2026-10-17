@@ -32,6 +32,7 @@ static class Program
     static void Main()
     {
         MovieResolutionTests.Run(Check);
+        MovieLibraryTests.Run(Check);
         CanvasConversion.WorldCamera = new GameObject("Head").AddComponent<Camera>();
         var owner = new GameObject("Native").AddComponent<VideoCamera>();
         owner.m_Camera = owner.gameObject.AddComponent<Camera>();
@@ -208,6 +209,7 @@ static class Program
                      "Heroes/Brute.mp4", "https://example.com/Heroes/Brute.mov", "CP_Intro/Other.mov", "Heroes/Brute.mov?x", "Heroes/Brute:secret.mov" })
             Check(!NativeVideoWindow.IsPlaybackKey(key), "non-native path rejected: " + key);
         StereoPresentation();
+        MovieReviewTests.Run(Check);
         Console.WriteLine($"Native video production harness: {_assertions} assertions passed.");
     }
 

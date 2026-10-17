@@ -2,8 +2,47 @@ using System;
 
 namespace GloomhavenVR.Net;
 
+/// <summary>Finite original subjects and explicit review aliases on unchanged72.</summary>
+internal static class VideoMovieKeys
+{
+    internal const string ReviewPrefix = "Review/";
+    private static readonly string[] Movies =
+    {
+        "CP_Intro/GH_CP_Intro.mov",
+        "Heroes/Doomstalker.mov", "Heroes/Soothsinger.mov", "Heroes/Berserker.mov",
+        "Heroes/Summoner.mov", "Heroes/BeastTyrant.mov", "Heroes/Quartermaster.mov",
+        "Heroes/Nightshroud.mov", "Heroes/Elementalist.mov", "Heroes/Sunkeeper.mov",
+        "Heroes/Sawbones.mov", "Heroes/Plagueherald.mov",
+        "Ambient/Ambient_03_Forest_01.mov", "Ambient/Ambient_Crypt_01.mov",
+        "Ambient/Amibient_07_Dungeon_01.mov", "Ambient/Ambient_05_Corpsewood_01.mov",
+        "Ambient/Ambient_06_Town_01.mov", "Ambient/Ambient_02_Cave_01.mov",
+        "Ambient/Ambient_04_Cave_02.mov",
+        "Embedded/TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.mov",
+    };
+    internal static int Count => Movies.Length;
+    internal static string GetKey(int index) => Movies[index];
+    internal static bool IsCanonical(string key) => Array.IndexOf(Movies, key) >= 0;
+    internal static string StereoKey(string canonical) => canonical == Movies[0]
+        ? "CP_Intro/GH_CP_Intro.sbs-v2.mov" : canonical.Substring(0, canonical.Length - 4) + ".sbs-v1.mov";
+    internal static bool TryUnwrapReview(string? key, out string selected)
+    {
+        selected = string.Empty;
+        if (string.IsNullOrEmpty(key) || key!.Length > 128 || !key.StartsWith(ReviewPrefix, StringComparison.Ordinal)) return false;
+        string underlying = key.Substring(ReviewPrefix.Length);
+        for (int i = 0; i < Movies.Length; i++)
+        {
+            if (underlying != Movies[i] && underlying != StereoKey(Movies[i])) continue;
+            selected = underlying;
+            return true;
+        }
+        return false;
+    }
+    internal static bool IsReview(string? key) => TryUnwrapReview(key, out _);
+    internal static string ReviewKey(string selected) => ReviewPrefix + selected;
+}
+
 /// <summary>Presentation only. Source tokens distinguish repeated plays of the same movie;
-/// mirrors publish a pose but never claim to be a native playback source.</summary>
+/// deliberate review originals use that same source contract; mirrors only publish a pose.</summary>
 internal struct VideoWindowState
 {
     public bool Native;
@@ -58,6 +97,7 @@ internal static class VideoWindowCodec
     {
         if (string.IsNullOrEmpty(clip) || clip!.Length > MaxClipBytes) return false;
         if (clip.IndexOf("..", StringComparison.Ordinal) >= 0) return false;
+        if (VideoMovieKeys.IsReview(clip)) return true;
         if (!clip.StartsWith("Heroes/", StringComparison.Ordinal)
             && !clip.StartsWith("CP_Intro/", StringComparison.Ordinal)
             && !clip.StartsWith("Ambient/", StringComparison.Ordinal)

@@ -89,6 +89,7 @@ PY
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$mutation_dir/NativeVideoWindow.fixture" \
         --property:MovieSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs" \
+        --property:MovieKeySource="$repo_root/src/GloomhavenVR/Net/VideoWindowState.cs" \
         --property:ReviewSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoReview.cs" \
         --property:EmbeddedSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeEmbeddedMoviePatches.cs" \
         --property:ChromeSweepSource="$sweep" \
@@ -116,11 +117,11 @@ source = pathlib.Path(sys.argv[1]).read_text()
 mutations = {
     'movie-interception': ('if (count != 1)', 'if (count != 0)'),
     'movie-exact-name': ('string canonical = requestedName + ".mov";', 'string canonical = IntroKey;'),
-    'movie-peer-resolution': ('if (key == IntroKey) return TryModMovie(IntroKey, out url);', 'if (key == IntroKey) return false;'),
+    'movie-peer-resolution': ('if (!IsPlaybackKey(key)) return false;\n        if (GloomhavenVR.Net.VideoMovieKeys.TryUnwrapReview(key, out string selected)) key = selected;', 'if (!IsPlaybackKey(key) || key == IntroKey) return false;\n        if (GloomhavenVR.Net.VideoMovieKeys.TryUnwrapReview(key, out string selected)) key = selected;'),
     'stereo-before-play': ('StereoVideoSurface.IsAvailable(out reason)', 'player.isPaused'),
     'stereo-version': ('if (IsCanonical(canonical)) return', 'if (key.StartsWith(IntroName + ".sbs-", StringComparison.Ordinal)) return true; if (IsCanonical(canonical)) return'),
-    'stereo-companion': ('if (IsStereoKey(key)) key = CanonicalKey(key);', 'if (IsStereoKey(key)) return false;'),
-    'stereo-no-native-substitution': ('if (IsStereoKey(key)) key = CanonicalKey(key);', 'if (IsStereoKey(key)) { string mono = CanonicalKey(key); key = mono == IntroKey && !TryModMovie(mono, out _) ? NativeIntroKey : mono; }'),
+    'stereo-companion': ('if (IsStereoKey(key))\n        {\n            key = CanonicalKey(key);\n            if (TryModMovie(key, out url)) return true;\n        }', 'if (IsStereoKey(key)) return false;'),
+    'stereo-no-native-substitution': ('if (IsStereoKey(key))\n        {\n            key = CanonicalKey(key);\n            if (TryModMovie(key, out url)) return true;\n        }', 'if (IsStereoKey(key)) { string mono = CanonicalKey(key); key = mono == IntroKey && !TryModMovie(mono, out _) ? NativeIntroKey : mono; }'),
     'stereo-no-peer-upgrade': ('if (TryModMovie(key, out url)) return true;', 'if (key == IntroKey && TryModMovie(StereoIntroKey, out url)) return true; if (TryModMovie(key, out url)) return true;'),
     'native-owner-identity': ('if (key == IntroKey) key = NativeIntroKey;', 'if (key == IntroKey) key = IntroKey;'),
     'native-no-peer-upgrade': ('if (key == NativeIntroKey) key = IntroKey;', 'if (key == NativeIntroKey) { if (TryModMovie(IntroKey, out url)) return true; key = IntroKey; }'),
@@ -146,6 +147,7 @@ PY
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$source_file" \
         --property:MovieSource="$mutation_dir/NativeVideoMovies.fixture" \
+        --property:MovieKeySource="$repo_root/src/GloomhavenVR/Net/VideoWindowState.cs" \
         --property:ReviewSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoReview.cs" \
         --property:EmbeddedSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeEmbeddedMoviePatches.cs" \
         --property:ChromeSweepSource="$mutation_dir/ChromeSweep.fixture" \
@@ -159,4 +161,59 @@ PY
         exit 1
     fi
     echo "Native movie negative control: $mutation rejected."
+done
+
+# Deliberate review originals have separate decoder ownership. Replay, queued callbacks,
+# native preparation and scene teardown must never inherit a native game continuation.
+for mutation in review-restart review-native review-stale review-scene review-timeout review-click; do
+    rm -rf "$mutation_dir/bin/Release/net8.0/Movies"
+    python3 - "$repo_root" "$mutation_dir" "$mutation" <<'PY'
+from pathlib import Path
+import sys
+root, out, mutation = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+review = (root / 'src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoReview.cs').read_text()
+window = (root / 'src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs').read_text()
+changes = {
+    'review-restart': ('if (Active) return Refuse(NativeVideoReviewFailure.AlreadyActive);', 'if (Active) Stop();'),
+    'review-native': ('if (NativeVideoWindow.NativePlaybackBusy) return Refuse(NativeVideoReviewFailure.NativeMovieActive);', 'if (NativeVideoWindow.NativePlaybackBusy && Time.unscaledTime < -100f) return Refuse(NativeVideoReviewFailure.NativeMovieActive);'),
+    'review-stale': ('if (!ReferenceEquals(player, _player) || player == null) return;', 'if (ReferenceEquals(player, null)) return;'),
+    'review-scene': ('VREvents.SceneLoaded += SceneLoaded;', '// scene hook deliberately omitted'),
+    'review-timeout': ('Time.unscaledTime - _startedAt > 30f', 'Time.unscaledTime - _startedAt > 300f'),
+}
+if mutation == 'review-click':
+    before = 'if (Visible && _shownSource != null && _shownSource == NativeVideoReview.Source)'
+    assert window.count(before) == 1
+    window = window.replace(before, 'if (Visible && Time.unscaledTime < -100f)')
+else:
+    before, after = changes[mutation]
+    assert review.count(before) == 1
+    review = review.replace(before, after)
+(out / 'Review.mutant').write_text(review)
+(out / 'ReviewWindow.mutant').write_text(window)
+PY
+    case "$mutation" in
+        review-restart) expected='active presses report refusal without interrupting or queuing another decoder' ;;
+        review-native) expected='active native movie rejects review without restarting its decoder' ;;
+        review-stale) expected='stale preparation callback cannot play old decoder or complete a replacement review' ;;
+        review-scene) expected='scene load cancels preparation before old callbacks can play' ;;
+        review-timeout) expected='bounded preparation timeout releases silent stuck decoder' ;;
+        review-click) expected='review picture click releases exact cosmetic source and ordinary window' ;;
+    esac
+    if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
+        --property:VideoSource="$mutation_dir/ReviewWindow.mutant" \
+        --property:MovieSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs" \
+        --property:MovieKeySource="$repo_root/src/GloomhavenVR/Net/VideoWindowState.cs" \
+        --property:ReviewSource="$mutation_dir/Review.mutant" \
+        --property:EmbeddedSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeEmbeddedMoviePatches.cs" \
+        --property:ChromeSweepSource="$mutation_dir/ChromeSweep.fixture" \
+        --property:PointerGuardSource="$mutation_dir/PointerGuard.fixture" > "$mutation_dir/review-mutant.log" 2>&1; then
+        cat "$mutation_dir/review-mutant.log"
+        echo "FAIL: review ownership mutation survived: $mutation" >&2
+        exit 1
+    fi
+    if ! rg -Fq "$expected" "$mutation_dir/review-mutant.log"; then
+        cat "$mutation_dir/review-mutant.log"
+        exit 1
+    fi
+    echo "Movie review negative control: $mutation rejected."
 done

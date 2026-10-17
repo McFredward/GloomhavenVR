@@ -8,7 +8,17 @@ namespace UnityEngine
     {
         public static readonly List<Object> Instances = new();
         public static T[] FindObjectsOfType<T>() => Instances.OfType<T>().ToArray();
-        public static void Destroy(Object o) { }
+        public bool Destroyed;
+        public static void Destroy(Object o)
+        {
+            o.Destroyed = true;
+            if (o is GameObject root) foreach (Component component in root.Components) component.Destroyed = true;
+        }
+        private static bool Null(Object? value) => ReferenceEquals(value, null) || value.Destroyed;
+        public static bool operator ==(Object? a, Object? b) => Null(a) && Null(b) || ReferenceEquals(a, b);
+        public static bool operator !=(Object? a, Object? b) => !(a == b);
+        public override bool Equals(object? other) => ReferenceEquals(this, other);
+        public override int GetHashCode() => base.GetHashCode();
         public static void DontDestroyOnLoad(Object o) { ((GameObject)o).Persistent = true; }
     }
     public class MonoBehaviour : Component { }
@@ -113,6 +123,7 @@ namespace UnityEngine.Video
         public int StopCalls, PrepareCalls;
         public void Prepare() { PrepareCalls++; }
         public void Prepared() { isPrepared = true; prepareCompleted?.Invoke(this); }
+        public Action CapturePrepared() { var queued = prepareCompleted; return () => { isPrepared = true; queued?.Invoke(this); }; }
         public void Ended() { isPlaying = false; loopPointReached?.Invoke(this); }
         public void Failed() => errorReceived?.Invoke(this, "injected failure");
         public void Stop() { StopCalls++; isPlaying = isPaused = false; }
@@ -290,8 +301,22 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 
 public static class AudioController { public static float GetGlobalVolume() => .8f; }
-public sealed class BackgroundView { private void Update() { } }
-public sealed class IntroPlayer { private void ShowVideo() { } }
+public sealed class BackgroundView
+{
+    public UnityEngine.Video.VideoPlayer Player = null!;
+    public string OriginalUrl = string.Empty;
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public void Update() { Player.url = OriginalUrl; Player.Play(); }
+}
+public sealed class IntroPlayer
+{
+    private readonly UnityEngine.Video.VideoPlayer _player;
+    public int TimerStarts;
+    public IntroPlayer(UnityEngine.Video.VideoPlayer player) { _player = player; }
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private void ShowVideo() { TimerStarts++; _player.Play(); }
+    public void Show() => ShowVideo();
+}
 public sealed class PromotionVideoHandler { public void PlayVideo() { } }
 namespace GloomhavenVR.Core.Events
 {
@@ -300,6 +325,32 @@ namespace GloomhavenVR.Core.Events
     {
         internal static event Action<SceneLoadedEvent>? SceneLoaded;
         internal static void LoadScene() => SceneLoaded?.Invoke(default);
+        internal static int SubscriberCount => SceneLoaded?.GetInvocationList().Length ?? 0;
     }
     internal static class VRModeStateMachine { internal static bool ScenarioBoardExists = true; }
+}
+
+namespace GloomhavenVR.Net
+{
+    internal struct RigPose { public UnityEngine.Vector3 Position { get; set; } public UnityEngine.Quaternion Rotation { get; set; } }
+    internal struct SharedWindowEntry { public uint ContentKey; public byte Flags, PoseStamp, SizeCode, Frame; public RigPose Pose; }
+    internal static class RemoteVideoPlayback
+    {
+        internal static bool CanCloseReview;
+        internal static int CloseCalls;
+        internal static bool RequestCloseReview(out string selected)
+        {
+            CloseCalls++; selected = "Review/Heroes/Summoner.sbs-v1.mov";
+            if (CanCloseReview) GloomhavenVR.WorldUI.NativeVideoWindow.SetRemoteSource(null);
+            return CanCloseReview;
+        }
+    }
+    internal static class NetProtocol { internal const byte ExtIdVideoWindow = 72, SharedPoseBit = 4, SharedFrameMax = 1, StorySizeMinCode = 1, StorySizeMaxCode = 255; }
+    internal static class AvatarSerializer
+    {
+        internal static void WriteU32(byte[] buffer, ref int i, uint value) => throw new NotSupportedException();
+        internal static uint ReadU32(byte[] buffer, ref int i) => throw new NotSupportedException();
+        internal static void WritePoseShared(byte[] buffer, ref int i, in RigPose pose) => throw new NotSupportedException();
+        internal static void ReadPoseShared(byte[] buffer, ref int i, out RigPose pose) => throw new NotSupportedException();
+    }
 }

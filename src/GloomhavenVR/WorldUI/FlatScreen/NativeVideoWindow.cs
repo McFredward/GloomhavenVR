@@ -141,6 +141,9 @@ internal static class NativeVideoWindow
 
     internal static void SetRemoteSource(VideoPlayer? player, string selectedKey = "")
     {
+        // The elected remote publication takes over before its decoder prepares.
+        // Review originals must not remain hidden/audible behind a genuine movie.
+        if (player != null) NativeVideoReview.CancelForNativePlayback();
         if (_remoteSource != player)
         {
             _remotePoseReady = false;
@@ -337,7 +340,7 @@ internal static class NativeVideoWindow
 
     internal static void CloseReview(VideoPlayer? player)
     {
-        if (player != null && _shownSource == player) Close();
+        if (!ReferenceEquals(player, null) && ReferenceEquals(_shownSource, player)) Close();
     }
 
     internal static void Shutdown()
@@ -351,6 +354,12 @@ internal static class NativeVideoWindow
 
     internal static bool TrySkipNativeMovie()
     {
+        if (Visible && _shownSource != null && _shownSource == _remoteSource
+            && GloomhavenVR.Net.VideoMovieKeys.IsReview(_remoteKey))
+        {
+            NativeVideoReview.RequestClose();
+            return _remoteSource == null;
+        }
         if (Visible && _shownSource != null && _shownSource == NativeVideoReview.Source)
         {
             NativeVideoReview.Stop();

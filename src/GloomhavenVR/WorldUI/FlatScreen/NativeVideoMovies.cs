@@ -18,28 +18,12 @@ internal static class NativeVideoMovies
     internal const string StereoIntroKey = IntroName + ".sbs-v2.mov";
     internal const string LegacyStereoIntroKey = IntroName + ".sbs-v1.mov";
     internal const string NativeIntroKey = IntroName + ".native.mov";
-    // These are the actual shipped originals, including the native misspelling Amibient.
-    // A canonical mono selection never upgrades on another machine. Only an explicit
-    // selected revision can resolve its SBS file, then its exact original left companion.
-    private static readonly string[] Movies =
-    {
-        IntroKey,
-        "Heroes/Doomstalker.mov", "Heroes/Soothsinger.mov", "Heroes/Berserker.mov",
-        "Heroes/Summoner.mov", "Heroes/BeastTyrant.mov", "Heroes/Quartermaster.mov",
-        "Heroes/Nightshroud.mov", "Heroes/Elementalist.mov", "Heroes/Sunkeeper.mov",
-        "Heroes/Sawbones.mov", "Heroes/Plagueherald.mov",
-        "Ambient/Ambient_03_Forest_01.mov", "Ambient/Ambient_Crypt_01.mov",
-        "Ambient/Amibient_07_Dungeon_01.mov", "Ambient/Ambient_05_Corpsewood_01.mov",
-        "Ambient/Ambient_06_Town_01.mov", "Ambient/Ambient_02_Cave_01.mov",
-        "Ambient/Ambient_04_Cave_02.mov",
-        "Embedded/TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.mov",
-    };
     private sealed class Selection { internal string Url = string.Empty, Key = string.Empty; }
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<VideoPlayer, Selection> Selections = new();
     private static bool _reportedReplacement;
     private static uint _introOpening, _opening;
-    internal static int Count => Movies.Length;
-    internal static string GetKey(int index) => Movies[index];
+    internal static int Count => GloomhavenVR.Net.VideoMovieKeys.Count;
+    internal static string GetKey(int index) => GloomhavenVR.Net.VideoMovieKeys.GetKey(index);
     private static readonly List<VideoPlayer> CameraPlanePlayers = new(3);
     internal static void RegisterCameraPlane(VideoPlayer player)
     {
@@ -67,18 +51,23 @@ internal static class NativeVideoMovies
 
     internal static string CanonicalKey(string? key)
     {
+        if (GloomhavenVR.Net.VideoMovieKeys.TryUnwrapReview(key, out string selected)) key = selected;
         if (key == NativeIntroKey || key == LegacyStereoIntroKey) return IntroKey;
         if (key == null) return string.Empty;
-        for (int i = 0; i < Movies.Length; i++)
-            if (key == StereoKey(Movies[i])) return Movies[i];
+        for (int i = 0; i < Count; i++)
+            if (key == StereoKey(GetKey(i))) return GetKey(i);
         return key;
     }
-    internal static bool SamePresentation(string? first, string? second) => CanonicalKey(first) == CanonicalKey(second);
-    internal static string StereoKey(string canonical) => canonical == IntroKey ? StereoIntroKey
-        : canonical.Substring(0, canonical.Length - 4) + ".sbs-v1.mov";
-    internal static bool IsCanonical(string key) => Array.IndexOf(Movies, key) >= 0;
-    internal static bool IsStereoKey(string? key) => !string.IsNullOrEmpty(key) && CanonicalKey(key) != key
-        && key != NativeIntroKey;
+    internal static bool SamePresentation(string? first, string? second) =>
+        GloomhavenVR.Net.VideoMovieKeys.IsReview(first) == GloomhavenVR.Net.VideoMovieKeys.IsReview(second)
+        && CanonicalKey(first) == CanonicalKey(second);
+    internal static string StereoKey(string canonical) => GloomhavenVR.Net.VideoMovieKeys.StereoKey(canonical);
+    internal static bool IsCanonical(string key) => GloomhavenVR.Net.VideoMovieKeys.IsCanonical(key);
+    internal static bool IsStereoKey(string? key)
+    {
+        if (GloomhavenVR.Net.VideoMovieKeys.TryUnwrapReview(key, out string selected)) key = selected;
+        return !string.IsNullOrEmpty(key) && CanonicalKey(key) != key && key != NativeIntroKey;
+    }
 
     internal static string NativePlaybackKey(VideoPlayer player)
     {
@@ -102,6 +91,7 @@ internal static class NativeVideoMovies
     internal static bool IsPlaybackKey(string key)
     {
         if (string.IsNullOrEmpty(key) || key.Length > 128) return false;
+        if (GloomhavenVR.Net.VideoMovieKeys.IsReview(key)) return true;
         string extension = Application.platform == RuntimePlatform.Switch ? ".mp4" : ".mov";
         if (!key.EndsWith(extension, StringComparison.Ordinal)) return false;
         string canonical = CanonicalKey(key);
@@ -122,7 +112,7 @@ internal static class NativeVideoMovies
     private static bool TryModMovie(string key, out string url)
     {
         url = string.Empty;
-        if (!IsPlaybackKey(key) || key == NativeIntroKey || Application.platform == RuntimePlatform.Switch) return false;
+        if (!IsPlaybackKey(key) || GloomhavenVR.Net.VideoMovieKeys.IsReview(key) || key == NativeIntroKey || Application.platform == RuntimePlatform.Switch) return false;
         string directory = Path.GetDirectoryName(typeof(NativeVideoMovies).Assembly.Location)!;
         string candidate = Path.Combine(directory, "Movies", key.Replace('/', Path.DirectorySeparatorChar));
         if (!File.Exists(candidate)) return false;
@@ -134,8 +124,13 @@ internal static class NativeVideoMovies
     {
         url = string.Empty;
         if (!IsPlaybackKey(key)) return false;
+        if (GloomhavenVR.Net.VideoMovieKeys.TryUnwrapReview(key, out string selected)) key = selected;
         if (TryModMovie(key, out url)) return true;
-        if (IsStereoKey(key)) key = CanonicalKey(key);
+        if (IsStereoKey(key))
+        {
+            key = CanonicalKey(key);
+            if (TryModMovie(key, out url)) return true;
+        }
         // The approved intro may only degrade to its approved original left picture.
         if (key == IntroKey) return TryModMovie(IntroKey, out url);
         if (key == NativeIntroKey) key = IntroKey;
@@ -233,8 +228,10 @@ internal static class NativeVideoMovies
                 if (TryModMovie(canonical, out string replacement)) { url = replacement; key = canonical; }
                 if (presentingVr)
                 {
-                    string token = intro ? "NATIVE INTRO STEREO FALLBACK" : "NATIVE MOVIE STEREO FALLBACK";
-                    VRLog.Warn("WorldUI", $"{token}: opening={_opening}, key={stereoKey}, resolved={key}, reason={reason}; native playback continues in 2D.");
+                    if (intro)
+                        VRLog.Warn("WorldUI", $"NATIVE INTRO STEREO FALLBACK: opening={_introOpening}, key={stereoKey}, resolved={key}, reason={reason}; native playback continues in 2D.");
+                    else
+                        VRLog.Warn("WorldUI", $"NATIVE MOVIE STEREO FALLBACK: opening={_opening}, key={stereoKey}, resolved={key}, reason={reason}; native playback continues in 2D.");
                 }
             }
             if (intro)

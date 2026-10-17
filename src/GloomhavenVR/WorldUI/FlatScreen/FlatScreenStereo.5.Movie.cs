@@ -49,8 +49,12 @@ internal sealed partial class FlatScreenStereo
             RenderTexture? previous = RenderTexture.active;
             try
             {
-                DrawMovieEye(valid ? texture : null, _rtLeftShifted, 0);
-                DrawMovieEye(valid ? texture : null, _rtRight, 1);
+                float alpha = Mathf.Clamp01(NativeMovieCameraPlane.PresentationAlpha(player));
+                // Startup's sole original camera is UI-classified and clears black.
+                // No background stack authors _leftRt there; never expose fresh RT data.
+                Texture? background = _introGuard ? null : _leftRt;
+                DrawMovieEye(valid ? texture : null, _rtLeftShifted, 0, alpha, background);
+                DrawMovieEye(valid ? texture : null, _rtRight, 1, alpha, background);
             }
             finally { RenderTexture.active = previous; }
         }
@@ -68,10 +72,11 @@ internal sealed partial class FlatScreenStereo
         return new Rect((width - fittedWidth) * .5f, (height - fittedHeight) * .5f, fittedWidth, fittedHeight);
     }
 
-    private static void DrawMovieEye(Texture? texture, RenderTexture target, int eye)
+    private static void DrawMovieEye(Texture? texture, RenderTexture target, int eye, float alpha = 1f, Texture? background = null)
     {
+        if (background != null) Graphics.Blit(background, target);
         RenderTexture.active = target;
-        GL.Clear(true, true, Color.black);
+        if (background == null) GL.Clear(true, true, Color.black);
         if (texture == null) return;
         Rect destination = MovieFrameRect(target.width, target.height,
             StereoVideoSurface.PerEyeAspect(texture.width, texture.height));
@@ -81,7 +86,9 @@ internal sealed partial class FlatScreenStereo
         try
         {
             GL.LoadPixelMatrix(0f, target.width, target.height, 0f);
-            Graphics.DrawTexture(destination, texture, source, 0, 0, 0, 0, Color.white);
+            // Unity's built-in GUI texture pass doubles the supplied vertex tint;
+            // its neutral value is 0.5, including alpha. White doubles movie RGB.
+            Graphics.DrawTexture(destination, texture, source, 0, 0, 0, 0, new Color(.5f, .5f, .5f, .5f * alpha));
         }
         finally { GL.PopMatrix(); }
     }

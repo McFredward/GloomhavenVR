@@ -26,6 +26,16 @@ internal static class NativeMovieCameraPlane
     }
     private static readonly Stack<Lease> Leases = new(4);
     private static int _frame = -1;
+    internal static float PresentationAlpha(VideoPlayer player)
+    {
+        float alpha = player.targetCameraAlpha;
+        if (alpha != 0f) return alpha; // Preserve a later native/foreign fade write.
+        // Stack enumeration visits inner to outer. The last matching lease is the
+        // real alpha before any nested render borrowed zero from this player.
+        foreach (Lease lease in Leases)
+            if (ReferenceEquals(lease.Player, player)) alpha = lease.Alpha;
+        return alpha;
+    }
     internal static void BeforeRender(Camera camera)
     {
         if (_frame != Time.frameCount) { RestoreAll(); _frame = Time.frameCount; }
