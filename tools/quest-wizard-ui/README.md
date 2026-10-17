@@ -124,6 +124,27 @@ recovery cache is available, the production interface shows the bundled publishe
 slideshow. The explicit design preview is labelled as a preview. Supporting
 the adapter does not imply that a backend with `artwork:false` serves an image.
 
+## Home navigation and active work
+
+The Home button stays in the persistent top navigation. Its observed height
+sets the artwork offset and scroll padding, including wrapped narrow layouts.
+There is one game/platform hero brand; local GitHub and support links sit below
+the artwork without loading external widgets.
+
+Initial discovery can recommend Mod Update when its bundled build is newer than
+the retained APK and its bounded local input check is ready. This is a metadata
+suggestion, not a fresh ownership/content validation or an online release check.
+Clicking the suggestion preselects its APK and PC installation; an already edited
+workflow keeps its choices when returning from Home. Actual Update retains the
+backend's normal validation and compatibility decisions.
+
+Home shows an active build, device operation, package export or storage task with
+its current measured progress and an explicit return to details. Navigation does
+not cancel, resume or restart work; existing polling continues on Home. A running
+session named only by discovery offers its details without reopening itself.
+Unknown progress remains indeterminate. Conflicting build choices stay disabled
+while a run is active.
+
 ## Selected mod source
 
 The ordinary release builds the mod source shipped inside the Builder ZIP,

@@ -67,6 +67,35 @@ function preparationLabels(language) {
   return result;
 }
 
+const homeActivityStrings = {
+  de: {
+    homeCheckingUpdate:'Vorhandenen Quest-Stand und enthaltene Mod-Version ermitteln …',
+    homeUpdateAvailable:'Aktualisierung verfügbar',
+    homeUpdateReady:'B{installed} → B{bundled} · APK und lokale Spielinhalte vorhanden',
+    homeWorkRunning:'Vorgang läuft',homeWorkCancelling:'Vorgang wird angehalten',
+    homeWorkContinues:'Die Arbeit läuft weiter, auch auf dieser Startseite.',
+    homeWorkDetails:'Fortschritt öffnen',homeWorkLoading:'Details des laufenden Vorgangs öffnen.',
+    homeWorkStage:'Aktueller Arbeitsschritt: {stage}',
+    homeWorkNotMeasured:'Fortschritt noch nicht gemeldet',
+    homeWorkProgress:'Fortschritt des aktuellen Arbeitsschritts',
+    homeWorkStorage:'Arbeitsordner bereinigen',homeWorkInventory:'Speicherbelegung ermitteln',
+    coffeeAction:'Unterstützen',
+  },
+  en: {
+    homeCheckingUpdate:'Finding the existing Quest result and included mod version …',
+    homeUpdateAvailable:'Update available',
+    homeUpdateReady:'B{installed} → B{bundled} · APK and local game content found',
+    homeWorkRunning:'Task running',homeWorkCancelling:'Stopping task',
+    homeWorkContinues:'Work continues while you are on this home page.',
+    homeWorkDetails:'Open progress',homeWorkLoading:'Open the active task for details.',
+    homeWorkStage:'Current step: {stage}',
+    homeWorkNotMeasured:'Progress not reported yet',
+    homeWorkProgress:'Progress of the current step',
+    homeWorkStorage:'Clean workspace',homeWorkInventory:'Measure disk usage',
+    coffeeAction:'Support',
+  },
+};
+
 const builderHomeStrings = {
   "de": {
     "home": "Startseite",
@@ -320,6 +349,7 @@ const runOverviewStrings={
 export const strings = {
   de: {
     ...builderHomeStrings.de,
+    ...homeActivityStrings.de,
     ...stoppedRunStrings.de,
     ...runOverviewStrings.de,
     installationContentTitle:'Installation wartet: Spielinhalte müssten erneut übertragen werden.',installationContentCopy:'Android kann die vorhandenen Spielinhalte nicht direkt verschieben. Spielstände und Einstellungen bleiben geschützt. Der Builder wartet auf deine Entscheidung.',installationContentNext:'Erlaube die erneute Übertragung oder behalte die aktuelle Quest-Installation. Ohne deine Zustimmung wird die App nicht deinstalliert.',installationContentSize:'Erneute Übertragung: {size}.',installationContentAllow:'Neuinstallation der Spielinhalte erlauben',
@@ -825,6 +855,7 @@ export const strings = {
   },
   en: {
     ...builderHomeStrings.en,
+    ...homeActivityStrings.en,
     ...stoppedRunStrings.en,
     ...runOverviewStrings.en,
     installationContentTitle:'Installation paused: game content would need to be transferred again.',installationContentCopy:'Android cannot move the existing game content directly. Saves and settings remain protected. The Builder is waiting for your decision.',installationContentNext:'Allow the new transfer or keep the current Quest installation. The app is not uninstalled without your approval.',installationContentSize:'New transfer: {size}.',installationContentAllow:'Allow reinstall of game content',

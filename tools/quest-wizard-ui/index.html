@@ -12,7 +12,7 @@
   <a class="skip" href="#workspace" data-i18n="skip">Zum Inhalt</a>
   <div class="shell">
     <header class="topbar">
-      <div class="brand"><img src="assets/gloomhavenvr-logo.png" alt="GloomhavenVR" width="280" height="53"></div>
+      <div class="top-navigation"><button id="home" class="nav-home" hidden><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20"><path d="m3 11 9-8 9 8M5 10v11h5v-7h4v7h5V10"/></svg><span data-i18n="home">Startseite</span></button><span class="builder-label">Quest Builder</span></div>
       <div class="top-actions"><button id="export-support" class="secondary" data-i18n="exportLogs" disabled>Logs exportieren</button><span class="local-tag"><span class="status-dot"></span><span data-i18n="local">Läuft auf deinem PC</span></span><div class="language" role="group" aria-label="Language / Sprache"><button data-language="de" aria-pressed="true">DE</button><button data-language="en" aria-pressed="false">EN</button></div></div>
     </header>
     <p id="support-status" class="support-status" role="status" hidden></p>
@@ -24,6 +24,7 @@
         <div class="gallery slideshow" id="gallery" aria-label="Spielbilder" data-i18n-aria="galleryLabel"><p class="gallery-placeholder" data-i18n="artReady">Offizielle Spielbilder werden geladen.</p></div>
         <div id="gallery-controls" class="gallery-controls" hidden><button id="gallery-previous" class="secondary" data-i18n-aria="galleryPrevious" aria-label="Vorheriges Bild">←</button><button id="gallery-pause" class="secondary" data-i18n="galleryPause">Diashow anhalten</button><button id="gallery-next" class="secondary" data-i18n-aria="galleryNext" aria-label="Nächstes Bild">→</button><span id="gallery-count"></span></div>
         <p class="gallery-note" id="gallery-note" data-i18n="artReady">Offizielle Spielbilder werden geladen.</p>
+        <nav class="project-links" data-i18n-aria="projectLinks" aria-label="Projektlinks"><a id="project-github" href="https://github.com/McFredward/GloomhavenVR" target="_blank" rel="noopener noreferrer" data-i18n-title="githubLink" title="GloomhavenVR auf GitHub" data-i18n-aria="githubLink" aria-label="GloomhavenVR auf GitHub"><img src="assets/github-mark.svg" alt="" width="24" height="24"><span>GitHub</span></a><a id="project-coffee" href="https://buymeacoffee.com/mcfredward" target="_blank" rel="noopener noreferrer" data-i18n-title="coffeeLink" title="McFredward auf Buy Me a Coffee unterstützen" data-i18n-aria="coffeeLink" aria-label="McFredward auf Buy Me a Coffee unterstützen"><img src="assets/buymeacoffee-cup.svg" alt="" width="22" height="30"><span data-i18n="coffeeAction">Unterstützen</span></a></nav>
       </aside>
       <section class="wizard" aria-label="Quest Builder">
         <nav class="steps" aria-label="Fortschritt / Progress"><ol id="steps"><li data-step="0" class="active" aria-current="step"><span>1</span><b data-i18n="stepGame">Spiel</b></li><li data-step="1"><span>2</span><b data-i18n="stepSetup">Einrichten</b></li><li data-step="2"><span>3</span><b data-i18n="stepBuild">Erstellen</b></li><li data-step="3"><span>4</span><b data-i18n="stepQuest">Quest</b></li></ol></nav>
@@ -31,9 +32,17 @@
           <section id="home-page" class="page">
             <p class="eyebrow" data-i18n="homeEyebrow">QUEST BUILDER</p><h2 id="home-title" data-i18n="homeTitle">Vorgang auswählen</h2>
             <p class="intro" data-i18n="homeIntro">Erstelle eine Quest-Version, aktualisiere eine vorhandene APK oder verwalte deine Quest-Verbindung.</p>
+            <section id="home-active" class="home-active-card" aria-labelledby="home-active-title" hidden>
+              <div class="home-active-heading"><span class="status-dot" aria-hidden="true"></span><strong id="home-active-status"></strong></div>
+              <h3 id="home-active-title"></h3><p id="home-active-detail"></p>
+              <div class="home-active-progress"><span id="home-active-phase"></span><strong id="home-active-percent"></strong></div>
+              <progress id="home-active-bar" max="100"></progress>
+              <div class="home-active-footer"><span id="home-active-note" data-i18n="homeWorkContinues">Die Arbeit läuft weiter, auch auf dieser Startseite.</span><button id="home-active-open" class="secondary" data-i18n="homeWorkDetails">Fortschritt öffnen</button></div>
+            </section>
+            <p id="home-update-status" class="home-update-status" role="status" data-i18n="homeCheckingUpdate">Vorhandenen Quest-Stand und enthaltene Mod-Version ermitteln …</p>
             <div class="home-actions">
               <button id="home-build" class="home-action" disabled><strong data-i18n="homeBuild">Neue Quest-Version erstellen</strong><span data-i18n="homeBuildCopy">Deine PC-Spielkopie mit der enthaltenen Mod-Version umwandeln.</span><b aria-hidden="true">→</b></button>
-              <button id="home-mod" class="home-action" disabled><strong data-i18n="homeMod">Mod in vorhandener APK aktualisieren</strong><span data-i18n="homeModCopy">Spielinhalte behalten und die enthaltene Mod-Version übernehmen.</span><b aria-hidden="true">→</b></button>
+              <button id="home-mod" class="home-action" disabled><span id="home-mod-badge" class="update-badge" data-i18n="homeUpdateAvailable" hidden>Aktualisierung verfügbar</span><strong data-i18n="homeMod">Mod in vorhandener APK aktualisieren</strong><span data-i18n="homeModCopy">Spielinhalte behalten und die enthaltene Mod-Version übernehmen.</span><span id="home-mod-recommendation" class="update-recommendation" hidden></span><b aria-hidden="true">→</b></button>
               <button id="home-profile" class="home-action" disabled><strong data-i18n="homeProfile">Spielername in APK ändern</strong><span data-i18n="homeProfileCopy">Profil ändern, ohne Spielinhalte erneut zu konvertieren.</span><b aria-hidden="true">→</b></button>
               <button id="home-export" class="home-action" disabled><strong data-i18n="homeExport">Quest-Paket exportieren</strong><span data-i18n="homeExportCopy">APK und alle Spielinhalte in einer ZIP-Datei speichern.</span><b aria-hidden="true">→</b></button>
               <button id="home-device" class="home-action" hidden><strong data-i18n="deviceTitle">Quest-Verbindung und Spielprotokolle</strong><span data-i18n="homeDeviceCopy">Quest verbinden und Protokolle eines Hardwaretests speichern.</span><b aria-hidden="true">→</b></button>
@@ -140,10 +149,10 @@
           </section>
           <div id="error-banner" class="error-banner" role="alert" hidden></div>
         </div>
-        <footer class="panel-footer"><button id="home" class="text-button" hidden data-i18n="home">Startseite</button><button id="back" class="text-button" hidden data-i18n="back">← Zurück</button><button id="cancel" class="text-button" hidden data-i18n="cancel">Anhalten</button><button id="new-build" class="text-button" hidden data-i18n="newBuild">Neuen Build einrichten</button><button id="primary" class="primary" disabled><span data-i18n="continue">Weiter zur Einrichtung</span><span aria-hidden="true">→</span></button></footer>
+        <footer class="panel-footer"><button id="back" class="text-button" hidden data-i18n="back">← Zurück</button><button id="cancel" class="text-button" hidden data-i18n="cancel">Anhalten</button><button id="new-build" class="text-button" hidden data-i18n="newBuild">Neuen Build einrichten</button><button id="primary" class="primary" disabled><span data-i18n="continue">Weiter zur Einrichtung</span><span aria-hidden="true">→</span></button></footer>
       </section>
     </main>
-    <footer class="site-footer"><span>GLOOMHAVENVR <span class="footer-separator">/</span> QUEST BUILDER</span><div class="footer-actions"><span data-i18n="footerHelp">Lokaler Builder für Quest Standalone</span><nav class="project-links" data-i18n-aria="projectLinks" aria-label="Projektlinks"><a id="project-github" href="https://github.com/McFredward/GloomhavenVR" target="_blank" rel="noopener noreferrer" data-i18n-title="githubLink" title="GloomhavenVR auf GitHub" data-i18n-aria="githubLink" aria-label="GloomhavenVR auf GitHub"><img src="assets/github-mark.svg" alt="" width="21" height="21"></a><a id="project-coffee" href="https://buymeacoffee.com/mcfredward" target="_blank" rel="noopener noreferrer" data-i18n-title="coffeeLink" title="McFredward auf Buy Me a Coffee unterstützen" data-i18n-aria="coffeeLink" aria-label="McFredward auf Buy Me a Coffee unterstützen"><img src="assets/buymeacoffee-cup.svg" alt="" width="19" height="27"></a></nav></div></footer>
+    <footer class="site-footer"><span>GLOOMHAVENVR <span class="footer-separator">/</span> QUEST BUILDER</span><div class="footer-actions"><span data-i18n="footerHelp">Lokaler Builder für Quest Standalone</span></div></footer>
   </div>
   <dialog id="install-restore-dialog" class="install-restore-dialog" aria-labelledby="install-restore-dialog-title" aria-describedby="install-restore-dialog-copy">
     <h2 id="install-restore-dialog-title"></h2><p id="install-restore-dialog-copy"></p>

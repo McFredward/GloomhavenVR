@@ -322,3 +322,45 @@ h2{font-size:23px}
 .install-restore-dialog[data-choice=reset-app-data]{border-color:var(--danger)}
 .install-restore-dialog[data-choice=reset-app-data] #install-restore-confirm{border-color:var(--danger);color:var(--danger)}
 #install-restore-dialog-error{color:var(--danger)}
+
+/* Home remains navigation, including while an independent task is running. */
+.top-navigation{display:flex;align-items:center;gap:20px;min-width:0}
+.builder-label{font-size:15px;letter-spacing:.025em;font-weight:600;color:#b8bec7;white-space:nowrap}
+.nav-home{display:inline-flex;align-items:center;justify-content:center;gap:9px;padding:12px 18px;background:#ffffff09;border:1px solid #626973;border-radius:9px;color:var(--text);font-size:14px;font-weight:600;min-height:46px;white-space:nowrap}
+.nav-home:hover{background:#d4ad6512;border-color:var(--gold)}
+.nav-home[aria-current=page]{border-color:#d4ad6566;color:var(--gold);background:#d4ad6508}
+.nav-home svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.home-update-status{font-size:12px;color:var(--muted);line-height:1.65;margin:0 0 16px}
+.home-action.recommended{border-color:var(--gold);background:linear-gradient(145deg,#d4ad6517,#d4ad6505);box-shadow:inset 0 0 0 1px #d4ad6522}
+.home-action.recommended:hover{background:#d4ad651c}
+.home-action>.update-badge{align-self:flex-start;padding:4px 7px;border-radius:5px;background:#d4ad6520;color:#ecd3a1;font-size:10px;font-weight:600;line-height:1.4}
+.home-action>.update-recommendation{color:#d7c39d;line-height:1.65}
+.home-active-card{margin:0 0 22px;padding:20px;border:1px solid #6e969d;border-radius:11px;background:linear-gradient(130deg,#345e692d,#345e690c);min-width:0}
+.home-active-heading{display:flex;gap:9px;align-items:center;color:#b9dfe1;font-size:11px;letter-spacing:.025em}
+.home-active-heading .status-dot{background:#9edcda;flex:none}
+.home-active-card h3{font-size:18px;line-height:1.45;margin:12px 0 7px;font-weight:600}
+.home-active-card>p{font-size:12px;line-height:1.65;color:#c4cdd3;margin:0 0 15px;overflow-wrap:anywhere}
+.home-active-progress{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:11px;line-height:1.6}
+.home-active-progress>span{color:#b0c4ca}
+.home-active-progress>strong{font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+#home-active-bar{display:block;width:100%;height:7px;accent-color:#9edcda;margin:9px 0 17px}
+.home-active-footer{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.home-active-footer>span{font-size:10px;line-height:1.65;color:#9db4bc}
+.home-active-footer>.secondary{flex-shrink:0;border-color:#8cbbc366;color:#d9f1f1}
+.project-links{gap:10px}
+.project-links a{display:flex;align-items:center;justify-content:center;gap:9px;width:auto;height:auto;min-height:46px;padding:9px 13px;border:1px solid #555d67;border-radius:9px;background:#ffffff06;text-decoration:none;color:#dfe3e8;font-size:12px;font-weight:600;white-space:nowrap}
+.project-links a:hover{border-color:#9ba5b0;background:#ffffff0d}
+#project-github img{opacity:.95}
+#project-coffee{border-color:#d4ad6570;background:#d4ad650a;color:#e2c488}
+#project-coffee:hover{border-color:var(--gold);background:#d4ad6515}
+@media(max-width:850px){.topbar{height:auto;min-height:90px;padding:16px 0;gap:15px;flex-wrap:wrap}.top-actions{margin-left:auto}.top-navigation{gap:15px}}
+@media(max-width:600px){.home-active-footer{align-items:flex-start;flex-direction:column}.home-active-footer>.secondary{min-height:42px}.top-actions{width:100%;justify-content:space-between}.top-navigation{width:100%;justify-content:space-between}.site-footer{gap:14px}.footer-actions{gap:12px}.nav-home{padding:11px 15px}}
+
+.topbar{position:sticky;top:0;z-index:30;background:#101214f2;backdrop-filter:blur(14px)}
+.adventure>.project-links{margin-top:16px;flex-wrap:wrap}
+
+html{scroll-padding-top:calc(var(--topbar-height,94px) + 16px)}
+.adventure{top:calc(var(--topbar-height,94px) + 24px)}
+.skip{z-index:40}
+
+.home-active-progress>.unmeasured{font-size:12px;white-space:normal;max-width:60%;text-align:right}

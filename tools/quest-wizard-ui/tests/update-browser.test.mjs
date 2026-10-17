@@ -227,15 +227,21 @@ for(const selectedStatus of ['complete','failed','running'])test('homepage resum
   const server=await ownedApkFixture({selectedStatus});let client;
   try{
     client=await browser();await client.command('Page.navigate',{url:server.url});
-    await client.wait("document.getElementById('home-mod')&&!document.getElementById('home-mod').disabled");
+    await client.wait("document.getElementById('home-page')&&!document.getElementById('home-page').hidden&&document.querySelector('#home-runs-list .run-row')");
+    assert.equal(await client.evaluate("document.getElementById('home-mod').disabled"),selectedStatus==='running','an active discovered task blocks a conflicting update');
     assert.equal(await client.evaluate("Boolean(document.querySelector('#home-runs-list .run-row:first-child [data-run-action=resume]'))"),selectedStatus==='failed');
     if(selectedStatus==='running'){
       await client.evaluate("document.querySelector('[data-language=de]').click()");
       assert.match(await client.evaluate("document.querySelector('#home-runs-list .run-row:first-child [data-run-action=open]').textContent"),/Laufenden Vorgang/);
     }
     assert.equal(server.requests.includes('/api/status'),false,'discovery metadata does not start/reopen any run');
-    await client.chooseHome('mod');
-    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.defaultApk,'completed APK metadata remains available independently');
+    if(selectedStatus==='running'){
+      assert.equal(await client.evaluate("document.getElementById('home-active').hidden"),false);
+      assert.equal(await client.evaluate("document.getElementById('home-active-open').disabled"),false);
+    }else{
+      await client.chooseHome('mod');
+      assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.defaultApk,'completed APK metadata remains available independently');
+    }
     assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
   }finally{try{await client?.close();}finally{await server.close();}}
  });

@@ -3,6 +3,12 @@ import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgres
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
+// The navigation height changes with language and narrow-screen wrapping. Keep
+// sticky artwork and focused headings clear without a guessed mobile offset.
+const topbar=document.querySelector('.topbar');
+const updateNavigationHeight=()=>document.documentElement.style.setProperty('--topbar-height',topbar.getBoundingClientRect().height+'px');
+const navigationObserver=new ResizeObserver(updateNavigationHeight);navigationObserver.observe(topbar);updateNavigationHeight();
+
 const preview = new URLSearchParams(location.search).get('preview') === '1';
 const fragment = location.hash.slice(1), token = fragment.startsWith('token=') ? new URLSearchParams(fragment).get('token') : fragment;
 const api = preview ? new PreviewApi() : new LocalApi(location.origin,token);
@@ -265,13 +271,77 @@ async function exportPackage(){
   try{const result=await api.packageExport(source,destination);if(result?.event!=='package'||!result.state)throw {code:'invalidReply'};packageInfo=result;}
   catch(value){error(value);}finally{packageBusy=false;updateView();schedulePackagePoll();}
 }
+function homeActiveWork(){
+  if(isActive(state)){
+    const progress=progressView(state),current=progress.active??progress.current,sub=stageProgress(current);
+    const measured=Number.isFinite(current?.progress?.stagePercent)||progress.percent>0;
+    return {kind:'build',session:state.session,status:state.status,
+      title:t({'update-mod':'homeMod','update-profile':'homeProfile'}[state.choices?.mode]??'homeBuild'),
+      phase:t('homeWorkStage',{stage:progress.phase?t('stage_'+progress.phase):t('working')}),
+      detail:[sub.phase?substepLabel(sub):'',typeof sub.detail==='string'?sub.detail:''].filter(Boolean).join(' · '),
+      percent:measured?progress.percent:null};
+  }
+  // Discovery may already name a task from another open tab. Display it without
+  // automatically reopening, resuming or replacing the selected workflow.
+  const running=normalRuns().find(row=>isActive(row));
+  if(running)return {kind:'build',session:running.session,status:running.status,
+    title:t({'update-mod':'homeMod','update-profile':'homeProfile'}[running.mode]??'homeBuild'),detail:t('homeWorkLoading'),phase:t('working'),percent:null};
+  if(deviceActive()){
+    const current=deviceInfo?.state??{},progress=current.progress??{},key='deviceStatus_'+current.status;
+    return {kind:'device',status:current.status,title:t('deviceTitle'),
+      phase:current.message?message(current.message):t(key)===key?t('working'):t(key),
+      detail:[typeof progress.label==='string'?progress.label:'',typeof current.activity?.detail==='string'?current.activity.detail:''].filter(Boolean).join(' · '),percent:progress.percent};
+  }
+  if(packageActive()){
+    const current=packageInfo?.state??{},progress=current.progress??{};
+    return {kind:'export',status:current.status,title:t('homeExport'),phase:t('package_status_exporting'),detail:typeof progress.detail==='string'?progress.detail:'',percent:progress.percent};
+  }
+  const inventory=storageInfo?.inventory??{},measuring=['scanning','cancelling'].includes(inventory.status);
+  if(storageActive()||measuring){
+    const current=storageActive()?storageInfo?.state??{}:inventory;
+    const phaseKey='storage_phase_'+current.phase;
+    const measured=current.phase==='cleanup-delete'&&Number.isFinite(current.done)&&Number.isFinite(current.total)&&current.total>0;
+    return {kind:'storage',status:current.status,title:t(measuring&&!storageActive()?'homeWorkInventory':'homeWorkStorage'),
+      phase:t(phaseKey)===phaseKey?t('working'):t(phaseKey),detail:storageCounters(current),percent:measured?100*current.done/current.total:null};
+  }
+  return null;
+}
+function renderHomeActivity(){
+  const work=homeActiveWork();$('home-active').hidden=!work;
+  if(!work)return;
+  $('home-active-status').textContent=t(['cancelling','cancel_requested'].includes(work.status)?'homeWorkCancelling':'homeWorkRunning');
+  $('home-active-title').textContent=work.title;$('home-active-detail').textContent=work.detail??'';$('home-active-detail').hidden=!work.detail;
+  $('home-active-phase').textContent=work.phase??'';
+  const measured=Number.isFinite(work.percent)&&work.percent>=0&&work.percent<=100;
+  $('home-active-percent').textContent=measured?t('phasePercent',{percent:percentText(work.percent)}):t('homeWorkNotMeasured');
+  $('home-active-percent').classList.toggle('unmeasured',!measured);
+  if(measured)$('home-active-bar').value=work.percent;else $('home-active-bar').removeAttribute('value');
+  $('home-active-bar').setAttribute('aria-label',t('homeWorkProgress'));
+  $('home-active-open').disabled=busy;
+}
+function openHomeActivity(){
+  const work=homeActiveWork();if(!work||busy)return;
+  if(work.kind==='build'){
+    if(state?.session===work.session){navigatePage(2,'progress-title');return;}
+    void openSession(work.session);return;
+  }
+  navigatePage(work.kind,{device:'device-title',export:'package-title',storage:'storage-title'}[work.kind]);
+}
 function renderHome(){
-  $('home-page').hidden=page!==-1;$('home').hidden=page===-1;$('home').disabled=busy;
+  $('home-page').hidden=page!==-1;$('home').hidden=false;$('home').disabled=busy;
+  if(page===-1)$('home').setAttribute('aria-current','page');else $('home').removeAttribute('aria-current');
+  const recommendation=discovery?.updateRecommendation;
+  const recommended=recommendation?.available===true&&recommendation?.inputsReady===true;
+  $('home-mod').classList.toggle('recommended',recommended);
+  $('home-mod-badge').hidden=!recommended;$('home-mod-recommendation').hidden=!recommended;
+  $('home-mod-recommendation').textContent=recommended?t('homeUpdateReady',{installed:recommendation.installedBuild,bundled:recommendation.bundledBuild}):'';
+  $('home-update-status').hidden=Boolean(discovery)||!busy;
+  renderHomeActivity();
   document.querySelector('.steps').hidden=typeof page!=='number'||page<0;
   $('home-device').hidden=discovery?.capabilities?.deviceTools!==true;
   $('home-storage').hidden=!storageInfo;
   for(const id of ['home-export','home-device','home-storage'])$(id).disabled=busy||!canConnect;
-  const locked=busy||storageActive()||deviceActive()||packageActive()||isActive(state)||!canConnect;
+  const locked=busy||storageActive()||deviceActive()||packageActive()||isActive(state)||normalRuns().some(isActive)||!canConnect;
   for(const id of ['home-build','home-mod','home-profile'])$(id).disabled=locked;
   const rows=normalRuns();$('home-runs').hidden=!rows.length&&!runsBusy&&!runsFailure;
   $('home-runs-refresh').disabled=busy||runsBusy||storageActive();
@@ -1362,7 +1432,22 @@ $('update-rebuild-confirm').addEventListener('click',confirmUpdateRebuild);
 $('update-rebuild-cancel').addEventListener('click',closeUpdateRebuildDialog);
 $('update-rebuild-dialog').addEventListener('cancel',closeUpdateRebuildDialog);
 $('home-build').addEventListener('click',()=>beginBuild());
-$('home-mod').addEventListener('click',()=>beginBuild('update-mod'));
+function beginModUpdate(){
+  const firstSelection=workflowMode!=='update-mod'||state?.status==='complete',explicit=previousApkSelection().explicit;
+  beginBuild('update-mod');
+  const recommendation=discovery?.updateRecommendation;
+  // Apply the qualified suggestion only when opening a fresh update workflow.
+  // Returning from Home keeps an already edited workflow and manual overrides.
+  if(!firstSelection||explicit||page!==0||workflowMode!=='update-mod'||recommendation?.available!==true||recommendation?.inputsReady!==true)return;
+  if(typeof recommendation.apkPath==='string'&&recommendation.apkPath){$('base-apk').value=recommendation.apkPath;automaticBaseApk=recommendation.apkPath;}
+  if(typeof recommendation.gameRoot==='string'&&recommendation.gameRoot){
+    const game=discovery.games?.find(row=>row.gameRoot===recommendation.gameRoot);
+    if(game)selectGame(game);
+    else{$('game-root').value=recommendation.gameRoot;selected=null;renderGames();}
+  }
+  updateView();
+}
+$('home-mod').addEventListener('click',beginModUpdate);
 $('home-profile').addEventListener('click',()=>beginBuild('update-profile'));
 $('home-device').addEventListener('click',()=>navigatePage('device','device-title'));
 $('home-storage').addEventListener('click',()=>openStorage());
@@ -1373,6 +1458,7 @@ $('package-source').addEventListener('input',()=>{automaticPackageSource='';upda
 $('package-export').addEventListener('click',exportPackage);
 $('package-cancel').addEventListener('click',async()=>{try{packageInfo=await api.packageCancel();}catch(value){error(value);}finally{updateView();schedulePackagePoll();}});
 $('home').addEventListener('click',()=>navigatePage(-1,'home-title'));
+$('home-active-open').addEventListener('click',openHomeActivity);
 $('device-connect').addEventListener('click',()=>deviceOperation('connect'));
 $('device-wireless').addEventListener('click',()=>deviceOperation('wireless'));
 $('device-start').addEventListener('click',()=>deviceOperation('start'));
@@ -1428,7 +1514,7 @@ $('browse-apk').addEventListener('click',()=>browse('apk'));$('build-mode').addE
 $('cancel').addEventListener('click',async()=>{busy=true;updateView();try{await api.cancel(state.session);const result=await api.status(state.session);state=result.state;schedulePoll();}catch(value){error(value);}finally{busy=false;updateView();}});
 $('game-root').addEventListener('input',()=>{selected=null;resetArtwork();updateView();});$('provider').addEventListener('change',()=>{selected=null;resetArtwork();updateView();});$('profile-name').addEventListener('input',updateView);
 $('declare-dlc').addEventListener('change',()=>{$('dlc-declaration').hidden=!$('declare-dlc').checked;});
-window.addEventListener('beforeunload',()=>{clearTimeout(packagePollTimer);clearTimeout(devicePollTimer);clearTimeout(storagePollTimer);clearTimeout(pollTimer);clearTimeout(slideTimer);clearTimeout(artPollTimer);stopOptionalReads();blobUrls.forEach(url=>URL.revokeObjectURL(url));});
+window.addEventListener('beforeunload',()=>{navigationObserver.disconnect();clearTimeout(packagePollTimer);clearTimeout(devicePollTimer);clearTimeout(storagePollTimer);clearTimeout(pollTimer);clearTimeout(slideTimer);clearTimeout(artPollTimer);stopOptionalReads();blobUrls.forEach(url=>URL.revokeObjectURL(url));});
 $('preview-notice').hidden=!preview;setLanguage(language);
 if(canConnect){pollGallery();void refreshStorage();}
 busy=true;updateView();

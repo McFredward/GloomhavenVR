@@ -252,7 +252,10 @@ test('device runner starts normally by default and exposes debugger wait only as
     assert.equal(await client.evaluate("document.getElementById('device-card').hidden"),true);
     assert.equal(server.requests.some(row=>['/api/run','/api/plan'].includes(row.path)),false);
     assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
-    await client.command('Page.reload');await client.chooseHome('device');
+    // Page.reload acknowledges before committing the new document. Do not
+    // activate controls from the old Home DOM while it is being discarded.
+    await client.evaluate('window.__questPreviousDocument=true');
+    await client.command('Page.reload');await client.wait('window.__questPreviousDocument!==true');await client.chooseHome('device');
     assert.equal(await client.evaluate("document.getElementById('device-wait-debugger').checked"),false,'debug mode is not persisted');
   }finally{try{await client?.close();}finally{await server.close();}}
  });
