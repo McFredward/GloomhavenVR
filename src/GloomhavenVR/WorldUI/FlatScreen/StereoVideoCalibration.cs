@@ -13,7 +13,10 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>
 /// Opt-in calibration before converting actual films. The maintainer accepted the trailer
 /// agent's staged plan on 2026-10-17: establish eye routing first, then judge a conversion pilot
-/// in the headset. This owns an independent, silent decoder and a fixed menu-only canvas.
+/// in the headset. The subsequent Build683 logs confirm the argv was recognized but the
+/// separate movie was missing. The maintainer now requests an Advanced-menu button instead:
+/// each deliberate press can start a fresh attempt after closing or repairing an installation.
+/// This owns an independent, silent decoder and a fixed menu-only canvas.
 /// Never redirect a native player or impersonate a native/shared movie: its completion, skip,
 /// audio and network clocks remain untouched. The normal launch does not load the shader or
 /// look for calibration media. No inference or conversion is performed by the runtime.
@@ -21,11 +24,11 @@ namespace GloomhavenVR.WorldUI;
 internal static class StereoVideoCalibration
 {
     private const float FadeSeconds = 0.15f;
-    private static bool _checkedArguments;
     private static bool _requested;
     private static bool _attempted;
-    private static bool _finished;
     private static bool _stereo;
+    private enum State { Idle, Preparing, Playing, Closed, Unavailable, MissingMovie, Failed }
+    private static State _state;
     private static GameObject? _root;
     private static VideoPlayer? _player;
     private static Canvas? _canvas;
@@ -37,14 +40,50 @@ internal static class StereoVideoCalibration
     private static TextMeshProUGUI? _caption;
     private static StereoVideoSurface? _surface;
 
+    internal static string Status => _state switch
+    {
+        State.Preparing => Loc.StereoVideoCalibrationPreparing,
+        State.Playing => _stereo ? Loc.StereoVideoCalibrationPlaying : Loc.StereoVideoCalibrationMono,
+        State.Closed => Loc.StereoVideoCalibrationClosed,
+        State.Unavailable => Loc.StereoVideoCalibrationUnavailable,
+        State.MissingMovie => Loc.StereoVideoCalibrationMissingMovie,
+        State.Failed => Loc.StereoVideoCalibrationFailed,
+        _ => Loc.StereoVideoCalibrationReady,
+    };
+
+    internal static void RequestStart()
+    {
+        // A second press during preparation/playback must not create another decoder or
+        // move an existing picture. Only a completed/failed attempt can be deliberately retried.
+        if (_requested) return;
+        try
+        {
+            if (!Allowed() || CanvasConversion.WorldCamera == null)
+            {
+                _state = State.Unavailable;
+                VRLog.Alert("WorldUI", "STEREO VIDEO CALIBRATION: menu request refused; requires VR in the offline main menu.");
+                return;
+            }
+            _attempted = false;
+            _requested = true;
+            _state = State.Preparing;
+        }
+        catch (Exception ex)
+        {
+            Refuse("menu request stopped after " + ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    private static bool Allowed()
+    {
+        string scene = SceneController.Instance != null ? SceneController.Instance.GetCurrentSceneName : string.Empty;
+        return StereoVideoCalibrationPolicy.Allowed(VRSession.IsRunning,
+            WorldUIConfig.ConversionActive, scene, FFSNetwork.IsOnline);
+    }
+
     internal static void Tick()
     {
-        if (!_checkedArguments)
-        {
-            _checkedArguments = true;
-            _requested = StereoVideoCalibrationPolicy.Requested(Environment.GetCommandLineArgs());
-        }
-        if (!_requested || _finished) return;
+        if (!_requested) return;
         // Unity scene teardown can destroy the root before the next world-UI tick. Its
         // managed surface still owns the camera callback/material and must be disposed.
         if (_attempted && (_root == null || _player == null))
@@ -56,12 +95,10 @@ internal static class StereoVideoCalibration
         {
             // The main menu is identified by its actual native scene, not the persistent
             // Gloomhaven_unified scene. Fail closed if session or scene ownership is unknown.
-            string scene = SceneController.Instance != null ? SceneController.Instance.GetCurrentSceneName : string.Empty;
-            bool allowed = StereoVideoCalibrationPolicy.Allowed(VRSession.IsRunning,
-                WorldUIConfig.ConversionActive, scene, FFSNetwork.IsOnline);
-            if (!allowed || CanvasConversion.WorldCamera == null)
+            if (!Allowed() || CanvasConversion.WorldCamera == null)
             {
-                if (_root != null) Stop();
+                Stop();
+                _state = State.Unavailable;
                 return;
             }
             if (!_attempted) Start();
@@ -93,7 +130,7 @@ internal static class StereoVideoCalibration
         string path = StereoVideoCalibrationPolicy.MoviePath(directory, _stereo);
         if (!File.Exists(path))
         {
-            Refuse("calibration movie missing: " + path);
+            Refuse("calibration movie missing: " + path, State.MissingMovie);
             return;
         }
         if (!_stereo) VRLog.Alert("WorldUI", "STEREO VIDEO CALIBRATION: using the mono companion; " + reason);
@@ -171,15 +208,17 @@ internal static class StereoVideoCalibration
         host.transform.localScale = Vector3.one * (1.2f * scale / 1280f);
         VRLayers.Apply(host);
         UguiPokeSurfaces.Register(_canvas);
+        _state = State.Playing;
         VRLog.Note("WorldUI", "STEREO VIDEO CALIBRATION: prepared picture is 1.2m wide at 1.6m; "
             + "eye labels and frame codes require headset review. This is not converted game footage.");
     }
 
-    private static void Refuse(string reason)
+    private static void Refuse(string reason, State state = State.Failed)
     {
         _attempted = true;
         VRLog.Alert("WorldUI", "STEREO VIDEO CALIBRATION: " + reason);
         Stop();
+        _state = state;
     }
 
     internal static bool OwnsClick(GameObject target) => _image != null && ReferenceEquals(_image.gameObject, target);
@@ -202,7 +241,9 @@ internal static class StereoVideoCalibration
 
     internal static void Stop()
     {
-        if (_attempted) _finished = true;
+        if (_requested || _attempted) _state = State.Closed;
+        _requested = false;
+        _attempted = false;
         _surface?.Dispose();
         _surface = null;
         if (_canvas != null) UguiPokeSurfaces.Unregister(_canvas);

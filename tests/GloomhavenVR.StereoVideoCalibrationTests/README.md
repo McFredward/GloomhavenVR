@@ -17,19 +17,19 @@ This is a source binding check, separate from executing the calibration owner.
 The small API substitutes model Unity object lifetime (including destroyed
 objects comparing equal to null), GameObjects, native menu/session state,
 `File.Exists`, decoder events, a surface attachment and pointer registration.
-`Environment.GetCommandLineArgs` and the assembly-relative movie path are real.
-Each command-line case runs in a fresh process. Reflection resets private static
+The assembly-relative movie path is real. Each legacy command-line token case
+runs in a fresh process and must stay inert until the explicit menu request. Reflection resets private static
 owner fields only between independent lifecycle cases within that process.
 The surface itself is substituted, so no GPU/eye-routing proof is claimed.
 
-The cases cover normal launch doing no file/shader/decoder work, strict argv
-matching, offline VR/native-menu gates (including `MainMenu_gamepad`), first
+The cases cover normal launch and legacy argv doing no file/shader/decoder work,
+explicit repeatable menu requests, live localized status, offline VR/native-menu gates (including `MainMenu_gamepad`), first
 prepared texture/frame and exact dimensions, the mono companion fallback,
-single start, exact picture click ownership, English/German close hints, fixed
+single active decoder, explicit restart after close or failure, exact picture click ownership, English/German close hints, fixed
 window pose/aspect, errors, repeated close, shutdown before/after an attempt,
 opening/manual-closing alpha transitions on the shared update clock,
 scene or session loss, external root/player destruction, stale queued callbacks
-and untouched native players. Source mutations must fail at their named causal
+callbacks from an earlier attempt after a new request, and untouched native players. Source mutations must fail at their named causal
 assertion; compilation errors and unrelated failures never count as detections.
 
 The fake-null stale-callback case reproduced a real defect in the first owner:
