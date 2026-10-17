@@ -105,12 +105,12 @@ internal static class StereoVideoCalibration
 
     private static void Prepared(VideoPlayer player)
     {
-        if (player == _player) player.Play();
+        if (_player != null && player != null && ReferenceEquals(player, _player)) player.Play();
     }
 
     private static void Failed(VideoPlayer player, string reason)
     {
-        if (player == _player) Refuse("decoder error: " + reason);
+        if (_player != null && player != null && ReferenceEquals(player, _player)) Refuse("decoder error: " + reason);
     }
 
     private static void BuildPicture(Camera head)
