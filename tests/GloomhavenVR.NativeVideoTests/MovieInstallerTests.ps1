@@ -10,7 +10,7 @@ $errors = $null
 [void][System.Management.Automation.Language.Parser]::ParseFile($Installer, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
 $source = [IO.File]::ReadAllText($Installer)
-$start = $source.IndexOf('$introMovie = Join-Path $root ')
+$start = $source.IndexOf('$movieSourceRoot = Join-Path $root ')
 $end = $source.IndexOf('# Prepared native figure derivatives', $start)
 if ($start -lt 0 -or $end -le $start) { throw 'Native movie preflight not found.' }
 $preflight = [scriptblock]::Create($source.Substring($start, $end - $start))
@@ -18,10 +18,11 @@ $start = $source.IndexOf('# --- 7. deploy into the game ')
 $end = $source.IndexOf('# Text files a Windows user double-clicks:', $start)
 if ($start -lt 0 -or $end -le $start) { throw 'Native installer deployment block not found.' }
 $deploy = [scriptblock]::Create($source.Substring($start, $end - $start))
-$movieKeys = @('CP_Intro/GH_CP_Intro.mov', 'CP_Intro/GH_CP_Intro.sbs-v1.mov')
-foreach ($key in $movieKeys) {
-    Check ($source.Contains('"BepInEx/plugins/GloomhavenVR/Movies/' + $key + '",')) ('Windows ZIP requires movie: ' + $key)
-}
+$movieKeys = @(Get-Content -LiteralPath (Join-Path $Fixture 'packaging/movie-files.txt') -Encoding UTF8 |
+    Where-Object { $_ -and -not $_.StartsWith('#') })
+Check ($movieKeys.Count -eq 22) 'Complete22-file delivery set reaches actual installer fixture'
+Check ($source.Contains('$required += @($moviePaths | ForEach-Object { "BepInEx/plugins/GloomhavenVR/Movies/" + $_ })')) `
+    'Windows ZIP validator requires every exact manifest movie'
 $start = $source.IndexOf('$script:Utf8Strict =')
 $end = $source.IndexOf('. (Join-Path $PSScriptRoot "frame-archive.ps1")', $start)
 if ($start -lt 0 -or $end -le $start) { throw 'Native archive text helpers not found.' }
@@ -41,7 +42,7 @@ $GamePath = Join-Path $root 'game'
 $nativeGameMovie = Join-Path $GamePath 'Gloomhaven_Data/StreamingAssets/Movies/CP_Intro/GH_CP_Intro.mov'
 New-Item -ItemType Directory -Force -Path (Split-Path $nativeGameMovie) | Out-Null
 [IO.File]::WriteAllText($nativeGameMovie, 'original game movie must remain unchanged')
-$retiredKeys = @('Calibration/calibration-sbs.mp4', 'Calibration/calibration-mono.mp4')
+$retiredKeys = @('Calibration/calibration-sbs.mp4', 'Calibration/calibration-mono.mp4', 'CP_Intro/GH_CP_Intro.sbs-v1.mov')
 $foreignKeys = @('Calibration/keep-custom.mp4', 'Calibration/provenance.json', 'Custom/keep.mov')
 foreach ($key in @($retiredKeys + $foreignKeys)) {
     $path = Join-Path $GamePath ('BepInEx/plugins/GloomhavenVR/Movies/' + $key)
@@ -76,10 +77,10 @@ foreach ($Configuration in @('Debug', 'Release')) {
         }
     }
 }
-$savedStereo = $stereoIntroMovie
-$stereoIntroMovie = Join-Path $root 'missing-during-copy.mov'
+$savedSourceRoot = $movieSourceRoot
+$movieSourceRoot = Join-Path $root 'missing-during-copy'
 $copyRejected = $false
-try { . $deploy } catch { $copyRejected = $true } finally { $stereoIntroMovie = $savedStereo }
+try { . $deploy } catch { $copyRejected = $true } finally { $movieSourceRoot = $savedSourceRoot }
 Check $copyRejected 'Actual deployment rejects a missing copy input'
 foreach ($key in $retiredKeys) {
     Check (Test-Path -LiteralPath (Join-Path $pluginDir ('Movies/' + $key)) -PathType Leaf) `
@@ -124,7 +125,7 @@ foreach ($key in $movieKeys) {
     Remove-Item -LiteralPath $path
     $rejected = $false
     try { . $preflight } catch {
-        if (-not $_.Exception.Message.Contains('Missing approved campaign intro') -and -not $_.Exception.Message.Contains('Missing stereo campaign intro')) { throw }
+        if (-not $_.Exception.Message.Contains('Missing required movie')) { throw }
         $rejected = $true
     } finally { [IO.File]::WriteAllBytes($path, $saved) }
     Check $rejected ('Missing source rejects installation: ' + $key)
@@ -159,4 +160,4 @@ foreach ($key in $foreignKeys) {
     Check ([IO.File]::ReadAllText((Join-Path $pluginDir ('Movies/' + $key))) -eq ('retain until success: ' + $key)) `
         ('NoPackage cleanup preserves unrelated movie/evidence: ' + $key)
 }
-Write-Output ("Native movie PowerShell installer: $script:checks assertions; actual Debug/Release deployment, Windows ZIP, bounded retirement and 5 missing-file controls passed.")
+Write-Output ("Native movie PowerShell installer: $script:checks assertions; actual Debug/Release deployment, Windows ZIP, bounded retirement and manifest-wide missing-file controls passed.")

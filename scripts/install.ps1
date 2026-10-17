@@ -99,13 +99,18 @@ if (-not (Test-Path -LiteralPath $townVoicesBundle -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $environmentBundle -PathType Leaf)) {
     Write-Error "Missing environment asset bundle: $environmentBundle"
 }
-$introMovie = Join-Path $root "src\GloomhavenVR\Assets\Movies\CP_Intro\GH_CP_Intro.mov"
-if (-not (Test-Path -LiteralPath $introMovie -PathType Leaf)) {
-    Write-Error "Missing approved campaign intro: $introMovie"
-}
-$stereoIntroMovie = Join-Path $root "src\GloomhavenVR\Assets\Movies\CP_Intro\GH_CP_Intro.sbs-v1.mov"
-if (-not (Test-Path -LiteralPath $stereoIntroMovie -PathType Leaf)) {
-    Write-Error "Missing stereo campaign intro: $stereoIntroMovie"
+$movieSourceRoot = Join-Path $root "src\GloomhavenVR\Assets\Movies"
+$movieManifest = Join-Path $root "packaging\movie-files.txt"
+if (-not (Test-Path -LiteralPath $movieManifest -PathType Leaf)) { Write-Error "Missing movie manifest: $movieManifest" }
+$moviePaths = @(Get-Content -LiteralPath $movieManifest -Encoding UTF8 | ForEach-Object { $_.Trim() } |
+    Where-Object { $_ -and -not $_.StartsWith('#') })
+$seenMovies = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+if ($moviePaths.Count -eq 0) { Write-Error "Movie manifest is empty: $movieManifest" }
+foreach ($movie in $moviePaths) {
+    if ($movie -cnotmatch '^(CP_Intro|Heroes|Ambient|Embedded)/[A-Za-z0-9_.-]+\.mov$' -or
+        $movie.Contains('..') -or -not $seenMovies.Add($movie)) { Write-Error "Invalid or duplicate movie manifest path: $movie" }
+    $movieSource = Join-Path $movieSourceRoot $movie
+    if (-not (Test-Path -LiteralPath $movieSource -PathType Leaf)) { Write-Error "Missing required movie: $movieSource" }
 }
 # Prepared native figure derivatives ship as independently indexed parts. Verify this
 # complete set before deployment, including without Python on a Windows developer PC.
@@ -358,19 +363,19 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Build failed." }
 # --- 7. deploy into the game ------------------------------------------------
 # Everything lands where the runtime probes it:
 #   plugin      -> BepInEx\plugins\GloomhavenVR\GloomhavenVR.dll
-#   intro       -> BepInEx\plugins\GloomhavenVR\Movies\CP_Intro\GH_CP_Intro.mov
-#   stereo intro -> BepInEx\plugins\GloomhavenVR\Movies\CP_Intro\GH_CP_Intro.sbs-v1.mov
+#   movies      -> BepInEx\plugins\GloomhavenVR\Movies\<manifest relative path>
 #   RuntimeDeps -> BepInEx\plugins\GloomhavenVR\RuntimeDeps\*.dll
 #   bundle      -> BepInEx\plugins\GloomhavenVR\gloomhavenvr.bundle
 #   preloader   -> BepInEx\patchers\GloomhavenVR\GloomhavenVR.Preload.dll
 #   natives     -> BepInEx\patchers\GloomhavenVR\Natives\*.dll
 Step "Deploying into game"
-# The maintainer retired the diagnostic movies. Delete only those exact old files:
+# Retire only the known diagnostic files and the superseded intro revision:
 # foreign movies/notes and their directories must survive. The installed-tree call
 # runs after all deployment/package steps succeed; staging owns its separate copy.
 function Remove-RetiredCalibrationMovies([string]$PluginRoot) {
-    foreach ($oldMovie in @('calibration-sbs.mp4', 'calibration-mono.mp4')) {
-        $oldPath = Join-Path $PluginRoot ("Movies\Calibration\" + $oldMovie)
+    foreach ($oldMovie in @('Calibration/calibration-sbs.mp4', 'Calibration/calibration-mono.mp4',
+                            'CP_Intro/GH_CP_Intro.sbs-v1.mov')) {
+        $oldPath = Join-Path $PluginRoot ("Movies/" + $oldMovie)
         if (Test-Path -LiteralPath $oldPath -PathType Leaf) {
             Remove-Item -LiteralPath $oldPath -Force
         }
@@ -383,7 +388,7 @@ foreach ($artifact in @($plugin, $preloader)) {
 }
 
 $pluginDir      = Join-Path $GamePath "BepInEx\plugins\GloomhavenVR"
-$movieDir       = Join-Path $pluginDir "Movies\CP_Intro"
+$movieDir       = Join-Path $pluginDir "Movies"
 $runtimeDepsDst = Join-Path $pluginDir "RuntimeDeps"
 $patcherDir     = Join-Path $GamePath "BepInEx\patchers\GloomhavenVR"
 $nativesDst     = Join-Path $patcherDir "Natives"
@@ -392,8 +397,11 @@ foreach ($dir in @($pluginDir, $movieDir, $runtimeDepsDst, $patcherDir, $natives
 }
 
 Copy-Item $plugin    -Destination $pluginDir  -Force
-Copy-Item -LiteralPath $introMovie -Destination (Join-Path $movieDir "GH_CP_Intro.mov") -Force
-Copy-Item -LiteralPath $stereoIntroMovie -Destination (Join-Path $movieDir "GH_CP_Intro.sbs-v1.mov") -Force
+foreach ($movie in $moviePaths) {
+    $destination = Join-Path $movieDir $movie
+    New-Item -ItemType Directory -Force -Path (Split-Path $destination) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $movieSourceRoot $movie) -Destination $destination -Force
+}
 Copy-Item $preloader -Destination $patcherDir -Force
 Get-ChildItem (Join-Path $runtimeDepsDir "*.dll") | Copy-Item -Destination $runtimeDepsDst -Force
 Get-ChildItem (Join-Path $nativesDir     "*.dll") | Copy-Item -Destination $nativesDst     -Force
@@ -693,8 +701,6 @@ if (-not $NoPackage) {
     # missing one of these looks fine and fails at the stranger's machine.
     $required = @(
         "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll",
-        "BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov",
-        "BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.sbs-v1.mov",
         "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle",
         "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle",
         "BepInEx/plugins/GloomhavenVR/ghvr-environment.bundle",
@@ -722,6 +728,7 @@ if (-not $NoPackage) {
     # byte, U+00E2 from a dash's). The same four rules as scripts/check-package-text.py, which
     # package-release.sh runs on its zip; a zip that renders "raumgroA~Yes" is not a release.
     $textProblems = @()
+    $required += @($moviePaths | ForEach-Object { "BepInEx/plugins/GloomhavenVR/Movies/" + $_ })
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
     try {
         $entries = $archive.Entries | ForEach-Object { $_.FullName }

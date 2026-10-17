@@ -57,10 +57,12 @@ def main():
         for name in ('package-release.sh', 'check-package-text.py', 'check-frame-launchers.py',
                      'check-figure-mesh-bank.py', 'frame-archive.ps1'):
             write('scripts/' + name, (source / 'scripts' / name).read_bytes())
-        payload = b'approved mod-local intro\0\xff\x11'
-        write('src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov', payload)
-        media = {'CP_Intro/GH_CP_Intro.mov': payload}
-        media['CP_Intro/GH_CP_Intro.sbs-v1.mov'] = b'stereo intro packaging fixture; not actual film content\0\xf1\x82'
+        roster = [line.strip() for line in (source / 'packaging/movie-files.txt').read_text().splitlines()
+                  if line.strip() and not line.startswith('#')]
+        check(len(roster) == 22 and len(set(roster)) == 22, 'exact20-film separate delivery set with two mono companions')
+        check(not any('gameplay_trailer' in key for key in roster), 'excluded gameplay trailer is absent')
+        write('packaging/movie-files.txt', (source / 'packaging/movie-files.txt').read_bytes())
+        media = {key: ('opaque movie fixture: ' + key).encode() + b'\0\xf1\x82' for key in roster}
         project = ET.parse(source / 'src/GloomhavenVR/GloomhavenVR.csproj').getroot()
         for key, data in media.items():
             write('src/GloomhavenVR/Assets/Movies/' + key, data)
@@ -68,10 +70,10 @@ def main():
             content = [item for item in project.findall('.//Content') if item.get('Include') == include]
             check(len(content) == 1 and content[0].get('CopyToOutputDirectory') == 'PreserveNewest'
                   and content[0].get('TargetPath') == 'Movies\\' + key.replace('/', '\\'),
-                  'ordinary build copies intro beside plugin: ' + key)
+                  'ordinary build copies each movie beside plugin: ' + key)
         check({item.get('TargetPath') for item in project.findall('.//Content')
                if item.get('Include', '').startswith('Assets\\Movies\\')} ==
-              {'Movies\\' + key.replace('/', '\\') for key in media}, 'build includes only stereo intro and approved 2D fallback')
+              {'Movies\\' + key.replace('/', '\\') for key in media}, 'build includes exactly the reviewed20-film delivery set')
         check(not (source / 'src/GloomhavenVR/Assets/Movies/Calibration').exists(), 'retired calibration movies are not shipped source assets')
         # Stray fixture files must never broaden explicit release movie selection.
         write('src/GloomhavenVR/Assets/Movies/Calibration/calibration-sbs.mp4', b'retired source fixture')
@@ -119,7 +121,7 @@ def main():
             for key, data in media.items():
                 check(archive.read(prefix + key) == data, 'release ZIP carries exact plugin-local movie: ' + key)
             check(set(name for name in archive.namelist() if name.endswith(('.mov', '.mp4')))
-                  == {prefix + key for key in media}, 'release ZIP includes exactly stereo intro and approved 2D fallback')
+                  == {prefix + key for key in media}, 'release ZIP includes exactly the manifest movie set')
             check(all('StreamingAssets' not in name for name in archive.namelist()), 'release never overwrites game movies')
             archive.extractall(root / 'game')
         environment['GHVR_PACKAGE_CONFIGURATION'] = 'Debug'
@@ -143,16 +145,17 @@ def main():
             check(path.read_bytes() == data, 'packager preserves media source: ' + key)
             path.unlink()
             code, log = package('missing-' + path.stem)
-            expected = 'missing stereo campaign intro' if '.sbs-v1.' in key else 'missing approved campaign intro'
+            expected = 'missing required movie'
             check(code != 0 and expected in log and path.name in log, 'missing media preflight rejects: ' + key)
             check(archive_path.read_bytes() == previous_archive, 'missing media preserves existing ZIP: ' + key)
             path.write_bytes(data)
         script = root / 'scripts/package-release.sh'
         original = script.read_text()
-        for key, variable in (('CP_Intro/GH_CP_Intro.mov', 'INTRO_MOVIE'), ('CP_Intro/GH_CP_Intro.sbs-v1.mov', 'STEREO_INTRO_MOVIE')):
-            needle = 'cp "$' + variable + '" "$PLUGDIR/Movies/' + key + '"'
-            check(original.count(needle) == 1, 'causal staging control binds actual intro copy: ' + key)
-            script.write_text(original.replace(needle, ': # deliberately omitted intro copy'))
+        for key in media:
+            needle = 'cp "$MOVIE_ROOT/$movie" "$PLUGDIR/Movies/$movie"'
+            check(original.count(needle) == 1, 'causal staging control binds actual movie copy: ' + key)
+            replacement = 'if [[ "$movie" != "' + key + '" ]]; then ' + needle + '; fi'
+            script.write_text(original.replace(needle, replacement))
             code, log = package('omitted-copy-' + Path(key).stem)
             check(code != 0 and "packaged zip is missing '" + prefix + key in log,
                   'actual archive validator rejects omitted staged movie: ' + key)
@@ -174,8 +177,8 @@ def main():
             print('Native movie PowerShell installer: pwsh unavailable; deployment execution not checked on this host.')
         (evidence / 'results.json').write_text(json.dumps({'python_assertions': count,
             'media_sha256': {key: hashlib.sha256(value).hexdigest() for key, value in media.items()},
-            'scope': 'Actual bash release packager, actual PowerShell media deploy/archive/retirement blocks when available; opaque substitute film/compiler/other bytes. Actual stereo-intro delivery and visual quality are not checked.'}, indent=2) + '\n')
-        print('Native movie packaging: ' + str(count) + ' assertions, 2 missing-source and 2 omitted-copy controls passed.')
+            'scope': 'Actual bash release packager, actual PowerShell media deploy/archive/retirement blocks when available; opaque substitute film/compiler/other bytes. Opaque fixtures check packaging paths, not actual movie quality or real archive delivery.'}, indent=2) + '\n')
+        print('Native movie packaging: ' + str(count) + ' assertions, ' + str(len(media)) + ' missing-source and ' + str(len(media)) + ' omitted-copy controls passed.')
         status = 0
     finally:
         receipt = cleanup_completed_run('native-video-packaging', status, completion, source, process_reaped=True)

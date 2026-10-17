@@ -10,7 +10,7 @@
 #   BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov
 #                                                         <- approved first-save intro;
 #                                                            original game movie stays intact
-#   BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.sbs-v1.mov
+#   BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.sbs-v2.mov
 #                                                         <- stereo intro, outside DLL
 #   BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll     <- RuntimeDepsLoader.RuntimeDepsDir
 #                                                         (= <plugin dir>/RuntimeDeps)
@@ -77,16 +77,23 @@ if [[ ! -f "$ENVIRONMENT_BUNDLE" ]]; then
     exit 1
 fi
 echo "Asset bundle source: $BUNDLE"
-INTRO_MOVIE="$ROOT/src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov"
-if [[ ! -f "$INTRO_MOVIE" ]]; then
-    echo "error: missing approved campaign intro: $INTRO_MOVIE" >&2
-    exit 1
-fi
-STEREO_INTRO_MOVIE="$ROOT/src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.sbs-v1.mov"
-if [[ ! -f "$STEREO_INTRO_MOVIE" ]]; then
-    echo "error: missing stereo campaign intro: $STEREO_INTRO_MOVIE" >&2
-    exit 1
-fi
+MOVIE_ROOT="$ROOT/src/GloomhavenVR/Assets/Movies"
+MOVIE_MANIFEST="$ROOT/packaging/movie-files.txt"
+[[ -f "$MOVIE_MANIFEST" ]] || { echo "error: missing movie manifest: $MOVIE_MANIFEST" >&2; exit 1; }
+MOVIE_PATHS=()
+while IFS= read -r movie || [[ -n "$movie" ]]; do
+    movie="${movie%$'\r'}"
+    [[ -n "$movie" && "$movie" != \#* ]] || continue
+    if [[ ! "$movie" =~ ^(CP_Intro|Heroes|Ambient|Embedded)/[A-Za-z0-9_.-]+\.mov$ || "$movie" == *..* ]]; then
+        echo "error: invalid movie manifest path: $movie" >&2; exit 1
+    fi
+    for previous in "${MOVIE_PATHS[@]}"; do
+        [[ "$previous" != "$movie" ]] || { echo "error: duplicate movie manifest path: $movie" >&2; exit 1; }
+    done
+    [[ -f "$MOVIE_ROOT/$movie" ]] || { echo "error: missing required movie: $MOVIE_ROOT/$movie" >&2; exit 1; }
+    MOVIE_PATHS+=("$movie")
+done < "$MOVIE_MANIFEST"
+[[ ${#MOVIE_PATHS[@]} -gt 0 ]] || { echo "error: movie manifest is empty" >&2; exit 1; }
 
 # ---- version from the plugin csproj ------------------------------------------------------
 VERSION="$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' "$ROOT/src/GloomhavenVR/GloomhavenVR.csproj" | head -1)"
@@ -139,9 +146,10 @@ FRAMESETUP="$PLUGDIR/FrameSetup"
 mkdir -p "$PLUGDIR/RuntimeDeps" "$PATCHDIR/Natives" "$FRAMESETUP"
 
 cp "$PLUGIN" "$PLUGDIR/"
-mkdir -p "$PLUGDIR/Movies/CP_Intro"
-cp "$INTRO_MOVIE" "$PLUGDIR/Movies/CP_Intro/GH_CP_Intro.mov"
-cp "$STEREO_INTRO_MOVIE" "$PLUGDIR/Movies/CP_Intro/GH_CP_Intro.sbs-v1.mov"
+for movie in "${MOVIE_PATHS[@]}"; do
+    mkdir -p "$PLUGDIR/Movies/$(dirname "$movie")"
+    cp "$MOVIE_ROOT/$movie" "$PLUGDIR/Movies/$movie"
+done
 cp "${RUNTIMEDEPS[@]}" "$PLUGDIR/RuntimeDeps/"
 [[ -f "$ROOT/libs/RuntimeDeps/versions.json" ]] && cp "$ROOT/libs/RuntimeDeps/versions.json" "$PLUGDIR/RuntimeDeps/"
 cp "$PRELOADER" "$PATCHDIR/"
@@ -270,8 +278,6 @@ unzip -l "$ZIP"
 LISTING="$(unzip -l "$ZIP")"
 for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
-    "BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov" \
-    "BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.sbs-v1.mov" \
     "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle" \
     "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle" \
     "BepInEx/plugins/GloomhavenVR/ghvr-environment.bundle" \
@@ -296,6 +302,11 @@ for path in \
         echo "error: packaged zip is missing '$path'" >&2
         exit 1
     fi
+done
+
+for movie in "${MOVIE_PATHS[@]}"; do
+    path="BepInEx/plugins/GloomhavenVR/Movies/$movie"
+    [[ "$LISTING" == *"$path"* ]] || { echo "error: packaged zip is missing '$path'" >&2; exit 1; }
 done
 
 # Every text file in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and no
