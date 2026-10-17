@@ -14,13 +14,13 @@ public static class QuestText
                 ? "Quest Standalone übernimmt die MSAA-Vorgabe der Steam-Frame-Standalone-Version vor dem Start von VR. Live-Änderungen sind zum Schutz vor Abstürzen bei der Neuanlage von Vulkan-Augen-Texturen deaktiviert. Dein gespeicherter Wert bleibt erhalten."
                 : "Quest Standalone uses the Steam Frame standalone MSAA default before VR starts. Live changes are disabled to avoid crashes during Vulkan eye-texture replacement. Your saved value is preserved.";
             case "fixedEyeResolution": return german
-                ? "Wählt die Auflösung pro Auge für den nächsten App-Start (0,5–2,0). Beende und starte die App nach dem Ändern neu. Höhere Werte verbessern die Schärfe, benötigen aber mehr Leistung und Speicher. Der Faktor bezieht sich auf die Vorgabe des Headsets; derselbe Wert kann auf Steam Frame eine andere Pixelzahl ergeben."
-                : "Choose the resolution per eye for the next app start (0.5–2.0). Close and restart the app after changing it. Higher values improve clarity but need more processing power and memory. The factor is relative to the headset's default; the same value may produce different pixel dimensions on Steam Frame.";
+                ? "Wählt die Bilddichte für den nächsten App-Start (0,5–2,0). Quest verwendet die gemessene Steam-Frame-Referenz: 0,8 entspricht etwa 2728 Pixeln an der kürzeren Augenkante. Beende und starte die App nach dem Ändern neu. Höhere Werte benötigen mehr Leistung und Speicher. Optik und Sichtfeld können die wahrgenommene Schärfe beeinflussen."
+                : "Choose image density for the next app start (0.5–2.0). Quest uses the measured Steam Frame reference: 0.8 targets about 2728 pixels on the shorter eye axis. Close and restart the app after changing it. Higher values need more processing power and memory. Optics and field of view can affect perceived clarity.";
             case "eyeResolutionName": return german
-                ? "Augen-Auflösung (Neustart)" : "Eye resolution (restart)";
+                ? "Bilddichte (Neustart)" : "Image density (restart)";
             case "eyeResolutionCurrent": return german
-                ? "Aktuell: {0} × {1} Pixel pro Auge. Änderungen werden nach einem Neustart der App wirksam."
-                : "Current: {0} × {1} pixels per eye. Changes take effect after restarting the app.";
+                ? "Aktuell: {0} × {1} Pixel pro Auge. Ziel nach App-Neustart: etwa {2} × {3} Pixel pro Auge."
+                : "Current: {0} × {1} pixels per eye. Target after app restart: about {2} × {3} pixels per eye.";
             case "title": return german ? "GloomhavenVR – Quest-Test" : "GloomhavenVR – Quest test";
             case "diagnostic": return german ? "Technischer Hardware-Test; noch kein spielbarer Port" : "Hardware diagnostic; not yet a playable port";
             case "dummy": return german ? "DUMMY-PROFIL · lokaler Entwicklungsbuild" : "DUMMY PROFILE · local development build";

@@ -253,9 +253,15 @@ internal static class Program
                 && GloomhavenVR.WorldUI.VROptionsTab.Caption == QuestText.Get("eyeResolutionName", german),
                 "quest-resolution-row: Quest reuses its exact current catalog item and ordinary bar/arrows with a restart caption");
             Check(GloomhavenVR.WorldUI.VROptionsTab.Note == string.Format(QuestText.Get("eyeResolutionCurrent", german),
-                    XRSettings.eyeTextureWidth, XRSettings.eyeTextureHeight)
+                    XRSettings.eyeTextureWidth, XRSettings.eyeTextureHeight, 3410, 3572)
                 && GloomhavenVR.WorldUI.VROptionsTab.Multiline,
-                "quest-resolution-pixels: visible note must use actual target dimensions, never selected-scale prediction");
+                "quest-resolution-pixels: visible note distinguishes actual dimensions from an estimated next-start target");
+            item.Number = .8f;
+            GloomhavenVR.WorldUI.VROptionsTab.RefreshNotes();
+            Check(GloomhavenVR.WorldUI.VROptionsTab.Note == string.Format(QuestText.Get("eyeResolutionCurrent", german),
+                    XRSettings.eyeTextureWidth, XRSettings.eyeTextureHeight, 2728, 2858),
+                "quest-resolution-live-readout: arrow/slider refresh must update the estimated target while actual pixels remain unchanged");
+            item.Number = 1f;
         }
         GloomhavenVR.WorldUI.VROptionsTab.ResetRows();
         GloomhavenVR.WorldUI.VROptionsTab.BarAvailable = false;
@@ -274,6 +280,22 @@ internal static class Program
 
     static void EyeAllocationCases(string directory)
     {
+        // Independent hardware anchors: do not derive expectations through the
+        // production conversion. Frame B661 actually submitted2728px at0.8;
+        // Quest B678 submitted1680x1760 at1.0 and1344x1408 at0.8.
+        Check(Math.Abs(1680f * QuestEyeAllocation.ProviderScale(.8f) - 2728f) < .001f,
+            "eye-density-reference: saved0.8 must match the actual Frame shorter-axis raster density");
+        Check(Math.Abs(1680f * QuestEyeAllocation.ProviderScale(1f) - 3410f) < .001f
+            && Math.Abs(1760f * QuestEyeAllocation.ProviderScale(1f) - 3572.381f) < .002f,
+            "eye-density-aspect: calibrated Quest scale must preserve provider aspect at the Frame reference");
+        Check(QuestEyeAllocation.ProviderScale(.8f) > .8f
+            && QuestEyeAllocation.ProviderScale(1f) > QuestEyeAllocation.ProviderScale(.8f)
+            && QuestEyeAllocation.ProviderScale(2f) > QuestEyeAllocation.ProviderScale(1f),
+            "eye-density-monotone: every scale remains meaningful above the former small Quest default");
+        Check(Math.Abs(QuestEyeAllocation.ProviderScale(float.NaN) - QuestEyeAllocation.ProviderScale(.8f)) < .0001f
+            && QuestEyeAllocation.ProviderScale(.1f) == QuestEyeAllocation.ProviderScale(.5f)
+            && QuestEyeAllocation.ProviderScale(3f) == QuestEyeAllocation.ProviderScale(2f),
+            "eye-density-sanitize: invalid values retain the mobile default and configured range");
         string config = Path.Combine(directory, "allocation.cfg");
         Check(QuestEyeAllocation.ReadSavedScale(config, out string source) == FrameDefaults.EyeResolutionScale
             && source == "shared-mobile-default", "eye-startup-default: missing config must use the shared Frame default");
@@ -316,7 +338,8 @@ internal static class Program
         SystemInfo.graphicsDeviceType = GraphicsDeviceType.Vulkan;
         QuestStandalonePlatform.PrepareDisplayBeforeStart();
         Check(display.AllocationWrites == 1 && display.LiveAllocationWrites == 0
-            && display.scaleOfAllRenderTargets == .7f && display.scaleOfAllViewports == 1f,
+            && Math.Abs(display.scaleOfAllRenderTargets - QuestEyeAllocation.ProviderScale(.7f)) < .0001f
+            && display.scaleOfAllViewports == 1f,
             "eye-startup-stopped: only the initialized stopped display may receive its saved allocation");
         Check(File.ReadAllText(canonical) == "[RenderQuality]\nEyeResolutionScale = .7\n",
             "eye-startup-preserve: startup selection must preserve the canonical rig config");
@@ -331,9 +354,21 @@ internal static class Program
             var stopped = new XRDisplaySubsystem(); SubsystemManager.Displays.Add(stopped);
             QuestStandalonePlatform.PrepareDisplayBeforeStart();
             Check(stopped.AllocationWrites == 1 && stopped.LiveAllocationWrites == 0
-                && stopped.scaleOfAllRenderTargets == scale && stopped.scaleOfAllViewports == 1f,
-                "eye-startup-supersample: every selectable scale must reach the stopped display unchanged: " + scale);
+                && Math.Abs(stopped.scaleOfAllRenderTargets - QuestEyeAllocation.ProviderScale(scale)) < .0001f
+                && stopped.scaleOfAllViewports == 1f,
+                "eye-startup-supersample: every saved density must reach the stopped display through its calibrated provider scale: " + scale);
         }
+
+        ResetStartup(); Debug.Lines.Clear(); SubsystemManager.Displays.Clear();
+        File.WriteAllText(canonical, "[RenderQuality]\nEyeResolutionScale=2");
+        var clamped = new XRDisplaySubsystem { MaximumAllocation = 2f };
+        SubsystemManager.Displays.Add(clamped);
+        QuestStandalonePlatform.PrepareDisplayBeforeStart(); QuestStandalonePlatform.PrepareDisplayBeforeStart();
+        Check(clamped.AllocationWrites == 1 && clamped.scaleOfAllRenderTargets == 2f
+            && Debug.Lines.Count == 1 && Debug.Lines[0].Contains("providerRequested=4.0595")
+            && Debug.Lines[0].Contains("allocation=2.00")
+            && File.ReadAllText(canonical) == "[RenderQuality]\nEyeResolutionScale=2",
+            "eye-density-provider-limit: a native clamp must remain visible in actual readback without retries or config rewriting");
 
         ResetStartup(); Debug.Lines.Clear(); SubsystemManager.Displays.Clear();
         var live = new XRDisplaySubsystem { running = true }; var other = new XRDisplaySubsystem();

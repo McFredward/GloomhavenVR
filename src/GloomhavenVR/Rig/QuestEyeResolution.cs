@@ -16,9 +16,14 @@ internal static class QuestEyeResolution
     internal static float EffectiveScale(float requested) =>
         QuestStandalonePlatform.FixedEyeTextureAllocation ? QuestEyeAllocation.ClampScale(requested) : requested;
 
-    internal static string CurrentPixels(bool german) =>
-        string.Format(QuestText.Get("eyeResolutionCurrent", german),
-            XRSettings.eyeTextureWidth, XRSettings.eyeTextureHeight);
+    internal static string CurrentPixels(bool german, float requested)
+    {
+        float provider = QuestEyeAllocation.ProviderScale(requested);
+        return string.Format(QuestText.Get("eyeResolutionCurrent", german),
+            XRSettings.eyeTextureWidth, XRSettings.eyeTextureHeight,
+            (int)System.Math.Round(QuestEyeAllocation.Quest3DefaultWidth * provider),
+            (int)System.Math.Round(QuestEyeAllocation.Quest3DefaultHeight * provider));
+    }
 
     internal static bool TryApply(float requested)
     {
@@ -57,12 +62,16 @@ internal static class QuestEyeResolution
                     + " allocation=" + XRSettings.eyeTextureResolutionScale.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
                     + " viewport=" + XRSettings.renderViewportScale.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
                     + " nextStart=" + effective.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                    + " nextProvider=" + QuestEyeAllocation.ProviderScale(effective).ToString("F4", System.Globalization.CultureInfo.InvariantCulture)
+                    + " referenceShortAxis=" + QuestEyeAllocation.ReferencePixelsAtOne
                     + " policy=next-app-start");
             }
             _lastRequested = requested;
             VRLog.Note("Rig", $"Quest Vulkan eye allocation retained: {XRSettings.eyeTextureWidth}x"
                 + $"{XRSettings.eyeTextureHeight}; saved scale={requested:F2}, "
-                + $"next-start scale={effective:F2}, full viewport readback={XRSettings.renderViewportScale:F2}. "
+                + $"next-start density={effective:F2}, provider scale={QuestEyeAllocation.ProviderScale(effective):F4}, "
+                + $"reference short axis={QuestEyeAllocation.ReferencePixelsAtOne}px at 1.0, "
+                + $"full viewport readback={XRSettings.renderViewportScale:F2}. "
                 + "Resolution changes apply at the next app start; live swapchain resize and "
                 + "partial eye viewports are disabled. Saved configuration is unchanged.");
         }

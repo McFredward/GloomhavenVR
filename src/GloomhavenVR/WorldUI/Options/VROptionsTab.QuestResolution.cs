@@ -1,3 +1,5 @@
+using System;
+using TMPro;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -18,8 +20,11 @@ internal static partial class VROptionsTab
             BuildStepperRow(parent, item, 0, caption, hintKey);
         // Eye capacity is immutable during this app run. The ordinary shared row
         // still owns edits/readouts and BepInEx persistence. This note reads actual
-        // native target pixels; it never predicts delivery from the chosen factor.
-        BuildNote(parent, Rig.QuestEyeResolution.CurrentPixels(german), multiline: true);
+        // native target pixels and the shared Frame density reference. The factor
+        // remains the saved user value, separate from the larger provider scale.
+        Func<string> readPixels = () => Rig.QuestEyeResolution.CurrentPixels(german, ReadNumber(item, 0));
+        TMP_Text? pixels = BuildNote(parent, readPixels(), multiline: true);
+        if (pixels != null) ValueLabels.Add((pixels, readPixels));
         return true;
     }
 }

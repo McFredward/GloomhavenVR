@@ -135,12 +135,13 @@ namespace UnityEngine.XR
     {
         public bool running;
         public bool RejectAllocation;
+        public float MaximumAllocation = float.PositiveInfinity;
         public int AllocationWrites, ViewportWrites, LiveAllocationWrites;
         private float allocation = 1f, viewport = 1f;
         public float scaleOfAllRenderTargets
         {
             get => allocation;
-            set { AllocationWrites++; if (running) LiveAllocationWrites++; if (RejectAllocation) throw new NotSupportedException(); allocation = value; XRSettings.AcceptAllocation(value); }
+            set { AllocationWrites++; if (running) LiveAllocationWrites++; if (RejectAllocation) throw new NotSupportedException(); allocation = Math.Min(value, MaximumAllocation); XRSettings.AcceptAllocation(allocation); }
         }
         public float scaleOfAllViewports { get => viewport; set { ViewportWrites++; viewport = value; XRSettings.AcceptViewport(value); } }
         public static int MsaaWrites;
@@ -396,6 +397,7 @@ namespace GloomhavenVR.WorldUI
         internal class ConfigItem
         {
             internal string Section, Key;
+            internal float Number = 1f;
             internal ConfigItem(string section, string key) { Section = section; Key = key; }
         }
     }
@@ -403,17 +405,22 @@ namespace GloomhavenVR.WorldUI
     {
         internal static int Bars, Steppers;
         internal static bool BarAvailable = true, Multiline;
-        internal static string Caption, Note;
+        internal static string Caption;
+        private static TMPro.TMP_Text note;
+        internal static string Note => note?.text;
+        private static readonly List<(TMPro.TMP_Text label, Func<string> read)> ValueLabels = new();
+        internal static void RefreshNotes() { foreach (var row in ValueLabels) row.label.text = row.read(); }
+        private static float ReadNumber(ConfigCatalog.ConfigItem item, int component) => item.Number;
         internal static ConfigCatalog.ConfigItem ReceivedItem;
         internal static bool TestQuestResolution(ConfigCatalog.ConfigItem item) =>
             TryBuildQuestEyeResolutionRow(new UnityEngine.Transform(), item, "h_vr_o_eyeres");
-        internal static void ResetRows() { Bars = Steppers = 0; Caption = Note = null; BarAvailable = true; Multiline = false; }
+        internal static void ResetRows() { Bars = Steppers = 0; Caption = null; note = null; ValueLabels.Clear(); BarAvailable = true; Multiline = false; }
         private static bool BuildBarAndArrowsRow(UnityEngine.Transform parent, ConfigCatalog.ConfigItem item,
             string caption, string hintKey) { Bars++; ReceivedItem = item; Caption = caption; return BarAvailable; }
         private static void BuildStepperRow(UnityEngine.Transform parent, ConfigCatalog.ConfigItem item,
             int component, string caption, string hintKey) { Steppers++; ReceivedItem = item; Caption = caption; }
-        private static void BuildNote(UnityEngine.Transform parent, string text, bool multiline = false)
-        { Note = text; Multiline = multiline; }
+        private static TMPro.TMP_Text BuildNote(UnityEngine.Transform parent, string text, bool multiline = false)
+        { note = new TMPro.TMP_Text { text = text }; Multiline = multiline; return note; }
     }
     internal static class FlatScreen
     {
@@ -426,3 +433,5 @@ namespace GloomhavenVR.WorldUI
 }
 
 namespace GloomhavenVR { internal static class MyPluginInfo { internal const string PLUGIN_GUID = "dev.gloomhavenvr"; } }
+
+namespace TMPro { internal class TMP_Text { internal string text; } }

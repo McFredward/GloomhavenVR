@@ -1029,7 +1029,7 @@ internal static class RenderQuality
                               $"{wanted:F2}x; session allocation scale {_sessionAllocationScale:F2}x, " +
                               $"eye target {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight}. " +
                               (QuestStandalonePlatform.FixedEyeTextureAllocation
-                                  ? "Quest changes apply at the next app start; the live viewport remains full. "
+                                  ? "Quest uses Frame-calibrated image density; changes apply at the next app start and the live viewport remains full. "
                                   : "Live changes use the viewport; values above capacity apply next VR restart. ") +
                               "IT IS THE ONLY RESOLUTION THE MOD CAN MOVE: game/SteamVR resolution " +
                               "changes are upstream and appear in the allocated size above.");
@@ -1117,8 +1117,9 @@ internal static class RenderQuality
         float wanted = WantedEyeScale();
         if (QuestStandalonePlatform.FixedEyeTextureAllocation)
             return $"Quest Vulkan retains its {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight} "
-                + $"eye allocation; saved scale {wanted:F2}, effective viewport "
-                + $"{XRSettings.renderViewportScale:F2}; live supersampling is unavailable.";
+                + $"eye allocation; saved density {wanted:F2}, next-start provider fraction "
+                + $"{QuestEyeAllocation.ProviderScale(wanted):F4}, effective viewport "
+                + $"{XRSettings.renderViewportScale:F2}; resolution changes require an app restart.";
         float expectedViewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);
         float actualViewport = XRSettings.renderViewportScale;
         bool accepted = Mathf.Abs(actualViewport - expectedViewport) < 0.005f;

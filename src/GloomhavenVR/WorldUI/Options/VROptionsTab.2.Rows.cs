@@ -649,7 +649,7 @@ internal static partial class VROptionsTab
     /// <para>Plain caption style, so it sits visibly below the header rather than competing with
     /// it.</para>
     /// </summary>
-    private static void BuildNote(Transform parent, string text, bool multiline = false)
+    private static TMP_Text? BuildNote(Transform parent, string text, bool multiline = false)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
@@ -694,6 +694,7 @@ internal static partial class VROptionsTab
         Transform? frame = row.transform.Find("MenuElementFrame");
         if (frame != null)
             frame.gameObject.SetActive(false);
+        return title;
     }
 
     /// <summary>
