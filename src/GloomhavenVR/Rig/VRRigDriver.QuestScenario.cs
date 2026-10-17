@@ -53,6 +53,9 @@ internal sealed partial class VRRigDriver
     private void CaptureQuestScenarioEvidence(Camera head, Camera? native, bool nativeScene)
     {
         int sample = _questScenarioSamples;
+        // The actual parked native UI can predate our capture consumers. Reuse
+        // this already bounded scene observation and the separate artwork quota.
+        Cards.QuestArtworkEvidence.ScenarioSources();
         SceneController loading = SceneController.Instance;
         QuestScenarioRecord("sample=" + sample + " phase=update rig=" + _kind + " mode=" + VRModeStateMachine.CurrentMode
             + " board=" + VRModeStateMachine.ScenarioBoardExists + " nativeScene=" + nativeScene + " scene=" + Short(head.gameObject.scene.name)

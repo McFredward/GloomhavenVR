@@ -15,7 +15,7 @@ namespace GloomhavenVR.Core;
 /// whether the component is disabled or an ancestor/duplicate owns the problem.
 ///
 /// Recover only the former, after a stable, fully requested initial scenario and
-/// only on the unique original scene owner. Respect pause/background, scene teardown,
+/// only on the unique original scene owner. Respect OS pause/running-session boundaries, scene teardown,
 /// frozen/hidden entities, completed/generated content and existing native handles.
 /// Re-enable that one component once; let Unity invoke its original Start/Update.
 /// Never invoke generation manually, activate a root, reveal a renderer, fabricate
@@ -31,6 +31,10 @@ internal static class QuestProceduralLifecycle
     private static ApparanceEngine? _candidate;
     private static float _due;
     private static bool _ignoredFreeformSuppression;
+    private static int _ticks;
+    private static bool _lastApplicationFocus, _lastPaused;
+    private static bool? _lastInputFocus;
+    private static string _admission = "not-ticked";
 
     internal static void Install(bool ignoredFreeformSuppression)
     {
@@ -49,6 +53,10 @@ internal static class QuestProceduralLifecycle
         _due = 0f;
         _ignoredFreeformSuppression = false;
         Attempted.Clear();
+        _ticks = 0;
+        _admission = "not-ticked";
+        _lastApplicationFocus = _lastPaused = false;
+        _lastInputFocus = null;
         // Successful recovery restored the native engine's required lifecycle,
         // like MaterialLoaderHeal. Do not disable it again on VR shutdown.
     }
@@ -64,34 +72,51 @@ internal static class QuestProceduralLifecycle
             float now = Time.realtimeSinceStartup;
             if (now < _next) return;
             _next = now + .5f;
-            try { Tick(now, Application.isFocused, _paused); }
+            // Android's Unity window focus can stay false while OpenXR owns a
+            // usable headset session (see OpenXrEnvironmentBlendFeature). Native
+            // generation is not an input action: a keyboard/system overlay may
+            // own input while native generation must continue. Keep focus as
+            // evidence only; OS pause and the running VR session own admission.
+            _ticks++;
+            _lastApplicationFocus = Application.isFocused;
+            _lastInputFocus = VRSession.InputFocus;
+            _lastPaused = _paused;
+            try { Tick(now, _paused); }
             catch (Exception error)
             {
                 _candidate = null;
+                _admission = "observation-failed";
                 if (_failureLogged) return;
                 _failureLogged = true;
-                VRLog.Warn("QuestLifecycle", "Native procedural lifecycle observation failed once; original engine ownership retained: " + error);
+                enabled = false;
+                VRLog.Alert("QuestLifecycle", "Native procedural lifecycle observation failed once; original engine ownership retained: " + error);
             }
         }
     }
 
-    // Foreground/pause are external application boundaries. All native scene,
+    // OS pause/running-session are external boundaries. All native scene,
     // entity and component decisions remain inside this real path.
-    internal static void Tick(float now, bool focused, bool paused)
+    internal static void Tick(float now, bool paused)
     {
         ApparanceEngine engine = ApparanceEngine.Instance;
         SceneController loading = SceneController.Instance;
         bool game = SceneManager.GetSceneByName("Game").isLoaded || SceneManager.GetSceneByName("Game_gamepad").isLoaded;
-        if (!QuestStandalonePlatform.Enabled || !VRSession.IsRunning || !focused || paused || !game
-            || !SceneManager.GetSceneByName("ProcGen").isLoaded || loading == null || loading.IsLoading || loading.ScenarioIsLoading
-            || engine == null || engine.enabled || !engine.gameObject.activeInHierarchy
-            || engine.gameObject.scene.name != "Gloomhaven_unified" || engine.Resources == null
-            || Attempted.Contains(engine.GetInstanceID()) || Attempted.Count >= RepairLimit)
-        { _candidate = null; return; }
+        string? blocked = !QuestStandalonePlatform.Enabled ? "desktop"
+            : !VRSession.IsRunning ? "stopped-vr" : paused ? "os-paused"
+            : !game ? "game-scene-absent" : !SceneManager.GetSceneByName("ProcGen").isLoaded ? "procgen-scene-absent"
+            : loading == null ? "scene-controller-absent" : loading.IsLoading || loading.ScenarioIsLoading ? "native-loading"
+            : engine == null ? "engine-absent" : engine.enabled ? "native-active"
+            : !engine.gameObject.activeInHierarchy ? "inactive-owner" : engine.gameObject.scene.name != "Gloomhaven_unified" ? "foreign-scene"
+            : engine.Resources == null ? "resources-absent" : Attempted.Contains(engine.GetInstanceID()) ? "already-attempted"
+            : Attempted.Count >= RepairLimit ? "repair-limit" : null;
+        if (blocked != null) { _candidate = null; _admission = blocked; return; }
 
         ApparanceEngine[] engines = UnityEngine.Object.FindObjectsOfType<ApparanceEngine>(true);
-        if (engines.Length != 1 || engines[0] != engine || !InitialGenerationRequested(engine))
+        if (engines.Length != 1 || engines[0] != engine)
+        { _candidate = null; _admission = "ambiguous-owner"; return; }
+        if (!InitialGenerationRequested(engine, out _admission))
         { _candidate = null; return; }
+        _admission = "stable-request-wait";
         if (_candidate != engine) { _candidate = engine; _due = now + GraceSeconds; return; }
         if (now < _due) return;
 
@@ -100,27 +125,31 @@ internal static class QuestProceduralLifecycle
         Attempted.Add(engine.GetInstanceID());
         _candidate = null;
         engine.enabled = true;
-        VRLog.Warn("QuestLifecycle", "Restored the unique disabled native procedural engine component for initial scenario generation after a stable 3s request; original Start/Update now own continuation. No renderer, entity parameter or worker was changed. instance="
+        _admission = "restored";
+        VRLog.Note("QuestLifecycle", "Restored the unique disabled native procedural engine component for initial scenario generation after a stable 3s request; original Start/Update now own continuation. No renderer, entity parameter or worker was changed. instance="
             + engine.GetInstanceID() + " active=" + engine.isActiveAndEnabled);
     }
 
-    private static bool InitialGenerationRequested(ApparanceEngine engine)
+    private static bool InitialGenerationRequested(ApparanceEngine engine, out string admission)
     {
+        admission = "no-registered-entities";
         if (engine.EntityComponents == null || engine.EntityComponents.Count == 0) return false;
         foreach (ApparanceEntity registered in engine.EntityComponents)
-            if (registered != null && registered.m_EntityHandle != 0) return false;
+            if (registered != null && registered.m_EntityHandle != 0) { admission = "existing-native-handle"; return false; }
         bool requested = false;
         foreach (ProceduralMapTile tile in UnityEngine.Object.FindObjectsOfType<ProceduralMapTile>(true))
         {
             if (tile == null) continue;
             Transform generated = tile.transform.Find("Generated Content");
-            if (tile.IsPlacementCompleted || (generated != null && generated.childCount != 0)) return false;
+            if (tile.IsPlacementCompleted || (generated != null && generated.childCount != 0))
+            { admission = tile.IsPlacementCompleted ? "completed-placement" : "generated-content"; return false; }
             ApparanceEntity entity = tile.GetComponent<ApparanceEntity>();
             if (tile.visibility == ProceduralMapTile.Visibility.All && tile.isActiveAndEnabled && generated != null
                 && generated.gameObject.activeInHierarchy && entity != null && entity.isActiveAndEnabled
                 && entity.IsPopulated && !entity.Frozen && entity.ProcedureID != 0
                 && entity.m_EntityHandle == 0 && !entity.IsBusy && engine.EntityComponents.Contains(entity)) requested = true;
         }
+        admission = requested ? "requested" : "no-eligible-tile";
         return requested;
     }
 
@@ -140,6 +169,8 @@ internal static class QuestProceduralLifecycle
             + " path=" + OwnerPath(engine.transform) + " inactiveOwner=" + InactiveOwner(engine.transform) + " loaded=" + engines.Length + " active=" + active
             + " owners=" + others + " resources=" + (engine.Resources != null) + " codeStarted=" + CodeStarted(engine)
             + " legacySuppressionIgnored=" + _ignoredFreeformSuppression
+            + " driver=" + (_driver != null) + " ticks=" + _ticks + " windowFocus=" + _lastApplicationFocus
+            + " xrFocus=" + (_lastInputFocus?.ToString() ?? "unknown") + " paused=" + _lastPaused + " admission=" + _admission
             + " recovery=" + (Attempted.Contains(engine.GetInstanceID()) ? "attempted" : _candidate == engine ? "stable-request-wait" : "not-admitted");
     }
 
