@@ -22,6 +22,7 @@ internal static class Program
             catch(Exception error) { Console.Error.WriteLine("BINDING_REGRESSION: "+error.Message);return 3; }
         }
         TestPathBinding();
+        TestObservedFrameProfile();
         Check(C.Classify(true,1,"vrlink","Steam Frame","vrlink/frame").Available,"live Frame Link");
         Check(C.Classify(true,1,"VRLINK","steam frame","").Available,"exact ASCII insensitive driver/model; optional registered");
         Check(C.Classify(true,1,"","Steam Frame","vrlink/hmd").Available,"registered public driver identity alternative");
@@ -75,6 +76,43 @@ internal static class Program
         Check(C.LocalWindowsPath(path),"game extension must not control production path guard");
         Check(C.CacheFolder(path,()=>throw new Exception("unexpected known-folder query"))==path,"production cache accepts canonical env with game extension in scope");
         Check(C.CacheFolder("C:/Users/McFredward/AppData/Local/",()=>"")==path,"normalized cache also survives game extension scope");
+    }
+    private static void TestObservedFrameProfile()
+    {
+        string observed=File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"fixtures","frame-link-observed691.json"));
+        Check(observed.All(c=>c<128),"observed fixture contains public ASCII metadata only");
+        var actual=C.Decode(observed,0);
+        Check(actual.Available&&actual.TrackingSystem=="cv"&&actual.Model=="Deckard MP"&&actual.RegisteredDeviceType=="","exact observed691 helper JSON is admitted");
+        Check(!actual.ReceiverVerified,"observed profile never verifies receiver");
+        foreach(string registered in new[]{"","vrlink","vrlink/hmd","VRLINK/FRAME"})
+        {
+            Check(C.Classify(true,1,"cv","Deckard MP",registered).Available,"observed profile plus bounded registered Link form");
+            Check(C.Decode(Message("Deckard MP","cv",registered),0).Available,"observed profile forms replay through protocol decoder");
+        }
+        Check(C.Classify(true,1,"CV","deckard mp","").Available,"observed identity is ordinal case insensitive");
+        Check(C.Classify(true,1,"cv","Deckard MP","vrlink/"+new string('x',89)).Available,"valid registered identity reaches96 character bound");
+        foreach(string model in new[]{"Quest 3","Valve Index","SteamVR HMD","Steam Frame","Deckard","Deckard MP Pro","DeckardMP"," Deckard MP","Deckard MP ",""})
+            Check(!C.Classify(true,1,"cv",model,"").Available,"cv alone and model/prefix variants never grant availability");
+        foreach(string tracking in new[]{"virtualdesktop","oculus","steamvr","vrlink","cv-extra","cv/","cv "," cv",""})
+            Check(!C.Classify(true,1,tracking,"Deckard MP","").Available,"observed model alone and transport near matches refused");
+        foreach(string registered in new[]{"virtualdesktop/frame","oculus/frame","cv","notvrlink/frame","vrlink-other/frame","vrlink-extra","other/vrlink","vrlink "})
+        {
+            Check(!C.Classify(true,1,"cv","Deckard MP",registered).Available,"contradictory or near-match registered transport refused");
+            Check(!C.Decode(Message("Deckard MP","cv",registered),0).Available,"registered contradiction also refused by actual decoder");
+        }
+        Check(!C.Classify(false,1,"cv","Deckard MP","").Available,"observed disconnected headset refused");
+        foreach(int kind in new[]{0,2,3,int.MaxValue})
+            Check(!C.Classify(true,kind,"cv","Deckard MP","").Available,"observed identity still requires HMD class1");
+        Check(!C.Classify(true,1,"cv\0","Deckard MP","").Available,"NUL tracking string refused");
+        Check(!C.Classify(true,1,"cv","Deckard MP\0","").Available,"NUL model refused");
+        Check(!C.Classify(true,1,"cv","Deckard MP","vrlink/\n").Available,"registered control character refused");
+        Check(!C.Classify(true,1,"cv","Deckard MP","vrlink/é").Available,"non-ASCII metadata refused");
+        Check(!C.Classify(true,1,new string('x',97),"Deckard MP","").Available,"oversized tracking string refused");
+        Check(!C.Classify(true,1,"cv",new string('x',97),"").Available,"oversized model refused");
+        Check(!C.Classify(true,1,"cv","Deckard MP","vrlink/"+new string('x',90)).Available,"registered97 characters refused");
+        Check(!C.Decode(observed.Replace("\"connected\":true","\"connected\":false"),0).Available,"exact observed JSON disconnected mutant refused");
+        Check(!C.Decode(observed.Replace("\"device_class\":1","\"device_class\":2"),0).Available,"exact observed JSON controller mutant refused");
+        Check(!C.Decode(observed.Replace("\"model\":\"Deckard MP\"","\"model\":\"Quest 3\""),0).Available,"exact observed JSON wrong-model mutant refused");
     }
     private static void TestPreparation()
     {
