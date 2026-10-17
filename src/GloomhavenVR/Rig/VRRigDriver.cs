@@ -607,6 +607,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
             // Read the previous frame's native rendering counters after rig kind resolution.
             // This is Debug-only and does not join the render-state tail step order.
             HeadRenderCounters.Tick(_kind == RigKind.Scenario);
+            TickQuestScenarioEvidence();
         }
         finally
         {
