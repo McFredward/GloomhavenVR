@@ -83,6 +83,11 @@ def main() -> int:
     results = []
     exit_code = 1
 
+    def interrupted(_signum, _frame):
+        raise KeyboardInterrupt()
+
+    previous_term = signal.signal(signal.SIGTERM, interrupted)
+
     def execute(name: str, variant: dict[str, str], expected_failure: str | None = None) -> None:
         for key, text in variant.items():
             (run / (key + '.current')).write_text(text)
@@ -93,19 +98,22 @@ def main() -> int:
                    '-p:TriggerPageSource=' + str(run / 'page.current'),
                    '--', str(run / 'runtime-catalogue.json')]
         log_path = run / (name + '.log')
+        environment = os.environ.copy()
+        environment.update(DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER='1', MSBUILDDISABLENODEREUSE='1',
+                           UseSharedCompilation='false')
         with log_path.open('w') as log:
             child = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
-                                     start_new_session=True)
+                                     start_new_session=True, env=environment)
             try:
                 code = child.wait()
-            except BaseException:
-                os.killpg(child.pid, signal.SIGTERM)
+            finally:
+                # Reap the command and remove any owned descendant before cache cleanup,
+                # including a surviving build node after a normal dotnet-run exit.
                 try:
-                    child.wait(timeout=5)
-                except subprocess.TimeoutExpired:
                     os.killpg(child.pid, signal.SIGKILL)
-                    child.wait()
-                raise
+                except ProcessLookupError:
+                    pass
+                child.wait()
         output = log_path.read_text()
         if expected_failure is None:
             assert code == 0, output
@@ -168,6 +176,7 @@ def main() -> int:
                                                    'scope': 'Production menu and localization; runtime and Unity doubles, no decoder or headset claim.'}, indent=2) + '\n')
         cleanup = cleanup_completed_run('video-review-options', exit_code, suite_log, ROOT, process_reaped=True)
         (run / 'cache-cleanup.json').write_text(json.dumps(cleanup, indent=2) + '\n')
+        signal.signal(signal.SIGTERM, previous_term)
 
 
 if __name__ == '__main__':
