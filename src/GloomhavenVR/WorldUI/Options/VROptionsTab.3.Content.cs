@@ -254,7 +254,7 @@ internal static partial class VROptionsTab
 
         BuildHeader(ContentRoot, Loc.Mod("cat_debug"));
 
-        int rows = 0;
+        int rows = BuildStereoVideoCalibrationRow();
         for (int t = 0; t < ConfigCatalog.TopicCount; t++)
         {
             var topic = (ConfigCatalog.ConfigTopic)t;
