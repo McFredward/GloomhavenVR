@@ -64,7 +64,7 @@ process to demonstrate its refusal on the identical canonical inputs:
 python3 -B tests/steamlink-connection/probe-artifact.py \
   --dll /path/to/final/GloomhavenVR.dll \
   --managed /path/to/Gloomhaven_Data/Managed \
-  --mono /path/to/MonoBleedingEdge/bin/mono --expected-build 691 \
+  --mono /path/to/MonoBleedingEdge/bin/mono --expected-build 693 \
   --legacy-dll /path/to/retained689/GloomhavenVR.dll \
   --output .planning/debug/connection-produced-artifact
 ```
@@ -75,6 +75,9 @@ It hashes all read-only input DLLs/runtime files before and after the probe,
 retains logs and source, and removes only its generated executable/cache after
 reaping. This tests produced overload binding; a Linux Mono pass does not prove
 Windows shell folders, Proton child launch, connected hardware or receiver state.
+For fixed-mode artifacts of Build693 or later it also invokes the actual
+`Classify` method on the observed Frame tuple and explicit unsupported profiles;
+older fixed/legacy artifacts retain the original path-only probe scope.
 
 The public Valve OpenVR1.26.7 SDK loader is also embedded:826,688 bytes, SHA256
 `5e591aa3f4a991edcc8910921833edafa67a1b117849bbb4e235df9833bed7a3`.
@@ -101,9 +104,15 @@ not required to appear as Windows `.exe` processes. The helper remains a PE64
 binary and preserves the public SDK/Proton runtime selection. It never initializes
 OpenVR in Unity, starts a Scene app, writes SteamVR settings, or kills another
 application's process. It queries connected HMD0/class and stable public model/tracking/registered
-strings using the exact public `FnTable:IVRSystem_022` ABI. Required model is
-`Steam Frame` and driver is `vrlink` (tracking or registered identity). Generic
-SteamVR names and Virtual Desktop do not qualify. These cooperative driver
+strings using the exact public `FnTable:IVRSystem_022` ABI. The canonical profile
+requires `Steam Frame` plus `vrlink` tracking or registration. The separately
+observed691 profile is exactly `Deckard MP` plus `cv`, with empty registration or
+an exact `vrlink`/`vrlink/` registration prefix. The public ASCII-only JSON fixture
+`fixtures/frame-link-observed691.json` replays that actual helper shape through
+`Decode`; it contains no serial, private path or copied log. Tests require bounded
+case-insensitive exact models/transports and reject generic `cv`, model/prefix
+variants, contradictory Virtual Desktop registration, disconnected devices and
+non-HMD classes. These cooperative driver
 properties are not security attestation or proof of the receiver installation.
 `Snapshot.ReceiverVerified` is always false; absence of the receiver cannot be
 detected by this gate.

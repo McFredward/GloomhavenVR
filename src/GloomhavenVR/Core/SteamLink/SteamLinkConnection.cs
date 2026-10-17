@@ -142,16 +142,23 @@ internal static class SteamLinkConnection
 
     // The actual connected HMD0/class and stable strings originate in the public
     // versioned OpenVR API, not Unity's generic HMD name or DLL presence. Strings
-    // identify ordinary cooperative drivers; they are not device attestation.
+    // are cooperative profile metadata, not device/transport attestation. Build691
+    // hardware finally reached this query and reports cv / Deckard MP / empty on
+    // the maintainer's confirmed Frame+Steam Link run. Admit that exact legacy
+    // profile alongside the existing canonical identity, never cv by itself.
     internal static Snapshot Classify(bool connected, int deviceClass, string tracking, string model, string registered)
     {
         if (!connected || deviceClass != 1) return new Snapshot(Reason.NativeUnavailable);
         if (!Text(tracking) || !Text(model) || !Text(registered)) return new Snapshot(Reason.NativeUnavailable);
-        if (!string.Equals(model, "Steam Frame", StringComparison.OrdinalIgnoreCase))
+        bool canonicalModel = string.Equals(model, "Steam Frame", StringComparison.OrdinalIgnoreCase);
+        bool observedFrameModel = string.Equals(model, "Deckard MP", StringComparison.OrdinalIgnoreCase);
+        if (!canonicalModel && !observedFrameModel)
             return new Snapshot(Reason.WrongHeadset, tracking, model, registered);
-        bool link = string.Equals(tracking, "vrlink", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(registered, "vrlink", StringComparison.OrdinalIgnoreCase)
+        bool registeredLink = string.Equals(registered, "vrlink", StringComparison.OrdinalIgnoreCase)
             || registered.StartsWith("vrlink/", StringComparison.OrdinalIgnoreCase);
+        bool link = canonicalModel && (string.Equals(tracking, "vrlink", StringComparison.OrdinalIgnoreCase) || registeredLink)
+            || observedFrameModel && string.Equals(tracking, "cv", StringComparison.OrdinalIgnoreCase)
+                && (registered.Length == 0 || registeredLink);
         return new Snapshot(link ? Reason.Ready : Reason.WrongTransport, tracking, model, registered);
     }
     private static bool Text(string value) => value != null && value.Length <= 96 && value.All(c => c >= 32 && c <= 126);

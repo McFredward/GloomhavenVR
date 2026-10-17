@@ -15,6 +15,28 @@ internal static class ProducedArtifactProbe
         if (!condition) throw new InvalidOperationException(name);
     }
 
+    private static bool Available(Type type, bool connected, int kind, string tracking, string model, string registered)
+    {
+        object snapshot = type.GetMethod("Classify", BindingFlags.Static | BindingFlags.NonPublic)
+            .Invoke(null, new object[] { connected, kind, tracking, model, registered });
+        return (bool)snapshot.GetType().GetProperty("Available", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(snapshot, null);
+    }
+
+    private static void VerifyObservedFrameProfile(Type type)
+    {
+        Check(Available(type, true, 1, "cv", "Deckard MP", ""), "produced classifier admits exact observed691 profile");
+        Check(Available(type, true, 1, "CV", "deckard mp", "VRLINK/hmd"), "produced classifier permits exact case/registered Link form");
+        Check(Available(type, true, 1, "vrlink", "Steam Frame", ""), "produced canonical Steam Frame profile preserved");
+        Check(!Available(type, true, 1, "cv", "Quest 3", ""), "produced cv does not admit other headsets");
+        Check(!Available(type, true, 1, "cv", "SteamVR HMD", ""), "produced cv does not admit generic headset");
+        Check(!Available(type, true, 1, "virtualdesktop", "Deckard MP", ""), "produced model alone does not admit Virtual Desktop");
+        Check(!Available(type, true, 1, "cv", "Deckard MP", "virtualdesktop/frame"), "produced contradictory registered transport refused");
+        Check(!Available(type, true, 1, "cv-extra", "Deckard MP", ""), "produced transport prefix refused");
+        Check(!Available(type, true, 1, "cv", "Deckard MP Pro", ""), "produced model prefix refused");
+        Check(!Available(type, false, 1, "cv", "Deckard MP", ""), "produced observed profile still requires connected device");
+        Check(!Available(type, true, 2, "cv", "Deckard MP", ""), "produced observed profile still requires HMD class");
+    }
+
     private static int Main(string[] args)
     {
         try
@@ -48,8 +70,11 @@ internal static class ProducedArtifactProbe
             Type protocol = plugin.GetType("GloomhavenVR.Net.NetProtocol", true);
             int build = Convert.ToInt32(protocol.GetField("ModBuild", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).GetRawConstantValue());
             if (args.Length > 3) Check(build == int.Parse(args[3]), "produced build matches requested value");
+            bool observedProfileChecked = expected && build >= 693;
+            if (observedProfileChecked) VerifyObservedFrameProfile(type);
             Console.WriteLine("{\"produced_artifact_checks\":" + checks + ",\"build\":" + build
-                + ",\"expected_fixed\":" + (expected ? "true" : "false") + ",\"actual_headset_query\":false}");
+                + ",\"expected_fixed\":" + (expected ? "true" : "false")
+                + ",\"observed_profile_checked\":" + (observedProfileChecked ? "true" : "false") + ",\"actual_headset_query\":false}");
             return 0;
         }
         catch (Exception error)

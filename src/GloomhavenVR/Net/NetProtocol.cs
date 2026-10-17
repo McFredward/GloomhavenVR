@@ -612,7 +612,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 692;
+    public const ushort ModBuild = 693;
+
+    // ModBuild693 — admit the Frame/Link profile actually exposed by SteamVR.
+    // New691/de978 Windows hardware completes the owned SDK/child/public HMD
+    // query, proving the previous path repair works. Its connected HMD0/class1
+    // reports tracking=cv, model=Deckard MP, registered empty, then Classify
+    // incorrectly returns WrongHeadset. Canonical Steam Frame/vrlink strings from
+    // earlier static review did not describe this observed device profile.
+    // Add only exact Deckard MP+cv with empty or explicitly vrlink registration.
+    // Retain canonical behavior; generic cv, other models/transports, contradictory
+    // registration, partial names and unsafe metadata never gain availability.
+    // This is ordinary cooperative profile recognition, not transport/receiver
+    // attestation. Replay the observed public metadata and test the actual built
+    // consumer with the real game library. No helper, SDK, path, MR renderer,
+    // setting/default, Frame write or wire change.692 is an unreleased stereo
+    // checkpoint; that independent completed handover advances to694 or later.
 
     // ModBuild692 — integrate the native stereo library after the published691 repair.
     // The full movie/review contract is recorded under the unreleased690 source
