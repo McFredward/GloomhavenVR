@@ -5,6 +5,8 @@ Runs a small real Unity graphics fixture, not the game or an Android build. Opti
 owned assets are copied into the fixture; canonical references are read-only.
 """
 import argparse
+import ctypes
+from itertools import chain
 import hashlib
 import json
 import os
@@ -15,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -28,6 +31,42 @@ def method(source, signature):
     end = source.index("\n    }\n", start) + len("\n    }\n")
     return source[start:end]
 
+
+def reap_fixture_group(group):
+    """Stop/reap this dedicated subreaper's fixture descendants before cleanup.
+
+    Roslyn may create another session. A process-group-only wait would miss it;
+    after Unity exits Linux reparents that orphan to this runner, not PID1.
+    """
+    reaped, adopted = [], set()
+    for signum in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            if group is not None: os.killpg(group, signum)
+        except ProcessLookupError: pass
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            # This process launches only the one fixture; every adopted child
+            # belongs to it. Recheck PPid immediately before signalling so no
+            # shared compiler or other agent's process can become a target.
+            for entry in Path("/proc").iterdir():
+                if not entry.name.isdigit(): continue
+                try:
+                    stat = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+                    if int(stat[1]) != os.getpid(): continue
+                    adopted.add(int(entry.name))
+                    os.kill(int(entry.name), signum)
+                except (FileNotFoundError, ProcessLookupError, PermissionError):
+                    pass
+            try:
+                child, status = os.waitpid(-1, os.WNOHANG)
+            except ChildProcessError:
+                return {"ownedProcessGroup": group, "adoptedChildren": sorted(adopted),
+                        "reapedChildren": reaped, "remainingChildren": 0}
+            if child:
+                reaped.append({"pid": child, "status": status})
+            else:
+                time.sleep(.05)
+    raise RuntimeError("Owned Unity fixture descendants could not be reaped before cleanup")
 
 def main():
     global _pending_run
@@ -145,7 +184,11 @@ def main():
             for path in (original, Path(str(original) + ".meta")):
                 shutil.copyfile(path, project / "Assets" / Path(relative).parent / path.name)
                 owned[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
-        for meta in (source / "Assets").rglob("*.meta"):
+        # The recovered native spinner/DLC textures normally live in Texture2D.
+        # Resolve this bounded closure there first; stop when complete instead of
+        # reading every unrelated recovered metadata file in a full game project.
+        for meta in chain((source / "Assets/Texture2D").glob("*.meta"), (source / "Assets").rglob("*.meta")):
+            if not wanted: break
             guid = re.findall(r"^guid: ([a-f0-9]{32})$", meta.read_text(), re.M)
             if guid and guid[0] in wanted:
                 for original in (meta, Path(str(meta)[:-5])):
@@ -185,17 +228,18 @@ def main():
         command = ["xvfb-run", "-a"] + command
     print(log.read_text(), end="", flush=True)
     code = 1
+    if sys.platform.startswith("linux"):
+        if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "Could not own Unity fixture child cleanup")
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
                                start_new_session=os.name == "posix")
     try:
         code = process.wait(timeout=300)
     finally:
-        if os.name == "posix":
-            try: os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError: pass
         if process.poll() is None:
-            process.kill()
-            process.wait()
+            process.kill(); process.wait()
+        children = reap_fixture_group(process.pid)
+        (run / "process-cleanup.json").write_text(json.dumps(children, indent=2) + "\n")
         for path, expected in owned.items():
             assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == expected, "read-only owned input changed: " + path
         cleanup = cleanup_completed_run("quest-menu-sampling", code, log, ROOT, process_reaped=True)

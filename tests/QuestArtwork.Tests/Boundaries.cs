@@ -48,3 +48,19 @@ namespace GloomhavenVR.Cards
     internal static class CardFace { internal static void Offer(Component root) {} internal static void MaintainArtArrival() {} }
     internal static class CardFxBounds { internal static void Reseat(Component root) {} }
 }
+
+namespace GloomhavenVR.Cards
+{
+    // Mesh writes are the only boundary: production capture/qualification executes
+    // unchanged. A refused mask must never reach this native/body mutation seam.
+    internal enum CardBodyKind { Ability }
+    internal static class CardMesh
+    {
+        internal static int Writes;
+        internal static byte[]? LastAlpha;
+        internal static bool SilhouetteApplied(CardBodyKind kind) => false;
+        internal static void RefreshSilhouetteCache(CardBodyKind kind, byte[] alpha, int width, int height, Rect rect, string source) { Writes++; }
+        internal static bool SetSilhouette(CardBodyKind kind, byte[] alpha, int width, int height, Rect rect, string source, bool fromCache) { Writes++; LastAlpha = alpha; return true; }
+    }
+    internal static class FaceBlackout { internal static void InvalidateRateLimits() {} }
+}

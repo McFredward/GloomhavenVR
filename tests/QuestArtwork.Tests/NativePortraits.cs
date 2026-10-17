@@ -12,6 +12,13 @@ public static partial class DiagnosticProgram
         Sprite initiative = Resources.Load<Sprite>("NativeInitiativePortrait");
         if (stat == null && initiative == null) return;
         Check(stat != null && initiative != null, "Both retained original portrait references imported");
+        UnityEngine.Debug.Log("Retained initiative source format=" + initiative!.texture.graphicsFormat
+            + "," + (int)initiative.texture.graphicsFormat + " readable=" + initiative.texture.isReadable
+            + " AndroidObservedFormat119=" + Enum.GetName(typeof(UnityEngine.Experimental.Rendering.GraphicsFormat), 119));
+        bool cpuDecoded = false;
+        try { cpuDecoded = initiative.texture.GetPixels32(0).Length == initiative.texture.width * initiative.texture.height; }
+        catch (UnityException) { }
+        UnityEngine.Debug.Log("Retained initiative exact CPU decode=" + cpuDecoded);
         var camera = Keep(new GameObject("native-portrait-camera")).AddComponent<Camera>();
         camera.enabled = false; camera.stereoTargetEye = StereoTargetEyeMask.None;
         camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = Color.clear;
@@ -60,7 +67,7 @@ public static partial class DiagnosticProgram
             var image = statObject.GetComponent<Image>(); image.sprite = stat; image.preserveAspect = true; image.useSpriteMesh = false;
             image.rectTransform.sizeDelta = new Vector2(326, 106);
             Color32[] before = Draw(326, 106);
-            image.sprite = CardFaceMipBake.ReplacementFor(stat!);
+            image.sprite = CardFaceMipBake.PresentationFor(stat!);
             Check(image.sprite != null && CardFaceMipBake.OriginalFor(image.sprite) == stat,
                 "actual native trimmed stat portrait keeps exact original provenance");
             EqualPortrait(before, Draw(326, 106), 326, "stat");
@@ -70,7 +77,9 @@ public static partial class DiagnosticProgram
             var raw = rawObject.GetComponent<RawImage>(); raw.texture = initiative!.texture;
             raw.rectTransform.sizeDelta = new Vector2(512, 512); raw.uvRect = new Rect(0, 0, 1, 1);
             before = Draw(512, 512);
-            raw.texture = CardFaceMipBake.BakedTextureFor(initiative!.texture);
+            GloomhavenVR.WorldUI.PanelMipBake.RefreshRawTexture(raw);
+            Check((raw.texture != initiative.texture) == cpuDecoded,
+                "actual compressed initiative uses exact CPU data or preserves its native original");
             Check(raw.texture != null && raw.uvRect == new Rect(0, 0, 1, 1),
                 "actual native initiative filtering preserves the complete authored UV rectangle");
             EqualPortrait(before, Draw(512, 512), 512, "initiative");

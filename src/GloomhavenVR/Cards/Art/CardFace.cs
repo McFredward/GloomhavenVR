@@ -738,6 +738,7 @@ internal sealed class CardFace
                 continue;
             }
             Sprite sprite = img.sprite;
+            if (QuestStandalonePlatform.Enabled && sprite != null) sprite = CardFaceMipBake.OriginalFor(sprite);
             if (sprite == null || sprite.texture == null)
             {
                 rejectedNoSprite++;
@@ -895,10 +896,11 @@ internal sealed class CardFace
         var sources = new System.Text.StringBuilder(128);
         try
         {
-            var cache = new Dictionary<int, Texture2D>();
+            var cache = new Dictionary<int, Texture2D?>();
             foreach ((Image img, Rect norm) in picks)
             {
                 Sprite sprite = img.sprite;
+                if (QuestStandalonePlatform.Enabled && sprite != null) sprite = CardFaceMipBake.OriginalFor(sprite);
                 if (sprite == null || sprite.texture == null)
                     continue;
                 Rect tr = sprite.textureRect;
@@ -908,11 +910,23 @@ internal sealed class CardFace
                 // Keyed on the SPRITE, not its texture: two sprites routinely share one atlas
                 // and each needs its own sub-rect readback.
                 int key = sprite.GetInstanceID();
-                if (!cache.TryGetValue(key, out Texture2D region))
+                if (!cache.TryGetValue(key, out Texture2D? region))
                 {
                     region = ReadSpriteRegion(sprite.texture, tr);
                     cache[key] = region;
-                    readbacks.Add(region);
+                    if (region != null) readbacks.Add(region);
+                }
+
+                if (region == null)
+                {
+                    // A partial union can cut off an unreadable native header.
+                    // Keep the complete rounded body until every actual outline
+                    // source is trustworthy; the existing hash/attempt/reason
+                    // guards prevent repeating this refusal for unchanged art.
+                    state.OutlineImageIds.Clear();
+                    Reject(state, kind, "native-alpha-unavailable",
+                        "Quest original outline alpha is not CPU-readable; retaining the complete card body");
+                    return;
                 }
 
                 float colorA = img.color.a;
@@ -1179,7 +1193,7 @@ internal sealed class CardFace
     /// fetched, and no mip chain is built (<c>GetPixelBilinear</c> reads level 0). The result is
     /// CPU-side only and destroyed by the caller; it is never rendered.
     /// </summary>
-    private static Texture2D ReadSpriteRegion(Texture src, Rect texRect)
+    private static Texture2D? ReadSpriteRegion(Texture src, Rect texRect)
     {
         int rx = Mathf.Clamp(Mathf.FloorToInt(texRect.x), 0, Mathf.Max(0, src.width - 1));
         int ry = Mathf.Clamp(Mathf.FloorToInt(texRect.y), 0, Mathf.Max(0, src.height - 1));

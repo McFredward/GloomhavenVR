@@ -227,8 +227,9 @@ internal static class QuestArtworkEvidence
         // record. B679's missing observations cannot be diagnosed by dropping the
         // very samples once we finally reach a parked capture source. Compress only
         // metadata; no extra GPU readback, log record or quota is introduced.
-        string sourcePixels = Sample(source, crop);
-        string outputPixels = Sample(output, outputCrop);
+        string sourcePixels = Sample(source, crop, out string sourceRead);
+        string outputPixels = Sample(output, outputCrop, out string outputRead);
+        detail += " reads=" + sourceRead + "/" + outputRead;
         // B681 records sampled the SAME header texture/crop twice and got different
         // pixels. Such a pair cannot establish damaged source art: retain that
         // distinction without a third GPU readback or another protected log record.
@@ -244,6 +245,7 @@ internal static class QuestArtworkEvidence
                 + " crop=" + Geometry(crop) + " output=" + Label(output) + " outputCrop=" + Geometry(outputCrop)
                 + " enabled=" + image.enabled + " self=" + image.gameObject.activeSelf
                 + " hierarchy=" + image.gameObject.activeInHierarchy + " sourceShader=" + shader
+                + " reads=" + sourceRead + "/" + outputRead
                 + (ReferenceEquals(source, output) && crop == outputCrop
                     ? " sameInput=True copyStable=" + string.Equals(sourcePixels, outputPixels, StringComparison.Ordinal) : string.Empty);
             message = "[Quest startup] artwork" + compact + " caller=" + _caller + samples;
@@ -251,8 +253,31 @@ internal static class QuestArtworkEvidence
         UnityEngine.Debug.Log(message);
     }
 
-    private static string Sample(Texture texture, Rect pixels)
+    private static string Sample(Texture texture, Rect pixels, out string read)
     {
+        // The GPU path returned different pixels for an identical input in B681,
+        // then uninitialized 0xCD regions in B682. Read original readable mip zero
+        // directly where possible so those diagnostics can distinguish intact
+        // source data from a broken GPU copy. The label states this independent
+        // nearest-texel sampling method; it is not a final-camera pixel comparison.
+        if (texture is Texture2D image && image.isReadable)
+        {
+            try
+            {
+                Color32[] original = image.GetPixels32(0);
+                var samples = new Color32[36];
+                for (int y = 0; y < 6; y++) for (int x = 0; x < 6; x++)
+                {
+                    int sx = Mathf.Clamp(Mathf.FloorToInt(pixels.x + pixels.width * (x + .5f) / 6), 0, image.width - 1);
+                    int sy = Mathf.Clamp(Mathf.FloorToInt(pixels.y + pixels.height * (y + .5f) / 6), 0, image.height - 1);
+                    samples[y * 6 + x] = original[sy * image.width + sx];
+                }
+                read = "cpu0";
+                return Encode(samples);
+            }
+            catch (UnityException) { /* Unsupported CPU compressed format: label the GPU observation. */ }
+        }
+        read = "gpu2d";
         RenderTexture target = RenderTexture.GetTemporary(6, 6, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
         RenderTexture prior = RenderTexture.active;
         Texture2D? readback = null;
@@ -263,14 +288,7 @@ internal static class QuestArtworkEvidence
             RenderTexture.active = target;
             readback = new Texture2D(6, 6, TextureFormat.RGBA32, false, false);
             readback.ReadPixels(new Rect(0, 0, 6, 6), 0, 0);
-            Color32[] values = readback.GetPixels32();
-            var bytes = new byte[values.Length * 4];
-            for (int i = 0; i < values.Length; i++)
-            {
-                bytes[i * 4] = values[i].r; bytes[i * 4 + 1] = values[i].g;
-                bytes[i * 4 + 2] = values[i].b; bytes[i * 4 + 3] = values[i].a;
-            }
-            return Convert.ToBase64String(bytes);
+            return Encode(readback.GetPixels32());
         }
         finally
         {
@@ -278,6 +296,17 @@ internal static class QuestArtworkEvidence
             RenderTexture.ReleaseTemporary(target);
             if (readback != null) UnityEngine.Object.Destroy(readback);
         }
+    }
+
+    private static string Encode(Color32[] values)
+    {
+        var bytes = new byte[values.Length * 4];
+        for (int i = 0; i < values.Length; i++)
+        {
+            bytes[i * 4] = values[i].r; bytes[i * 4 + 1] = values[i].g;
+            bytes[i * 4 + 2] = values[i].b; bytes[i * 4 + 3] = values[i].a;
+        }
+        return Convert.ToBase64String(bytes);
     }
 
     private static Rect PixelRect(Texture texture, Rect uv) =>

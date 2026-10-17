@@ -73,13 +73,16 @@ public static partial class DiagnosticProgram
         Check(QuestArtworkRegion.CacheSuffix == "." + QuestTextureCopy.Recipe, "Quest silhouette cache is isolated from old builtin-copy masks");
         foreach (Rect crop in new[] { new Rect(5, 7, 8, 6), new Rect(2, 16, 11, 7), new Rect(0, 0, 32, 24) })
         {
-            var alphaRegion = Keep(QuestArtworkRegion.Read(atlas, (int)crop.x, (int)crop.y, (int)crop.width, (int)crop.height));
+            var alphaRegion = Keep(QuestArtworkRegion.Read(atlas, (int)crop.x, (int)crop.y, (int)crop.width, (int)crop.height)!);
             var alpha = alphaRegion.GetPixels32();
             for (int y = 0; y < (int)crop.height; y++) for (int x = 0; x < (int)crop.width; x++)
                 Check(Math.Abs(alpha[y * (int)crop.width + x].a - expected[((int)crop.y + y) * atlas.width + (int)crop.x + x].a) <= 1,
                     "silhouette crop preserves exact native alpha");
         }
         Check(RenderTexture.active == sentinel && GL.sRGBWrite == !sentinel.sRGB, "silhouette region restores prior target and color state");
+        QualifyReadableCopies();
+        QualifyReadableColorSpace();
+        QualifyContourRefusal();
         QualifyPanelCopies();
         QualifyNativeHeader();
         QualifyNativePortraits();
@@ -188,7 +191,8 @@ public static partial class DiagnosticProgram
                 && artworkRecords[5].Contains("enabled=True") && artworkRecords[5].Contains("hierarchy=False"),
                 "metadata compression retains native crops and actual image lifecycle flags");
             Check(artworkRecords[5].Contains(" sameInput=True copyStable=True")
-                && artworkRecords[5].Contains(",r1") && artworkRecords[5].Contains(",f"),
+                && artworkRecords[5].Contains(",r1") && artworkRecords[5].Contains(",f")
+                && artworkRecords[5].Contains(" reads=cpu0/cpu0"),
                 "same source and crop retain repeat-copy consistency and actual texture format within the existing record");
             atlas.name = previousAtlasName;
             imageObject.name = "card-image";

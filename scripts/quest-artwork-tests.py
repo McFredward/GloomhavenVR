@@ -96,25 +96,38 @@ private static void ApplyMipLodOffset(RenderTexture target, float asked) => targ
 internal static bool Carry(Entry e, RenderTexture? previous) => CarryOverInto(e, previous);
 internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, priming);
 ''' + method(capture, '    private static bool CarryOverInto(') + method(capture, '    private static void ResolveAndMip(') + '\n}\n'
+    face = (ROOT / 'src/GloomhavenVR/Cards/Art/CardFace.cs').read_text()
+    constants = '\n'.join(re.findall(r'^    private const (?:float|int) (?:SilhouetteAttemptInterval|FootprintWidth|MinOutlineAreaFraction|BackdropAreaFraction|MinOutlineCoverage) = [^;]+;', face, re.M))
+    sources['ActualSilhouette.cs'] = '''using System.Collections.Generic; using GloomhavenVR.Core; using UnityEngine; using UnityEngine.UI;
+namespace GloomhavenVR.Cards; internal static class ActualSilhouette {
+internal static object State() => new SilhouetteState { GaveUpLogged = false };
+internal static void Capture(RectTransform root, object state) => TryCapture(root, CardBodyKind.Ability, (SilhouetteState)state);
+internal static int Attempts(object state) => ((SilhouetteState)state).Attempts;
+internal static string? Reason(object state) => ((SilhouetteState)state).LastReason;
+''' + constants + method(face, '    private sealed class SilhouetteState') + method(face, '    private static void Reject(') + method(face, '    private static void TryCapture(') + method(face, '    private static Rect DrawnLocalRect(') + method(face, '    private static bool IsFullyOpaque(') + method(face, '    private static Texture2D? ReadSpriteRegion(') + '\n}\n'
     variants = [
         ('production', '', '', '', ''),
-        ('copy-native-primitive', 'QuestTextureCopy.cs', '_quad = CreateQuad();', '_quad = Resources.GetBuiltinResource<Mesh>("Quad.fbx");', 'owned copy preserves repeated source/crop RGBA despite ambient camera and viewport'),
-        ('copy-source-missing', 'QuestTextureCopy.cs', '_properties.SetTexture("_MainTex", source);', '_properties.SetTexture("_MainTex", Texture2D.whiteTexture);', 'owned copy preserves repeated source/crop RGBA despite ambient camera and viewport'),
+        ('copy-source-missing', 'QuestTextureCopy.cs', 'Graphics.Blit(source, target, _material, 0);', 'Graphics.Blit(Texture2D.whiteTexture, target, _material, 0);', 'owned copy preserves repeated source/crop RGBA despite ambient camera and viewport'),
         ('copy-crop-missing', 'QuestTextureCopy.cs', 'new Vector4(scale.x, scale.y, offset.x, offset.y)', 'new Vector4(1, 1, 0, 0)', 'owned copy preserves repeated source/crop RGBA despite ambient camera and viewport'),
-        ('copy-viewport-partial', 'QuestTextureCopy.cs', 'new Rect(0, 0, target.width, target.height)', 'new Rect(0, 0, target.width * .5f, target.height * .5f)', 'owned copy preserves repeated source/crop RGBA despite ambient camera and viewport'),
+        ('readable-linear-encoding-lost', 'CardFaceMipBake.cs', 'linear: !GraphicsFormatUtility.IsSRGBFormat(src.graphicsFormat)', 'linear: false', 'readable whole-texture filtering retains original linear encoding'),
+        ('readable-region-encoding-lost', 'CardFaceMipBake.cs', 'linear: QuestStandalonePlatform.Enabled && !GraphicsFormatUtility.IsSRGBFormat(atlas.graphicsFormat)', 'linear: false', 'readable region filtering retains original linear encoding'),
+        ('readable-cpu-corrupted', 'CardFaceMipBake.cs', 'Color32[] pixels = src.GetPixels32(0);', 'Color32[] pixels = new Color32[src.width * src.height];', 'readable filtering preserves the exact current CPU source rather than stale GPU pixels'),
+        ('gpu-only-filtered', 'CardFaceMipBake.cs', 'if (QuestStandalonePlatform.Enabled)\n        {\n            if (!src.isReadable) return null;', 'if (QuestStandalonePlatform.Enabled && src.isReadable)\n        {\n            if (!src.isReadable) return null;', 'Quest GPU-only original is never replaced by an unqualified readback'),
         ('label-is-content', 'CardFaceMipBake.cs', 'return QuestStandalonePlatform.Enabled ? $"{label}|instance={tex.GetInstanceID()}|update={tex.updateCount}" : label;', 'return label;', 'same-name atlas regions do not alias unrelated content'),
         ('raw-update-stale', 'RawPortrait.cs', 'if (!QuestStandalonePlatform.Enabled || original is not Texture2D live || live == null) return false;', 'if (QuestStandalonePlatform.Enabled || original is not Texture2D live || live == null) return false;', 'already baked raw portrait refreshes changed original contents'),
         ('raw-source-current-copy', 'RawPortrait.cs', 'source = live;', 'source = displayed;', 'already baked raw portrait refreshes changed original contents'),
         ('sprite-update-stale', 'CardFaceMipBake.cs', '&& update == source.texture.updateCount;', '&& true;', 'same-object source update invalidates preparation without GPU hash'),
         ('stale-camera-suppresses-evidence', 'QuestArtworkEvidence.cs', '&& _records < 8 &&', '&& Camera.current == null && _records < 8 &&', 'at most two actual artwork generations per role and eight total records'),
         ('inactive-source-silent', 'QuestArtworkEvidence.cs', 'if (image == null) { Missing(role, "image"); return; }\n            Sprite?', 'if (image == null || !image.isActiveAndEnabled) { Missing(role, "image"); return; }\n            Sprite?', 'Retained native header source and both pixel crops fit the protected Android record while parked' if args.native_header_project else 'inactive capture source and disabled image remain passively observable'),
-        ('same-source-copy-corrupt', 'QuestArtworkEvidence.cs', 'string outputPixels = Sample(output, outputCrop);', "string outputPixels = new string('A', sourcePixels.Length);", 'same source and crop retain repeat-copy consistency and actual texture format within the existing record'),
+        ('same-source-copy-corrupt', 'QuestArtworkEvidence.cs', 'string outputPixels = Sample(output, outputCrop, out string outputRead);', "string outputRead = \"gpu2d\"; string outputPixels = new string('A', sourcePixels.Length);", 'same source and crop retain repeat-copy consistency and actual texture format within the existing record'),
         ('overflow-drops-pixels', 'QuestArtworkEvidence.cs', 'message = "[Quest startup] artwork" + compact + " caller=" + _caller + samples;', 'message = "[Quest startup] artwork" + compact;', 'long native metadata retains paired pixel samples within the Android byte limit'),
         ('scenario-fallback-silent', 'QuestArtworkEvidence.cs', 'Image(chosen != null ? chosen.headerImage : null, "ability-header");', ';', 'scenario callback reports missing native sources without an adoption callback'),
         ('game-conditional-erases-pixels', 'QuestArtworkEvidence.cs', 'UnityEngine.Debug.Log(message);', 'Debug.Log(message);', 'Actual retained native header emits one bounded source record' if args.native_header_project else 'scenario census reaches actual native header without adoption callback'),
         ('game-conditional-erases-state', 'QuestArtworkEvidence.cs', '=> UnityEngine.Debug.Log("[Quest startup] artwork" + detail', '=> Debug.Log("[Quest startup] artwork" + detail', 'scenario callback reports missing native sources without an adoption callback'),
         ('parked-template-hides-live-source', 'QuestArtworkEvidence.cs', '(face.gameObject.activeInHierarchy ? 16 : 0)', '(face.gameObject.activeInHierarchy ? 0 : 16)', 'scenario census reaches actual native header without adoption callback'),
-        ('silhouette-crop-lost', 'QuestArtworkRegion.cs', 'new Vector2((float)x / source.width, (float)y / source.height)', 'Vector2.zero', 'silhouette crop preserves exact native alpha'),
+        ('silhouette-gpu-only-trusted', 'QuestArtworkRegion.cs', 'if (QuestStandalonePlatform.Enabled)\n        {\n            if (source is not Texture2D image || !image.isReadable) return null;', 'if (QuestStandalonePlatform.Enabled && source is Texture2D readable && readable.isReadable)\n        {\n            if (source is not Texture2D image || !image.isReadable) return null;', 'actual contour caller never writes a mask from GPU-only original alpha'),
+        ('silhouette-partial-union-trusted', 'ActualSilhouette.cs', '"Quest original outline alpha is not CPU-readable; retaining the complete card body");\n                    return;', '"Quest original outline alpha is not CPU-readable; retaining the complete card body");\n                    continue;', 'actual contour caller never writes a mask from GPU-only original alpha'),
+        ('silhouette-crop-lost', 'QuestArtworkRegion.cs', 'System.Array.Copy(original, (y + row) * image.width + x, slice, row * width, width);', 'System.Array.Copy(original, (y + row) * image.width, slice, row * width, width);', 'silhouette crop preserves exact native alpha'),
     ]
     if args.case:
         variants = [row for row in variants if row[0] in args.case]
@@ -182,7 +195,7 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
         (project / 'ProjectSettings/ProjectSettings.asset').write_text('%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n  m_ObjectHideFlags: 0\n  serializedVersion: 23\n  m_ActiveColorSpace: ' + ('1' if args.color_space == 'linear' else '0') + '\n')
         manifest_path = run / 'manifest.json'; manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
         (run / 'source-hashes.json').write_text(json.dumps({'sources': {name: hashlib.sha256(text.encode()).hexdigest() for name, text in sources.items()},
-            'panelSource': hashlib.sha256(panel.encode()).hexdigest(), 'captureSource': hashlib.sha256(capture.encode()).hexdigest(), 'graphics': args.graphics, 'colorSpace': args.color_space,
+            'panelSource': hashlib.sha256(panel.encode()).hexdigest(), 'silhouetteSource': hashlib.sha256(face.encode()).hexdigest(), 'captureSource': hashlib.sha256(capture.encode()).hexdigest(), 'graphics': args.graphics, 'colorSpace': args.color_space,
             'hardwareVerified': False}, indent=2) + '\n')
         command = [str(unity), '-batchmode', '-force-' + args.graphics, '-projectPath', str(project), '-executeMethod', 'DiagnosticRunner.Start', '-interactionManifest', str(manifest_path), '-logFile', str(run / 'unity.log')]
         if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a'] + command

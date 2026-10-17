@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.Cards;
@@ -782,7 +783,8 @@ internal static class CardFaceMipBake
                     System.Array.Copy(atlasPixels, (srcY + row) * atlas.width + srcX,
                         slice, (dstY + row) * fullW + dstX, w);
                 }
-                regionTex = new Texture2D(fullW, fullH, TextureFormat.RGBA32, mipChain: true, linear: false)
+                regionTex = new Texture2D(fullW, fullH, TextureFormat.RGBA32, mipChain: true,
+                    linear: QuestStandalonePlatform.Enabled && !GraphicsFormatUtility.IsSRGBFormat(atlas.graphicsFormat))
                 {
                     name = source.name + " (VR-mip-trim)",
                     filterMode = FilterMode.Trilinear,
@@ -929,8 +931,29 @@ internal static class CardFaceMipBake
     /// rect is invariant under the D3D11 top-left flip (y → H−y−h maps 0→0), which is
     /// exactly why this path renders correctly on device while v3's sub-rect read did not.
     /// </summary>
-    private static Color32[] ReadbackAtlasPixels(Texture2D src)
+    private static Color32[]? ReadbackAtlasPixels(Texture2D src)
     {
+        // B682 on-device copies contain uninitialized 0xCD areas and even two
+        // identical source/crop observations disagree. Do not replace valid native
+        // art with an optional GPU-derived filtering result on Quest. The game's
+        // readable portrait assets expose the exact mip-zero CPU pixels already
+        // used by CharacterPortraitsProvider.UpdateMegaTexture; copy those directly.
+        // GPU-only originals stay original. Desktop retains its established path.
+        if (QuestStandalonePlatform.Enabled)
+        {
+            if (!src.isReadable) return null;
+            try
+            {
+                Color32[] pixels = src.GetPixels32(0);
+                return pixels.Length == src.width * src.height ? pixels : null;
+            }
+            catch (UnityException)
+            {
+                // Some readable compressed formats cannot be decoded by this API.
+                // Filtering is optional; preserve the original instead of guessing.
+                return null;
+            }
+        }
         RenderTexture rt = RenderTexture.GetTemporary(
             src.width, src.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
         RenderTexture prev = RenderTexture.active;
@@ -980,6 +1003,8 @@ internal static class CardFaceMipBake
     /// track's <c>RawImage</c> portraits (the game assigns a raw Texture + uvRect there, no
     /// sprite exists to swap) through this same texture-level cache, so the budget, the
     /// content-identity dedupe and the bake log lines cover every module's bakes uniformly.
+    /// Quest uses exact readable mip-zero pixels and keeps a GPU-only original when
+    /// optional filtering cannot be reproduced without the failed copy/readback path.
     /// </summary>
     internal static Texture2D? BakedTextureFor(Texture2D? tex)
     {
@@ -1070,8 +1095,34 @@ internal static class CardFaceMipBake
     /// sRGB and the new texture is created non-linear, so values match the original in
     /// both linear and gamma color-space projects.
     /// </summary>
-    private static Texture2D Bake(Texture2D src)
+    private static Texture2D? Bake(Texture2D src)
     {
+        if (QuestStandalonePlatform.Enabled)
+        {
+            Color32[]? pixels = ReadbackAtlasPixels(src);
+            if (pixels == null) return null;
+            var copy = new Texture2D(src.width, src.height, TextureFormat.RGBA32, mipChain: true,
+                linear: !GraphicsFormatUtility.IsSRGBFormat(src.graphicsFormat))
+            {
+                name = src.name + " (VR-mip)",
+                filterMode = FilterMode.Trilinear,
+                anisoLevel = BakedAnisoLevel,
+                wrapMode = src.wrapMode,
+            };
+            // Raw CPU bytes retain the source encoding. Treating a linear source
+            // as sRGB would darken it even though every copied byte was exact.
+            copy.SetPixels32(pixels);
+            string identity = IdentityOf(src);
+            long bytes = (long)src.width * src.height * 4L;
+            if (!s_atlasPixelsByIdentity.ContainsKey(identity)
+                && s_atlasPixelCacheBytes + bytes <= MaxAtlasPixelCacheBytes)
+            {
+                s_atlasPixelsByIdentity[identity] = pixels;
+                s_atlasPixelCacheBytes += bytes;
+            }
+            copy.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+            return copy;
+        }
         RenderTexture rt = RenderTexture.GetTemporary(
             src.width, src.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
         RenderTexture prev = RenderTexture.active;

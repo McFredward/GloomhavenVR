@@ -62,7 +62,7 @@ public static partial class DiagnosticProgram
                 }
             Check(!QuestTextureCopy.AcceptCache("quest-sampler2d-v1")
                 && QuestTextureCopy.AcceptCache(QuestTextureCopy.Recipe),
-                "owned copy recipe rejects saved masks made by the former implicit blit quad");
+                "current copy recipe rejects masks made by previous GPU copy submissions");
             QuestStandalonePlatform.Enabled = false;
             Check(QuestTextureCopy.AcceptCache("quest-sampler2d-v1"), "desktop cache acceptance remains unchanged");
             QuestStandalonePlatform.Enabled = true;
