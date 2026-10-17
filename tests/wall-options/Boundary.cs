@@ -65,6 +65,15 @@ namespace GloomhavenVR.Core
         internal static readonly Dictionary<string, string[]> Labels = OriginalWallLabels.All;
     }
 }
+namespace GloomhavenVR.Core.SteamLink
+{
+    // Wall cases vary the Frame/legacy configuration inputs without a Steam Link
+    // identity. Discovery and native-MR capability have separate runtime proofs.
+    internal static class SteamLinkConnection
+    {
+        internal static bool Available => false;
+    }
+}
 namespace GloomhavenVR.WorldUI
 {
     internal enum ConfigTopic { Visual }
