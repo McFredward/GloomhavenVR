@@ -1300,6 +1300,9 @@ internal static partial class VROptionsTab
         if (component == 0 && TryBuildVariantTiles(parent, item, caption, hintKey))
             return;
 
+        if (component == 0 && TryBuildQuestEyeResolutionRow(parent, item, hintKey))
+            return;
+
         // A few entries' stored type says nothing useful about how they should be edited.
         if (component == 0 && TryBuildSpecialRow(parent, item, caption, hintKey))
             return;

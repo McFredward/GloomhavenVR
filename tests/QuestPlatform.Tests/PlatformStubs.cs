@@ -6,6 +6,7 @@ using System.Collections;
 // classes are compiled unchanged; this does not simulate rendering/native OpenXR.
 namespace UnityEngine
 {
+    public class Transform { }
     public class Texture { }
     public class Shader { public string name; public bool isSupported = true; }
     public class Material
@@ -280,7 +281,15 @@ namespace GloomhavenVR.Core
         internal static bool TryGetActiveRuntimeVersion(out ushort maj, out ushort min, out ushort pat) { maj = min = pat = 0; return false; }
     }
     internal static class StereoModeConfig { internal enum Mode { MultiPass, SinglePassInstanced } internal static Mode Current; }
-    internal static class Loc { internal static int Starts, Stops; internal static void Init() { Starts++; } internal static void Dispose() { Stops++; } }
+    internal static partial class Loc
+    {
+        internal static int Starts, Stops;
+        internal static string CurrentLanguage = "English";
+        internal static void Init() { Starts++; }
+        internal static void Dispose() { Stops++; }
+        private static string FamilyKey(string key) => null;
+        private static Dictionary<string, string> Pair(string en, string de) => new() { ["English"] = en, ["German"] = de };
+    }
     internal static class ExceptionTraces { internal static int Starts, Stops; internal static void Install() { Starts++; } internal static void Shutdown() { Stops++; } }
     internal static class PerfMonitor { internal static int Starts, Stops; internal static void Install(UnityEngine.GameObject host) { Starts++; } internal static void Shutdown() { Stops++; } }
     internal static class AutoLod { internal static void Install(UnityEngine.GameObject host) { } internal static void Shutdown() { } }
@@ -382,6 +391,30 @@ namespace GloomhavenVR.Core
 
 namespace GloomhavenVR.WorldUI
 {
+    internal static class ConfigCatalog
+    {
+        internal class ConfigItem
+        {
+            internal string Section, Key;
+            internal ConfigItem(string section, string key) { Section = section; Key = key; }
+        }
+    }
+    internal static partial class VROptionsTab
+    {
+        internal static int Bars, Steppers;
+        internal static bool BarAvailable = true, Multiline;
+        internal static string Caption, Note;
+        internal static ConfigCatalog.ConfigItem ReceivedItem;
+        internal static bool TestQuestResolution(ConfigCatalog.ConfigItem item) =>
+            TryBuildQuestEyeResolutionRow(new UnityEngine.Transform(), item, "h_vr_o_eyeres");
+        internal static void ResetRows() { Bars = Steppers = 0; Caption = Note = null; BarAvailable = true; Multiline = false; }
+        private static bool BuildBarAndArrowsRow(UnityEngine.Transform parent, ConfigCatalog.ConfigItem item,
+            string caption, string hintKey) { Bars++; ReceivedItem = item; Caption = caption; return BarAvailable; }
+        private static void BuildStepperRow(UnityEngine.Transform parent, ConfigCatalog.ConfigItem item,
+            int component, string caption, string hintKey) { Steppers++; ReceivedItem = item; Caption = caption; }
+        private static void BuildNote(UnityEngine.Transform parent, string text, bool multiline = false)
+        { Note = text; Multiline = multiline; }
+    }
     internal static class FlatScreen
     {
         internal static UnityEngine.Camera OwnedCamera;

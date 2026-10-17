@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import tempfile
 
+from town_run_retention import cleanup_completed_run
+
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--source-root', type=Path, default=ROOT)
@@ -23,6 +25,8 @@ args = parser.parse_args()
 source = args.source_root/'src/GloomhavenVR'
 original = (source/'Rig/RenderQuality.cs').read_text()
 quest_eye = (source/'Rig/QuestEyeResolution.cs').read_text()
+quest_allocation = (source/'Core/QuestEyeAllocation.cs').read_text()
+quest_text = (source/'Core/Loc/QuestText.cs').read_text()
 bootstrap = (source/'Core/Startup/OpenXRBootstrap.cs').read_text()
 rig = (source/'Rig/VRRigDriver.cs').read_text()
 def validate_startup_boundary(text):
@@ -62,9 +66,11 @@ assert 'internal static void TickFromUpdate() => TickCore(fromFrameUpdate: true)
 assert 'Camera.rect =' not in original and '.projectionMatrix =' not in original
 args.output_dir.mkdir(parents=True,exist_ok=True)
 run = Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
+print('RenderQuality evidence: '+str(run), flush=True)
 fixture = ROOT/'tests/GloomhavenVR.RenderQualityTests'
 inputs = [source/'Rig/RenderQuality.cs', source/'Core/Startup/OpenXRBootstrap.cs',
-          source/'Rig/VRRigDriver.cs', source/'Rig/QuestEyeResolution.cs', Path(__file__), *fixture.glob('*.cs'),
+          source/'Rig/VRRigDriver.cs', source/'Rig/QuestEyeResolution.cs',
+          source/'Core/QuestEyeAllocation.cs', source/'Core/Loc/QuestText.cs', Path(__file__), *fixture.glob('*.cs'),
           *fixture.glob('*.csproj'), *sorted((source/'Defaults').glob('*.cs')),
           source/'Core/Startup/FrameDefaults.cs']
 input_hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
@@ -82,9 +88,12 @@ for owner, namespace, text in [('Defaults','GloomhavenVR',constants),('FrameDefa
 (run/'Defaults.cs').write_text(extra)
 (run/'RenderQuality.cs').write_text(original)
 (run/'QuestEyeResolution.cs').write_text(quest_eye)
+(run/'QuestEyeAllocation.cs').write_text(quest_allocation)
+(run/'QuestText.cs').write_text(quest_text)
 # setup-dotnet installs on PATH; ~/.dotnet is only the local-development fallback.
 dotnet = os.environ.get('DOTNET') or shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
-project = fixture/'GloomhavenVR.RenderQualityTests.csproj'
+project = run/'GloomhavenVR.RenderQualityTests.csproj'
+shutil.copyfile(fixture/project.name, project)
 command = [dotnet,'build',str(project),'--configuration','Release',
            '-p:ProductionDir='+str(run),'-p:FixtureDir='+str(fixture),
            '-p:BaseIntermediateOutputPath='+str(run/'obj')+'/', '-p:OutputPath='+str(run/'bin')+'/']
@@ -157,3 +166,8 @@ report={'result':'PASS','sourceBindings':14,'productionAssertions':int(re.search
         'limits':'Explicit XR boundary model; no native OpenXR/driver/headset pixel stability is claimed.'}
 (run/'results.json').write_text(json.dumps(report,indent=2)+'\n')
 print('RenderQuality proof: '+str(run/'results.json'))
+
+cleanup_log = run/'completion.log'
+cleanup_log.write_text('RenderQuality evidence: '+str(run)+'\n')
+cleanup = cleanup_completed_run('render-quality', 0, cleanup_log, ROOT, process_reaped=True)
+(run/'completion-cleanup.json').write_text(json.dumps(cleanup, indent=2)+'\n')

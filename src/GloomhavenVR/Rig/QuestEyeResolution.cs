@@ -11,9 +11,14 @@ internal static class QuestEyeResolution
     internal static int StartupMsaa => QuestStandalonePlatform.StandaloneMsaaDefault;
     private static float _lastRequested = -1f;
     private static bool _viewportRestoreAttempted;
+    private static int _diagnosticReports;
 
     internal static float EffectiveScale(float requested) =>
-        QuestStandalonePlatform.FixedEyeTextureAllocation ? Mathf.Clamp(requested, 0.5f, 1f) : requested;
+        QuestStandalonePlatform.FixedEyeTextureAllocation ? QuestEyeAllocation.ClampScale(requested) : requested;
+
+    internal static string CurrentPixels(bool german) =>
+        string.Format(QuestText.Get("eyeResolutionCurrent", german),
+            XRSettings.eyeTextureWidth, XRSettings.eyeTextureHeight);
 
     internal static bool TryApply(float requested)
     {
@@ -41,6 +46,19 @@ internal static class QuestEyeResolution
         }
         if (changed)
         {
+            // A small protected startup record survives the general mod-log cap.
+            // This is API state, not evidence of headset image quality. Never poll
+            // native resources or format a diagnostic on the unchanged frame path.
+            if (VRLog.Wants(VRLogLevel.Debug) && _diagnosticReports < 2)
+            {
+                _diagnosticReports++;
+                UnityEngine.Debug.Log("[Quest startup] resolution current="
+                    + XRSettings.eyeTextureWidth + "x" + XRSettings.eyeTextureHeight
+                    + " allocation=" + XRSettings.eyeTextureResolutionScale.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                    + " viewport=" + XRSettings.renderViewportScale.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                    + " nextStart=" + effective.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                    + " policy=next-app-start");
+            }
             _lastRequested = requested;
             VRLog.Note("Rig", $"Quest Vulkan eye allocation retained: {XRSettings.eyeTextureWidth}x"
                 + $"{XRSettings.eyeTextureHeight}; saved scale={requested:F2}, "

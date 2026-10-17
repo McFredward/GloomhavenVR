@@ -11,6 +11,8 @@
     <Compile Include="$(FixtureDir)/Program.cs" />
     <Compile Include="$(ProductionDir)/RenderQuality.cs" />
     <Compile Include="$(ProductionDir)/QuestEyeResolution.cs" />
+    <Compile Include="$(ProductionDir)/QuestEyeAllocation.cs" />
+    <Compile Include="$(ProductionDir)/QuestText.cs" />
     <Compile Include="$(ProductionDir)/Defaults.cs" />
   </ItemGroup>
 </Project>

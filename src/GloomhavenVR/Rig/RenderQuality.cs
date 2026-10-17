@@ -1028,7 +1028,9 @@ internal static class RenderQuality
             VRLog.Info("Rig", $"Eye resolution row [RenderQuality] EyeResolutionScale reads " +
                               $"{wanted:F2}x; session allocation scale {_sessionAllocationScale:F2}x, " +
                               $"eye target {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight}. " +
-                              "Live changes use the viewport; values above capacity apply next VR restart. " +
+                              (QuestStandalonePlatform.FixedEyeTextureAllocation
+                                  ? "Quest changes apply at the next app start; the live viewport remains full. "
+                                  : "Live changes use the viewport; values above capacity apply next VR restart. ") +
                               "IT IS THE ONLY RESOLUTION THE MOD CAN MOVE: game/SteamVR resolution " +
                               "changes are upstream and appear in the allocated size above.");
         }
@@ -1052,9 +1054,9 @@ internal static class RenderQuality
             return;
         }
         _lastEyeRefusal = -1f;
-        // Keep the Quest-specific viewport cap after the same quiet/render-path
-        // boundary as the current desktop controller. Unity owns the Android
-        // allocation; the compatibility bridge may change only its viewport.
+        // Keep the Quest startup-only allocation policy after the same quiet/
+        // render-path boundary as desktop. Its running viewport remains full;
+        // changing that subrect previously distorted the tracked picture.
         if (QuestEyeResolution.TryApply(wanted))
             return;
         float viewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);

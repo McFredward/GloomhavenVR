@@ -6,6 +6,9 @@
     <Compile Include="$(RuntimeSource)/QuestStandalonePlatform.cs" />
     <Compile Include="$(RuntimeSource)/QuestEyeAllocation.cs" />
     <Compile Include="$(RuntimeSource)/QuestEyeResolution.cs" />
+    <Compile Include="$(RuntimeSource)/QuestText.cs" />
+    <Compile Include="$(RuntimeSource)/Loc.PlayerHelp.cs" />
+    <Compile Include="$(RuntimeSource)/VROptionsTab.QuestResolution.cs" />
     <Compile Include="$(RuntimeSource)/FrameDefaults.cs" />
     <Compile Include="$(RuntimeSource)/FrameNativePassthrough.cs" />
     <Compile Include="$(RuntimeSource)/RenderQualityAllocation.fixture" />

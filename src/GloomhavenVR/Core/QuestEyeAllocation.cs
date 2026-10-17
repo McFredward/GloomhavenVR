@@ -11,6 +11,17 @@ namespace GloomhavenVR.Core;
 internal static class QuestEyeAllocation
 {
     private const int MaximumConfigBytes = 256 * 1024;
+    // Match the existing user-facing resolution range. B675's 1.0 ceiling was
+    // conservative during the distorted-viewport investigation; it also silently
+    // discarded every supersampling choice at the next launch. Only the stopped
+    // display receives this value. The shared mobile default remains unchanged.
+    internal const float MinimumScale = 0.5f;
+    internal const float MaximumScale = 2f;
+
+    internal static float ClampScale(float requested) =>
+        float.IsNaN(requested) || float.IsInfinity(requested)
+            ? QuestStandalonePlatform.StandaloneEyeResolutionDefault
+            : Mathf.Clamp(requested, MinimumScale, MaximumScale);
     private static bool _attempted;
 
     internal static void Prepare(string configPath)
@@ -108,7 +119,7 @@ internal static class QuestEyeAllocation
                 return fallback;
             }
             source = "saved-rig-config";
-            return Mathf.Clamp(saved, 0.5f, 1f);
+            return ClampScale(saved);
         }
         catch (Exception error) when (error is IOException || error is UnauthorizedAccessException)
         {

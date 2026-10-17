@@ -192,8 +192,8 @@ internal static class Program
             "vulkan-render-controller: actual render controller must keep startup eye allocation and sample count without rewriting config");
         Check(QuestStandalonePlatform.FixedEyeTextureAllocation, "vulkan-eye-gate: configured Quest Vulkan must retain swapchain allocation");
         Check(QuestEyeResolution.TryApply(savedScale) && savedScale == 1.5f
-            && QuestEyeResolution.EffectiveScale(savedScale) == 1f,
-            "vulkan-eye-cap: supersampling must not mutate saved configuration or resize the allocation");
+            && QuestEyeResolution.EffectiveScale(savedScale) == 1.5f,
+            "vulkan-eye-range: supersampling must remain selectable for restart without resizing the live allocation");
         Check(XRSettings.AllocationWrites == 0 && XRSettings.renderViewportScale == 1f,
             "vulkan-eye-allocation: fallback must restore full viewport without native resolution setter");
         int reports = VRLog.Lines.Count;
@@ -203,11 +203,22 @@ internal static class Program
         QuestEyeResolution.TryApply(0.7f);
         Check(XRSettings.renderViewportScale == 1f && XRSettings.ViewportWrites == 1 && XRSettings.AllocationWrites == 0,
             "vulkan-eye-viewport: changed desired scale must remain saved for restart with a full viewport");
+        QuestResolutionOptionsCases();
+        VRLog.WantsDebug = true;
+        for (int i = 0; i < 1000; i++) QuestEyeResolution.TryApply(i % 2 == 0 ? 1.2f : 1.4f);
+        Check(Debug.Lines.Count(line => line.Contains("[Quest startup] resolution ")) == 2,
+            "quest-resolution-debug-bounded: repeated user choices must retain at most two protected Debug records");
+        VRLog.WantsDebug = false;
         QuestEyeResolution.TryApply(1f);
         Check(XRSettings.renderViewportScale == 1f && XRSettings.ViewportWrites == 1 && XRSettings.AllocationWrites == 0,
             "vulkan-eye-restore: later desired scale must not write any running eye resource");
         Application.platform = RuntimePlatform.WindowsPlayer;
         Check(!QuestStandalonePlatform.Enabled, "configured-desktop-gate: configured bridge stayed active outside Android");
+        var desktopResolution = new GloomhavenVR.WorldUI.ConfigCatalog.ConfigItem("RenderQuality", "EyeResolutionScale");
+        Check(!GloomhavenVR.WorldUI.VROptionsTab.TestQuestResolution(desktopResolution),
+            "quest-resolution-desktop: ordinary PC keeps its shared generic row without extra notes");
+        Check(Loc.ConfigHelpForPlayers("RenderQuality", "EyeResolutionScale") != QuestText.Get("fixedEyeResolution", false),
+            "quest-resolution-desktop-help: desktop player help stays unchanged");
         Check(!QuestEyeResolution.TryApply(1.5f) && QuestEyeResolution.EffectiveScale(1.5f) == 1.5f,
             "desktop-eye-allocation: desktop Vulkan must retain its original supersampling controller");
         Check(!QuestStandalonePlatform.SetPassthrough(true) && nativeCalls == 7, "configured-desktop-gate: desktop called the Android native bridge");
@@ -218,6 +229,49 @@ internal static class Program
         Console.WriteLine("PASS Quest platform/core lifecycle: " + assertions + " assertions (XR/environment seams; not native rendering/AOT proof)");
     }
 
+    static void QuestResolutionOptionsCases()
+    {
+        Check(!VRLog.Lines.Any(line => line.Contains("Live changes use the viewport")),
+            "quest-resolution-log: actual controller must not announce desktop live-viewport behavior on Quest");
+        Check(QuestEyeResolution.EffectiveScale(2.5f) == 2f && QuestEyeResolution.EffectiveScale(.1f) == .5f
+            && QuestEyeResolution.EffectiveScale(float.NaN) == FrameDefaults.EyeResolutionScale,
+            "quest-resolution-sanitize: UI and startup share finite range and existing mobile default");
+        var item = new GloomhavenVR.WorldUI.ConfigCatalog.ConfigItem("RenderQuality", "EyeResolutionScale");
+        foreach (string language in new[] { "English", "German" })
+        {
+            Loc.CurrentLanguage = language;
+            bool german = language == "German";
+            string help = QuestText.Get("fixedEyeResolution", german);
+            Check(Loc.ConfigHelpForPlayers(item.Section, item.Key) == help
+                && Loc.ModHelpForPlayers("h_vr_o_eyeres") == help,
+                "quest-resolution-help: short player help must reach the Quest restart contract in both languages");
+            GloomhavenVR.WorldUI.VROptionsTab.ResetRows();
+            Check(GloomhavenVR.WorldUI.VROptionsTab.TestQuestResolution(item)
+                && GloomhavenVR.WorldUI.VROptionsTab.Bars == 1
+                && GloomhavenVR.WorldUI.VROptionsTab.Steppers == 0
+                && ReferenceEquals(GloomhavenVR.WorldUI.VROptionsTab.ReceivedItem, item)
+                && GloomhavenVR.WorldUI.VROptionsTab.Caption == QuestText.Get("eyeResolutionName", german),
+                "quest-resolution-row: Quest reuses its exact current catalog item and ordinary bar/arrows with a restart caption");
+            Check(GloomhavenVR.WorldUI.VROptionsTab.Note == string.Format(QuestText.Get("eyeResolutionCurrent", german),
+                    XRSettings.eyeTextureWidth, XRSettings.eyeTextureHeight)
+                && GloomhavenVR.WorldUI.VROptionsTab.Multiline,
+                "quest-resolution-pixels: visible note must use actual target dimensions, never selected-scale prediction");
+        }
+        GloomhavenVR.WorldUI.VROptionsTab.ResetRows();
+        GloomhavenVR.WorldUI.VROptionsTab.BarAvailable = false;
+        Check(GloomhavenVR.WorldUI.VROptionsTab.TestQuestResolution(item)
+            && GloomhavenVR.WorldUI.VROptionsTab.Steppers == 1,
+            "quest-resolution-fallback: missing slider donor must retain shared stepper editing");
+        GloomhavenVR.WorldUI.VROptionsTab.ResetRows();
+        Check(!GloomhavenVR.WorldUI.VROptionsTab.TestQuestResolution(
+            new GloomhavenVR.WorldUI.ConfigCatalog.ConfigItem("Other", "EyeResolutionScale"))
+            && !GloomhavenVR.WorldUI.VROptionsTab.TestQuestResolution(
+            new GloomhavenVR.WorldUI.ConfigCatalog.ConfigItem("RenderQuality", "Other"))
+            && GloomhavenVR.WorldUI.VROptionsTab.Bars == 0,
+            "quest-resolution-address: unrelated rows must retain generic behavior");
+        Loc.CurrentLanguage = "English";
+    }
+
     static void EyeAllocationCases(string directory)
     {
         string config = Path.Combine(directory, "allocation.cfg");
@@ -225,7 +279,9 @@ internal static class Program
             && source == "shared-mobile-default", "eye-startup-default: missing config must use the shared Frame default");
         foreach (var row in new[] {
             ("[RenderQuality]\nEyeResolutionScale = 0.7\n", .7f),
-            ("[RenderQuality]\nEyeResolutionScale = 1.5\n", 1f),
+            ("[RenderQuality]\nEyeResolutionScale = 1.5\n", 1.5f),
+            ("[RenderQuality]\nEyeResolutionScale = 2.0\n", 2f),
+            ("[RenderQuality]\nEyeResolutionScale = 2.5\n", 2f),
             ("[RenderQuality]\nEyeResolutionScale = 0.1\n", .5f),
             ("[RenderQuality]\nEyeResolutionScale = NaN\n", FrameDefaults.EyeResolutionScale),
             ("[RenderQuality]\nEyeResolutionScale = Infinity\n", FrameDefaults.EyeResolutionScale),
@@ -267,6 +323,17 @@ internal static class Program
         for (int i = 0; i < 1000; i++) QuestStandalonePlatform.PrepareDisplayBeforeStart();
         Check(display.AllocationWrites == 1 && Debug.Lines.Count == 1,
             "eye-startup-bounded: repeated feature callbacks must not repeat setters or logs");
+
+        foreach (float scale in new[] { .5f, .8f, 1f, 1.5f, 2f })
+        {
+            ResetStartup(); Debug.Lines.Clear(); SubsystemManager.Displays.Clear();
+            File.WriteAllText(canonical, "[RenderQuality]\nEyeResolutionScale=" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            var stopped = new XRDisplaySubsystem(); SubsystemManager.Displays.Add(stopped);
+            QuestStandalonePlatform.PrepareDisplayBeforeStart();
+            Check(stopped.AllocationWrites == 1 && stopped.LiveAllocationWrites == 0
+                && stopped.scaleOfAllRenderTargets == scale && stopped.scaleOfAllViewports == 1f,
+                "eye-startup-supersample: every selectable scale must reach the stopped display unchanged: " + scale);
+        }
 
         ResetStartup(); Debug.Lines.Clear(); SubsystemManager.Displays.Clear();
         var live = new XRDisplaySubsystem { running = true }; var other = new XRDisplaySubsystem();

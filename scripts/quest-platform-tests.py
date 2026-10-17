@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import tempfile
 
+from town_run_retention import cleanup_completed_run
+
 
 def main():
     root = Path(__file__).resolve().parents[1]
@@ -15,6 +17,9 @@ def main():
         "QuestStandalonePlatform.cs": core / "QuestStandalonePlatform.cs",
         "QuestEyeAllocation.cs": core / "QuestEyeAllocation.cs",
         "QuestEyeResolution.cs": root / "src/GloomhavenVR/Rig/QuestEyeResolution.cs",
+        "QuestText.cs": core / "Loc/QuestText.cs",
+        "Loc.PlayerHelp.cs": core / "Loc/Loc.PlayerHelp.cs",
+        "VROptionsTab.QuestResolution.cs": root / "src/GloomhavenVR/WorldUI/Options/VROptionsTab.QuestResolution.cs",
         "FrameDefaults.cs": core / "Startup/FrameDefaults.cs",
         "FrameNativePassthrough.cs": core / "MixedReality/FrameNativePassthrough.cs",
         "RuntimeDepsLoader.cs": core / "Startup/RuntimeDepsLoader.cs",
@@ -69,7 +74,11 @@ internal static class RenderQualityAllocationFixture {
         ("quest-standalone-defaults-removed", "FrameDefaults.cs", "Core.QuestStandalonePlatform.Enabled\n        || ", "", "quest-mobile-defaults"),
         ("quest-native-backend-gate", "FrameNativePassthrough.cs", "_required ??= !QuestStandalonePlatform.Enabled && FrameDefaults.Active", "_required ??= FrameDefaults.Active", "quest-native-backend"),
         ("quest-native-reattach-gate", "FrameNativePassthrough.cs", "_required = !QuestStandalonePlatform.Enabled && FrameDefaults.Active", "_required = FrameDefaults.Active", "quest-native-reattach"),
-        ("vulkan-eye-cap-removed", "QuestEyeResolution.cs", "Mathf.Clamp(requested, 0.5f, 1f)", "requested", "vulkan-eye-cap"),
+        ("vulkan-eye-restart-range-truncated", "QuestEyeResolution.cs", "QuestEyeAllocation.ClampScale(requested)", "Mathf.Clamp(requested, 0.5f, 1f)", "vulkan-eye-range"),
+        ("eye-startup-supersampling-discarded", "QuestEyeAllocation.cs", "Mathf.Clamp(requested, MinimumScale, MaximumScale)", "Mathf.Clamp(requested, MinimumScale, 1f)", "eye-startup-config"),
+        ("quest-resolution-ui-desktop-leak", "VROptionsTab.QuestResolution.cs", "if (!QuestStandalonePlatform.FixedEyeTextureAllocation", "if (false && !QuestStandalonePlatform.FixedEyeTextureAllocation", "quest-resolution-desktop"),
+        ("quest-resolution-player-help-stale", "Loc.PlayerHelp.cs", '&& section == "RenderQuality" && key == "EyeResolutionScale"', '&& section == "Other" && key == "EyeResolutionScale"', "quest-resolution-help"),
+        ("quest-resolution-protected-log-unbounded", "QuestEyeResolution.cs", "_diagnosticReports < 2", "_diagnosticReports < 2000", "quest-resolution-debug-bounded"),
         ("vulkan-eye-allocation-restored", "QuestEyeResolution.cs", "XRSettings.renderViewportScale = 1f;", "XRSettings.eyeTextureResolutionScale = 1f;", "vulkan-eye-allocation"),
         ("vulkan-eye-log-unbounded", "QuestEyeResolution.cs", "if (changed)", "if (true)", "vulkan-eye-bounded"),
         ("eye-startup-live-allocation", "QuestEyeAllocation.cs", "if (display.running)", "if (display.running && displays.Count < 0)", "eye-startup-live"),
@@ -104,6 +113,9 @@ internal static class RenderQualityAllocationFixture {
         raise SystemExit("FAIL actual Quest controller must precede the desktop viewport path without live native allocation")
     if "key = QuestStandalonePlatform.MixedRealityClearColor(key);" not in mixed_reality.read_text():
         raise SystemExit("FAIL actual MR Tick is not bound to the tested Quest clear policy")
+    row_source = (root / "src/GloomhavenVR/WorldUI/Options/VROptionsTab.2.Rows.cs").read_text()
+    if "if (component == 0 && TryBuildQuestEyeResolutionRow(parent, item, hintKey))" not in row_source:
+        raise SystemExit("FAIL shared curated/advanced row no longer reaches the tested Quest resolution helper")
     evidence = {"sources": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in sources.items()},
                 "mixedRealitySource": hashlib.sha256(mixed_reality.read_bytes()).hexdigest(), "cases": []}
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
@@ -119,7 +131,9 @@ internal static class RenderQualityAllocationFixture {
                                  "--configuration", "Release", "--property:RuntimeSource=" + str(case),
                                  "--", str(case / "resources")], text=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, timeout=120)
-        (case / "console.log").write_text(result.stdout)
+        (case / "console.log").write_text("Quest platform lifecycle evidence: " + str(run) + "\n" + result.stdout)
+        cleanup = cleanup_completed_run("quest-platform", result.returncode, case / "console.log", root, process_reaped=True)
+        (case / "cleanup.json").write_text(json.dumps(cleanup, indent=2) + "\n")
         passed = (result.returncode == 0 and "PASS Quest platform/core lifecycle:" in result.stdout) if not expected else (result.returncode != 0 and expected in result.stdout)
         evidence["cases"].append({"name": name, "exitCode": result.returncode, "expected": expected, "passed": passed})
         (run / "results.json").write_text(json.dumps(evidence, indent=2) + "\n")
