@@ -1288,9 +1288,12 @@ MixedReality remain unchanged; exact key/token retirement uses the existing
 path-bound ledger. Root will run focused removal/menu/build gates. No new whole
 local gate is requested; the stereo-video integrator's683 fullgate continues.
 
-Root reserves **684** for handing over this removal after the already reserved
-stereo683 integration. Do not downgrade or reuse build numbers. The worker does
-not touch NetProtocol/STATE or any FlatScreen lifecycle. Please retain this
+Root reserves **684** for the first subsequent real-game MR handover after the
+already reserved stereo683 integration. The pattern removal is a source cleanup
+now; no separate binary/package or new hardware test is handed over this round.
+It can be included in stereo683's eventual distributed build. Do not downgrade
+or reuse build numbers. The worker does not touch NetProtocol/STATE or any
+FlatScreen lifecycle. Please retain this
 coordination file and the unrelated trailer owner's files. Native device state
 remains fully restored/user-confirmed; there is no active helper or test timer.
 
@@ -1299,3 +1302,13 @@ not request another synthetic-pattern-only round. New source packing and exact
 depth/MSAA/stencil experiments remain unhooked/offline until the actual real-eye
 path, RGB transfer, material coverage and native decoder agree. Do not label
 those prototype tests as completed game-scene passthrough.
+
+Removal is now integrated as aafc5ddcb. Focused worker evidence passes a strict
+real-reference Release build,1800 actual menu assertions/six native controls,
+exact assembled type/resource/key absence, source surface retirements,11 frame
+orders, OptionsCoverage,2305 player-help assertions and exact suite inventory.
+The integrated tree including the new unused ScenePayloadDraft also compiles
+Release with0 warnings/errors. No complete local/wire rerun is claimed. Evidence
+and exact stopped-cache/worktree cleanup are in
+`.planning/debug/steamlink-pattern-removal-20261017/` and
+`.planning/debug/steamlink-pattern-removal-integration-20261017/`.
