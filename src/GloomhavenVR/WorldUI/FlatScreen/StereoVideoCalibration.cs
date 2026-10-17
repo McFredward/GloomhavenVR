@@ -22,6 +22,7 @@ internal static class StereoVideoCalibration
     private static bool _checkedArguments;
     private static bool _requested;
     private static bool _attempted;
+    private static bool _finished;
     private static bool _stereo;
     private static GameObject? _root;
     private static VideoPlayer? _player;
@@ -37,7 +38,14 @@ internal static class StereoVideoCalibration
             _checkedArguments = true;
             _requested = StereoVideoCalibrationPolicy.Requested(Environment.GetCommandLineArgs());
         }
-        if (!_requested || (_attempted && _root == null)) return;
+        if (!_requested || _finished) return;
+        // Unity scene teardown can destroy the root before the next world-UI tick. Its
+        // managed surface still owns the camera callback/material and must be disposed.
+        if (_attempted && (_root == null || _player == null))
+        {
+            Stop();
+            return;
+        }
         try
         {
             // The main menu is identified by its actual native scene, not the persistent
@@ -92,7 +100,7 @@ internal static class StereoVideoCalibration
         _root.SetActive(true);
         _player.Prepare();
         VRLog.Note("WorldUI", "STEREO VIDEO CALIBRATION: preparing one silent decoder; layout="
-            + (_stereo ? "full-SBS-left-first" : "mono-left") + ". Click the prepared picture to close; leaving the offline menu also closes it.");
+            + (_stereo ? "full-SBS-left-first" : "mono-center") + ". Click the prepared picture to close; leaving the offline menu also closes it.");
     }
 
     private static void Prepared(VideoPlayer player)
@@ -165,6 +173,7 @@ internal static class StereoVideoCalibration
 
     internal static void Stop()
     {
+        if (_attempted) _finished = true;
         _surface?.Dispose();
         _surface = null;
         if (_canvas != null) UguiPokeSurfaces.Unregister(_canvas);
