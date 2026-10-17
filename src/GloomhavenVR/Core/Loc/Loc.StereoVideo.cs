@@ -5,8 +5,8 @@ internal static partial class Loc
     internal static string StereoVideoCalibrationStart => CurrentLanguage == "German"
         ? "Stereo-Videotest starten" : "Start stereo video test";
     internal static string StereoVideoCalibrationMenuHint => CurrentLanguage == "German"
-        ? "Nur im Offline-Hauptmenü. Zeigt ein stummes Testbild für beide Augen. Zum Schließen auf das Bild klicken; danach hier erneut starten."
-        : "Offline main menu only. Shows a silent test picture for both eyes. Click the picture to close, then start it again here.";
+        ? "Nur im Offline-Hauptmenü. Zeigt ein stummes Testbild für beide Augen. Schließe die VR-Optionen für freie Sicht auf das Testbild. Zum Beenden auf das Bild klicken; danach hier erneut starten."
+        : "Offline main menu only. Shows a silent test picture for both eyes. Close VR Options to view the test picture. Click the picture to end the test, then start it again here.";
     internal static string StereoVideoCalibrationReady => CurrentLanguage == "German"
         ? "Bereit." : "Ready.";
     internal static string StereoVideoCalibrationPreparing => CurrentLanguage == "German"

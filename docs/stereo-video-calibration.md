@@ -82,7 +82,9 @@ reviewed media.
 Start the runtime pilot with **VR Options > Advanced > Start stereo video test**
 (German: **VR-Optionen > Erweitert > Stereo-Videotest starten**). The old
 `--ghvr-stereo-video-calibration` argument no longer starts it and can be removed.
-The action displays live localized status, including preparation, playback,
+Close the independent VR Options window after starting to see the test picture
+unobstructed; closing that options window does not stop playback. The action
+displays live localized status, including preparation, playback,
 mono fallback, missing media and failure. After closing or a failure, press the
 same button again to request a fresh attempt; no application restart is needed.
 A request outside the offline VR main menu is refused visibly and is never
