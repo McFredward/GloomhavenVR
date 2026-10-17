@@ -97,6 +97,13 @@ the window; use its **X** to close it.
 **Chest rewards:** use **Continue** in the reward window. In multiplayer, everyone sees
 the reward; the player controlling that character confirms for the group.
 
+**Stereo videos:** the intro, character films, ambient films and studio logo have depth
+inside the movable video window. In a scenario, use **VR Options ▸ Advanced ▸ Test triggers
+▸ Videos** to play each film individually. Close VR Options for a clear view; **Close test
+video** ends the preview. Other players see it too. These previews do not unlock classes
+or change progress, and a game video takes priority. Moving your head changes your view
+of the window; the film keeps its recorded camera view.
+
 | Mark on the window | Who sees it? |
 |---|---|
 | <img src="img/net-shared.svg" width="22" height="16" alt="Blue two-person shared-window symbol"> **Shared** (pulses blue in game) | Everyone. Shared windows and story pages stay synchronized. The symbol sits at the top right, below the close **X** when present. |
