@@ -612,7 +612,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 682;
+    public const ushort ModBuild = 683;
+
+    // ModBuild683 — recover Quest copy regressions; retain real generation.
+    // Capture123858 proves installed/current682 and previous681. Both new
+    // screenshots were inspected: cards lose their artwork, native menu/movie
+    // and dialogs regress, while real floors/door/walls/figure finally exist.
+    // The second census proves both rooms complete with handles/content and an
+    // active engine. Keep the B682 lifecycle repair; do not reset native state.
+    // Restore B681's hardware-qualified Graphics.Blit submission instead of the
+    // B682 owned-quad CommandBuffer copy. Linux GPU passes did not qualify active
+    // Android XR behavior. A new recipe retires only broken derived copy caches.
+    // Optional Quest mip filtering reads existing supported CPU source pixels;
+    // keep exact native source identity when that read is unavailable rather
+    // than replacing correct art with an untrusted GPU readback. Desktop keeps
+    // its established GPU bake. No source asset or original bank is rewritten.
+    // Bound actual shown-vs-pooled world material/loader facts and late pointer
+    // render facts within existing record limits. Enabled CPU geometry is not
+    // proof of a visible hit marker; its absence after Intro remains hardware
+    // evidence, not permission to hide or arbitrarily replace its original look.
+    // Focused current-source checks and compact Mod Update only; no full APK,
+    // original content conversion, new full wire gate or headset success claim.
 
     // ModBuild682 — preserve the hit marker and recover requested native rooms.
     // Capture114923 verifies current/installed681, previous680. The maintainer

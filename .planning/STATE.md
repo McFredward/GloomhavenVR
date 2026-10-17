@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest B682 regression recovery, 2026-10-17: feature / B683.**
+
+Capture123858 verifies installed/current682, previous681. Both new screenshots
+were inspected. Menu video/dialogs, spinner and card art regress after the new
+copy submission; restore the prior hardware-qualified blit and retire derived
+B682 caches. Keep original GPU-only images instead of constructing optional mip
+replacements from untrusted readbacks; readable source pixels can be reused
+directly. Desktop filtering stays unchanged. Both native rooms now complete
+with handles and generated geometry: retain the working lifecycle fix. Missing
+world appearance and late hit marker remain hardware gates; improve only their
+bounded actual visibility/material facts, without forcing native state.
+Use compact Mod Update with retained banks; see
+[QUEST-REGRESSIONS-123858-20261017.md](QUEST-REGRESSIONS-123858-20261017.md).
+
 **Quest requested rooms and retained pointer, 2026-10-17: feature / B682.**
 
 Capture114923 proves installed/current B681, previous680; the new screenshot was
