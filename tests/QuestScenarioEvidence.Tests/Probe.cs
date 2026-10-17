@@ -65,8 +65,16 @@ namespace GloomhavenVR.Rig
         internal void Configure(Camera head, Camera anchor, bool scenario)
         { _camera = head; _anchor = anchor; _kind = scenario ? RigKind.Scenario : RigKind.Menu; }
         internal void RunNow() { _questScenarioDue = float.NegativeInfinity; TickQuestScenarioEvidence(); }
+        internal void RunLoadingWait() { _questScenarioDue = Time.realtimeSinceStartup - 1f; TickQuestScenarioEvidence(); }
+        internal void RunLoadingTimeout() { _questScenarioDue = Time.realtimeSinceStartup - 31f; TickQuestScenarioEvidence(); }
         internal static RenderTexture DrawProbe(Renderer renderer, Material material)
-            => RenderQuestScenarioProbe(renderer, renderer.GetComponent<MeshFilter>().sharedMesh, material, null);
+        {
+            Mesh mesh = renderer.GetComponent<MeshFilter>().sharedMesh;
+            if (!TryQuestScenarioPart(renderer, mesh, out int part, out _)) throw new InvalidOperationException("No native triangle material part.");
+            return RenderQuestScenarioProbe(renderer, mesh, material, null, part);
+        }
+        internal static bool SelectPart(Renderer renderer, out int part, out Material material)
+            => TryQuestScenarioPart(renderer, renderer.GetComponent<MeshFilter>().sharedMesh, out part, out material);
     }
 }
 public static class QuestScenarioEvidenceProbe
@@ -110,14 +118,13 @@ public static class QuestScenarioEvidenceProbe
             driver.RunNow(); Check(Records.Count == 0, "Normal logging does not observe native scene");
             GloomhavenVR.Core.VRLog.Debug = true; driver.Configure(head, anchor, false);
             driver.RunNow(); Check(Records.Count == 0, "Menu does not consume late scenario evidence");
-            driver.Configure(head, anchor, true);
-            SceneController.Instance = root.AddComponent<SceneController>(); SceneController.Instance.ScenarioIsLoading = true;
-            driver.RunNow(); Check(Records.Count == 0, "Loading cannot spend both settled scenario observations");
-            SceneController.Instance.ScenarioIsLoading = false;
             driver.Configure(head, anchor, false); GloomhavenVR.Core.Events.VRModeStateMachine.ScenarioBoardExists = true;
-            driver.RunNow();
+            SceneController.Instance = root.AddComponent<SceneController>(); SceneController.Instance.ScenarioIsLoading = true;
+            driver.RunLoadingWait(); Check(Records.Count == 0, "Loading cannot spend both settled scenario observations");
+            driver.RunLoadingTimeout();
             Check(Records.Count == 4, "One real native scenario snapshot emits four bounded records");
             Check(Records[0].Contains("rig=Menu") && Records[0].Contains("board=True"), "Stuck menu rig still emits actual scenario evidence");
+            Check(Records[0].Contains("loading=True"), "Stuck native loading cannot hide evidence beyond the bounded grace");
             Check(Records[0].Contains("headMask=00000400") && Records[0].Contains("scenarioMask=00000400"), "Actual camera masks are reported");
             Check(Records[1].Contains("tiles=1 active=1 all=1 complete=1 busy=0 generatedRoots=1"), "Actual generation and placement state is reported");
             Check(Records[1].Contains("renderers=2") && Records[1].Contains("layerExcluded=1"), "Actual renderer layer refusal is counted");
@@ -127,6 +134,7 @@ public static class QuestScenarioEvidenceProbe
             Check(!Records[2].Contains("Color:Float32"), "Absent color stays absent, not rewritten");
             Check(floor.GetComponent<MeshFilter>().sharedMesh == original && floorRenderer.sharedMaterial == originalMaterial, "Diagnostic preserves actual native mesh and material identity");
             Check(original.vertexCount == 24 && !original.HasVertexAttribute(VertexAttribute.Color), "Diagnostic preserves actual native vertex attributes");
+            SceneController.Instance.ScenarioIsLoading = false;
             driver.RunNow(); Check(Records.Count == 8, "Second observation uses the complete eight-record launch budget");
             driver.RunNow(); Check(Records.Count == 8, "Same rig stops after bounded evidence");
             var next = new GameObject("Next rig").AddComponent<GloomhavenVR.Rig.VRRigDriver>(); next.Configure(head, anchor, true); next.RunNow();
@@ -157,8 +165,13 @@ public static class QuestScenarioEvidenceProbe
             source.transform.localScale = new Vector3(2, .1f, 2);
             Mesh mesh = UnityEngine.Object.Instantiate(source.GetComponent<MeshFilter>().sharedMesh);
             source.GetComponent<MeshFilter>().sharedMesh = mesh;
+            int[] triangles = mesh.GetTriangles(0); mesh.subMeshCount = 2;
+            mesh.SetTriangles(Array.Empty<int>(), 0); mesh.SetTriangles(triangles, 1);
+            renderer.sharedMaterials = new[] { white, material };
             mesh.UploadMeshData(true);
             Check(!mesh.isReadable && !mesh.HasVertexAttribute(VertexAttribute.Color), "Actual mesh is unreadable and has no COLOR input");
+            Check(GloomhavenVR.Rig.VRRigDriver.SelectPart(renderer, out int part, out Material selected) && part == 1 && selected == material,
+                "Empty submesh0 selects real triangle submesh1 and its actual material slot");
             var ordinary = new GameObject("Ordinary camera").AddComponent<Camera>(); ordinary.enabled = false;
             ordinary.cullingMask = 1 << 10; ordinary.transform.position = new Vector3(0, 3, -3); ordinary.transform.LookAt(Vector3.zero);
             ordinary.targetTexture = new RenderTexture(48, 32, 24);
@@ -172,7 +185,7 @@ public static class QuestScenarioEvidenceProbe
             RenderTexture control = GloomhavenVR.Rig.VRRigDriver.DrawProbe(renderer, white);
             Color32[] controlPixels = Read(control);
             Check(controlPixels.Count(x => x.r > 200 && x.g > 200 && x.b > 200) > 50, "POSITION/UV control renders the exact unreadable native geometry");
-            Check(source.GetComponent<MeshFilter>().sharedMesh == mesh && renderer.sharedMaterial == material, "GPU probe keeps actual native mesh and material identity");
+            Check(source.GetComponent<MeshFilter>().sharedMesh == mesh && renderer.sharedMaterials[1] == material, "GPU probe keeps actual native mesh and material identity");
             Check(!mesh.isReadable && !mesh.HasVertexAttribute(VertexAttribute.Color), "GPU probe neither decodes nor adds native vertex data");
             ordinary.Render(); Color32[] after = Read(ordinary.targetTexture);
             Check(before.SequenceEqual(after), "The following ordinary camera's complete RGBA image is unchanged");

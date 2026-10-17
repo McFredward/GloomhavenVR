@@ -65,7 +65,7 @@ def main():
         if code:
             raise RuntimeError("Native scenario evidence fixture failed: " + str(run / "unity.log"))
         report = json.loads((project / "ProbeOutput/result.json").read_text())
-        if report.get("assertions", 0) < (8 if args.gpu else 19):
+        if report.get("assertions", 0) < (9 if args.gpu else 20):
             raise AssertionError("Incomplete scenario evidence fixture")
         (run / "source-hashes.json").write_text(json.dumps({"source": hashlib.sha256(source.encode()).hexdigest(),
             "probe": hashlib.sha256((ROOT / "tests/QuestScenarioEvidence.Tests/Probe.cs").read_bytes()).hexdigest(),

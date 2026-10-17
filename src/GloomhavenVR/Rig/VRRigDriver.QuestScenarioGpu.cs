@@ -19,8 +19,7 @@ internal sealed partial class VRRigDriver
         if (renderer == null || !SystemInfo.supportsAsyncGPUReadback)
         { QuestScenarioRecord("sample=" + sample + " gpu=unavailable renderer=" + (renderer != null) + " async=" + SystemInfo.supportsAsyncGPUReadback); return; }
         Mesh? mesh = renderer.GetComponent<MeshFilter>()?.sharedMesh;
-        Material original = renderer.sharedMaterial;
-        if (mesh == null || mesh.vertexCount == 0 || mesh.subMeshCount == 0 || original == null)
+        if (mesh == null || mesh.vertexCount == 0 || !TryQuestScenarioPart(renderer, mesh, out int submesh, out Material original))
         { QuestScenarioRecord("sample=" + sample + " gpu=unavailable reason=no-mesh-or-material"); return; }
         Bounds bounds = renderer.bounds;
         Vector3 centre = bounds.center, size = bounds.size;
@@ -42,12 +41,13 @@ internal sealed partial class VRRigDriver
             if (renderer.HasPropertyBlock())
             {
                 properties = new MaterialPropertyBlock();
-                renderer.GetPropertyBlock(properties, 0);
+                renderer.GetPropertyBlock(properties, submesh);
                 if (properties.isEmpty) renderer.GetPropertyBlock(properties);
             }
-            native = RenderQuestScenarioProbe(renderer, mesh, original, properties);
-            control = RenderQuestScenarioProbe(renderer, mesh, white, null);
+            native = RenderQuestScenarioProbe(renderer, mesh, original, properties, submesh);
+            control = RenderQuestScenarioProbe(renderer, mesh, white, null, submesh);
             RenderTexture first = native, second = control;
+            string nativeShader = original.shader != null ? Short(original.shader.name) : "none";
             int pending = 2;
             string nativePixels = "pending", controlPixels = "pending";
             void Complete(AsyncGPUReadbackRequest request, bool reference, RenderTexture target)
@@ -76,7 +76,7 @@ internal sealed partial class VRRigDriver
                 {
                     target.Release(); UnityEngine.Object.Destroy(target);
                     if (--pending == 0)
-                        QuestScenarioRecord("sample=" + sample + " gpu=bounds-fit phase=update width=32 height=32 submesh=0 pass=0 native="
+                        QuestScenarioRecord("sample=" + sample + " gpu=bounds-fit phase=update width=32 height=32 submesh=" + submesh + " pass=0 shader=" + nativeShader + " native="
                             + nativePixels + " whitePositionUvControl=" + controlPixels + " finalXrPixelsObserved=false nativePerObjectLightingObserved=false");
                 }
             }
@@ -96,7 +96,16 @@ internal sealed partial class VRRigDriver
 
     private static bool FiniteScenario(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
 
-    private static RenderTexture RenderQuestScenarioProbe(Renderer renderer, Mesh mesh, Material material, MaterialPropertyBlock? properties)
+    private static bool TryQuestScenarioPart(Renderer renderer, Mesh mesh, out int submesh, out Material material)
+    {
+        Material[] materials = renderer.sharedMaterials;
+        for (int index = 0; index < mesh.subMeshCount && index < materials.Length; index++)
+            if (materials[index] != null && mesh.GetTopology(index) == MeshTopology.Triangles && mesh.GetIndexCount(index) > 0)
+            { submesh = index; material = materials[index]; return true; }
+        submesh = -1; material = null!; return false;
+    }
+
+    private static RenderTexture RenderQuestScenarioProbe(Renderer renderer, Mesh mesh, Material material, MaterialPropertyBlock? properties, int submesh)
     {
         var target = new RenderTexture(32, 32, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
             { name = "GloomhavenVR.QuestScenarioProbe", filterMode = FilterMode.Point };
@@ -119,7 +128,7 @@ internal sealed partial class VRRigDriver
         try
         {
             if (!target.Create()) throw new InvalidOperationException("Scenario GPU target unavailable.");
-            commands.DrawMesh(mesh, renderer.localToWorldMatrix, material, 0, 0, properties);
+            commands.DrawMesh(mesh, renderer.localToWorldMatrix, material, submesh, 0, properties);
             camera.AddCommandBuffer(CameraEvent.BeforeForwardAlpha, commands);
             camera.Render(); retained = true; return target;
         }

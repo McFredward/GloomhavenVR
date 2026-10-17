@@ -40,7 +40,10 @@ internal sealed partial class VRRigDriver
         if (_questScenarioDue == 0f) { _questScenarioDue = now + 3f; return; }
         if (now < _questScenarioDue) return;
         SceneController loading = SceneController.Instance;
-        if (loading != null && (loading.IsLoading || loading.ScenarioIsLoading)) return;
+        // Prefer settled content, but a stuck native loader must still leave
+        // evidence. Never spend the launch's entire diagnosis waiting forever.
+        if (loading != null && (loading.IsLoading || loading.ScenarioIsLoading)
+            && now < _questScenarioDue + 30f) return;
         _questScenarioSamples++;
         _questScenarioDue = now + 15f;
         try { CaptureQuestScenarioEvidence(_camera, ResolveScenarioCamera(), nativeScene); }
