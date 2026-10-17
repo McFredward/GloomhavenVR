@@ -2468,22 +2468,22 @@
     "cleanup_authority": "Latest explicit unused-video/resource deletion instruction overrides historical preserve-all-AI policy. Retain selected used sources and all fal run recovery metadata."
   },
   "current_working_cut": {
-    "phase": "genuine-vr-gameplay-v2",
+    "phase": "genuine-vr-gameplay-v3",
     "status": "provisional-material-trial-reviewed-and-published",
-    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/full-timeline-v1/reference-remake-vr-v11.mp4",
-    "sha256": "6f4007b7db11ebffde14ea92e1585d0bc8f6bb43f48fb6e8d6ba3b21a1d127ee",
-    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/REVIEW.html",
-    "base_phase": "accepted cinematic v9",
-    "base_sha256": "0b332c1e1860a2395154e6d99f938cc8dc1b54177cadd2a2466ed6e585b8ef9b",
+    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/full-timeline-v1/reference-remake-vr-v12.mp4",
+    "sha256": "f942650d71948b419c95605cef81e062336f3835aece8073ac315eee12009b76",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/REVIEW.html",
+    "base_phase": "genuine VR material trial v11 over accepted cinematic v9",
+    "base_sha256": "6f4007b7db11ebffde14ea92e1585d0bc8f6bb43f48fb6e8d6ba3b21a1d127ee",
     "frames": 14810,
     "fps": 60,
     "container_seconds": 246.861,
     "new_paid_calls": 0,
     "user_acceptance_claimed": false,
     "provisional_material_trial": true,
-    "bytes": 306563006,
+    "bytes": 304907418,
     "review_published": true,
-    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v2/REVIEW.html"
+    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v3/REVIEW.html"
   },
   "genuine_vr_gameplay_pass_v1": {
     "date": "2026-10-16",
@@ -2711,7 +2711,9 @@
     "completion_cleanup": {
       "scope": "Two owned review worktrees removed after clean status and reaped jobs; supplied footage, selected components, masters and review evidence preserved.",
       "runtime_gate": "Not rerun: documentation/media-only revision; focused media, semantic and browser evidence applies."
-    }
+    },
+    "superseded_by": "genuine_vr_gameplay_pass_v3",
+    "current": false
   },
   "campaign_intro": {
     "status": "label-removed-media-reviewed-runtime-validation-inherited",
@@ -2751,5 +2753,168 @@
     },
     "on_picture_fan_mod_notice": false,
     "full_trailer_notice_changed": false
+  },
+  "genuine_vr_gameplay_pass_v3": {
+    "date": "2026-10-17",
+    "status": "provisional-material-trial-reviewed-and-published-awaiting-more-captures",
+    "selection_rule": "Actual demonstrated action, direction, result and native transition first; retain unmatched native footage.",
+    "master_sha256": "f942650d71948b419c95605cef81e062336f3835aece8073ac315eee12009b76",
+    "new_source_files": [
+      {
+        "path": ".planning/debug/trailer/gameplay/2026-10-17 08-48-21.mp4",
+        "sha256": "5199a1c0db6cd27b62200c58a92e2a1d6f898ce13736ad7e4c6971b1dba26bdc",
+        "bytes": 182698599,
+        "verdict": "Scoundrel cards/planning; no additional equivalent demonstrated action selected."
+      },
+      {
+        "path": ".planning/debug/trailer/gameplay/2026-10-17 09-44-07.mp4",
+        "sha256": "509f182c56aacc9266fae531fe8fb9fc70db85c8b2934b7374debf5c4c41d268",
+        "bytes": 175609899,
+        "verdict": "Tinkerer and Scoundrel class views, merchant selection and confirmed purchase; cropped Cragheart rejected."
+      },
+      {
+        "path": ".planning/debug/trailer/gameplay/2026-10-17 09-50-43.mp4",
+        "sha256": "1989d1a1d0247a7dcb77e1dad6110b59a33eb3973513ef95f8330e99cd4be6a2",
+        "bytes": 480123623,
+        "verdict": "Spellweaver overview, actual ranged attack and actual enemy attack selected. Short rest, passive gold and nonconfirmed damage-burn choices are different mechanics."
+      }
+    ],
+    "newly_replaced_inventory_regions": [
+      "FG05",
+      "FG08",
+      "FG20",
+      "FG32",
+      "FG33",
+      "FG35"
+    ],
+    "refreshed_region": "FG01 now actual Spellweaver overview",
+    "inherited_vr_regions": [
+      "FG03 equipment inspection",
+      "FG06 triangular area-attack impacts"
+    ],
+    "inventory_regions": 41,
+    "VR_regions": 9,
+    "remaining_original_regions": 32,
+    "changed_window_frames_against_v11": 988,
+    "outside_window_frames_against_v11": 13822,
+    "source_speed": "1x; ordinary30fps repeated to60fps, no interpolation/time fitting/end hold",
+    "new_paid_calls": 0,
+    "user_acceptance_claimed": false,
+    "finished_vr_gameplay_trailer_claimed": false,
+    "private_selection": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/editor/selection-final.json",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/REVIEW.html",
+    "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/NAECHSTE-AUFNAHMEN.txt",
+    "components": [
+      {
+        "id": "FG01",
+        "start_frame": 3129,
+        "end_frame_exclusive": 3272,
+        "frames": 143,
+        "sha256": "3a466980b4c8b20165061d0ff813bcdb596e084e57ac61a3ae0d299434f873e5"
+      },
+      {
+        "id": "FG05",
+        "start_frame": 4088,
+        "end_frame_exclusive": 4250,
+        "frames": 162,
+        "sha256": "2e1321d382fbfa4e4b7b5bcaf27122ecc0b381ca5c9e08b7f2fb815cdae50f7f"
+      },
+      {
+        "id": "FG08",
+        "start_frame": 4534,
+        "end_frame_exclusive": 4779,
+        "frames": 245,
+        "sha256": "85333510dae9ac7a2f9b9735bf131d8ceef69534bcb0efaf6c98ee6c8fd835ca"
+      },
+      {
+        "id": "FG20",
+        "start_frame": 7234,
+        "end_frame_exclusive": 7494,
+        "frames": 260,
+        "sha256": "ef9402cd411c24dfa23b86b1b1c420d3fc0137329893706b2d1713daae359df9"
+      },
+      {
+        "id": "FG32",
+        "start_frame": 11714,
+        "end_frame_exclusive": 11755,
+        "frames": 41,
+        "sha256": "658c7076c5c88a547793d0f33be8c9de93d2880afe49eb03dd14f617a0b272d8"
+      },
+      {
+        "id": "FG33",
+        "start_frame": 11755,
+        "end_frame_exclusive": 11801,
+        "frames": 46,
+        "sha256": "064d79866641cf8c719ce515fec9309fdfca86d484dfd046a59e5465fa5ba134"
+      },
+      {
+        "id": "FG35",
+        "start_frame": 11861,
+        "end_frame_exclusive": 11952,
+        "frames": 91,
+        "sha256": "6e026fb0a8180f580cfae8dc71332dc1c73ccdd1af261d0d7d0bab59e2cc9cb2"
+      }
+    ],
+    "transitions": [
+      "FG08 recreated analytic light entry and VR-only horizontal blur/light-palette exit; actual body motion unchanged.",
+      "FG20 outgoing VR continues through frame7493 beneath the retained native diagonal gold wipe; incoming inventory remains native."
+    ],
+    "analysis_correction": "Original FG13 is a Mindthief damage-avoidance burn choice, not a played loss ability. Current capture request corrects the earlier analysis.",
+    "limits": [
+      "Flame Strike on hound replaces Scoundrel Throwing Knives ranged target/hit.",
+      "Forest hound attack is genuine, but Frost Armor reaction does not prove HP loss; next damage-choice shot stays original.",
+      "Merchant selection is not purchase/equip; later Iron Helmet purchase is confirmed, equipping remains missing.",
+      "Roster source is campaign rather than Guildmaster; actual same classes Tinkerer/Scoundrel. Cropped Cragheart rejected.",
+      "Two inherited old source recordings currently absent; retained components provide comparison."
+    ],
+    "separate_campaign_intro_unchanged": true,
+    "accepted_AAC_and_all_11_AI_windows_inherited": true,
+    "technical_review": {
+      "status": "passed",
+      "assembler_checks": 13,
+      "decoded_and_footer_checked_frames": 14810,
+      "selected_component_reference_frames": 988,
+      "outside_picture_frames": 13822,
+      "identical_AAC_packets_including_clocks_and_codec_config": 11573,
+      "max_outside_mae_8bit": 0.788130787037037,
+      "max_component_reference_mae_8bit": 1.671367,
+      "mae_limit_8bit": 2.0,
+      "validation_mode": "Composed evidence: original14810-frame/AAC/glyph run plus focused245-frame exact assembler color-space normalization. No new complete all-frame run is claimed.",
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/qc-independent/technical-composed.json",
+      "original_five_frame_color_comparison_failure_preserved": true,
+      "normalized_FG08_frame_count": 245,
+      "normalized_FG08_max_mae_8bit": 0.6532974300831443
+    },
+    "visual_review": {
+      "root_actual_export_watch_cues": 101,
+      "root_contact_sheets": 7,
+      "root_exact_decoded_witnesses": 11,
+      "every_frame_manual_whole_film_claimed": false,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/qc-root/visual-review.json"
+    },
+    "browser_review": {
+      "status": "passed",
+      "chapter_count": 9,
+      "desktop_mobile_1x_playbacks": 18,
+      "soft_transition_context_playbacks": 4,
+      "ordinary_time_rate_comparisons": 12,
+      "rapid_comparison_clicks": 36,
+      "unique_dependencies": 13,
+      "actual_screenshots_personally_viewed_by_browser_reviewer": 30,
+      "mobile_emulation_not_hardware": true,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/browser-review/final-review.json",
+      "initial_mobile_switch_race_fixed_and_retested": true,
+      "final_navigation_status": "passed",
+      "final_navigation_dependencies": 27,
+      "final_navigation_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/browser-review/final-navigation.json"
+    },
+    "cleanup": {
+      "status": "complete-owned-runs-only",
+      "all_19_protected_media_hashes_preserved": true,
+      "all_three_new_recordings_preserved": true,
+      "both_owned_worker_worktrees_removed": true,
+      "shared_game_and_other_agent_inputs_untouched": true,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v3/editor/protected-media-final.json"
+    }
   }
 }

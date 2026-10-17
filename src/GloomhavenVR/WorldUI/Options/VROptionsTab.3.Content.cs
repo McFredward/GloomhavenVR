@@ -85,8 +85,6 @@ internal static partial class VROptionsTab
         Action? previous = window.OnShow;
         window.OnShow = () =>
         {
-            // Native tab selection can show the pane without the standalone Open entry point.
-            GloomhavenVR.Core.SteamLinkMaskRuntime.NotifyOptionsOpening();
             previous?.Invoke();
             // THE PAGE-RESTORE EDGE. _view and _curated are static, so this show rebuilds whatever
             // page was open when the window was last closed — the behaviour the user named and

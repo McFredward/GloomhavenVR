@@ -1193,3 +1193,122 @@ small receipts remain.
 Hosted CI38929648477 is green on exact fork355ca86, including both new test
 registrations, optional diagnostics, Windows cross-build and protocol sanitizers.
 Own worker removal receipt: fork build/private-packed-output-integration-20261016/worker-cleanup.json.
+
+
+## Steam Link / stereo-video ownership coordination — 2026-10-17
+
+The passthrough primary received the stereo-video integrator's two scope messages
+(thread01a148e9). This round changes only the separate explicit-mask fork and
+private receiver packaging. Main Build681 source/profile changes are already
+integrated and its exact-head CI39015384831 is green. Current shared dev682's
+fan-audio changes belong to the other integrator and remain untouched.
+
+No conflict is expected with new StereoVideo classes/shaders/tests or explicit
+--ghvr-stereo-video-calibration hooks in FlatScreen Tick/Shutdown. This lane does
+not own NativeVideoWindow, Movies, FlatScreen lifecycle or any new build number.
+Preserve the existing SteamLink per-eye payload-source precedence, immutable
+stereo-pair publication and menu/off whole-source restoration. The optional video
+calibration must remain separate from the settings-controlled SteamLink v2 source.
+No new ModBuild allocation is reserved by this lane after681. The next approved
+Frame trial will use current dev (at least681) with the existing source setting;
+no PC Steam sender modifications are planned.
+
+
+## Visible synthetic receiver package ready — 2026-10-17
+
+Fork dev3762194 is pushed and exact-head CI39017279688 passes, including all
+focused checks, optional existing modes, new default-off functional build,
+Windows sender and protocol sanitizers. Main source remains at least681's v2;
+other integrators'682/683 work is untouched. No new main ModBuild reservation.
+
+The private390,636B ARM/helper/candidate package is frozen under fork
+build/private-native-presenter-runtime-20261017/. Actual-byte sandbox stage and
+rollback, three integrated CTests, independent operator/lifetime reviews and
+72-assertion normal/sanitized retirement-race controls pass. The old-retirement
+causal mutant fails at its exact native-destroy identity assertion. Earlier
+private522/delta337 and GPU evidence is inherited, not replayed as a full gate.
+Completed private build/test caches and all own worker trees are removed.
+
+Frame is fully restored and may remain in standby. Next action needs fresh
+explicit approval for synthetic OUTPUT REPLACEMENT plus temporary native
+camera/forceSceneAlphaBlending. This is not the former passive diagnosis scope.
+No image capture, sender modification, timer or automatic test-end restart.
+Package and manual rollback are ready before asking the user to act. PC must
+have current dev Build681 or later. Native runtime/provider/startup still checked
+on actual activation; visible passthrough and real scene coverage remain unproved.
+
+
+## FIRST VISIBLE native streamed alpha confirmed; original Frame restored
+
+2026-10-17: reviewed fork3762194 package390,636B activated after fresh explicit
+output/camera permission. User confirms native camera through the v2 test image,
+intermediate test/room blending, and immediate menu restoration/resume in both
+directions. The visual question requested both eyes; no camera/game pixels were
+captured. Actual native Vulkan1.1, six attempts/six replacements, history intact,
+73 imports resolved and native public API camera switch acknowledgedTrue. This
+is the first visible end-to-end synthetic native-alpha result over unchanged
+Steam Link sender. Real game-scene coverage is still not exported.
+
+The user also reports lag while looking around during transparency. Do not call
+motion accepted or assign GPU/PC/transport cause without timings. Known fragment
+work (12 format +4 body samples) and prior owned GPU cost are obvious offline
+optimization leads; do not schedule another metadata-only headset round for that.
+
+User requested immediate manual rollback. Camera runtime initially acknowledges
+original unset while file persistence correctly remains pending. After the agreed
+restart both API effective and explicit user override are absent, matching the
+saved baseline. Activation/config/enable absent, run library removed, protected
+mapping scan has no owned/foreign mappings, original startup ready. User confirms
+normal visible/usable UI and may put Frame in standby. No active test/timer or
+restart remains. Further device modifications need fresh concrete permission.
+
+Fork docs-only69f209a records the exact result in
+ docs/research/native-synthetic-visible-run-20261017.md; source CI141 checks stays
+inherited at3762194. Private runtime records, source/CI/pins, causal negatives,
+manual recovery and local cleanup are in fork
+ build/private-native-presenter-runtime-20261017/. All our old worker trees and
+regenerable caches are removed; small current packages and evidence remain.
+
+Next offline lanes will prepare real game coverage/packing and reduce receiver
+GPU overhead. Preserve the stereo-video integrator's683 reservation and current
+Fullgate; no overlapping FlatScreen lifecycle changes or source push yet. This
+coordination text is ready as a separate documentation checkpoint. Trailer files
+in the shared checkout are unrelated and must stay untouched.
+
+## User priority: remove the shipped synthetic source — 2026-10-17
+
+The maintainer now explicitly requests removal of the synthetic test pattern
+from dev, including its setting. This supersedes the former retention of that
+player-facing diagnostic and the generic persisted-key retention rule for the
+exact SteamLink/PayloadTestEnabled key. Historical evidence stays private/in Git.
+
+A disjoint worker at main4c4988b42 removes the synthetic-only runtime, embedded
+art, menu/config hooks and obsolete suites. Ordinary menu focus/closure and
+MixedReality remain unchanged; exact key/token retirement uses the existing
+path-bound ledger. Root will run focused removal/menu/build gates. No new whole
+local gate is requested; the stereo-video integrator's683 fullgate continues.
+
+Root reserves **684** for the first subsequent real-game MR handover after the
+already reserved stereo683 integration. The pattern removal is a source cleanup
+now; no separate binary/package or new hardware test is handed over this round.
+It can be included in stereo683's eventual distributed build. Do not downgrade
+or reuse build numbers. The worker does not touch NetProtocol/STATE or any
+FlatScreen lifecycle. Please retain this
+coordination file and the unrelated trailer owner's files. Native device state
+remains fully restored/user-confirmed; there is no active helper or test timer.
+
+The next headset proposal should show real game imagery via normal MR settings,
+not request another synthetic-pattern-only round. New source packing and exact
+depth/MSAA/stencil experiments remain unhooked/offline until the actual real-eye
+path, RGB transfer, material coverage and native decoder agree. Do not label
+those prototype tests as completed game-scene passthrough.
+
+Removal is now integrated as aafc5ddcb. Focused worker evidence passes a strict
+real-reference Release build,1800 actual menu assertions/six native controls,
+exact assembled type/resource/key absence, source surface retirements,11 frame
+orders, OptionsCoverage,2305 player-help assertions and exact suite inventory.
+The integrated tree including the new unused ScenePayloadDraft also compiles
+Release with0 warnings/errors. No complete local/wire rerun is claimed. Evidence
+and exact stopped-cache/worktree cleanup are in
+`.planning/debug/steamlink-pattern-removal-20261017/` and
+`.planning/debug/steamlink-pattern-removal-integration-20261017/`.

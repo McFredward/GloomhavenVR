@@ -1,5 +1,10 @@
 # Synthetic Steam Link presenter source v2
 
+> Historical experiment, retired at the maintainer's request on 2026-10-17.
+> The synthetic source, its setting, embedded canvases and dedicated test scripts
+> are no longer shipped. Names and commands below describe the retained prior
+> evidence and Git history, not the current mod or an available user setting.
+
 This developer-only profile prepares the next receiver output experiment. It does
 not enable native passthrough, produce real game coverage, modify the Steam
 sender, or prove a source video-frame/physical-eye association.

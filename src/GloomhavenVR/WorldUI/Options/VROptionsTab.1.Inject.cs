@@ -811,9 +811,6 @@ internal static partial class VROptionsTab
     /// </param>
     internal static bool Open(Action? onHidden, RectTransform? pointAt = null)
     {
-        // Restore the ordinary eye image before even attempting to show the escape control.
-        // A late laser click can open this menu after the diagnostic driver's Update.
-        GloomhavenVR.Core.SteamLinkMaskRuntime.NotifyOptionsOpening();
         if (!CanOpen || _window == null)
         {
             VRLog.Warn("WorldUI", "VR options: asked to open, but there is no menu to open "

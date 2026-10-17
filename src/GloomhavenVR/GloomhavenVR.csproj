@@ -20,11 +20,6 @@
                       LogicalName="GloomhavenVR.StereoVideo.ui-sbs.bundle" />
     <!-- Shared with the preloader: both stages must agree on Frame's explicit VR opt-in. -->
     <Compile Include="..\GloomhavenVR.Preload\FrameLaunchOptIn.cs" Link="Core\Startup\FrameLaunchOptIn.cs" />
-    <!-- Original bounded source-carriage controls. No external fixture install is needed. -->
-    <EmbeddedResource Include="Assets\SteamLink\left.png" LogicalName="GloomhavenVR.Assets.SteamLink.left.png" />
-    <EmbeddedResource Include="Assets\SteamLink\right.png" LogicalName="GloomhavenVR.Assets.SteamLink.right.png" />
-    <EmbeddedResource Include="Assets\SteamLink\left-source.json" LogicalName="GloomhavenVR.Assets.SteamLink.left-source.json" />
-    <EmbeddedResource Include="Assets\SteamLink\right-source.json" LogicalName="GloomhavenVR.Assets.SteamLink.right-source.json" />
     <!--
       Art shipped INSIDE the plugin DLL (user request 2026-08-22 #5, the main-menu wordmark —
       see WorldUI/Patches/MainMenuLogoSwap.cs). The asset bundle would be the natural home, but it

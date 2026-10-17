@@ -15,29 +15,25 @@ internal static class Program
         NonDominantHold.Consumed = false;
         GloomhavenVR.Core.VRSession.IsRunning = true;
         NonDominantHold.ShortTapThisFrame = true;
-        GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning = true;
         menuToggle.Tick();
-        Check(!GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning,
-            "ordinary menu tap restores diagnostic output even without a pause menu");
         Check(!NonDominantHold.Consumed && menuToggle.DroppedMissingMenu,
-            "diagnostic escape leaves ordinary input consumption and missing-menu state untouched");
+            "missing pause menu leaves input unconsumed and drops its stale open state");
         menuToggle.Menu = new ESCMenu();
-        GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning = true;
         menuToggle.Tick();
-        Check(!GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning && menuToggle.ReachedNormalMenu,
-            "ordinary menu tap restores output before continuing normal pause-menu handling");
+        Check(menuToggle.ReachedNormalMenu,
+            "available pause menu reaches ordinary handling without consuming the tap");
         NonDominantHold.ShortTapThisFrame = false;
-        GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning = true;
+        menuToggle.ReachedNormalMenu = false;
         menuToggle.Tick();
-        Check(GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning,
-            "idle options tick does not stop diagnostic output");
+        Check(menuToggle.ReachedNormalMenu && !NonDominantHold.Consumed,
+            "idle tick retains the normal menu state path without consuming input");
         GloomhavenVR.Core.VRSession.IsRunning = false;
         NonDominantHold.ShortTapThisFrame = true;
+        menuToggle.ReachedNormalMenu = false;
         menuToggle.Tick();
-        Check(GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning,
-            "ordinary flat-session VR gate remains unchanged");
+        Check(!menuToggle.ReachedNormalMenu,
+            "ordinary flat session retains the VR-only gate");
         GloomhavenVR.Core.VRSession.IsRunning = true;
-        GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning = false;
 
         var old = new UISubmenuGOWindow();
         var pane = new UISubmenuGOWindow();
@@ -54,7 +50,6 @@ internal static class Program
             panel.UserClosing = true;
             panel.Panel.PreRoll = true;
             bool latched = true;
-            GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning = true;
             Check(VROptionsTab.Open(() => { callbacks++; latched = false; }), "opens on first request");
             Check(VROptionsTab.IsOpen && pane.gameObject.activeSelf, "native window is open");
             Check(!panel.UserClosing && !panel.Panel.PreRoll,

@@ -33,9 +33,6 @@ internal sealed class CoreModule : IVRModule
         // ExceptionTraces for the full evidence chain. Runs regardless of VR availability.
         ExceptionTraces.Install();
 
-        // A persisted diagnostic image must never arm itself at process startup.
-        SteamLinkMaskRuntime.ResetAtBoot();
-
         // Order matters: nothing referencing Unity.XR.* types may be JIT-compiled
         // before LoadAll() has put those assemblies into the AppDomain. Init() itself
         // only *calls* the (non-inlined) methods that use them.
@@ -61,7 +58,6 @@ internal sealed class CoreModule : IVRModule
         // [Perf] Enabled = false its host costs one bool test per frame and nothing else.
         PerfMonitor.Install(_hostGo);
         ScenarioInteractionPreparation.Install(_hostGo);
-        SteamLinkMaskRuntime.Install(_hostGo);
 
         // ModBuild 228. Installed on the SAME unconditional host and for the same reason: the
         // flat-screen session is the reference reading the VR one has to be judged against, and its
@@ -178,7 +174,6 @@ internal sealed class CoreModule : IVRModule
 
     public void Shutdown()
     {
-        SteamLinkMaskRuntime.Shutdown();
         NativeCameraRenderBudget.Shutdown();
         Loc.Dispose(); // detach the engine localization event (hot-reload teardown)
         ExceptionTraces.Shutdown(); // puts the game's own StackTraceLogType.None straight back

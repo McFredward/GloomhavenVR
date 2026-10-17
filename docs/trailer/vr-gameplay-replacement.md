@@ -1,6 +1,95 @@
 # Genuine VR gameplay replacement
 
-## Current provisional material trial
+## October 17 recording pass (v12)
+
+The three new recordings were inspected against actual original pictures and the
+verified English narration. Six further regions are selected: outward ranged
+attack and its target/result, an enemy attack in the forest, immersive merchant
+selection, Tinkerer and Scoundrel class views, and a confirmed item purchase.
+The existing ability overview now uses Spellweaver, matching the original class.
+The two retained item-inspection and triangular-area-hit shots remain inherited.
+No new inference is used. Unmatched original gameplay remains pending captures.
+
+The selection distinguishes actual actions from nearby contexts. The merchant
+selection is not labeled a completed purchase; the later purchase really closes
+the Buy dialog and reduces gold. Neither establishes equipping. The forest
+hound attack triggers Frost Armor but does not establish HP loss, so the next
+native damage-choice shot remains. Campaign class views show the same classes
+as the original Guildmaster roster; the review labels that mode difference.
+The cropped Cragheart view is rejected. Scoundrel planning, short-rest burns and
+automatic end-turn gold are not substituted for attacks, played loss or Loot2.
+
+A previous analysis error is corrected from the actual original at 1:34:
+FG13 offers "Burn The Mind's Weakness" to avoid damage. It requires a confirmed
+damage-avoidance burn, distinct from both Short Rest and the subsequent played
+Shield Bash/loss sequence. Historical v10/v11 receipts below are retained as
+historical evidence; their old capture request for this slot is superseded.
+
+All selected source motion remains at 1x. Ordinary 30fps frames repeat into the
+60fps timeline; no speed fitting, interpolation or held ending is used. The
+forest shot joins the existing light/whip transition using procedural light and
+horizontal blur on actual VR pictures. The merchant continues behind the native
+diagonal gold wipe with a spatial matte; native incoming inventory remains.
+This is ordinary transition compositing, not generated gameplay.
+
+The current private review and corrected capture list are
+`vr-gameplay-v3/REVIEW.html` and `vr-gameplay-v3/NAECHSTE-AUFNAHMEN.txt`.
+The complete trailer keeps its fan-mod mark and accepted AI cinematics. The
+separate, previously approved campaign intro is unchanged. Original October 17
+recordings remain retained and hash-pinned; the two historical October 15 source
+recordings are currently absent from the input folder, so inherited-shot links
+use their retained components rather than broken original capture links.
+
+The v12 master SHA256 is
+`f942650d71948b419c95605cef81e062336f3835aece8073ac315eee12009b76`.
+Seven updated windows contain 988 frames; nine inventory regions now contain
+VR pictures including two inherited shots. The merchant window includes its
+spatially mixed wipe handles, not 260 wholly VR pictures. Thirty-two inventory
+regions remain original. Coverage counts are not a reason to weaken matching.
+
+The assembler passes all 13 media checks. Independent composed validation
+covers all 14,810 frames, the fan mark on every frame, 13,822 pictures outside
+the new windows against v11, and all 11,573 identical AAC packets including
+clocks/configuration. Maximum 320-by-180 outside-picture MAE is 0.7882 on an
+8-bit scale; all 988 component/reference comparisons remain below 2.0
+(maximum 1.6714). These are lossy picture-fidelity comparisons, not pixel identity.
+
+The first comparison incorrectly interpreted the untagged RGB-pipe component
+and BT.709 master alike, exceeding the limit on five saturated FG08 flare
+frames. That failed attempt is preserved. Exact RGBA/overlay/BT.709 normalization
+and a reverse-matrix negative control establish the cause. A focused comparison
+of all 245 FG08 frames then passes at maximum MAE 0.6533; the original outside,
+glyph and AAC evidence is reused. This is explicitly composed evidence, not
+a second complete run. Master and selected components are unchanged. See
+`vr-gameplay-v3/qc-independent/technical-composed.json`.
+
+Root personally viewed 101 actual-export Watch cues on seven sheets and eleven
+additional exactly decoded witnesses, including the 4087/4088 and 4249/4250 cuts
+and visible DAMAGE3. Time-addressed Watch cues can select a neighboring frame;
+exact boundary claims come from sequential frame decoding. Manual review is
+sampled; no every-frame manual whole-film or headset-runtime claim is made.
+
+Desktop Chromium and mobile emulation each play all nine windows at 1x and
+both soft-transition contexts. Twelve ordinary source comparisons preserve time,
+rate and pause state; 36 rapid comparison-button changes pass without JavaScript
+or media errors. A source-switch race found on the first mobile attempt is fixed
+with cancellation and generation guards; that failed attempt is preserved and
+the changed controls were actually retested. All 13 unique dependencies are
+reachable. The browser reviewer personally viewed 30 actual screenshots;
+root additionally viewed desktop/mobile player witnesses. These are browser and
+media checks, not new game-runtime or headset evidence. See
+`vr-gameplay-v3/browser-review/final-review.json`.
+
+Postpublication desktop/mobile navigation reaches v12 and its nine chapters;
+all 27 unique homepage/review dependencies pass HTTP/Range checks. The separate
+intro section remains byte-identical. Owned rejected videos, duplicate raw
+attempts and stopped caches were removed; both worker worktrees were removed.
+All 19 protected media authorities, including all three new recordings and the
+separate approved intro, retain their expected SHA256 values after cleanup.
+Final receipts: `browser-review/final-navigation.json` and
+`editor/protected-media-final.json`, relative to `vr-gameplay-v3/`.
+
+## Historical v11 material trial
 
 The maintainer rejected v10 after the first review: the actual demonstrated
 action and its transition matter more than replacing many regions. More

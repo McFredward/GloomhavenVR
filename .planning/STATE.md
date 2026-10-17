@@ -1,5 +1,26 @@
 # State — where the project stands
 
+**Synthetic Steam Link test removed, source checkpoint2026-10-17.**
+
+The maintainer explicitly requests removal of the test pattern and its setting.
+The shipped source now has no PayloadTestEnabled bind/default/localization,
+synthetic eye effect/driver, registration generator, embedded test images or
+menu escape hooks. Existing user files remain untouched. Two obsolete synthetic
+suites are removed from the manifest; normal options/menu tests remain. The
+exact path-bound surface ledger records the one approved key and three tokens.
+
+Focused actual menu1800 assertions/six causal native controls, Release0W/0E,
+assembled type/resource/key absence, source/order/help and inventory checks pass.
+An integrated strict Release also includes the new unhooked contribution-atlas
+draft; it is not attached to any camera and is not an exposed replacement test.
+Native streamed synthetic alpha was visibly confirmed before full manual Frame
+restoration, but **real game MR is not yet integrated**. Internal depth/MSAA,
+atlas and compiled-shader-bank evidence stays separately scoped in research
+docs; no Frame action or another synthetic-only headset round is requested.
+Evidence/cleanup: `.planning/debug/steamlink-pattern-removal-20261017/` and
+`steamlink-pattern-removal-integration-20261017/`. No new binary/package is handed
+over here; stereo683 remains reserved, next actual real-MR handover is684.
+
 **Fan audio follows actual visibility transitions, 2026-10-17: Build682.**
 
 Build680's Frost Armor short rest shows one2.013s original burn with eight

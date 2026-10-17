@@ -2359,32 +2359,6 @@
       "weight": 35
     },
     {
-      "id": "steamlink-mask-settings",
-      "command": [
-        "python3",
-        "scripts/check-steamlink-settings.py",
-        "--self-test"
-      ],
-      "groups": [
-        "local",
-        "ci"
-      ],
-      "weight": 8
-    },
-    {
-      "id": "steamlink-mask-runtime",
-      "command": [
-        "python3",
-        "-B",
-        "scripts/check-steamlink-mask-runtime.py"
-      ],
-      "groups": [
-        "local",
-        "ci"
-      ],
-      "weight": 5
-    },
-    {
       "id": "npc655-card-returns",
       "command": [
         "python3",
