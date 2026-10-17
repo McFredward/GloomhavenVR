@@ -50,6 +50,10 @@ namespace GloomhavenVR.Core
     }
     internal static class VRLog { internal static void Warn(string module, string message) => throw new Exception(message); }
     internal static class VRSession { internal static bool IsRunning { get; set; } }
+    internal static class TickGuard
+    {
+        internal static void Run(string key, Action action, string module) => action();
+    }
     // XR capability is an explicit port; native Frame availability is tested
     // by its own runtime suite, while this fixture exercises town option binding.
     internal enum FrameNativePassthroughStatus { Checking, Available }
@@ -59,6 +63,12 @@ namespace GloomhavenVR.Core
         internal static bool IsAvailable => true;
         internal static FrameNativePassthroughStatus Status => FrameNativePassthroughStatus.Available;
     }
+}
+namespace GloomhavenVR.Core.SteamLink
+{
+    // Connection discovery is a capability port, covered by the dedicated identity
+    // suites. Town option binding retains its ordinary unavailable fallback here.
+    internal static class SteamLinkConnection { internal static bool Available => false; }
 }
 namespace GloomhavenVR.Cards
 {
@@ -189,6 +199,7 @@ namespace GloomhavenVR.WorldUI
             RenderOrder.Clear(); Toggles.Clear(); Titles.Clear(); Hints.Clear(); GenericRows = 0;
             BuildCurated();
         }
+        private static void Rebuild() => RebuildFixture();
         internal static void Run()
         {
             Cards.CardsConfig.CurrentBoard = Cards.ControlBoard.Oak;
