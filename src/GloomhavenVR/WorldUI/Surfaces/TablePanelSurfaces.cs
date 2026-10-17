@@ -729,7 +729,10 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             {
                 _nextMipRescan = Time.unscaledTime + MipRescanInterval;
                 PanelMipBake.Rescan(InitiativeTrack.Instance, Name);
-                QuestArtworkEvidence.Raw(InitiativeTrack.Instance, "initiative-avatar");
+                // Observe the actual adopted subtree, including parked native graphics.
+                // A singleton's owner/activation is not proof of what the retained
+                // panel texture contains; the bounded observer records those flags.
+                QuestArtworkEvidence.Raw(Panel.Target, "initiative-avatar");
             }
         }
         else if (wasConverted)

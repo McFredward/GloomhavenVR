@@ -664,7 +664,10 @@ internal sealed class StatPanelSurface
             PlaceWatch(watch);
             watch.RescanMips(name);
             if (live is ActorStatPanel actor)
-                Cards.QuestArtworkEvidence.SpriteField(actor, "characterPortrait", "stat-portrait"); // cadence-gated inside; catches the async portrait + actor swaps
+                // Use the exact native consumer. The original window can be parked while
+                // its last offscreen capture is still visible; its activation flag must
+                // be evidence, not a reason to hide the portrait's actual draw state.
+                Cards.QuestArtworkEvidence.Image(actor.characterPortrait, "stat-portrait");
         }
     }
 
