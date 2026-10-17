@@ -2825,6 +2825,21 @@
         "ci"
       ],
       "weight": 8
+    },
+    {
+      "id": "steamlink-loading-lifecycle",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-loading-lifecycle/run.py",
+        "--output",
+        ".planning/debug/steamlink-loading-lifecycle"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
     }
   ]
 }
