@@ -90,7 +90,7 @@ public static partial class DiagnosticProgram
             finally { Application.logMessageReceived -= observer; VRLog.WantsDebug = debug; }
             Check(evidenceRecords == 1, "Actual retained native header emits one bounded source record");
             Check(evidenceFits, "Retained native header source and both pixel crops fit the protected Android record while parked");
-            Debug.Log("Native header source: sprite=" + native.name + " texture=" + native.texture.name
+            UnityEngine.Debug.Log("Native header source: sprite=" + native.name + " texture=" + native.texture.name
                 + " size=" + native.texture.width + "x" + native.texture.height + " rect=" + native.rect
                 + " outer=" + UnityEngine.Sprites.DataUtility.GetOuterUV(native) + " padding=" + UnityEngine.Sprites.DataUtility.GetPadding(native)
                 + " topOpaque=" + upper + " bottomOpaque=" + lower + " mipAlphaMismatch=" + mipMismatch + " shaderAlphaMismatch=" + nativeMismatch + " solidLoss=" + mipSolidLoss + "," + shaderSolidLoss);

@@ -159,7 +159,13 @@ internal static class QuestArtworkEvidence
         if (Admit(role, 0)) State(" role=" + role + " unavailable=" + what);
     }
 
-    private static void State(string detail) => Debug.Log("[Quest startup] artwork" + detail + " caller=" + _caller);
+    // GH.Runtime also defines a GLOBAL Debug class whose Log has
+    // [Conditional("ENABLE_LOGS")]. The mod does not define that game symbol:
+    // unqualified Debug.Log erased the previous log calls. Readbacks prepared
+    // before those calls could still run, so silence did not prove an unreachable
+    // consumer. Use the actual Unity sink explicitly; an alias
+    // also conflicts with that global type in the real game compilation.
+    private static void State(string detail) => UnityEngine.Debug.Log("[Quest startup] artwork" + detail + " caller=" + _caller);
 
     private static bool CanObserve(string role) => QuestStandalonePlatform.Enabled && VRLog.WantsDebug
         && _records < 8 && (!Seen.TryGetValue(role, out HashSet<int> seen) || seen.Count < 2);
@@ -211,7 +217,7 @@ internal static class QuestArtworkEvidence
         _records++;
         if (!Seen.TryGetValue(role, out HashSet<int> seen)) Seen[role] = seen = new HashSet<int>();
         seen.Add(int.MinValue); seen.Add(int.MaxValue);
-        Debug.Log("[Quest startup] artwork role=" + role + " unavailable=" + error.GetType().Name + " caller=" + _caller);
+        UnityEngine.Debug.Log("[Quest startup] artwork role=" + role + " unavailable=" + error.GetType().Name + " caller=" + _caller);
     }
 
     private static void Emit(string role, string detail, Graphic image, Texture source, Rect crop, Texture output, Rect outputCrop)
@@ -233,7 +239,7 @@ internal static class QuestArtworkEvidence
                 + " hierarchy=" + image.gameObject.activeInHierarchy + " sourceShader=" + shader;
             message = "[Quest startup] artwork" + compact + " caller=" + _caller + samples;
         }
-        Debug.Log(message);
+        UnityEngine.Debug.Log(message);
     }
 
     private static string Sample(Texture texture, Rect pixels)

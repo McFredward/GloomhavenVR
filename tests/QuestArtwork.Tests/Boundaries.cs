@@ -2,6 +2,18 @@ using System;
 using UnityEngine;
 using UnityEngine.UI;
 
+// Exact game namespace/conditional boundary: GH.Runtime has this GLOBAL type.
+// Without ENABLE_LOGS, an unqualified Log call disappears at C# compilation.
+// Keeping it in the Unity fixture prevents an editor-only successful logger
+// binding from masking the real mod's missing Android records again.
+public static class Debug
+{
+    [System.Diagnostics.Conditional("ENABLE_LOGS")]
+    public static void Log(object message) => UnityEngine.Debug.Log(message);
+    [System.Diagnostics.Conditional("ENABLE_LOGS")]
+    public static void LogWarning(object message) => UnityEngine.Debug.LogWarning(message);
+}
+
 // Native object boundaries only. Discovery, source selection, sampling, quotas
 // and state restoration execute the unchanged production observer in Unity.
 public sealed class FullAbilityCard : MonoBehaviour { public Image headerImage = null!; }
@@ -19,8 +31,8 @@ namespace GloomhavenVR.Core
     internal static class VRLog
     {
         internal static bool WantsDebug;
-        internal static void Info(string scope, string text) => Debug.Log(text);
-        internal static void Warn(string scope, string text) => Debug.LogWarning(text);
+        internal static void Info(string scope, string text) => UnityEngine.Debug.Log(text);
+        internal static void Warn(string scope, string text) => UnityEngine.Debug.LogWarning(text);
     }
     internal static class PerfMonitor
     {

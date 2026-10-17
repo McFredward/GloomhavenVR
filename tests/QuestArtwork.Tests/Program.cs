@@ -57,7 +57,7 @@ public static partial class DiagnosticProgram
         {
             Color32 a = actual[v * cropWidth + u], b = source[(y + v) * width + x + u];
             bool equal = Math.Abs(a.r - b.r) <= 1 && Math.Abs(a.g - b.g) <= 1 && Math.Abs(a.b - b.b) <= 1 && Math.Abs(a.a - b.a) <= 1;
-            if (!equal) Debug.Log("Actual mismatch " + reason + " at=" + u + "," + v + " got=" + a + " expected=" + b);
+            if (!equal) UnityEngine.Debug.Log("Actual mismatch " + reason + " at=" + u + "," + v + " got=" + a + " expected=" + b);
             Check(equal, reason);
         }
     }
