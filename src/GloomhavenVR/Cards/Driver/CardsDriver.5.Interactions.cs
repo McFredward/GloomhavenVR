@@ -608,6 +608,8 @@ internal sealed partial class CardsDriver
             // SelectCard is the spin-wait path — queued; outcome verified against
             // the authoritative round pile afterwards.
             _tray.PlaceCard(card, slot);
+            CAbilityCard? leftChoice = _tray.Occupant(0)?.GameCard?.AbilityCard;
+            object? pendingSelection = _tray.BeginPendingSelection(card);
             // HAND<->SLOT FLIGHTS ARE NOT REPORTED (user ruling 2026-08-03: "Ich will immer die
             // echte Position der Karten sehen … Wenn der Mitspieler eine Karte auf das Board legt
             // kommt danach direkt eine Animation wie eine Karte von der Hand auf das Board fliegt.
@@ -618,16 +620,23 @@ internal sealed partial class CardsDriver
             // pile). DO NOT RE-ADD: the absence of the call is the fix.
             CardsHandUI handRef = gameHand;
             CardActionQueue.Enqueue(
-                () => CardsGameApi.SelectCard(handRef, ability),
                 () =>
                 {
-                    if (!CardsGameApi.IsInRound(handRef, ability))
+                    if (!_tray.SelectionWasWithdrawn(pendingSelection))
+                        CardsGameApi.SelectCard(handRef, ability);
+                },
+                () =>
+                {
+                    bool ownsProjection = _tray.CompletePendingSelection(card, pendingSelection);
+                    if (ownsProjection && !CardsGameApi.IsInRound(handRef, ability))
                     {
                         VRLog.Info("Cards", $"Select rejected for {ability.Name} — returning to fan.");
                         _tray.RemoveCard(card);
                         _fan.Add(card);
                     }
-                    ReconcileInitiative(handRef);
+                    if (ownsProjection) ReconcileInitiative(handRef);
+                    else if (!_tray.SelectionWasWithdrawn(pendingSelection))
+                        ReconcileInitiative(handRef, leftChoice);
                     _dirty = true;
                 });
         }
@@ -645,9 +654,12 @@ internal sealed partial class CardsDriver
             // the game's own profile clicks (ToggleSelect both ways); ours made a third.
             VRCard displaced = _tray.Occupant(slot)!;
             CAbilityCard? displacedAbility = displaced.GameCard?.AbilityCard;
+            _tray.WithdrawPendingSelection(displaced);
             _tray.RemoveCard(displaced);
             _fan.Add(displaced);
             _tray.PlaceCard(card, slot);
+            CAbilityCard? leftChoice = _tray.Occupant(0)?.GameCard?.AbilityCard;
+            object? pendingSelection = _tray.BeginPendingSelection(card);
             // HAND<->SLOT FLIGHTS ARE NOT REPORTED (user ruling 2026-08-03: "Ich will immer die
             // echte Position der Karten sehen … Wenn der Mitspieler eine Karte auf das Board legt
             // kommt danach direkt eine Animation wie eine Karte von der Hand auf das Board fliegt.
@@ -662,16 +674,23 @@ internal sealed partial class CardsDriver
                     () => CardsGameApi.UnselectCard(handRef, displacedAbility),
                     () => _dirty = true);
             CardActionQueue.Enqueue(
-                () => CardsGameApi.SelectCard(handRef, ability),
                 () =>
                 {
-                    if (!CardsGameApi.IsInRound(handRef, ability))
+                    if (!_tray.SelectionWasWithdrawn(pendingSelection))
+                        CardsGameApi.SelectCard(handRef, ability);
+                },
+                () =>
+                {
+                    bool ownsProjection = _tray.CompletePendingSelection(card, pendingSelection);
+                    if (ownsProjection && !CardsGameApi.IsInRound(handRef, ability))
                     {
                         VRLog.Info("Cards", $"Swap select rejected for {ability.Name} — returning to fan.");
                         _tray.RemoveCard(card);
                         _fan.Add(card);
                     }
-                    ReconcileInitiative(handRef);
+                    if (ownsProjection) ReconcileInitiative(handRef);
+                    else if (!_tray.SelectionWasWithdrawn(pendingSelection))
+                        ReconcileInitiative(handRef, leftChoice);
                     _dirty = true;
                 });
         }
@@ -733,6 +752,7 @@ internal sealed partial class CardsDriver
                 VRLog.Info("Cards", $"Fan reorder ({hand.Side}): TRAY card take-back committed to fan " +
                                     $"gap {gap} (unselect queued; session-only VR order).");
             }
+            _tray.WithdrawPendingSelection(card);
             _tray.RemoveCard(card);
             _fan.Add(card);
             int cardId = FanId(card);

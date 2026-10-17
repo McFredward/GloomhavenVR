@@ -14,6 +14,84 @@ internal sealed partial class PlayTray
 
     internal VRCard? Occupant(int slot) => _occupants[slot];
 
+    // A replacement uses two native callbacks on separate frames: unselect the old card,
+    // then select the newcomer. Its already-dropped visual belongs to the recess while that
+    // second callback is pending, rather than returning to the fan for the intervening rebuild.
+    // This is bounded by the two current occupants, not a second command/intent queue.
+    private sealed class PendingRoundSelection
+    {
+        internal readonly VRCard Card;
+        internal bool ExplicitlyWithdrawn;
+        internal PendingRoundSelection(VRCard card) => Card = card;
+    }
+
+    private readonly PendingRoundSelection?[] _pendingRoundSelections = new PendingRoundSelection?[2];
+
+    internal object? BeginPendingSelection(VRCard card)
+    {
+        if (SlotOf(card) < 0) return null;
+        int free = -1;
+        for (int i = 0; i < _pendingRoundSelections.Length; i++)
+        {
+            PendingRoundSelection? pending = _pendingRoundSelections[i];
+            if (pending?.Card == card) { free = i; break; }
+            if (pending == null || SlotOf(pending.Card) < 0) free = i;
+        }
+        if (free < 0) return null;
+        var token = new PendingRoundSelection(card);
+        _pendingRoundSelections[free] = token;
+        return token;
+    }
+
+    internal bool CompletePendingSelection(VRCard card, object? token)
+    {
+        for (int i = 0; i < _pendingRoundSelections.Length; i++)
+            if (_pendingRoundSelections[i]?.Card == card
+                && ReferenceEquals(_pendingRoundSelections[i], token))
+            {
+                _pendingRoundSelections[i] = null;
+                return true;
+            }
+        return false;
+    }
+
+    internal void CancelPendingSelection(VRCard card)
+    {
+        for (int i = 0; i < _pendingRoundSelections.Length; i++)
+            if (_pendingRoundSelections[i]?.Card == card) _pendingRoundSelections[i] = null;
+    }
+
+    // Only an explicit take-back/replacement supersedes the player's queued select. Losing a
+    // view (actor switch, board rebuild, scene cancellation) never changes captured native input.
+    internal void WithdrawPendingSelection(VRCard card)
+    {
+        for (int i = 0; i < _pendingRoundSelections.Length; i++)
+            if (_pendingRoundSelections[i] is PendingRoundSelection pending && pending.Card == card)
+            {
+                pending.ExplicitlyWithdrawn = true;
+                _pendingRoundSelections[i] = null;
+            }
+    }
+
+    internal bool SelectionWasWithdrawn(object? token) =>
+        token is PendingRoundSelection pending && pending.ExplicitlyWithdrawn;
+
+    internal void CancelPendingSelections()
+    {
+        for (int i = 0; i < _pendingRoundSelections.Length; i++) _pendingRoundSelections[i] = null;
+    }
+
+    internal bool IsSelectionPending(VRCard card, CardsHandUI? hand)
+    {
+        if (hand?.PlayerActor == null || SlotOf(card) < 0
+            || card.GameCard?.PlayerActor != hand.PlayerActor
+            || CardsGameApi.Mode(hand) != CardHandMode.CardsSelection
+            || !CardsGameApi.IsSelectionPhase(hand) || CardsGameApi.IsConfirmed(hand)) return false;
+        for (int i = 0; i < _pendingRoundSelections.Length; i++)
+            if (_pendingRoundSelections[i]?.Card == card) return true;
+        return false;
+    }
+
     // SlotHomeOffset IS RETIRED (2026-08-11) — the spread-free convenience accessor that used to
     // stand here, `SlotHomeOffsetFor(0, applySpread: false)`. Its doc claimed it was "shared by
     // every path that parks a card in a slot", and that was the defect: PlaceCard, PlacePickCard
@@ -1241,6 +1319,7 @@ internal sealed partial class PlayTray
 
     internal void RemoveCard(VRCard card)
     {
+        CancelPendingSelection(card);
         int slot = SlotOf(card);
         if (slot >= 0)
         {
@@ -1270,6 +1349,7 @@ internal sealed partial class PlayTray
 
     internal void ClearSlots()
     {
+        CancelPendingSelections();
         _occupants[0]?.SetDockGrabPad(false);
         _occupants[1]?.SetDockGrabPad(false);
         _occupants[0] = null;
@@ -1308,6 +1388,9 @@ internal sealed partial class PlayTray
     {
         if (hand.PlayerActor == null)
             return false;
+        for (int i = 0; i < _pendingRoundSelections.Length; i++)
+            if (_pendingRoundSelections[i] is PendingRoundSelection pending
+                && !IsSelectionPending(pending.Card, hand)) _pendingRoundSelections[i] = null;
         var round = hand.PlayerActor.CharacterClass.RoundAbilityCards;
         ScenarioRuleLibrary.CAbilityCard? initiative = hand.PlayerActor.CharacterClass.InitiativeAbilityCard;
 
@@ -1353,7 +1436,8 @@ internal sealed partial class PlayTray
         for (int s = 0; s < 2; s++)
         {
             VRCard? occ = _occupants[s];
-            if (occ != null && occ != roundInit && occ != roundOther)
+            if (occ != null && occ != roundInit && occ != roundOther
+                && !IsSelectionPending(occ, hand))
             {
                 RemoveCard(occ); // apron off + slot freed + the ONE release line, in one place
                 changed = true;

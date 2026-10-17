@@ -2301,8 +2301,23 @@ internal sealed partial class CardsDriver
         VRCard? slot0 = _tray.Occupant(0);
         if (slot0 == null || slot0.GameCard == null)
             return;
+        // Queued completion can outlive an actor switch. Only a native round card of this
+        // hand may author its initiative; another actor's recess or a pending visual may not.
+        if (!CardsGameApi.HandOwnsWidget(hand, slot0.GameCard))
+            return;
+        ReconcileInitiative(hand, slot0.GameCard.AbilityCard);
+    }
+
+    private void ReconcileInitiative(CardsHandUI hand, CAbilityCard? inSlot0)
+    {
+        // A view change can release the physical pending marker before native selection
+        // acknowledges. Preserve the actual left-card input captured at that drop, but only
+        // while that exact native model still belongs to this hand's authoritative round pair.
+        if (hand == null || hand.PlayerActor == null
+            || hand.PlayerActor.CharacterClass.RoundAbilityCards.Count != 2
+            || inSlot0 == null || !CardsGameApi.IsInRound(hand, inSlot0))
+            return;
         CAbilityCard? initiative = CardsGameApi.InitiativeCard(hand);
-        CAbilityCard? inSlot0 = slot0.GameCard.AbilityCard;
         if (initiative != null && initiative != inSlot0)
         {
             if (CardsGameApi.SwapInitiative(hand))
@@ -2360,7 +2375,10 @@ internal sealed partial class CardsDriver
             () => CardsGameApi.SwapInitiative(handRef),
             () =>
             {
-                _tray.SyncFromGameState(handRef, _factory);
+                // Preserve the captured native swap, but project only onto the hand this
+                // board still displays. CurrentHand can lead that display during admission.
+                if (ReferenceEquals(_boundHand, handRef))
+                    _tray.SyncFromGameState(handRef, _factory);
                 _dirty = true;
             });
     }

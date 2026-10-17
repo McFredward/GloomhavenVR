@@ -588,6 +588,7 @@ internal sealed partial class CardsDriver
         Core.TickGuard.Run("Cards.SceneNativeHierarchy", NativeCardPoolLifetime.ReturnSceneHands, "Cards");
         Core.TickGuard.Run("Cards.SceneLaserHover", driver.ClearLaserHover, "Cards");
         Core.TickGuard.Run("Cards.SceneActiveHover", driver.ClearActiveHover, "Cards");
+        driver._tray.CancelPendingSelections(); // the queued native acknowledgements are cancelled too
         CardActionQueue.Clear();
         driver._dirty = true; // also rebuild if the native load aborts while the old hand survives
         VRLog.Note("Cards", "CARD SCENE RELEASE: returned borrowed native faces before scene loading; native hand recycling remains authoritative.");

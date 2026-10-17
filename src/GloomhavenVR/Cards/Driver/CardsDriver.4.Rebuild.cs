@@ -1952,7 +1952,8 @@ internal sealed partial class CardsDriver
                 continue;
             }
             VRCard? already = _factory.Find(widget);
-            if (already != null && _halfBuffer.Contains(already))
+            if (already != null && (_halfBuffer.Contains(already)
+                                    || _tray.IsSelectionPending(already, _boundHand)))
                 continue;
             _fanBuffer.Add(AdoptedCard(widget));
         }
