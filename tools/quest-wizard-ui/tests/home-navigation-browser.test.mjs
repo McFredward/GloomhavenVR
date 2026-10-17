@@ -2,18 +2,20 @@
 // no Unity, ADB, game conversion or ownership validation is performed here.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {execFile} from 'node:child_process';
 import {createServer} from 'node:http';
 import {existsSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {resolve,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {promisify} from 'node:util';
 import {browser,chrome} from './browser-harness.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url)),session='a'.repeat(32);
 const mime={'.html':'text/html','.mjs':'text/javascript','.css':'text/css','.png':'image/png','.svg':'image/svg+xml','.jpg':'image/jpeg'};
 const readyUpdate={status:'available',available:true,inputsReady:true,installedBuild:675,bundledBuild:676,
   apkPath:'C:\\Users\\Fixture\\.ghvrq\\build\\Quest.apk',gameRoot:'C:\\Owned Gloomhaven',reason:'bundled-newer',missing:[]};
-async function fixture({recommendation=readyUpdate,held=false,active=false,device=false,manualRoot=false}={}){
+async function fixture({recommendation=readyUpdate,discoveryOverride={},held=false,active=false,device=false,manualRoot=false}={}){
   const requests=[];let releaseDiscovery;const gate=new Promise(resolve=>releaseDiscovery=resolve);
   const stages=['tools','source','unity','profile','inspect','build','install'].map(id=>({id,status:id==='build'?'running':id==='install'?'pending':'complete',
     ...(id==='build'?{progress:{stagePercent:35.25,phase:'unity-il2cpp',detail:'Fixture code compilation'}}:{})}));
@@ -32,7 +34,7 @@ async function fixture({recommendation=readyUpdate,held=false,active=false,devic
           return reply({schema:1,event:'discovery',games:[{id:'owned',gameRoot:readyUpdate.gameRoot,provider:'gog'}],unityEditors:[],
             defaultApk:{path:readyUpdate.apkPath,modBuild:675},modSource:{kind:'bundled-release',modBuild:676,modVersion:'1.1.1-dev',sourceCommit:'b'.repeat(40)},
             recentSessions:active?[{session,status:'running',mode:'update-mod'}]:[],updateRecommendation:manualRoot?{...recommendation,gameRoot:'D:\\Manually selected Gloomhaven'}:recommendation,
-            capabilities:{browse:false,deviceTools:device}});
+            capabilities:{browse:false,deviceTools:device},...discoveryOverride});
         }
         if(path==='/api/gallery')return reply({schema:1,event:'gallery',artwork:['brute.jpg','spellweaver.png','scoundrel.png'].map((name,index)=>({id:String(index),url:'/api/promo-artwork?name='+name,altCode:'ownedArtwork'}))});
         if(path==='/api/promo-artwork'){
@@ -66,6 +68,42 @@ async function ready(client,server){
 }
 async function noOverflow(client){assert.equal(await client.evaluate('document.documentElement.scrollWidth<=window.innerWidth'),true);}
 function noMutations(server){assert.equal(server.requests.some(row=>['/api/plan','/api/run','/api/cancel'].includes(row.path)),false,'navigation never starts, resumes or cancels work');}
+
+test('home promotes a real metadata recommendation after twelve retained updates and rejects incomplete histories',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const {stdout,stderr}=await promisify(execFile)(process.env.QUEST_WIZARD_TEST_PYTHON??'python3',
+    ['-B',resolve(root,'tests/home-update-fixture.py')],{maxBuffer:256*1024});
+  assert.equal(stderr,'');
+  const cases=JSON.parse(stdout);assert.equal(cases.length,4);
+  assert.equal(cases[0].receiptCount,13,'fixture includes a full build and twelve compact updates');
+  let client;
+  try{
+    client=await browser();
+    for(const row of cases){
+      const promoted=row.name==='twelve-retained-updates';
+      const server=await fixture({discoveryOverride:row.discovery});
+      try{
+        await ready(client,server);
+        if(promoted)await client.picture('home-update-real-retained-history');
+        assert.equal(await client.evaluate("document.getElementById('home-mod').classList.contains('recommended')"),promoted,row.name);
+        assert.equal(await client.evaluate("document.getElementById('home-mod-badge').hidden"),!promoted,row.name);
+        assert.equal(await client.evaluate("document.getElementById('home-mod-recommendation').hidden"),!promoted,row.name);
+        if(promoted){
+          assert.equal(row.discovery.updateRecommendation.inputsReady,true,
+            'real retained-content ancestry remains ready beyond the old eight-receipt limit');
+          assert.ok(row.metadataReads.length>=13,'fixture follows real closed ancestry receipts');
+          await client.evaluate("document.querySelector('[data-language=de]').click()");
+          assert.match(await client.evaluate("document.getElementById('home-mod-recommendation').textContent"),/B682 → B683/);
+          await client.chooseHome('mod');
+          assert.equal(await client.evaluate("document.getElementById('base-apk').value"),row.discovery.defaultApk.path);
+          assert.equal(await client.evaluate("document.getElementById('game-root').value"),row.discovery.games[0].gameRoot);
+        }
+        noMutations(server);
+      }finally{await server.close();}
+    }
+    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+  }finally{await client?.close();}
+ });
 
 test('home checks the bundled update on arrival, highlights only ready local inputs and keeps one game logo',
  {skip:!existsSync(chrome),timeout:30000},async()=>{
