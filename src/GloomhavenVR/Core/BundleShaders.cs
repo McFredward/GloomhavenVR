@@ -80,6 +80,18 @@ internal static class BundleShaders
         { "GloomhavenVR/WindowMaterialise", "Assets/Bundle/Table/WindowMaterialise.shader" },
         { "GloomhavenVR/HeadUnlit",      "Assets/Bundle/Head/HeadUnlit.shader" },
         { "GloomhavenVR/WaterVR",        "Assets/Bundle/Environments/WaterVR.shader" },
+        // Real-scene coverage identifies these existing originals before borrowing
+        // separate head-only derivatives. Keep the original asset names resolvable
+        // through the same strict path/declaration contract as every other bank shader.
+        { "GloomhavenVR/EnvParticleAlpha", "Assets/Bundle/Environments/EnvParticleAlpha.shader" },
+        { "GloomhavenVR/EnvParticleAdd", "Assets/Bundle/Environments/EnvParticleAdd.shader" },
+        { "GloomhavenVR/EnvGlow",        "Assets/Bundle/Environments/EnvGlow.shader" },
+        { "GloomhavenVR/EnvFlame",       "Assets/Bundle/Environments/EnvFlame.shader" },
+        { "GloomhavenVR/EnvDrip",        "Assets/Bundle/Environments/EnvDrip.shader" },
+        { "GloomhavenVR/EnvBeam",        "Assets/Bundle/Environments/EnvBeam.shader" },
+        { "GloomhavenVR/EnvShaft",       "Assets/Bundle/Environments/EnvShaft.shader" },
+        { "GloomhavenVR/EnvStarPoints",  "Assets/Bundle/Environments/EnvStarPoints.shader" },
+        { "GloomhavenVR/EnvPuddle",      "Assets/Bundle/Environments/EnvPuddle.shader" },
         { "GloomhavenVR/ScenarioSimpleEnvironment", "Assets/Bundle/Environments/ScenarioSimpleEnvironment.shader" },
         { "GloomhavenVR/ScenarioCheapTerrain", "Assets/Bundle/Environments/ScenarioCheapTerrain.shader" },
         { "GloomhavenVR/WorldSimpleMaterial", "Assets/Bundle/Environments/WorldSimpleMaterial.shader" },

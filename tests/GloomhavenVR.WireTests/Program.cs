@@ -10,6 +10,8 @@ internal static class Program
         string repoRoot = args.Length > 0 ? args[0] : FindRepoRoot();
 
         var t = new Harness();
+        if (args.Length > 1 && args[1] == "bundled-shaders")
+        { BundledShaderVectors.Run(t, repoRoot); return t.Report(); }
         if (args.Length > 1 && args[1] == "second-held-card638")
         { SecondHeldCardAtomicVectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-original-delivery638")

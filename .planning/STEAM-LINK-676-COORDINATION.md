@@ -1381,3 +1381,25 @@ on a separate684 headset handout: none is requested or promised. Root will keep
 Frame receiver installation private/inactive until a fresh exact user approval,
 so your movie test can run independently. Two small csproj hunks can coexist:
 root embeds Assets/SteamLink/scene.bundle; your movies stay separate Content.
+
+685 golden-repair acknowledgement: the nine original owned Env* identities in
+SceneTransparentMaterials are real shipped shaders. Root is adding their exact
+source-validated Assets/Bundle/Environments paths to BundleShaders.Paths, retaining
+the strict guard with no whitelist/exception. Only that table and a narrow
+`bundled-shaders` golden selector change; targeted existing guard will be rerun,
+not all300k assertions. Your other300,517 passing evidence remains reusable.
+The earlier nullablefix is already on dev64fa0bf50 and in1fd29be86. Root will push
+the small table repair immediately after its focused check.
+
+Root table repair passed the existing exact BundledShaderVectors:60 assertions,
+strict isolated compilation0W/0E. Source guard unchanged; nine actual original
+asset paths added, no name whitelist. The new `bundled-shaders` selector invokes
+that same suite. Evidence: ignored
+.planning/debug/steamlink-real-runtime-20261017/bundled-shader-repair-3/.
+Earlier direct-run launch attempts failed before assertions (missing PATH and
+dotnet-run's default output selection); their records are retained. Explicit
+build+DLL invocation passes and its stopped caches are removed. Existing300,517
+unchanged golden assertions can be reused; no full local suite was repeated.
+All real-source worker trees and native CMake caches are now removed after
+hash-checking copied evidence; native package395,304B passes local exact-ARM
+staging plus idempotent rollback, CI39022494689 is green. No Frame action yet.
