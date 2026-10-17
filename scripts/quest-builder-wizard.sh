@@ -25,9 +25,16 @@ while (( $# )); do
 done
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || quest_fail 'The Quest builder requires Linux x86_64 for Unity and its native tools.'
 [[ -f "$quest_wizard_script" && -f "$quest_ui_directory/index.html" ]] || quest_fail 'Wizard files are missing. Extract the complete matching Builder archive.'
+printf 'GloomhavenVR Quest Wizard - local browser interface\n'
+if $quest_open_browser; then
+    printf 'Please wait while the builder starts. The browser will open automatically.\n'
+    printf 'Bitte kurz warten: Der Builder startet. Das Browserfenster wird danach automatisch geoeffnet.\n'
+else
+    printf 'Please wait while the local builder is prepared. / Bitte kurz warten: Der Builder wird vorbereitet.\n'
+fi
+printf 'Keep this launch window open while using the wizard.\n'
 source "$quest_source_directory/tools/quest-installer/bootstrap.sh"
 quest_python=$(get_quest_installer_python "$quest_script_directory" "$quest_source_directory/tools/quest-installer/requirements.txt")
 quest_arguments=("$quest_wizard_script" serve --state-root "$quest_state_root" --ui-root "$quest_ui_directory" --port "$quest_port")
 if $quest_open_browser; then quest_arguments+=(--open-browser); fi
-printf 'GloomhavenVR Quest Wizard - local browser interface\nKeep this launch window open while using the wizard.\n'
 exec "$quest_python" -I -B -X utf8 "${quest_arguments[@]}"

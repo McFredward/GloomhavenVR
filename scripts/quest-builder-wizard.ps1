@@ -11,6 +11,14 @@ param([string]$StateRoot, [switch]$NoBrowser)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 try {
+    Write-Host "GloomhavenVR Quest Wizard - local browser interface"
+    if ($NoBrowser) {
+        Write-Host "Please wait while the local builder is prepared. / Bitte kurz warten: Der Builder wird vorbereitet."
+    } else {
+        Write-Host "Please wait while the builder starts. The browser will open automatically."
+        Write-Host "Bitte kurz warten: Der Builder startet. Das Browserfenster wird danach automatisch geoeffnet."
+    }
+    Write-Host "Keep this launch window open while using the wizard."
     if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
         throw "The Quest builder requires Windows x64 for Unity and its native toolchain."
     }
@@ -34,8 +42,6 @@ try {
     }
     $wizardArguments = @($wizardScript, "serve", "--state-root", $StateRoot, "--ui-root", $uiDirectory)
     if (-not $NoBrowser) { $wizardArguments += "--open-browser" }
-    Write-Host "GloomhavenVR Quest Wizard - local browser interface"
-    Write-Host "Keep this launch window open while using the wizard."
     & $pythonExecutable -I -B -X utf8 @wizardArguments
     exit $LASTEXITCODE
 } catch {
