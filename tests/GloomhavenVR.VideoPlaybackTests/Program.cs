@@ -18,6 +18,8 @@ internal static class Program
         RemoteVideoPlayback.Reset();
         SharedWindows.Online = true;
         NativeVideoWindow.AssetAvailable = true;
+        NativeVideoWindow.NativeKey = "Heroes/A.mov";
+        NativeVideoWindow.ResolvedKey = string.Empty;
         Time.unscaledTime = 1;
         NativeVideoWindow.NativePlaybackGeneration++;
         var native = new GameObject("native").AddComponent<VideoPlayer>();
@@ -164,6 +166,47 @@ internal static class Program
         UnityEngine.Object.Destroy(native);
         RemoteVideoPlayback.Reset();
         Check(!surviving.mute, "Destroyed native decoder still restores surviving target AudioSources");
+        StereoRevisionPlayback();
         Console.WriteLine($"Video playback production harness: {_assertions} assertions passed.");
+    }
+
+    private static void StereoRevisionPlayback()
+    {
+        VideoPlayer native = Native();
+        NativeVideoWindow.NativeKey = "CP_Intro/GH_CP_Intro.mov";
+        var state = Publication();
+        state.VideoWindow.Clip = NativeVideoMovies.StereoIntroKey;
+        VideoPlayer mirror = Mirror(in state);
+        Check(mirror.url == NativeVideoMovies.StereoIntroKey && mirror.time == 1,
+            "shared stereo revision resolves selected file at elected owner clock");
+        var sampled = default(PresenceState);
+        RemoteVideoPlayback.Sample(ref sampled, 2);
+        Check(sampled.VideoWindow.Native && sampled.VideoWindow.Clip == "CP_Intro/GH_CP_Intro.mov",
+            "concurrent native mono source publishes actual mono identity without local stereo upgrade");
+        var closed = Publication(2, closed: true); closed.VideoWindow.Clip = NativeVideoMovies.StereoIntroKey;
+        RemoteVideoPlayback.Observe(1, in closed); RemoteVideoPlayback.Resolve(2);
+        Check(NativeVideoWindow.Suppressed && native.StopCalls == 0 && NativeVideoWindow.Remote == null,
+            "owner stereo completion retires matching concurrent mono presentation without native callbacks");
+
+        native = Native();
+        NativeVideoWindow.ResolvedKey = "CP_Intro/GH_CP_Intro.mov";
+        state = Publication(); state.VideoWindow.Clip = NativeVideoMovies.StereoIntroKey;
+        int reports = GloomhavenVR.Core.VRLog.Notes.FindAll(line => line.StartsWith("SHARED VIDEO STEREO FALLBACK:", StringComparison.Ordinal)).Count;
+        mirror = Mirror(in state);
+        Check(mirror.url == "CP_Intro/GH_CP_Intro.mov" && mirror.time == 1 && mirror.isPlaying,
+            "missing selected stereo file uses approved companion with same cosmetic owner clock");
+        for (int i = 0; i < 20; i++) RemoteVideoPlayback.Resolve(2);
+        Check(GloomhavenVR.Core.VRLog.Notes.FindAll(line => line.StartsWith("SHARED VIDEO STEREO FALLBACK:", StringComparison.Ordinal)).Count == reports + 1,
+            "shared stereo companion fallback explicitly reports once per elected opening");
+        mirror.Fail(); RemoteVideoPlayback.Resolve(2);
+        Check(!native.GetDirectAudioMute(0) && native.StopCalls == 0 && !NativeVideoWindow.Suppressed,
+            "failed stereo companion never stops or suppresses healthy native playback");
+        native = Native(); NativeVideoWindow.AssetAvailable = false;
+        state = Publication(); state.VideoWindow.Clip = NativeVideoMovies.StereoIntroKey;
+        RemoteVideoPlayback.Observe(1, in state); RemoteVideoPlayback.Resolve(2);
+        for (int i = 0; i < 20; i++) RemoteVideoPlayback.Resolve(2);
+        Check(NativeVideoWindow.Remote == null && native.StopCalls == 0 && !NativeVideoWindow.Suppressed,
+            "missing stereo and companion refuse cosmetic decoding without restart loops or native callback writes");
+        RemoteVideoPlayback.Reset();
     }
 }

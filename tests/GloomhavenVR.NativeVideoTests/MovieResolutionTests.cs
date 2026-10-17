@@ -105,7 +105,43 @@ internal static class MovieResolutionTests
                 && changed[1].Calls(AccessTools.Method(typeof(NativeVideoMovies), nameof(NativeVideoMovies.SetNativeUrl)))
                 && original.opcode == OpCodes.Callvirt,
                 "transpiler preserves branch and exception markers without mutating original IL");
+            string stereo = Path.Combine(Path.GetDirectoryName(mod)!, "GH_CP_Intro.sbs-v1.mov");
+            File.WriteAllText(stereo, "versioned stereo movie");
+            StereoVideoSurface.Available = true;
+            plays = player.PlayCalls;
+            setups = owner.NativeSetupCalls;
+            owner.PlayFullscreenVideo("CP_Intro/GH_CP_Intro", () => completed++, true);
+            check(player.PlayedUrl == stereo && player.PlayCalls == plays + 1 && owner.NativeSetupCalls == setups + 1
+                && completed == 0 && owner.RewardInputLocked,
+                "stereo intro is selected before the single native Play and original setup");
+            check(NativeVideoWindow.PlaybackKey == NativeVideoMovies.StereoIntroKey,
+                "selected versioned stereo key is published without canonical collapse");
+            check(NativeVideoMovies.CanonicalKey(NativeVideoWindow.PlaybackKey) == NativeVideoMovies.IntroKey,
+                "only native continuation matching normalizes the selected stereo key");
+            check(NativeVideoWindow.TryResolvePlaybackKey(NativeVideoMovies.StereoIntroKey, out url) && url == stereo,
+                "peer versioned stereo key resolves the exact selected asset revision");
+            check(NativeVideoWindow.TryResolvePlaybackKey(NativeVideoMovies.IntroKey, out url) && url == mod,
+                "owner mono key is never silently upgraded to local stereo media");
+            foreach (string invalid in new[] { "CP_Intro/GH_CP_Intro.sbs-v2.mov", "CP_Intro/GH_CP_Intro.sbs.mov", "Heroes/Brute.sbs-v1.mov" })
+                check(!NativeVideoWindow.IsPlaybackKey(invalid) && !NativeVideoWindow.TryResolvePlaybackKey(invalid, out url) && url.Length == 0,
+                    "unknown stereo revision or filename is refused: " + invalid);
+            StereoVideoSurface.Available = false;
+            owner.PlayFullscreenVideo("CP_Intro/GH_CP_Intro", () => completed++, false);
+            check(player.PlayedUrl == mod && NativeVideoWindow.PlaybackKey == NativeVideoMovies.IntroKey,
+                "unsupported renderer selects approved mono before native playback");
+            check(NativeVideoWindow.TryResolvePlaybackKey(NativeVideoMovies.StereoIntroKey, out url) && url == stereo,
+                "unsupported peer renderer still resolves the selected SBS file for left-eye fallback");
+            StereoVideoSurface.Available = true;
+            GloomhavenVR.Core.VRSession.IsRunning = false;
+            owner.PlayFullscreenVideo("CP_Intro/GH_CP_Intro", () => completed++, false);
+            check(player.PlayedUrl == mod, "ordinary flat presentation never receives a packed stereo movie");
+            GloomhavenVR.Core.VRSession.IsRunning = true;
+            File.Delete(stereo);
+            check(NativeVideoWindow.TryResolvePlaybackKey(NativeVideoMovies.StereoIntroKey, out url) && url == mod,
+                "missing selected SBS file uses only its approved original-left companion");
             File.Delete(mod);
+            check(!NativeVideoWindow.TryResolvePlaybackKey(NativeVideoMovies.StereoIntroKey, out url) && url.Length == 0,
+                "missing SBS and approved companion never substitutes different native film content");
             owner.PlayFullscreenVideo("CP_Intro/GH_CP_Intro", () => completed++, false);
             check(player.PlayedUrl == native
                 && NativeVideoWindow.TryResolvePlaybackKey("CP_Intro/GH_CP_Intro.mov", out url) && url == native,

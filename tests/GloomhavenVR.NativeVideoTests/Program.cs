@@ -204,6 +204,60 @@ static class Program
         foreach (string key in new[] { "", "../secret.mov", "Heroes/../secret.mov", "Heroes/a/b.mov", "Heroes/..mov",
                      "Heroes/Brute.mp4", "https://example.com/Heroes/Brute.mov", "CP_Intro/Other.mov", "Heroes/Brute.mov?x", "Heroes/Brute:secret.mov" })
             Check(!NativeVideoWindow.IsPlaybackKey(key), "non-native path rejected: " + key);
+        StereoPresentation();
         Console.WriteLine($"Native video production harness: {_assertions} assertions passed.");
+    }
+
+    private static void StereoPresentation()
+    {
+        NativeVideoWindow.Shutdown();
+        var owner = new GameObject("Native stereo").AddComponent<VideoCamera>();
+        owner.m_Camera = owner.gameObject.AddComponent<Camera>();
+        VideoPlayer source = owner.m_VideoPlayer = owner.gameObject.AddComponent<VideoPlayer>();
+        VideoCamera.s_This = owner;
+        source.url = "/plugin/Movies/" + NativeVideoMovies.StereoIntroKey;
+        source.texture = new Texture { width = 3840, height = 1080 };
+        source.isPrepared = source.isPlaying = true; source.frame = 12;
+        StereoVideoSurface.Available = true;
+        int attached = StereoVideoSurface.Attaches, disposed = StereoVideoSurface.Disposes;
+        NativeVideoWindow.Tick();
+        var panel = CanvasConversion.Ordered.Single();
+        Check(StereoVideoSurface.Attaches == attached + 1 && panel.HostRect.sizeDelta == new Vector2(1280, 720),
+            "explicit SBS native window attaches stereo material with per-eye 16:9 geometry");
+        Check(panel.ContentGraphic!.uvRect == new Rect(0, 0, 1, 1), "stereo material receives complete packed texture");
+        var step = new GameObject("Stereo native continuation").AddComponent<UIMapFTUEInitialStep>();
+        var tracker = step.gameObject.AddComponent<ClickTrackerExtended>();
+        step.SetTracker(tracker, "CP_Intro/GH_CP_Intro");
+        Check(NativeVideoWindow.TrySkipNativeMovie() && step.Escapes == 1,
+            "versioned stereo native intro still dispatches its exact canonical native skip callback");
+        GameObject oldRoot = panel.HostGo;
+        NativeVideoWindow.OnRootDestroyed(oldRoot);
+        Check(!NativeVideoWindow.Visible && StereoVideoSurface.Disposes == disposed + 1,
+            "external movie root destruction releases the owned stereo surface");
+        NativeVideoWindow.Tick();
+        var rebuilt = NativeVideoWindow.Window;
+        NativeVideoWindow.OnRootDestroyed(oldRoot);
+        Check(NativeVideoWindow.Visible && NativeVideoWindow.Window == rebuilt && StereoVideoSurface.Disposes == disposed + 1,
+            "late old-root destroy cannot close a replacement stereo movie window");
+        WorldUIConfig.ConversionActive = false; NativeVideoWindow.Tick(); WorldUIConfig.ConversionActive = true;
+        Check(StereoVideoSurface.Disposes == disposed + 2, "ordinary movie closure releases each stereo surface exactly once");
+        StereoVideoSurface.Available = false;
+        int warnings = GloomhavenVR.Core.VRLog.Warnings.Count;
+        NativeVideoWindow.Tick();
+        panel = CanvasConversion.Ordered.Single();
+        Rect uv = panel.ContentGraphic!.uvRect;
+        Check(panel.HostRect.sizeDelta == new Vector2(1280, 720) && uv.x > 0 && uv.x + uv.width < .5f
+            && uv.y > 0 && uv.y + uv.height < 1f && StereoVideoSurface.Attaches == attached + 2,
+            "unsupported renderer shows only texel-centred left half with original per-eye geometry");
+        for (int i = 0; i < 20; i++) NativeVideoWindow.Tick();
+        NativeVideoWindow.OnRootDestroyed(panel.HostGo); NativeVideoWindow.Tick();
+        Check(GloomhavenVR.Core.VRLog.Warnings.Count == warnings + 1,
+            "stereo renderer fallback reports once per source opening without recurring diagnostics");
+        Check(source.url.EndsWith(NativeVideoMovies.StereoIntroKey) && source.frame == 12 && source.isPlaying && source.PlayCalls == 0,
+            "stereo attachment and fallback never restart or reconfigure native playback");
+        source.texture = new Texture(); source.StartPlayback(); NativeVideoWindow.Tick();
+        Check(!NativeVideoWindow.Visible && source.isPlaying && source.frame == 12,
+            "malformed selected SBS dimensions refuse picture without blocking native continuation");
+        NativeVideoWindow.Shutdown(); StereoVideoSurface.Available = true;
     }
 }

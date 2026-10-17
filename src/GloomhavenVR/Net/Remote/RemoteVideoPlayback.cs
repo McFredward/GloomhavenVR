@@ -193,6 +193,9 @@ internal static class RemoteVideoPlayback
                 FailMirror("movie asset unavailable");
                 return;
             }
+            if (_active.Clip == NativeVideoMovies.StereoIntroKey && !NativeVideoMovies.IsStereoUrl(url))
+                VRLog.Note("Net", $"SHARED VIDEO STEREO FALLBACK: owner={_owner}, opening={_activeToken}, "
+                    + $"key={_active.Clip}, reason=selected stereo asset is missing; using its approved 2D companion at the owner clock.");
             var root = new GameObject("GloomhavenVR Shared Video Decoder");
             UnityEngine.Object.DontDestroyOnLoad(root);
             _mirror = root.AddComponent<VideoPlayer>();
@@ -261,7 +264,7 @@ internal static class RemoteVideoPlayback
     {
         _failedMirrorOwner = _owner;
         _failedMirrorToken = _activeToken;
-        VRLog.Note("Net", $"SHARED VIDEO STOP: owner={_owner}, token={_activeToken}, reason={reason}");
+        VRLog.Note("Net", $"SHARED VIDEO STOP: owner={_owner}, token={_activeToken}, key={_active.Clip}, reason={reason}");
         StopMirror();
         RestoreNativeAudio();
     }
@@ -271,8 +274,8 @@ internal static class RemoteVideoPlayback
         // Native intros may start on several clients. Completion belongs to the elected
         // presentation source: do not hand the screen to a lagging copy of that same play.
         foreach (VideoSourceClock peer in Peers.Values)
-            if (peer.HasSource && peer.State.Clip == _active.Clip) peer.Retire();
-        if (_native != null && _nativeClip == _active.Clip) _suppressedNativeToken = _token;
+            if (peer.HasSource && NativeVideoMovies.SamePresentation(peer.State.Clip, _active.Clip)) peer.Retire();
+        if (_native != null && NativeVideoMovies.SamePresentation(_nativeClip, _active.Clip)) _suppressedNativeToken = _token;
     }
 
     private static void SyncNativeAudio(bool mute)

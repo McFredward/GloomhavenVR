@@ -7,7 +7,7 @@ project="$repo_root/tests/GloomhavenVR.VideoPlaybackTests/GloomhavenVR.VideoPlay
 dotnet run --project "$project" --configuration Release
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-for mutation in cosmetic-authority cosmetic-end premature-audio-latch stale-audio-binding destroyed-native-audio; do
+for mutation in cosmetic-authority cosmetic-end premature-audio-latch stale-audio-binding destroyed-native-audio stereo-completion stereo-fallback-report; do
     python3 - "$repo_root/src/GloomhavenVR/Net/Remote/RemoteVideoPlayback.cs" "$mutation_dir/mutant.cs" "$mutation" <<'PY'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
@@ -21,6 +21,8 @@ mutations = {
     'premature-audio-latch': ('|| !_native.isPrepared || _native.audioTrackCount == 0', ''),
     'stale-audio-binding': ('|| AudioBindingChanged()', ''),
     'destroyed-native-audio': ('if (_savedMute != null)', 'if (_mutedNative != null && _savedMute != null)'),
+    'stereo-completion': ('NativeVideoMovies.SamePresentation(_nativeClip, _active.Clip)', '_nativeClip == _active.Clip'),
+    'stereo-fallback-report': ('&& !NativeVideoMovies.IsStereoUrl(url)', '&& NativeVideoMovies.IsStereoUrl(url)'),
 }
 needle, replacement = mutations[sys.argv[3]]
 assert source.count(needle) == 1, 'video mutation seam changed: ' + sys.argv[3]
@@ -38,6 +40,8 @@ PY
         premature-audio-latch) expected='Native audio tracks discovered after decoder preparation must still be muted' ;;
         stale-audio-binding) expected='New initially audible track is muted when native track count grows' ;;
         destroyed-native-audio) expected='Destroyed native decoder still restores surviving target AudioSources' ;;
+        stereo-completion) expected='owner stereo completion retires matching concurrent mono presentation without native callbacks' ;;
+        stereo-fallback-report) expected='shared stereo companion fallback explicitly reports once per elected opening' ;;
     esac
     if ! rg -Fq "Unhandled exception. System.InvalidOperationException: $expected" "$mutation_dir/output.log"; then
         cat "$mutation_dir/output.log"

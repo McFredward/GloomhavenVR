@@ -69,6 +69,7 @@ namespace UnityEngine
     public static class Application { public static RuntimePlatform platform; public static string dataPath = "/game"; }
     public sealed class Texture { public int width = 1920; public int height = 1080; }
     public readonly record struct Vector2(float x, float y);
+    public readonly record struct Rect(float x, float y, float width, float height);
     public struct Vector3
     {
         public float x, y, z;
@@ -88,6 +89,7 @@ namespace UnityEngine.UI
         public UnityEngine.Texture texture = null!;
         public UnityEngine.Color color;
         public bool raycastTarget;
+        public UnityEngine.Rect uvRect = new(0, 0, 1, 1);
     }
 }
 namespace UnityEngine.Video
@@ -154,9 +156,11 @@ public sealed class VideoCamera : UnityEngine.Component
 }
 namespace GloomhavenVR.Core
 {
+    internal static class VRSession { internal static bool IsRunning = true; }
     internal static class VRLayers { internal static void Apply(UnityEngine.GameObject go) { } }
     internal static class VRLog { internal static void Note(string a, string b) { }
-        internal static void Warn(string a, string b) { } }
+        internal static readonly List<string> Warnings = new();
+        internal static void Warn(string a, string b) { Warnings.Add(b); } }
 }
 namespace GloomhavenVR.Hands.Interact
 {
@@ -170,6 +174,20 @@ namespace GloomhavenVR.Hands.Interact
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal sealed class StereoVideoSurface : IDisposable
+    {
+        internal static bool Available = true;
+        internal static int Attaches, Disposes;
+        internal static bool IsAvailable(out string reason) { reason = Available ? string.Empty : "injected unsupported renderer"; return Available; }
+        internal static bool TryAttach(UnityEngine.UI.RawImage image, out StereoVideoSurface? surface, out string reason)
+        {
+            surface = null;
+            if (!IsAvailable(out reason)) return false;
+            Attaches++; surface = new StereoVideoSurface(); return true;
+        }
+        internal static float PerEyeAspect(int width, int height) => width / (2f * height);
+        public void Dispose() { Disposes++; }
+    }
     internal sealed class ConfigValue { internal float Value = 1; }
     internal static class WorldUIConfig { internal static bool ConversionActive = true; internal static ConfigValue CanvasScaleMm = new(); }
     internal static class CanvasConversion
