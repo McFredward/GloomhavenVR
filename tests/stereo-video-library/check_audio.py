@@ -6,6 +6,7 @@ import copy
 import json
 from pathlib import Path
 import shutil
+import signal
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,6 +17,9 @@ from library_common import load_movie
 
 
 def main() -> int:
+    def interrupted(_signum, _frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, interrupted)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manifest', type=Path, default=ROOT / 'scripts/stereo-video/library-manifest.json')
     parser.add_argument('--source', type=Path, required=True)
