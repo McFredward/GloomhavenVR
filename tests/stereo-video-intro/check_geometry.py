@@ -17,6 +17,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/stereo-video"))
 from intro_stereo import forward_warp, validate_shots
+from verify_intro import validate_probe
 
 
 def scene() -> tuple[np.ndarray, np.ndarray]:
@@ -78,6 +79,27 @@ def check() -> dict:
         change(mutant)
         try:
             validate_shots(mutant)
+        except ValueError:
+            controls.append(name)
+        else:
+            raise AssertionError(f"Control survived: {name}")
+    probe = {"streams": [
+        {"codec_type": "video", "width": 3840, "height": 1080, "codec_name": "h264",
+         "pix_fmt": "yuv420p", "sample_aspect_ratio": "1:1", "r_frame_rate": "60/1",
+         "avg_frame_rate": "60/1", "nb_read_frames": "2931", "duration": "48.850000"},
+        {"codec_type": "audio", "codec_name": "aac", "sample_rate": "48000", "channels": 2}],
+        "frames": [{"media_type": "video", "best_effort_timestamp_time": f"{index / 60:.6f}"}
+                   for index in range(2931)]}
+    validate_probe(probe)
+    for name, change in (("stale-frame-at-cut", lambda p: p["frames"][180].update(best_effort_timestamp_time="2.983333")),
+                         ("lost-decoded-frame", lambda p: p["frames"].pop()),
+                         ("squashed-eye-aspect", lambda p: p["streams"][0].update(sample_aspect_ratio="2:1")),
+                         ("half-sbs", lambda p: p["streams"][0].update(width=1920)),
+                         ("retimed-native-ending", lambda p: p["streams"][0].update(duration="48.0"))):
+        mutant = json.loads(json.dumps(probe))
+        change(mutant)
+        try:
+            validate_probe(mutant)
         except ValueError:
             controls.append(name)
         else:
