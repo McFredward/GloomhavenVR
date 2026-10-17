@@ -22,7 +22,7 @@ import cv2
 from numba import njit
 import numpy as np
 
-from intro_depth import INTRO_SHA256, digest, save
+from intro_depth import CODE_REVISION, INTRO_SHA256, MODEL_REVISION, WEIGHTS_SHA256, digest, save
 
 WIDTH, HEIGHT, FPS, FRAMES = 1920, 1080, 60, 2931
 
@@ -134,6 +134,29 @@ def validate_shots(manifest: dict) -> None:
         raise ValueError("Shot intervals lost the native ending")
 
 
+def read_depth_receipt(path: Path, shot: dict, wait: bool) -> dict:
+    deadline = time.monotonic() + (3600 if wait else 0)
+    while True:
+        try:
+            info = json.loads(path.read_text())
+            if (info["source_sha256"] != INTRO_SHA256 or info["code_revision"] != CODE_REVISION
+                    or info["model_revision"] != MODEL_REVISION or info["checkpoint_sha256"] != WEIGHTS_SHA256
+                    or info["device"] != "cpu" or info["dtype"] != "float32" or info["input_size"] != 392
+                    or (info["start"], info["end"]) != (shot["start"], shot["end"])
+                    or info["depth_shape"] != [shot["end"] - shot["start"], 360, 640]):
+                raise ValueError("Depth provenance/frame address mismatch")
+            low, high = info["normalization_p02_p98"]
+            if not math.isfinite(low) or not math.isfinite(high) or high <= low:
+                raise ValueError("Invalid shot-wide depth normalization")
+            return info
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            # Also accepts a producer started before atomic publication existed.
+            # A complete but invalid receipt is never retried as valid evidence.
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.5)
+
+
 def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_depth: bool = False) -> Path:
     if digest(source) != INTRO_SHA256:
         raise ValueError("Only the already replaced GloomhavenVR intro can be converted")
@@ -169,16 +192,14 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
                 if shot["mode"] == "depth":
                     depth_file = depths / (shot["id"] + ".npz")
                     depth_receipt = depths / (shot["id"] + ".json")
-                    deadline = time.monotonic() + 3600
-                    while wait_depth and not depth_receipt.exists() and time.monotonic() < deadline:
-                        time.sleep(0.5)
-                    info = json.loads(depth_receipt.read_text())
+                    info = read_depth_receipt(depth_receipt, shot, wait_depth)
                     if (info["source_sha256"] != INTRO_SHA256 or digest(depth_file) != info["depth_sha256"]
                             or (info["start"], info["end"]) != (shot["start"], shot["end"])):
                         raise ValueError("Depth provenance/frame address mismatch")
                     with np.load(depth_file) as archive:
                         data = archive["depths"]
-                    if data.shape != (shot["end"] - shot["start"], 360, 640) or not np.isfinite(data).all():
+                    if (data.dtype != np.float16 or data.shape != (shot["end"] - shot["start"], 360, 640)
+                            or not np.isfinite(data).all()):
                         raise ValueError("Depth shape/values differ from the reviewed profile")
                 record = {"id": shot["id"], "start": shot["start"], "end": shot["end"],
                           "mode": shot["mode"], "holes_filled": 0, "maximum_hole_fraction": 0.0,
@@ -220,8 +241,12 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
     finally:
         capture.release()
         if process is not None and process.poll() is None:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            finally:
+                process.wait()
     original_audio, stereo_audio = audio_packets(source), audio_packets(target)
     if original_audio != stereo_audio or len(stereo_audio) != 2291:
         raise ValueError("Original AAC payloads or packet timestamps changed")
@@ -238,6 +263,10 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
 
 
 def main() -> int:
+    def interrupted(_signum, _frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupted)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--shots", type=Path, default=Path(__file__).with_name("intro-shots.json"))

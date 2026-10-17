@@ -612,7 +612,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 686;
+    public const ushort ModBuild = 687;
+
+    // ModBuild687 — the approved GloomhavenVR campaign intro becomes stereoscopic.
+    // The maintainer reports the685 chart test successful, then explicitly retires
+    // its movie/menu action and asks to convert the already replaced VR intro first.
+    // Preserve that exact notice-free approved film, every original frame address,
+    // title/logo, cut, native ending and AAC packet. A separate full-SBS-left-first
+    // H264 movie contains original left pixels and shot-wise temporal depth-based
+    // right reprojection; no other movie is converted before the user's intro result.
+    // Select the allowlisted asset before the native first Play, retaining its one
+    // decoder, audio, clock, render target, skip and continuation. The prepared UI
+    // surface uses actual MultiPass eye routing and the original per-eye aspect.
+    // Existing72 carries the selected revision; peers never locally upgrade mono.
+    // Explicit bounded fallback reports preserve the selected left/approved picture
+    // or refuse a missing cosmetic asset without blocking native flow. A distinct
+    // native-original key prevents a broken owner's installation from publishing
+    // the approved-mod key for different movie content. No wire layout change.
+    // Ship both intro movies WITH the DLL in the normal installer archive, never
+    // embedded. Retire only the two known calibration clips after successful install.
+    // Automated geometry/clock/audio/runtime checks are separate from the pending
+    // headset judgment of converted depth, motion, fusion and native first-save flow.
 
     // ModBuild686 — live native Steam Link MR settings in the World category.
     // The685 trial kept the game visible but changed the expected camera area

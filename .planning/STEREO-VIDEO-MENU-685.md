@@ -1,5 +1,22 @@
 # Stereo video menu and separate-media delivery — Build685
 
+## Subsequent hardware result and retirement
+
+The maintainer subsequently reported "Logs liegen ab, test erfolgreich" on
+2026-10-17. Both supplied logs identify685, have no calibration launch argument,
+and record one silent full-SBS decoder preparing, a1.2m picture at1.6m, then
+closure with decoder/eye-surface release. No calibration refusal/failure/mono
+fallback appears. Exact input snapshots and their byte hashes are pinned at
+`.planning/debug/stereo-video-menu685/hardware-success-20261017/`. This records
+the user's successful test and independent lifecycle evidence; it is not a
+measured per-eye timing/fusion/performance result. Unrelated native DNS and
+startup shader messages are not described as calibration failures.
+
+The user's next instruction explicitly retires the test movie and its menu
+action, and proceeds directly with the already replaced GloomhavenVR intro.
+The older proposed three-sample/library stage is superseded. The rest of this
+document describes the historical685 implementation and its original handover.
+
 ## Hardware evidence and explicit request
 
 Both supplied 2026-10-17 LogOutput.log/Player.log banners identify Build683.

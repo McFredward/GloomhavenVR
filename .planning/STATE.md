@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Stereo intro work in progress, 2026-10-17: reserved Build687.**
+
+The maintainer reports the685 test successful. Both pinned hardware logs identify
+685 and show one silent full-SBS prepare/picture/close lifecycle with no calibration
+failure or mono fallback. Raw byte snapshots and review are retained under
+`.planning/debug/stereo-video-menu685/hardware-success-20261017/`. This is the
+user's successful test, not a measured fusion/timing/performance certification.
+
+The explicit next instruction removes test film and menu action, proceeds directly
+to the **already replaced, currently flat GloomhavenVR intro**, and postpones all
+other videos until that intro works on hardware. The three-sample plan is superseded.
+Separate cleanup/runtime workers are integrated in the private stereo-intro
+worktree based on current dev686. Local Small/CPU depth inference and SBS encoding
+are running; no paid service is used. No687 binary or completed conversion result
+is handed over yet. Native decoder/audio/clock/skip/continuation remain authoritative;
+the exact selected movie revision travels on unchanged72. See
+`docs/stereo-video-intro.md` for source pins, reprojection and fallback limits.
+
 **Stereo calibration menu and separate films, 2026-10-17: Build685.**
 
 Both current hardware logs identify683 and recognize the exact old argv, then

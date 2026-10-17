@@ -11,7 +11,8 @@ status; it is not the player manual.
 | File | Purpose |
 |---|---|
 | [STEREO-VIDEO-MENU-685.md](STEREO-VIDEO-MENU-685.md) | Build683 missing-file evidence, repeatable Advanced menu action and separate-media build/install/ZIP repair |
-| [STEREO-VIDEO-683.md](STEREO-VIDEO-683.md) | Offline stereo calibration, embedded-video census, actual GPU/lifecycle evidence and required headset review |
+| [../docs/stereo-video-intro.md](../docs/stereo-video-intro.md) | Current approved GloomhavenVR intro-only conversion, model/media pins, native playback and verification scope |
+| [STEREO-VIDEO-683.md](STEREO-VIDEO-683.md) | Historical calibration, embedded-video census and GPU/lifecycle evidence; runtime test retired after685 success |
 | [TRAILER-3D-VIDEO-HANDOFF.md](TRAILER-3D-VIDEO-HANDOFF.md) | Accepted staged stereo-video direction, media authorities and later conversion/integration scope |
 | [WATER-673-REVIEW.md](WATER-673-REVIEW.md) | Exact native water publication, owned slots/queues, final compiled scope and focused validation limits |
 | [WATER-673-ASSET-AUDIT.md](WATER-673-ASSET-AUDIT.md) | All native water materials/renderer bindings, asynchronous provenance and exact property/queue evidence |

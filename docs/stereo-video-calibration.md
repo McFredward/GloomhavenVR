@@ -1,7 +1,11 @@
-# Stereo video calibration (developer pilot)
+# Stereo video calibration (offline developer fixture)
 
-This offline developer fixture proves a media contract before any 2D-to-3D
-conversion is attempted. The picture is drawn from explicit geometry in Python;
+The runtime calibration and shipped test movies were retired at the maintainer's
+explicit 2026-10-17 request after the successful685 hardware test. The menu
+action and old launch trigger are absent. Only these offline developer tools
+remain. The current integration is the [approved stereo intro](stereo-video-intro.md).
+
+This fixture independently measures the media contract. The picture is drawn from explicit geometry in Python;
 there is no inferred depth, generative imagery, paid call, game asset or audio.
 Automated measurements do not establish correct Unity eye routing or headset
 comfort.
@@ -70,54 +74,12 @@ retention receipt, use a `run-` directory with eight lowercase letters/digits/
 underscores below this checkout's `.planning/debug/`. When a worker writes to
 the main checkout, pass `--retention-checkout /home/claw/gloomhaven_vr`.
 
-The original generation receipts are in the main checkout's ignored
-`.planning/debug/stereo-video/calibration-v1/`. The reviewed MP4s are now tracked
-under `src/GloomhavenVR/Assets/Movies/Calibration/` and are normal content files:
-Debug/Release output, the regular installer and release ZIP place both files at
-`Movies/Calibration/calibration-{sbs,mono}.mp4` beside the plugin DLL. They are
-**separate files, not embedded in the DLL**, following the maintainer's explicit
-2026-10-17 clarification. The source-hashed provenance identifies the unchanged
-reviewed media.
+The original generation and hardware receipts remain in the main checkout's
+ignored `.planning/debug/stereo-video/` and
+`.planning/debug/stereo-video-menu685/hardware-success-20261017/`. No calibration
+movie is tracked or shipped in the current product. Ordinary installation
+removes only the two exact old diagnostic MP4s after successful deployment.
 
-Start the runtime pilot with **VR Options > Advanced > Start stereo video test**
-(German: **VR-Optionen > Erweitert > Stereo-Videotest starten**). The old
-`--ghvr-stereo-video-calibration` argument no longer starts it and can be removed.
-Close the independent VR Options window after starting to see the test picture
-unobstructed; closing that options window does not stop playback. The action
-displays live localized status, including preparation, playback,
-mono fallback, missing media and failure. After closing or a failure, press the
-same button again to request a fresh attempt; no application restart is needed.
-A request outside the offline VR main menu is refused visibly and is never
-queued for a later scene. Repeated presses during preparation/playback retain
-the same decoder and fixed picture.
-
-Hardware review must still check the left eye sees LEFT, the right eye RIGHT,
-text and the grid fuse at the screen plane, near/far order is correct, both
-counters agree through cuts/seeks, the per-eye aspect is preserved, and closing
-or skipping leaves native flow usable. Record build/version banners, XR mode,
-window size/distance, and actual headset observations separately from these
-offline receipts.
-
-## Runtime pilot
-
-Each deliberate menu-button press can start the pilot in the offline native
-main menu when VR and world UI are active. It owns a separate silent decoder and a fixed picture,
-1.2 real metres wide at1.6 metres distance. The picture opens and closes manually
-with a short fade; a click on its actual image requests closure. Menu/session
-exit, errors and shutdown release resources directly without holding native
-continuation. Completion never automatically restarts; another button press can
-start a fresh attempt. Closing the options menu itself does not close the picture.
-
-The tiny UI shader is embedded in the plugin DLL. It requires the actual runtime
-MultiPass mode and selects the half from each camera's active eye. Paired camera
-callbacks restore an enclosing eye after nested camera rendering. Unsupported
-shader/mode preflight selects the separate mono movie; absent or malformed
-calibration media stops the attempt and reports its reason. The normal launch
-does not inspect these files or load the shader.
-
-The calibration decoder does not replace or publish a native movie. Ordinary
-intro, character, menu and embedded films keep their existing presentation during
-this milestone. The later film-library integration requires a versioned media
-and peer-selection/fallback contract after the headset pilot passes. See the
-current [build evidence](../.planning/STEREO-VIDEO-683.md) and the renderer's
-[API and GPU-proof scope](../scripts/stereo-video-render/README.md).
+The generic per-eye UI renderer and embedded shader remain production code.
+See their [API and GPU-proof scope](../scripts/stereo-video-render/README.md)
+and the historical [685 build record](../.planning/STEREO-VIDEO-MENU-685.md).

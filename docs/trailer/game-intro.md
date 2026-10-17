@@ -12,6 +12,13 @@ the same canonical movie key. The native player still owns volume, skip,
 completion, errors and continuation. A missing optional movie falls back to
 the original game file; release/developer installers include the new asset.
 
+The maintainer's 2026-10-17 stereo instruction applies to **this already replaced
+GloomhavenVR intro**, not the original game's intro or a new trailer edit. The
+stereo derivative uses the exact approved MOV identified below. Its title,
+notice removal, cuts, speed and soundtrack remain authoritative. Only this intro
+is being converted; other films wait for the maintainer's intro headset result.
+See [the stereo conversion contract](../stereo-video-intro.md).
+
 ## Picture and sound
 
 The native intro begins with a stationary Gloomhaven title rather than the

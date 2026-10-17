@@ -30,7 +30,21 @@ def digest(path: Path) -> str:
 
 
 def save(path: Path, value: object) -> None:
-    path.write_text(json.dumps(value, indent=2) + "\n")
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n")
+    temporary.replace(path)
+
+
+def validate_model(root: Path) -> None:
+    revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    weights = root / "checkpoints/video_depth_anything_vits.pth"
+    if revision != CODE_REVISION or digest(weights) != WEIGHTS_SHA256:
+        raise ValueError("Depth code/checkpoint does not match the reviewed pins")
+    subprocess.run(["git", "-C", str(root), "diff", "--quiet", "HEAD", "--"], check=True)
+    # Ignore generated weights/bytecode, never an extra importable Python module.
+    extra = subprocess.check_output(["git", "-C", str(root), "ls-files", "--others", "--exclude-standard"], text=True)
+    if any(name.endswith(".py") for name in extra.splitlines()):
+        raise ValueError("Untracked model Python could change inference despite the pinned HEAD")
 
 
 def frames(path: Path, start: int, end: int, width: int) -> np.ndarray:
@@ -64,10 +78,8 @@ def main() -> int:
     args.source, args.model_root = args.source.resolve(), args.model_root.resolve()
     if digest(args.source) != INTRO_SHA256:
         raise ValueError("Only the already replaced, approved GloomhavenVR intro is accepted")
-    revision = subprocess.check_output(["git", "-C", str(args.model_root), "rev-parse", "HEAD"], text=True).strip()
     weights = args.model_root / "checkpoints/video_depth_anything_vits.pth"
-    if revision != CODE_REVISION or digest(weights) != WEIGHTS_SHA256:
-        raise ValueError("Depth code/checkpoint does not match the reviewed pins")
+    validate_model(args.model_root)
     if args.width < 320 or args.width % 32:
         raise ValueError("Depth width must be a multiple of 32, at least 320")
     args.out.mkdir(parents=True, exist_ok=True)
