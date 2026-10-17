@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -26,6 +27,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--graphics', choices=('vulkan', 'glcore'), default='vulkan')
     parser.add_argument('--case', action='append')
+    parser.add_argument('--native-header-project', type=Path, help='Optional retained owned game project; copies only the native Brute header Sprite/texture and exact shader inputs.')
     parser.add_argument('--color-space', choices=('gamma', 'linear'), default='linear')
     args = parser.parse_args()
     base = ROOT / '.planning/debug/quest-artwork'
@@ -62,7 +64,7 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
         ('raw-source-current-copy', 'RawPortrait.cs', 'source = live;', 'source = displayed;', 'already baked raw portrait refreshes changed original contents'),
         ('sprite-update-stale', 'CardFaceMipBake.cs', '&& update == source.texture.updateCount;', '&& true;', 'same-object source update invalidates preparation without GPU hash'),
         ('stale-camera-suppresses-evidence', 'QuestArtworkEvidence.cs', '&& _records < 8 &&', '&& Camera.current == null && _records < 8 &&', 'at most two actual artwork generations per role and eight total records'),
-        ('inactive-source-silent', 'QuestArtworkEvidence.cs', 'if (image == null) { Missing(role, "image"); return; }\n            Sprite?', 'if (image == null || !image.isActiveAndEnabled) { Missing(role, "image"); return; }\n            Sprite?', 'inactive capture source and disabled image remain passively observable'),
+        ('inactive-source-silent', 'QuestArtworkEvidence.cs', 'if (image == null) { Missing(role, "image"); return; }\n            Sprite?', 'if (image == null || !image.isActiveAndEnabled) { Missing(role, "image"); return; }\n            Sprite?', 'Retained native header source and both pixel crops fit the protected Android record while parked' if args.native_header_project else 'inactive capture source and disabled image remain passively observable'),
         ('silhouette-crop-lost', 'QuestArtworkRegion.cs', 'new Vector2((float)x / source.width, (float)y / source.height)', 'Vector2.zero', 'silhouette crop preserves exact native alpha'),
     ]
     if args.case:
@@ -99,6 +101,24 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
         shutil.copyfile(ROOT / 'scripts/card-diagnostic-runtime/Editor/DiagnosticRunner.cs', project / 'Assets/Editor/DiagnosticRunner.cs')
         shutil.copyfile(ROOT / 'unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader', project / 'Assets/Resources/QuestTextureCopy.shader')
         shutil.copyfile(ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader', project / 'Assets/Resources/PrimitiveOverlay.shader')
+        if args.native_header_project:
+            retained = args.native_header_project.resolve()
+            paths = {
+                'Assets/QuestRecoveredBundles/62ef3d424e9cc164580eaaf46c2f35bf/AC_Brute_Background.asset': 'Assets/Resources/NativeHeader.asset',
+                'Assets/QuestRecoveredBundles/019ed361c43574148b95d6abd6457479/AC_Brute_Background.png': 'Assets/Resources/NativeHeaderTexture.png',
+                'Assets/Shader/GUI_AbilityCard_Shd.shader': 'Assets/Resources/NativeHeaderShader.shader',
+            }
+            shader_source = (retained / 'Assets/Shader/GUI_AbilityCard_Shd.shader').read_text()
+            for include in set(re.findall(r'#include "(Assets/QuestOriginalCampaign/ShaderPrograms/[^"\n]+)"', shader_source)):
+                paths[include] = include
+            owned_inputs = []
+            for source, destination in paths.items():
+                src, dst = retained / source, project / destination
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dst)
+                if src.with_name(src.name + '.meta').is_file(): shutil.copyfile(src.with_name(src.name + '.meta'), dst.with_name(dst.name + '.meta'))
+                owned_inputs.append({'source': str(src), 'sha256': hashlib.sha256(src.read_bytes()).hexdigest(), 'fixturePath': destination})
+            (run / 'owned-inputs.json').write_text(json.dumps(owned_inputs, indent=2) + '\n')
         (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project / 'ProjectSettings/ProjectSettings.asset').write_text('%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n  m_ObjectHideFlags: 0\n  serializedVersion: 23\n  m_ActiveColorSpace: ' + ('1' if args.color_space == 'linear' else '0') + '\n')

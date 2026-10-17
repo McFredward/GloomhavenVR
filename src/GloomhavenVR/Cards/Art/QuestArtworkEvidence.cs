@@ -136,10 +136,18 @@ internal static class QuestArtworkEvidence
             + " rect=" + Geometry(image.rectTransform.rect) + " rectClip=" + renderer.hasRectClipping
             + " cull=" + renderer.cull + " tint=" + tint.r.ToString("F2", CultureInfo.InvariantCulture)
             + "," + tint.g.ToString("F2", CultureInfo.InvariantCulture) + "," + tint.b.ToString("F2", CultureInfo.InvariantCulture)
-            + "," + tint.a.ToString("F2", CultureInfo.InvariantCulture);
+            + "," + tint.a.ToString("F2", CultureInfo.InvariantCulture)
+            + " inheritedA=" + renderer.GetInheritedAlpha().ToString("F2", CultureInfo.InvariantCulture);
         if (image is Image sprite) detail += " type=" + sprite.type + " aspect=" + sprite.preserveAspect
             + " mesh=" + sprite.useSpriteMesh + " fill=" + sprite.fillAmount.ToString("F2", CultureInfo.InvariantCulture);
         if (material != null && material.HasProperty("_ClipRect")) detail += " shaderClip=" + material.GetVector("_ClipRect");
+        // Disabling a native capture host clears CanvasRenderer's actual binding.
+        // Keep the current source material distinct from that empty draw binding.
+        Material sourceMaterial = image.material;
+        if (sourceMaterial != null && !ReferenceEquals(sourceMaterial, material))
+            detail += " sourceShader=" + (sourceMaterial.shader != null ? Name(sourceMaterial.shader.name) : "none");
+        Canvas? canvas = image.GetComponentInParent<Canvas>(true);
+        detail += " canvas=" + (canvas != null ? canvas.enabled + "," + canvas.renderMode : "none");
         return detail;
     }
 
