@@ -662,7 +662,9 @@ internal sealed class StatPanelSurface
             if (watch.Panel.HostRaycaster != null && watch.Panel.HostRaycaster.enabled)
                 watch.Panel.HostRaycaster.enabled = false;
             PlaceWatch(watch);
-            watch.RescanMips(name); // cadence-gated inside; catches the async portrait + actor swaps
+            watch.RescanMips(name);
+            if (live is ActorStatPanel actor)
+                Cards.QuestArtworkEvidence.SpriteField(actor, "characterPortrait", "stat-portrait"); // cadence-gated inside; catches the async portrait + actor swaps
         }
     }
 

@@ -314,6 +314,7 @@ internal sealed class CardFace
     {
         if (_face == null || _owner == null || _owner.fullAbilityCard == null)
             return;
+        QuestArtworkEvidence.SpriteField(_owner.fullAbilityCard, "headerImage", "ability-header");
         if (_artWatch.Poll("card face") > 0)
         {
             _nextMipRescan = Time.unscaledTime + MipRescanInterval; // it just did the backstop's job

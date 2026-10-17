@@ -160,6 +160,17 @@ internal static class CardFaceMipBake
     /// <summary>src texture instance id → baked mipmapped copy (null = failed/skipped, never retried).</summary>
     private static readonly Dictionary<int, Texture2D?> s_bakedByTexture = new(8);
 
+    // Quest portrait atlases are runtime products, not immutable assets. The native
+    // CharacterPortraitsProvider.UpdateMegaTexture destroys/recreates a same-named,
+    // same-sized texture when the actor set changes. A name/size/format alias can
+    // therefore return another portrait generation. Unity's CPU update counter also
+    // distinguishes Apply/Copy updates on one surviving object; no GPU hash/readback
+    // or frame watcher is used to validate an already prepared cache entry.
+    private static readonly Dictionary<int, uint> s_textureUpdates = new(8);
+    private static readonly Dictionary<int, uint> s_spriteUpdates = new(64);
+    private static readonly Dictionary<int, System.WeakReference<Texture2D>> s_questSources = new(8);
+    private static readonly Dictionary<int, string> s_questIdentities = new(8);
+
     /// <summary>
     /// Content identity (name|size|format) → baked whole-atlas copy. Dedupes DISTINCT
     /// Texture2D instances that wrap the same atlas — the hardware log showed the same
@@ -411,7 +422,11 @@ internal static class CardFaceMipBake
     {
         if (source == null || CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
             return source;
-        return IsBakedSprite(source) ? source : ReplacementFor(source) ?? source;
+        if (IsBakedSprite(source)) return source;
+        // A stale Quest copy that cannot be renewed must fall back to its current
+        // native pixels, not to the previous generated portrait/frame content.
+        if (QuestStandalonePlatform.Enabled) source = OriginalFor(source);
+        return ReplacementFor(source) ?? source;
     }
 
     /// <summary>Filter the base and any independently authored override. Read the
@@ -447,9 +462,15 @@ internal static class CardFaceMipBake
     /// </summary>
     internal static Sprite? ReplacementFor(Sprite source)
     {
+        if (QuestStandalonePlatform.Enabled) source = OriginalFor(source);
         int id = source.GetInstanceID();
-        if (s_replacementBySource.TryGetValue(id, out Sprite? cached))
+        if (QuestStandalonePlatform.Enabled && (s_replacementBySource.Count >= MaxSpriteBakes
+            && !s_replacementBySource.ContainsKey(id)
+            || source.texture != null && (source.texture.mipmapCount > 1 || !RememberTextureGeneration(source.texture)))) return null;
+        if (s_replacementBySource.TryGetValue(id, out Sprite? cached) && IsCurrentSprite(source))
             return cached;
+        Texture2D? srcTex = source.texture;
+        uint update = QuestStandalonePlatform.Enabled && srcTex != null ? srcTex.updateCount : 0;
 
         // Build616's ordinary class switch spent 172ms inside Cards.Driver while new
         // class strips and ConsumeDark appeared. Attribute actual cold work, including
@@ -458,7 +479,6 @@ internal static class CardFaceMipBake
         PerfMonitor.Count("Cards.SpriteMipMisses");
 
         Sprite? made = null;
-        Texture2D? srcTex = source.texture;
         if (srcTex != null && srcTex.mipmapCount <= 1) // already-mipped textures need nothing
         {
             if (IsRotatedPacked(source))
@@ -496,14 +516,19 @@ internal static class CardFaceMipBake
         }
 
         s_replacementBySource[id] = made;
+        if (QuestStandalonePlatform.Enabled) s_spriteUpdates[id] = update;
         return made;
     }
 
     /// <summary>Read-only preparation cache test. A cached null is a completed native
     /// geometry/packing verdict, so loading must not spend another frame retrying it.</summary>
-    internal static bool IsPrepared(Sprite source) => source != null
-        && (source.texture == null || source.texture.mipmapCount > 1
-            || s_replacementBySource.ContainsKey(OriginalFor(source).GetInstanceID()));
+    internal static bool IsPrepared(Sprite source)
+    {
+        if (source == null) return false;
+        source = OriginalFor(source);
+        return source != null && (source.texture == null || source.texture.mipmapCount > 1
+            || s_replacementBySource.ContainsKey(source.GetInstanceID()) && IsCurrentSprite(source));
+    }
 
     /// <summary>Whether warming can create/read back a texture. New Sprite wrappers on
     /// an already prepared atlas/region are cheap CPU metadata and may share a bounded tick.
@@ -514,7 +539,7 @@ internal static class CardFaceMipBake
         if (IsPrepared(source) || IsRotatedPacked(source) || IsTightPacked(source)) return false;
         Texture2D atlas = source.texture;
         if (TryExactRect(source, out _) && !PreferRegion(source, atlas))
-            return !s_bakedByTexture.ContainsKey(atlas.GetInstanceID())
+            return !HasCurrentBake(atlas)
                 && !s_bakedByIdentity.ContainsKey(IdentityOf(atlas));
         try
         {
@@ -549,6 +574,7 @@ internal static class CardFaceMipBake
             if (s_replacementBySource.TryGetValue(source, out Sprite? replacement))
             {
                 s_replacementBySource.Remove(source);
+                s_spriteUpdates.Remove(source);
                 if (replacement != null)
                 {
                     s_originalByReplacement.Remove(replacement.GetInstanceID());
@@ -569,7 +595,7 @@ internal static class CardFaceMipBake
         atlas.width <= MaxTextureDim && atlas.height <= MaxTextureDim
         && source.rect.width <= MaxSpriteDim && source.rect.height <= MaxSpriteDim
         && source.rect.width * source.rect.height * 4f <= (long)atlas.width * atlas.height
-        && !(s_bakedByTexture.TryGetValue(atlas.GetInstanceID(), out Texture2D? baked) && baked != null)
+        && !(HasCurrentBake(atlas) && s_bakedByTexture.TryGetValue(atlas.GetInstanceID(), out Texture2D? baked) && baked != null)
         && !(s_bakedByIdentity.TryGetValue(IdentityOf(atlas), out baked) && baked != null);
 
     /// <summary>Pivot in normalized rect space, as Sprite.Create wants it.</summary>
@@ -796,7 +822,59 @@ internal static class CardFaceMipBake
     }
 
     /// <summary>Content identity of a texture: dedupes distinct instances wrapping the same atlas.</summary>
-    private static string IdentityOf(Texture2D tex) => $"{tex.name}|{tex.width}x{tex.height}|{tex.format}";
+    private static string IdentityOf(Texture2D tex)
+    {
+        string label = $"{tex.name}|{tex.width}x{tex.height}|{tex.format}";
+        // Keep desktop's existing content alias policy exactly. Quest does not infer
+        // content equality from labels, even for assets: recovered textures and native
+        // runtime atlases are allowed to share those labels with unrelated pixels.
+        return QuestStandalonePlatform.Enabled ? $"{label}|instance={tex.GetInstanceID()}|update={tex.updateCount}" : label;
+    }
+
+    /// <summary>Retire obsolete metadata only when a native source changes. Prior
+    /// successful sprites/textures may still be displayed, so their restore records
+    /// and unchanged VRAM/count charges remain alive; no game object is destroyed.
+    /// Null verdicts cannot grow an unbounded identity cache as portrait objects cycle.
+    /// Every check is CPU metadata; iteration only occurs on an observed update.</summary>
+    private static bool RememberTextureGeneration(Texture2D texture)
+    {
+        int id = texture.GetInstanceID();
+        uint update = texture.updateCount;
+        bool known = s_questSources.TryGetValue(id, out System.WeakReference<Texture2D> reference);
+        if (known && reference.TryGetTarget(out Texture2D previous) && ReferenceEquals(previous, texture) && s_textureUpdates.TryGetValue(id, out uint version)
+            && version == update) return true;
+        if (!known && s_questSources.Count >= MaxBakedTextures) return false;
+        if (s_questIdentities.TryGetValue(id, out string identity))
+        {
+            s_bakedByTexture.Remove(id);
+            s_bakedByIdentity.Remove(identity);
+            if (s_atlasPixelsByIdentity.TryGetValue(identity, out Color32[]? pixels))
+            {
+                if (pixels != null) s_atlasPixelCacheBytes -= (long)pixels.Length * 4L;
+                s_atlasPixelsByIdentity.Remove(identity);
+            }
+            var retired = new List<string>();
+            string prefix = identity + "|";
+            foreach (string key in s_regionTextureByKey.Keys)
+                if (key.StartsWith(prefix, System.StringComparison.Ordinal)) retired.Add(key);
+            foreach (string key in retired) s_regionTextureByKey.Remove(key);
+        }
+        // Identity metadata must not add a strong pin to otherwise unloadable game
+        // textures. Live replacement/restore owners retain their existing lifetimes.
+        s_questSources[id] = new System.WeakReference<Texture2D>(texture);
+        s_textureUpdates[id] = update;
+        s_questIdentities[id] = IdentityOf(texture);
+        return true;
+    }
+
+    private static bool HasCurrentBake(Texture2D texture) =>
+        s_bakedByTexture.ContainsKey(texture.GetInstanceID())
+        && (!QuestStandalonePlatform.Enabled || s_textureUpdates.TryGetValue(texture.GetInstanceID(), out uint update)
+            && update == texture.updateCount);
+
+    private static bool IsCurrentSprite(Sprite source) => !QuestStandalonePlatform.Enabled
+        || source.texture == null || s_spriteUpdates.TryGetValue(source.GetInstanceID(), out uint update)
+            && update == source.texture.updateCount;
 
     /// <summary>
     /// Full-atlas CPU readback (mip 0, bottom-left row order — Unity texture layout),
@@ -859,7 +937,10 @@ internal static class CardFaceMipBake
         Texture2D? tmp = null;
         try
         {
-            Graphics.Blit(src, rt);
+            // Builtin Blit's source sampling can inherit XR stereo/array state.
+            // Use the already shipped ordinary-2D copy; its desktop branch is the
+            // original Graphics.Blit and its Quest sampler/crop/alpha are explicit.
+            QuestTextureCopy.Copy(src, rt);
             RenderTexture.active = rt;
             tmp = new Texture2D(src.width, src.height, TextureFormat.RGBA32, mipChain: false, linear: false);
             tmp.ReadPixels(new Rect(0f, 0f, src.width, src.height), 0, 0);
@@ -890,7 +971,8 @@ internal static class CardFaceMipBake
     /// rescan loops (here and in <c>WorldUI.PanelMipBake</c>) use it to recognize an Image
     /// that already samples a baked copy without a second dictionary shape.</summary>
     internal static bool IsBakedSprite(Sprite sprite) =>
-        s_originalByReplacement.ContainsKey(sprite.GetInstanceID());
+        s_originalByReplacement.TryGetValue(sprite.GetInstanceID(), out Sprite source)
+        && IsCurrentSprite(source);
 
     /// <summary>
     /// Baked mipmapped copy of a whole texture (cached; null = skipped/failed, never retried).
@@ -904,7 +986,8 @@ internal static class CardFaceMipBake
         if (tex == null)
             return null;
         int id = tex.GetInstanceID();
-        if (s_bakedByTexture.TryGetValue(id, out Texture2D? known))
+        if (QuestStandalonePlatform.Enabled && (tex.mipmapCount > 1 || !RememberTextureGeneration(tex))) return null;
+        if (HasCurrentBake(tex) && s_bakedByTexture.TryGetValue(id, out Texture2D? known))
             return known;
 
         using var scope = PerfMonitor.Scope("Cards.AtlasMipMiss");
@@ -973,6 +1056,7 @@ internal static class CardFaceMipBake
             }
         }
         s_bakedByTexture[id] = baked;
+        if (QuestStandalonePlatform.Enabled) s_textureUpdates[id] = tex.updateCount;
         if (tex.mipmapCount <= 1)
             s_bakedByIdentity[identity] = baked; // null verdicts dedupe too — no retry storms per alias
         return baked;
@@ -993,7 +1077,10 @@ internal static class CardFaceMipBake
         RenderTexture prev = RenderTexture.active;
         try
         {
-            Graphics.Blit(src, rt);
+            // Builtin Blit's source sampling can inherit XR stereo/array state.
+            // Use the already shipped ordinary-2D copy; its desktop branch is the
+            // original Graphics.Blit and its Quest sampler/crop/alpha are explicit.
+            QuestTextureCopy.Copy(src, rt);
             RenderTexture.active = rt;
             var tex = new Texture2D(src.width, src.height, TextureFormat.RGBA32, mipChain: true, linear: false)
             {

@@ -729,6 +729,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             {
                 _nextMipRescan = Time.unscaledTime + MipRescanInterval;
                 PanelMipBake.Rescan(InitiativeTrack.Instance, Name);
+                QuestArtworkEvidence.Raw(InitiativeTrack.Instance, "initiative-avatar");
             }
         }
         else if (wasConverted)

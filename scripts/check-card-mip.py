@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = ['src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs', 'src/GloomhavenVR/Cards/Art/CardArtWatch.cs', 'src/GloomhavenVR/Net/TownServices/TownServiceAssets.cs', 'src/GloomhavenVR/Net/TownServices/TownServiceBinding.cs']
+SOURCES = ['src/GloomhavenVR/Core/QuestTextureCopy.cs', 'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs', 'src/GloomhavenVR/Cards/Art/CardArtWatch.cs', 'src/GloomhavenVR/Net/TownServices/TownServiceAssets.cs', 'src/GloomhavenVR/Net/TownServices/TownServiceBinding.cs']
 
 
 def main():
