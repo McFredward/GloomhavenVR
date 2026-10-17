@@ -112,6 +112,15 @@ hardware boundary, particularly the mask's residual few-pixel filtering.
 
 ## Delivery and verification boundary
 
+Final composed694 strict Release build passes0 warnings/0 errors. The affected
+source instrumentation gate passes again after the UI-effect addition (1/1).
+The existing scene-output Gamma/Vulkan edge-witness suite passes against the
+new shipping bank and updated independent mask reference. The final compiled
+plugin and source/bank hashes are preserved in
+`.planning/debug/steamlink-694-stability/final/`; helper source SHA256 is
+`3f1b701a802bf0d6575b85693a38f39ba1bb4a4e8ee7c04b43f518574a898808`.
+No unchanged whole suite was repeated.
+
 This is a focused source/presentation repair, not a new complete local gate.
 Unchanged693 classifier/helper/cache/Proton/SDK/native checks are inherited.
 Native receiver layout, guard, installation and Frame service remain unchanged.
