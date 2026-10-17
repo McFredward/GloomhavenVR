@@ -4,9 +4,11 @@
 
 The maintainer confirmed the685 chart test on2026-10-17, then explicitly asked
 to remove the test film/action and convert the already replaced, currently flat
-**GloomhavenVR intro** directly. The former three-sample/library plan is
-superseded. Other external, character, ambient and embedded films stay outside
-this conversion until the maintainer confirms the actual intro in a headset.
+**GloomhavenVR intro** directly. The maintainer then approved Build687 in the
+headset, requested slightly stronger foreground depth for the GloomhavenVR
+wordmark, and authorized the remaining native films. That follow-up is described
+in [the library contract](stereo-video-library.md); the gameplay trailer is
+explicitly excluded.
 
 The sole source is `Assets/Movies/CP_Intro/GH_CP_Intro.mov`, SHA256
 `22fc9f48d4da6783fed379122e8c5675c4149afd9c0bc90550a9e4e22696fec5`.
@@ -14,13 +16,14 @@ It is the approved notice-free mod intro, with the VR wordmark, approved opening
 cuts, native ending and soundtrack described in [its provenance](trailer/game-intro.md).
 The original game movie is read-only and is not used as conversion input.
 
-`GH_CP_Intro.sbs-v1.mov` is a separate3840x1080,60fps H264/AAC MOV, left eye
+`GH_CP_Intro.sbs-v2.mov` is a separate3840x1080,60fps H264/AAC MOV, left eye
 first. Both1920x1080 views share all2931 original frame addresses and the48.85s
 native completion clock. The decoded approved picture is the left view; the
 right view is depth-reprojected. The original2291 AAC packet payloads, timestamps
-and durations are stream-copied and independently compared. Titles, logos and
-the original black ending stay at zero disparity. No caption, actor, logo,
-scene, speed, edit or soundtrack is generated or replaced.
+and durations are stream-copied and independently compared. Original publisher
+marks and the black ending stay at zero disparity. The two existing GloomhavenVR
+wordmark appearances now use a rigid+12pixel foreground plane. No caption, actor,
+logo, scene, speed, edit or soundtrack is generated or replaced.
 
 ## Offline conversion
 
@@ -72,6 +75,7 @@ python scripts/stereo-video/intro_depth.py \
 python scripts/stereo-video/intro_stereo.py \
   --source src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov \
   --depths .planning/debug/stereo-intro/depth392 \
+  --logo-depth scripts/stereo-video/intro-logo-depth.json \
   --out .planning/debug/stereo-intro/render
 ```
 
@@ -112,7 +116,9 @@ available. The native VideoPlayer continues to own decoding, audio, time,
 completion, errors and skip. Its existing camera lease/render target are intact.
 The world-space RawImage uses the tested embedded per-eye shader and per-eye
 16:9 aspect. Mono/unknown cameras use left. Closing or external destruction
-releases the owned material/camera hooks. There is no new setting or test button.
+releases the owned material/camera hooks. The library follow-up adds a deliberate
+intro review under Advanced > Test triggers, without a persistent setting or
+invoking native campaign continuation.
 
 The recorded stereo pair follows the existing movable, yaw-only video window.
 Moving or resizing that window moves or scales the whole stereo presentation.
@@ -138,9 +144,9 @@ continuation never waits for presentation repair.
 
 Both intro movies ship separately beside the DLL in normal Debug/Release output,
 the Windows installer and regular release ZIP. No video is embedded in the DLL;
-only the small UI shader is embedded. Successful installation removes only the
-two exact retired calibration MP4s. Native game data, foreign movies and logs
-remain intact.
+only the small UI shader is embedded. Successful installation also retires the
+exact old SBSv1 intro and two calibration MP4s. Native game data, foreign movies
+and logs remain intact.
 
 ## Evidence and outstanding hardware review
 
@@ -157,13 +163,25 @@ pictures where the source provides a strong stereo witness. Those checks cannot 
 depth, comfortable fusion, motion quality, hand edges, decoder performance or
 first-save continuation on a headset. Hardware evidence remains separate.
 
-The delivered movie SHA256 is
-`6929a4ad75df7ab7ea77cfed9630338110984e14d05b048b0fdf7c54709db93c`
-(93,329,919 bytes). Completed verification checks2931 original frame addresses,
+The current movie SHA256 is
+`5514e50b99c5c70cb57c7887eb97ed333371f04a9eb6dbc7d731b40a3817fcca`
+(93,361,756 bytes). Completed verification checks2931 original frame addresses,
 2291 identical AAC packets,21 depth shots and78 encoded right witnesses. Minimum
-native-YUV420 PSNR is35.33dB for all-frame left and36.06dB for sampled right.
-The adjacent `GH_CP_Intro.sbs-v1.provenance.json` pins the actual movie, model,
-executed generators and verification receipts. These are offline checks;
-headset depth and first-save continuation remain unverified. The maintainer
-requires no additional archive delivery: the normal installation script creates
-its regular ZIP from these separate Content files.
+native-YUV420 PSNR is35.32dB for all-frame left and36.06dB for sampled right.
+The adjacent `GH_CP_Intro.sbs-v2.provenance.json` pins the actual movie, model,
+executed generators and verification receipts. All21 scenic depth arrays and
+geometry records are identical to the headset-approved687 revision. Only the
+original wordmark planes change: a mask derived from the existing logo artwork
+covers its printed edges with a constant field, feathered outside those edges.
+The fire-title depth follows the original smooth reveal. The helper supplies
+geometry only; final RGB always comes from the approved video. Thirteen focused
+geometry checks include duplicated-eye, reversed-depth and excessive-depth
+controls. Actual decoded opening/fire-title images were inspected separately.
+
+Build687's preceding SBSv1 movie was93,329,919bytes/SHA256
+`6929a4ad75df7ab7ea77cfed9630338110984e14d05b048b0fdf7c54709db93c`.
+Its scenic appearance has the maintainer's explicit headset approval. The
+stronger wordmark revision and additional native review/spawn paths still need
+that hardware review; automated checks do not establish their headset picture.
+The maintainer requires no additional archive delivery: the normal installation
+script creates its regular ZIP from these separate Content files.
