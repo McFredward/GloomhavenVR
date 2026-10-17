@@ -115,9 +115,10 @@ public static class RegistrationGpuFixture
         Check(SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null && SystemInfo.supportsGraphicsFence, "Actual graphics and CPU-fence support");
         Emit(new Event { name = "graphics", detail = Application.unityVersion + "; " + SystemInfo.graphicsDeviceType + "; "
             + SystemInfo.graphicsDeviceName + "; " + QualitySettings.activeColorSpace });
-        using (var legacy = new RegistrationTextures())
-            Check(legacy.Profile == RegistrationSource.Profile && legacy.ProfileRevision == 1 && legacy.ActiveContext == null,
-                "Default constructor remains canonical v1 with no output");
+        ParameterInfo[] constructor = typeof(RegistrationTextures).GetConstructors()[0].GetParameters();
+        Check(constructor.Length == 2 && constructor[1].Name == "presenterProfile"
+            && constructor[1].HasDefaultValue && Equals(constructor[1].DefaultValue, false),
+            "Canonical default profile remains false without constructing an unrelated extra GPU pool");
         var outputs = new List<Output>();
         var owner = new RegistrationTextures(captureSubmissionMetadata: true, presenterProfile: true);
         bool oldSrgb = GL.sRGBWrite; RenderTexture? oldTarget = RenderTexture.active;

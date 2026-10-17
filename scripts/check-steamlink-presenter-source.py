@@ -37,7 +37,9 @@ def execute(command, log, *, cwd=None, timeout=180, environment=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compile-runtime', action='store_true')
-    parser.add_argument('--gpu-only', action='store_true', help='Run only new-profile real Unity upload/blit/fence/off controls')
+    gpu = parser.add_mutually_exclusive_group()
+    gpu.add_argument('--gpu-only', action='store_true', help='Run only new-profile real Unity upload/blit/fence/off controls')
+    gpu.add_argument('--gpu-compile-only', action='store_true', help='Compile only the new-profile GPU fixture against real Unity references')
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     parser.add_argument('--output-root', type=Path, default=ROOT / '.planning/debug/steamlink-presenter-source')
     parser.add_argument('--retention-checkout', type=Path, default=ROOT)
@@ -53,7 +55,7 @@ def main():
     pins = {'production': {name: digest(source / name) for name in production},
             'fixture': {str(p.relative_to(fixture)): digest(p) for p in fixture.rglob('*') if p.is_file()}}
     (run / 'source-hashes.json').write_text(json.dumps(pins, indent=2) + '\n')
-    result = {'scope': 'focused synthetic presenter-v2 source only', 'gpu_executed': False, 'xr_callbacks_executed': False,
+    result = {'scope': 'focused synthetic presenter-v2 source only', 'gpu_executed': False, 'gpu_proof_completed': False, 'xr_callbacks_executed': False,
               'native_carriage_proven': False, 'passthrough_authorized': False, 'stages': []}
     code = 1
     def checked(name, command, **options):
@@ -63,7 +65,7 @@ def main():
         if code:
             raise RuntimeError(name + ' failed; see ' + str(run / (name + '.log')))
     try:
-        if not args.gpu_only:
+        if not args.gpu_only and not args.gpu_compile_only:
             project_dir = run / 'controls'; project_dir.mkdir()
             project = project_dir / 'PresenterSourceControls.csproj'; shutil.copy2(fixture / project.name, project)
             checked('source-build', [dotnet, 'build', '--disable-build-servers', str(project), '--configfile', str(fixture / 'NuGet.Config'),
@@ -77,8 +79,9 @@ def main():
             framework = Path.home() / '.nuget/packages/microsoft.netframework.referenceassemblies.net472/1.0.3/build/.NETFramework/v4.7.2'
             checked('unity-reference-typecheck', [dotnet, 'build', '--disable-build-servers', str(project), '--configfile', str(original / 'NuGet.Config'),
                     '-c', 'Release', '-p:SourceRoot=' + str(ROOT), '-p:FrameworkReferenceDir=' + str(framework), '-p:UseSharedCompilation=false'])
-        if args.gpu_only:
-            assert args.unity.is_file() and shutil.which('xvfb-run'), 'Real Unity2021.3.5 and xvfb-run required'
+        if args.gpu_only or args.gpu_compile_only:
+            assert args.unity.is_file(), 'Real Unity2021.3.5 references required'
+            if args.gpu_only: assert shutil.which('xvfb-run'), 'xvfb-run required for the actual GPU fixture'
             copied = run / 'production'; copied.mkdir()
             for name in production:
                 if name != 'SteamLinkMaskRuntime.cs': shutil.copy2(source / name, copied / name)
@@ -88,19 +91,28 @@ def main():
                     '-p:UnityManaged=' + str(args.unity.parent / 'Data/Managed'), '-p:UseSharedCompilation=false'])
             assembly = run / 'SteamLinkPresenterPoolGpu.dll'
             shutil.copy2(run / 'bin/Release/netstandard2.1/SteamLinkPresenterPoolGpu.dll', assembly)
+            if args.gpu_compile_only:
+                assert pins['production'] == {name: digest(source / name) for name in production}, 'Production source changed during focused run'
+                code = 0
+                return 0
             unity = run / 'unity'; (unity / 'Assets/Editor').mkdir(parents=True)
             shutil.copy2(ROOT / 'tests/steamlink-registration-gpu/Editor/RegistrationRunner.cs', unity / 'Assets/Editor/RegistrationRunner.cs')
+            (unity / 'Packages').mkdir()
+            (unity / 'Packages/manifest.json').write_text('{"dependencies":{}}\n')
             (unity / 'ProjectSettings').mkdir()
             (unity / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
             (unity / 'ProjectSettings/ProjectSettings.asset').write_text('%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n  m_ObjectHideFlags: 0\n  serializedVersion: 26\n  m_ActiveColorSpace: 1\n')
-            environment = dict(os.environ); environment['LIBGL_ALWAYS_SOFTWARE'] = '0'
-            checked('gpu-editor', ['xvfb-run', '-a', str(args.unity), '-batchmode', '-force-vulkan', '-projectPath', str(unity),
+            environment = dict(os.environ)
+            if Path('/usr/share/vulkan/icd.d/intel_icd.json').is_file():
+                environment['VK_DRIVER_FILES'] = '/usr/share/vulkan/icd.d/intel_icd.json'
+            result['gpu_executed'] = True
+            checked('gpu-editor', ['xvfb-run', '-a', '-s', '-screen 0 800x600x24', str(args.unity), '-batchmode', '-force-vulkan', '-projectPath', str(unity),
                     '-executeMethod', 'RegistrationRunner.Start', '-registrationEvidence', str(run), '-registrationAssembly', str(assembly),
                     '-logFile', str(run / 'unity.log')], timeout=240, environment=environment)
             actual = json.loads((run / 'editor-result.json').read_text()); assert actual['passed'] is True
             rows = [json.loads(x) for x in (run / 'runtime.jsonl').read_text().splitlines()]
             assert rows[-1]['name'] == 'complete' and rows[-1]['new_profile_only'] is True
-            result['gpu_executed'] = True; result['gpu_controls'] = rows[-1]
+            result['gpu_proof_completed'] = True; result['gpu_controls'] = rows[-1]
         # Refuse certification if an integrator changed a source while this run compiled it.
         assert pins['production'] == {name: digest(source / name) for name in production}, 'Production source changed during focused run'
         code = 0
