@@ -1,5 +1,39 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## r6 complete; exact private sRGB semantics and offline r7 lease, 2026-10-17
+
+**Steam Link r6 mirror proof pushed; exact Valve sRGB contract recovered, 2026-10-17.**
+
+Fork dev03ef204 contains the compatible one-set mirror and restoration repair.
+Both pinned native stages prove binding8 unused; seven original bindings are
+copied once into an owned set, with fresh post-copy proof, immediate original
+pipeline/Set0/full admitted offset restoration and unchanged later native draws.
+Uncopied dynamic bindings refuse before Vulkan creation. Fresh merged eight
+CTests and strict host/ARM builds pass. The separately inherited clone-contract
+pass and private focused normal/sanitizer evidence are explicitly distinguished.
+The new owned Intel/software GPU oracle passes36 cases+2 causal mutations and
+3981 checks per device, zero validation/sync errors. Its finite8-binding raster
+call-pattern scope is not production Clone/nativeVS/frame/eye execution.
+
+A user-ready, read-only acquisition saved the current mapped18,850,240B ICD,
+SHA dfed0652b592b263a400ba0a64fbdd421870a938abed4d447a9aafa6a4ad789a,
+GNU ID b7e5995d0b202f06e81cd5a0f809ec1b744a0cb8. No remote files or services
+changed; the maintainer was immediately told standby is safe. Exact Valve
+source abc426bb62351045a9dcf7fa0a113e6dd810c303 now confirms1000109099 is a
+private subpass sRGB-mask override, consumed by Begin/Next and reset per pass.
+Its payload0 disables per-attachment hardware conversion. The old generic
+upstream no-read comparison is not the actual driver. Original pointers and
+payload must remain unchanged; no numeric-only admission is justified.
+
+Next is offline r7: an opaque actual-next-PFN/provider/device lease, bounded
+source-backed private decoding and unchanged original call-through. Unknown
+wrappers/providers/shapes stay refused. No new headset test is ready or running;
+no native streaming passthrough is demonstrated. Main runtime679 is unchanged.
+Details: fork docs/research/native-compatible-mirror-20261017.md; evidence in
+fork build/private-native-r6-integration-20261017/ and related private manifests.
+All own completed caches removed, including1.18GB source archive/repository.
+No main full/wire rerun for this documentation-only coordination change.
+
 ## Exact native SubpassBegin refusal; restored and investigating offline, 2026-10-17
 
 Approved fork r5 package loaded successfully against all82 actual native imports
