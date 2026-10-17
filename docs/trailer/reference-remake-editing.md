@@ -3,15 +3,16 @@
 The accepted opening also supplies the first-save campaign intro, with a native-style
 GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
 
-The current VR gameplay edit is a provisional material trial. The maintainer
-rejected v10's contextual filling: damage avoidance is not a played loss,
-healing is not an enemy attack, an item preview is not confirmed use, and one
-cursor is not the original multi-view co-op demonstration. V11 restores those
-original images and native transitions. Only three matching demonstrations at
-existing hard cuts remain: ability display, item inspection and a triangular
-multi-target attack. More correct footage will arrive later. The active private
-review is `vr-gameplay-v2/REVIEW.html`; detailed selection reasoning and capture
-requests live beside it. See [vr-gameplay-replacement.md](vr-gameplay-replacement.md).
+The current VR gameplay pass uses the three October 17 recordings. V12 adds
+six corresponding demonstrations and refreshes the card overview to Spellweaver;
+two previous VR demonstrations remain inherited. Source motion stays at 1x.
+Unmatched actions remain original pending new footage. The native forest and
+gold-wipe transitions are preserved around the new pictures; the review labels
+class, item and mode differences. No new inference or runtime change is used.
+The active private review is `vr-gameplay-v3/REVIEW.html`, with source links and
+a corrected capture list. Original FG13 is a damage-avoidance burn, not a played
+loss; that previous analysis error is explicitly corrected. See
+[vr-gameplay-replacement.md](vr-gameplay-replacement.md).
 
 The historical v10 first pass used 20 inserts covering 25 of 41 inventory regions; 16
 regions retain their previous pictures pending suitable captures. The accepted
