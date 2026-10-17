@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest Wizard homepage and startup, 2026-10-17: host-only / runtime B676 retained.**
+
+Offer a highlighted Mod Update tile when the bundled runtime is newer and
+closed local APK/content receipts plus the selected PC installation are present.
+Discovery reads bounded metadata and file sizes, never APK/bank contents. Keep
+the actual ownership/signature admission at update start. Home navigation is
+prominent and persistent; active build/device/export/storage work stays visible
+on the homepage and continues polling. Retain one hero logo, show labelled project
+links prominently and print the browser wait notice before Python provisioning.
+No runtime build increment or native/game conversion is intended for these host
+changes. See [QUEST-WIZARD-HOME-20261017.md](QUEST-WIZARD-HOME-20261017.md).
+
 **Quest mesh output after confirmed viewport repair, 2026-10-17: feature / B676.**
 
 Capture071329 confirms B675 fixes the tracked-picture distortion. Keep that XR
