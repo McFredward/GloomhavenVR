@@ -612,7 +612,33 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 680;
+    public const ushort ModBuild = 681;
+
+    // ModBuild681 — Quest native lifecycle focus, spinner inputs and live sources.
+    // Capture105503 proves installed/current680, previous679. The original engine
+    // is unique in Gloomhaven_unified with enabledFalse, active hierarchy and
+    // resources ready, but zero handles/generated content and recovery not-admitted.
+    // Compat installs after VR startup: the initial install-timing hypothesis was
+    // false. Application.isFocused is not a Quest XR lifecycle gate; the existing
+    // provider already documents that the Android window may remain unfocused.
+    // Native procedural Update does not require input focus. Keep running VR and
+    // OS pause boundaries, original scene/owner/request/content guards and the
+    // one-shot3s repair. Exercise the real Driver in Unity PlayerLoop against
+    // controlled engine callbacks, not the Windows native engine ABI/body;
+    // retain actual admission blockers/ticks/focus within the same world record.
+    // The startup spinner still uses a native full-UV Quad without the explicit
+    // COLOR input already required by the hardware-confirmed Quest primitives.
+    // Apply the owned upload after its original pivot/UV mapping; preserve shape,
+    // alpha, shader, timing and desktop behavior. Preserve its two existing Debug
+    // observations after movie-detail saturation, without raising logger limits.
+    // Direct artwork observations were still absent. Observe the common card
+    // Offer seam and original settled scenario sources with the same8record cap;
+    // do not infer healthy Android captures from retained-project Vulkan fixtures.
+    // The screenshot's thin second laser segment is observed, but its cause is
+    // not yet established by two-endpoint/non-dominant policy source. Keep the
+    // confirmed pointer repair and bounded actual line ownership/geometry evidence.
+    // Final world/spinner/artwork/pointer outcomes require hardware. Code update
+    // only; no original game/art/native-helper reconversion or local full APK.
 
     // ModBuild680 — protect Quest native lifecycles and observe actual artwork.
     // Capture095625 verifies B679; the maintainer confirms pile icons and improved
