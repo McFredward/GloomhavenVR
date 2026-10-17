@@ -170,7 +170,10 @@ internal static class MovieReviewTests
                 "camera loss during preparation cancels review before audio can start");
             CanvasConversion.WorldCamera = new GameObject("Restored review head").AddComponent<Camera>();
             NativeVideoReview.TryStart(NativeVideoMovies.IntroKey); current = CurrentDecoder(); current.Prepared();
-            CanvasConversion.WorldCamera = null; NativeVideoWindow.Tick();
+            CanvasConversion.WorldCamera = null;
+            check(!NativeVideoReview.TryCloseOwnedKey(NativeVideoReview.SelectedKey) && NativeVideoReview.Active,
+                "shared close request is ignored after local review context disappears");
+            NativeVideoWindow.Tick();
             check(!NativeVideoReview.Active && !current.isPlaying && current.StopCalls == 1 && VREvents.SubscriberCount == 0,
                 "camera loss during playing releases hidden review and its audio");
             CanvasConversion.WorldCamera = new GameObject("Restored review head").AddComponent<Camera>();
@@ -180,8 +183,12 @@ internal static class MovieReviewTests
             string mono = Path.Combine(directory, NativeVideoMovies.IntroKey);
             File.WriteAllText(mono, "approved mono companion");
             File.Delete(Path.Combine(directory, NativeVideoMovies.StereoIntroKey));
+            int fallbackWarnings = VRLog.Warnings.Count;
             check(NativeVideoReview.TryStart(NativeVideoMovies.IntroKey) && CurrentDecoder().url == mono,
                 "missing review SBS retains same approved original left companion");
+            check(VRLog.Warnings.Count == fallbackWarnings + 1 && VRLog.Warnings.Last()
+                .StartsWith("NATIVE VIDEO REVIEW STEREO FALLBACK:", StringComparison.Ordinal),
+                "deliberate mono review fallback reports exact requested stereo key once per request");
             NativeVideoReview.Stop(); File.Delete(mono);
             check(!NativeVideoReview.TryStart(NativeVideoMovies.IntroKey)
                 && NativeVideoReview.LastFailure == NativeVideoReviewFailure.MediaUnavailable,

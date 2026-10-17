@@ -62,6 +62,18 @@ internal static class MovieLibraryTests
                     "missing stereo resolves exact left companion, including mod-local studio: " + canonical);
                 check(File.ReadAllText(original) == "unchanged original " + i, "native source bytes stay read-only: " + canonical);
             }
+            string[] aliases = Enumerable.Range(0, NativeVideoMovies.Count)
+                .Select(index => VideoMovieKeys.ReviewKey(NativeVideoMovies.StereoKey(NativeVideoMovies.GetKey(index)))).ToArray();
+            for (int warmup = 0; warmup < 100; warmup++)
+                foreach (string alias in aliases) { _ = VideoMovieKeys.IsReview(alias); _ = NativeVideoMovies.IsStereoKey(alias); }
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            int validAliases = 0;
+            for (int repeat = 0; repeat < 1000; repeat++)
+                foreach (string alias in aliases)
+                    if (VideoMovieKeys.IsReview(alias) && NativeVideoMovies.IsStereoKey(alias)) validAliases++;
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Console.WriteLine("Warm movie-key witness: valid=" + validAliases + ", allocated=" + allocated + " bytes.");
+            check(validAliases == 20000, "twenty thousand warm finite-key validations retain exact catalogue semantics");
             foreach (string bad in new[] { "Review/Review/Heroes/Summoner.mov", "Review/Heroes/Brute.mov", "Review/../Heroes/Summoner.mov",
                          "Review/Embedded/gameplay_trailer.mov", "Review/CP_Intro/GH_CP_Intro.native.mov", "Review/CP_Intro/GH_CP_Intro.sbs-v3.mov",
                          "Review/Ambient/Other.mov", "Review/" + new string('A', 150) + ".mov" })

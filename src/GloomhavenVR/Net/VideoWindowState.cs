@@ -19,21 +19,39 @@ internal static class VideoMovieKeys
         "Ambient/Ambient_04_Cave_02.mov",
         "Embedded/TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.mov",
     };
+    private static readonly string[] StereoMovies = BuildStereoKeys();
+    private static string[] BuildStereoKeys()
+    {
+        var result = new string[Movies.Length];
+        for (int i = 0; i < result.Length; i++) result[i] = i == 0
+            ? "CP_Intro/GH_CP_Intro.sbs-v2.mov" : Movies[i].Substring(0, Movies[i].Length - 4) + ".sbs-v1.mov";
+        return result;
+    }
     internal static int Count => Movies.Length;
     internal static string GetKey(int index) => Movies[index];
     internal static bool IsCanonical(string key) => Array.IndexOf(Movies, key) >= 0;
-    internal static string StereoKey(string canonical) => canonical == Movies[0]
-        ? "CP_Intro/GH_CP_Intro.sbs-v2.mov" : canonical.Substring(0, canonical.Length - 4) + ".sbs-v1.mov";
+    internal static string StereoKey(string canonical) => StereoMovies[Array.IndexOf(Movies, canonical)];
+    internal static string CanonicalMovie(string key)
+    {
+        for (int i = 0; i < Movies.Length; i++)
+            if (key == Movies[i] || key == StereoMovies[i]) return Movies[i];
+        return key;
+    }
+    internal static bool IsStereoMovie(string key) => Array.IndexOf(StereoMovies, key) >= 0;
     internal static bool TryUnwrapReview(string? key, out string selected)
     {
         selected = string.Empty;
         if (string.IsNullOrEmpty(key) || key!.Length > 128 || !key.StartsWith(ReviewPrefix, StringComparison.Ordinal)) return false;
-        string underlying = key.Substring(ReviewPrefix.Length);
         for (int i = 0; i < Movies.Length; i++)
         {
-            if (underlying != Movies[i] && underlying != StereoKey(Movies[i])) continue;
-            selected = underlying;
-            return true;
+            string candidate = Movies[i];
+            if (key.Length == ReviewPrefix.Length + candidate.Length
+                && string.CompareOrdinal(key, ReviewPrefix.Length, candidate, 0, candidate.Length) == 0)
+            { selected = candidate; return true; }
+            candidate = StereoMovies[i];
+            if (key.Length == ReviewPrefix.Length + candidate.Length
+                && string.CompareOrdinal(key, ReviewPrefix.Length, candidate, 0, candidate.Length) == 0)
+            { selected = candidate; return true; }
         }
         return false;
     }

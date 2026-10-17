@@ -27,7 +27,7 @@ internal static class NativeVideoReview
     private static string _lastRefusedKey = string.Empty;
     private static NativeVideoReviewFailure _lastRefusal;
     private static float _lastRefusedAt = -10f;
-    private static string _selectedKey = string.Empty;
+    private static string _selectedKey = string.Empty, _publicationKey = string.Empty;
     internal static int Count => NativeVideoMovies.Count;
     internal static string GetKey(int index) => NativeVideoMovies.GetKey(index);
     private static bool OwnsDecoder => !ReferenceEquals(_player, null) || !ReferenceEquals(_root, null) || _subscribed;
@@ -38,7 +38,7 @@ internal static class NativeVideoReview
     internal static uint Generation { get; private set; }
     internal static VideoPlayer? Source => _player != null && _player.isPrepared
         && (_player.isPlaying || _player.isPaused) ? _player : null;
-    internal static string SelectedKey => GloomhavenVR.Net.VideoMovieKeys.ReviewKey(_selectedKey);
+    internal static string SelectedKey => _publicationKey;
     private static bool ContextAvailable => VRSession.IsRunning && WorldUIConfig.ConversionActive
         && VRModeStateMachine.ScenarioBoardExists && CanvasConversion.WorldCamera != null;
 
@@ -66,6 +66,7 @@ internal static class NativeVideoReview
             _player.audioOutputMode = VideoAudioOutputMode.Direct;
             _player.url = url;
             _selectedKey = selected;
+            _publicationKey = GloomhavenVR.Net.VideoMovieKeys.ReviewKey(selected);
             _startedAt = Time.unscaledTime;
             unchecked { Generation++; }
             Status = NativeVideoReviewStatus.Preparing;
@@ -175,7 +176,7 @@ internal static class NativeVideoReview
         GameObject? root = _root;
         _player = null;
         _root = null;
-        _selectedKey = string.Empty;
+        _selectedKey = _publicationKey = string.Empty;
         if (_subscribed) VREvents.SceneLoaded -= SceneLoaded;
         _subscribed = false;
         if (!ReferenceEquals(player, null))

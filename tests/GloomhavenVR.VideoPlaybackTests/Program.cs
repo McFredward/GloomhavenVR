@@ -324,6 +324,11 @@ internal static class Program
             "observer close cannot call an owner review after its local scenario context is lost");
         NativeVideoReview.ContextAvailable = true;
         uint realOwnerKey = request.VideoWindow.Window.ContentKey;
+        uint realToken = request.VideoWindow.Token;
+        request.VideoWindow.Token++;
+        RemoteVideoPlayback.Observe(2, in request);
+        Check(owner.isPlaying, "observer close refuses wrong opening token even with current owner pose identity");
+        request.VideoWindow.Token = realToken;
         request.VideoWindow.Window.ContentKey ^= 77;
         RemoteVideoPlayback.Observe(2, in request);
         Check(owner.isPlaying, "observer close refuses a different shared owner identity");

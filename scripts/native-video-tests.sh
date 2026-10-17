@@ -165,7 +165,7 @@ done
 
 # Deliberate review originals have separate decoder ownership. Replay, queued callbacks,
 # native preparation and scene teardown must never inherit a native game continuation.
-for mutation in review-restart review-native review-stale review-scene review-timeout review-click; do
+for mutation in review-restart review-native review-stale review-scene review-timeout review-click review-close-context; do
     rm -rf "$mutation_dir/bin/Release/net8.0/Movies"
     python3 - "$repo_root" "$mutation_dir" "$mutation" <<'PY'
 from pathlib import Path
@@ -179,6 +179,7 @@ changes = {
     'review-stale': ('if (!ReferenceEquals(player, _player) || player == null) return;', 'if (ReferenceEquals(player, null)) return;'),
     'review-scene': ('VREvents.SceneLoaded += SceneLoaded;', '// scene hook deliberately omitted'),
     'review-timeout': ('Time.unscaledTime - _startedAt > 30f', 'Time.unscaledTime - _startedAt > 300f'),
+    'review-close-context': ('if (!Active || !ContextAvailable || SelectedKey != key)', 'if (!Active || SelectedKey != key)'),
 }
 if mutation == 'review-click':
     before = 'if (Visible && _shownSource != null && _shownSource == NativeVideoReview.Source)'
@@ -198,6 +199,7 @@ PY
         review-scene) expected='scene load cancels preparation before old callbacks can play' ;;
         review-timeout) expected='bounded preparation timeout releases silent stuck decoder' ;;
         review-click) expected='review picture click releases exact cosmetic source and ordinary window' ;;
+        review-close-context) expected='shared close request is ignored after local review context disappears' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$mutation_dir/ReviewWindow.mutant" \

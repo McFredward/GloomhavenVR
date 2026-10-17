@@ -54,9 +54,7 @@ internal static class NativeVideoMovies
         if (GloomhavenVR.Net.VideoMovieKeys.TryUnwrapReview(key, out string selected)) key = selected;
         if (key == NativeIntroKey || key == LegacyStereoIntroKey) return IntroKey;
         if (key == null) return string.Empty;
-        for (int i = 0; i < Count; i++)
-            if (key == StereoKey(GetKey(i))) return GetKey(i);
-        return key;
+        return GloomhavenVR.Net.VideoMovieKeys.CanonicalMovie(key);
     }
     internal static bool SamePresentation(string? first, string? second) =>
         GloomhavenVR.Net.VideoMovieKeys.IsReview(first) == GloomhavenVR.Net.VideoMovieKeys.IsReview(second)
@@ -66,13 +64,14 @@ internal static class NativeVideoMovies
     internal static bool IsStereoKey(string? key)
     {
         if (GloomhavenVR.Net.VideoMovieKeys.TryUnwrapReview(key, out string selected)) key = selected;
-        return !string.IsNullOrEmpty(key) && CanonicalKey(key) != key && key != NativeIntroKey;
+        return key == LegacyStereoIntroKey || (!string.IsNullOrEmpty(key) && GloomhavenVR.Net.VideoMovieKeys.IsStereoMovie(key!));
     }
 
     internal static string NativePlaybackKey(VideoPlayer player)
     {
-        string key = KeyFromUrl(player.url);
-        if (Selections.TryGetValue(player, out Selection? selected) && selected.Url == player.url) return selected.Key;
+        string url = player.url;
+        if (Selections.TryGetValue(player, out Selection? selected) && selected.Url == url) return selected.Key;
+        string key = KeyFromUrl(url);
         // The native intro and approved replacement share a basename. Only the
         // intercepted assignment proves which content was selected.
         return key == IntroKey ? NativeIntroKey : key;
@@ -155,12 +154,17 @@ internal static class NativeVideoMovies
         url = string.Empty;
         if (!IsCanonical(canonical)) return false;
         string stereoKey = StereoKey(canonical);
-        if (StereoVideoSurface.IsAvailable(out _) && TryModMovie(stereoKey, out url))
+        bool hasStereo = TryModMovie(stereoKey, out string stereo);
+        if (hasStereo && StereoVideoSurface.IsAvailable(out _))
         {
             selectedKey = stereoKey;
+            url = stereo;
             return true;
         }
-        return TryResolvePlaybackKey(canonical, out url);
+        if (!TryResolvePlaybackKey(canonical, out url)) return false;
+        string reason = hasStereo ? "stereo renderer unavailable" : "selected stereo file unavailable";
+        VRLog.Warn("WorldUI", $"NATIVE VIDEO REVIEW STEREO FALLBACK: key={stereoKey}, reason={reason}; using the exact original left companion in 2D.");
+        return true;
     }
 
     internal static void SetAmbientUrl(VideoPlayer player, string originalUrl)

@@ -7,7 +7,7 @@ project="$repo_root/tests/GloomhavenVR.VideoPlaybackTests/GloomhavenVR.VideoPlay
 dotnet run --project "$project" --configuration Release
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-for mutation in cosmetic-authority cosmetic-end premature-audio-latch stale-audio-binding destroyed-native-audio stereo-completion stereo-fallback-report original-completion elected-window-key original-presence-key mirror-root; do
+for mutation in cosmetic-authority cosmetic-end premature-audio-latch stale-audio-binding destroyed-native-audio stereo-completion stereo-fallback-report original-completion elected-window-key original-presence-key mirror-root review-priority review-close-token review-close-owner review-close-kind review-close-rate review-close-bounded; do
     python3 - "$repo_root/src/GloomhavenVR/Net/Remote/RemoteVideoPlayback.cs" "$mutation_dir/mutant.cs" "$mutation" <<'PY'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
@@ -26,6 +26,12 @@ mutations = {
     'original-completion': ('NativeVideoMovies.SamePresentation(_nativeClip, _active.Clip)', '(_active.Clip != NativeVideoMovies.NativeIntroKey && NativeVideoMovies.SamePresentation(_nativeClip, _active.Clip))'),
     'elected-window-key': ('SetRemoteSource(_mirror, _active.Clip ?? string.Empty)', 'SetRemoteSource(_mirror)'),
     'mirror-root': ('if (root != null) UnityEngine.Object.Destroy(root);', '// mirror root cleanup deliberately omitted'),
+    'review-priority': ('if ((candidateReview && !chosenReview) || (candidateReview == chosenReview && kv.Key >= owner)) continue;', 'if (candidateReview == chosenReview && kv.Key >= owner) continue;'),
+    'review-close-token': ('&& request.Token == _token', ''),
+    'review-close-owner': ('&& request.Window.ContentKey == PoseKey(_localId, _token)', ''),
+    'review-close-kind': ('|| !VideoMovieKeys.IsReview(_active.Clip)', ''),
+    'review-close-rate': ('Time.unscaledTime - _lastReviewCloseSent >= .1f', 'Time.unscaledTime - _lastReviewCloseSent >= 0f'),
+    'review-close-bounded': ('Time.unscaledTime < _reviewCloseUntil', 'Time.unscaledTime >= 0f'),
     'original-presence-key': ('Revision = ++_revision, Clip = _nativeClip,', 'Revision = ++_revision, Clip = _nativeClip == NativeVideoMovies.NativeIntroKey ? "CP_Intro/GH_CP_Intro.mov" : _nativeClip,'),
 }
 needle, replacement = mutations[sys.argv[3]]
@@ -50,6 +56,12 @@ PY
         elected-window-key) expected='cosmetic window receives elected key separately from its resolved media URL' ;;
         original-presence-key) expected='presence publishes the exact original alias without canonicalizing content selection' ;;
         mirror-root) expected='destroyed mirror component releases surviving owned root before exact-token recovery' ;;
+        review-priority) expected='higher-id genuine local movie outranks lower-id deliberate review without touching game playback' ;;
+        review-close-token) expected='observer close refuses wrong opening token even with current owner pose identity' ;;
+        review-close-owner) expected='observer close refuses a different shared owner identity' ;;
+        review-close-kind) expected='observer review close refuses genuine native movie even with same underlying film' ;;
+        review-close-rate) expected='close retry does not preempt every frame' ;;
+        review-close-bounded) expected='review close transmission stops after bounded retry window' ;;
     esac
     if ! rg -Fq "Unhandled exception. System.InvalidOperationException: $expected" "$mutation_dir/output.log"; then
         cat "$mutation_dir/output.log"
