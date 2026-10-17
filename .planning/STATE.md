@@ -1,5 +1,32 @@
 # State — where the project stands
 
+**Steam Link r7 software ready; Frame unchanged, 2026-10-17.**
+
+Fork dev16e7372 implements the source-backed zero-sRGB adapter guarded by the
+actual native device, saved downstream function pointers and a pinned exact
+driver lease. Original calls and payloads remain unchanged; callbacks add no
+file IO, resolver, allocation or wait. Unknown providers or wrappers refuse.
+Hosted CI39011995792 passes134 CTests in96.39s, optional diagnostic builds,
+Windows cross-build and protocol sanitizers. Focused normal/sanitized evidence
+and the compatible-mirror GPU proof retain their documented finite scopes.
+
+The final ARM526280B library and helpers total648443B. All five actual remote
+gate sites require native-provider Ready before stream request/manual arm;
+12 offline package controls pass. Fresh resolution of all94 actual native
+imports and exact-provider isolated loading remain prerequisites on the Frame.
+The software-ready private plan grants no device permission. No install,
+restart or other Frame write has occurred; it remains restored and safe in
+standby. Next is a separately approved original-invocation observation, not
+visible passthrough. Source-frame/eye/UV association and actual transparency
+composition remain unproven. Details: fork
+`docs/research/native-valve-srgb-lease-20261017.md`; private evidence in
+`build/private-native-r7-integration-20261017/` and
+`build/private-native-ssbo-run-20261017-r2/`.
+
+All own worker worktrees and completed regenerable caches are removed;
+evidence, current package and native references are retained. Main runtime679
+is unchanged; no main complete/wire rerun for this coordination-only update.
+
 **Steam Link r6 mirror proof pushed; exact Valve sRGB contract recovered, 2026-10-17.**
 
 Fork dev03ef204 contains the compatible one-set mirror and restoration repair.

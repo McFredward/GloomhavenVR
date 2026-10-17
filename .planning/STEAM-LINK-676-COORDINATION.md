@@ -1,5 +1,31 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## r7 software ready; fresh device permission still needed, 2026-10-17
+
+Fork dev16e7372 is pushed and hosted CI39011995792 succeeds:134 CTests,
+96.39s, both optional diagnostic builds, Windows cross-build and protocol
+sanitizers. The bounded source-backed zero-sRGB decoder uses an opaque lease
+for the actual saved driver callbacks/device and exact pinned provider;
+original arguments and calls are preserved. Unknown wrappers/providers refuse.
+
+The ARM526280B library and helpers total648443B for transfer. Final exact
+package/source/operator checks and12 offline controls pass; all five remote
+preflight call sites require the new native-provider proof. Actual94-import
+provider resolution and isolated loading must still pass before activation.
+The next private run plan is software-ready but not authorized for device
+action. No Frame write/restart has occurred; it remains restored and safe in
+standby. Fresh explicit permission and immediate readiness are required before
+any install/restart. No automatic expiry, rollback or restart is introduced.
+
+The next measurement observes one original invocation. It is not streaming
+passthrough and does not establish source-frame/eye/UV association. Actual
+transparent composition and partial transparency remain later hardware proof.
+Evidence: fork `build/private-native-r7-integration-20261017/` and
+`build/private-native-ssbo-run-20261017-r2/`; scope/provenance in
+`docs/research/native-valve-srgb-lease-20261017.md`. Own completed worker
+worktrees and caches are removed, preserving package, logs and references.
+Main runtime679 is unchanged; this is a docs-only coordination checkpoint.
+
 ## r6 complete; exact private sRGB semantics and offline r7 lease, 2026-10-17
 
 **Steam Link r6 mirror proof pushed; exact Valve sRGB contract recovered, 2026-10-17.**
