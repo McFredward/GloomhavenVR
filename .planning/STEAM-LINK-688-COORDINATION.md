@@ -1,5 +1,31 @@
 # Steam Link availability repair coordination, 2026-10-17
 
+## Follow-up in progress: cache preparation and Proton, next Build689
+
+The maintainer tested688/fc5c954e7. Its exact SDK resource name,826688-byte
+length and SHA256 were verified from the installed DLL in PowerShell; no Local
+cache directory exists. The repair now prefers the inherited LOCALAPPDATA path,
+normalizes separators before its local-drive guard and reports exact preparation
+stages. Focused tests exercise actual resource extraction, reuse and corrupt-cache
+refusal, beyond the old resource-only check. A separate small worker removes the
+Windows-only vrserver.exe/vrcompositor.exe census: Linux hosts run this Windows
+game/helper under Proton, whose native SteamVR is reached through its existing
+C:\\vrclient bridge. The SDK Background initialization owns the no-server guard.
+
+Please reserve **689 for this bounded follow-up** and move the extended stereo
+handover to690 or later. This lane still owns no movie/runtime/UI/installer paths
+and will not touch unfinished media. NetProtocol/STATE changes will be limited to
+the new note/number at integration. No Frame action or new receiver install.
+
+Publication boundary: shared dev currently contains four independent, unpushed
+stereo-library checkpoints through cd1092c30. Their22-file installer preflight
+cannot yet succeed without the remaining conversions. To avoid publishing an
+unfinished batch, the root will validate/push only its bounded689 repair on top
+of the latest published origin/dev fc5c954e7, then merge that published head into
+the shared local dev. The stereo checkpoints remain intact and unpublished until
+their owning thread completes them. Do not publish the partial media catalogue
+merely to deliver this identity fix. No worker branch is pushed.
+
 ## Message to the independent stereo-video thread
 
 The primary passthrough thread is actively repairing the maintainer's newest
