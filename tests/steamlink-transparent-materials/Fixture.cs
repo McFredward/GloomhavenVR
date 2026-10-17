@@ -26,6 +26,8 @@ public static class TransparentMaterialFixture
         public bool passed,xrExecuted,windowsExecuted,nativeVfxCertified;
         public string unity,backend,device,colorSpace,failure;
         public int checks,lifecycleChecks,rowsCompleted;
+        public bool allocationCounterAvailable;
+        public long hotManagedBytes;
         public List<Row> rows=new List<Row>();
     }
     private static Report result=new Report();
@@ -66,8 +68,9 @@ public static class TransparentMaterialFixture
             head=CameraFor("Owned head");foreign=CameraFor("Foreign capture");
             helper=new SceneTransparentMaterials(name=>Variant(name));Life(helper.BindHead(head),"Explicit cold head binding");
             Camera.onPreRender+=Before;Camera.onPostRender+=After;
-            foreach(string name in new[]{"GloomhavenVR/EnvParticleAlpha","GloomhavenVR/EnvParticleAdd","GloomhavenVR/Overlay"})
-                foreach(int layers in new[]{1,2})Probe(name,layers);
+            if(Array.IndexOf(args,"-transparentLifecycleOnly")<0)
+                foreach(string name in new[]{"GloomhavenVR/EnvParticleAlpha","GloomhavenVR/EnvParticleAdd","GloomhavenVR/Overlay"})
+                    foreach(int layers in new[]{1,2})Probe(name,layers);
             Lifecycle();
             helper.Dispose();Life(!helper.Ready && !helper.BindHead(head),"Disposed cannot bind");
             result.passed=true;code=0;
@@ -158,12 +161,30 @@ public static class TransparentMaterialFixture
         var growth=new Material[65];for(int i=0;i<growth.Length;i++)growth[i]=i==0?r.sharedMaterial:foreignWrite;r.sharedMaterials=growth;
         helper.ExitHead(head);slots=r.sharedMaterials;
         Life(!helper.Ready && helper.Reason==SceneTransparentMaterials.Refusal.SlotOverflow && slots[0]==source && slots[64]==foreignWrite,"Exceptional foreign growth restores then refuses epoch");
-        helper.RefreshCold();r.sharedMaterial=source;helper.RefreshCold();helper.EnterHead(head);helper.DisarmImmediate();
+        helper.RefreshCold();r.sharedMaterials=new[]{source};helper.RefreshCold();helper.EnterHead(head);helper.DisarmImmediate();
         Life(r.sharedMaterial==source && !helper.Ready,"Immediate disarm restores during head render");
         Shader unknownShader=Shader.Find("Hidden/Internal-Colored");Check(unknownShader!=null,"Unknown fixture shader exists");
         Material unknown=Keep(new Material(unknownShader));Renderer untouched=Surface(unknown);
         helper.BindHead(head);helper.RefreshCold();helper.EnterHead(head);
         Life(untouched.sharedMaterial==unknown && helper.UnclassifiedSlots>0,"Unknown native-style shader remains untouched and unclassified");helper.ExitHead(head);
+        Shader original=source.shader,changed=Shader.Find("GloomhavenVR/EnvParticleAlpha");Check(changed!=null,"Changed owned shader exists");
+        source.shader=changed;helper.RefreshCold();helper.EnterHead(head);
+        Life(r.sharedMaterial!=source && r.sharedMaterial.shader.name==changed.name+SceneTransparentMaterials.Suffix,"Cold source shader change rebuilds exact clone");helper.ExitHead(head);
+        source.shader=original;helper.RefreshCold();helper.EnterHead(head);
+        Life(r.sharedMaterial!=source && r.sharedMaterial.shader.name==original.name+SceneTransparentMaterials.Suffix,"Cold return to previous owned shader rebuilds its clone");helper.ExitHead(head);
+        int before=helper.CachedMaterials;r.gameObject.SetActive(false);helper.RefreshCold();
+        Life(before>0 && helper.CachedMaterials<before,"Cold inactive-source pruning retires unreferenced clones");r.gameObject.SetActive(true);helper.RefreshCold();
+        Material doomed=MaterialFor("GloomhavenVR/Overlay");Renderer deadSource=Surface(doomed);helper.RefreshCold();before=helper.CachedMaterials;
+        UnityEngine.Object.DestroyImmediate(doomed);helper.RefreshCold();Life(helper.CachedMaterials<before,"Cold destroyed-source pruning retires clone");
+        UnityEngine.Object.DestroyImmediate(deadSource.gameObject);helper.RefreshCold();
+        var counter=typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread",System.Reflection.BindingFlags.Public|System.Reflection.BindingFlags.Static);
+        if(counter!=null)
+        {
+            result.allocationCounterAvailable=true;var allocated=(Func<long>)Delegate.CreateDelegate(typeof(Func<long>),counter);
+            for(int i=0;i<128;i++){helper.EnterHead(head);helper.ExitHead(head);}
+            long start=allocated();for(int i=0;i<256;i++){helper.EnterHead(head);helper.ExitHead(head);}
+            result.hotManagedBytes=allocated()-start;Life(result.hotManagedBytes==0,"Warm admitted head entry/exit allocates zero managed bytes");
+        }
         helper.BindHead(head);helper.RefreshCold();helper.EnterHead(head);helper.Dispose();
         Life(r.sharedMaterial==source,"Dispose restores only owned slots");
     }

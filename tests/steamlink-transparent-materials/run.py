@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--bank',type=Path,default=Path('/home/claw/gloomhaven_vr/src/GloomhavenVR/Assets/SteamLink/scene.bundle'))
     parser.add_argument('--unity',type=Path,default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
+    parser.add_argument('--lifecycle-only',action='store_true')
     args=parser.parse_args();root=HERE.parents[1]
     sys.path.insert(0,str(root/'scripts'));cleanup=importlib.import_module('town_run_retention').cleanup_completed_run
     args.output.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output.resolve()));(run/'.keep').touch()
@@ -48,6 +49,7 @@ def main():
     (settings/'ProjectSettings.asset').write_text('%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n  m_ObjectHideFlags: 0\n  serializedVersion: 26\n  m_ActiveColorSpace: 0\n')
     output=run/'gpu.json';code=1
     command=['xvfb-run','-a',str(args.unity),'-batchmode','-force-vulkan','-projectPath',str(project),'-executeMethod','TransparentMaterialFixture.Start','-transparentResult',str(output),'-transparentBank',str(frozen_bank),'-logFile',str(run/'unity.log')]
+    if args.lifecycle_only:command+=['-transparentLifecycleOnly']
     env=os.environ.copy()
     if Path('/usr/share/vulkan/icd.d/intel_icd.json').is_file():env['VK_DRIVER_FILES']='/usr/share/vulkan/icd.d/intel_icd.json'
     try:
@@ -64,7 +66,7 @@ def main():
         receipt=cleanup('steamlink-transparent-materials',code,log,root,process_reaped=True)
         if project.is_dir() and not project.is_symlink():shutil.rmtree(project)
         (run/'cleanup.json').write_text(json.dumps({'retention_api':receipt,'owned_project_removed':str(project)},indent=2)+'\n')
-        (run/'results.json').write_text(json.dumps({'exit_code':code,'scope':'ACTUAL_SHIPPING_BANK_OWNED_HEAD_ONLY_MATERIAL_GPU','shipping_bank_sha256':pins[str(args.bank)],'source_hashes_unchanged':all(sha(Path(p))==pin for p,pin in pins.items()),'xr_executed':False,'native_vfx_certified':False},indent=2)+'\n')
+        (run/'results.json').write_text(json.dumps({'exit_code':code,'scope':'ACTUAL_SHIPPING_BANK_LIFECYCLE_ONLY' if args.lifecycle_only else 'ACTUAL_SHIPPING_BANK_OWNED_HEAD_ONLY_MATERIAL_GPU','shipping_bank_sha256':pins[str(args.bank)],'source_hashes_unchanged':all(sha(Path(p))==pin for p,pin in pins.items()),'xr_executed':False,'native_vfx_certified':False},indent=2)+'\n')
         print('Evidence: '+str(run))
     return code
 
