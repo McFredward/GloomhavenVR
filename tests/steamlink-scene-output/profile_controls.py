@@ -35,7 +35,25 @@ def main():
     assert 'ReadPixels' not in (ROOT/'src/GloomhavenVR/Core/SteamLink/SceneEyeOutput.cs').read_text()
     # Historical and incorrect footer/profile literals cannot pass this guard.
     assert codes!=[111,153,155,51,111,82,92,219,102,227,121,189]
-    print(json.dumps({'passed':True,'profile':p['profile'],'profile_sha256':hashlib.sha256(raw).hexdigest(),
+    full_path=ROOT/'tests/steamlink-scene-payload/profile-v2.json'
+    full_raw=full_path.read_bytes();full=json.loads(full_raw)
+    assert strings['FullProfile']==full['profile']
+    assert strings['FullJsonSha256']==hashlib.sha256(full_raw).hexdigest()
+    assert hashlib.sha256(full['guard']['signature_preimage'].encode()).hexdigest()==full['guard']['signature_sha256']
+    assert full['guard']['codes']==list(bytes.fromhex(full['guard']['signature_sha256'])[:12])
+    assert full['coverage']['size']==full['scene'][2:]==[2048,2048]
+    assert full['canvas']==[3168,3168]
+    assert full['coverage']['data_origins']==[[576,32],[2624,576],[544,2624],[32,544]]
+    assert full['coverage']['rotation_quarter_turns']==[0,1,0,1]
+    full_shader=(ROOT/'unity/Assets/Shaders/SteamLinkSceneFullAtlas.shader').read_text()
+    full_codes=[int(v) for v in re.findall(r'if\(i==\d+\)return (\d+);',full_shader)]+[int(re.search(r';return (\d+);\n',full_shader).group(1))]
+    assert full_codes==full['guard']['codes']
+    assert 'float a=saturate(scene(q).a)' in full_shader
+    assert 'coverageCell' not in full_shader and '3-2*f' not in full_shader
+    assert 'return float4(scene((p-560)/2048).rgb,1)' in full_shader
+    assert 'steamlinkscenefullatlas.shader' in (ROOT/'src/GloomhavenVR/Core/SteamLink/ScenePayloadAssets.cs').read_text()
+    print(json.dumps({'passed':True,'profile':p['profile'],'profile_sha256':hashlib.sha256(raw).hexdigest(),'full_profile':full['profile'],
+        'full_profile_sha256':hashlib.sha256(full_raw).hexdigest(),
         'signature_sha256':strings['SignatureSha256'],'guard_y':values['GuardY'],
         'native_frame_association_proven':False,'passthrough_authorized':False}))
 

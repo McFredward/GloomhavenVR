@@ -67,7 +67,8 @@ internal static class SteamLinkSceneRuntime
                 return false;
             }
             _reportedReason = null;
-            VRLog.Info("Core", "Steam Link native MR source prepared: scene-contribution-atlas-v1; "
+            VRLog.Info("Core", "Steam Link native MR source prepared: "
+                + (pack.name == SceneAtlasProfile.FullShaderName ? SceneAtlasProfile.FullProfile : SceneAtlasProfile.Profile) + "; "
                 + "same-eye image and coverage, MultiPass SDR. The matching Frame receiver is required.");
             return true;
         }
@@ -231,7 +232,7 @@ internal sealed class SceneHeadOutput : MonoBehaviour
                             + " source=" + source.width + "x" + source.height + " format=" + source.graphicsFormat
                             + " samples=" + source.antiAliasing + " carrier="
                             + (destination == null ? "XR target" : destination.width + "x" + destination.height)
-                            + "; scene-contribution-atlas-v1.");
+                            + "; " + _pack.Profile + ".");
                     }
                 }
             }

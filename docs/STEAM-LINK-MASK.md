@@ -35,6 +35,25 @@ changed by building or enabling the PC source. Install the public matching
 separately using its documented supported SteamVR version. The existing
 standalone native MR backend is separate and unchanged.
 
+## Equal-resolution scene coverage
+
+The current producer uses `scene-contribution-atlas-v2`: independent coverage and
+scene RGB have the same2048-square logical resolution, sampled from the same
+current eye source. The old half-resolution alpha box/reconstruction filter is
+removed from this path. This applies to all scene geometry, without window tags
+or thresholds that would erase genuine partial transparency. Both numeric fields
+remain neutral grey in the video transport.
+
+A matching updated receiver is required. It recognizes v2 and retains the frozen
+v1 decoder for older producers. Building/enabling the mod does not update the
+headset patch. The3168-square carrier layout uses four haloed coverage strips
+around the central scene. At a fixed stream resolution, the larger mask consumes
+more video area, reducing the area's allocation to RGB; no SteamVR resolution or
+bitrate setting is changed automatically. Keep true MSAA/partial-opacity edges
+and codec limitations distinct from additional packing blur. Headset appearance
+and streaming cost still require hardware validation. See
+[the scoped implementation record](../.planning/STEAM-LINK-697-FULL-COVERAGE.md).
+
 ## Host identity lookup: Windows and Proton
 
 Gloomhaven and this mod are Windows applications. A Linux gaming host runs the

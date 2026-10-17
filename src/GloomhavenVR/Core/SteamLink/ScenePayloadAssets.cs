@@ -31,7 +31,7 @@ internal static class ScenePayloadAssets
                 resource.CopyTo(bytes);
                 _bank = AssetBundle.LoadFromMemory(bytes.ToArray());
                 if (_bank == null) throw new InvalidDataException("Steam Link scene shader bank could not be loaded.");
-                _pack = _bank.LoadAsset<Shader>("assets/steamlink/steamlinksceneatlas.shader");
+                _pack = _bank.LoadAsset<Shader>("assets/steamlink/steamlinkscenefullatlas.shader");
                 _coverage = _bank.LoadAsset<Shader>("assets/steamlink/steamlinkscenecoverage.shader");
                 if (_pack == null || _coverage == null || !_pack.isSupported || !_coverage.isSupported)
                     throw new NotSupportedException("Steam Link scene shaders are unavailable on this graphics API.");
