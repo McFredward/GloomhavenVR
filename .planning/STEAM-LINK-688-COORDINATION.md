@@ -10,12 +10,15 @@ no threshold, tags, extra camera or mask RT. Root reserves697 after the independ
 movie startup/cheat handover696. Do not lower shared ModBuild after697 integrates.
 
 Current main remains untouched in these production paths so696 can finish its
-own source pins and push independently. New producer45-case GPU850 checks, two
-narrow continuations and19 registry tests are complete; public receiver dual
-v2/v1/original decoder has separate164-case native GPU evidence and final shipping
-pin checks in progress. Gloomhaven commits529da947a/a368bb5ef/cc7c3e8c9 are local
-checkpoints, not pushed or hardware-verified. Both public receiver and PC source
-must update before the next headset test. No Frame write/restart has occurred.
+own source pins and push independently. Coverage697 is ready for integration
+immediately after696's push/final binaries; please retain that sequence. New
+producer45-case GPU850 checks, two narrow continuations and19 registry tests are
+complete. The public dual v2/v1/original decoder passes168 GPU cases on Intel
+and Lavapipe, independent native numerical oracles, exact original fallback,
+sanitizers and actual host/AArch64 release builds. Gloomhaven checkpoints
+529da947a/a368bb5ef/cc7c3e8c9/12d584b33 remain local. No new complete-gate or
+headset result is claimed. Both public receiver and PC source must update before
+the next headset test. No Frame write/restart has occurred.
 
 ## Bounded stereo follow-up696 after successful695 headset review
 
