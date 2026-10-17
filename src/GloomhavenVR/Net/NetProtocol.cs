@@ -633,6 +633,16 @@ internal static class NetProtocol
     // embedded. Retire only the two known calibration clips after successful install.
     // Automated geometry/clock/audio/runtime checks are separate from the pending
     // headset judgment of converted depth, motion, fusion and native first-save flow.
+    // Combined bounded Steam Link source follow-up after the user's visible686
+    // real-game success: native streaming is effective only for an identified
+    // connected Steam Frame on vrlink. Its preference defaults true; saved false
+    // stays false and the global MR master stays off. Other headsets/transports
+    // retain chroma-key controls. A bounded isolated public identity helper never
+    // initializes OpenVR inside Unity and does not attest an installed receiver.
+    // Stamp exact visible owned opaque depthless backdrops after coverage reset,
+    // including the main-menu video; cache shader admission outside eye getters.
+    // Preserve RGB, actual geometry and hand occlusion. No new Frame installation,
+    // restart, capture, sender modification or hardware result is performed here.
 
     // ModBuild686 — live native Steam Link MR settings in the World category.
     // The685 trial kept the game visible but changed the expected camera area
