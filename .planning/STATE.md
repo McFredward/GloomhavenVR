@@ -55,7 +55,7 @@ payload/provenance/license checks pass30+4. No new complete gate or live Windows
 headset result is claimed. Receipts and completed-cache cleanup are under
 `.planning/debug/steamlink-688-integrated/` and `steamlink-688-loader-worker/`.
 
-**Stereo library and scenario review in progress, 2026-10-17: reserved Build688.**
+**Stereo library and scenario review in progress, 2026-10-17: reserved Build690.**
 
 The maintainer explicitly approves687's actual headset intro as perfect except
 that the GloomhavenVR wordmark should protrude slightly more. Both supplied logs
@@ -83,9 +83,14 @@ Separate initialized workers from dev9f48730df own offline media, native/shared
 runtime and localized review UI. Local pinned Small/FP32 inference has started;
 no paid inference is used. Root's foreground-wordmark renderer and real22-file
 installer/archive fixture checks pass; the complete media batch and integrated
-runtime/gates are still pending. No688 binary or completed library is handed
+runtime/gates are still pending. The verified stronger-wordmark intro, original
+studio companion/stereo clip and first cave ambience are integrated locally;
+17 conversions remain in the serial batch. Source review is addressing decoder
+teardown, native priority and observer review closure. No690 binary or completed library is handed
 over yet. No additional ZIP/HTTP delivery: the normal installation script
 continues to create its archive. No Frame write/restart occurs in this work.
+The independent published688/689 identity fixes are retained through the shared
+dev merge; this unfinished media batch remains unpublished until completion.
 
 To retain storage headroom, completed unpinned687 fixture evidence was archived
 byte-for-byte into `.planning/debug/stereo-video-intro687/frozen-worker/completed-suite-evidence.tar.zst`.
