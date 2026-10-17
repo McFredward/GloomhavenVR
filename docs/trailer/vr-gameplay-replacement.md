@@ -1,5 +1,77 @@
 # Genuine VR gameplay replacement
 
+## Fourth October 17 capture (v14)
+
+The new `2026-10-17 11-28-25.mp4` recording was compared with the actual native
+pictures and verified English narration. Only two further regions match well
+enough to replace: active gold collection at `[6213,6413)` and successful scenario
+completion at `[7090,7234)`. The source recording remains retained and unchanged.
+No paid inference or mod runtime change is used.
+
+The first excerpt actually activates Cragheart's Unstable Upheaval bottom Loot1,
+shows the highlighted area, moving coins and `+4 Gold`. The original shows
+Scoundrel/Throwing Knives Loot2. Class, radius and amount differ, but both show
+active combat looting; the generic narration does not name Loot2. This is not
+passive end-turn gold. The second excerpt shows the real Heart of Stone tutorial
+Victory and Fraanc's closing dialog, replacing the original Victory/Trainer
+sequence. No campaign quest completion or rewards are claimed.
+
+Minor Healing Potion is only inspected, so it does not replace Poison Dagger use.
+Short-rest burning does not replace a played loss. Fire Orbs and Avalanche have
+actual loss consequences, but their card-burn presentation is outside the view.
+The damage prompts end in Receive Damage and do not show the original card-focused
+sacrifice choice for the required duration. An outgoing Fire Orbs attack also
+cannot replace FG09's incoming Shaman attack and Spellweaver HP damage. Those
+native passages remain pending better captures.
+
+Both excerpts retain exact source time: frames `[14640,14740)` and
+`[16179,16251)` at 30fps repeat normally into the 60fps trailer. There is no
+speed fitting, interpolation or held ending. Twelve opening Victory frames use
+progressive Gaussian defocus and dimming on their corresponding actual VR
+pictures to join the native defocused entry. No native scenery is mixed into
+the replacement. All other accepted cinematics, gameplay, full-trailer fan mark,
+original soundtrack and the separate approved campaign intro are inherited.
+
+The private review is `vr-gameplay-v5/REVIEW.html`; its source comparisons name
+the class/radius/tutorial differences. Twelve inventory regions now contain VR
+pictures, with 29 still native. FG33/FG34 remain one continuous shot. The updated
+`NAECHSTE-AUFNAHMEN.txt` has 18 grouped requests; closer original-class variants
+are optional rather than mandatory retakes of already matching demonstrations.
+
+V14 SHA256 is
+`ac93cd713684eb5ce55fe2cf3bfd71cb2884238fb072666d5963dc89a1541403`.
+The assembler passes 13/13 media checks. Independent sequential QC passes all
+14,810 frames, 14,466 outside-window comparisons against v13, all 344 component
+frames, the continuous fan mark and all 11,573 unchanged AAC packet payloads,
+clocks and codec configuration. Maximum 320-by-180 MAE is 0.7720 outside and
+1.1916 inside, below the unchanged 2.0 limit. This is lossy fidelity, not pixel
+identity. A separate exact-PTS source check passes all 200 Loot frames and
+132 untreated Victory frames at ordinary 1x; adjacent-source-frame negative
+controls have substantially larger error. The 12 optically treated entry frames
+are excluded only from this source-picture check, not final component QC.
+Root viewed 41 exact component cues, 33 actual-export Watch cues and eight
+exactly decoded final boundary pictures. Evidence lives under
+`vr-gameplay-v5/{qc-independent,qc-root,source-analysis/112825}/`.
+
+Desktop Chromium and mobile emulation each play the two new contexts at 1x;
+24 paused chapter-navigation checks and 12 time/state-preserving comparisons
+pass. The reviewer personally views all 24 player pictures and two page-header
+crops. No JavaScript/media errors occur. Headless playback reports 0/443 dropped
+frames on desktop and 2/441 in mobile emulation; encoded media has no missing
+frames. The first browser attempt used an unbound localhost address and failed
+before opening Chromium; the retained retry uses the actual LAN binding.
+Unchanged v13 creative/playback evidence is inherited. These are focused media
+and browser checks, not a new game-runtime or headset gate.
+
+Postpublication desktop/mobile navigation reaches v14 and all twelve chapters;
+55 HTTP/Range requests pass. The separate intro section/link remains byte-identical.
+See `vr-gameplay-v5/browser-review/final-navigation.json`.
+
+The completed worker worktree and owned bytecode caches are removed. All 25
+protected media authorities retain their hashes, including the four supplied
+October 17 captures and separate approved intro. See
+`vr-gameplay-v5/editor/protected-media-final.json`.
+
 ## Squad-formation clarification (v13)
 
 The maintainer clarified on October 17 that this passage demonstrates assembling

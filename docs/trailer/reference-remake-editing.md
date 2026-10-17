@@ -3,17 +3,21 @@
 The accepted opening also supplies the first-save campaign intro, with a native-style
 GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
 
-The current VR gameplay pass uses the three October 17 recordings. V13 follows
-the maintainer's clarification that squad formation does not require Cragheart:
-the remaining Flat class view now continues the genuine Scoundrel selection
-through class confirmation and opening its name form. The neighboring source
-frames are consecutive at 1x; original shot duration and audio remain. Ten
-inventory regions now contain VR pictures. Missing mechanics elsewhere remain
-original pending suitable footage. No new inference or runtime change is used.
-The active private review is `vr-gameplay-v4/REVIEW.html`, with source links and
-a corrected capture list. Original FG13 is a damage-avoidance burn, not a played
-loss; that earlier analysis error remains corrected. See
-[vr-gameplay-replacement.md](vr-gameplay-replacement.md).
+The current VR gameplay pass uses four October 17 recordings. V14 adds active
+combat looting at 1:43 and an actual scenario Victory with closing dialog at
+1:58 from the new 11:28 capture. Cragheart/Loot1 replaces Scoundrel/Loot2;
+the narration describes the same active looting mechanic. A tutorial Victory
+replaces the original scenario Victory. These differences are named in review.
+Both excerpts run at exact 1x; the Victory's first twelve frames join the native
+defocus using an optical treatment of the actual capture. Original duration,
+audio, all accepted cinematics and the continuous full-trailer fan mark remain.
+Twelve inventory regions now contain VR pictures, with 29 still native pending
+matching captures. The active review is `vr-gameplay-v5/REVIEW.html`, with source
+links and 18 grouped capture requests. Potion previews, short-rest burns and
+outgoing attacks do not replace item use, played loss or incoming damage.
+V13's continuous team selection and the separate approved game intro remain.
+No paid inference or runtime change is used. See
+[vr-gameplay-replacement.md](vr-gameplay-replacement.md) for exact evidence.
 
 The historical v10 first pass used 20 inserts covering 25 of 41 inventory regions; 16
 regions retain their previous pictures pending suitable captures. The accepted

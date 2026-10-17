@@ -2468,22 +2468,22 @@
     "cleanup_authority": "Latest explicit unused-video/resource deletion instruction overrides historical preserve-all-AI policy. Retain selected used sources and all fal run recovery metadata."
   },
   "current_working_cut": {
-    "phase": "genuine-vr-gameplay-v4",
+    "phase": "genuine-vr-gameplay-v5",
     "status": "provisional-material-trial-reviewed-and-published",
-    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/full-timeline-v1/reference-remake-vr-v13.mp4",
-    "sha256": "ea621fa53396e68b1fce34db382dfcc94cfff58b41157c8d519f73b065f264e2",
-    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/REVIEW.html",
-    "base_phase": "genuine VR material trial v12 with accepted cinematic v9 inherited",
-    "base_sha256": "f942650d71948b419c95605cef81e062336f3835aece8073ac315eee12009b76",
+    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/full-timeline-v1/reference-remake-vr-v14.mp4",
+    "sha256": "ac93cd713684eb5ce55fe2cf3bfd71cb2884238fb072666d5963dc89a1541403",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/REVIEW.html",
+    "base_phase": "genuine VR material trial v13 with accepted cinematic v9 inherited",
+    "base_sha256": "ea621fa53396e68b1fce34db382dfcc94cfff58b41157c8d519f73b065f264e2",
     "frames": 14810,
     "fps": 60,
     "container_seconds": 246.861,
     "new_paid_calls": 0,
     "user_acceptance_claimed": false,
     "provisional_material_trial": true,
-    "bytes": 302549020,
+    "bytes": 303633941,
     "review_published": true,
-    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v4/REVIEW.html"
+    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v5/REVIEW.html"
   },
   "genuine_vr_gameplay_pass_v1": {
     "date": "2026-10-16",
@@ -2921,7 +2921,7 @@
   },
   "genuine_vr_gameplay_pass_v4": {
     "date": "2026-10-17",
-    "status": "provisional-material-trial-reviewed-and-published",
+    "status": "historical-superseded-by-v14",
     "user_clarification": "Squad formation is the intended demonstration at3:17; original Cragheart identity is optional.",
     "base_sha256": "f942650d71948b419c95605cef81e062336f3835aece8073ac315eee12009b76",
     "private_master": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/vr-gameplay-v4/full-timeline-v1/reference-remake-vr-v13.mp4",
@@ -2987,6 +2987,106 @@
       "all_21_media_authorities_hash_preserved": true,
       "sources_and_separate_intro_preserved": true,
       "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v4/editor/protected-media-final.json"
+    }
+  },
+  "genuine_vr_gameplay_pass_v5": {
+    "date": "2026-10-17",
+    "status": "provisional-material-trial-reviewed-and-published",
+    "source_file": "2026-10-17 11-28-25.mp4",
+    "source_sha256": "d28452f2fd872a7b59d9327c046669c0b4b86d6559fefef92c6d92b75fb80fc4",
+    "source_duration_seconds": 562.433333,
+    "base_sha256": "ea621fa53396e68b1fce34db382dfcc94cfff58b41157c8d519f73b065f264e2",
+    "private_master": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/vr-gameplay-v5/full-timeline-v1/reference-remake-vr-v14.mp4",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/REVIEW.html",
+    "private_selection": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/editor/selection-final.json",
+    "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/NAECHSTE-AUFNAHMEN.txt",
+    "newly_replaced_inventory_regions": [
+      "FG17",
+      "FG19"
+    ],
+    "VR_regions": 12,
+    "remaining_original_regions": 29,
+    "new_changed_frames": 344,
+    "outside_frames_against_v13": 14466,
+    "source_windows": [
+      {
+        "id": "FG17",
+        "source_start_frame": 14640,
+        "source_end_frame_exclusive": 14740,
+        "start_frame": 6213,
+        "end_frame_exclusive": 6413,
+        "sha256": "142599109d2fd603f35cf7d0c33b15d0c55eaadfe6462e192ea264b12fd265a8",
+        "transition": "Verified native hard cuts; no added transition."
+      },
+      {
+        "id": "FG19",
+        "source_start_frame": 16179,
+        "source_end_frame_exclusive": 16251,
+        "start_frame": 7090,
+        "end_frame_exclusive": 7234,
+        "sha256": "cb6521f1d695b28a6ca18c9f27017ca27708e3d9ed1e16215936f48a5991509f",
+        "transition": "First12 frames use Gaussian42→0px and luminance0.5→1 on actual VR pictures, matching native defocus entry; no time change."
+      }
+    ],
+    "source_clock": "1x; actual30fps ordinary repeat to60, no interpolation, retiming or end hold. First12Victoryframes optical defocus/dimming on actual captured pictures.",
+    "demonstrated_actions": [
+      "Active Unstable Upheaval Loot1 with highlighted area, moving coins and+4Gold; original Scoundrel/Throwing Knives Loot2 class/radius differs.",
+      "Actual Heart of Stone tutorial Victory followed by Fraanc closing dialog; original different scenario/Trainer."
+    ],
+    "rejections": [
+      "Damage avoidance prompts end in Receive Damage, not demonstrated card sacrifice; no long readable card-focus match.",
+      "Minor Healing Potion is previewed; use/effect unproven.",
+      "Fire Orbs/Avalanche actual played-loss consequences exist but burn animation/card is outside the view.",
+      "Own Fire Orbs attack is not equivalent to the native incoming attack in FG09.",
+      "No matching trap manipulation, chest, enhancements, quest completion or multiplayer viewpoints.",
+      "Sparse map, loading, debug/cheat overlays and repeated head movement are not selected."
+    ],
+    "user_acceptance_claimed": false,
+    "original_audio_and_accepted_cinematics_inherited": true,
+    "separate_campaign_intro_unchanged": true,
+    "new_paid_calls": 0,
+    "master_sha256": "ac93cd713684eb5ce55fe2cf3bfd71cb2884238fb072666d5963dc89a1541403",
+    "bytes": 303633941,
+    "technical_review": {
+      "status": "passed",
+      "decoded_frames": 14810,
+      "outside_frames_against_v13": 14466,
+      "new_component_frames": 344,
+      "fanmark_frames": 14810,
+      "AAC_packets_identical_with_clocks_and_codec_config": 11573,
+      "mae_limit_8bit": 2.0,
+      "outside_max_mae_8bit": 0.7719560185185185,
+      "component_max_mae_8bit": 1.191568641345427,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/qc-independent/technical.json",
+      "source_clock_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/qc-independent/source-clock-qc.json",
+      "source_clock_compared_frames": 332,
+      "source_picture_optical_exclusions": 12
+    },
+    "visual_review": {
+      "root_actual_final_Watch_cues": 33,
+      "root_exact_final_boundary_pictures": 8,
+      "root_component_cues": 41,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/qc-root/visual-review.json"
+    },
+    "browser_review": {
+      "status": "passed",
+      "focused_1x_passages": 4,
+      "chapter_navigation_checks": 24,
+      "comparison_switches": 12,
+      "mobile_emulation_not_hardware": true,
+      "unchanged_v13_playback_evidence_inherited": true,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/browser-review/final-review.json",
+      "final_navigation_status": "passed",
+      "final_navigation_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/browser-review/final-navigation.json",
+      "postpublication_HTTP_Range_checks": 55,
+      "postpublication_chapter_navigation_checks": 24
+    },
+    "cleanup": {
+      "status": "complete",
+      "owned_worker_worktree_removed": true,
+      "all_25_media_authorities_hash_preserved": true,
+      "all_four_oct17_sources_and_separate_intro_preserved": true,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/editor/protected-media-final.json"
     }
   }
 }
