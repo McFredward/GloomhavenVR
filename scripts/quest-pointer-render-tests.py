@@ -106,6 +106,18 @@ def main():
         evidence_source = evidence_source.replace(before, after)
     (editor / "QuestPointerEvidence.cs").write_text("#nullable enable\n" + evidence_source.replace(
         "namespace GloomhavenVR.Hands.Interact;", "namespace GloomhavenVR.Hands.Interact {") + "\n}\n")
+    marker_source = (ROOT / "src/GloomhavenVR/Hands/Interact/QuestPointerMarker.cs").read_text()
+    marker_control = os.environ.get("QUEST_POINTER_MARKER_CONTROL", "")
+    marker_controls = {
+        "no-caps": ("line.numCapVertices = 12;", "line.numCapVertices = 0;", "quest-round-cap-dot unexpected native GPU footprint"),
+        "scaled-world-point": ("marker.SetPosition(0, hit - halfSpine);", "marker.SetPosition(0, marker.transform.TransformPoint(hit - halfSpine));", "Quest marker native endpoints must remain centred on the exact collision"),
+    }
+    if marker_control:
+        before, after, _ = marker_controls[marker_control]
+        assert marker_source.count(before) == 1, "Pointer marker control binding drift"
+        marker_source = marker_source.replace(before, after)
+    (editor / "QuestPointerMarker.cs").write_text("#nullable enable\n" + marker_source.replace(
+        "namespace GloomhavenVR.Hands.Interact;", "namespace GloomhavenVR.Hands.Interact {") + "\n}\n")
     copy_source = (ROOT / "src/GloomhavenVR/Core/QuestTextureCopy.cs").read_text()
     (editor / "QuestTextureCopy.cs").write_text("#nullable enable\n" + copy_source.replace(
         "namespace GloomhavenVR.Core;", "namespace GloomhavenVR.Core {") + "\n}\n")
@@ -143,12 +155,18 @@ def main():
                 raise AssertionError("Pointer evidence control was not rejected by its behavioral assertion")
             print("PASS expected pointer evidence rejection: " + control)
             return
+        if marker_control:
+            if not code or marker_controls[marker_control][2] not in (run / "unity.log").read_text():
+                raise AssertionError("Pointer marker control was not rejected by its behavioral assertion")
+            print("PASS expected pointer marker rejection: " + marker_control)
+            return
         if code:
             raise RuntimeError("Native pointer fixture failed: " + str(run / "unity.log"))
         report = json.loads((project / "ProbeOutput/results.json").read_text())
-        assert len(report["cases"]) == 20
+        assert len(report["cases"]) == 27
         (run / "source-hashes.json").write_text(json.dumps({"productionFactory": hashlib.sha256(factory.encode()).hexdigest(),
             "pointerEvidence": hashlib.sha256(evidence_source.encode()).hexdigest(),
+            "pointerMarker": hashlib.sha256(marker_source.encode()).hexdigest(),
             "textureCopy": hashlib.sha256(copy_source.encode()).hexdigest(),
             "primitiveMesh": hashlib.sha256(primitive_source.encode()).hexdigest(),
             "textureCopyShader": hashlib.sha256(copy_shader.read_bytes()).hexdigest(),

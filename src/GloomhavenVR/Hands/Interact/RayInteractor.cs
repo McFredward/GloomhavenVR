@@ -36,6 +36,7 @@ internal sealed class RayInteractor : IPickProvider
     private LineRenderer? _laser;
     private Transform? _reticle;
     private Mesh? _questReticleMesh;
+    private LineRenderer? _questReticleLine;
     private bool _questHitMarkerVisible;
     private const int QuestLaserEvidenceLimit = 6;
     private static int _questLaserEvidenceSamples;
@@ -1056,6 +1057,7 @@ internal sealed class RayInteractor : IPickProvider
                                           ReticleMinMeters * scale, ReticleMaxMeters * scale);
             float parentScale = Mathf.Max(1e-4f, _hand.transform.lossyScale.x);
             _reticle.localScale = Vector3.one * (worldSize / parentScale);
+            QuestPointerMarker.Place(_questReticleLine, end, head, worldSize);
         }
         else if (_reticle!.gameObject.activeSelf)
         {
@@ -1258,12 +1260,16 @@ internal sealed class RayInteractor : IPickProvider
         // on dialogs; depth test still occludes it behind solid geometry.
         _laser.sortingOrder = RayVisualSortingOrder;
 
-        GameObject reticleGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        GameObject reticleGo = QuestPointerMarker.Create() ?? GameObject.CreatePrimitive(PrimitiveType.Sphere);
         reticleGo.name = $"GloomhavenVR.Reticle_{_hand.Side}";
         MeshFilter reticleFilter = reticleGo.GetComponent<MeshFilter>();
-        _questReticleMesh = Core.QuestPrimitiveMesh.Rebuild(reticleFilter.sharedMesh, "pointer-marker-" + _hand.Side);
-        if (_questReticleMesh != null)
-            reticleFilter.sharedMesh = _questReticleMesh;
+        if (reticleFilter != null)
+        {
+            _questReticleMesh = Core.QuestPrimitiveMesh.Rebuild(reticleFilter.sharedMesh, "pointer-marker-" + _hand.Side);
+            if (_questReticleMesh != null)
+                reticleFilter.sharedMesh = _questReticleMesh;
+        }
+        _questReticleLine = reticleGo.GetComponent<LineRenderer>();
         Object.Destroy(reticleGo.GetComponent<Collider>());
         reticleGo.transform.SetParent(_hand.transform, worldPositionStays: true);
         Renderer reticleRenderer = reticleGo.GetComponent<Renderer>();
@@ -1514,6 +1520,7 @@ internal sealed class RayInteractor : IPickProvider
         {
             Object.Destroy(_reticle.gameObject);
             _reticle = null;
+            _questReticleLine = null;
         }
         if (_questReticleMesh != null)
         {

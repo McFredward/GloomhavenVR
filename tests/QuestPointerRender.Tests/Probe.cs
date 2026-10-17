@@ -86,7 +86,8 @@ public static class QuestPointerRenderProbe
                 && owned.GetFloat("_ZTest") == (float)CompareFunction.LessEqual
                 && owned.GetFloat("_ZWrite") == 0 && owned.GetFloat("_Cull") == (float)CullMode.Off,
                 "Quest pins native Sprite premultiplied blend/depth policy on its plain mesh material");
-            Row Capture(string name, Mesh mesh, Material material, string expectedPixels = "small", bool quest = false, bool corruptBlock = false)
+            Row Capture(string name, Mesh mesh, Material material, string expectedPixels = "small", bool quest = false,
+                bool corruptBlock = false, Renderer consumer = null)
             {
                 filter.sharedMesh = mesh; renderer.sharedMaterial = material;
                 if (line.gameObject.activeSelf)
@@ -122,8 +123,11 @@ public static class QuestPointerRenderProbe
                 {
                     RenderTexture.active = target;
                     image.ReadPixels(new Rect(0, 0, 512, 512), 0, 0); image.Apply();
-                    var row = new Row { name = name, shader = material.shader.name, mesh = mesh.name,
-                        vertices = mesh.vertexCount, vertexStride = mesh.GetVertexBufferStride(0), bounds = renderer.bounds.size,
+                    var row = new Row { name = name, shader = material.shader.name,
+                        mesh = consumer is LineRenderer ? "native round-cap LineRenderer" : mesh.name,
+                        vertices = consumer is LineRenderer ? 0 : mesh.vertexCount,
+                        vertexStride = consumer is LineRenderer ? 0 : mesh.GetVertexBufferStride(0),
+                        bounds = consumer != null ? consumer.bounds.size : renderer.bounds.size,
                         minX = 512, minY = 512, maxX = -1, maxY = -1,
                         expectedPixels = expectedPixels, expectedBounded = expectedPixels == "small",
                         flip = material.HasProperty("_Flip") ? material.GetVector("_Flip") : Vector4.zero,
@@ -226,6 +230,70 @@ public static class QuestPointerRenderProbe
             CopyInterference(owned, Require);
             SameRgba(Capture("line-after-native-2d-copies", native, owned, "line", quest: true), lineBeforeCopies,
                 "Actual texture copies must preserve every LineRenderer RGBA pixel");
+            line.gameObject.SetActive(false);
+            GloomhavenVR.Core.QuestStandalonePlatform.Enabled = false;
+            Require(GloomhavenVR.Hands.Interact.QuestPointerMarker.Create() == null,
+                "Desktop never creates a replacement marker consumer or changes its original sphere");
+            GloomhavenVR.Core.QuestStandalonePlatform.Enabled = true;
+            var markerRoot = GloomhavenVR.Hands.Interact.QuestPointerMarker.Create();
+            var markerParent = new GameObject("scaled-rotated-tracked-hand");
+            var dot = markerRoot.GetComponent<LineRenderer>();
+            var hit = sphere.transform.position;
+            try
+            {
+                markerRoot.transform.SetParent(markerParent.transform, false);
+                markerParent.transform.SetPositionAndRotation(new Vector3(8, 14, -3), Quaternion.Euler(30, 50, 75));
+                markerParent.transform.localScale = new Vector3(8, 11, 17);
+                dot.sharedMaterial = owned;
+                dot.sortingOrder = 5000;
+                factory.Apply(dot, true);
+                GloomhavenVR.Hands.Interact.QuestPointerMarker.Place(dot, hit, camera, .02f);
+                Require(dot.positionCount == 2 && dot.useWorldSpace && !dot.loop
+                    && dot.alignment == LineAlignment.View && dot.startColor == Color.white && dot.endColor == Color.white
+                    && dot.sharedMaterial == owned && dot.sortingOrder == 5000,
+                    "Quest dot retains the native beam consumer, round caps, tint, queue and visibility owner");
+                Require(Vector3.Distance((dot.GetPosition(0) + dot.GetPosition(1)) * .5f, hit) < .000001f
+                    && Mathf.Abs(dot.widthMultiplier - .02f) < .000001f,
+                    "Quest marker native endpoints must remain centred on the exact collision");
+                var roundDot = Capture("quest-round-cap-dot", native, owned, quest: true, consumer: dot);
+                int dotWidth = roundDot.maxX - roundDot.minX + 1, dotHeight = roundDot.maxY - roundDot.minY + 1;
+                Require(Math.Abs(dotWidth - dotHeight) <= 2 && roundDot.pixels >= dotWidth * dotHeight * .6f
+                    && dotWidth <= quest.maxX - quest.minX + 3 && dotHeight <= quest.maxY - quest.minY + 3,
+                    "Actual capped consumer must remain a small round hit footprint matching the existing angular size");
+                markerParent.transform.localScale = Vector3.one * 200;
+                GloomhavenVR.Hands.Interact.QuestPointerMarker.Place(dot, hit, camera, .02f);
+                SameRgba(Capture("quest-round-dot-after-rig-zoom", native, owned, quest: true, consumer: dot), roundDot,
+                    "Tracked hand scale must not enlarge or move the world-space collision dot");
+                CopyInterference(owned, Require);
+                SameRgba(Capture("quest-round-dot-after-native-copies", native, owned, quest: true, consumer: dot), roundDot,
+                    "Actual copied menu/card content must leave the capped consumer intact");
+                occluder.SetActive(true);
+                Capture("quest-round-dot-behind-real-solid", native, owned, "none", quest: true, consumer: dot);
+                var unoccludedControl = new Material(owned);
+                unoccludedControl.SetFloat("_ZTest", (float)CompareFunction.Always);
+                dot.sharedMaterial = unoccludedControl;
+                Capture("wrong-dot-through-solid-depth-control", native, unoccludedControl, quest: true, consumer: dot);
+                Object.DestroyImmediate(unoccludedControl); dot.sharedMaterial = owned;
+                occluder.SetActive(false);
+                var savedRotation = camera.transform.rotation;
+                try
+                {
+                    camera.transform.rotation = Quaternion.Euler(12, 28, 22);
+                    var turnedHit = camera.ViewportToWorldPoint(new Vector3(.57f, .55f, 1.5f));
+                    GloomhavenVR.Hands.Interact.QuestPointerMarker.Place(dot, turnedHit, camera, .02f);
+                    var turned = Capture("quest-round-dot-after-head-turn", native, owned, quest: true, consumer: dot);
+                    Require(Math.Abs((turned.maxX - turned.minX) - (turned.maxY - turned.minY)) <= 2,
+                        "Head rotation must keep the collision dot round instead of a disappearing axial segment");
+                }
+                finally { camera.transform.rotation = savedRotation; }
+                GloomhavenVR.Hands.Interact.QuestPointerMarker.Place(dot, hit, camera, .02f);
+                var nativeFallback = factory.Build(true, true); dot.sharedMaterial = nativeFallback;
+                Capture("quest-round-dot-native-material-fallback", native, nativeFallback, quest: true, consumer: dot);
+                Object.DestroyImmediate(nativeFallback); dot.sharedMaterial = owned;
+                Require(filter.sharedMesh == native && sphere.GetComponent<MeshRenderer>() == renderer,
+                    "Quest marker consumer repair must retain the independently owned original sphere fixture");
+            }
+            finally { Object.DestroyImmediate(markerRoot); Object.DestroyImmediate(markerParent); }
             File.WriteAllText(Path.Combine(output, "results.json"), JsonUtility.ToJson(report, true) + "\n");
             UnityEngine.Debug.Log("PASS native pointer GPU characterization: " + report.cases.Count + " cases, " + report.assertions + " assertions");
             EditorApplication.Exit(0);
