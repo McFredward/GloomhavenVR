@@ -63,7 +63,8 @@ admission gap, not that one missed frame explains the full hardware report.
 Startup now prepares the normal FlatScreen owner and real split/stereo lifecycle
 before Play, then reserves the original plane's alpha only with exact decoder
 identity, created movie/glass RTs, owned active backdrop/material and a live VR
-head. The compositor receives the original alpha; later native fades are kept.
+head. The compositor receives the original alpha and later nonzero native alpha
+writes. IntroPlayer ends its video by deactivation rather than an alpha animation.
 Deactivation at the original4s continuation, source/camera changes, decoder
 error, lost surface and VR shutdown release the reservation. Ordinary films
 retain scoped camera-draw leases. Readiness exceptions are caught before the
@@ -79,6 +80,15 @@ remain retained. Source-bound automatic capture/raster/lease controls are
 composed with native patch-order checks; they do not establish the corrected
 Windows headset picture. That automatic startup remains the required HMD check.
 
+The capture fixture's private placeholder also reads back an empty real Unity
+URL. Its supplied-path/existence receipt is separate from the unsupported actual
+MOV decoder probe; the cause of that empty getter is not assigned. An explicitly
+indexed decoder URL-transport port attempts the real setter and supplies the
+canonical metadata alongside readiness/pixels. Source parsing, finite catalogue,
+admission, exact player identity and actual capture/raster remain unchanged.
+The actual stereo constructor/config binder runs; only FlatScreen's owner
+constructor assignment is a minimal explicit fixture port, pinned to source.
+
 The disjoint UI worker moves all20 deliberate actions to Advanced > Cheats,
 using the existing default-off permission at construction and callback time.
 Permission changes hide retained names/status without rebuilding; cleanup stays
@@ -89,6 +99,29 @@ and65 scenario-win assertions/two controls. Its strict real net472 Release is
 0W/0E. All copied evidence/input hashes were independently verified in main
 before its clean stopped worktree was removed. The final integration uses
 affected focused checks and unchanged695 evidence, not a new complete-gate pass.
+The surface guard first reports two retired uppercase page captions as log
+tokens. Both were UI text, never runtime logs. Exact owner-scoped allowances
+record the authorized Cheats-page scope correction; no runtime log marker or
+config key is removed.
+
+The final affected native-video suite passes474 assertions/33 controls plus
+real22-file Python192/PowerShell209 packaging checks. Desktop rendering keeps
+all145 assertions/33 controls. The movie GPU suite passes193 assertions and21
+controls over38 variants: original raster44/eight plus automatic startup149/13,
+with240 retained captures. The previous-prefix semantic control fails at the
+intended automatic-admission assertion. The integrator also inspected actual
+left/right startup PNGs: distinct original eye fields, identical live blue UI.
+These are supplied decoder pixels on the actual source-bound GPU path, not
+decoded studio media or headset observations.
+
+All16 source suites pass. Fresh golden-only execution of the unchanged125-file
+fixture links129 production inputs and passes300597 assertions; seven actual
+executed artifacts and all hashes are retained before completion cleanup.
+Final clean696 Debug/Release metadata, source/resource payloads and all22 media
+copies are independently checked under `.planning/debug/stereo696/`. Handover
+requires strict0W/0E builds and those checks. The unchanged694 source/bank and
+remaining695 movie inputs reuse their exact independent evidence. This is five
+affected local suites plus source/goldens, not a new complete230-suite gate.
 
 ## Intro wordmark revision
 

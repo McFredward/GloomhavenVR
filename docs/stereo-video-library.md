@@ -75,6 +75,14 @@ VP8 probe decodes but supplies no native camera-plane baseline pixels. Native
 plane-latch timing remains inconclusive, and the696 automatic headset picture
 still needs the maintainer's test.
 
+The automatic capture fixture supplies decoder URL transport, readiness and
+decoded pixels explicitly; finite source parsing, admission, capture/split
+lifecycle, ownership and actual GPU eye rendering remain source-bound. Its real
+Unity setter attempt reads an empty URL for the private placeholder; that does
+not establish what the actual studio MOV setter does on Windows. The actual
+stereo constructor/config binder runs without options, while a minimal owner
+constructor supplies the original FlatScreen coverage-owner assignment.
+
 The ambient `MainVideoProvider` is component 11392 in `level1`, bound to VideoPlayer 10593.
 It serializes disabled, `playOnAwake=false`, `looping=true`, CameraFarPlane,
 `targetCameraAlpha=1` and no RenderTexture. `BackgroundView` supplies the native
@@ -241,7 +249,9 @@ or head changes the view of the surface, not the original camera positions
 inside the film. No head-pose view synthesis or six-degree-of-freedom scene
 reconstruction is introduced. Automated media/geometry evidence does not prove
 headset fusion, comfort, motion, decoder throughput or every native spawn path.
-Those remain subjects of the requested in-scenario review controls.
+The maintainer's2026-10-18 headset review accepts all20 deliberate films. Build696
+changes only startup presentation and the Cheats gate; automatic studio playback
+still requires a new headset check.
 
 `tests/stereo-video-library/check_audio.py` verifies the real Beast Tyrant ending:
 747 unchanged encoded H264 packets, 584 identical native AAC packets and the same
