@@ -21,6 +21,9 @@ internal sealed partial class CardsDriver
     // map-to-scenario transition. Class card IDs are local-only, scoped by persistent character
     // name; instance IDs change when the scenario constructs its cards. No game list is written.
     private static readonly FanOrderMemory _fanOrders = new();
+    // Guildmaster actors can have no CharacterName. Keep their native ActorGuid history in a
+    // separate domain: a named character can never accidentally inherit an unnamed actor's order.
+    private static readonly FanOrderMemory _unnamedFanOrders = new();
     private List<int> _fanOrder = new(24);
     private readonly List<VRCard> _fanReorderScratch = new(24);
 
@@ -47,11 +50,18 @@ internal sealed partial class CardsDriver
         if (widget?.PlayerActor != null && widget.AbilityCard != null)
         {
             character = widget.PlayerActor.CharacterName;
+            if (string.IsNullOrEmpty(character))
+                character = widget.PlayerActor.ActorGuid;
             id = widget.AbilityCard.ID;
             return !string.IsNullOrEmpty(character);
         }
         return WorldUI.MapRoom.MapRoomHand.TryFanOrderKey(card, out character, out id);
     }
+
+    private static FanOrderMemory FanOrdersFor(VRCard card) =>
+        card.GameCard?.PlayerActor != null
+        && string.IsNullOrEmpty(card.GameCard.PlayerActor.CharacterName)
+            ? _unnamedFanOrders : _fanOrders;
 
     // Reordering is presentation-only, independently of whether playing is currently allowed.
     // Pile-choice fans (notably long rest) and characters controlled by somebody else refuse it.
@@ -83,7 +93,7 @@ internal sealed partial class CardsDriver
             return;
 
         if (!TryFanKey(_fanBuffer[0], out string character, out _)) return;
-        _fanOrder = _fanOrders.Apply(character, _fanBuffer, _fanReorderScratch, FanId);
+        _fanOrder = FanOrdersFor(_fanBuffer[0]).Apply(character, _fanBuffer, _fanReorderScratch, FanId);
     }
 
     /// <summary>
@@ -150,7 +160,7 @@ internal sealed partial class CardsDriver
     private void CommitFanInsertion(VRCard card, int gap)
     {
         if (TryFanKey(card, out string character, out _))
-            _fanOrder = _fanOrders.ForCharacter(character);
+            _fanOrder = FanOrdersFor(card).ForCharacter(character);
         int id = FanId(card);
         if (id == int.MinValue)
         {

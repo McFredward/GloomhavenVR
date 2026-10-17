@@ -737,12 +737,18 @@ internal sealed partial class CardsDriver
             _fan.Add(card);
             int cardId = FanId(card);
             CardsHandUI handRef = gameHand;
-            List<int> returnOrder = _fanOrders.ForCharacter(gameHand.PlayerActor.CharacterName);
+            // Build677 hardware: Guildmaster's CharacterName was null. Indexing it here threw
+            // AFTER the physical take-back but BEFORE enqueueing the native unselect, leaving
+            // RoundAbilityCards unchanged. The wanted glow stayed off and the next actor switch
+            // correctly restored those still-selected cards. Optional fan ordering must never
+            // prevent the native withdrawal, even if neither native identity is available.
+            List<int>? returnOrder = gap >= 0 && TryFanKey(card, out string character, out _)
+                ? FanOrdersFor(card).ForCharacter(character) : null;
             CardActionQueue.Enqueue(
                 () => CardsGameApi.UnselectCard(handRef, ability),
                 () =>
                 {
-                    if (gap >= 0 && cardId != int.MinValue)
+                    if (returnOrder != null && cardId != int.MinValue)
                     {
                         FanOrderMemory.Insert(returnOrder, cardId, insertBeforeId, insertAfterId);
                     }
