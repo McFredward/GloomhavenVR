@@ -623,6 +623,10 @@ internal static class NetProtocol
     // Pending identity checks preserve ordinary output rather than selecting
     // the saved chromakey colour. Normally closed head-output resources can
     // reprepare after camera activation; actual failures retain their refusal.
+    // MR window bounds now include visible stock Image/RawImage Shadow/Outline
+    // geometry, preserving component order/byte alpha and existing clipping.
+    // Previously their visible pixels could extend beyond the opaque backing.
+    // Inactive/alpha-zero effects cannot grow it; no game mesh rebuild is called.
     // Improve the spatial coverage reconstruction without binarizing alpha,
     // changing scene RGB, adding cameras/readbacks or changing the receiver's
     // atlas/guard layout. Continuous glass and materialisation remain supported.

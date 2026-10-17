@@ -64,6 +64,36 @@ New693 hardware logs are not currently present. A separate author-window mask
 or higher-resolution receiver reconstruction would be a larger follow-up, not
 something established by this limited filter change. Keep this item open.
 
+## Actual stock UI effect footprint repair
+
+A further source defect is now reproduced in real Unity: Image/RawImage
+DrawingRect alone excludes the stock Shadow/Outline-modified vertices. Their
+visible pixels may extend beyond the opaque backing's8px margin and remain
+partially transparent. The production measurement now includes their actual
+stock translations in component order with native byte-alpha rules, including
+zero-alpha intermediate geometry that a later modifier can reveal. Merge equal
+alpha pieces into256 bounded bins; never populate or rebuild a native game mesh.
+New types are explicitly qualified as UnityEngine.UI.Shadow/Outline to avoid a
+different game/test binding. TMP/custom graphics/effects retain their old paths.
+
+The no-effect drawing rectangle, inherited/native hide gates, image aspect and
+sprite padding, external capture and ancestor clipping retain their existing
+contracts. There is no new sampling cadence, watcher, RT or camera, and a fresh
+measurement starts from current artwork rather than an accumulating union.
+
+Actual Unity stock ModifyMesh and rendered pixels independently reproduce this
+defect:16 geometry cases/15,200 visible pixels,4,032 outside the previous backing
+in the large-shadow cases. Corrected geometry includes them. A narrow aspect and
+byte-zero delta passes25 assertions/four cases; the old drawing-rectangle path
+fails the exact active-shadow xMax comparison after six successful checks.
+The existing PanelInk suite passes499 assertions plus30 runtime and one placement
+mutation. All owned processes/caches are reaped/cleaned; full and limited results
+remain under `.planning/debug/steamlink-window-shadow/`.
+
+This repairs a real window-opacity source path; it does not prove that the
+specific693 Story window had this modifier. Final headset appearance remains a
+hardware boundary, particularly the mask's residual few-pixel filtering.
+
 ## Focused checks
 
 - Source-linked lifecycle plus actual asynchronous Monitor:111 assertions. The

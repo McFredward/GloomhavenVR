@@ -2868,6 +2868,20 @@
         "local"
       ],
       "weight": 40
+    },
+    {
+      "id": "steamlink-window-shadow",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-window-shadow/run.py",
+        "--output",
+        ".planning/debug/steamlink-window-shadow"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
     }
   ]
 }

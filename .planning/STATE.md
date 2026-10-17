@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Native Steam Link loading continuity; limited edge improvement, 2026-10-17: Build694.**
+**Native Steam Link loading continuity and window effect bounds, 2026-10-17: Build694.**
 
 The maintainer confirms693 native MR works, then reports green flashes during
 loading and soft window edges. Connection admission incorrectly followed the
@@ -15,6 +15,16 @@ presentation42 plus pending-key mutant pass. Whole SceneHeadOutput with real
 coverage/packing/material callbacks passes436 checks,11 renders/five resumes;
 the previous owner fails specifically at same-camera re-enable. Named XR/session
 ports are not real headset evidence. Source instrumentation1/1 is green.
+
+MR window geometry also now includes the actually visible stock Image/RawImage
+Shadow/Outline footprint instead of only the pre-modifier DrawingRect. Actual
+Unity meshes/raster prove4,032 visible pixels could extend past the former opaque
+backing in the large-shadow cases; the corrected bounds contain them. Preserve
+byte-alpha/component order, zero-alpha resurrection through later modifiers,
+native hide, aspect and clipping gates without native game mesh rebuilds or a
+new cadence. Actual geometry/raster16 cases plus focused aspect/zero-alpha25
+checks pass; the old path fails the exact shadow bound. PanelInk499 plus31
+mutations pass. These source fixes do not establish the specific693 Story cause.
 
 The rebuilt source coverage bank uses continuous spatial C1 interpolation with
 no extra reads/RTs. Actual GPU571 checks and clipping126 pass; constant glass,
