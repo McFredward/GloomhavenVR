@@ -459,7 +459,7 @@
       "key": "CP_Intro/GH_CP_Intro.mov",
       "kind": "external",
       "source_sha256": "22fc9f48d4da6783fed379122e8c5675c4149afd9c0bc90550a9e4e22696fec5",
-      "source_bytes": 115673514,
+      "source_bytes": 56456385,
       "fps": 60,
       "frames": 2931,
       "dimensions": [
@@ -634,7 +634,8 @@
       "source_origin": "Already approved, mod-local GloomhavenVR intro; root-owned revision.",
       "native_source_relative": "StreamingAssets/Movies/CP_Intro/GH_CP_Intro.mov",
       "source_root": "repository",
-      "source_relative": "src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov"
+      "source_relative": "src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov",
+      "native_source_bytes": 115673514
     },
     {
       "key": "Heroes/BeastTyrant.mov",
@@ -707,15 +708,69 @@
           "start": 354,
           "end": 722,
           "mode": "depth",
-          "screen_regions": [
-            [
-              1100,
-              230,
-              1920,
-              956
-            ]
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                940,
+                442,
+                1785,
+                563
+              ],
+              "prepare": [
+                506,
+                518
+              ],
+              "last_clear_source_frame": 518,
+              "observed_onset_frame": 520,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                534,
+                546
+              ],
+              "source_witness_frames": [
+                522,
+                606,
+                685
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1110,
+                258,
+                1600,
+                706
+              ],
+              "prepare": [
+                590,
+                602
+              ],
+              "last_clear_source_frame": 602,
+              "observed_onset_frame": 604,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                624,
+                636
+              ],
+              "source_witness_frames": [
+                522,
+                606,
+                685
+              ]
+            }
           ],
-          "screen_region_reason": "Original final name banner and class symbol stay on the screen plane; original actor remains depth-reprojected outside the protected printed panel."
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
         },
         {
           "id": "black-04",
@@ -796,15 +851,69 @@
           "start": 377,
           "end": 857,
           "mode": "depth",
-          "screen_regions": [
-            [
-              1100,
-              230,
-              1920,
-              956
-            ]
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                523,
+                1895,
+                684
+              ],
+              "prepare": [
+                619,
+                631
+              ],
+              "last_clear_source_frame": 631,
+              "observed_onset_frame": 633,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                647,
+                659
+              ],
+              "source_witness_frames": [
+                641,
+                725,
+                809
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1080,
+                192,
+                1586,
+                820
+              ],
+              "prepare": [
+                707,
+                719
+              ],
+              "last_clear_source_frame": 719,
+              "observed_onset_frame": 721,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                741,
+                753
+              ],
+              "source_witness_frames": [
+                641,
+                725,
+                809
+              ]
+            }
           ],
-          "screen_region_reason": "Original final name banner and class symbol stay on the screen plane; original actor remains depth-reprojected outside the protected printed panel."
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
         },
         {
           "id": "black-04",
@@ -885,15 +994,69 @@
           "start": 426,
           "end": 865,
           "mode": "depth",
-          "screen_regions": [
-            [
-              1100,
-              230,
-              1920,
-              956
-            ]
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                457,
+                1895,
+                618
+              ],
+              "prepare": [
+                620,
+                632
+              ],
+              "last_clear_source_frame": 632,
+              "observed_onset_frame": 634,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                648,
+                660
+              ],
+              "source_witness_frames": [
+                642,
+                726,
+                821
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1020,
+                216,
+                1662,
+                870
+              ],
+              "prepare": [
+                704,
+                716
+              ],
+              "last_clear_source_frame": 716,
+              "observed_onset_frame": 718,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                738,
+                750
+              ],
+              "source_witness_frames": [
+                642,
+                726,
+                821
+              ]
+            }
           ],
-          "screen_region_reason": "Original final name banner and class symbol stay on the screen plane; original actor remains depth-reprojected outside the protected printed panel."
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
         },
         {
           "id": "black-04",
@@ -974,15 +1137,69 @@
           "start": 441,
           "end": 830,
           "mode": "depth",
-          "screen_regions": [
-            [
-              0,
-              230,
-              960,
-              956
-            ]
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                55,
+                457,
+                935,
+                593
+              ],
+              "prepare": [
+                633,
+                645
+              ],
+              "last_clear_source_frame": 645,
+              "observed_onset_frame": 647,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                661,
+                673
+              ],
+              "source_witness_frames": [
+                657,
+                741,
+                791
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                220,
+                298,
+                770,
+                781
+              ],
+              "prepare": [
+                719,
+                731
+              ],
+              "last_clear_source_frame": 731,
+              "observed_onset_frame": 733,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                753,
+                765
+              ],
+              "source_witness_frames": [
+                657,
+                741,
+                791
+              ]
+            }
           ],
-          "screen_region_reason": "Original final name banner and class symbol stay on the screen plane; original actor remains depth-reprojected outside the protected printed panel."
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
         },
         {
           "id": "black-04",
@@ -1063,15 +1280,69 @@
           "start": 355,
           "end": 800,
           "mode": "depth",
-          "screen_regions": [
-            [
-              1100,
-              230,
-              1920,
-              956
-            ]
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                457,
+                1895,
+                618
+              ],
+              "prepare": [
+                571,
+                583
+              ],
+              "last_clear_source_frame": 583,
+              "observed_onset_frame": 585,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                599,
+                611
+              ],
+              "source_witness_frames": [
+                595,
+                679,
+                755
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1044,
+                246,
+                1638,
+                830
+              ],
+              "prepare": [
+                657,
+                669
+              ],
+              "last_clear_source_frame": 669,
+              "observed_onset_frame": 671,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                691,
+                703
+              ],
+              "source_witness_frames": [
+                595,
+                679,
+                755
+              ]
+            }
           ],
-          "screen_region_reason": "Original final name banner and class symbol stay on the screen plane; original actor remains depth-reprojected outside the protected printed panel."
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
         },
         {
           "id": "black-04",
@@ -1152,15 +1423,69 @@
           "start": 493,
           "end": 898,
           "mode": "depth",
-          "screen_regions": [
-            [
-              0,
-              230,
-              960,
-              956
-            ]
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                40,
+                492,
+                995,
+                637
+              ],
+              "prepare": [
+                631,
+                643
+              ],
+              "last_clear_source_frame": 643,
+              "observed_onset_frame": 645,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                659,
+                671
+              ],
+              "source_witness_frames": [
+                649,
+                733,
+                857
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                350,
+                256,
+                670,
+                825
+              ],
+              "prepare": [
+                715,
+                727
+              ],
+              "last_clear_source_frame": 727,
+              "observed_onset_frame": 729,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                749,
+                761
+              ],
+              "source_witness_frames": [
+                649,
+                733,
+                857
+              ]
+            }
           ],
-          "screen_region_reason": "Original final name banner and class symbol stay on the screen plane; original actor remains depth-reprojected outside the protected printed panel."
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
         },
         {
           "id": "black-04",
@@ -1241,15 +1566,69 @@
           "start": 360,
           "end": 664,
           "mode": "depth",
-          "screen_regions": [
-            [
-              1100,
-              230,
-              1920,
-              956
-            ]
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                547,
+                1895,
+                708
+              ],
+              "prepare": [
+                456,
+                468
+              ],
+              "last_clear_source_frame": 468,
+              "observed_onset_frame": 470,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                484,
+                496
+              ],
+              "source_witness_frames": [
+                480,
+                564,
+                633
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1174,
+                280,
+                1520,
+                926
+              ],
+              "prepare": [
+                540,
+                552
+              ],
+              "last_clear_source_frame": 552,
+              "observed_onset_frame": 554,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                574,
+                586
+              ],
+              "source_witness_frames": [
+                480,
+                564,
+                633
+              ]
+            }
           ],
-          "screen_region_reason": "Original final name banner and class symbol stay on the screen plane; original actor remains depth-reprojected outside the protected printed panel."
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
         },
         {
           "id": "black-04",
@@ -1330,15 +1709,69 @@
           "start": 726,
           "end": 1044,
           "mode": "depth",
-          "screen_regions": [
-            [
-              1100,
-              230,
-              1920,
-              956
-            ]
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                457,
+                1895,
+                618
+              ],
+              "prepare": [
+                820,
+                832
+              ],
+              "last_clear_source_frame": 832,
+              "observed_onset_frame": 834,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                848,
+                860
+              ],
+              "source_witness_frames": [
+                846,
+                930,
+                1012
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1008,
+                360,
+                1675,
+                725
+              ],
+              "prepare": [
+                906,
+                918
+              ],
+              "last_clear_source_frame": 918,
+              "observed_onset_frame": 920,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                940,
+                952
+              ],
+              "source_witness_frames": [
+                846,
+                930,
+                1012
+              ]
+            }
           ],
-          "screen_region_reason": "Original final name banner and class symbol stay on the screen plane; original actor remains depth-reprojected outside the protected printed panel."
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
         },
         {
           "id": "black-04",
@@ -1419,15 +1852,69 @@
           "start": 333,
           "end": 725,
           "mode": "depth",
-          "screen_regions": [
-            [
-              1100,
-              230,
-              1920,
-              956
-            ]
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                464,
+                1895,
+                626
+              ],
+              "prepare": [
+                509,
+                521
+              ],
+              "last_clear_source_frame": 521,
+              "observed_onset_frame": 523,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                537,
+                549
+              ],
+              "source_witness_frames": [
+                525,
+                609,
+                685
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                995,
+                254,
+                1620,
+                872
+              ],
+              "prepare": [
+                595,
+                607
+              ],
+              "last_clear_source_frame": 607,
+              "observed_onset_frame": 609,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                629,
+                641
+              ],
+              "source_witness_frames": [
+                525,
+                609,
+                685
+              ]
+            }
           ],
-          "screen_region_reason": "Original final name banner and class symbol stay on the screen plane; original actor remains depth-reprojected outside the protected printed panel."
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
         },
         {
           "id": "black-04",
@@ -1508,15 +1995,69 @@
           "start": 355,
           "end": 723,
           "mode": "depth",
-          "screen_regions": [
-            [
-              1100,
-              230,
-              1920,
-              956
-            ]
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                457,
+                1895,
+                618
+              ],
+              "prepare": [
+                541,
+                553
+              ],
+              "last_clear_source_frame": 553,
+              "observed_onset_frame": 555,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                569,
+                581
+              ],
+              "source_witness_frames": [
+                559,
+                643,
+                686
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1005,
+                207,
+                1675,
+                875
+              ],
+              "prepare": [
+                625,
+                637
+              ],
+              "last_clear_source_frame": 637,
+              "observed_onset_frame": 639,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                659,
+                671
+              ],
+              "source_witness_frames": [
+                559,
+                643,
+                686
+              ]
+            }
           ],
-          "screen_region_reason": "Original final name banner and class symbol stay on the screen plane; original actor remains depth-reprojected outside the protected printed panel."
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
         },
         {
           "id": "black-04",
@@ -1597,15 +2138,69 @@
           "start": 545,
           "end": 925,
           "mode": "depth",
-          "screen_regions": [
-            [
-              1100,
-              230,
-              1920,
-              956
-            ]
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                990,
+                539,
+                1895,
+                675
+              ],
+              "prepare": [
+                723,
+                735
+              ],
+              "last_clear_source_frame": 735,
+              "observed_onset_frame": 737,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                751,
+                763
+              ],
+              "source_witness_frames": [
+                737,
+                833,
+                887
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1170,
+                335,
+                1710,
+                875
+              ],
+              "prepare": [
+                807,
+                819
+              ],
+              "last_clear_source_frame": 819,
+              "observed_onset_frame": 821,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                841,
+                853
+              ],
+              "source_witness_frames": [
+                737,
+                833,
+                887
+              ]
+            }
           ],
-          "screen_region_reason": "Original final name banner and class symbol stay on the screen plane; original actor remains depth-reprojected outside the protected printed panel."
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
         },
         {
           "id": "black-04",

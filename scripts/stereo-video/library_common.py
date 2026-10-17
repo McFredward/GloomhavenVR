@@ -14,6 +14,55 @@ from library_depth import receipt_matches, validate_movie, source_for
 WIDTH, HEIGHT = 1920, 1080
 
 
+def validate_panels(movie: dict) -> None:
+    for shot in movie['shots']:
+        for panel in shot.get('screen_panels', []):
+            prepare, release = panel['prepare'], panel['onset_release']
+            if (shot['mode'] != 'depth' or len(prepare) != 2 or len(release) != 2
+                    or not shot['start'] <= prepare[0] < prepare[1] <= panel['observed_onset_frame']
+                    <= release[0] < release[1] < shot['end']):
+                raise ValueError('Printed panel timing must fit the original depth shot')
+            for bounds in (panel['bounds'], panel['onset_bounds']):
+                if (len(bounds) != 4 or any(type(n) is not int for n in bounds)
+                        or not 0 <= bounds[0] < bounds[2] <= WIDTH
+                        or not 0 <= bounds[1] < bounds[3] <= HEIGHT):
+                    raise ValueError('Printed panel bounds exceed the original eye')
+
+
+def smooth_strength(frame: int, interval: list[int]) -> float:
+    value = min(1.0, max(0.0, (frame - interval[0]) / (interval[1] - interval[0])))
+    return value * value * (3.0 - 2.0 * value)
+
+
+def protected_regions(shot: dict, frame: int | None) -> list[tuple[list[int], float]]:
+    # Legacy rectangles remain readable for retained before/after causal checks.
+    regions = [(bounds, 1.0) for bounds in shot.get('screen_regions', [])]
+    if shot.get('screen_panels') and (type(frame) is not int or not shot['start'] <= frame < shot['end']):
+        raise ValueError('A native frame address is required for timed printed panels')
+    for panel in shot.get('screen_panels', []):
+        strength = smooth_strength(frame, panel['prepare'])
+        if not strength:
+            continue
+        regions.append((panel['bounds'], strength))
+        # Native titles and emblems briefly zoom/blur in beyond their settled
+        # bounds. Protect that observed envelope, then release only the outside
+        # scenery smoothly after the original print has settled.
+        reveal = strength * (1.0 - smooth_strength(frame, panel['onset_release']))
+        if reveal:
+            regions.append((panel['onset_bounds'], reveal))
+    return regions
+
+
+def witness_frames(shot: dict) -> set[int]:
+    frames = {shot['start'], (shot['start'] + shot['end']) // 2, shot['end'] - 1}
+    for panel in shot.get('screen_panels', []):
+        begin, rigid = panel['prepare']
+        release, released = panel['onset_release']
+        frames.update((begin - 1, begin, (begin + rigid) // 2, rigid,
+                       panel['observed_onset_frame'], release, released))
+    return {frame for frame in frames if shot['start'] <= frame < shot['end']}
+
+
 def read_depth(directory: Path, movie: dict, shot: dict, wait: bool = False):
     receipt, target = directory / (shot['id'] + '.json'), directory / (shot['id'] + '.npz')
     deadline = time.monotonic() + (7200 if wait else 0)
@@ -34,7 +83,7 @@ def read_depth(directory: Path, movie: dict, shot: dict, wait: bool = False):
     return data, info
 
 
-def field_for(depth, image: np.ndarray, movie: dict, shot: dict, info=None) -> np.ndarray:
+def field_for(depth, image: np.ndarray, movie: dict, shot: dict, info=None, frame: int | None = None) -> np.ndarray:
     """The accepted687 [-4,+12] horizontal geometry with source-specific masks."""
     if shot['mode'] == 'screen':
         return np.zeros(image.shape[:2], dtype=np.float32)
@@ -59,13 +108,13 @@ def field_for(depth, image: np.ndarray, movie: dict, shot: dict, info=None) -> n
     field[bottom:] = 0
     border = np.minimum(np.arange(WIDTH), np.arange(WIDTH)[::-1]).astype(np.float32)
     field *= np.minimum(border / 64.0, 1.0)[None, :]
-    for x0, y0, x1, y1 in shot.get('screen_regions', []):
+    for (x0, y0, x1, y1), strength in protected_regions(shot, frame):
         # The source has already composited these original labels. Keep the
         # observed printed panel and glyphs in one undistorted screen plane.
-        field[y0:y1, x0:x1] = 0
+        field[y0:y1, x0:x1] *= 1.0 - strength
         # Blend only outside the protected rectangle; no glyph is interpolated.
         for band in range(1, 33):
-            factor = band / 33.0
+            factor = 1.0 - strength * (1.0 - band / 33.0)
             if x0 - band >= 0:
                 field[max(0, y0-band):min(HEIGHT, y1+band), x0-band] *= factor
             if x1 + band - 1 < WIDTH:
@@ -86,4 +135,5 @@ def load_movie(manifest_path: Path, key: str) -> tuple[dict, dict]:
     if len(movies) != 1 or movies[0].get('root_owned'):
         raise ValueError('Unknown, excluded or separately root-owned movie')
     validate_movie(movies[0])
+    validate_panels(movies[0])
     return manifest, movies[0]

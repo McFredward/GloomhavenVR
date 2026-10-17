@@ -15,7 +15,7 @@ import numpy as np
 from intro_depth import validate_model
 from library_review import extract_cues
 from library_common import (WIDTH, HEIGHT, audio_packets, digest, field_for,
-    forward_warp, load_movie, read_depth, save, source_for)
+    forward_warp, load_movie, read_depth, save, source_for, protected_regions, witness_frames)
 
 
 def run(command: list[str], log: Path) -> bytes:
@@ -87,7 +87,7 @@ def verify_right(args, movie: dict, source: Path) -> dict:
         directory = args.depths / movie['key'].removesuffix('.mov')
         for shot in movie['shots']:
             data, info = read_depth(directory, movie, shot) if shot['mode'] == 'depth' else (None, None)
-            witnesses = {shot['start'], (shot['start'] + shot['end']) // 2, shot['end'] - 1}
+            witnesses = witness_frames(shot)
             for frame in range(shot['start'], shot['end']):
                 original_bytes = original_decoder.stdout.read(WIDTH * HEIGHT * 3)
                 packed_bytes = packed_decoder.stdout.read(WIDTH * 2 * HEIGHT * 3 // 2)
@@ -96,7 +96,8 @@ def verify_right(args, movie: dict, source: Path) -> dict:
                 if frame not in witnesses:
                     continue
                 original = np.frombuffer(original_bytes, np.uint8).reshape(HEIGHT, WIDTH, 3)
-                field = field_for(data[frame - shot['start']] if data is not None else None, original, movie, shot, info)
+                field = field_for(data[frame - shot['start']] if data is not None else None,
+                                  original, movie, shot, info, frame=frame)
                 expected = original if shot['mode'] == 'screen' else forward_warp(original, field)[0]
                 reference, duplicate = convert_reference(expected, original)
                 actual = right_half_yuv(packed_bytes)
@@ -108,13 +109,15 @@ def verify_right(args, movie: dict, source: Path) -> dict:
                     raise ValueError(f'Right encoding/frame correspondence below34dB at {frame}: {psnr:.3f}')
                 if separation > 20 and duplicate_mse <= mse * 2:
                     raise ValueError(f'Right view is consistent with a duplicated left at {frame}')
-                for x0, y0, x1, y1 in shot.get('screen_regions', []):
-                    if np.any(field[y0:y1, x0:x1]):
+                for (x0, y0, x1, y1), strength in protected_regions(shot, frame):
+                    if strength == 1.0 and np.any(field[y0:y1, x0:x1]):
                         raise ValueError('Native printed title region acquired stereo distortion')
                 result = {'frame': frame, 'shot': shot['id'], 'metric_space': 'native-YUV420',
                     'right_reference_psnr_db': psnr, 'right_vs_duplicate_left_mse': duplicate_mse,
                     'expected_stereo_difference_mse': separation,
-                    'disparity_bounds_px': [float(field.min()), float(field.max())]}
+                    'disparity_bounds_px': [float(field.min()), float(field.max())],
+                    'protected_regions': [{'bounds': bounds, 'strength': strength}
+                                          for bounds, strength in protected_regions(shot, frame)]}
                 results.append(result)
                 if frame in (0, movie['frames'] - 1):
                     endpoints[str(frame)] = {'original_rgb_mean': float(original.mean()),

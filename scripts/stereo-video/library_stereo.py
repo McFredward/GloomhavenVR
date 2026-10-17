@@ -12,7 +12,7 @@ import time
 import cv2
 import numpy as np
 from library_common import (WIDTH, HEIGHT, audio_packets, digest, field_for,
-    forward_warp, load_movie, read_depth, save, source_for)
+    forward_warp, load_movie, read_depth, save, source_for, witness_frames)
 
 
 def render(args) -> Path:
@@ -66,15 +66,16 @@ def render(args) -> Path:
             data, info = read_depth(directory, movie, shot, args.wait_depth) if shot['mode'] == 'depth' else (None, None)
             record = {'id': shot['id'], 'start': shot['start'], 'end': shot['end'], 'mode': shot['mode'],
                 'holes_filled': 0, 'maximum_hole_fraction': 0.0, 'minimum_disparity_px': 0.0,
-                'maximum_disparity_px': 0.0, 'screen_regions': shot.get('screen_regions', [])}
-            witnesses = {shot['start'], (shot['start'] + shot['end']) // 2, shot['end'] - 1}
+                'maximum_disparity_px': 0.0, 'screen_regions': shot.get('screen_regions', []),
+                'screen_panels': shot.get('screen_panels', [])}
+            witnesses = witness_frames(shot)
             for index in range(shot['start'], shot['end']):
                 raw = decoder.stdout.read(WIDTH * HEIGHT * 3)
                 if len(raw) != WIDTH * HEIGHT * 3:
                     raise ValueError(f'Original decoder lost frame {index}')
                 original = np.frombuffer(raw, np.uint8).reshape(HEIGHT, WIDTH, 3)
                 field = field_for(data[index - shot['start']] if data is not None else None,
-                                  original, movie, shot, info)
+                                  original, movie, shot, info, frame=index)
                 right, holes = (original, 0) if shot['mode'] == 'screen' else forward_warp(original, field)
                 encoder.stdin.write(right.tobytes())
                 record['holes_filled'] += holes

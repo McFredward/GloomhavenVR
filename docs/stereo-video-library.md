@@ -87,9 +87,19 @@ pixels take adjoining farther original background; there is no generative
 inpainting, replacement artwork or invented scene content.
 
 Native hero opening emblems retain the intro's screen-plane title treatment.
-The final hero name/banner and class symbol keep a protected screen-plane region
-on their observed native left or right side; character geometry outside that
-printed panel remains depth-reprojected. Original cinematic bars are preserved.
+Each final hero name/banner and class symbol has separate source-specific screen
+regions and original-frame timing. Original early/middle/late pictures, full-shot
+timelines and two-frame-spaced reveal pictures bind the observed envelopes to
+each source hash. The bounds include complete glyphs, emblem tips and thin banner
+borders. The preceding scenery keeps the exact unmasked neural field. A12-frame
+smooth preparation ends at the last clear source sample before visible print.
+The native zoom/blur briefly exceeds its settled envelope, sometimes reaching the
+picture edges; a conservative active-picture envelope protects that original
+printed reveal. It releases smoothly into the two tight settled regions after
+the print has settled. Character geometry outside the settled panels returns to
+the original neural field. Original cinematic bars are preserved. These masks
+change presentation only: shot addresses, source hashes, native clocks and neural
+depth receipts remain identical. All seven ambient movie objects are unchanged.
 The original studio mark uses a uniform+8pixel positive-disparity plane so its
 lettering remains rigid. Source black fades taper depth using the same luminance
 rule as687. Ambient first/last original black frames have zero disparity, closing
@@ -123,7 +133,9 @@ movie Content beside the DLL.
 `library_verify.py` independently decodes every output frame timestamp and left
 picture, compares the complete original AAC packet sequence, validates depth
 pins/shapes/hashes, and checks start/middle/end encoded right witnesses for every
-shot. Both picture metrics use declared native YUV420, with the same 34 dB minimum
+shot. Hero print shots additionally check before preparation, during preparation,
+fully rigid onset and the released settled panel, using explicit native frame
+addresses in both rendering and verification. Both picture metrics use declared native YUV420, with the same 34 dB minimum
 as the approved intro. Strong depth witnesses also reject a duplicated left eye.
 The verifier validates protected print regions and both native ambient loop
 endpoints. `library_review.py` additionally extracts three actual encoded PNG
@@ -133,12 +145,16 @@ include the final protected name/symbol panel. Manual inspection follows the
 automatic gate, with its own hash-bound record in per-film provenance. Decoder children are killed/reaped before the shared completion
 cleanup API runs, including failures and interrupts.
 
-`tests/stereo-video-library/check_library.py` has18 physical/inventory checks and
-11 refusal controls: known near/far directions, unchanged vertical addresses,
+`tests/stereo-video-library/check_library.py` has129 physical/inventory checks and
+33 refusal controls: known near/far directions, unchanged vertical addresses,
 real disocclusion, duplicated/reversed eye differences, actual YUV chroma crop,
 protected print regions, disparity limits, black fades, native30fps timing,
 trailer/root-owned refusal, shot gaps, lost ending, wrong timestamps, half-SBS,
-wrong SAR, duration and color metadata. Its first geometry attempt used an
+wrong SAR, duration and color metadata. Timed print checks prove exact pre-title
+depth, smooth preparation, complete enlarged reveals and restored actor depth.
+Independent native printed edge coordinates expose the former clipped generic
+ROI, while an always-on mask is a causal failure control. Missing frame addresses
+and a protection transition ending after visible print are refused. Its first geometry attempt used an
 ill-posed far-object witness whose supposedly background plane was nearer than
 the object. Correcting that fixture to a farther background passes; the failed
 attempt remains retained and no production geometry was relaxed.

@@ -10,7 +10,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/stereo-video'))
-from library_common import field_for, forward_warp, load_movie
+from library_common import (field_for, forward_warp, load_movie, protected_regions,
+    validate_panels, witness_frames)
 from library_depth import receipt_matches, validate_movie
 from library_verify import validate_probe, right_half_yuv
 
@@ -39,6 +40,7 @@ def run() -> dict:
     refused(lambda: load_movie(manifest_path, 'CP_Intro/GH_CP_Intro.mov'), 'root-owned approved intro cannot enter library converter')
     for movie in manifest['movies']:
         validate_movie(movie)
+        validate_panels(movie)
     movie = next(m for m in manifest['movies'] if m['key'].startswith('Ambient/'))
     for change, name in [('gap', 'shot gap'), ('ending', 'lost native ending'), ('fps', 'retimed frame rate')]:
         broken = copy.deepcopy(movie)
@@ -70,15 +72,58 @@ def run() -> dict:
     require(np.all(actual[:1920*1080] == 77) and np.all(actual[1920*1080:1920*1080+960*540] == 111)
             and np.all(actual[-960*540:] == 199), 'native YUV420 right-half chroma sampling')
     hero = next(m for m in manifest['movies'] if m['key'] == 'Heroes/Elementalist.mov')
-    shot = next(s for s in hero['shots'] if s.get('screen_regions'))
+    shot = next(s for s in hero['shots'] if s.get('screen_panels'))
     original = np.full((1080, 1920, 3), 100, np.uint8)
     depth = np.tile(np.linspace(0, 1, 640, dtype=np.float32), (360, 1))
-    measured = field_for(depth, original, hero, shot, {'normalization_p02_p98': [0, 1]})
+    info = {'normalization_p02_p98': [0, 1]}
+    frame = shot['end'] - 1
+    measured = field_for(depth, original, hero, shot, info, frame=frame)
     require(float(measured.min()) >= -4 and float(measured.max()) <= 12, 'accepted687 physical disparity range retained')
-    for x0, y0, x1, y1 in shot['screen_regions']:
+    for (x0, y0, x1, y1), strength in protected_regions(shot, frame):
+        require(strength == 1, 'settled native print is completely protected')
         require(not measured[y0:y1, x0:x1].any(), 'observed native name and class panel remains screen-plane')
     require(not measured[:128].any() and not measured[956:].any(), 'native cinematic letterbox plane retained')
     require(measured[600, 1500] > 5, 'actor side outside printed panel retains positive depth')
+    # These independently observed printed edge points fell outside the former
+    # generic panel. Their geometry must now be rigid, including the thin lines.
+    printed_edges = {'BeastTyrant':(1000,454), 'Berserker':(1470,209),
+        'Doomstalker':(1047,590), 'Nightshroud':(1065,520),
+        'Quartermaster':(1092,615), 'Sawbones':(1034,550),
+        'Soothsinger':(1022,768), 'Summoner':(1034,540), 'Sunkeeper':(1035,551)}
+    for hero in [m for m in manifest['movies'] if m['key'].startswith('Heroes/')]:
+        name = Path(hero['key']).stem
+        shot = next(s for s in hero['shots'] if s.get('screen_panels'))
+        raw_shot = {k:v for k,v in shot.items() if k != 'screen_panels'}
+        before = min(p['prepare'][0] for p in shot['screen_panels']) - 1
+        baseline = field_for(depth, original, hero, raw_shot, info, frame=before)
+        early = field_for(depth, original, hero, shot, info, frame=before)
+        require(np.array_equal(early, baseline), name + ': pre-title scenery retains exact neural field')
+        refused(lambda h=hero,s=shot: field_for(depth, original, h, s, info), name + ': missing native panel clock')
+        legacy_shot = copy.deepcopy(raw_shot)
+        legacy_shot['screen_regions'] = [[0,230,960,956] if name in ('Elementalist','Plagueherald') else [1100,230,1920,956]]
+        legacy = field_for(depth, original, hero, legacy_shot, info, frame=before)
+        require(not np.array_equal(early, legacy), name + ': always-on flattening causal control fails')
+        for panel in shot['screen_panels']:
+            begin, rigid = panel['prepare']
+            middle = (begin + rigid) // 2
+            # During preparation the original scenery moves continuously toward
+            # the screen; the whole visible printed zoom is rigid by onset.
+            preparing = field_for(depth, original, hero, shot, info, frame=middle)
+            onset = field_for(depth, original, hero, shot, info, frame=panel['observed_onset_frame'])
+            require(np.any(preparing) and not np.array_equal(preparing, baseline), name + ': smooth pre-print preparation')
+            x0,y0,x1,y1 = panel['onset_bounds']
+            require(not onset[y0:y1,x0:x1].any(), name + ': original enlarged printed reveal stays rigid')
+            require({begin-1,middle,rigid,panel['observed_onset_frame'],*panel['onset_release']}.issubset(witness_frames(shot)), name + ': pre/onset/released encoded witness addresses')
+        settled = field_for(depth, original, hero, shot, info, frame=shot['end'] - 1)
+        actor_x = 1500 if name in ('Elementalist','Plagueherald') else 300
+        require(settled[700,actor_x] == baseline[700,actor_x] != 0, name + ': actor depth restored outside settled panels')
+        if name in printed_edges:
+            x,y = printed_edges[name]
+            require(settled[y,x] == 0 and abs(float(legacy[y,x])) > .01, name + ': former clipped printed edge causal witness')
+        broken = copy.deepcopy(hero)
+        changed = next(s for s in broken['shots'] if s.get('screen_panels'))['screen_panels'][0]
+        changed['prepare'][1] = changed['observed_onset_frame'] + 1
+        refused(lambda b=broken: validate_panels(b), name + ': protection cannot finish after visible print')
     studio = next(m for m in manifest['movies'] if m['kind'] == 'embedded')
     measured = field_for(None, original, studio, studio['shots'][0])
     require(measured[540, 960] == 8, 'original studio mark is a uniform positive plane')
