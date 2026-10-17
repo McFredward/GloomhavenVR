@@ -1,0 +1,316 @@
+{
+  "schema": "owned-scene-coverage-variants-v1",
+  "scope": "owned-shader-source-only-not-native-certificate",
+  "variants": [
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/EnvParticleAlpha.shader",
+      "source_sha256": "64e46e578c5d556bcfa273208b8f9cfaf8992d4e082d73fd39e12a87075cabb3",
+      "original_shader": "GloomhavenVR/EnvParticleAlpha",
+      "variant_shader": "GloomhavenVR/EnvParticleAlpha.SceneCoverage",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/EnvParticleAlpha\"",
+          "after": "Shader \"GloomhavenVR/EnvParticleAlpha.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "        Blend SrcAlpha OneMinusSrcAlpha\n",
+          "after": "        Blend SrcAlpha OneMinusSrcAlpha, One OneMinusSrcAlpha\n",
+          "count": 1
+        }
+      ],
+      "policy": "fixed"
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/HealthBars/ActorBarSprite.shader",
+      "source_sha256": "b18bf47aa18db4b02b67f6010504b2be0db963be87d64620c646dc2810c3fd5e",
+      "original_shader": "GloomhavenVR/ActorBarSprite",
+      "variant_shader": "GloomhavenVR/ActorBarSprite.SceneCoverage",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/ActorBarSprite\"",
+          "after": "Shader \"GloomhavenVR/ActorBarSprite.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "\t\tBlend SrcAlpha OneMinusSrcAlpha\n",
+          "after": "\t\tBlend SrcAlpha OneMinusSrcAlpha, One OneMinusSrcAlpha\n",
+          "count": 1
+        }
+      ],
+      "policy": "fixed"
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Table/HexDecalStable.shader",
+      "source_sha256": "6dc81d6e6e95528e72662a23581d092c3c93c2094705fae2b9fa489e95259230",
+      "original_shader": "GloomhavenVR/HexDecalStable",
+      "variant_shader": "GloomhavenVR/HexDecalStable.SceneCoverage",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/HexDecalStable\"",
+          "after": "Shader \"GloomhavenVR/HexDecalStable.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "            Blend SrcAlpha OneMinusSrcAlpha\n",
+          "after": "            Blend SrcAlpha OneMinusSrcAlpha, One OneMinusSrcAlpha\n",
+          "count": 1
+        }
+      ],
+      "policy": "fixed"
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/EnvParticleAdd.shader",
+      "source_sha256": "c8155fe92c89556caf63408b4eafd25edb51bcf2ccf8577fcb4bbc76c2a175f6",
+      "original_shader": "GloomhavenVR/EnvParticleAdd",
+      "variant_shader": "GloomhavenVR/EnvParticleAdd.SceneCoverage",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/EnvParticleAdd\"",
+          "after": "Shader \"GloomhavenVR/EnvParticleAdd.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "        Blend SrcAlpha One\n",
+          "after": "        Blend SrcAlpha One, Zero One\n",
+          "count": 1
+        }
+      ],
+      "policy": "fixed"
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/EnvGlow.shader",
+      "source_sha256": "2bb099810e69982019d0128dc7cae6ecf299e027efcace1260a9d1dbfd725e43",
+      "original_shader": "GloomhavenVR/EnvGlow",
+      "variant_shader": "GloomhavenVR/EnvGlow.SceneCoverage",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/EnvGlow\"",
+          "after": "Shader \"GloomhavenVR/EnvGlow.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "        Blend SrcAlpha One\n",
+          "after": "        Blend SrcAlpha One, Zero One\n",
+          "count": 1
+        }
+      ],
+      "policy": "fixed"
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/EnvFlame.shader",
+      "source_sha256": "0dc456e5d677c0d6ea3c406d5c85977af3170a2240778e881636a4bc3c82e173",
+      "original_shader": "GloomhavenVR/EnvFlame",
+      "variant_shader": "GloomhavenVR/EnvFlame.SceneCoverage",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/EnvFlame\"",
+          "after": "Shader \"GloomhavenVR/EnvFlame.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "        Blend SrcAlpha One\n",
+          "after": "        Blend SrcAlpha One, Zero One\n",
+          "count": 1
+        }
+      ],
+      "policy": "fixed"
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/EnvDrip.shader",
+      "source_sha256": "a5d295031e683e08f6333d5450cf0e3a9e79151c34fb63f01f85c9d0e7afbeba",
+      "original_shader": "GloomhavenVR/EnvDrip",
+      "variant_shader": "GloomhavenVR/EnvDrip.SceneCoverage",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/EnvDrip\"",
+          "after": "Shader \"GloomhavenVR/EnvDrip.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "        Blend SrcAlpha One\n",
+          "after": "        Blend SrcAlpha One, Zero One\n",
+          "count": 1
+        }
+      ],
+      "policy": "fixed"
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/EnvBeam.shader",
+      "source_sha256": "8ecc9cc1119bc6fac0002843638758c66e9210f70241b1facc64c4f7e7a7a8a4",
+      "original_shader": "GloomhavenVR/EnvBeam",
+      "variant_shader": "GloomhavenVR/EnvBeam.SceneCoverage",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/EnvBeam\"",
+          "after": "Shader \"GloomhavenVR/EnvBeam.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "        Blend One One\n",
+          "after": "        Blend One One, Zero One\n",
+          "count": 1
+        }
+      ],
+      "policy": "fixed"
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/EnvShaft.shader",
+      "source_sha256": "f1c85244f46161cdd42434beb60f74d08e01f8ce0befaaeeba65ed8b17a1fe66",
+      "original_shader": "GloomhavenVR/EnvShaft",
+      "variant_shader": "GloomhavenVR/EnvShaft.SceneCoverage",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/EnvShaft\"",
+          "after": "Shader \"GloomhavenVR/EnvShaft.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "        Blend One One\n",
+          "after": "        Blend One One, Zero One\n",
+          "count": 1
+        }
+      ],
+      "policy": "fixed"
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/EnvStarPoints.shader",
+      "source_sha256": "ddb07fd84d023b30368155e49202de160577c6320232f614bb463b00ce505728",
+      "original_shader": "GloomhavenVR/EnvStarPoints",
+      "variant_shader": "GloomhavenVR/EnvStarPoints.SceneCoverage",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/EnvStarPoints\"",
+          "after": "Shader \"GloomhavenVR/EnvStarPoints.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "        Blend One One\n",
+          "after": "        Blend One One, Zero One\n",
+          "count": 1
+        }
+      ],
+      "policy": "fixed"
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/EnvPuddle.shader",
+      "source_sha256": "f1cc60b0cd3192c453595f77ba510e0cf201054e12780d35dd6cd94daafadf84",
+      "original_shader": "GloomhavenVR/EnvPuddle",
+      "variant_shader": "GloomhavenVR/EnvPuddle.SceneCoverage",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/EnvPuddle\"",
+          "after": "Shader \"GloomhavenVR/EnvPuddle.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "            Blend DstColor Zero\n",
+          "after": "            Blend DstColor Zero, Zero One\n",
+          "count": 1
+        },
+        {
+          "before": "            Blend One One\n",
+          "after": "            Blend One One, Zero One\n",
+          "count": 1
+        }
+      ],
+      "policy": "fixed"
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader",
+      "source_sha256": "8013059d8ad22307769b847da4a29b0aa983031313c26fc23bf01fde6bca1456",
+      "original_shader": "GloomhavenVR/Overlay",
+      "variant_shader": "GloomhavenVR/Overlay.SceneCoverage",
+      "policy": "dynamic",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/Overlay\"",
+          "after": "Shader \"GloomhavenVR/Overlay.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "    Properties\n    {\n",
+          "after": "    Properties\n    {\n        [HideInInspector] _SceneCoverageSrcAlpha (\"Scene coverage source alpha\", Float) = 1\n        [HideInInspector] _SceneCoverageDstAlpha (\"Scene coverage destination alpha\", Float) = 10\n",
+          "count": 1
+        },
+        {
+          "before": "Blend [_SrcBlend] [_DstBlend]",
+          "after": "Blend [_SrcBlend] [_DstBlend], [_SceneCoverageSrcAlpha] [_SceneCoverageDstAlpha]",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Table/BoardLit.shader",
+      "source_sha256": "f1b6139f2ce608aa06cc417b6312f45a886c8d8f90e2f9abe8871fe4d280e6b6",
+      "original_shader": "GloomhavenVR/BoardLit",
+      "variant_shader": "GloomhavenVR/BoardLit.SceneCoverage",
+      "policy": "dynamic",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/BoardLit\"",
+          "after": "Shader \"GloomhavenVR/BoardLit.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "    Properties\n    {\n",
+          "after": "    Properties\n    {\n        [HideInInspector] _SceneCoverageSrcAlpha (\"Scene coverage source alpha\", Float) = 1\n        [HideInInspector] _SceneCoverageDstAlpha (\"Scene coverage destination alpha\", Float) = 10\n",
+          "count": 1
+        },
+        {
+          "before": "Blend [_SrcBlend] [_DstBlend]",
+          "after": "Blend [_SrcBlend] [_DstBlend], [_SceneCoverageSrcAlpha] [_SceneCoverageDstAlpha]",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders/TownNpc.shader",
+      "source_sha256": "2aaa4ba4658d9641e92df4c3899e24ed4577d0ede10e051a09a1b2ee66d4bf12",
+      "original_shader": "GloomhavenVR/TownNpc",
+      "variant_shader": "GloomhavenVR/TownNpc.SceneCoverage",
+      "policy": "dynamic",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/TownNpc\"",
+          "after": "Shader \"GloomhavenVR/TownNpc.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "    Properties\n    {\n",
+          "after": "    Properties\n    {\n        [HideInInspector] _SceneCoverageSrcAlpha (\"Scene coverage source alpha\", Float) = 1\n        [HideInInspector] _SceneCoverageDstAlpha (\"Scene coverage destination alpha\", Float) = 10\n",
+          "count": 1
+        },
+        {
+          "before": "Blend [_SrcBlend] [_DstBlend]",
+          "after": "Blend [_SrcBlend] [_DstBlend], [_SceneCoverageSrcAlpha] [_SceneCoverageDstAlpha]",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "source": "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/WaterVR.shader",
+      "source_sha256": "27652fa007d06b75a47ed75f904922dbc2448f4fbb425cd89adc5e355a360051",
+      "original_shader": "GloomhavenVR/WaterVR",
+      "variant_shader": "GloomhavenVR/WaterVR.SceneCoverage",
+      "policy": "dynamic",
+      "replacements": [
+        {
+          "before": "Shader \"GloomhavenVR/WaterVR\"",
+          "after": "Shader \"GloomhavenVR/WaterVR.SceneCoverage\"",
+          "count": 1
+        },
+        {
+          "before": "    Properties\n    {\n",
+          "after": "    Properties\n    {\n        [HideInInspector] _SceneCoverageSrcAlpha (\"Scene coverage source alpha\", Float) = 1\n        [HideInInspector] _SceneCoverageDstAlpha (\"Scene coverage destination alpha\", Float) = 10\n",
+          "count": 1
+        },
+        {
+          "before": "Blend [_SrcBlend] [_DstBlend]",
+          "after": "Blend [_SrcBlend] [_DstBlend], [_SceneCoverageSrcAlpha] [_SceneCoverageDstAlpha]",
+          "count": 2
+        }
+      ]
+    }
+  ]
+}
