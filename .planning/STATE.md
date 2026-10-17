@@ -1,5 +1,32 @@
 # State — where the project stands
 
+**Proven produced-artifact Steam Link path repair, 2026-10-17: Build691.**
+
+New689/f71 logs explicitly stop at openvr_api.dll:cache-folder. The actual
+shipping DLL's IL invokes GLOBAL GH.Runtime.StringExtensions.Skip, whose
+count-minus-one semantics leave the drive colon in path.Skip(2). Thus every
+ordinary drive path fails, regardless of correct environment/known-folder inputs.
+Actual Unity2021 Mono with that exact DLL and readonly real GH.Runtime reproduces
+it. Earlier isolated source fixtures omitted the game assembly and compiled a
+different Enumerable.Skip call; their passing results did not cover production.
+The previous folder-input hypothesis is not the established cause.
+
+Use explicit System.Linq.Enumerable.Skip. No further folder fallback, native
+helper/resource change, receiver update or Frame action is needed. The corrected
+actual691 DLL passes12 real-Mono/game-library controls; the same artifact probe
+reproduces689's refusal with9 controls. The focused connection suite passes124
+managed and203 native checks, net472 typecheck and the expected old-call mutant
+refusal; source instrumentation passes1/1 and strict Release is0W/0E. Add a test-only conflicting global
+extension and a causal mutation that restores the actual bad call and must fail
+at path admission. These protect the compiled dependency-scope difference.
+
+This bounded handover advances beyond the independent unreleased690 stereo
+checkpoint; its later media delivery will use692+. Preserve the unfinished media
+checkpoints locally; publish only the identity repair over public689. Detailed
+scoped checks and cleanup: `.planning/STEAM-LINK-691-PATH-BINDING.md` and
+`.planning/debug/steamlink-691-binding-fix/`. Actual Windows/Proton HMD lookup is
+still a hardware boundary; a correct path probe is not receiver attestation.
+
 **Steam Link identity cache and Proton follow-up, 2026-10-17: Build689.**
 
 The688/fc5c954e7 hardware still refuses SDK preparation before any HMD read.
