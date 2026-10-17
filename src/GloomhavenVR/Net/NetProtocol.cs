@@ -612,7 +612,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 691;
+    public const ushort ModBuild = 692;
+
+    // ModBuild692 — integrate the native stereo library after the published691 repair.
+    // The full movie/review contract is recorded under the unreleased690 source
+    // checkpoint below. Keep691's explicit public-LINQ path guard and actual-DLL
+    // regression evidence. Finite movie/stereo/review identities are cached;
+    // exact selected native URLs use their captured identity before path parsing.
+    // Deliberate mono fallback reports its requested stereo key and finite reason.
+    // Native-player-shaped lifecycle/Harmony checks, shared review-close priority
+    // controls and real Unity raster/alpha witnesses remain separate from headset
+    // confirmation. Publish this batch only with its complete22-file media roster.
 
     // ModBuild691 — fix the actual produced Steam Link path guard, not its inputs.
     // Hardware689/f71 stops at cache-folder. Actual689 IL binds path.Skip(2) to
