@@ -58,9 +58,11 @@ Independent workers were initialized from dev9f48730df with disjoint media,
 runtime and localized UI ownership. The integrator owns native patch registration,
 inventory, version notes, installer roster, private baseline and final gate.
 Worker branches are not published. The independent688/689/691/693 identity
-repairs are retained through their separate publication lane. Builds690 and692
-are internal source candidates only. The independent window/loading follow-up
-reserves694; final stereo handover uses695 or later.
+repairs and694 loading/window-bounds repair are retained through their separate
+publication lane. Builds690 and692 are internal source candidates only.
+Published694 is merged; final stereo handover uses695 or later. Its exact
+unchanged focused source/artifact/raster evidence is composed separately; the
+reported residual headset window softness remains open in that lane.
 
 Movies are explicit separate Content beside the DLL. `packaging/movie-files.txt`
 names22 files:20 stereo subjects, the approved mono intro and original mono
@@ -87,9 +89,12 @@ Completed source-side checks include22-file real-script fixture cases
 four affected close controls in a combined strict net472 Release0W/0E tree, and
 129 merged library geometry/inventory checks with33 refusal controls. Prior broad
 options/close evidence is reused for unchanged areas; those focused checks are
-not a complete gate. The new GPU fixture is registered as local-only, giving
-226local/100CI/16source inventory. The full integrated attempt is running against
-frozen499bdc157/692 in a private validation worktree. Its16 source suites pass.
+not a complete gate. The frozen movie GPU fixture inventory is226local/100CI/16source.
+The full integrated attempt is running against frozen499bdc157/692 in a private
+validation worktree. Its16 source suites pass. The four separately checked694
+additions make the current inventory230local/101CI/16source. Its explicit
+scheduler inventory assertions are updated and pass19 cases (17 pass, two
+platform skips); no scheduler logic or registry behavior changed in that repair.
 The local group exposed an older town-service-options fixture missing explicit
 SteamLink availability, TickGuard and Rebuild ports. Tests-only0796670ba repairs
 that boundary; the affected suite passes173 assertions and9 causal controls.
@@ -105,6 +110,14 @@ The four retained EN/DE narrow/wide note captures were also inspected. The
 actual stereo-movie-render GPU fixture passes44 assertions and eight causal
 controls in the frozen full attempt; this covers supplied decoded rasters under
 Unity2021.3.5/OpenGLCore, not native video decoding or headset presentation.
+The fourth old fixture boundary, frame-mr-options, now declares an explicitly
+unavailable SteamLink input for its existing direct-Frame/legacy-PC cases.
+Its unchanged production UI policy/callback/tint/tooltip sources pass84 actual
+Unity assertions and all six original causal controls. The original missing-port
+failure and an overbroad worker guard attempt remain retained; only the supported
+named edit dispatches are forwarded. All342 indexed evidence files and343 archive
+files were verified independently before removing the stopped worker. This proof
+does not execute SteamLink discovery or whole-menu reconstruction.
 The unrelated NPC639 packed
 atlas proof reaches its cold895-member resolution budget and fails the1s bound
 under concurrent inference/full-gate load; its exact elapsed time was not logged.
@@ -122,8 +135,8 @@ published identity fixes/resources. Private continuation invocation errors and
 their corrected remaining stages are retained. These are composed results, not
 a new complete-gate pass.
 
-At this checkpoint the intro, studio, two cave films, forest, Corpsewood and Town
-are verified;13 worker subjects remain. Each subject must pass original native-clock/AAC,
+At this checkpoint the intro, studio, two cave films, forest, Corpsewood, Town
+and Beast Tyrant are verified;12 worker subjects remain. Each subject must pass original native-clock/AAC,
 all-left-picture, right reprojection, depth receipt/hash and decoded-cue gates
 before its output enters Assets. Desktop cue inspection is distinct from actual
 headset playback. Independent inspection of all11 original hero title frames
@@ -150,6 +163,10 @@ controls. All11 original hero sources also pass the strict supported native
 edit-layout/clock preflight, retaining their7,312 actual AAC packets. The refused
 candidate, raw mux, source snapshots, interrupted-child reaping proof and final
 receipts are preserved. No picture or neural input was changed by this repair.
+The delivered Beast Tyrant passes all747 left pictures/timestamps and44 encoded
+right witnesses, with minima39.75/44.63dB. Both worker and integrator inspected its
+three normal decoded cue pairs and actual enlarged-emblem pictures at604/606/612;
+the native606 picture was also compared. These are static encoded-picture checks.
 
 Only empty future-work waiters were rebalanced: the existing ambient and hero
 neural producers retain their exact profile and continue untouched. Three
@@ -158,6 +175,11 @@ producer; three others follow the ambient producer. No third concurrent neural
 process or duplicate output writer is introduced. The exact prior/new commands,
 aliases, disjoint subjects, source pins and process identities are retained in
 the media worker's hero-rebalance.json and concurrency-ledger.json.
+At an owned completed-child boundary, a separate ignored scheduler next selects
+subjects whose complete depth receipts are ready. It runs only one immutable
+normal batch child at a time with the complete canonical manifest and explicit
+skips; it changes neither a movie's order/timing nor renderer/verifier inputs.
+The documentation i18n checker passes all five guide pairs/ten files.
 
 The new logo and library headset pictures, comfort and native spawn paths remain
 unverified until the maintainer's requested in-scenario review.
