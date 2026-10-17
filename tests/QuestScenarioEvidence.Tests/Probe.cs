@@ -11,6 +11,12 @@ namespace GloomhavenVR.Core
     internal static class QuestStandalonePlatform { internal static bool Enabled; }
     internal enum VRLogLevel { Debug }
     internal static class VRLog { internal static bool Debug; internal static bool Wants(VRLogLevel level) => Debug; }
+    internal static class MaterialLoaderHeal
+    {
+        internal static readonly Dictionary<int, string> States = new Dictionary<int, string>();
+        internal static string DescribeForRenderer(Renderer renderer)
+            => States.TryGetValue(renderer.GetInstanceID(), out string value) ? value : "no-loader";
+    }
     internal static class BundleShaders
     {
         internal static Shader Resolve(string name, string scope, string reason, string fallback)
@@ -46,7 +52,13 @@ public class ProceduralMapTile : MonoBehaviour
     public Visibility visibility;
     public bool IsPlacementCompleted;
 }
-public class ApparanceEntity : MonoBehaviour { public bool IsBusy; }
+public class ApparanceEntity : MonoBehaviour
+{
+    public bool IsBusy, IsPopulated = true, Frozen;
+    public int m_EntityHandle = 42;
+    public uint ProcedureID = 123;
+    public object PartialParameterOverride = new object();
+}
 public class ApparanceMeshInstances : MonoBehaviour { public int instanceCount; }
 public class ApparanceEngine : MonoBehaviour
 {
@@ -67,6 +79,8 @@ namespace GloomhavenVR.Rig
         internal void RunNow() { _questScenarioDue = float.NegativeInfinity; TickQuestScenarioEvidence(); }
         internal void RunLoadingWait() { _questScenarioDue = Time.realtimeSinceStartup - 1f; TickQuestScenarioEvidence(); }
         internal void RunLoadingTimeout() { _questScenarioDue = Time.realtimeSinceStartup - 31f; TickQuestScenarioEvidence(); }
+        internal static int LoaderIndex(string text) => QuestScenarioLoaderIndex(text);
+        internal static string InactiveRoot(Transform source) => QuestScenarioInactiveRoot(source);
         internal static RenderTexture DrawProbe(Renderer renderer, Material material)
         {
             Mesh mesh = renderer.GetComponent<MeshFilter>().sharedMesh;
@@ -135,7 +149,28 @@ public static class QuestScenarioEvidenceProbe
             Check(floor.GetComponent<MeshFilter>().sharedMesh == original && floorRenderer.sharedMaterial == originalMaterial, "Diagnostic preserves actual native mesh and material identity");
             Check(original.vertexCount == 24 && !original.HasVertexAttribute(VertexAttribute.Color), "Diagnostic preserves actual native vertex attributes");
             SceneController.Instance.ScenarioIsLoading = false;
+            floorRenderer.enabled = false;
+            wall.SetActive(false); // Component still enabled: distinguish the native hide owners.
+            tile.IsPlacementCompleted = false;
+            GloomhavenVR.Core.MaterialLoaderHeal.States[floorRenderer.GetInstanceID()] = "loading 1/2";
+            GloomhavenVR.Core.MaterialLoaderHeal.States[wall.GetComponent<Renderer>().GetInstanceID()] = "no-loader";
             driver.RunNow(); Check(Records.Count == 8, "Second observation uses the complete eight-record launch budget");
+            Check(Records[5].Contains("enabled=0 ") && Records[5].Contains("componentEnabled=1 hierarchyActive=1"),
+                "Inactive and component-disabled native renderers are counted independently");
+            Check(Records[5].Contains("rootActive=1 rootChildren=2") && Records[5].Contains("entityEnabled=1 populated=1 handles=1 frozen=0 noProcedure=0 parameterized=1"),
+                "Native hierarchy and generation admission distinguish a dormant entity from a completed world");
+            Check(Records[5].Contains("ml=no/empty/never/loading/failed/unassigned/foreign/done:1,0,0,1,0,0,0,0"),
+                "Material-loader diagnosis remains independent of renderer enabled and hierarchy flags");
+            Check(Records[6].Contains("role=hidden-candidate") && Records[6].Contains("renderer=Floor main")
+                && Records[6].Contains("enabled=False active=True") && Records[6].Contains("ml=loading 1/2"),
+                "A completely black world still reports an actual disabled native mesh and loader state");
+            Check(!floorRenderer.enabled && !wall.activeSelf && wall.GetComponent<Renderer>().enabled,
+                "Read-only evidence cannot reveal hidden native content or finish its material load");
+            Check(Records[6].Contains("indices=36") && Records[6].Contains("shader="), "Native hidden candidate retains topology and actual shader evidence");
+            Check(GloomhavenVR.Rig.VRRigDriver.InactiveRoot(wall.transform) == "Native wall", "Nearest native inactive root is named");
+            Check(GloomhavenVR.Rig.VRRigDriver.InactiveRoot(floor.transform) == "none", "A component-disabled renderer has no invented inactive ancestor");
+            foreach (var state in new[] { "no-loader", "empty-refs", "never-started loader='source'", "loading 1/2", "null-result 1/2", "done-stuck", "done-disabled(foreign)", "done" }.Select((value, index) => new { value, index }))
+                Check(GloomhavenVR.Rig.VRRigDriver.LoaderIndex(state.value) == state.index, "Actual existing loader-state token is counted: " + state.value);
             driver.RunNow(); Check(Records.Count == 8, "Same rig stops after bounded evidence");
             var next = new GameObject("Next rig").AddComponent<GloomhavenVR.Rig.VRRigDriver>(); next.Configure(head, anchor, true); next.RunNow();
             Check(Records.Count == 8, "Recreated rig cannot reset launch cap");

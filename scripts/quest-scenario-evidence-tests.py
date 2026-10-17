@@ -16,7 +16,7 @@ from town_run_retention import cleanup_completed_run
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform"))
+    parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "renderer-state"))
     parser.add_argument("--gpu", action="store_true")
     args = parser.parse_args()
     base = ROOT / ".planning/debug/quest-scenario-evidence"
@@ -32,6 +32,8 @@ def main():
     elif args.control == "launch-cap":
         source = source.replace("|| _questScenarioRecords >= 8 || _questScenarioSamples >= 2", "|| _questScenarioSamples >= 2", 1)
         source = source.replace("if (_questScenarioRecords >= 8) return;", "/* injected launch cap removal */", 1)
+    elif args.control == "renderer-state":
+        source = source.replace("if (renderer.enabled) componentEnabled++;", "if (on) componentEnabled++;", 1)
     (editor / "Scenario.cs").write_text("#nullable enable\n" + source.replace("namespace GloomhavenVR.Rig;", "namespace GloomhavenVR.Rig {") + "\n}\n")
     gpu_source = (ROOT / "src/GloomhavenVR/Rig/VRRigDriver.QuestScenarioGpu.cs").read_text()
     if args.control == "gpu-transform":
@@ -56,7 +58,8 @@ def main():
         code = process.wait(timeout=180)
         if args.control:
             expected = {"desktop-gate": "Desktop does not observe native scene", "launch-cap": "Recreated rig cannot reset launch cap",
-                        "gpu-transform": "Actual unreadable native mesh produces visible GPU pixels"}[args.control]
+                        "gpu-transform": "Actual unreadable native mesh produces visible GPU pixels",
+                        "renderer-state": "Inactive and component-disabled native renderers are counted independently"}[args.control]
             if code == 0 or expected not in (run / "unity.log").read_text():
                 raise AssertionError("Native negative control was not rejected by its expected assertion")
             (run / "control.json").write_text(json.dumps({"control": args.control, "rejected": True, "expected": expected, "processExit": code}, indent=2) + "\n")
