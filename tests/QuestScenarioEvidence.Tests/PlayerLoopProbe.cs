@@ -70,6 +70,7 @@ public static class QuestProceduralPlayerLoopProbe
                 var generatedPreview = new GameObject("Generated Content"); generatedPreview.transform.parent = preview.transform;
                 new GameObject("Original preview geometry").transform.parent = generatedPreview.transform;
                 SceneController.Instance = new GameObject("SceneController").AddComponent<SceneController>();
+                SceneController.Instance.IsLoading = SceneController.Instance.ScenarioIsLoading = true;
                 QuestStandalonePlatform.Enabled = true; VRSession.IsRunning = true;
                 Check(!Application.isFocused, "Headless PlayerLoop exposes actual false desktop window focus");
                 // Native generation is not an input action. An actual reported XR
@@ -99,9 +100,10 @@ public static class QuestProceduralPlayerLoopProbe
             }
             else if (_phase == 2 && now >= _due)
             {
-                Check(!_engine.enabled && ApparanceEngine.NativeStarts == 0,
-                    "Actual PlayerLoop cannot bypass the initial native stability grace");
-                _due = now + 3.5f; _phase = 3;
+                Check(_engine.enabled && ApparanceEngine.NativeStarts == 1
+                    && SceneController.Instance.IsLoading && SceneController.Instance.ScenarioIsLoading,
+                    "Actual PlayerLoop starts generation inside the unchanged native loading phase");
+                _due = now + .5f; _phase = 3;
             }
             else if (_phase == 3 && now >= _due)
             {

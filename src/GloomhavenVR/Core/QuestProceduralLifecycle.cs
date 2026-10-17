@@ -14,7 +14,7 @@ namespace GloomhavenVR.Core;
 /// the worker alone cannot replace that Update. The capture does not establish
 /// whether the component is disabled or an ancestor/duplicate owns the problem.
 ///
-/// Recover only the former, after a stable, fully requested initial scenario and
+/// Recover only the former, for a fully requested initial scenario and
 /// only on the unique original scene owner. Respect OS pause/running-session boundaries, scene teardown,
 /// frozen/hidden entities and completed/generated content in the requested room.
 /// ApparanceEntity.Start registers and creates entities independently of the engine's
@@ -27,12 +27,9 @@ namespace GloomhavenVR.Core;
 /// </summary>
 internal static class QuestProceduralLifecycle
 {
-    private const float GraceSeconds = 3f;
     private const int RepairLimit = 8;
     private static Driver? _driver;
     private static readonly HashSet<int> Attempted = new();
-    private static ApparanceEngine? _candidate;
-    private static float _due;
     private static bool _ignoredFreeformSuppression;
     private static int _ticks;
     private static bool _lastApplicationFocus, _lastPaused;
@@ -43,6 +40,7 @@ internal static class QuestProceduralLifecycle
     {
         if (!QuestStandalonePlatform.Enabled || !VRSession.IsRunning || _driver != null) return;
         _ignoredFreeformSuppression = ignoredFreeformSuppression;
+        VRSession.Harmony?.PatchAll(typeof(UnityGameEditorRuntime_QuestPlacementLoading));
         var owner = new GameObject("GloomhavenVR.QuestProceduralLifecycle");
         UnityEngine.Object.DontDestroyOnLoad(owner);
         _driver = owner.AddComponent<Driver>();
@@ -52,8 +50,6 @@ internal static class QuestProceduralLifecycle
     {
         if (_driver != null) UnityEngine.Object.Destroy(_driver.gameObject);
         _driver = null;
-        _candidate = null;
-        _due = 0f;
         _ignoredFreeformSuppression = false;
         Attempted.Clear();
         _ticks = 0;
@@ -87,7 +83,6 @@ internal static class QuestProceduralLifecycle
             try { Tick(now, _paused); }
             catch (Exception error)
             {
-                _candidate = null;
                 _admission = "observation-failed";
                 if (_failureLogged) return;
                 _failureLogged = true;
@@ -107,29 +102,31 @@ internal static class QuestProceduralLifecycle
         string? blocked = !QuestStandalonePlatform.Enabled ? "desktop"
             : !VRSession.IsRunning ? "stopped-vr" : paused ? "os-paused"
             : !game ? "game-scene-absent" : !SceneManager.GetSceneByName("ProcGen").isLoaded ? "procgen-scene-absent"
-            : loading == null ? "scene-controller-absent" : loading.IsLoading || loading.ScenarioIsLoading ? "native-loading"
+            : loading == null ? "scene-controller-absent"
             : engine == null ? "engine-absent" : engine.enabled ? "native-active"
             : !engine.gameObject.activeInHierarchy ? "inactive-owner" : engine.gameObject.scene.name != "Gloomhaven_unified" ? "foreign-scene"
             : engine.Resources == null ? "resources-absent" : Attempted.Contains(engine.GetInstanceID()) ? "already-attempted"
             : Attempted.Count >= RepairLimit ? "repair-limit" : null;
-        if (blocked != null) { _candidate = null; _admission = blocked; return; }
+        if (blocked != null) { _admission = blocked; return; }
 
         ApparanceEngine[] engines = UnityEngine.Object.FindObjectsOfType<ApparanceEngine>(true);
         if (engines.Length != 1 || engines[0] != engine)
-        { _candidate = null; _admission = "ambiguous-owner"; return; }
+        { _admission = "ambiguous-owner"; return; }
         if (!InitialGenerationRequested(engine, out _admission))
-        { _candidate = null; return; }
-        _admission = "stable-request-wait";
-        if (_candidate != engine) { _candidate = engine; _due = now + GraceSeconds; return; }
-        if (now < _due) return;
+            return;
 
+        // UnityGameEditorRuntime.WaitForLoad awaits generation BEFORE it calls
+        // DisableLoadingScreen. B683's IsLoading veto inverted that dependency:
+        // the original engine could only start after its loading phase ended.
+        // An active, registered and populated original request under loaded
+        // Game/ProcGen scenes already supplies readiness; no arbitrary timer is
+        // part of the original engine's Start/Update contract.
         // Mark before the one write. A throwing setter or a second owner cannot
         // cause periodic retries. No worker/asset/scene ownership is transferred.
         Attempted.Add(engine.GetInstanceID());
-        _candidate = null;
         engine.enabled = true;
         _admission = "restored";
-        VRLog.Note("QuestLifecycle", "Restored the unique disabled native procedural engine component for initial scenario generation after a stable 3s request; original Start/Update now own continuation. No renderer, entity parameter or worker was changed. instance="
+        VRLog.Note("QuestLifecycle", "Restored the unique disabled native procedural engine component for initial scenario generation during native loading; original Start/Update now own continuation. No renderer, entity parameter or worker was changed. instance="
             + engine.GetInstanceID() + " active=" + engine.isActiveAndEnabled);
     }
 
@@ -178,7 +175,7 @@ internal static class QuestProceduralLifecycle
             + " legacySuppressionIgnored=" + _ignoredFreeformSuppression
             + " driver=" + (_driver != null) + " ticks=" + _ticks + " windowFocus=" + _lastApplicationFocus
             + " xrFocus=" + (_lastInputFocus?.ToString() ?? "unknown") + " paused=" + _lastPaused + " admission=" + _admission
-            + " recovery=" + (Attempted.Contains(engine.GetInstanceID()) ? "attempted" : _candidate == engine ? "stable-request-wait" : "not-admitted");
+            + " recovery=" + (Attempted.Contains(engine.GetInstanceID()) ? "attempted" : "not-admitted");
     }
 
     private static string CodeStarted(ApparanceEngine engine)

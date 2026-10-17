@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -24,12 +25,18 @@ namespace GloomhavenVR.Core
         internal static bool Wants(VRLogLevel level) => Debug;
         internal static void Warn(string category, string message) { Warnings++; UnityEngine.Debug.LogWarning(message); }
     }
-    internal static class VRSession { internal static bool IsRunning = true; internal static bool? InputFocus; }
+    internal static class VRSession { internal static bool IsRunning = true; internal static bool? InputFocus; internal static HarmonyLib.Harmony Harmony; }
     internal static class MaterialLoaderHeal
     {
         internal static readonly Dictionary<int, string> States = new Dictionary<int, string>();
         internal static string DescribeForRenderer(Renderer renderer)
             => States.TryGetValue(renderer.GetInstanceID(), out string value) ? value : "no-loader";
+    }
+    internal static class ScenarioEnvironmentBudget
+    {
+        internal static readonly Dictionary<Material, Material> Originals = new Dictionary<Material, Material>();
+        internal static Material CanonicalMaterial(Material material)
+            => Originals.TryGetValue(material, out Material original) ? original : material;
     }
     internal static class BundleShaders
     {
@@ -59,13 +66,25 @@ public class SceneController : MonoBehaviour
 {
     public static SceneController Instance;
     public bool IsLoading, ScenarioIsLoading;
+    public int LoadingClosures;
+    public IEnumerator WaitForPlayers() { yield break; }
+    public void DisableLoadingScreen() { IsLoading = false; LoadingClosures++; }
 }
-public class ProceduralTileObserver : MonoBehaviour { }
+public class ProceduralBase : MonoBehaviour
+{
+    private bool _completed;
+    public bool IsPlacementCompleted
+    {
+        get => _completed;
+        set { _completed = value; if (value) ContentPlacementCompleted?.Invoke(this); }
+    }
+    public event Action<ProceduralBase> ContentPlacementCompleted;
+}
+public class ProceduralTileObserver : ProceduralBase { }
 public class ProceduralMapTile : ProceduralTileObserver
 {
     public enum Visibility { Hidden, Preview, PreviewWithDoors, All }
     public Visibility visibility;
-    public bool IsPlacementCompleted;
 }
 public class ApparanceEntity : MonoBehaviour
 {
@@ -101,6 +120,23 @@ public class ApparanceEngine : MonoBehaviour
     }
 }
 public class ApparanceResources : MonoBehaviour { }
+public class MaterialLoader : MonoBehaviour
+{
+    public List<MaterialLoaderData> LoadersData = new List<MaterialLoaderData>();
+}
+public class MaterialLoaderData
+{
+    public Renderer Renderer;
+    public List<object> MaterialReferences = new List<object>();
+    public FixtureMaterialHandle[] _handles;
+    public Material[] _loadedMaterials;
+}
+public struct FixtureMaterialHandle
+{
+    public bool Valid, IsDone;
+    public Material Result;
+    public bool IsValid() => Valid;
+}
 namespace GloomhavenVR.Rig
 {
     internal sealed partial class VRRigDriver : MonoBehaviour
@@ -278,8 +314,11 @@ public static class QuestScenarioEvidenceProbe
         Check(!engine.enabled, "Paused application cannot recover a native component");
         Check(GloomhavenVR.Core.QuestProceduralLifecycle.Describe(engine).Contains("admission=os-paused"), "OS pause reports its actual admission blocker");
         loading.ScenarioIsLoading = true;
-        consider(); Check(!engine.enabled, "Native scenario loading retains ownership");
-        loading.ScenarioIsLoading = false;
+        loading.IsLoading = true;
+        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(before, false);
+        Check(engine.enabled && loading.IsLoading && loading.ScenarioIsLoading,
+            "Original generation resumes during loading without changing native loading ownership");
+        reset(); loading.IsLoading = loading.ScenarioIsLoading = false;
         host.SetActive(false);
         consider(); Check(!engine.enabled && !host.activeSelf, "Inactive native owner is never activated");
         host.SetActive(true);
@@ -334,14 +373,11 @@ public static class QuestScenarioEvidenceProbe
         var content = new GameObject("Original generated leaf"); content.transform.parent = generated.transform;
         consider(); Check(!engine.enabled && generated.transform.childCount == 1, "Generated native content prevents initial-generation recovery");
         UnityEngine.Object.DestroyImmediate(content);
-        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(before, false);
-        Check(!engine.enabled, "Native disabled engine retains its stability grace");
-        Check(GloomhavenVR.Core.QuestProceduralLifecycle.Describe(engine).Contains("recovery=stable-request-wait"), "Census distinguishes an admitted stability wait");
-        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(3.99f, false);
-        Check(!engine.enabled, "Three-second grace cannot complete prematurely");
         int notes = GloomhavenVR.Core.VRLog.Notes;
-        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(4f, false);
+        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(before, false);
         Check(engine.enabled && engine.isActiveAndEnabled, "Only the unique disabled native engine resumes its original lifecycle");
+        Check(GloomhavenVR.Core.QuestProceduralLifecycle.Describe(engine).Contains("admission=restored"),
+            "Qualified native readiness introduces no arbitrary post-loader delay");
         Check(GloomhavenVR.Core.VRLog.Notes == notes + 1, "Successful lifecycle recovery reports one bounded anomaly");
         Check(!tile.IsPlacementCompleted && entity.m_EntityHandle == 0 && entity.IsPopulated && generated.transform.childCount == 0,
             "Recovery cannot fabricate generation handles, placement, parameters or visible geometry");
