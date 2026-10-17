@@ -44,7 +44,7 @@ namespace GloomhavenVR.Quest
             foreach (var graphic in graphics)
             {
                 if (graphic == null) continue;
-                Material authored = graphic.material;
+                Material authored = ReadAuthoredMaterial(graphic);
                 if (authored == null || authored.shader == null || authored.shader.name != "Custom/SimpleGrabPassBlur") continue;
                 CanvasRenderer ui = graphic.canvasRenderer;
                 Material rendered = ui.materialCount > 0 ? ui.GetMaterial(0) : null;
@@ -68,6 +68,17 @@ namespace GloomhavenVR.Quest
                     + " material=" + (material != null ? material.name : "missing"));
                 if (++count >= 2) break;
             }
+        }
+
+        // Keep this runtime-assembly boundary aligned with PanelGraphicMaterial.Read.
+        // TMP's material getter creates a private instance, and throws for an
+        // unpopulated pooled submesh. Evidence must never allocate native UI state.
+        internal static Material ReadAuthoredMaterial(UnityEngine.UI.Graphic graphic)
+        {
+            if (graphic == null) return null;
+            if (graphic is TMPro.TMP_SubMeshUI submesh) return submesh.sharedMaterial;
+            if (graphic is TMPro.TMP_Text text) return text.fontSharedMaterial;
+            return graphic.material;
         }
     }
 }
