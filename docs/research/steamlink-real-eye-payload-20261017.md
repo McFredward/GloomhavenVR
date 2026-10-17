@@ -4,6 +4,11 @@ Status: offline proposal, not a frozen protocol or a live source backend. The
 worker starts at main `35870108a` (Build682). Existing synthetic source/runtime,
 configuration, camera ownership and the native receiver are unchanged.
 
+The maintainer subsequently requested removal of the production diagnostic
+pattern/setting. Root owns that removal. The historical source contracts below
+describe the stated baseline only; this new draft does not depend on the old
+pattern, its class or its runtime. Existing proof may remain offline/history.
+
 The maintainer has reported a visual pass for the separate synthetic native presenter,
 including partial alpha and menu recovery. That acceptance does not establish
 game-wide scene coverage, a real-eye atlas, codec edge quality or motion latency.
@@ -206,3 +211,38 @@ agrees that global halo continuation and a new contribution-RGB protocol are
 required. It separately notes already explicit semantics in selected owned
 UI/TMP/ActorBarUI and town flame/cornea families; that is a starting inventory,
 not permission to infer the remaining game shaders' coverage.
+
+## Implemented owned GPU prototype
+
+The reviewed next experiment is now implemented only in the new, unhooked
+`ScenePayloadDraft` class and `tests/steamlink-scene-payload/`. It accepts exact
+linear, single-sample 2048-square RGBAFloat E/A surfaces, uses the draft layout,
+and reconstructs into a 2048-square target. It neither allocates eye RTs nor owns
+a camera, pair scheduler or production coverage capability. Its private draft
+footer is deliberately unrecognized by the existing native receiver. The class
+is compiled against the actual Unity2021.3.5/net472 API with no warnings/errors.
+
+Actual full-size Intel Vulkan Gamma and Linear runs each pass 930 assertions,
+186 independently checked source coordinates,42 seam coordinates, two
+zero-coverage emission coordinates and four real GPU mutant rejections. At those
+points the measured float RGB/A error is 0; no full-image bit-identity, filtered
+edge/MSAA, codec, native or Windows execution is claimed. A source-bound CPU
+subset passes 251 assertions, including 126 seam samples and 54 detected wrong
+internal-halo samples. Its independent broader draft review remains 50,466 checks.
+
+Initial attempts retain four SIG11 failures. Precise final stage markers place
+the native failure inside ReadPixels of a partial window of a large RT; all
+owned RT creation, Paint/Pack/Decode and actual completion fence had succeeded.
+This does not identify an underlying driver or Unity cause. The successful test
+uses an explicit GPU probe of the chosen texel center into a complete 32-square
+float RT and reads that complete RT, as in the working small coverage harness.
+No production packing shader or source class was changed to accommodate the
+readback failure. There is no readback in the producer.
+
+Successful GPU evidence is `run-wb74251x`, with separate Gamma/Linear result and
+stage logs. Actual net472 typing is retained in `run-bn5y6pwx`; its unrelated
+initial fixture warning-as-error failure was fixed only in the fixture. Every
+process was reaped before invoking shared completion cleanup; owned regenerated
+project caches are removed while all source, result and failure evidence remains.
+This is source/host-GPU preparation, not a new live-backend admission or a fix
+for the maintainer's reported head-turn latency.
