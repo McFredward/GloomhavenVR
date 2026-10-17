@@ -99,6 +99,7 @@ namespace GloomhavenVR.WorldUI
         // The separate stereo-movie-render fixture executes movie leases/pixels.
         internal bool StereoMovieActive => false;
         internal bool OwnsMoviePlane(Camera camera) => false;
+        internal bool NeedsMovieCaptureSync(Camera camera) => false;
         internal void Tick(RenderTexture rt, Renderer? renderer, bool preMenu) { }
         internal void BeginStackSync() => SyncCount = 0;
         internal void SyncCamera(Camera camera) => SyncCount++;

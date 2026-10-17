@@ -79,6 +79,12 @@
 //
 // =====================================================================================
 
+// 2026-10-18: the movie review catalogue also uses this page's opt-in to protect spoilers.
+// Retiring temporary save cheats must retain or relocate that explicit catalogue gate;
+// normal native movie playback is independent of this menu and its config.
+// If retiring the review UI too, remove VROptionsTab.VideoReview.cs, Loc.VideoReview.cs
+// and their refresh/clear hooks in Inject/Rows. Keep the normal native movie runtime.
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -183,8 +189,10 @@ internal static partial class VROptionsTab
             + "scenario through the native results flow, or grant test gold to the selected "
             + "character. With this false the page does not exist: its "
             + "link is not drawn on the Erweitert index and the page itself cannot be reached. "
-            + "Single-player only; all actions refuse while a multiplayer session is "
-            + "live. Read at the moment the menu is drawn, so a change applies the next time the "
+            + "Progress-changing actions refuse while a multiplayer session is live. Video "
+            + "previews are cosmetic, shared, and available during a scenario in multiplayer too. "
+            + "The video catalogue contains spoilers and also requires this gate. "
+            + "Read at the moment the menu is drawn, so a change applies the next time the "
             + "options window is opened - no restart. Since 2026-09-03 the page also carries a "
             + "third row, a TOGGLE ('every scenario loadable') that lifts the party-requirement "
             + "gate (required class / level / item / personal quest / party size / starting "
@@ -251,7 +259,7 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// The offline test actions, with explicit confirmation for save-changing shortcuts.
+    /// Gated video previews and offline progress actions, with confirmation for save changes.
     /// </summary>
     private static int BuildCheatsPage()
     {
@@ -290,9 +298,7 @@ internal static partial class VROptionsTab
         BuildNote(ContentRoot, Text(
             "A temporary testing aid. It will be removed again once the walkthrough is done.",
             "Eine vorübergehende Testhilfe. Sie wird nach dem Durchtesten wieder entfernt."));
-        BuildNote(ContentRoot, Text(
-            "All cheats here are SINGLE-PLAYER ONLY. They are unavailable during a multiplayer session.",
-            "Alle Cheats hier funktionieren NUR IM EINZELSPIELER. Während einer Mehrspieler-Sitzung sind sie gesperrt."));
+        BuildNote(ContentRoot, Loc.VideoReviewCheatsScope, multiline: true);
 
         bool online = SessionOnline();
         int rows = 0;
@@ -301,6 +307,7 @@ internal static partial class VROptionsTab
         rows += BuildOpenAllDoorsRow(online);
         rows += BuildWinScenarioRow();
         rows += BuildGoldRow();
+        rows += BuildVideoReviewTriggers();
         return rows;
     }
 

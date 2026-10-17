@@ -188,6 +188,25 @@ internal static class NativeVideoMovies
             player.source = VideoSource.Url;
             SetNativeUrl(player, stereo, canonical.Substring(0, canonical.Length - 4));
             RegisterCameraPlane(player);
+            if (IsStereoUrl(player.url) && !FlatScreen.TryPrepareStartupMovie(player))
+            {
+                // Never expose packed SBS through an unowned/hidden startup camera.
+                // This is still before the original Play; do not switch a running decoder.
+                if (TryModMovie(canonical, out string companion))
+                {
+                    player.url = companion;
+                    Selection fallback = Selections.GetValue(player, _ => new Selection());
+                    fallback.Url = companion; fallback.Key = canonical;
+                }
+                else
+                {
+                    player.url = string.Empty;
+                    if (player.clip != null) player.source = VideoSource.VideoClip;
+                    Selection fallback = Selections.GetValue(player, _ => new Selection());
+                    fallback.Url = string.Empty; fallback.Key = canonical;
+                }
+                VRLog.Warn("WorldUI", $"NATIVE MOVIE STEREO FALLBACK: key={selected}, reason=startup replacement surface unavailable; packed source refused before native Play.");
+            }
         }
         else if (TryModMovie(canonical, out string mono))
         {

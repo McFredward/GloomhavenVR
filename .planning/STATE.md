@@ -1,3 +1,5 @@
+# State — where the project stands
+
 **Native Steam Link equal-resolution coverage, 2026-10-18: Build697.**
 
 The maintainer rejects a window-classification channel and authorizes a general
@@ -14,7 +16,48 @@ See [the scoped record](STEAM-LINK-697-FULL-COVERAGE.md) for exact geometry, sou
 pins, cost and focused verification boundaries. The independent movie handover696
 must remain integrated; this bounded renderer change does not replace it.
 
-# State — where the project stands
+**Build696 automatic studio startup and spoiler reviews, 2026-10-18.**
+
+The maintainer reports all movie review actions successfully tested in the headset.
+Only the studio logo at application startup before the main menu shows both
+packed SBS halves side by side; later deliberate playback is correct. The user's
+explicit clarification excludes the longer GloomhavenVR campaign intro. This
+accepts the delivered695 movie artwork and deliberate review presentation.
+Build696 repairs startup source admission/ownership; its corrected automatic
+headset picture remains unverified.
+The maintainer also requires every video review action under Advanced > Cheats,
+behind the existing default-off gate, because the films contain major spoilers.
+Ordinary Test triggers must expose no movie names/actions. Native game-authored
+playback remains independent of this test-only permission.
+
+Two disjoint workers from dev60296ac29 are integrated. Startup prepares the real
+capture owner before native Play, reserves alpha only for the exact created
+replacement surface, reconciles late sources at first render and releases on
+continuation/loss/error. Failed or throwing readiness selects original mono
+before Play; original4s continuation/audio and subsequent sprite logos remain.
+All20 deliberate actions now live in Advanced > Cheats behind the existing
+default-off gate, rechecked on stale callbacks. Shared cosmetic previews remain
+available in multiplayer; save-changing cheats retain offline refusals.
+
+Focused proof: options7339/21 controls, movie UI915/25, scenario-win65/two,
+native-video474/33 plus actual packaging192Python/209PowerShell, desktop145/33,
+and movie GPU193/21 across38 variants (original44/eight plus startup149/13).
+All16 source suites and fresh unchanged wire goldens300597 pass. Exact UI source
+pins inherit its real net472 Release0W/0E. Final clean696 Debug/Release identities,
+all30 embedded resources and actual22-file copies are checked separately in
+`.planning/debug/stereo696/`; any artifact failure blocks handover. This bounded
+composition is not a new230-suite complete-gate pass. Earlier frozen692 FAIL
+and its eight focused continuations remain recorded below.
+
+Startup GPU proof supplies decoder URL metadata/readiness/pixels and XR eye input;
+actual source parsing, capture/split/stereo lifecycle, config binder, alpha and
+GPU rendering run. A minimal FlatScreen constructor supplies its pinned owner
+assignment. Real Linux MOV decoding is unavailable; a separate VP8 baseline
+shows no native plane pixels, so platform alpha-latch timing is inconclusive.
+The placeholder's empty real URL getter has no assigned cause. These boundaries
+are not Windows/HMD evidence. Main691 and older remote inputs cannot establish
+the new report's cause. All22 media/geometry/clocks/audio and independent694
+production remain byte-identical; no new model, wire, receiver or Frame action.
 
 **Native stereo library and scenario review, 2026-10-17: Build695.**
 
@@ -65,9 +108,10 @@ independent hashes; all media evidence remains retained. Completed-run cleanup
 preserves results/captures/source/model and borrowed inputs.
 
 Actual encoded cue pairs were inspected by worker and integrator for every new
-film; the intro has separate logo/approved-scene evidence. These are static
-desktop checks. New headset fusion, comfort, temporal playback and native spawn
-paths still require the requested in-scenario review. The separate694 residual
+film; the intro has separate logo/approved-scene evidence. These were static
+desktop checks at695 handover. The maintainer now accepts all20 deliberate reviews
+in the headset; only the automatic studio path requires696 hardware verification.
+The separate694 residual
 window-softness report remains open. See
 [the library record](STEREO-VIDEO-LIBRARY-2026-10-17.md) and
 [the media contract](../docs/stereo-video-library.md).

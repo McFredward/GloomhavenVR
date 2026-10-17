@@ -10,9 +10,14 @@ internal static partial class Loc
         CurrentLanguage == "German" ? german : english;
 
     internal static string VideoReviewHeading => VideoText("Videos", "Videos");
+    internal static string VideoReviewCheatsScope => VideoText(
+        "Actions that change progress are single-player only. Video previews also work in multiplayer and are visible to the other players.",
+        "Aktionen, die den Spielfortschritt ändern, sind nur im Einzelspieler verfügbar. Video-Vorschauen funktionieren auch im Mehrspieler und sind für die Mitspieler sichtbar.");
+    internal static string VideoReviewCheatsRequired => VideoText(
+        "Enable Cheats to play test videos.", "Aktiviere Cheats, um Testvideos abzuspielen.");
     internal static string VideoReviewHint => VideoText(
-        "Play a video in this scenario's movable video window. Close VR Options to watch it unobstructed. The other players can see it too. Nothing is unlocked and your progress stays unchanged.",
-        "Spiele ein Video im beweglichen Videofenster dieses Szenarios ab. Schließe VR Optionen für freie Sicht. Auch die Mitspieler sehen es. Es wird nichts freigeschaltet und dein Spielfortschritt bleibt unverändert.");
+        "Contains story and character spoilers. Play a video in this scenario's movable video window. Close VR Options to watch it unobstructed. The other players can see it too. Nothing is unlocked and your progress stays unchanged.",
+        "Enthält Spoiler zur Geschichte und zu Charakteren. Spiele ein Video im beweglichen Videofenster dieses Szenarios ab. Schließe VR Optionen für freie Sicht. Auch die Mitspieler sehen es. Es wird nichts freigeschaltet und dein Spielfortschritt bleibt unverändert.");
     internal static string VideoReviewClose => VideoText("Close test video", "Testvideo schließen");
     internal static string VideoReviewReady => VideoText("Choose a video to play.", "Wähle ein Video zum Abspielen.");
     internal static string VideoReviewClosed => VideoText("Video closed. Choose a video to play again.", "Video geschlossen. Wähle ein Video zum erneuten Abspielen.");

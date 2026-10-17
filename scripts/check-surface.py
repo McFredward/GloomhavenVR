@@ -270,6 +270,12 @@ AUTHORIZED_RETIREMENTS = {
         "typeof(FigureVisualMirror), nameof(FigureVisualMirror.CloneVisual)": "src/GloomhavenVR/Core/Perf/ScenarioIdleAnimationBudget.cs",
     },
     "logTokens": {
+        # Maintainer's 2026-10-18 ruling moves shared cosmetic movie reviews to
+        # Cheats. These were page captions, never runtime log markers; the new
+        # localized scope keeps save-changing cheats offline without falsely
+        # labelling every movie preview single-player-only.
+        "SINGLE-PLAYER ONLY": "src/GloomhavenVR/WorldUI/Options/VROptionsTab.Cheats.cs",
+        "NUR IM EINZELSPIELER": "src/GloomhavenVR/WorldUI/Options/VROptionsTab.Cheats.cs",
         # Explicit user request, 2026-10-17 after the successful685 chart test:
         # retire that movie and menu action, then convert the approved VR intro.
         "STEREO VIDEO CALIBRATION": "src/GloomhavenVR/WorldUI/FlatScreen/StereoVideoCalibration.cs",

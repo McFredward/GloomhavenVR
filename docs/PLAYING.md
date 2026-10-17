@@ -98,8 +98,9 @@ the window; use its **X** to close it.
 the reward; the player controlling that character confirms for the group.
 
 **Stereo videos:** the intro, character films, ambient films and studio logo have depth
-inside the movable video window. In a scenario, use **VR Options ▸ Advanced ▸ Test triggers
-▸ Videos** to play each film individually. Close VR Options for a clear view; **Close test
+inside the movable video window. With Cheats enabled, use **VR Options ▸ Advanced ▸ Cheats
+▸ Videos** in a scenario to play each film individually. The catalogue contains spoilers
+and is hidden by default. Close VR Options for a clear view; **Close test
 video** ends the preview. Other players see it too. These previews do not unlock classes
 or change progress, and a game video takes priority. Moving your head changes your view
 of the window; the film keeps its recorded camera view.

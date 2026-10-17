@@ -9,5 +9,7 @@
     <Compile Include="$(ReviewUiSource)" Link="Production/VideoReview.cs" />
     <Compile Include="$(ReviewLocSource)" Link="Production/Loc.VideoReview.cs" />
     <Compile Include="$(TriggerPageSource)" Link="Production/TriggerPage.cs" />
+    <Compile Include="$(CheatsPageSource)" Link="Production/CheatsPage.cs" />
+    <Compile Include="$(CheatsDefaultSource)" Link="Production/CheatsDefault.cs" />
   </ItemGroup>
 </Project>

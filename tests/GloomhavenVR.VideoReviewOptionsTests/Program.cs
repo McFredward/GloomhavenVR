@@ -20,16 +20,37 @@ internal static class Program
         NativeVideoReview.Keys = keys;
         Check(keys.Length == 20 && keys.Distinct().Count() == keys.Length,
             "Every audited movie has exactly one canonical action");
+        Check(!VROptionsTab.Cheats && ModuleConfig.LastModule == "cheats",
+            "Actual Cheats config and source-bound default start disabled");
         var englishNames = new Dictionary<string, string>();
         foreach (string language in new[] { "English", "German", "French" })
         {
             Loc.CurrentLanguage = language;
             NativeVideoReview.Reset();
             VROptionsTab.IsOpen = true;
+            VROptionsTab.Cheats = false;
             VROptionsTab.Build();
-            Check(VROptionsTab.Actions.Count == keys.Length + 3,
-                "All audited movies, back, close and all-off actions remain reachable");
-            Check(VROptionsTab.Headers.Contains(Loc.VideoReviewHeading), "Video block is on the trigger page");
+            Check(!VROptionsTab.Headers.Contains(Loc.VideoReviewHeading) && VROptionsTab.Actions.Count == 0,
+                "Disabled Cheats page falls back to the index without spoiler names");
+            Check(VROptionsTab.BuildCheatsDoor() == 0 && VROptionsTab.Actions.Count == 0,
+                "Disabled Cheats has no Advanced index door");
+            Check(VROptionsTab.BuildDirectReview() == 0 && VROptionsTab.Actions.Count == 0,
+                "Direct video builder cannot reveal a catalogue with Cheats disabled");
+            VROptionsTab.Cheats = true;
+            VROptionsTab.BuildPublic();
+            Check(!VROptionsTab.Headers.Contains(Loc.VideoReviewHeading)
+                && !VROptionsTab.Actions.Any(row => keys.Any(key => row.Caption == Loc.VideoReviewPlay(key)))
+                && !VROptionsTab.Notes.Contains(Loc.VideoReviewHint) && VROptionsTab.Caption == "",
+                "Public test triggers never expose spoiler movie actions");
+            Check(VROptionsTab.BuildCheatsDoor() == 1, "Enabled Cheats has its gated Advanced index door");
+            FFSNetwork.IsOnline = true;
+            VROptionsTab.Build();
+            Check(VROptionsTab.Actions.Count == keys.Length + 7,
+                "All audited movies, back, close and progress actions remain reachable");
+            Check(VROptionsTab.Headers.Contains(Loc.VideoReviewHeading), "Video block is on the gated Cheats page");
+            Check(VROptionsTab.SaveRowOnline.Count == 5 && VROptionsTab.SaveRowOnline.All(online => online),
+                "Online refusal remains a per-save-action boundary, not a video page restriction");
+            Check(VROptionsTab.Notes.Contains(Loc.VideoReviewCheatsScope), "Cheats scope distinguishes progress changes from shared video previews");
             Check(VROptionsTab.ReservedLines >= 3, "Live status reserves localized feedback space");
             Check(VROptionsTab.Notes.Contains(Loc.VideoReviewHint), "Review explains ordinary window and unchanged progress");
             Check(VROptionsTab.Caption == Loc.VideoReviewReady, "Initial review state is visible");
@@ -53,7 +74,7 @@ internal static class Program
                 int oldRows = VROptionsTab.Actions.Count;
                 int oldStarts = NativeVideoReview.Starts;
                 action.Click();
-                Check(NativeVideoReview.Requests.Last() == key, "Each movie requests its own exact canonical key");
+                Check(NativeVideoReview.Requests.LastOrDefault() == key, "Each movie requests its own exact canonical key");
                 Check(NativeVideoReview.Starts == oldStarts + 1 && NativeVideoReview.Active,
                     "Closed movie can be deliberately replayed");
                 Check(VROptionsTab.Caption == Loc.VideoReviewPreparing(name), "Preparation feedback appears on the press");
@@ -73,6 +94,26 @@ internal static class Program
                 Check(!NativeVideoReview.Active && VROptionsTab.Caption == Loc.VideoReviewClosed,
                     "Explicit close releases the review and explains replay");
             }
+            var staleMovies = VROptionsTab.Actions.Where(row => keys.Any(key => row.Caption == Loc.VideoReviewPlay(key))).ToArray();
+            var staleClose = VROptionsTab.Actions.Single(row => row.Caption == Loc.VideoReviewClose);
+            NativeVideoReview.Active = true;
+            NativeVideoReview.Status = NativeVideoReviewStatus.Playing;
+            NativeVideoReview.LastKey = keys[0];
+            VROptionsTab.Refresh();
+            int requests = NativeVideoReview.Requests.Count;
+            VROptionsTab.Cheats = false;
+            VROptionsTab.Refresh();
+            Check(staleMovies.All(row => !row.Row.activeSelf), "Revoked Cheats immediately removes spoiler movie rows");
+            Check(VROptionsTab.Caption == Loc.VideoReviewCheatsRequired, "Revoked Cheats feedback contains no movie name");
+            foreach (var stale in staleMovies) stale.Click();
+            Check(NativeVideoReview.Requests.Count == requests && NativeVideoReview.Active,
+                "Revoked Cheats callbacks never call TryStart");
+            staleClose.Click();
+            Check(!NativeVideoReview.Active, "Revoked Cheats still permits closing an existing review");
+            VROptionsTab.Cheats = true;
+            VROptionsTab.Refresh();
+            Check(staleMovies.All(row => row.Row.activeSelf) && VROptionsTab.Caption == Loc.VideoReviewClosed,
+                "Reenabled Cheats restores the same rows and current status without rebuilding");
             NativeVideoReview.Context = false;
             int starts = NativeVideoReview.Starts;
             VROptionsTab.Actions.Single(row => row.Caption == Loc.VideoReviewPlay(keys[0])).Click();
@@ -129,12 +170,14 @@ internal static class Program
             NativeVideoReview.Status = NativeVideoReviewStatus.Preparing;
             ElementMood.Forcing = Haunt.Forcing = true;
             int presses = GloomhavenVR.Net.RemoteTestTriggers.Presses;
+            VROptionsTab.BuildPublic();
             VROptionsTab.Actions.Single(row => row.Caption == "vr_tt_stop").Click();
             Check(!NativeVideoReview.Active && NativeVideoReview.Stops == stops + 1,
                 "All-off closes the owned review movie");
             Check(!ElementMood.Forcing && !Haunt.Forcing && GloomhavenVR.Net.RemoteTestTriggers.Presses == presses + 1,
                 "All-off preserves both existing effect releases and their shared press");
-            Check(VROptionsTab.Caption == Loc.VideoReviewClosed, "All-off refreshes the video status");
+            Check(NativeVideoReview.Status == NativeVideoReviewStatus.Closed && VROptionsTab.Caption == "",
+                "Public all-off closes playback without exposing a spoiler status");
 
             // An observer has no local review decoder for lifecycle Stop() to close.
             // Both GUI doors must request shared closure through the explicit API.
@@ -154,25 +197,32 @@ internal static class Program
             NativeVideoReview.Status = NativeVideoReviewStatus.Preparing;
             ElementMood.Forcing = Haunt.Forcing = true;
             presses = GloomhavenVR.Net.RemoteTestTriggers.Presses;
-            VROptionsTab.Build();
+            VROptionsTab.BuildPublic();
             VROptionsTab.Actions.Single(row => row.Caption == "vr_tt_stop").Click();
             Check(NativeVideoReview.CloseRequests == 1 && NativeVideoReview.ObserverCloseRequests == 1,
                 "Observer all-off sends shared review close intent through the GUI API");
             Check(NativeVideoReview.Stops == 0 && !ElementMood.Forcing && !Haunt.Forcing
                   && GloomhavenVR.Net.RemoteTestTriggers.Presses == presses + 1,
                 "Observer all-off preserves both existing shared effect releases");
-            Check(VROptionsTab.Caption == Loc.VideoReviewClosed && VROptionsTab.Rebuilds == 0,
+            Check(NativeVideoReview.Status == NativeVideoReviewStatus.Closed && VROptionsTab.Rebuilds == 0,
                 "Observer all-off shows API feedback without rebuilding controls");
             NativeVideoReview.Reset();
             NativeVideoReview.ObservingNativeMovie = true;
             NativeVideoReview.Status = NativeVideoReviewStatus.Busy;
             NativeVideoReview.LastFailure = NativeVideoReviewFailure.RemoteMovieActive;
             VROptionsTab.Build();
+            foreach (string key in keys)
+                VROptionsTab.Actions.Single(row => row.Caption == Loc.VideoReviewPlay(key)).Click();
+            Check(NativeVideoReview.Requests.Count == keys.Length && NativeVideoReview.Starts == 0
+                && NativeVideoReview.ObservingNativeMovie && NativeVideoReview.LastFailure == NativeVideoReviewFailure.RemoteMovieActive,
+                "Enabled Cheats still delegates every movie to native-priority admission");
             VROptionsTab.Actions.Single(row => row.Caption == Loc.VideoReviewClose).Click();
+            VROptionsTab.BuildPublic();
             VROptionsTab.Actions.Single(row => row.Caption == "vr_tt_stop").Click();
             Check(NativeVideoReview.CloseRequests == 2 && NativeVideoReview.ObserverCloseRequests == 0
                   && NativeVideoReview.Stops == 0 && NativeVideoReview.ObservingNativeMovie,
                 "GUI close requests cannot close a genuine peer game movie");
+            VROptionsTab.Build();
             Check(VROptionsTab.Caption == Loc.VideoReviewNativeBusy,
                 "Refused native close retains the existing localized game-video feedback");
             VROptionsTab.Build(noRoot: true);
@@ -196,6 +246,6 @@ internal static class Program
             Check(Loc.VideoReviewName("Heroes/BeastTyrant.mov") == "Native " + language,
                 "Hero title uses its own original class localization without an unlock gate");
         }
-        Console.WriteLine($"PASS video review options: {_assertions} assertions; 20 movie actions, EN/DE and fallback, lifecycle and stop-all.");
+        Console.WriteLine($"PASS video review options: {_assertions} assertions; 20 gated movie actions in multiplayer, public spoiler exclusion, EN/DE and fallback, lifecycle and stop-all.");
     }
 }

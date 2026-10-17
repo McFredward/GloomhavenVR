@@ -88,9 +88,9 @@ namespace GloomhavenVR.WorldUI;
 /// He then ran the experiment and it answered: <i>"A/B Test durchgeführt, ich merke keinen
 /// Unterschied … Räum die Testauslöser wieder aus, da sollten wirklich nur die Easter Eggs und
 /// Element Auslöser drin sein."</i> The dial, its gate and this page's diagnostics block are all
-/// gone. The maintainer's 2026-10-17 request explicitly adds video reviews to this page;
-/// that supersedes the historical restriction to elements and Easter eggs. These are deliberate
-/// one-shot movie actions with a close button, not environment latches. Nothing here writes a
+/// gone. The maintainer added video reviews on 2026-10-17, then moved their spoiler catalogue
+/// behind Advanced/Cheats on 2026-10-18. This public page retains elements and Easter eggs;
+/// its all-off action still closes an existing review. Nothing here writes a
 /// <c>ConfigEntry</c>, so there is nothing here for the player to undo.</para>
 ///
 /// <para><b>THE HAND-OFF MECHANISM STAYS, BECAUSE THE NEXT DIAGNOSTIC WILL NEED IT.</b> A test aid
@@ -179,7 +179,7 @@ internal static partial class VROptionsTab
 
         BuildHeader(ContentRoot, Loc.Mod("vr_tt_page"), "h_vr_tt_page");
 
-        int rows = BuildVideoReviewTriggers();
+        int rows = 0;
 
         // FOUR NOTES, AND THEY ARE THE FEATURE'S SAFETY RAILS, not decoration:
         //   1. what it does and does not touch. It USED to read "local only, nothing sent, no game

@@ -1,5 +1,39 @@
 # Steam Link availability repair coordination, 2026-10-17
 
+## Active equal-resolution coverage follow-up697; preserve independent696
+
+The maintainer rejects a window-classification channel and explicitly authorizes
+an equal-resolution mask. Worker `worker/steamlink-hard-windows-697` owns the v2
+3168-square atlas, new full-resolution shader/bank, source selection and focused
+new FullCoverage suite. Both RGB and alpha2048-square, no box/C1 alpha prefilter,
+no threshold, tags, extra camera or mask RT. Root reserves697 after the independent
+movie startup/cheat handover696. Do not lower shared ModBuild after697 integrates.
+
+Current main remains untouched in these production paths so696 can finish its
+own source pins and push independently. Coverage697 is ready for integration
+immediately after696's push/final binaries; please retain that sequence. New
+producer45-case GPU850 checks, two narrow continuations and19 registry tests are
+complete. The public dual v2/v1/original decoder passes168 GPU cases on Intel
+and Lavapipe, independent native numerical oracles, exact original fallback,
+sanitizers and actual host/AArch64 release builds. Gloomhaven checkpoints
+529da947a/a368bb5ef/cc7c3e8c9/12d584b33 remain local. No new complete-gate or
+headset result is claimed. Both public receiver and PC source must update before
+the next headset test. No Frame write/restart has occurred.
+
+## Bounded stereo follow-up696 after successful695 headset review
+
+The maintainer accepts all20 deliberate movies in the headset. Only the
+automatic TwinSails studio logo before the main menu exposes packed SBS.
+Build696 prepares its existing capture/stereo owner before native Play, keeps
+the original4s native continuation, and gates every deliberate spoiler action
+behind existing Advanced > Cheats permission. Media, record72, SteamLink/Core,
+coverage bank and all seven published694 production inputs stay unchanged.
+Actual automatic696 headset output remains unverified. The independent window
+softness report stays open; no receiver update or Frame action is requested.
+Affected focused696 runtime/UI checks, all16 source suites and fresh wire
+goldens300597 pass. Strict final artifacts/copies are checked before direct dev
+push; receipts stay under main debug/stereo696. This is no new complete-gate pass.
+
 ## Complete stereo handover695; published694 source retained
 
 All20 stereo subjects and the22-file installer roster are complete on shared

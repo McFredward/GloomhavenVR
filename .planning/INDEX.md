@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-17: complete Build695 stereo library; published694 repairs retained.
+Updated 2026-10-18: Build696 startup and spoiler-gate follow-up; Build695 library accepted in the headset.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,7 +10,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
-| [STEREO-VIDEO-LIBRARY-2026-10-17.md](STEREO-VIDEO-LIBRARY-2026-10-17.md) | Complete20-subject/22-file stereo library, stronger intro wordmark, scenario review controls, composed validation and gameplay-trailer exclusion |
+| [STEREO-VIDEO-LIBRARY-2026-10-17.md](STEREO-VIDEO-LIBRARY-2026-10-17.md) | Headset-accepted20-subject/22-file library;696 automatic studio admission and Cheats-gated spoiler reviews, composed evidence and trailer exclusion |
 | [../docs/stereo-video-library.md](../docs/stereo-video-library.md) | Native media authorities, pinned conversion and encoder policies, original clocks/audio and verification boundaries |
 | [STEAM-LINK-694-PRESENTATION.md](STEAM-LINK-694-PRESENTATION.md) | Retained published loading continuity and UI-effect bounds repair, focused source/raster evidence and residual headset-softness limit |
 | [STEREO-VIDEO-MENU-685.md](STEREO-VIDEO-MENU-685.md) | Build683 missing-file evidence, repeatable Advanced menu action and separate-media build/install/ZIP repair |

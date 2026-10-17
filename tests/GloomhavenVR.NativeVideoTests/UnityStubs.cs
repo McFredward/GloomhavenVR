@@ -114,6 +114,7 @@ namespace UnityEngine.Video
         public VideoSource source;
         public VideoClip? clip;
         public UnityEngine.Camera targetCamera = null!;
+        public float targetCameraAlpha = 1;
         public VideoRenderMode renderMode;
         public VideoAudioOutputMode audioOutputMode;
         public bool playOnAwake, isLooping;
@@ -224,6 +225,15 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed class ConfigValue { internal float Value = 1; }
     internal static class WorldUIConfig { internal static bool ConversionActive = true; internal static ConfigValue CanvasScaleMm = new(); }
+    // The automatic movie GPU fixture executes the real screen readiness owner.
+    // This native-flow fixture supplies only that explicit acceptance result.
+    internal static class FlatScreen
+    {
+        internal static bool StartupSurfaceReady = true;
+        internal static int StartupPrepareCalls;
+        internal static bool TryPrepareStartupMovie(UnityEngine.Video.VideoPlayer player)
+        { StartupPrepareCalls++; return StartupSurfaceReady; }
+    }
     internal static class CanvasConversion
     {
         internal static UnityEngine.Camera? WorldCamera;

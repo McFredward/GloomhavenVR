@@ -5,13 +5,29 @@ using System.Collections.Generic;
 // deliberately make no claim about decoding, scene admission, sharing or headset output.
 namespace UnityEngine
 {
+    internal static class Time { internal static float unscaledTime => 0f; }
     internal sealed class Transform { }
     internal sealed class GameObject
     {
         internal readonly TMPro.TMP_Text Label = new();
+        internal bool activeSelf = true;
+        internal void SetActive(bool active) => activeSelf = active;
         internal T? GetComponentInChildren<T>(bool includeInactive) where T : class => Label as T;
     }
 }
+namespace BepInEx.Configuration
+{
+    internal sealed class ConfigEntry<T>
+    {
+        internal T Value;
+        internal ConfigEntry(T value) => Value = value;
+    }
+    internal sealed class ConfigFile
+    {
+        internal ConfigEntry<T> Bind<T>(string section, string key, T value, string description) => new(value);
+    }
+}
+internal static class FFSNetwork { internal static bool IsOnline; }
 namespace TMPro
 {
     internal sealed class TMP_Text
@@ -40,7 +56,18 @@ namespace GloomhavenVR.Core
         internal static string Game(string key, string fallback) =>
             key == "NATIVE_CLASS_BEAST_TYRANT" ? "Native " + CurrentLanguage : fallback;
     }
-    internal static class VRLog { internal static void Info(string area, string text) { } }
+    internal static class ModuleConfig
+    {
+        internal static string LastModule = "";
+        internal static BepInEx.Configuration.ConfigFile Create(string module)
+        { LastModule = module; return new(); }
+    }
+    internal static class VRLog
+    {
+        internal static void Info(string area, string text) { }
+        internal static void Note(string area, string text) { }
+        internal static void Warn(string area, string text) { }
+    }
     internal static class TickGuard
     {
         internal static void Run(string key, Action action, string area) => action();
@@ -101,9 +128,10 @@ namespace GloomhavenVR.WorldUI
         internal static bool TryStart(string key)
         {
             Requests.Add(key);
-            if (!Context || Active)
+            if (!Context || Active || ObservingNativeMovie)
             {
-                LastFailure = Active ? NativeVideoReviewFailure.AlreadyActive : NativeVideoReviewFailure.InvalidContext;
+                LastFailure = Active ? NativeVideoReviewFailure.AlreadyActive
+                    : ObservingNativeMovie ? NativeVideoReviewFailure.RemoteMovieActive : NativeVideoReviewFailure.InvalidContext;
                 if (!Active) Status = NativeVideoReviewStatus.Busy;
                 return false;
             }
@@ -149,7 +177,7 @@ namespace GloomhavenVR.WorldUI
     }
     internal static partial class VROptionsTab
     {
-        internal sealed record ActionRow(string Caption, Action Click, bool IsAction);
+        internal sealed record ActionRow(string Caption, Action Click, bool IsAction, UnityEngine.GameObject Row);
         internal static readonly List<ActionRow> Actions = new();
         internal static readonly List<string> Notes = new();
         internal static readonly List<TMPro.TMP_Text> Labels = new();
@@ -158,12 +186,28 @@ namespace GloomhavenVR.WorldUI
         internal static int Rebuilds, ReservedLines;
         private static UnityEngine.Transform? ContentRoot = new();
         private static readonly List<object> LatchLabels = new();
-        private enum View { AdvancedIndex }
+        private enum View { AdvancedIndex, AdvancedCheats }
         private static View _view;
         private static void Rebuild() { _ = _view; Rebuilds++; }
         private static int BuildElementTriggers(bool waning, string headerKey) => 0;
         private static int BuildHauntTriggers() => 0;
         private static void RefreshLatchRows() { }
+        // Save/gameplay row builders are explicit ports, never counterfeit save operations.
+        // Their unchanged native refusals run in the separate scenario-win-cheat fixture.
+        internal static readonly List<bool> SaveRowOnline = new();
+        private static object? _winArmedScenario, _goldLastResult;
+        private static int SaveRow(string name, bool online)
+        {
+            SaveRowOnline.Add(online);
+            BuildLinkRow(ContentRoot!, name, () => { }, asAction: true);
+            return 1;
+        }
+        private static int BuildUnlockAllLevelsRow(bool online) => SaveRow("unlock boundary", online);
+        private static int BuildScenarioGateRow(bool online) => SaveRow("scenario gate boundary", online);
+        private static int BuildOpenAllDoorsRow(bool online) => SaveRow("doors boundary", online);
+        private static int BuildWinScenarioRow() => SaveRow("win boundary", SessionOnline());
+        private static int BuildGoldRow() => SaveRow("gold boundary", SessionOnline());
+        private static int BuildAdvancedIndex() { Headers.Add("advanced index boundary"); return 1; }
         private static void BuildHeader(UnityEngine.Transform parent, string caption, string? hintKey = null,
                                         bool sub = false) => Headers.Add(caption);
         private static UnityEngine.GameObject BuildNote(UnityEngine.Transform parent, string text,
@@ -179,16 +223,35 @@ namespace GloomhavenVR.WorldUI
         private static UnityEngine.GameObject BuildLinkRow(UnityEngine.Transform parent, string caption,
                                                           Action onClick, bool asAction = false)
         {
-            Actions.Add(new ActionRow(caption, onClick, asAction));
-            return new UnityEngine.GameObject();
+            var row = new UnityEngine.GameObject();
+            Actions.Add(new ActionRow(caption, onClick, asAction, row));
+            return row;
         }
-        internal static void Build(bool noRoot = false)
+        private static void BeginBuild(bool noRoot)
         {
             ClearVideoReviewRows();
             Actions.Clear(); Notes.Clear(); Labels.Clear(); Headers.Clear();
             ReservedLines = Rebuilds = 0;
+            SaveRowOnline.Clear();
             ContentRoot = noRoot ? null : new UnityEngine.Transform();
+            _ = _winArmedScenario; _ = _goldLastResult;
+        }
+        internal static void Build(bool noRoot = false)
+        {
+            BeginBuild(noRoot);
+            BuildCheatsPage();
+        }
+        internal static void BuildPublic()
+        {
+            BeginBuild(false);
             BuildTestTriggers();
+        }
+        internal static int BuildDirectReview() { BeginBuild(false); return BuildVideoReviewTriggers(); }
+        internal static int BuildCheatsDoor() { BeginBuild(false); return BuildCheatsIndexLink(); }
+        internal static bool Cheats
+        {
+            get => CheatsAvailable;
+            set { BindCheatsConfig(); _cheatsEnabled!.Value = value; }
         }
         internal static void Refresh() => RefreshVideoReviewRows();
         internal static void Clear() => ClearVideoReviewRows();
