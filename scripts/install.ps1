@@ -103,12 +103,9 @@ $introMovie = Join-Path $root "src\GloomhavenVR\Assets\Movies\CP_Intro\GH_CP_Int
 if (-not (Test-Path -LiteralPath $introMovie -PathType Leaf)) {
     Write-Error "Missing approved campaign intro: $introMovie"
 }
-$calibrationMovieDir = Join-Path $root "src\GloomhavenVR\Assets\Movies\Calibration"
-$calibrationMovies = @('calibration-sbs.mp4', 'calibration-mono.mp4')
-foreach ($movie in $calibrationMovies) {
-    if (-not (Test-Path -LiteralPath (Join-Path $calibrationMovieDir $movie) -PathType Leaf)) {
-        Write-Error "Missing stereo calibration movie: $movie"
-    }
+$stereoIntroMovie = Join-Path $root "src\GloomhavenVR\Assets\Movies\CP_Intro\GH_CP_Intro.sbs-v1.mov"
+if (-not (Test-Path -LiteralPath $stereoIntroMovie -PathType Leaf)) {
+    Write-Error "Missing stereo campaign intro: $stereoIntroMovie"
 }
 # Prepared native figure derivatives ship as independently indexed parts. Verify this
 # complete set before deployment, including without Python on a Windows developer PC.
@@ -362,12 +359,23 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Build failed." }
 # Everything lands where the runtime probes it:
 #   plugin      -> BepInEx\plugins\GloomhavenVR\GloomhavenVR.dll
 #   intro       -> BepInEx\plugins\GloomhavenVR\Movies\CP_Intro\GH_CP_Intro.mov
-#   calibration -> BepInEx\plugins\GloomhavenVR\Movies\Calibration\calibration-{sbs,mono}.mp4
+#   stereo intro -> BepInEx\plugins\GloomhavenVR\Movies\CP_Intro\GH_CP_Intro.sbs-v1.mov
 #   RuntimeDeps -> BepInEx\plugins\GloomhavenVR\RuntimeDeps\*.dll
 #   bundle      -> BepInEx\plugins\GloomhavenVR\gloomhavenvr.bundle
 #   preloader   -> BepInEx\patchers\GloomhavenVR\GloomhavenVR.Preload.dll
 #   natives     -> BepInEx\patchers\GloomhavenVR\Natives\*.dll
 Step "Deploying into game"
+# The maintainer retired the diagnostic movies. Delete only those exact old files:
+# foreign movies/notes and their directories must survive. The installed-tree call
+# runs after all deployment/package steps succeed; staging owns its separate copy.
+function Remove-RetiredCalibrationMovies([string]$PluginRoot) {
+    foreach ($oldMovie in @('calibration-sbs.mp4', 'calibration-mono.mp4')) {
+        $oldPath = Join-Path $PluginRoot ("Movies\Calibration\" + $oldMovie)
+        if (Test-Path -LiteralPath $oldPath -PathType Leaf) {
+            Remove-Item -LiteralPath $oldPath -Force
+        }
+    }
+}
 $plugin    = Join-Path $root "src\GloomhavenVR\bin\$Configuration\net472\GloomhavenVR.dll"
 $preloader = Join-Path $root "src\GloomhavenVR.Preload\bin\$Configuration\net472\GloomhavenVR.Preload.dll"
 foreach ($artifact in @($plugin, $preloader)) {
@@ -376,19 +384,16 @@ foreach ($artifact in @($plugin, $preloader)) {
 
 $pluginDir      = Join-Path $GamePath "BepInEx\plugins\GloomhavenVR"
 $movieDir       = Join-Path $pluginDir "Movies\CP_Intro"
-$calibrationDst = Join-Path $pluginDir "Movies\Calibration"
 $runtimeDepsDst = Join-Path $pluginDir "RuntimeDeps"
 $patcherDir     = Join-Path $GamePath "BepInEx\patchers\GloomhavenVR"
 $nativesDst     = Join-Path $patcherDir "Natives"
-foreach ($dir in @($pluginDir, $movieDir, $calibrationDst, $runtimeDepsDst, $patcherDir, $nativesDst)) {
+foreach ($dir in @($pluginDir, $movieDir, $runtimeDepsDst, $patcherDir, $nativesDst)) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
 }
 
 Copy-Item $plugin    -Destination $pluginDir  -Force
 Copy-Item -LiteralPath $introMovie -Destination (Join-Path $movieDir "GH_CP_Intro.mov") -Force
-foreach ($movie in $calibrationMovies) {
-    Copy-Item -LiteralPath (Join-Path $calibrationMovieDir $movie) -Destination (Join-Path $calibrationDst $movie) -Force
-}
+Copy-Item -LiteralPath $stereoIntroMovie -Destination (Join-Path $movieDir "GH_CP_Intro.sbs-v1.mov") -Force
 Copy-Item $preloader -Destination $patcherDir -Force
 Get-ChildItem (Join-Path $runtimeDepsDir "*.dll") | Copy-Item -Destination $runtimeDepsDst -Force
 Get-ChildItem (Join-Path $nativesDir     "*.dll") | Copy-Item -Destination $nativesDst     -Force
@@ -622,6 +627,7 @@ if (-not $NoPackage) {
 
     Copy-Item -Recurse -Force $pluginDir  (Join-Path $stage "BepInEx\plugins\GloomhavenVR")
     Copy-Item -Recurse -Force $patcherDir (Join-Path $stage "BepInEx\patchers\GloomhavenVR")
+    Remove-RetiredCalibrationMovies (Join-Path $stage "BepInEx\plugins\GloomhavenVR")
     # A Frame-only marker may exist in the installed game tree. It must never
     # propagate into a cross-platform archive, where it would opt PC users out.
     $frameMarker = Join-Path $stage "BepInEx\patchers\GloomhavenVR\frame-launch-opt-in.marker"
@@ -688,8 +694,7 @@ if (-not $NoPackage) {
     $required = @(
         "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll",
         "BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov",
-        "BepInEx/plugins/GloomhavenVR/Movies/Calibration/calibration-sbs.mp4",
-        "BepInEx/plugins/GloomhavenVR/Movies/Calibration/calibration-mono.mp4",
+        "BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.sbs-v1.mov",
         "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle",
         "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle",
         "BepInEx/plugins/GloomhavenVR/ghvr-environment.bundle",
@@ -777,6 +782,7 @@ if (-not $NoPackage) {
 }
 
 Write-Host ""
+Remove-RetiredCalibrationMovies $pluginDir
 Write-Host "Deployed commit $builtHash [$builtBranch] `"$builtSubject`" - this exact stamp appears in LogOutput.log at startup." -ForegroundColor Green
 Write-Host "Done. Launch Gloomhaven and check BepInEx\LogOutput.log." -ForegroundColor Green
 Write-Host "If something fails, drop LogOutput.log + openxr-diagnostics.log + Player.log into .planning/debug/."

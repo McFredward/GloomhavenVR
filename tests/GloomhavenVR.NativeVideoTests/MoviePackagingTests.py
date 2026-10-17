@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute real release layouts with substitute binary assets and reviewed calibration media."""
+"""Execute real release layouts with opaque fixture media; no conversion quality claim."""
 import hashlib
 import json
 import os
@@ -60,20 +60,22 @@ def main():
         payload = b'approved mod-local intro\0\xff\x11'
         write('src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov', payload)
         media = {'CP_Intro/GH_CP_Intro.mov': payload}
-        provenance = json.loads((source / 'src/GloomhavenVR/Assets/Movies/Calibration/provenance.json').read_text())
+        media['CP_Intro/GH_CP_Intro.sbs-v1.mov'] = b'stereo intro packaging fixture; not actual film content\0\xf1\x82'
         project = ET.parse(source / 'src/GloomhavenVR/GloomhavenVR.csproj').getroot()
-        for profile in ('sbs', 'mono'):
-            artifact = provenance['artifacts'][profile]
-            key = 'Calibration/' + artifact['file']
-            data = (source / 'src/GloomhavenVR/Assets/Movies' / key).read_bytes()
-            check(hashlib.sha256(data).hexdigest() == artifact['sha256'], 'reviewed calibration hash: ' + key)
+        for key, data in media.items():
             write('src/GloomhavenVR/Assets/Movies/' + key, data)
-            media[key] = data
             include = 'Assets\\Movies\\' + key.replace('/', '\\')
             content = [item for item in project.findall('.//Content') if item.get('Include') == include]
             check(len(content) == 1 and content[0].get('CopyToOutputDirectory') == 'PreserveNewest'
                   and content[0].get('TargetPath') == 'Movies\\' + key.replace('/', '\\'),
-                  'ordinary build copies calibration beside plugin: ' + key)
+                  'ordinary build copies intro beside plugin: ' + key)
+        check({item.get('TargetPath') for item in project.findall('.//Content')
+               if item.get('Include', '').startswith('Assets\\Movies\\')} ==
+              {'Movies\\' + key.replace('/', '\\') for key in media}, 'build includes only stereo intro and approved 2D fallback')
+        check(not (source / 'src/GloomhavenVR/Assets/Movies/Calibration').exists(), 'retired calibration movies are not shipped source assets')
+        # Stray fixture files must never broaden explicit release movie selection.
+        write('src/GloomhavenVR/Assets/Movies/Calibration/calibration-sbs.mp4', b'retired source fixture')
+        write('src/GloomhavenVR/Assets/Movies/Calibration/foreign.mp4', b'foreign source fixture')
         check(not any('.mp4' in item.get('Include', '').lower() or 'Movies' in item.get('Include', '')
                       for item in project.findall('.//EmbeddedResource')), 'movies must never be embedded in DLL')
         write('src/GloomhavenVR/GloomhavenVR.csproj', b'<Project><PropertyGroup><Version>0.0.0-test</Version></PropertyGroup></Project>\n')
@@ -117,7 +119,7 @@ def main():
             for key, data in media.items():
                 check(archive.read(prefix + key) == data, 'release ZIP carries exact plugin-local movie: ' + key)
             check(set(name for name in archive.namelist() if name.endswith(('.mov', '.mp4')))
-                  == {prefix + key for key in media}, 'release ZIP includes exactly the three expected movies')
+                  == {prefix + key for key in media}, 'release ZIP includes exactly stereo intro and approved 2D fallback')
             check(all('StreamingAssets' not in name for name in archive.namelist()), 'release never overwrites game movies')
             archive.extractall(root / 'game')
         environment['GHVR_PACKAGE_CONFIGURATION'] = 'Debug'
@@ -141,19 +143,19 @@ def main():
             check(path.read_bytes() == data, 'packager preserves media source: ' + key)
             path.unlink()
             code, log = package('missing-' + path.stem)
-            expected = 'missing approved campaign intro' if key.startswith('CP_Intro/') else 'missing stereo calibration movie'
+            expected = 'missing stereo campaign intro' if '.sbs-v1.' in key else 'missing approved campaign intro'
             check(code != 0 and expected in log and path.name in log, 'missing media preflight rejects: ' + key)
             check(archive_path.read_bytes() == previous_archive, 'missing media preserves existing ZIP: ' + key)
             path.write_bytes(data)
         script = root / 'scripts/package-release.sh'
         original = script.read_text()
-        needle = 'cp "${CALIBRATION_MOVIES[@]}" "$PLUGDIR/Movies/Calibration/"'
-        check(original.count(needle) == 1, 'causal staging control binds actual calibration copy')
-        for retained, missing in ((0, 'calibration-mono.mp4'), (1, 'calibration-sbs.mp4')):
-            script.write_text(original.replace(needle, 'cp "${CALIBRATION_MOVIES[' + str(retained) + ']}" "$PLUGDIR/Movies/Calibration/"'))
-            code, log = package('omitted-copy-' + missing)
-            check(code != 0 and "packaged zip is missing '" + prefix + 'Calibration/' + missing in log,
-                  'actual archive validator rejects omitted staged movie: ' + missing)
+        for key, variable in (('CP_Intro/GH_CP_Intro.mov', 'INTRO_MOVIE'), ('CP_Intro/GH_CP_Intro.sbs-v1.mov', 'STEREO_INTRO_MOVIE')):
+            needle = 'cp "$' + variable + '" "$PLUGDIR/Movies/' + key + '"'
+            check(original.count(needle) == 1, 'causal staging control binds actual intro copy: ' + key)
+            script.write_text(original.replace(needle, ': # deliberately omitted intro copy'))
+            code, log = package('omitted-copy-' + Path(key).stem)
+            check(code != 0 and "packaged zip is missing '" + prefix + key in log,
+                  'actual archive validator rejects omitted staged movie: ' + key)
         script.write_text(original)
         shell = shutil.which('pwsh')
         if not shell and (candidate := Path.home() / '.dotnet/tools/pwsh').is_file():
@@ -171,8 +173,9 @@ def main():
         else:
             print('Native movie PowerShell installer: pwsh unavailable; deployment execution not checked on this host.')
         (evidence / 'results.json').write_text(json.dumps({'python_assertions': count,
-            'scope': 'Actual bash release packager, actual PowerShell media deploy/archive blocks when available; opaque substitute intro/compiler/other binaries, reviewed calibration MP4 bytes.'}, indent=2) + '\n')
-        print('Native movie packaging: ' + str(count) + ' assertions, 3 missing-source and 2 omitted-copy controls passed.')
+            'media_sha256': {key: hashlib.sha256(value).hexdigest() for key, value in media.items()},
+            'scope': 'Actual bash release packager, actual PowerShell media deploy/archive/retirement blocks when available; opaque substitute film/compiler/other bytes. Actual stereo-intro delivery and visual quality are not checked.'}, indent=2) + '\n')
+        print('Native movie packaging: ' + str(count) + ' assertions, 2 missing-source and 2 omitted-copy controls passed.')
         status = 0
     finally:
         receipt = cleanup_completed_run('native-video-packaging', status, completion, source, process_reaped=True)

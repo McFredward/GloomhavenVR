@@ -117,6 +117,3 @@ PY
     fi
     echo "VR options negative control: $mutation rejected."
 done
-
-# Execute the direct Advanced action and live feedback inside this existing suite.
-python3 "$repo_root/scripts/vr-options-stereo-video-tests.py" --self-test

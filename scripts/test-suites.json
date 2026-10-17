@@ -2774,20 +2774,6 @@
       "weight": 3
     },
     {
-      "id": "stereo-video-calibration",
-      "command": [
-        "python3",
-        "-B",
-        "scripts/stereo-video-calibration-tests.py",
-        "--self-test"
-      ],
-      "groups": [
-        "local",
-        "ci"
-      ],
-      "weight": 20
-    },
-    {
       "id": "stereo-video-render",
       "command": [
         "bash",

@@ -44,7 +44,6 @@ internal sealed partial class FlatScreen
     public void Shutdown()
     {
         if (ReferenceEquals(_coverageOwner, this)) _coverageOwner = null;
-        StereoVideoCalibration.Stop();
         NativeVideoWindow.Shutdown();
         Core.Events.VREvents.SceneLoaded -= OnSceneLoaded;
         ManualScreenActive = false;

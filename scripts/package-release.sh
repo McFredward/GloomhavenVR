@@ -10,8 +10,8 @@
 #   BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov
 #                                                         <- approved first-save intro;
 #                                                            original game movie stays intact
-#   BepInEx/plugins/GloomhavenVR/Movies/Calibration/calibration-{sbs,mono}.mp4
-#                                                         <- paired calibration media, outside DLL
+#   BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.sbs-v1.mov
+#                                                         <- stereo intro, outside DLL
 #   BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll     <- RuntimeDepsLoader.RuntimeDepsDir
 #                                                         (= <plugin dir>/RuntimeDeps)
 #   BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle   <- HandVisuals/WorldUIAssets probe
@@ -82,14 +82,11 @@ if [[ ! -f "$INTRO_MOVIE" ]]; then
     echo "error: missing approved campaign intro: $INTRO_MOVIE" >&2
     exit 1
 fi
-CALIBRATION_MOVIE_DIR="$ROOT/src/GloomhavenVR/Assets/Movies/Calibration"
-CALIBRATION_MOVIES=("$CALIBRATION_MOVIE_DIR/calibration-sbs.mp4" "$CALIBRATION_MOVIE_DIR/calibration-mono.mp4")
-for movie in "${CALIBRATION_MOVIES[@]}"; do
-    if [[ ! -f "$movie" ]]; then
-        echo "error: missing stereo calibration movie: $movie" >&2
-        exit 1
-    fi
-done
+STEREO_INTRO_MOVIE="$ROOT/src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.sbs-v1.mov"
+if [[ ! -f "$STEREO_INTRO_MOVIE" ]]; then
+    echo "error: missing stereo campaign intro: $STEREO_INTRO_MOVIE" >&2
+    exit 1
+fi
 
 # ---- version from the plugin csproj ------------------------------------------------------
 VERSION="$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' "$ROOT/src/GloomhavenVR/GloomhavenVR.csproj" | head -1)"
@@ -144,8 +141,7 @@ mkdir -p "$PLUGDIR/RuntimeDeps" "$PATCHDIR/Natives" "$FRAMESETUP"
 cp "$PLUGIN" "$PLUGDIR/"
 mkdir -p "$PLUGDIR/Movies/CP_Intro"
 cp "$INTRO_MOVIE" "$PLUGDIR/Movies/CP_Intro/GH_CP_Intro.mov"
-mkdir -p "$PLUGDIR/Movies/Calibration"
-cp "${CALIBRATION_MOVIES[@]}" "$PLUGDIR/Movies/Calibration/"
+cp "$STEREO_INTRO_MOVIE" "$PLUGDIR/Movies/CP_Intro/GH_CP_Intro.sbs-v1.mov"
 cp "${RUNTIMEDEPS[@]}" "$PLUGDIR/RuntimeDeps/"
 [[ -f "$ROOT/libs/RuntimeDeps/versions.json" ]] && cp "$ROOT/libs/RuntimeDeps/versions.json" "$PLUGDIR/RuntimeDeps/"
 cp "$PRELOADER" "$PATCHDIR/"
@@ -275,8 +271,7 @@ LISTING="$(unzip -l "$ZIP")"
 for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
     "BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov" \
-    "BepInEx/plugins/GloomhavenVR/Movies/Calibration/calibration-sbs.mp4" \
-    "BepInEx/plugins/GloomhavenVR/Movies/Calibration/calibration-mono.mp4" \
+    "BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.sbs-v1.mov" \
     "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle" \
     "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle" \
     "BepInEx/plugins/GloomhavenVR/ghvr-environment.bundle" \
