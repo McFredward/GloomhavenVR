@@ -19,6 +19,7 @@ namespace GloomhavenVR.Core.SteamLink
     // queued blit returns. No scene render, readback, upload, pool or prior frame.
     internal sealed class SceneEyeOutput : IDisposable
     {
+        private static readonly int MainTexture = Shader.PropertyToID("_MainTex");
         private readonly Material _material;
         private readonly int _maximumSize;
         private bool _disposed;
@@ -64,7 +65,9 @@ namespace GloomhavenVR.Core.SteamLink
                 if (!Format(destination.graphicsFormat)) return SceneEyeResult.DestinationFormat;
                 if (destination.sRGB) return SceneEyeResult.DestinationSrgb;
                 if (destination.useDynamicScale) return SceneEyeResult.DestinationDynamicScale;
-                if (destination.antiAliasing != 1) return SceneEyeResult.DestinationShape;
+                int destinationSamples = destination.antiAliasing;
+                if ((destinationSamples != 1 && destinationSamples != 2 && destinationSamples != 4 && destinationSamples != 8)
+                    || (destinationSamples > 1 && destination.bindTextureMS)) return SceneEyeResult.DestinationShape;
             }
             RenderTexture? active = RenderTexture.active;
             bool srgb = GL.sRGBWrite;
@@ -79,7 +82,14 @@ namespace GloomhavenVR.Core.SteamLink
                 return SceneEyeResult.Rendered;
             }
             catch (Exception) { return SceneEyeResult.BlitFailed; }
-            finally { GL.sRGBWrite = srgb; RenderTexture.active = active; }
+            finally
+            {
+                // Graphics.Blit records its draw immediately. Clear any native
+                // material binding of Unity's borrowed temporary source instead
+                // of retaining that RT across callbacks. No GPU work is awaited.
+                try { _material.SetTexture(MainTexture, null); }
+                finally { GL.sRGBWrite = srgb; RenderTexture.active = active; }
+            }
         }
 
         private bool Shape(RenderTexture value) => value.width > 0 && value.height > 0
