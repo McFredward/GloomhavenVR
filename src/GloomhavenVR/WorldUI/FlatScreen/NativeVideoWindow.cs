@@ -36,6 +36,7 @@ internal static class NativeVideoWindow
     private static VideoPlayer? _reportedStereoSource;
     private static string _reportedStereoUrl = string.Empty;
     private static uint _reportedStereoOpening, _remoteOpening;
+    private static string _remoteKey = string.Empty;
     private static uint _nativePlaybackGeneration;
     private static readonly FieldInfo? IntroClick = typeof(UIMapFTUEInitialStep).GetField(
         "clickTrackerExtended", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -93,7 +94,7 @@ internal static class NativeVideoWindow
             VideoPlayer? player = NativePlayer;
             if (player == null || string.IsNullOrEmpty(player.url))
                 return string.Empty;
-            return NativeVideoMovies.KeyFromUrl(player.url);
+            return NativeVideoMovies.NativePlaybackKey(player);
         }
     }
 
@@ -123,7 +124,7 @@ internal static class NativeVideoWindow
     internal static bool OwnsClick(GameObject? target) => Visible && _image != null
         && ReferenceEquals(_image.gameObject, target);
 
-    internal static void SetRemoteSource(VideoPlayer? player)
+    internal static void SetRemoteSource(VideoPlayer? player, string selectedKey = "")
     {
         if (_remoteSource != player)
         {
@@ -131,6 +132,7 @@ internal static class NativeVideoWindow
             unchecked { _remoteOpening++; }
         }
         _remoteSource = player;
+        _remoteKey = player != null ? selectedKey : string.Empty;
     }
 
     internal static void SetNativePresentationSuppressed(bool suppressed) => _nativePresentationSuppressed = suppressed;
@@ -261,8 +263,11 @@ internal static class NativeVideoWindow
         CanvasConversion.RegisterStandalonePanelOrder(_panel);
         _shownSource = source;
         _shownUrl = source.url;
+        string selectedKey = source == _remoteSource && _remoteKey.Length > 0 ? _remoteKey : NativeVideoMovies.NativePlaybackKey(source);
+        string routing = _shownStereo ? (_stereo != null ? "stereo" : "left-only") : "mono";
         // HW-VERIFY
         VRLog.Note("WorldUI", "NATIVE VIDEO WINDOW: opened from a prepared video texture; native playback unchanged. "
+            + $"key={selectedKey}, packedDimensions={source.texture.width}x{source.texture.height}, routing={routing}. "
             + "Window owns its persistent grab holder; movie pixels are foreground content for the bar.");
     }
 

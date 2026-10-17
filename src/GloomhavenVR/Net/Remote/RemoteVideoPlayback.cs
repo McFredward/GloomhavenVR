@@ -210,7 +210,7 @@ internal static class RemoteVideoPlayback
             _mirror.prepareCompleted += Prepared;
             _mirror.loopPointReached += Ended;
             _mirror.errorReceived += Failed;
-            NativeVideoWindow.SetRemoteSource(_mirror);
+            NativeVideoWindow.SetRemoteSource(_mirror, _active.Clip ?? string.Empty);
             _mirror.Prepare();
             VRLog.Note("Net", $"SHARED VIDEO START: owner={_owner}, token={_activeToken}, clip={_active.Clip}");
         }

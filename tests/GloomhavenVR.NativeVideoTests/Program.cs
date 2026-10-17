@@ -48,7 +48,10 @@ static class Program
         native.frame = 0;
         NativeVideoWindow.Tick();
         Check(NativeVideoWindow.Visible, "native movie is visible");
-        Check(NativeVideoWindow.PlaybackKey == "CP_Intro/GH_CP_Intro.mov", "wire identity has no machine path");
+        Check(NativeVideoWindow.PlaybackKey == NativeVideoMovies.NativeIntroKey, "wire identity explicitly names the native original without a machine path");
+        Check(GloomhavenVR.Core.VRLog.Notes.Last(line => line.StartsWith("NATIVE VIDEO WINDOW:", StringComparison.Ordinal))
+            .Contains("key=" + NativeVideoMovies.NativeIntroKey + ", packedDimensions=1920x1080, routing=mono", StringComparison.Ordinal),
+            "window opening reports actual original key dimensions and mono routing");
         var window = NativeVideoWindow.Window!;
         Check(!window.enabled, "identity cannot register native window lifecycle");
         Check(NativeVideoWindow.TryGetGrab(out _), "video can be grabbed");
@@ -225,6 +228,9 @@ static class Program
         Check(StereoVideoSurface.Attaches == attached + 1 && panel.HostRect.sizeDelta == new Vector2(1280, 720),
             "explicit SBS native window attaches stereo material with per-eye 16:9 geometry");
         Check(panel.ContentGraphic!.uvRect == new Rect(0, 0, 1, 1), "stereo material receives complete packed texture");
+        Check(GloomhavenVR.Core.VRLog.Notes.Last(line => line.StartsWith("NATIVE VIDEO WINDOW:", StringComparison.Ordinal))
+            .Contains("key=" + NativeVideoMovies.StereoIntroKey + ", packedDimensions=3840x1080, routing=stereo", StringComparison.Ordinal),
+            "window opening reports actual stereo key packed dimensions and stereo routing");
         var step = new GameObject("Stereo native continuation").AddComponent<UIMapFTUEInitialStep>();
         var tracker = step.gameObject.AddComponent<ClickTrackerExtended>();
         step.SetTracker(tracker, "CP_Intro/GH_CP_Intro");
@@ -249,6 +255,9 @@ static class Program
         Check(panel.HostRect.sizeDelta == new Vector2(1280, 720) && uv.x > 0 && uv.x + uv.width < .5f
             && uv.y > 0 && uv.y + uv.height < 1f && StereoVideoSurface.Attaches == attached + 2,
             "unsupported renderer shows only texel-centred left half with original per-eye geometry");
+        Check(GloomhavenVR.Core.VRLog.Notes.Last(line => line.StartsWith("NATIVE VIDEO WINDOW:", StringComparison.Ordinal))
+            .Contains("key=" + NativeVideoMovies.StereoIntroKey + ", packedDimensions=3840x1080, routing=left-only", StringComparison.Ordinal),
+            "window opening reports selected stereo key and actual left-only fallback routing");
         for (int i = 0; i < 20; i++) NativeVideoWindow.Tick();
         NativeVideoWindow.OnRootDestroyed(panel.HostGo); NativeVideoWindow.Tick();
         Check(GloomhavenVR.Core.VRLog.Warnings.Count == warnings + 1,

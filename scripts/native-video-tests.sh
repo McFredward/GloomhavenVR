@@ -44,7 +44,7 @@ dotnet run --project "$project" --configuration Release \
 python3 "$repo_root/tests/GloomhavenVR.NativeVideoTests/MoviePackagingTests.py" "$repo_root"
 cp "$repo_root/tests/GloomhavenVR.NativeVideoTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in premature-frame orphan-sweep retirement-sweep scene-lifetime content-binding pointer-guard hero-stop stereo-aspect stereo-attach stereo-dispose stereo-left-uv stereo-dimensions stereo-skip; do
+for mutation in premature-frame orphan-sweep retirement-sweep scene-lifetime content-binding pointer-guard hero-stop stereo-aspect stereo-attach stereo-dispose stereo-left-uv stereo-dimensions stereo-skip native-skip opening-routing; do
     python3 - "$source_file" "$mutation_dir/NativeVideoWindow.fixture" "$mutation" <<'PY'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
@@ -58,7 +58,9 @@ mutations = {
     'stereo-dispose': ('_stereo?.Dispose();', '/* owned material release omitted */'),
     'stereo-left-uv': ('.5f - 1f / source.texture.width', '1f - 1f / source.texture.width'),
     'stereo-dimensions': ('source.texture.width != 3840 || source.texture.height != 1080', 'source.texture.width < 0 || source.texture.height < 0'),
-    'stereo-skip': ('string key = NativeVideoMovies.CanonicalKey(PlaybackKey);', 'string key = PlaybackKey;'),
+    'stereo-skip': ('string key = NativeVideoMovies.CanonicalKey(PlaybackKey);', 'string key = PlaybackKey == NativeVideoMovies.NativeIntroKey ? NativeVideoMovies.IntroKey : PlaybackKey;'),
+    'native-skip': ('string key = NativeVideoMovies.CanonicalKey(PlaybackKey);', 'string key = PlaybackKey == NativeVideoMovies.StereoIntroKey ? NativeVideoMovies.IntroKey : PlaybackKey;'),
+    'opening-routing': ('(_stereo != null ? "stereo" : "left-only")', '(_stereo != null ? "stereo" : "stereo")'),
 }
 if sys.argv[3] in mutations:
     before, after = mutations[sys.argv[3]]
@@ -81,6 +83,8 @@ PY
         stereo-left-uv) expected='unsupported renderer shows only texel-centred left half with original per-eye geometry' ;;
         stereo-dimensions) expected='malformed selected SBS dimensions refuse picture without blocking native continuation' ;;
         stereo-skip) expected='versioned stereo native intro still dispatches its exact canonical native skip callback' ;;
+        native-skip) expected='movie laser click calls the original active intro escape' ;;
+        opening-routing) expected='window opening reports selected stereo key and actual left-only fallback routing' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$mutation_dir/NativeVideoWindow.fixture" \
@@ -100,7 +104,7 @@ done
 
 # Intercept the actual patched caller: a direct helper-only assertion would stay green
 # if Harmony stopped replacing the setter, broadened the requested name or left peers native.
-for mutation in movie-interception movie-exact-name movie-peer-resolution stereo-before-play stereo-version stereo-companion stereo-no-native-substitution stereo-no-peer-upgrade; do
+for mutation in movie-interception movie-exact-name movie-peer-resolution stereo-before-play stereo-version stereo-companion stereo-no-native-substitution stereo-no-peer-upgrade native-owner-identity native-no-peer-upgrade mono-no-native-substitution; do
     # An intentionally unhandled negative-control assertion may terminate .NET before
     # finally cleanup. This output belongs exclusively to this serial mktemp fixture.
     rm -rf "$mutation_dir/bin/Release/net8.0/Movies"
@@ -114,8 +118,11 @@ mutations = {
     'stereo-before-play': ('StereoVideoSurface.IsAvailable(out reason)', 'player.isPaused'),
     'stereo-version': ('extension == ".mov" && key == StereoIntroKey', 'extension == ".mov" && key.StartsWith(IntroName + ".sbs-", StringComparison.Ordinal)'),
     'stereo-companion': ('if (key == StereoIntroKey) return TryModIntro(IntroKey, out url);', 'if (key == StereoIntroKey) return false;'),
-    'stereo-no-native-substitution': ('if (key == StereoIntroKey) return TryModIntro(IntroKey, out url);', 'if (key == StereoIntroKey) { if (TryModIntro(IntroKey, out url)) return true; key = IntroKey; }'),
+    'stereo-no-native-substitution': ('if (key == StereoIntroKey) return TryModIntro(IntroKey, out url);', 'if (key == StereoIntroKey) { if (TryModIntro(IntroKey, out url)) return true; key = NativeIntroKey; }'),
     'stereo-no-peer-upgrade': ('if (TryModIntro(key, out url)) return true;', 'if (key == IntroKey && TryModIntro(StereoIntroKey, out url)) return true; if (TryModIntro(key, out url)) return true;'),
+    'native-owner-identity': ('if (key == IntroKey) key = NativeIntroKey;', 'if (key == IntroKey) key = IntroKey;'),
+    'native-no-peer-upgrade': ('if (key == NativeIntroKey) key = IntroKey;', 'if (key == NativeIntroKey) { if (TryModIntro(IntroKey, out url)) return true; key = IntroKey; }'),
+    'mono-no-native-substitution': ('if (key == IntroKey) return false;', ''),
 }
 before, after = mutations[sys.argv[3]]
 assert source.count(before) == 1
@@ -130,6 +137,9 @@ PY
         stereo-companion) expected='missing selected SBS file uses only its approved original-left companion' ;;
         stereo-no-native-substitution) expected='missing SBS and approved companion never substitutes different native film content' ;;
         stereo-no-peer-upgrade) expected='owner mono key is never silently upgraded to local stereo media' ;;
+        native-owner-identity) expected='native original owner publishes explicit original provenance before any mod assets exist' ;;
+        native-no-peer-upgrade) expected="native original owner key never upgrades to a peer's present approved movie" ;;
+        mono-no-native-substitution) expected='selected approved mono missing locally never substitutes the unrelated native movie' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$source_file" \

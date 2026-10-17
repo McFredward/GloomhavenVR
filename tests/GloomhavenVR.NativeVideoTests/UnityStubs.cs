@@ -158,7 +158,8 @@ namespace GloomhavenVR.Core
 {
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class VRLayers { internal static void Apply(UnityEngine.GameObject go) { } }
-    internal static class VRLog { internal static void Note(string a, string b) { }
+    internal static class VRLog { internal static readonly List<string> Notes = new();
+        internal static void Note(string a, string b) { Notes.Add(b); }
         internal static readonly List<string> Warnings = new();
         internal static void Warn(string a, string b) { Warnings.Add(b); } }
 }

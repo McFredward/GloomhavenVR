@@ -179,6 +179,8 @@ internal static class Program
         VideoPlayer mirror = Mirror(in state);
         Check(mirror.url == NativeVideoMovies.StereoIntroKey && mirror.time == 1,
             "shared stereo revision resolves selected file at elected owner clock");
+        Check(NativeVideoWindow.RemoteKey == NativeVideoMovies.StereoIntroKey,
+            "cosmetic window receives elected key separately from its resolved media URL");
         var sampled = default(PresenceState);
         RemoteVideoPlayback.Sample(ref sampled, 2);
         Check(sampled.VideoWindow.Native && sampled.VideoWindow.Clip == "CP_Intro/GH_CP_Intro.mov",
@@ -207,6 +209,24 @@ internal static class Program
         for (int i = 0; i < 20; i++) RemoteVideoPlayback.Resolve(2);
         Check(NativeVideoWindow.Remote == null && native.StopCalls == 0 && !NativeVideoWindow.Suppressed,
             "missing stereo and companion refuse cosmetic decoding without restart loops or native callback writes");
+        native = Native(); NativeVideoWindow.NativeKey = "CP_Intro/GH_CP_Intro.mov";
+        state = Publication(); state.VideoWindow.Clip = NativeVideoMovies.NativeIntroKey;
+        mirror = Mirror(in state);
+        Check(mirror.url == NativeVideoMovies.NativeIntroKey && mirror.time == 1
+            && NativeVideoWindow.RemoteKey == NativeVideoMovies.NativeIntroKey,
+            "explicit original owner elects exact original media and provenance at the same owner clock");
+        sampled = default; RemoteVideoPlayback.Sample(ref sampled, 2);
+        Check(sampled.VideoWindow.Clip == "CP_Intro/GH_CP_Intro.mov",
+            "following an original owner does not relabel the local approved native source");
+        closed = Publication(2, closed: true); closed.VideoWindow.Clip = NativeVideoMovies.NativeIntroKey;
+        RemoteVideoPlayback.Observe(1, in closed); RemoteVideoPlayback.Resolve(2);
+        Check(NativeVideoWindow.Suppressed && native.StopCalls == 0 && NativeVideoWindow.Remote == null,
+            "original owner completion retires concurrent intro variants without native callbacks");
+        native = Native(); NativeVideoWindow.NativeKey = NativeVideoMovies.NativeIntroKey;
+        sampled = default; RemoteVideoPlayback.Sample(ref sampled, 2);
+        Check(sampled.HasVideoWindow && sampled.VideoWindow.Native
+            && sampled.VideoWindow.Clip == NativeVideoMovies.NativeIntroKey,
+            "presence publishes the exact original alias without canonicalizing content selection");
         RemoteVideoPlayback.Reset();
     }
 }

@@ -87,7 +87,8 @@ namespace GloomhavenVR.WorldUI
         internal static bool Suppressed, AssetAvailable = true;
         internal static string NativeKey = "Heroes/A.mov", ResolvedKey = string.Empty;
         internal static string PlaybackKey => NativePlayer != null ? NativeKey : string.Empty;
-        internal static void SetRemoteSource(VideoPlayer? player) => Remote = player;
+        internal static string RemoteKey = string.Empty;
+        internal static void SetRemoteSource(VideoPlayer? player, string selectedKey = "") { Remote = player; RemoteKey = selectedKey; }
         internal static void SetNativePresentationSuppressed(bool suppressed) => Suppressed = suppressed;
         internal static void SetRemotePose(Vector3 pos, Quaternion rot, float size) { }
         internal static bool TryResolvePlaybackKey(string key, out string url) { url = ResolvedKey.Length == 0 ? key : ResolvedKey; return AssetAvailable; }
@@ -95,8 +96,9 @@ namespace GloomhavenVR.WorldUI
     internal static class NativeVideoMovies
     {
         internal const string StereoIntroKey = "CP_Intro/GH_CP_Intro.sbs-v1.mov";
+        internal const string NativeIntroKey = "CP_Intro/GH_CP_Intro.native.mov";
         internal static bool IsStereoUrl(string url) => url.EndsWith(StereoIntroKey, StringComparison.Ordinal);
-        private static string? Canonical(string? key) => key == StereoIntroKey ? "CP_Intro/GH_CP_Intro.mov" : key;
+        private static string? Canonical(string? key) => key == StereoIntroKey || key == NativeIntroKey ? "CP_Intro/GH_CP_Intro.mov" : key;
         internal static bool SamePresentation(string? first, string? second) => Canonical(first) == Canonical(second);
     }
 }

@@ -28,22 +28,29 @@ internal static class MovieResolutionTests
             Directory.CreateDirectory(Path.GetDirectoryName(hero)!);
             File.WriteAllText(native, "original game movie");
             File.WriteAllText(hero, "original hero movie");
-            check(NativeVideoWindow.TryResolvePlaybackKey("CP_Intro/GH_CP_Intro.mov", out string url) && url == native,
-                "missing optional mod intro falls back to native campaign movie");
+            check(!NativeVideoWindow.TryResolvePlaybackKey(NativeVideoMovies.IntroKey, out string url) && url.Length == 0,
+                "selected approved mono missing locally never substitutes the unrelated native movie");
             harmony.CreateClassProcessor(typeof(NativeVideoMoviePatch)).Patch();
             var owner = new GameObject("Resolver native").AddComponent<VideoCamera>();
             var player = owner.m_VideoPlayer = owner.gameObject.AddComponent<VideoPlayer>();
             owner.m_Camera = owner.gameObject.AddComponent<Camera>();
+            VideoCamera.s_This = owner;
             owner.OriginalUrl = native;
             int completed = 0;
             check(owner.PlayFullscreenVideo("CP_Intro/GH_CP_Intro", () => completed++, false)
                 && player.PlayedUrl == native && player.PlayCalls == 1 && completed == 0,
                 "native missing-mod fallback plays once without invoking completion early");
+            string originalOwnerKey = NativeVideoWindow.PlaybackKey;
+            check(originalOwnerKey == NativeVideoMovies.NativeIntroKey
+                && NativeVideoWindow.TryResolvePlaybackKey(originalOwnerKey, out url) && url == native,
+                "native original owner publishes explicit original provenance before any mod assets exist");
 
             Directory.CreateDirectory(Path.GetDirectoryName(mod)!);
             File.WriteAllText(mod, "approved mod-local movie");
             check(NativeVideoWindow.TryResolvePlaybackKey("CP_Intro/GH_CP_Intro.mov", out url) && url == mod,
                 "remote canonical intro key resolves the same optional mod movie");
+            check(NativeVideoWindow.TryResolvePlaybackKey(originalOwnerKey, out url) && url == native,
+                "native original owner key never upgrades to a peer's present approved movie");
             int plays = player.PlayCalls;
             int setups = owner.NativeSetupCalls;
             check(owner.PlayFullscreenVideo("CP_Intro/GH_CP_Intro", () => completed++, true)
@@ -116,13 +123,26 @@ internal static class MovieResolutionTests
                 "stereo intro is selected before the single native Play and original setup");
             check(NativeVideoWindow.PlaybackKey == NativeVideoMovies.StereoIntroKey,
                 "selected versioned stereo key is published without canonical collapse");
+            check(GloomhavenVR.Core.VRLog.Notes.Last(line => line.StartsWith("NATIVE INTRO SELECTED:", StringComparison.Ordinal))
+                .Contains("key=" + NativeVideoMovies.StereoIntroKey + ";", StringComparison.Ordinal),
+                "native opening reports actual selected stereo revision before playback");
             check(NativeVideoMovies.CanonicalKey(NativeVideoWindow.PlaybackKey) == NativeVideoMovies.IntroKey,
                 "only native continuation matching normalizes the selected stereo key");
             check(NativeVideoWindow.TryResolvePlaybackKey(NativeVideoMovies.StereoIntroKey, out url) && url == stereo,
                 "peer versioned stereo key resolves the exact selected asset revision");
+            check(NativeVideoWindow.TryResolvePlaybackKey(originalOwnerKey, out url) && url == native,
+                "native original owner key ignores both present approved mono and stereo movies");
+            File.Delete(native);
+            check(!NativeVideoWindow.TryResolvePlaybackKey(originalOwnerKey, out url) && url.Length == 0,
+                "missing explicit native original refuses mirror even when both approved movies exist");
+            File.WriteAllText(native, "original game movie");
+            check(NativeVideoMovies.CanonicalKey(originalOwnerKey) == NativeVideoMovies.IntroKey
+                && NativeVideoMovies.SamePresentation(originalOwnerKey, NativeVideoMovies.StereoIntroKey)
+                && !NativeVideoMovies.SamePresentation(originalOwnerKey, "Heroes/Brute.mov"),
+                "native alias normalizes only the exact intro continuation representation");
             check(NativeVideoWindow.TryResolvePlaybackKey(NativeVideoMovies.IntroKey, out url) && url == mod,
                 "owner mono key is never silently upgraded to local stereo media");
-            foreach (string invalid in new[] { "CP_Intro/GH_CP_Intro.sbs-v2.mov", "CP_Intro/GH_CP_Intro.sbs.mov", "Heroes/Brute.sbs-v1.mov" })
+            foreach (string invalid in new[] { "CP_Intro/GH_CP_Intro.sbs-v2.mov", "CP_Intro/GH_CP_Intro.sbs.mov", "Heroes/Brute.sbs-v1.mov", "CP_Intro/GH_CP_Intro.native-v2.mov", "Heroes/Brute.native.mov" })
                 check(!NativeVideoWindow.IsPlaybackKey(invalid) && !NativeVideoWindow.TryResolvePlaybackKey(invalid, out url) && url.Length == 0,
                     "unknown stereo revision or filename is refused: " + invalid);
             StereoVideoSurface.Available = false;
@@ -144,8 +164,14 @@ internal static class MovieResolutionTests
                 "missing SBS and approved companion never substitutes different native film content");
             owner.PlayFullscreenVideo("CP_Intro/GH_CP_Intro", () => completed++, false);
             check(player.PlayedUrl == native
-                && NativeVideoWindow.TryResolvePlaybackKey("CP_Intro/GH_CP_Intro.mov", out url) && url == native,
-                "removing optional movie restores both native and remote original paths");
+                && NativeVideoWindow.PlaybackKey == originalOwnerKey
+                && NativeVideoWindow.TryResolvePlaybackKey(originalOwnerKey, out url) && url == native
+                && !NativeVideoWindow.TryResolvePlaybackKey(NativeVideoMovies.IntroKey, out url),
+                "removing approved movies elects native original alias without changing approved mono identity");
+            File.WriteAllText(mod, "approved mod-local movie");
+            check(NativeVideoWindow.PlaybackKey == originalOwnerKey
+                && NativeVideoWindow.TryResolvePlaybackKey(originalOwnerKey, out url) && url == native,
+                "an original playback keeps its selected provenance when local mod availability later changes");
             check(File.ReadAllText(native) == "original game movie" && File.ReadAllText(hero) == "original hero movie",
                 "native and Hero game references remain byte-for-byte untouched");
         }
