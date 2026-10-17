@@ -93,6 +93,71 @@ class UpdateRecommendationTests(unittest.TestCase):
         self.assertTrue(self.recommend(selected)["inputsReady"])
         self.assertFalse((update.parent / "GloomhavenVR-Quest-content.zip").exists())
 
+    def retained_chain(self, count):
+        versions = [self.apk]
+        for index in range(count):
+            apk, _ = self.completed(f"{index + 1:064x}", 675, base=versions[-1])
+            versions.append(apk)
+        return versions
+
+    def test_repeated_updates_keep_highlight_without_opening_payloads(self):
+        self.retained_chain(32)
+        selected = discovery.default_apk(self.store)
+        original = Path.open; opened = []
+        def metadata(path, *args, **kwargs):
+            self.assertEqual(path.suffix, ".json", "Only bounded JSON may be opened")
+            opened.append(path)
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "open", metadata), \
+             patch.object(Path, "glob", side_effect=AssertionError("No directory scan")), \
+             patch.object(state, "digest", side_effect=AssertionError("No full hashing")):
+            value = self.recommend(selected)
+        self.assertTrue(value["inputsReady"])
+        self.assertEqual(value["reason"], "local-update-ready")
+        self.assertEqual(len(opened), 33, "Each receipt is read once, including the selected one")
+
+    def test_cleaned_previous_apks_do_not_hide_retained_game_content(self):
+        versions = self.retained_chain(12)
+        for apk in versions[:-1]: apk.unlink()
+        selected = discovery.default_apk(self.store)
+        self.assertTrue(self.recommend(selected)["inputsReady"])
+        bank = self.apk.parent / "GloomhavenVR-Quest-content.zip"
+        bank.unlink()
+        self.assertEqual(self.recommend(selected)["missing"], ["campaign-content"])
+
+    def test_long_cycle_is_rejected_without_requiring_old_apk_payloads(self):
+        versions = self.retained_chain(12)
+        receipt = self.build / "receipts/build" / (versions[4].parent.name + ".json")
+        value = json.loads(receipt.read_text())
+        value["details"]["baseApk"] = str(versions[-1])
+        state.atomic_json(receipt, value)
+        for apk in versions[:-1]: apk.unlink()
+        self.assertFalse(self.recommend(discovery.default_apk(self.store))["inputsReady"])
+
+    def test_total_metadata_and_owner_work_remain_bounded(self):
+        self.retained_chain(12)
+        selected = discovery.default_apk(self.store)
+        with patch.object(hints, "MAX_METADATA_BYTES", 1500):
+            self.assertFalse(self.recommend(selected)["inputsReady"])
+        with patch.object(hints, "MAX_CONTENT_OWNERS", 4):
+            self.assertFalse(self.recommend(selected)["inputsReady"])
+
+    def test_missing_or_cross_input_ancestor_receipt_never_claims_ready(self):
+        versions = self.retained_chain(12)
+        receipt = self.build / "receipts/build" / (versions[4].parent.name + ".json")
+        value = json.loads(receipt.read_text()); value["details"]["inputKey"] = "0" * 64
+        state.atomic_json(receipt, value)
+        self.assertFalse(self.recommend(discovery.default_apk(self.store))["inputsReady"])
+        receipt.unlink()
+        self.assertFalse(self.recommend(discovery.default_apk(self.store))["inputsReady"])
+
+    def test_selected_apk_is_still_required_after_ancestor_payload_cleanup(self):
+        versions = self.retained_chain(12)
+        selected = discovery.default_apk(self.store)
+        for apk in versions[:-1]: apk.unlink()
+        versions[-1].write_bytes(b"changed selected APK size")
+        self.assertFalse(self.recommend(selected)["inputsReady"])
+
     def test_imported_package_bank_uses_unchanged_descriptor_stamp_only(self):
         imported = self.build / ("imports/portable/" + "1" * 64 + "/GloomhavenVR-Quest.apk")
         imported.parent.mkdir(parents=True); imported.write_bytes(b"retained imported APK")

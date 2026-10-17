@@ -19,6 +19,8 @@ BANK = re.compile(r"(?:builds|updates)/[0-9a-f]{64}/GloomhavenVR-Quest-content\.
 SOURCE_FILES = ("scripts/build-quest.py", "tools/quest-builder/update_driver.py",
                 "tools/quest-builder/apk_update.py", "src/GloomhavenVR/GloomhavenVR.csproj",
                 "src/GloomhavenVR/Net/NetProtocol.cs")
+MAX_CONTENT_OWNERS = 256
+MAX_METADATA_BYTES = 4 * 1048576
 
 
 def _file(path, size=None):
@@ -30,10 +32,12 @@ def _file(path, size=None):
     return info
 
 
-def _json(path, limit=2 * 1048576):
+def _json(path, limit=2 * 1048576, *, budget=None):
+    if budget is not None: limit = min(limit, budget["remaining"])
     if _file(path).st_size > limit: raise ValueError("Update hint metadata is too large.")
     with Path(path).open("rb") as stream: raw = stream.read(limit + 1)
     if len(raw) > limit: raise ValueError("Update hint metadata grew beyond its bound.")
+    if budget is not None: budget["remaining"] -= len(raw)
     value = json.loads(raw)
     if not isinstance(value, dict) or value.get("schema") != 1:
         raise ValueError("Unsupported update hint metadata.")
@@ -59,12 +63,12 @@ def _identity(details):
     return keys[0], builds[0]
 
 
-def _receipt(apk, build):
+def _receipt(apk, build, *, require_apk=True, budget=None):
     apk = ordinary(apk)
     relative = apk.relative_to(build).as_posix()
     matched = APK.fullmatch(relative)
     if not matched: raise ValueError("Not an owned closed APK.")
-    receipt = _json(build / "receipts/build" / (matched[1] + ".json"))
+    receipt = _json(build / "receipts/build" / (matched[1] + ".json"), budget=budget)
     details = receipt.get("details")
     if (receipt.get("stage") != "build" or receipt.get("key") != matched[1]
             or not isinstance(details, dict) or details.get("isDiagnostic") is not False
@@ -74,18 +78,20 @@ def _receipt(apk, build):
     rows = receipt.get("outputs")
     if not isinstance(rows, list) or not 1 <= len(rows) <= 64: raise ValueError("Invalid output roster.")
     matches = [row for row in rows if isinstance(row, dict) and row.get("path") == relative]
-    if (len(matches) != 1 or type(matches[0].get("size")) is not int
+    if (len(matches) != 1 or type(matches[0].get("size")) is not int or matches[0]["size"] <= 0
             or matches[0].get("sha256") != details["apkSha256"]):
         raise ValueError("Closed APK output differs from its receipt.")
-    _file(apk, matches[0]["size"])
+    # Only the selected APK is needed for this update. Closed ancestor receipts
+    # locate its retained bank even after old APK payloads have been cleaned up.
+    if require_apk: _file(apk, matches[0]["size"])
     return details, _identity(details)
 
 
-def _portable(apk, build):
+def _portable(apk, build, *, budget=None):
     """An unchanged imported package can retain the bank without a second copy."""
     relative = apk.relative_to(build).as_posix()
     if not re.fullmatch(r"imports/portable/[0-9a-f]{64}/GloomhavenVR-Quest\.apk", relative): return False
-    value = _json(apk.parent / "portable-source.json", 65536)
+    value = _json(apk.parent / "portable-source.json", 65536, budget=budget)
     entry, content = value.get("apk"), value.get("content")
     if (not isinstance(entry, dict) or not isinstance(content, dict)
             or not SHA.fullmatch(str(entry.get("sha256", "")))
@@ -102,15 +108,17 @@ def _portable(apk, build):
             info.st_mtime_ns, info.st_ctime_ns])
 
 
-def _content(apk, build, input_key):
+def _content(apk, build, input_key, first, budget):
     """Follow only exact retained base owners, never scan other build results."""
     seen = set()
-    for _ in range(8):
+    # Eight predecessors is ordinary after repeated compact updates. Bound total
+    # metadata instead of silently declaring the bank missing on the ninth one.
+    for index in range(MAX_CONTENT_OWNERS):
         apk = ordinary(apk)
         if apk in seen: return False
         seen.add(apk)
-        if _portable(apk, build): return True
-        details, identity = _receipt(apk, build)
+        if _portable(apk, build, budget=budget): return True
+        details, identity = first if index == 0 else _receipt(apk, build, require_apk=False, budget=budget)
         if identity[0] != input_key: return False
         rows = details.get("contentFiles")
         if isinstance(rows, list) and 0 < len(rows) <= 8:
@@ -167,9 +175,10 @@ def recommend(repo, store, source, selected, games, recent, helper):
     if result["gameRoot"] is None: result["missing"].append("owned-pc-game")
     try:
         build = ordinary(store.root / "build")
-        details, identity = _receipt(Path(selected["path"]), build)
+        budget = {"remaining": MAX_METADATA_BYTES}
+        details, identity = _receipt(Path(selected["path"]), build, budget=budget)
         if identity[1] != installed: raise ValueError("The selected completed APK identity changed.")
-        if not _content(Path(selected["path"]), build, identity[0]): result["missing"].append("campaign-content")
+        if not _content(Path(selected["path"]), build, identity[0], (details, identity), budget): result["missing"].append("campaign-content")
     except (OSError, ValueError, KeyError, TypeError, WizardError):
         result["missing"].append("campaign-content")
     result["inputsReady"] = not result["missing"]
