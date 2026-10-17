@@ -25,11 +25,19 @@ def main():
     start = source.index("    private Material CreateBeamMaterial(out Color color)")
     end = source.index("    // ---- effective-state sync", start)
     factory = source[start:end]
+    color_space = os.environ.get("QUEST_POINTER_TEST_COLOR_SPACE", "linear")
+    if color_space not in ("linear", "gamma"):
+        raise ValueError("Unknown fixture color space")
     (editor / "PointerProductionMaterialFactory.cs").write_text("using UnityEngine;\nnamespace GloomhavenVR.Hands.Interact { internal sealed class PointerProductionMaterialFactory {\n"
-        + "public Material Build(bool quest) { Core.QuestStandalonePlatform.Enabled=quest; return CreateBeamMaterial(out _); }\n"
+        + "public Material Build(bool quest, bool missing=false) { Core.QuestStandalonePlatform.Enabled=quest; GloomhavenVR.Cards.PlayTray.Missing=missing; return CreateBeamMaterial(out _); }\n"
         + "public void Apply(Renderer renderer, bool quest) { Core.QuestStandalonePlatform.Enabled=quest; ApplyQuestPointerRendererDefaults(renderer); }\n"
+        + "public Color VertexColor(Material material, Color color, bool quest) { Core.QuestStandalonePlatform.Enabled=quest; return BeamVertexColor(material, color); }\n"
         + factory + "} }\n"
-        + "namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { internal static bool Enabled; } }\n")
+        + "namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { internal static bool Enabled; } }\n"
+        + 'namespace GloomhavenVR.Cards { internal static class PlayTray { internal static bool Missing; internal static Shader OverlayShader() => Missing ? null : UnityEditor.AssetDatabase.LoadAssetAtPath<Shader>("Assets/PointerOverlay.shader"); } }\n'
+        + "public static class QuestPointerProbeConfig { public const bool Linear=" + str(color_space == "linear").lower() + "; }\n")
+    shader_source = ROOT / "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader"
+    shutil.copyfile(shader_source, project / "Assets/PointerOverlay.shader")
     shutil.copyfile(ROOT / "tests/QuestPointerRender.Tests/Probe.cs", editor / "Probe.cs")
     (project / "Packages").mkdir(); (project / "ProjectSettings").mkdir()
     (project / "Packages/manifest.json").write_text('{"dependencies":{}}\n')
@@ -51,10 +59,11 @@ def main():
         if code:
             raise RuntimeError("Native pointer fixture failed: " + str(run / "unity.log"))
         report = json.loads((project / "ProbeOutput/results.json").read_text())
-        assert len(report["cases"]) == 12
+        assert len(report["cases"]) == 14
         (run / "source-hashes.json").write_text(json.dumps({"productionFactory": hashlib.sha256(factory.encode()).hexdigest(),
             "probe": hashlib.sha256((ROOT / "tests/QuestPointerRender.Tests/Probe.cs").read_bytes()).hexdigest(),
-            "graphics": graphics, "hardwareVerified": False}, indent=2) + "\n")
+            "ownedShader": hashlib.sha256(shader_source.read_bytes()).hexdigest(),
+            "graphics": graphics, "colorSpace": color_space, "hardwareVerified": False}, indent=2) + "\n")
         print("PASS native pointer GPU material/mesh characterization: " + graphics)
     finally:
         if process.poll() is None:

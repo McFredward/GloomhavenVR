@@ -1085,7 +1085,8 @@ internal sealed class RayInteractor : IPickProvider
             head = head != null ? head : VRRigDriver.HeadCamera;
             var text = new StringBuilder(2304);
             text.Append("[Quest startup] presentation laser sample=").Append(sample)
-                .Append(" frame=").Append(Time.frameCount).Append(" phase=visuals-update side=").Append(_hand.Side)
+                .Append(" frame=").Append(Time.frameCount).Append(" phase=visuals-update scene=")
+                .Append(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name).Append(" side=").Append(_hand.Side)
                 .Append(" hitMarker=").Append(visible).Append(" uiHit=")
                 .Append(_uiHitOverride.HasValue && Time.frameCount - _uiHitOverrideFrame <= 1)
                 .Append(" physicsHit=").Append(_current.HasHit);
@@ -1146,11 +1147,22 @@ internal sealed class RayInteractor : IPickProvider
             .Append(' ').Append(name).Append("ShaderSupported=").Append(shader != null && shader.isSupported)
             .Append(' ').Append(name).Append("MaterialInstancing=").Append(material != null && material.enableInstancing)
             .Append(' ').Append(name).Append("Queue=").Append(material != null ? material.renderQueue : -1)
-            .Append(' ').Append(name).Append("SortingOrder=").Append(renderer.sortingOrder);
+            .Append(' ').Append(name).Append("SortingOrder=").Append(renderer.sortingOrder)
+            .Append(' ').Append(name).Append("MaterialKeywords=")
+            .Append(material != null ? string.Join(",", material.shaderKeywords) : "none")
+            .Append(' ').Append(name).Append("GlobalStereoInstancing=").Append(Shader.IsKeywordEnabled("STEREO_INSTANCING_ON"))
+            .Append(' ').Append(name).Append("GlobalStereoMultiview=").Append(Shader.IsKeywordEnabled("STEREO_MULTIVIEW_ON"))
+            .Append(' ').Append(name).Append("GlobalStereoSinglePass=").Append(Shader.IsKeywordEnabled("UNITY_SINGLE_PASS_STEREO"));
         if (material != null)
         {
             AppendQuestLaserMaterialVector(text, name, material, "_Flip");
             AppendQuestLaserMaterialVector(text, name, material, "_RendererColor");
+            AppendQuestLaserMaterialVector(text, name, material, "_Color");
+            if (material.HasProperty("_SrcBlend"))
+                text.Append(' ').Append(name).Append("Blend=").Append(material.GetFloat("_SrcBlend"))
+                    .Append(',').Append(material.GetFloat("_DstBlend"))
+                    .Append(' ').Append(name).Append("ZTest=").Append(material.GetFloat("_ZTest"))
+                    .Append(' ').Append(name).Append("ZWrite=").Append(material.GetFloat("_ZWrite"));
         }
         bool hasBlock = renderer.HasPropertyBlock();
         text.Append(' ').Append(name).Append("PropertyBlock=").Append(hasBlock);
@@ -1169,7 +1181,11 @@ internal sealed class RayInteractor : IPickProvider
                 .Append(' ').Append(name).Append("VertexStreams=").Append(mesh.vertexBufferCount)
                 .Append(' ').Append(name).Append("VertexStride0=")
                 .Append(mesh.vertexBufferCount > 0 ? mesh.GetVertexBufferStride(0) : 0)
-                .Append(' ').Append(name).Append("MeshReadable=").Append(mesh.isReadable);
+                .Append(' ').Append(name).Append("MeshReadable=").Append(mesh.isReadable)
+                .Append(' ').Append(name).Append("IndexFormat=").Append(mesh.indexFormat);
+            foreach (UnityEngine.Rendering.VertexAttributeDescriptor attribute in mesh.GetVertexAttributes())
+                text.Append(' ').Append(name).Append("Attribute=").Append(attribute.attribute)
+                    .Append(':').Append(attribute.format).Append(':').Append(attribute.dimension).Append(':').Append(attribute.stream);
             AppendQuestLaserVector(text, name + "MeshBoundsCenter", mesh.bounds.center);
             AppendQuestLaserVector(text, name + "MeshBoundsSize", mesh.bounds.size);
         }
@@ -1228,8 +1244,8 @@ internal sealed class RayInteractor : IPickProvider
         _laser.positionCount = 2;
         _laser.material = CreateBeamMaterial(out Color color);
         ApplyQuestPointerRendererDefaults(_laser);
-        _laser.startColor = color;
-        _laser.endColor = new Color(color.r, color.g, color.b, 0.05f);
+        _laser.startColor = BeamVertexColor(_laser.sharedMaterial, color);
+        _laser.endColor = BeamVertexColor(_laser.sharedMaterial, new Color(color.r, color.g, color.b, 0.05f));
         _laser.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         _laser.receiveShadows = false;
         // Draw after the floated modal (sortingOrder 1000) so the beam stays visible
@@ -1259,15 +1275,33 @@ internal sealed class RayInteractor : IPickProvider
     private Material CreateBeamMaterial(out Color color)
     {
         color = new Color(0.45f, 0.8f, 1f, 0.35f);
-        Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended");
+        Shader? owned = Core.QuestStandalonePlatform.Enabled ? Cards.PlayTray.OverlayShader() : null;
+        Shader? shader = owned != null && owned.isSupported ? owned
+            : Shader.Find("Sprites/Default") ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended");
         var material = shader != null ? new Material(shader) : new Material(Shader.Find("Hidden/InternalErrorShader"));
         material.color = color;
+        if (shader == owned && owned != null)
+        {
+            // B675 still draws huge cyan facets with centimetre CPU bounds and
+            // neutral Sprite material/renderer fields. Use our existing ordinary
+            // mesh program, avoiding SpriteRenderer-specific native draw state.
+            // Overlay normally uses straight alpha, whereas Sprites/Default emits
+            // premultiplied RGBA. This pointer has an owned white texture and a
+            // constant-RGB line gradient: premultiply tint and endpoint RGB, keep
+            // alpha untouched, and blend One/OneMinusSrcAlpha. Native GPU tests
+            // compare every output RGBA pixel, including transparent target alpha.
+            material.mainTexture = Texture2D.whiteTexture;
+            material.color = PremultiplyPointerMaterialColor(color);
+            material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+            material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_ZTest", (float)UnityEngine.Rendering.CompareFunction.LessEqual);
+            material.SetFloat("_ZWrite", 0);
+            material.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Off);
+        }
         if (Core.QuestStandalonePlatform.Enabled)
         {
-            // The native sprite shader also serves our ordinary MeshRenderer and
-            // LineRenderer. Its hidden SpriteRenderer inputs must be explicit on
-            // these draw types; the renderer block below takes final precedence.
-            // Keep native premultiplied blending (including target alpha for MR).
+            // Preserve neutral native inputs for a missing-bundle fallback, without
+            // changing the desktop material or enabling an instanced draw variant.
             material.enableInstancing = false;
             if (material.HasProperty("_Flip")) material.SetVector("_Flip", Vector4.one);
             if (material.HasProperty("_RendererColor")) material.SetColor("_RendererColor", Color.white);
@@ -1285,15 +1319,32 @@ internal sealed class RayInteractor : IPickProvider
         return material;
     }
 
+    private static Color PremultiplyPointerColor(Color color) =>
+        new(color.r * color.a, color.g * color.a, color.b * color.a, color.a);
+
+    private static Color PremultiplyPointerMaterialColor(Color color)
+    {
+        // Material Color properties are converted to the active working space;
+        // premultiply there and return to the property's input space. Native
+        // LineRenderer vertex colors use their raw channels instead. GPU tests
+        // compare both paths in Gamma and Linear, the Quest Player's configured space.
+        bool linear = QualitySettings.activeColorSpace == ColorSpace.Linear;
+        Color working = PremultiplyPointerColor(linear ? color.linear : color);
+        return linear ? working.gamma : working;
+    }
+
+    private static Color BeamVertexColor(Material material, Color color) =>
+        Core.QuestStandalonePlatform.Enabled && material.shader != null && material.shader.name == "GloomhavenVR/Overlay"
+            ? PremultiplyPointerColor(color) : color;
+
     private static void ApplyQuestPointerRendererDefaults(Renderer renderer)
     {
         if (!Core.QuestStandalonePlatform.Enabled)
             return;
-        // B674 video shows large cyan facets on a hit while CPU sphere bounds
-        // remain centimetres. A native Vulkan/GL control reproduces that split by
-        // inflating the sprite-only _Flip field. This establishes the risk rather
-        // than the headset's final GPU value: pin the neutral inputs at the draw
-        // boundary and retain bounded property/mesh evidence for the next test.
+        // Retain B675's neutral native fallback inputs. Settled B675 menu samples
+        // prove these fields already neutral on the affected headset, so they do
+        // not explain that run's facets. The owned ordinary mesh program does not
+        // read either field; no Sprite-specific value can inflate its vertices.
         var block = new MaterialPropertyBlock();
         renderer.GetPropertyBlock(block);
         block.SetVector("_Flip", Vector4.one);

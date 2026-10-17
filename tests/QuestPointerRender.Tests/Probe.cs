@@ -24,7 +24,7 @@ public static class QuestPointerRenderProbe
     }
     [Serializable] sealed class Report
     {
-        public string unity, graphics;
+        public string unity, graphics, colorSpace;
         public bool hardwareVerified = false;
         public List<Row> cases = new List<Row>();
     }
@@ -33,7 +33,12 @@ public static class QuestPointerRenderProbe
     {
         string output = Path.GetFullPath(Path.Combine(Application.dataPath, "../ProbeOutput"));
         Directory.CreateDirectory(output);
-        var report = new Report { unity = Application.unityVersion, graphics = SystemInfo.graphicsDeviceType.ToString() };
+        var colorSpace = QuestPointerProbeConfig.Linear ? ColorSpace.Linear : ColorSpace.Gamma;
+        PlayerSettings.colorSpace = colorSpace;
+        if (QualitySettings.activeColorSpace != colorSpace)
+            throw new Exception("The pointer fixture must use its requested working color space");
+        var report = new Report { unity = Application.unityVersion, graphics = SystemInfo.graphicsDeviceType.ToString(),
+            colorSpace = QualitySettings.activeColorSpace.ToString() };
         var target = new RenderTexture(512, 512, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
         target.Create();
         var camera = new GameObject("pointer-native-gpu-camera").AddComponent<Camera>();
@@ -71,14 +76,23 @@ public static class QuestPointerRenderProbe
             void Require(bool condition, string message)
             { if (!condition) throw new Exception(message); }
             Require(sprite.shader == Shader.Find("Sprites/Default"), "Desktop keeps its original native sprite material");
-            Require(owned.shader == sprite.shader, "Quest retains the same native sprite shader and target alpha contract");
+            Require(owned.shader.name == "GloomhavenVR/Overlay", "Quest resolves the already owned ordinary mesh shader");
             Require(owned.renderQueue == 4600 && sprite.renderQueue == 4600, "Both platform paths retain pointer render queue");
-            Require(!owned.enableInstancing && owned.GetVector("_Flip") == Vector4.one && owned.GetColor("_RendererColor") == Color.white,
-                "Quest pins neutral native sprite renderer inputs and disables material instancing");
+            Require(!owned.enableInstancing && owned.mainTexture == Texture2D.whiteTexture
+                && owned.GetFloat("_SrcBlend") == (float)BlendMode.One
+                && owned.GetFloat("_DstBlend") == (float)BlendMode.OneMinusSrcAlpha
+                && owned.GetFloat("_ZTest") == (float)CompareFunction.LessEqual
+                && owned.GetFloat("_ZWrite") == 0 && owned.GetFloat("_Cull") == (float)CullMode.Off,
+                "Quest pins native Sprite premultiplied blend/depth policy on its plain mesh material");
             Row Capture(string name, Mesh mesh, Material material, string expectedPixels = "small", bool quest = false, bool corruptBlock = false)
             {
                 filter.sharedMesh = mesh; renderer.sharedMaterial = material;
-                if (line.gameObject.activeSelf) line.sharedMaterial = material;
+                if (line.gameObject.activeSelf)
+                {
+                    line.sharedMaterial = material;
+                    line.startColor = factory.VertexColor(material, new Color(.45f, .8f, 1, .35f), quest);
+                    line.endColor = factory.VertexColor(material, new Color(.45f, .8f, 1, .05f), quest);
+                }
                 renderer.SetPropertyBlock(null); line.SetPropertyBlock(null);
                 if (corruptBlock)
                 {
@@ -117,7 +131,7 @@ public static class QuestPointerRenderProbe
                     for (int y = 0; y < 512; y++) for (int x = 0; x < 512; x++)
                     {
                         Color32 pixel = pixels[y * 512 + x];
-                        if (pixel.b <= 8 || pixel.g <= 5) continue;
+                        if (pixel.b <= 8) continue;
                         row.pixels++; row.minX = Math.Min(row.minX, x); row.minY = Math.Min(row.minY, y);
                         row.maxX = Math.Max(row.maxX, x); row.maxY = Math.Max(row.maxY, y);
                     }
@@ -151,14 +165,17 @@ public static class QuestPointerRenderProbe
                 }
             }
             var desktop = Capture("desktop-native-sphere-original-sprite", native, sprite);
-            var quest = Capture("quest-native-sphere-explicit-sprite", native, owned, quest: true);
+            var quest = Capture("quest-native-sphere-owned-mesh-program", native, owned, quest: true);
             SameRgba(quest, desktop, "Owned Quest pointer retains native Sprite RGBA blending and silhouette");
-            Capture("quest-explicit-sphere-native-sprite", explicitSphere, owned, quest: true);
-            owned.SetVector("_Flip", new Vector4(100, 100, 1, 1));
-            owned.SetColor("_RendererColor", Color.red);
-            var unaffected = Capture("quest-renderer-block-repairs-material-control", native, owned, quest: true);
-            SameRgba(unaffected, quest, "Quest renderer block repairs inflated sprite material fields without changing RGBA");
-            owned.SetVector("_Flip", Vector4.one); owned.SetColor("_RendererColor", Color.white);
+            Capture("quest-explicit-sphere-owned-mesh-program", explicitSphere, owned, quest: true);
+            var plainOverlay = new Material(owned) { color = sprite.color };
+            plainOverlay.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            var alphaControl = Capture("wrong-straight-alpha-overlay-control", native, plainOverlay, quest: true);
+            Require(Mathf.Abs(alphaControl.center.a - desktop.center.a) > .1f,
+                "Straight-alpha Overlay control must expose the target-alpha mismatch that this adaptation avoids");
+            Object.DestroyImmediate(plainOverlay);
+            var unaffected = Capture("quest-renderer-block-retains-unrelated-state", native, owned, quest: true, corruptBlock: true);
+            SameRgba(unaffected, quest, "Quest ordinary mesh material ignores Sprite-only draw inputs without changing RGBA");
             sprite.SetVector("_Flip", new Vector4(100, 100, 1, 1));
             Capture("sprite-uniform-inflation-control", native, sprite, "large");
             sprite.SetVector("_Flip", Vector4.one);
@@ -167,16 +184,25 @@ public static class QuestPointerRenderProbe
             Capture("desktop-depth-occluded", native, sprite, "none");
             occluder.SetActive(false);
             var colors = explicitSphere.colors;
-            for (int i = 0; i < colors.Length; i++) colors[i] = new Color(.6f, .3f, .8f, .4f);
+            for (int i = 0; i < colors.Length; i++) colors[i] = new Color(.6f, .3f, .8f, 1);
             explicitSphere.colors = colors;
             var desktopTint = Capture("desktop-mesh-vertex-tint", explicitSphere, sprite);
-            SameRgba(Capture("quest-mesh-vertex-tint", explicitSphere, owned, quest: true), desktopTint, "Quest retains mesh vertex color and alpha");
+            SameRgba(Capture("quest-mesh-vertex-tint", explicitSphere, owned, quest: true), desktopTint, "Quest retains reticle mesh vertex color");
             renderer.enabled = false; line.gameObject.SetActive(true);
             var desktopLine = Capture("desktop-line-vertex-alpha", native, sprite, "line");
             SameRgba(Capture("quest-line-vertex-alpha", native, owned, "line", quest: true), desktopLine, "Quest retains the actual LineRenderer color/alpha gradient");
+            Require(Mathf.Abs(factory.VertexColor(sprite, new Color(.45f, .8f, 1, .35f), false).a - .35f) < .00001f,
+                "Desktop endpoint alpha remains unchanged");
             renderer.enabled = true; line.gameObject.SetActive(false);
             SameRgba(Capture("quest-final-block-repairs-foreign-block-control", native, owned, quest: true, corruptBlock: true), quest,
                 "Quest repairs final sprite renderer block fields without changing RGBA or unrelated fields");
+            var fallback = factory.Build(true, true);
+            Require(fallback.shader == sprite.shader && fallback.renderQueue == sprite.renderQueue
+                && fallback.color == sprite.color && !fallback.enableInstancing,
+                "Missing owned shader retains the original visible native fallback, tint and render queue");
+            SameRgba(Capture("quest-owned-shader-missing-native-fallback", native, fallback, quest: true), desktop,
+                "Missing owned shader does not drop the beam/marker or change its fallback RGBA");
+            Object.DestroyImmediate(fallback);
             Debug.Log("PASS native pointer GPU characterization: " + report.cases.Count);
             EditorApplication.Exit(0);
         }
