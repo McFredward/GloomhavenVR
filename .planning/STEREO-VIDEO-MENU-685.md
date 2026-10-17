@@ -58,3 +58,36 @@ GL/Vulkan eye/mask and native-film evidence from that stage. It does not claim
 a new complete local gate or a correct headset picture. Actual fusion, per-eye
 decoder timing, D3D11 headset output and converted films remain unverified.
 No inference or conversion is performed by this repair.
+
+### Final merged source checks
+
+After merging684 and the isolated shader-table repair, all16 source suites pass;
+the six affected local suites pass (native-video, vr-options, vr-options-close,
+player-settings-help, stereo-video-calibration, self-update-archive). The owner
+fixture again passes198 assertions/14 processes/29 controls. The options suite
+includes its existing7339 assertions/21 controls and the added25/8 button checks.
+Inventory discovery reports19 tests, with17 executed and2 conditional skips.
+Strict Release compilation has zero warnings/errors.
+
+The first fresh golden execution found300,517 passes and one strict shader-name
+registry failure introduced by684's original material identities. Its owning
+integration registered the nine actual source-validated environment shader paths;
+no guard exception or whitelist was added. After that bounded repair the fresh
+full golden executable passes300,536 assertions. This is the golden executable,
+not a new complete local-suite run. The unchanged Build683 whole-gate, shader and
+media proof is inherited explicitly rather than rerun or relabelled.
+
+Regular pipeline tests pass34 Python +19 actual PowerShell assertions, including
+both normal Release/default and explicit Debug archive paths, ten missing-file
+controls and invalid configuration refusal. Actual Debug/Release MSBuild content
+copy targets pass15 checks with the original intro unchanged. Resource inspection
+on the actual Release DLL finds the reviewed stereo shader and no embedded movie
+resources. The final main-checkout Debug build, full regular archive, exact ZIP
+media/DLL readback and downloaded-byte hashes are retained beside the handover.
+
+Root evidence is relocated without losing logs, results, generated source or
+failure receipts to the main checkout's
+`.planning/debug/stereo-video-menu685/integration/`. Worker evidence is under
+`ui-worker/` and `package-worker/`; raw hardware inputs remain in `hardware683/`.
+Only stopped, owned caches/worktrees are removed. Current Debug deliverables,
+source/media pins and shared game references are preserved.

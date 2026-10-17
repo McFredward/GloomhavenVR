@@ -16,7 +16,8 @@ now reaches Debug/Release output, Windows installation and both ZIP packagers;
 missing inputs fail preflight. There is no new setting or native-film behavior.
 Worker evidence: owner198 assertions/29 controls, existing options7339/21 plus
 menu25/8, packaging34Python/19PowerShell/15MSBuild-copy assertions. Final merged
-checks and handover receipts live in `.planning/debug/stereo-video-menu685/`.
+Release0W/0E, source16/16, affected local6/6 and fresh300,536 golden assertions
+pass after the exact nine-path shader registry repair. Handover receipts live in `.planning/debug/stereo-video-menu685/`.
 Read `.planning/STEREO-VIDEO-MENU-685.md` for scoped failures/inherited evidence.
 A fresh complete local gate or correct headset picture is not claimed.
 
