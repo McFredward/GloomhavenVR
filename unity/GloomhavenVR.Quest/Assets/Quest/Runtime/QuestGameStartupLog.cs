@@ -20,16 +20,22 @@ namespace GloomhavenVR.Quest
         // Capture215640 filled presentation evidence before the provider and hit
         // marker observations needed to distinguish projection from large meshes.
         // Reserve their share WITHIN the existing64KiB/160record detail budget.
-        const int DetailBytes = 40 * 1024, DetailRecords = 96;
+        // B675's file sink stopped before settled-menu pixels/consumer state;
+        // those survived only in logcat's evictable ring. Reserve that final
+        // handover separately, rather than letting Intro or widget censuses
+        // consume it. All three shares still total64KiB/160detail records.
+        const int DetailBytes = 16 * 1024, DetailRecords = 48;
         const int PriorityDetailBytes = 24 * 1024, PriorityDetailRecords = 64;
-        const int LifecycleBytes = MaxBytes / 2 - StartupBytes - DetailBytes - PriorityDetailBytes, ErrorBytes = MaxBytes / 2;
-        const int LifecycleRecords = MaxRecords - MaxOriginalErrors - StartupRecords - DetailRecords - PriorityDetailRecords - 5;
+        const int MenuDetailBytes = 24 * 1024, MenuDetailRecords = 48;
+        const int LifecycleBytes = MaxBytes / 2 - StartupBytes - DetailBytes - PriorityDetailBytes - MenuDetailBytes, ErrorBytes = MaxBytes / 2;
+        const int LifecycleRecords = MaxRecords - MaxOriginalErrors - StartupRecords - DetailRecords - PriorityDetailRecords - MenuDetailRecords - 6;
         // Retain the existing grep token; it now caps only lifecycle records.
         const string LifecycleLimit = "[Quest startup] diagnostic log limit reached; further records suppressed.\n";
         const string ErrorLimit = "[Quest startup] original error log limit reached; further distinct causes suppressed.\n";
         const string StartupLimit = "[Quest startup] startup lifecycle log limit reached; further records suppressed.\n";
         const string DetailLimit = "[Quest startup] presentation diagnostic log limit reached; further records suppressed.\n";
         const string PriorityDetailLimit = "[Quest startup] provider and laser diagnostic log limit reached; further records suppressed.\n";
+        const string MenuDetailLimit = "[Quest startup] menu handover diagnostic log limit reached; further records suppressed.\n";
         static readonly Encoding Utf8 = new UTF8Encoding(false);
         readonly string path;
         readonly object sync = new object();
@@ -38,11 +44,14 @@ namespace GloomhavenVR.Quest
         readonly HashSet<string> startupSeen = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<string> detailSeen = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<string> priorityDetailSeen = new HashSet<string>(StringComparer.Ordinal);
+        readonly HashSet<string> menuDetailSeen = new HashSet<string>(StringComparer.Ordinal);
         int startupBytes, startupRecords;
         int detailBytes, detailRecords;
         bool detailCapped;
         int priorityDetailBytes, priorityDetailRecords;
         bool priorityDetailCapped;
+        int menuDetailBytes, menuDetailRecords;
+        bool menuDetailCapped;
         bool startupCapped;
         int bytes, records;
         int errorBytes, originalErrors;
@@ -86,6 +95,20 @@ namespace GloomhavenVR.Quest
                     // actual video output arrived. Give detailed presentation
                     // samples their own bounded lane; retain the same total byte
                     // and record ceilings and original first-error reserve.
+                    if (IsMenuPresentationDetail(message))
+                    {
+                        if (menuDetailCapped) return;
+                        string menuKey = Clip(message, 4096);
+                        if (menuDetailSeen.Contains(menuKey)) return;
+                        string menuLine = Line(menuKey, null);
+                        int menuLength = Utf8.GetByteCount(menuLine);
+                        if (menuDetailRecords >= MenuDetailRecords || menuDetailBytes + menuLength + Utf8.GetByteCount(MenuDetailLimit) > MenuDetailBytes)
+                        {
+                            File.AppendAllText(path, MenuDetailLimit, Utf8); menuDetailBytes += Utf8.GetByteCount(MenuDetailLimit); menuDetailCapped = true; return;
+                        }
+                        File.AppendAllText(path, menuLine, Utf8); menuDetailBytes += menuLength; menuDetailRecords++; menuDetailSeen.Add(menuKey);
+                        return;
+                    }
                     if (IsPriorityPresentationDetail(message))
                     {
                         if (priorityDetailCapped) return;
@@ -142,6 +165,15 @@ namespace GloomhavenVR.Quest
         {
             return message.StartsWith("[Quest startup] presentation provider ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation laser ", StringComparison.Ordinal);
+        }
+        static bool IsMenuPresentationDetail(string message)
+        {
+            // Exclude verbose canvas/widget censuses: the final consumer,
+            // actual pixels and draw state are the irreplaceable evidence.
+            return message.StartsWith("[Quest startup] presentation menu-handover ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation menu-pixels ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation menu-thumbnail ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation menu-draw ", StringComparison.Ordinal);
         }
         static bool IsPresentationDetail(string message)
         {

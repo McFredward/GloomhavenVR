@@ -159,7 +159,7 @@ internal static class Program
         text = File.ReadAllText(path);
         Check(text.Contains("provider actual-render-boundary") && Count(text, "laser actual-marker-bounds") == 1,
             "priority-reserve: general presentation saturation lost or duplicated provider/laser evidence");
-        Check(LogCounter(details, "priorityDetailRecords") == 2 && LogCounter(details, "detailRecords") == 96,
+        Check(LogCounter(details, "priorityDetailRecords") == 2 && LogCounter(details, "detailRecords") == 48,
             "priority-partition: reserved observations consumed general presentation slots");
 
         path = Path.Combine(root, "priority-record-cap.log");
@@ -183,7 +183,31 @@ internal static class Program
         Check(text.Contains("camera after priority cap") && text.Contains("loaded=after-priority-cap")
             && text.Contains("first cause retained"), "priority-isolation: priority saturation swallowed another lane");
 
-        // Exercise all five independent lanes at their record ceiling, then
+        priority.Append("[Quest startup] presentation menu-handover scene=MainMenu sample=settled");
+        priority.Append("[Quest startup] presentation menu-pixels final-consumer");
+        priority.Append("[Quest startup] presentation menu-thumbnail final-image");
+        priority.Append("[Quest startup] presentation menu-draw final-pass");
+        priority.Append("[Quest startup] presentation menu-draw final-pass");
+        text = File.ReadAllText(path);
+        Check(text.Contains("sample=settled") && text.Contains("final-consumer") && text.Contains("final-image")
+            && Count(text, "final-pass") == 1, "menu-reserve: provider saturation lost or duplicated settled-menu evidence");
+        Check(LogCounter(priority, "menuDetailRecords") == 4,
+            "menu-partition: final evidence consumed provider slots or ordinary detail");
+        details.Append("[Quest startup] presentation menu-handover after Intro saturation");
+        Check(File.ReadAllText(Path.Combine(root, "presentation-reserve.log")).Contains("after Intro saturation")
+            && LogCounter(details, "menuDetailRecords") == 1,
+            "menu-reserve: Intro saturation swallowed the final menu handover");
+        for (int i = 0; i < 1000; i++)
+            priority.Append("[Quest startup] presentation menu-pixels sample=" + i);
+        text = File.ReadAllText(path); size = new FileInfo(path).Length;
+        Check(LogCounter(priority, "menuDetailRecords") == 48
+            && Count(text, "menu handover diagnostic log limit reached") == 1,
+            "menu-record-bound: final menu samples exceeded their independent record share");
+        priority.Append("[Quest startup] presentation menu-draw after menu cap");
+        Check(new FileInfo(path).Length == size,
+            "menu-record-bound: capped menu evidence kept growing");
+
+        // Exercise all six independent lanes at their record ceiling, then
         // repeat with multi-byte payloads to exercise each byte ceiling instead.
         foreach (bool longMessages in new[] { false, true })
         {
@@ -198,18 +222,23 @@ internal static class Program
                 all.Append("[Quest startup] presentation camera " + value);
                 all.Append("[Quest startup] presentation provider " + value);
                 all.Append("[Quest startup] presentation laser " + value);
+                all.Append("[Quest startup] presentation menu-handover " + value);
+                all.Append("[Quest startup] presentation menu-pixels " + value);
+                all.Append("[Quest startup] presentation menu-thumbnail " + value);
+                all.Append("[Quest startup] presentation menu-draw " + value);
                 all.AppendOriginalError("failure " + value, "stack " + payload);
             }
             text = File.ReadAllText(path);
             Check(new FileInfo(path).Length <= QuestGameStartupLog.MaxBytes,
                 "all-lanes-byte-bound: combined streams exceeded256KiB, longMessages=" + longMessages);
             Check(LogCounter(all, "records") + LogCounter(all, "startupRecords") + LogCounter(all, "detailRecords")
-                + LogCounter(all, "priorityDetailRecords") + all.OriginalErrors + 5 <= QuestGameStartupLog.MaxRecords,
-                "all-lanes-record-bound: combined streams and five markers exceeded512records");
+                + LogCounter(all, "priorityDetailRecords") + LogCounter(all, "menuDetailRecords") + all.OriginalErrors + 6 <= QuestGameStartupLog.MaxRecords,
+                "all-lanes-record-bound: combined streams and six markers exceeded512records");
             foreach (string marker in new[] { "diagnostic log limit reached;", "original error log limit reached;",
-                "startup lifecycle log limit reached;", "presentation diagnostic log limit reached;", "provider and laser diagnostic log limit reached;" })
+                "startup lifecycle log limit reached;", "presentation diagnostic log limit reached;", "provider and laser diagnostic log limit reached;", "menu handover diagnostic log limit reached;" })
                 Check(text.Contains(marker), "all-lanes-markers: missing cap marker " + marker);
-            Check(LogCounter(all, "priorityDetailBytes") <= 24 * 1024 && LogCounter(all, "detailBytes") <= 40 * 1024,
+            Check(LogCounter(all, "priorityDetailBytes") <= 24 * 1024 && LogCounter(all, "detailBytes") <= 16 * 1024
+                && LogCounter(all, "menuDetailBytes") <= 24 * 1024,
                 "priority-byte-partition: presentation sublanes exceeded the existing64KiB share");
         }
 

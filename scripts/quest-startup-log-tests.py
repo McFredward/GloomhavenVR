@@ -31,6 +31,7 @@ def main():
         ("spent-error-before-io", "logger", "File.AppendAllText(path, line, Utf8); errorBytes += length; errorsSeen.Add(key);", "errorsSeen.Add(key); File.AppendAllText(path, line, Utf8); errorBytes += length;", 1, "io-retry"),
         ("threaded-listener-leak", "bootstrap", "Application.logMessageReceivedThreaded -= CaptureLog;", "// Missing threaded unsubscription defect\n", 1, "unsubscribe"),
         ("presentation-spends-startup-reserve", "logger", "if (IsPresentationDetail(message))", "if (IsPresentationDetail(message) && message.Length < 0)", 1, "detail-reserve"),
+        ("menu-spends-general-detail-reserve", "logger", "if (IsMenuPresentationDetail(message))", "if (IsMenuPresentationDetail(message) && message.Length < 0)", 1, "menu-partition"),
         ("early-spikes-only", "frames", "int index = Snapshot.spikeCursor;", "if (Snapshot.spikeCount == Snapshot.spikeTimes.Length) return null; int index = Snapshot.spikeCursor;", 1, "frame-window"),
     )
     for name, kind, before, after, count, expected in mutations:
