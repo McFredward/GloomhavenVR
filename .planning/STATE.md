@@ -3,8 +3,10 @@
 **Build695 headset review and bounded follow-up, 2026-10-18.**
 
 The maintainer reports all movie review actions successfully tested in the headset.
-Only the automatic game-start intro shows both packed SBS halves side by side;
-later deliberate playback is correct. This accepts the delivered movie artwork
+Only the studio logo at application startup before the main menu shows both
+packed SBS halves side by side; later deliberate playback is correct. The user's
+explicit clarification excludes the longer GloomhavenVR campaign intro. This
+accepts the delivered movie artwork
 and review presentation, while the automatic startup path remains defective.
 The maintainer also requires every video review action under Advanced > Cheats,
 behind the existing default-off gate, because the films contain major spoilers.
@@ -12,7 +14,13 @@ Ordinary Test triggers must expose no movie names/actions. Native game-authored
 playback remains independent of this test-only permission.
 
 Two disjoint workers start from current dev60296ac29 for the bounded696 repair:
-automatic movie admission/capture and Cheats/UI gating. Media files, geometry,
+automatic movie admission/capture and Cheats/UI gating. The latter is integrated
+with focused options7339/21, movie UI915/25 and scenario-win65/two controls;
+strict actual net472 Release0W/0E. Its retained archive and all245 original copies
+were independently hash-verified before worktree removal. Startup source now
+prepares the real capture owner before native Play, with exact created-surface
+ownership and mono fallback; its focused automatic-capture fixture is pending.
+Media files, geometry,
 clocks/audio and independent694 behavior are unchanged. No fresh695 hardware
 logs/screenshots were supplied; existing main691 and older remote inputs cannot
 establish this new failure's cause. Source-bound reproduction and affected

@@ -7,6 +7,19 @@ The gameplay trailer was explicitly excluded later in the same review because
 its flat gameplay elements may need a different treatment. It receives no new
 companion, stereo file or review trigger.
 
+On 2026-10-18 the maintainer confirms all 20 deliberate movie reviews successful
+in the headset. The remaining automatic-start defect is the studio logo before
+the main menu, not the longer campaign intro. The accepted media stays separate
+from that startup presentation repair.
+
+Movie review actions belong under Advanced > Cheats > Videos. The existing
+default-off `dev.gloomhavenvr.cheats.cfg` / `[Cheats] Enabled` gate controls page
+construction and every Play callback. The ordinary Test triggers page exposes no
+movie names or status; revoking permission hides retained movie rows without
+rebuilding the pane. Close and All-off still clean up an existing review. Normal
+game-authored videos require no Cheats permission. Cosmetic reviews stay shared;
+progress-changing cheat actions retain their own multiplayer refusals.
+
 The exact catalogue lives in `scripts/stereo-video/library-manifest.json`:
 11 hero unlocks, seven ambient films, the already replaced campaign intro, and
 the original embedded Twin Sails startup mark. Preserve the native misspelling
@@ -41,6 +54,26 @@ UI-only orthographic camera 27 in `level12`, with VideoPlayer 58 drawing to its
 near plane and no RenderTexture. VideoPlayer 58 serializes `playOnAwake=false`,
 `looping=false` and `targetCameraAlpha=1`, so serialized autoplay does not precede
 `IntroPlayer.ShowVideo` and its explicit `Play` call.
+
+Build696 prepares the existing FlatScreen capture/split/stereo lifecycle inside
+the studio source-selection prefix, before native Play. Startup suppression
+requires the exact registered player, active owned backdrop/material, created
+left/right movie targets, created UI target and a live VR head. The original
+camera remains bound to its original decoder render mode. A startup-only alpha
+reservation hides the packed native plane before Play while supplying its saved
+alpha to the per-eye compositor. It releases on native deactivation, decoder
+error, source/camera change, surface loss or shutdown. Other camera-plane films
+retain their scoped draw lease. Known captured cameras also reconcile a new or
+ended movie at first render, without waiting for a scenario/options interaction.
+
+If startup presentation is unavailable or throws, source selection uses the
+byte-identical mono companion or retained serialized clip before original Play.
+If neither exists, it refuses the packed source. No presentation exception may
+skip the native timer/Play/continuation. These are source and focused runtime
+guarantees. The Linux editor cannot decode the actual studio MOV; a synthetic
+VP8 probe decodes but supplies no native camera-plane baseline pixels. Native
+plane-latch timing remains inconclusive, and the696 automatic headset picture
+still needs the maintainer's test.
 
 The ambient `MainVideoProvider` is component 11392 in `level1`, bound to VideoPlayer 10593.
 It serializes disabled, `playOnAwake=false`, `looping=true`, CameraFarPlane,

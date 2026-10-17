@@ -1,5 +1,17 @@
 # Steam Link availability repair coordination, 2026-10-17
 
+## Bounded stereo follow-up696 after successful695 headset review
+
+The maintainer accepts all20 deliberate movies in the headset. Only the
+automatic TwinSails studio logo before the main menu exposes packed SBS.
+Build696 prepares its existing capture/stereo owner before native Play, keeps
+the original4s native continuation, and gates every deliberate spoiler action
+behind existing Advanced > Cheats permission. Media, record72, SteamLink/Core,
+coverage bank and all seven published694 production inputs stay unchanged.
+Actual automatic696 headset output remains unverified. The independent window
+softness report stays open; no receiver update or Frame action is requested.
+Source review/focused696 validation are being completed before direct dev push.
+
 ## Complete stereo handover695; published694 source retained
 
 All20 stereo subjects and the22-file installer roster are complete on shared

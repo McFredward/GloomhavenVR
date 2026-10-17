@@ -612,7 +612,28 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 695;
+    public const ushort ModBuild = 696;
+
+    // ModBuild696 — prepare the automatic studio movie and conceal spoiler review actions.
+    // The maintainer accepts all20 deliberate695 movie reviews, but the studio
+    // logo before the main menu shows the packed SBS pair during automatic play.
+    // IntroPlayer.ShowVideo now prepares the existing capture/split/stereo owner
+    // before native Play. Reserve its packed plane only with the exact decoder,
+    // created eye/glass RTs and a live owned backdrop; retain original alpha for
+    // the eye compositor. Known cameras reconcile a late source at first render.
+    // Restore the reservation on native continuation, source/camera/surface loss,
+    // decoder error or VR shutdown. Unavailable/throwing presentation falls back
+    // before Play without skipping the original4s timer or subsequent sprite logos.
+    // This addresses source-proven admission/ownership gaps; native platform
+    // plane-latch timing and the corrected headset picture still need hardware.
+    // Advanced/Cheats/Videos now owns all20 spoiler actions behind the existing
+    // default-off config, checked on page build and every stale Play callback.
+    // Public Test triggers exposes no movie names/status. Permission revocation
+    // hides retained rows; Close/All-off remain usable. Shared cosmetic reviews
+    // stay available in multiplayer; save-changing cheats retain their refusals.
+    // All22 media, native clocks/audio, shader geometry, record72 and the
+    // independently published694 behavior remain unchanged. Normal installer
+    // archive creation is unchanged; movies remain separate Content beside DLL.
 
     // ModBuild695 — complete the approved stereo library and scenario review controls.
     // Deliver all20 subjects: stronger GloomhavenVR intro lettering,11 original
