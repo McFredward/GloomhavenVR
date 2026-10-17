@@ -1,0 +1,289 @@
+{
+  "schema": 1,
+  "subject": "Heroes/Nightshroud.mov",
+  "source_sha256": "e2bb14c125bd3436fee1f44c4d651e050e49d469090d072fa8dd0786ad03da2f",
+  "source_kind": "external",
+  "source_relative": "StreamingAssets/Movies/Heroes/Nightshroud.mov",
+  "stereo_file": "Nightshroud.sbs-v1.mov",
+  "stereo_sha256": "93c20cf3a1bbcae46419ac53d198410956f5e7d316a53ed505692fd303c03a56",
+  "stereo_bytes": 39097276,
+  "packing": "full-SBS-left-first",
+  "per_eye_size": [
+    1920,
+    1080
+  ],
+  "fps": 60,
+  "frames": 839,
+  "duration_seconds": 13.983333333333333,
+  "body_rows": [
+    128,
+    956
+  ],
+  "shots": [
+    {
+      "id": "native-opening-emblem",
+      "start": 0,
+      "end": 99,
+      "mode": "screen"
+    },
+    {
+      "id": "black-00",
+      "start": 99,
+      "end": 109,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-01",
+      "start": 109,
+      "end": 178,
+      "mode": "depth"
+    },
+    {
+      "id": "black-01",
+      "start": 178,
+      "end": 184,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-02",
+      "start": 184,
+      "end": 284,
+      "mode": "depth"
+    },
+    {
+      "id": "black-02",
+      "start": 284,
+      "end": 291,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-03",
+      "start": 291,
+      "end": 346,
+      "mode": "depth"
+    },
+    {
+      "id": "black-03",
+      "start": 346,
+      "end": 355,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-04",
+      "start": 355,
+      "end": 800,
+      "mode": "depth",
+      "screen_panels": [
+        {
+          "id": "name-banner",
+          "bounds": [
+            792,
+            457,
+            1895,
+            618
+          ],
+          "prepare": [
+            571,
+            583
+          ],
+          "last_clear_source_frame": 583,
+          "observed_onset_frame": 585,
+          "onset_bounds": [
+            0,
+            128,
+            1920,
+            956
+          ],
+          "onset_release": [
+            599,
+            611
+          ],
+          "source_witness_frames": [
+            595,
+            679,
+            755
+          ]
+        },
+        {
+          "id": "class-symbol",
+          "bounds": [
+            1044,
+            246,
+            1638,
+            830
+          ],
+          "prepare": [
+            657,
+            669
+          ],
+          "last_clear_source_frame": 669,
+          "observed_onset_frame": 671,
+          "onset_bounds": [
+            0,
+            128,
+            1920,
+            956
+          ],
+          "onset_release": [
+            691,
+            703
+          ],
+          "source_witness_frames": [
+            595,
+            679,
+            755
+          ]
+        }
+      ],
+      "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+    },
+    {
+      "id": "black-04",
+      "start": 800,
+      "end": 839,
+      "mode": "screen"
+    }
+  ],
+  "profile": {
+    "cpu_dtype": "float32",
+    "model_input": 392,
+    "temporal_window": 32,
+    "temporal_overlap": 10,
+    "saved_depth_size": [
+      640,
+      360
+    ],
+    "shot_normalization_percentiles": [
+      2,
+      98
+    ],
+    "depth_disparity_px": [
+      -4,
+      12
+    ],
+    "code_revision": "4f5ae23172ba60fd7bc11ef671cca678842c7072",
+    "model_revision": "256875362cff76724b920335dfb4b29dd611f66e",
+    "checkpoint_sha256": "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609"
+  },
+  "left": "Native decoded YUV directly hstacked before final H264 encoding",
+  "right": "shot-wide temporal inverse-depth horizontal forward reprojection for depth scenes; uniform+8px original studio plane; screen-plane protected titles",
+  "disocclusion_fill": "Farther adjoining source background; no generative inpainting",
+  "render_source_sha256": "6d8d19f3fb024e568308e62bb6c90238855aee82fd3898b426e8def6d5cbcb9f",
+  "geometry_source_sha256": "7068b8e6c0334f2bfbbf73779e2dd1ef1b89390d61c032ecec496a5be4c5c7cf",
+  "verification": {
+    "status": "passed",
+    "movie": "Heroes/Nightshroud.mov",
+    "source_sha256": "e2bb14c125bd3436fee1f44c4d651e050e49d469090d072fa8dd0786ad03da2f",
+    "stereo_sha256": "93c20cf3a1bbcae46419ac53d198410956f5e7d316a53ed505692fd303c03a56",
+    "stereo_bytes": 39097276,
+    "video": {
+      "frames": 839,
+      "fps": 60,
+      "dimensions": [
+        3840,
+        1080
+      ],
+      "sample_aspect_ratio": "1:1",
+      "every_original_timestamp": true
+    },
+    "identical_aac_packets": 656,
+    "native_audio_presentation": {
+      "duration_seconds": "839/60",
+      "original_time_base": "1/48000",
+      "stereo_time_base": "1/48000",
+      "original_presentation_window_preserved": true
+    },
+    "left_comparison": {
+      "frames": 839,
+      "minimum_psnr_db": 42.04
+    },
+    "depth_shots_validated": 4,
+    "encoded_right_witness_frames": 43,
+    "minimum_right_witness_psnr_db": 45.37678437677445,
+    "native_loop_endpoints": {
+      "0": {
+        "original_rgb_mean": 49.790408950617284,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 51.085713892794224
+      },
+      "838": {
+        "original_rgb_mean": 0.0031886574074074074,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 87.38870249635285
+      }
+    },
+    "verification_source_sha256": "1d317106038bd46d316bedfee6c579dfc102eb0d1a0744b8397e2821ffb6a409",
+    "manifest_sha256": "f10b245d398d81b311f3a3b7ca89d9a2a2b553815f2c87e81bf6f9b97e9a9759",
+    "decoded_cue_frames": [
+      143,
+      318,
+      740
+    ],
+    "decoded_cue_receipt_sha256": "b4ef586861bfd9856405c5abca16a2a8cb2722bdff9661897897234475a0fcb2",
+    "manual_visual_review": "pending",
+    "hardware_result": "unverified"
+  },
+  "hardware_result": "unverified",
+  "audio_finalization": {
+    "status": "passed",
+    "identical_aac_packets": 656,
+    "identical_encoded_video_packets": 839,
+    "audio_presentation_seconds": "839/60",
+    "video_presentation_seconds": "839/60",
+    "audio_time_base": "1/48000",
+    "video_time_base": "1/15360",
+    "audio_payload_pts_dts_durations_identical": true,
+    "video_payload_pts_dts_durations_identical": true,
+    "subject": "Heroes/Nightshroud.mov",
+    "encoded_candidate_sha256": "2e3a415bc64fb8ad4d4e5a859e0be79706ddab0da73d4e8c9f6d08f06fa7e34a",
+    "native_source_sha256": "e2bb14c125bd3436fee1f44c4d651e050e49d469090d072fa8dd0786ad03da2f",
+    "finalized_sha256": "93c20cf3a1bbcae46419ac53d198410956f5e7d316a53ed505692fd303c03a56",
+    "finalized_bytes": 39097276,
+    "native_presentation": {
+      "native_movie_timescale": 90000,
+      "native_edit_duration": 1258500,
+      "native_audio_edit_media_time": 0,
+      "copy_mux_audio_duration_before_native_window": 1259520,
+      "presentation_seconds": "839/60",
+      "changed_atoms_only": [
+        "moov/mvhd duration",
+        "audio trak/tkhd duration",
+        "audio trak/edts/elst segment duration"
+      ]
+    },
+    "copy_mux_source_sha256": "fd0e35935207e5eb69c99806c7761e12305427239cf3d3fd42bd9c7eab804cce",
+    "picture_reencoded": false
+  },
+  "encoding": {
+    "codec": "libx264",
+    "preset": "fast",
+    "crf": 17,
+    "profile": "high",
+    "level": "5.1",
+    "threads": 3,
+    "maximum_video_bitrate_mbps": 34,
+    "video_buffer_mbits": 68,
+    "gop_frames": 60,
+    "video_track_timescale": 15360
+  },
+  "static_decoded_review": {
+    "status": "reviewed",
+    "movie": "Heroes/Nightshroud.mov",
+    "stereo_sha256": "93c20cf3a1bbcae46419ac53d198410956f5e7d316a53ed505692fd303c03a56",
+    "frames": [
+      143,
+      318,
+      740
+    ],
+    "capture_receipt_sha256": "b4ef586861bfd9856405c5abca16a2a8cb2722bdff9661897897234475a0fcb2",
+    "reviewed_utc": "2026-10-17T16:47:34.995472+00:00",
+    "observations": "All three actual decoded stereo pairs were inspected. The original dark feet/particle view, close shield and hooded-actor view, and complete Nightshroud actor/title view preserve content, dark contrast, blur, camera tilt, cinematic bars and full per-eye aspect. Foreground shield and actor features show bounded horizontal separation. The complete moon emblem and thin name-banner borders remain rigid while actor geometry outside the printed panels retains depth. No obvious missing artwork, exposed holes or vertical registration defect is visible at these static cues.",
+    "limit": "Static decoded-image inspection only; headset fusion, comfort, temporal motion and native decoder behavior remain unverified."
+  }
+}
