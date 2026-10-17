@@ -113,6 +113,22 @@ checked after rendering; quality is not weakened merely to fit that limit.
 Every render retains exact source snapshots, commands, shot geometry and cue
 pictures beside its private receipt.
 
+Hero audio receives a separate lossless copy mux after picture encoding. The
+combined encoder's video frame limit can end before the final native AAC packet.
+`library_audio.py` copies the finished H264 packets and every actual native AAC
+packet, then preserves the original MOV audio edit-list presentation window at
+the original movie timescale. Mainconcept sources retain complete coded AAC
+packets beyond that presented boundary: neither dropping the last exposed packet
+nor extending playback to its complete coded duration preserves the source.
+Only the movie duration, audio track duration and audio edit segment duration
+are restored after the copy mux. Exact video payloads/PTS/DTS/durations, exact
+native AAC payloads/PTS/DTS/durations and the presented ending are all checked.
+The picture is not re-encoded. Original failed candidates and every finalization
+command/receipt remain retained privately. Native stream-header audio frame
+counts can exceed actual demuxed packets; the exact packet census and per-film
+verification are authoritative. The copy mux owns its process group explicitly
+and kills/reaps it on interruption before recording completion.
+
 Example (paths intentionally supplied by the developer):
 
 ```sh
@@ -173,3 +189,10 @@ inside the film. No head-pose view synthesis or six-degree-of-freedom scene
 reconstruction is introduced. Automated media/geometry evidence does not prove
 headset fusion, comfort, motion, decoder throughput or every native spawn path.
 Those remain subjects of the requested in-scenario review controls.
+
+`tests/stereo-video-library/check_audio.py` verifies the real Beast Tyrant ending:
+747 unchanged encoded H264 packets,584 identical native AAC packets and the same
+12.45-second audio/video presentation. Four causal controls refuse the original
+encoder's missing last AAC packet, a plain copy mux's extended ending, a changed
+video PTS and a lost final video packet. This bounded media test neither runs
+neural inference nor changes the game references.

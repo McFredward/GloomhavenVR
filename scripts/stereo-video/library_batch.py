@@ -72,6 +72,8 @@ def publish(movie: dict, target: Path, proof: dict, render: dict, args) -> None:
         'render_source_sha256': render['render_source_sha256'],
         'geometry_source_sha256': render['geometry_source_sha256'],
         'verification': proof, 'hardware_result': 'unverified'}
+    if render.get('audio_finalization'):
+        provenance['audio_finalization'] = render['audio_finalization']
     provenance_path = asset.with_suffix('.provenance.json')
     if provenance_path.exists():
         reviewed = json.loads(provenance_path.read_text()).get('static_decoded_review')

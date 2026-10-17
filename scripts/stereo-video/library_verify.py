@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 from intro_depth import validate_model
 from library_review import extract_cues
+from library_audio import presentation
 from library_common import (WIDTH, HEIGHT, audio_packets, digest, field_for,
     forward_warp, load_movie, read_depth, save, source_for, protected_regions, witness_frames)
 
@@ -166,6 +167,17 @@ def verify(args) -> dict:
     original_audio, stereo_audio = audio_packets(source), audio_packets(args.stereo)
     if original_audio != stereo_audio:
         raise ValueError('Original AAC packet payloads, timestamps or durations changed')
+    audio_window = None
+    if original_audio:
+        original_probe = json.loads(run(['ffprobe', '-v', 'error', '-show_streams',
+            '-of', 'json', str(source)], args.out / 'native-audio-window-probe.log'))
+        native_track = next(s for s in original_probe['streams'] if s['codec_type'] == 'audio')
+        packed_track = next(s for s in probe['streams'] if s['codec_type'] == 'audio')
+        if presentation(native_track) != presentation(packed_track):
+            raise ValueError('Original presented AAC ending differs despite matching complete packets')
+        audio_window = {'duration_seconds': str(presentation(native_track)),
+            'original_time_base': native_track['time_base'], 'stereo_time_base': packed_track['time_base'],
+            'original_presentation_window_preserved': True}
     save(args.out / 'audio-packets.json', stereo_audio)
     stats = args.out.resolve() / 'left-psnr.log'
     command = ['ffmpeg', '-hide_banner', '-v', 'info', '-nostdin', '-threads', '2', '-i', str(args.stereo),
@@ -182,6 +194,7 @@ def verify(args) -> dict:
     proof = {'status': 'passed', 'movie': movie['key'], 'source_sha256': movie['source_sha256'],
         'stereo_sha256': digest(args.stereo), 'stereo_bytes': args.stereo.stat().st_size,
         'video': video_proof, 'identical_aac_packets': len(stereo_audio),
+        'native_audio_presentation': audio_window,
         'left_comparison': {'frames': len(values), 'minimum_psnr_db': min(values)},
         'depth_shots_validated': len(depth_proof), 'encoded_right_witness_frames': len(right['witnesses']),
         'minimum_right_witness_psnr_db': min(x['right_reference_psnr_db'] for x in right['witnesses']),

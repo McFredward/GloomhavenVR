@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 from library_common import (WIDTH, HEIGHT, audio_packets, digest, field_for,
     forward_warp, load_movie, read_depth, save, source_for, witness_frames)
+from library_audio import finalize_audio
 
 
 def render(args) -> Path:
@@ -47,7 +48,8 @@ def render(args) -> Path:
     save(args.out / 'movie-snapshot.json', movie)
     sources = args.out / 'sources'
     sources.mkdir()
-    for filename in ('library_stereo.py', 'library_common.py', 'library_depth.py', 'intro_stereo.py', 'intro_depth.py'):
+    for filename in ('library_stereo.py', 'library_common.py', 'library_audio.py',
+                     'library_depth.py', 'intro_stereo.py', 'intro_depth.py'):
         shutil.copy2(Path(__file__).with_name(filename), sources / filename)
     records, owned, errors = [], [], []
     began = time.monotonic()
@@ -106,15 +108,26 @@ def render(args) -> Path:
                     process.wait()
         for error in errors:
             error.close()
+    original_audio = audio_packets(source)
+    audio_finalization = None
+    if original_audio and movie['key'].startswith('Heroes/'):
+        # The video frame limit can finish before the final native AAC packet.
+        # A separate copy mux retains every native packet plus its original
+        # Mainconcept presentation window, without re-encoding the picture.
+        encoded = args.out / 'encoded-before-audio-finalization.mov'
+        target.rename(encoded)
+        audio_finalization = finalize_audio(encoded, source, target, movie,
+                                            args.out / 'audio-finalization')
     if target.stat().st_size > 100 * 1024 ** 2:
         raise ValueError('Delivered movie exceeds repository single-file limit; do not weaken quality to fit')
-    original_audio, stereo_audio = audio_packets(source), audio_packets(target)
+    stereo_audio = audio_packets(target)
     if original_audio != stereo_audio:
         raise ValueError('Native AAC packet payloads, timestamps or durations changed')
     proof = {'status': 'rendered-not-yet-independent-verification', 'movie': movie['key'],
         'source_sha256': movie['source_sha256'], 'output_sha256': digest(target), 'output_bytes': target.stat().st_size,
         'packing': 'full-SBS-left-first', 'per_eye_size': [WIDTH, HEIGHT], 'frames': frames, 'fps': fps,
         'duration_seconds': frames / fps, 'identical_aac_packets': len(stereo_audio),
+        'audio_finalization': audio_finalization,
         'left': 'original native YUV directly hstacked before H264 encoding',
         'right': 'shot-wide temporal inverse-depth horizontal forward reprojection for depth scenes; uniform+8px original studio plane; screen-plane protected titles',
         'shot_modes': sorted({shot['mode'] for shot in movie['shots']}),
