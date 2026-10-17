@@ -18,6 +18,8 @@
     <!-- The small, explicitly loaded stereo UI shader does not replace the main asset bank. -->
     <EmbeddedResource Include="Assets\StereoVideo\ui-sbs.bundle"
                       LogicalName="GloomhavenVR.StereoVideo.ui-sbs.bundle" />
+    <EmbeddedResource Include="Assets\SteamLink\scene.bundle"
+                      LogicalName="GloomhavenVR.SteamLink.scene.bundle" />
     <!-- Shared with the preloader: both stages must agree on Frame's explicit VR opt-in. -->
     <Compile Include="..\GloomhavenVR.Preload\FrameLaunchOptIn.cs" Link="Core\Startup\FrameLaunchOptIn.cs" />
     <!--

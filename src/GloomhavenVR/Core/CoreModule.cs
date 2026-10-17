@@ -174,6 +174,7 @@ internal sealed class CoreModule : IVRModule
 
     public void Shutdown()
     {
+        SteamLink.SteamLinkSceneRuntime.Reset();
         NativeCameraRenderBudget.Shutdown();
         Loc.Dispose(); // detach the engine localization event (hot-reload teardown)
         ExceptionTraces.Shutdown(); // puts the game's own StackTraceLogType.None straight back
