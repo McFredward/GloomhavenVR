@@ -268,6 +268,8 @@
       143,
       306,
       604,
+      606,
+      612,
       662
     ],
     "capture_receipt_sha256": "edb91c6d5f789a6865587d8aa9108c36e1226cf7119e7ce6d6fcbc5046a1eac0",
@@ -310,7 +312,36 @@
     },
     "reviewed_utc": "2026-10-17T15:00:04.370349+00:00",
     "observations": "All three actual encoded normal cue pairs and the additional original oversized-symbol cue were inspected. The ground/skull opening, feather/claw close view and final bear/Beast Tyrant title retain original content and full per-eye aspect. The complete settled printed banner and class mark are rigid; the oversized native print at frame604 remains on a rigid plane. No obvious missing content or vertical registration defect at these static cues. Foreground scene features retain bounded horizontal separation outside the timed printed reveal.",
-    "limit": "Static decoded-image inspection only; headset fusion, comfort, temporal motion and decoder behavior remain unverified."
+    "limit": "Static decoded-image inspection only; headset fusion, comfort, temporal motion and decoder behavior remain unverified.",
+    "additional_source_bound_oversized_review": {
+      "receipt_sha256": "0fdab49a3d8fb7daabe22064b2ead4e635d87064aa60199b89d3e2a8042c2e68",
+      "native_source_sha256": "8f29f89dff9184c91b9b43fd2e579ce180ee56ca0ab56462c64bb645aee83687",
+      "stereo_sha256": "a78e3a56178466f14b35892a83a5e066b08bfcf28679130816cf466929780f3d",
+      "frames": [
+        {
+          "frame": 606,
+          "pts_time": 10.1,
+          "file": "stereo-01.png",
+          "image_sha256": "d35ff28d045847a9c0dce90a489d87e088ab5907c5d8f34be0610727e7609c4e"
+        },
+        {
+          "frame": 612,
+          "pts_time": 10.2,
+          "file": "stereo-02.png",
+          "image_sha256": "5dff6ebfbd3cfb5cffcb32eaf0d55c1cbdcba0f7395d4c1ed9b093c26b25ed7c"
+        }
+      ],
+      "review": {
+        "status": "reviewed",
+        "reviewed_utc": "2026-10-17T15:05:01.357883+00:00",
+        "frames": [
+          606,
+          612
+        ],
+        "observations": "Both actual decoded stereo pairs were compared with the source-bound original frames. Frame606 shows the original oversized translucent class emblem extending to the active picture boundaries; frame612 shows the clear emblem at its settling scale. Complete printed symbol and banner remain rigid between eyes, with native artwork, blur, glow and full per-eye aspect retained. These cues supplement the barely visible onset at frame604.",
+        "limit": "Static decoded images only; headset fusion, comfort and temporal playback remain unverified."
+      }
+    }
   },
   "picture_generation_recovery": {
     "reason": "Strict original combined-encoder AAC check refused a candidate missing the last exposed native packet. The complete picture was preserved and losslessly copy-muxed with every original AAC packet and native presentation window.",
