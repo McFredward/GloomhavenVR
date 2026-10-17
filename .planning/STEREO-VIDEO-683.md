@@ -79,6 +79,15 @@ which the lifecycle fixture's substitute namespace had hidden. Both the import
 and the fixture namespace were corrected; final production compilation remains
 an independent requirement alongside substituted lifecycle tests.
 
+The closing-fade regression then removed the decoder's prepared texture/frame
+after a valid picture was clicked. The old readiness gate trapped that picture
+instead of finishing its close. Closing now advances on its own UI clock before
+decoder readiness is consulted. The failing and repaired receipts are retained
+under `decoder-close-regression/` and `decoder-close-final/`; the repaired whole
+owner passes169 assertions/12 production processes/28 causal controls. The
+large local run was already active; this bounded repair repeats its affected
+lifecycle and final source checks while retaining unchanged-area evidence.
+
 Final integration checks and exact counts are recorded below after completion.
 
 ## Required headset review before conversion rollout
