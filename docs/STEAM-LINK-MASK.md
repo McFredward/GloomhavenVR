@@ -41,8 +41,8 @@ The current producer uses `scene-contribution-atlas-v2`: independent coverage an
 scene RGB have the same2048-square logical resolution, sampled from the same
 current eye source. The old half-resolution alpha box/reconstruction filter is
 removed from this path. This applies to all scene geometry, without window tags
-or thresholds that would erase genuine partial transparency. Both numeric fields
-remain neutral grey in the video transport.
+or thresholds that would erase genuine partial transparency. Coverage and format
+cells remain neutral grey in the video transport; scene RGB retains its colors.
 
 A matching updated receiver is required. It recognizes v2 and retains the frozen
 v1 decoder for older producers. Building/enabling the mod does not update the
