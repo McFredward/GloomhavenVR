@@ -213,13 +213,13 @@ internal static class Program
         Check(new FileInfo(path).Length == size,
             "menu-record-bound: capped menu evidence kept growing");
 
-        // B677's capture contains 65 reserved startup records before tutorial
+        // B678's Capture091104 contains 74 reserved startup records before tutorial
         // loading, while ordinary Debug and movie/provider shares are full.
         // Keep the next bounded scenario/artwork/resolution observations in the
         // existing startup share, without expanding any byte/record ceiling.
         path = Path.Combine(root, "tutorial-after-startup.log");
-        var tutorial = new QuestGameStartupLog(path, "B677 tutorial capture replay");
-        for (int i = 0; i < 65; i++)
+        var tutorial = new QuestGameStartupLog(path, "B678 tutorial capture replay");
+        for (int i = 0; i < 74; i++)
             tutorial.Append("[Quest startup] original phase boot=" + i + " " + new string('b', 125));
         for (int i = 0; i < 1000; i++)
         {
@@ -239,7 +239,7 @@ internal static class Program
             && Count(text, "[Quest startup] artwork tutorial=") == 8
             && Count(text, "[Quest startup] resolution tutorial=") == 2,
             "tutorial-reserve: startup saturation swallowed or duplicated bounded gameplay evidence");
-        Check(LogCounter(tutorial, "startupRecords") == 83
+        Check(LogCounter(tutorial, "startupRecords") == 92
             && LogCounter(tutorial, "startupBytes") <= 32 * 1024,
             "tutorial-partition: gameplay evidence left its bounded startup share");
         Check(new FileInfo(path).Length <= QuestGameStartupLog.MaxBytes,

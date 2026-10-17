@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest comparable density and missing Tutorial surfaces, 2026-10-17: feature / B679.**
+
+Capture091104 verifies B678 twice and all three new screenshots were inspected.
+The old wrong initiative logo is gone, but portrait/card tops, pile stacks and
+the native Tutorial world remain missing. Normalize Quest's startup density to
+the measured Frame2728px-at0.8 reference while retaining saved choices, full
+viewport, restart-only allocation and truthful actual/estimated pixel readouts.
+Repair the remaining silhouette alpha crop/cache, panel copies and lit Cube inputs;
+retain bounded actual artwork/draw and native world readiness observations.
+No complete terrain fix or hardware image/performance outcome is established.
+Keep the confirmed B675/B677 repairs and compact Mod Update with unchanged
+game/art/native-helper banks. See
+[QUEST-TUTORIAL-091104-20261017.md](QUEST-TUTORIAL-091104-20261017.md).
+
 **Quest first tutorial and confirmed primitive repair, 2026-10-17: feature / B678.**
 
 Capture082642 verifies B677; the maintainer confirms visible menu and no blue

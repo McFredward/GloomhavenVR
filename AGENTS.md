@@ -44,6 +44,16 @@ allowlist. The builder must include selected current source/art automatically;
 report genuine original/package ABI drift visibly rather than guessing bindings.
 Future settings remain available unless a specific Quest-only exclusion applies.
 
+**Quest image-density clarification, 2026-10-17:** the same displayed resolution
+factor should give comparable sharpness on standalone Quest and Steam Frame.
+Provider-relative fractions alone do not satisfy this: the supplied Frame B661
+capture submits2728x2728 at0.8, while Quest B678 submits1344x1408 at0.8 and
+1680x1760 at1.0. Preserve the shared0.8 default and saved user choices, but map
+Quest's startup allocation to the measured Frame raster-density reference.
+Retain a full eye viewport and the hardware-confirmed startup-only allocation
+policy. Show actual submitted pixels separately from the next-start estimate;
+equal reference density is not proof of equal optics, FOV or mobile GPU cost.
+
 **Quest cache hygiene, requested on 2026-10-04 and reinforced on 2026-10-11:** after
 each Quest repair/test round, archive compact diagnostic receipts and prune obsolete
 Quest worker checkouts, generated test copies and historical Unity/build caches.

@@ -612,7 +612,32 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 678;
+    public const ushort ModBuild = 679;
+
+    // ModBuild679 — Quest density reference and remaining Tutorial draw inputs.
+    // Capture091104 verifies B678 (both startup banners), but card/portrait tops,
+    // pile stacks and the native environment remain absent. Preserve the already
+    // hardware-confirmed full eye viewport and B677 menu/pointer primitive uploads.
+    // The maintainer now requires comparable Frame/Quest sharpness at the same
+    // saved factor. Frame B661 submits2728x2728 at0.8; Quest B678 submits1680x1760
+    // at1.0. Normalize Quest startup density against the measured3410px short-axis
+    // reference, retaining aspect/default0.8/saved0.5--2.0 choices. Show actual
+    // pixels separately from next-start estimates. No running allocation resize,
+    // partial viewport, provider retry or configuration rewrite on native clamp.
+    // Correct the remaining card-silhouette CPU alpha crop and retire its older
+    // Quest-only recipe cache. Preserve lit pile Cube inputs in owned uploads,
+    // including normals/tangents/UVs, material, geometry and desktop behavior.
+    // Panel carry/resolve use the existing ordinary2D copy with original MSAA,
+    // alpha, mips and capture counters; desktop retains the builtin route.
+    // MultiPass Camera.current is not an Update-phase guard: retain bounded real
+    // artwork/source/draw evidence instead of silently suppressing every record.
+    // World census now separates component disablement from inactive hierarchy,
+    // with native entity gates, parameters, handles and material-loader state.
+    // No terrain fix is proven: do not force native visibility/material/generation.
+    // Focused actual GPU/platform/provider/census/log tests and strict integrated
+    // compilation are recorded in the handoff. Compact matched-code update only;
+    // no original game/art/native-helper bank change or local full-game APK build.
+    // Final headset artwork, clarity, performance and world output remain open.
 
     // ModBuild678 — first Quest tutorial: resolution and native artwork inputs.
     // Capture082642 verifies B677 and the maintainer confirms that both the
