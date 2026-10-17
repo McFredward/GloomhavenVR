@@ -4,6 +4,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="PlatformStubs.cs" />
     <Compile Include="$(RuntimeSource)/QuestStandalonePlatform.cs" />
+    <Compile Include="$(RuntimeSource)/QuestEyeAllocation.cs" />
     <Compile Include="$(RuntimeSource)/QuestEyeResolution.cs" />
     <Compile Include="$(RuntimeSource)/FrameDefaults.cs" />
     <Compile Include="$(RuntimeSource)/FrameNativePassthrough.cs" />

@@ -28,7 +28,9 @@ namespace UnityEngine
     {
         public static RuntimePlatform platform;
         public static string unityVersion = "fixture", dataPath = "fixture-data";
+        public static string persistentDataPath;
     }
+    public static class Debug { public static readonly List<string> Lines = new(); public static void Log(object text) => Lines.Add(text.ToString()); }
     public struct Color
     {
         public float r, g, b, a;
@@ -122,12 +124,24 @@ namespace UnityEngine.XR
         private static float allocation = 1f, viewport = 1f;
         public static float eyeTextureResolutionScale { get => allocation; set { AllocationWrites++; allocation = value; } }
         public static float renderViewportScale { get => viewport; set { ViewportWrites++; viewport = value; } }
+        public static void Seed(float a = 1f, float v = 1f) { allocation = a; viewport = v; AllocationWrites = ViewportWrites = 0; }
+        internal static void AcceptAllocation(float value) => allocation = value;
+        internal static void AcceptViewport(float value) => viewport = value;
         public enum StereoRenderingMode { MultiPass, SinglePassInstanced }
         public static StereoRenderingMode stereoRenderingMode;
     }
     public class XRDisplaySubsystem
     {
         public bool running;
+        public bool RejectAllocation;
+        public int AllocationWrites, ViewportWrites, LiveAllocationWrites;
+        private float allocation = 1f, viewport = 1f;
+        public float scaleOfAllRenderTargets
+        {
+            get => allocation;
+            set { AllocationWrites++; if (running) LiveAllocationWrites++; if (RejectAllocation) throw new NotSupportedException(); allocation = value; XRSettings.AcceptAllocation(value); }
+        }
+        public float scaleOfAllViewports { get => viewport; set { ViewportWrites++; viewport = value; XRSettings.AcceptViewport(value); } }
         public static int MsaaWrites;
         public void SetMSAALevel(int samples) { MsaaWrites++; }
     }
@@ -377,3 +391,5 @@ namespace GloomhavenVR.WorldUI
         internal static UnityEngine.Texture VideoGlassCapture(UnityEngine.Camera camera) => null;
     }
 }
+
+namespace GloomhavenVR { internal static class MyPluginInfo { internal const string PLUGIN_GUID = "dev.gloomhavenvr"; } }

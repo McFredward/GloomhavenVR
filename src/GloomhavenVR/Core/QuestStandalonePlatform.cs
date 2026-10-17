@@ -82,8 +82,20 @@ public static class QuestStandalonePlatform
     public static bool DebugLogging => Enabled && VRLog.Wants(VRLogLevel.Debug);
     /// <summary>One shared mobile default, also used to configure the Player before XR starts.</summary>
     public static int StandaloneMsaaDefault => FrameDefaults.MsaaLevel;
+    public static float StandaloneEyeResolutionDefault => FrameDefaults.EyeResolutionScale;
+    /// <summary>The player invokes this after display creation, before OpenXR starts.
+    /// The ordinary mod bridge/configuration does not exist at this early boundary.</summary>
+    public static void PrepareDisplayBeforeStart()
+    {
+        if (Application.platform != RuntimePlatform.Android
+            || SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Vulkan)
+            return;
+        QuestEyeAllocation.Prepare(Path.Combine(Application.persistentDataPath, "quest-bepinex", "config",
+            MyPluginInfo.PLUGIN_GUID + ".rig.cfg"));
+    }
     // B623 hardware: replacing active Vulkan/OpenXR swapchains crashes while
-    // Unity recreates an external image. Viewport changes retain the allocation.
+    // Unity recreates an external image. Select capacity before display startup;
+    // the live eye controller retains that allocation and a full viewport.
     internal static bool FixedEyeTextureAllocation => Enabled
         && SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Vulkan;
     /// <summary>The generated player follows the current mod's proven stereo contract.</summary>

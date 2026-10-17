@@ -238,10 +238,10 @@ internal static class Program
         Near(XRSettings.renderViewportScale,1,"Quest Vulkan caps saved supersampling at the existing allocation");
         Near(RenderQuality.EyeResolutionScale.Value,1.5f,"Quest Vulkan cap retains the saved resolution request");
         RenderQuality.EyeResolutionScale.Value=.7f; FrameTick(.6f); FrameTick(.96f);
-        Near(XRSettings.renderViewportScale,.7f,"Quest Vulkan downscales only the live viewport");
+        Near(XRSettings.renderViewportScale,1f,"Quest Vulkan saves resolution changes for the next app start with a full viewport");
         Camera.current=new(); RenderQuality.EyeResolutionScale.Value=.8f; Tick(1.1f); Tick(1.5f);
-        Near(XRSettings.renderViewportScale,.7f,"Quest viewport remains guarded during an unmarked rendering call");
-        FrameTick(1.51f); Near(XRSettings.renderViewportScale,.8f,"known Update applies the pending Quest viewport");
+        Near(XRSettings.renderViewportScale,1f,"Quest keeps a full viewport during an unmarked rendering call");
+        FrameTick(1.51f); Near(XRSettings.renderViewportScale,1f,"known Update retains full Quest viewport and the pending saved scale");
         Check(display.AllocationWrites==questAllocations && display.MsaaWrites==questMsaa
             && XRSettings.LiveAllocationWrites==0,"Quest viewport transitions retain externally owned native resources");
         QuestStandalonePlatform.FixedEyeTextureAllocation=false; Camera.current=null;

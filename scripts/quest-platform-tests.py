@@ -13,6 +13,7 @@ def main():
     core = root / "src/GloomhavenVR/Core"
     sources = {
         "QuestStandalonePlatform.cs": core / "QuestStandalonePlatform.cs",
+        "QuestEyeAllocation.cs": core / "QuestEyeAllocation.cs",
         "QuestEyeResolution.cs": root / "src/GloomhavenVR/Rig/QuestEyeResolution.cs",
         "FrameDefaults.cs": core / "Startup/FrameDefaults.cs",
         "FrameNativePassthrough.cs": core / "MixedReality/FrameNativePassthrough.cs",
@@ -69,8 +70,10 @@ internal static class RenderQualityAllocationFixture {
         ("quest-native-backend-gate", "FrameNativePassthrough.cs", "_required ??= !QuestStandalonePlatform.Enabled && FrameDefaults.Active", "_required ??= FrameDefaults.Active", "quest-native-backend"),
         ("quest-native-reattach-gate", "FrameNativePassthrough.cs", "_required = !QuestStandalonePlatform.Enabled && FrameDefaults.Active", "_required = FrameDefaults.Active", "quest-native-reattach"),
         ("vulkan-eye-cap-removed", "QuestEyeResolution.cs", "Mathf.Clamp(requested, 0.5f, 1f)", "requested", "vulkan-eye-cap"),
-        ("vulkan-eye-allocation-restored", "QuestEyeResolution.cs", "XRSettings.renderViewportScale = effective;", "XRSettings.eyeTextureResolutionScale = effective;", "vulkan-eye-viewport"),
-        ("vulkan-eye-log-unbounded", "QuestEyeResolution.cs", "if (changed || Mathf.Abs(effective - _lastViewport) > 0.0005f)", "if (true)", "vulkan-eye-bounded"),
+        ("vulkan-eye-allocation-restored", "QuestEyeResolution.cs", "XRSettings.renderViewportScale = 1f;", "XRSettings.eyeTextureResolutionScale = 1f;", "vulkan-eye-allocation"),
+        ("vulkan-eye-log-unbounded", "QuestEyeResolution.cs", "if (changed)", "if (true)", "vulkan-eye-bounded"),
+        ("eye-startup-live-allocation", "QuestEyeAllocation.cs", "if (display.running)", "if (display.running && displays.Count < 0)", "eye-startup-live"),
+        ("eye-startup-setter-unbounded", "QuestEyeAllocation.cs", "if (_attempted) return;", "if (_attempted && System.DateTime.UtcNow.Ticks < 0) return;", "eye-startup-bounded"),
         ("world-screen-desktop-gate-removed", "QuestStandalonePlatform.cs",
          'if (!Enabled) return desktopShader;\n        Shader shader = Resources.Load<Shader>("QuestWorldScreen");',
          'if (Enabled && false) return desktopShader;\n        Shader shader = Resources.Load<Shader>("QuestWorldScreen");', "desktop-screen"),

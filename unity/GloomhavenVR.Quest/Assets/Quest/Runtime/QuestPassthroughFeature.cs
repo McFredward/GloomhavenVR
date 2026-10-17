@@ -39,6 +39,12 @@ namespace GloomhavenVR.Quest
         {
             return ghvr_quest_hook(function);
         }
+        protected override void OnSubsystemCreate()
+        {
+#if GHVR_QUEST_STARTUP
+            GloomhavenVR.Core.QuestStandalonePlatform.PrepareDisplayBeforeStart();
+#endif
+        }
         protected override bool OnInstanceCreate(ulong instance)
         {
             instanceReady = OpenXRRuntime.IsExtensionEnabled("XR_FB_passthrough") && ghvr_quest_instance(instance) == 1;

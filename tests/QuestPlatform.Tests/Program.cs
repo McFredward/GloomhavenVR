@@ -23,6 +23,7 @@ internal static class Program
     static void Main(string[] args)
     {
         string directory = Path.Combine(args[0], "owned mod resources"); Directory.CreateDirectory(directory);
+        EyeAllocationCases(directory);
         Application.platform = RuntimePlatform.WindowsPlayer;
         SystemInfo.graphicsDeviceType = GraphicsDeviceType.Direct3D11;
         Check(!FrameDefaults.Active, "desktop-mobile-defaults: ordinary PC must keep its own defaults");
@@ -183,6 +184,7 @@ internal static class Program
         Check(Loc.Stops == 1 && ExceptionTraces.Stops == 1 && PerfMonitor.Stops == 1, "core-teardown: original core module cleanup was bypassed");
         Check(!QuestEyeResolution.TryApply(1.5f), "gles-eye-allocation: Quest GLES must retain the original render controller");
         SystemInfo.graphicsDeviceType = GraphicsDeviceType.Vulkan;
+        XRSettings.Seed(1f, .8f);
         float savedScale = 1.5f;
         RenderQualityAllocationFixture.Tick();
         Check(XRSettings.AllocationWrites == 0 && XRDisplaySubsystem.MsaaWrites == 0
@@ -193,17 +195,17 @@ internal static class Program
             && QuestEyeResolution.EffectiveScale(savedScale) == 1f,
             "vulkan-eye-cap: supersampling must not mutate saved configuration or resize the allocation");
         Check(XRSettings.AllocationWrites == 0 && XRSettings.renderViewportScale == 1f,
-            "vulkan-eye-allocation: native resolution setter must not run");
+            "vulkan-eye-allocation: fallback must restore full viewport without native resolution setter");
         int reports = VRLog.Lines.Count;
         for (int i = 0; i < 1000; i++) QuestEyeResolution.TryApply(savedScale);
-        Check(VRLog.Lines.Count == reports && XRSettings.AllocationWrites == 0 && XRSettings.ViewportWrites == 0,
+        Check(VRLog.Lines.Count == reports && XRSettings.AllocationWrites == 0 && XRSettings.ViewportWrites == 1,
             "vulkan-eye-bounded: unchanged saved setting must not repeat logs or native writes");
         QuestEyeResolution.TryApply(0.7f);
-        Check(XRSettings.renderViewportScale == 0.7f && XRSettings.ViewportWrites == 1 && XRSettings.AllocationWrites == 0,
-            "vulkan-eye-viewport: downscaling must use only the allocation-free viewport setter");
+        Check(XRSettings.renderViewportScale == 1f && XRSettings.ViewportWrites == 1 && XRSettings.AllocationWrites == 0,
+            "vulkan-eye-viewport: changed desired scale must remain saved for restart with a full viewport");
         QuestEyeResolution.TryApply(1f);
-        Check(XRSettings.renderViewportScale == 1f && XRSettings.ViewportWrites == 2 && XRSettings.AllocationWrites == 0,
-            "vulkan-eye-restore: native viewport must be restored without swapchain recreation");
+        Check(XRSettings.renderViewportScale == 1f && XRSettings.ViewportWrites == 1 && XRSettings.AllocationWrites == 0,
+            "vulkan-eye-restore: later desired scale must not write any running eye resource");
         Application.platform = RuntimePlatform.WindowsPlayer;
         Check(!QuestStandalonePlatform.Enabled, "configured-desktop-gate: configured bridge stayed active outside Android");
         Check(!QuestEyeResolution.TryApply(1.5f) && QuestEyeResolution.EffectiveScale(1.5f) == 1.5f,
@@ -215,4 +217,76 @@ internal static class Program
             "desktop-render-controller: current desktop MSAA and stable-allocation viewport controller must remain reachable");
         Console.WriteLine("PASS Quest platform/core lifecycle: " + assertions + " assertions (XR/environment seams; not native rendering/AOT proof)");
     }
+
+    static void EyeAllocationCases(string directory)
+    {
+        string config = Path.Combine(directory, "allocation.cfg");
+        Check(QuestEyeAllocation.ReadSavedScale(config, out string source) == FrameDefaults.EyeResolutionScale
+            && source == "shared-mobile-default", "eye-startup-default: missing config must use the shared Frame default");
+        foreach (var row in new[] {
+            ("[RenderQuality]\nEyeResolutionScale = 0.7\n", .7f),
+            ("[RenderQuality]\nEyeResolutionScale = 1.5\n", 1f),
+            ("[RenderQuality]\nEyeResolutionScale = 0.1\n", .5f),
+            ("[RenderQuality]\nEyeResolutionScale = NaN\n", FrameDefaults.EyeResolutionScale),
+            ("[RenderQuality]\nEyeResolutionScale = Infinity\n", FrameDefaults.EyeResolutionScale),
+            ("[RenderQuality]\nEyeResolutionScale = broken\n", FrameDefaults.EyeResolutionScale),
+            ("[Other]\nEyeResolutionScale = 0.5\n", FrameDefaults.EyeResolutionScale),
+            ("# ignored\n[RenderQuality]\nEyeResolutionScale = .6\n[Other]\nEyeResolutionScale = .9\n", .6f),
+            ("[RenderQuality]\nEyeResolutionScale = .6\nEyeResolutionScale = .7\n", .7f) })
+        {
+            File.WriteAllText(config, row.Item1);
+            Check(Math.Abs(QuestEyeAllocation.ReadSavedScale(config, out source) - row.Item2) < .0001f,
+                "eye-startup-config: saved scale must be bounded, section-scoped and finite: " + row.Item1);
+            Check(File.ReadAllText(config) == row.Item1, "eye-startup-config: config reading must not rewrite saved bytes");
+        }
+        File.WriteAllText(config, "[RenderQuality]\nEyeResolutionScale=.5\n" + new string('#', 256 * 1024));
+        Check(QuestEyeAllocation.ReadSavedScale(config, out source) == FrameDefaults.EyeResolutionScale
+            && source == "oversized-config-default", "eye-startup-bound: oversized config must not be scanned");
+
+        Application.persistentDataPath = Path.Combine(directory, "persistent");
+        string canonical = Path.Combine(Application.persistentDataPath, "quest-bepinex", "config", "dev.gloomhavenvr.rig.cfg");
+        Directory.CreateDirectory(Path.GetDirectoryName(canonical)!);
+        File.WriteAllText(canonical, "[RenderQuality]\nEyeResolutionScale = .7\n");
+        SubsystemManager.Displays.Clear();
+        var display = new XRDisplaySubsystem(); SubsystemManager.Displays.Add(display);
+        Application.platform = RuntimePlatform.WindowsPlayer; SystemInfo.graphicsDeviceType = GraphicsDeviceType.Vulkan;
+        QuestStandalonePlatform.PrepareDisplayBeforeStart();
+        Check(display.AllocationWrites == 0 && Debug.Lines.Count == 0,
+            "eye-startup-desktop: early hook must leave desktop Vulkan untouched");
+        Application.platform = RuntimePlatform.Android; SystemInfo.graphicsDeviceType = GraphicsDeviceType.OpenGLES3;
+        QuestStandalonePlatform.PrepareDisplayBeforeStart();
+        Check(display.AllocationWrites == 0 && Debug.Lines.Count == 0,
+            "eye-startup-gles: early hook must leave the ordinary GLES controller untouched");
+        SystemInfo.graphicsDeviceType = GraphicsDeviceType.Vulkan;
+        QuestStandalonePlatform.PrepareDisplayBeforeStart();
+        Check(display.AllocationWrites == 1 && display.LiveAllocationWrites == 0
+            && display.scaleOfAllRenderTargets == .7f && display.scaleOfAllViewports == 1f,
+            "eye-startup-stopped: only the initialized stopped display may receive its saved allocation");
+        Check(File.ReadAllText(canonical) == "[RenderQuality]\nEyeResolutionScale = .7\n",
+            "eye-startup-preserve: startup selection must preserve the canonical rig config");
+        for (int i = 0; i < 1000; i++) QuestStandalonePlatform.PrepareDisplayBeforeStart();
+        Check(display.AllocationWrites == 1 && Debug.Lines.Count == 1,
+            "eye-startup-bounded: repeated feature callbacks must not repeat setters or logs");
+
+        ResetStartup(); Debug.Lines.Clear(); SubsystemManager.Displays.Clear();
+        var live = new XRDisplaySubsystem { running = true }; var other = new XRDisplaySubsystem();
+        SubsystemManager.Displays.Add(other); SubsystemManager.Displays.Add(live);
+        QuestStandalonePlatform.PrepareDisplayBeforeStart();
+        Check(live.AllocationWrites == 0 && other.AllocationWrites == 0 && live.LiveAllocationWrites == 0
+            && Debug.Lines.Count == 1 && Debug.Lines[0].Contains("already running"),
+            "eye-startup-live: late callback must retain every allocation, including other stopped displays");
+
+        ResetStartup(); Debug.Lines.Clear(); SubsystemManager.Displays.Clear();
+        QuestStandalonePlatform.PrepareDisplayBeforeStart(); QuestStandalonePlatform.PrepareDisplayBeforeStart();
+        Check(Debug.Lines.Count == 1 && Debug.Lines[0].Contains("no initialized display"),
+            "eye-startup-absent: unavailable display must emit one bounded fallback report");
+        ResetStartup(); Debug.Lines.Clear();
+        var refusing = new XRDisplaySubsystem { RejectAllocation = true }; SubsystemManager.Displays.Add(refusing);
+        QuestStandalonePlatform.PrepareDisplayBeforeStart(); QuestStandalonePlatform.PrepareDisplayBeforeStart();
+        Check(refusing.AllocationWrites == 1 && Debug.Lines.Count == 1 && Debug.Lines[0].Contains("NotSupportedException"),
+            "eye-startup-refusal: unsupported resource API must retain provider state without retries");
+        SubsystemManager.Displays.Clear(); XRSettings.Seed(); Debug.Lines.Clear(); ResetStartup();
+    }
+
+    static void ResetStartup() => typeof(QuestEyeAllocation).GetField("_attempted", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, false);
 }
