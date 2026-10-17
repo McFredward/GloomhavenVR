@@ -86,3 +86,26 @@ counters agree through cuts/seeks, the per-eye aspect is preserved, and closing
 or skipping leaves native flow usable. Record build/version banners, XR mode,
 window size/distance, and actual headset observations separately from these
 offline receipts.
+
+## Runtime pilot
+
+The implemented pilot starts once in the offline native main menu when VR and
+world UI are active. It owns a separate silent decoder and a fixed picture,
+1.2 real metres wide at1.6 metres distance. The picture opens and closes manually
+with a short fade; a click on its actual image requests closure. Menu/session
+exit, errors and shutdown release resources directly without holding native
+continuation. A completed attempt stays completed until the application restarts.
+
+The tiny UI shader is embedded in the plugin DLL. It requires the actual runtime
+MultiPass mode and selects the half from each camera's active eye. Paired camera
+callbacks restore an enclosing eye after nested camera rendering. Unsupported
+shader/mode preflight selects the separate mono movie; absent or malformed
+calibration media stops the attempt and reports its reason. The normal launch
+does not inspect these files or load the shader.
+
+The calibration decoder does not replace or publish a native movie. Ordinary
+intro, character, menu and embedded films keep their existing presentation during
+this milestone. The later film-library integration requires a versioned media
+and peer-selection/fallback contract after the headset pilot passes. See the
+current [build evidence](../.planning/STEREO-VIDEO-683.md) and the renderer's
+[API and GPU-proof scope](../scripts/stereo-video-render/README.md).

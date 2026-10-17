@@ -25,6 +25,7 @@ alongside the web guide, then run `python3 scripts/check-docs-i18n.py`.
 | [NET-ACTION-SURFACE.md](NET-ACTION-SURFACE.md) | Reviewed receiver-patch classifications; checked by `check-desync-surface.py` |
 | [Asset guide](ASSET-GUIDE-MITWIRKENDE.md) | German brief for the contributing artist; mesh, path and rig contracts |
 | [Image guide](img/README.md), [video shot list](VIDEO-SHOTLIST.md) | Media provenance, generation and optional additional recordings |
+| [Stereo video calibration](stereo-video-calibration.md) | Reproducible calibration media, opt-in runtime experiment and headset review |
 
 The current changelog is the newest-first note block beside `NetProtocol.ModBuild` in
 [`NetProtocol.cs`](../src/GloomhavenVR/Net/NetProtocol.cs). Test counts belong in the

@@ -27,6 +27,7 @@ matching, offline VR/native-menu gates (including `MainMenu_gamepad`), first
 prepared texture/frame and exact dimensions, the mono companion fallback,
 single start, exact picture click ownership, English/German close hints, fixed
 window pose/aspect, errors, repeated close, shutdown before/after an attempt,
+opening/manual-closing alpha transitions on the shared update clock,
 scene or session loss, external root/player destruction, stale queued callbacks
 and untouched native players. Source mutations must fail at their named causal
 assertion; compilation errors and unrelated failures never count as detections.

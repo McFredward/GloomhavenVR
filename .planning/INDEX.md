@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-14 for Build673: asynchronous whole-game water replacement.
+Updated 2026-10-17 for Build683: explicit stereo video calibration before conversion.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,8 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [STEREO-VIDEO-683.md](STEREO-VIDEO-683.md) | Offline stereo calibration, embedded-video census, actual GPU/lifecycle evidence and required headset review |
+| [TRAILER-3D-VIDEO-HANDOFF.md](TRAILER-3D-VIDEO-HANDOFF.md) | Accepted staged stereo-video direction, media authorities and later conversion/integration scope |
 | [WATER-673-REVIEW.md](WATER-673-REVIEW.md) | Exact native water publication, owned slots/queues, final compiled scope and focused validation limits |
 | [WATER-673-ASSET-AUDIT.md](WATER-673-ASSET-AUDIT.md) | All native water materials/renderer bindings, asynchronous provenance and exact property/queue evidence |
 | [RELEASE110-REVIEW.md](RELEASE110-REVIEW.md) | Pre-1.1.0 integrated findings, repair scope, multiplayer parity and validation limits |
