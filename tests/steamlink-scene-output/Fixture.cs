@@ -95,8 +95,8 @@ public static class SceneOutputFixture
     }
     private static float Mask(RenderTexture source,float gx,float gy)
     {
-        float x=gx-.5f,y=gy-.5f;int ix=Mathf.FloorToInt(x),iy=Mathf.FloorToInt(y);float fx=x-ix,fy=y-iy;
-        // Independent CPU bilinear weights over individually probed original A.
+        float x=gx-.5f,y=gy-.5f;int ix=Mathf.FloorToInt(x),iy=Mathf.FloorToInt(y);float fx=x-ix,fy=y-iy;fx=fx*fx*(3-2*fx);fy=fy*fy*(3-2*fy);
+        // Independent current spatial weights over individually probed original A.
         return Cell(source,ix,iy)*(1-fx)*(1-fy)+Cell(source,ix+1,iy)*fx*(1-fy)
             +Cell(source,ix,iy+1)*(1-fx)*fy+Cell(source,ix+1,iy+1)*fx*fy;
     }

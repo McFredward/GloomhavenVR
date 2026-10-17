@@ -37,6 +37,11 @@ Shader "GloomhavenVR/SteamLinkSceneAtlas"
                 // cells. Reconstruct the pre-downsampled field, rather than
                 // shifting its four-sample kernel continuously across the source.
                 float2 p=global-0.5,lo=floor(p),f=frac(p);
+                // Interpolate spatially, never remap alpha itself. A second linear
+                // tent here (before video/native sampling) unnecessarily feathers
+                // opaque UI silhouettes. This bounded C1 kernel keeps every cell
+                // value, constant partial opacity, endpoints and [0,1] range.
+                f=f*f*(3-2*f);
                 return lerp(lerp(coverageCell(lo),coverageCell(lo+float2(1,0)),f.x),
                             lerp(coverageCell(lo+float2(0,1)),coverageCell(lo+1),f.x),f.y);
             }
