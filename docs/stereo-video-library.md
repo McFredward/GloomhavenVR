@@ -108,8 +108,17 @@ their native loop without a new stereo jump.
 Each full-SBS movie retains its exact original frame count/fps, ending and all
 AAC packet payloads/timestamps/durations; ambient sources remain silent. Encoding
 uses the accepted explicit BT709 limited-range YUV420, accurate full-chroma right
-conversion, H264 High5.1, CRF17 and17Mbps/34Mbps VBV. The 100 MiB per-file limit is
-checked after rendering; quality is not weakened merely to fit that limit.
+conversion, H264 High5.1 and CRF17. Ambient and studio films retain the17Mbps
+maximum rate and34Mbit buffer. New hero renders use a34Mbps maximum and68Mbit
+buffer to preserve the same34dB picture floor in detailed scenes. The initial
+Doomstalker candidate saturated the17Mbps ceiling (16.837Mbps average), with
+native frames360–362 below34dB; its exact candidate, sources, commands and failed
+PSNR/rate evidence remain retained privately. The accepted17Mbps Beast Tyrant
+output is unchanged. The longest hero is17.43seconds; the strict100MiB per-file
+gate still applies. This increases rate-control headroom without changing CRF,
+codec/profile, pixel geometry, source/depth, clocks or audio. The actual encoder
+policy is recorded in each new render receipt and per-film provenance. Quality
+is not weakened merely to fit the size limit.
 Every render retains exact source snapshots, commands, shot geometry and cue
 pictures beside its private receipt.
 

@@ -24,6 +24,15 @@ def render(args) -> Path:
     args.out.mkdir(parents=True, exist_ok=False)
     target = args.out / Path(movie['stereo_key']).name
     frames, fps = movie['frames'], movie['fps']
+    # The detailed hero scenes can saturate the ambient ceiling and lose the
+    # required 34 dB native-picture floor. Their short duration permits a higher
+    # ceiling without weakening CRF, codec compatibility or the 100 MiB gate.
+    maximum_rate = 34 if movie['key'].startswith('Heroes/') else 17
+    encoding = {'codec': 'libx264', 'preset': 'fast', 'crf': args.crf,
+        'profile': 'high', 'level': '5.1', 'threads': 3,
+        'maximum_video_bitrate_mbps': maximum_rate,
+        'video_buffer_mbits': maximum_rate * 2,
+        'gop_frames': fps, 'video_track_timescale': fps * 256}
     command = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-n',
         '-f', 'rawvideo', '-pixel_format', 'bgr24', '-video_size', '1920x1080',
         '-framerate', str(fps), '-i', 'pipe:0', '-threads', '2', '-i', str(source),
@@ -33,7 +42,8 @@ def render(args) -> Path:
         '[1:v][right]hstack=inputs=2,setsar=1[packed]',
         '-map', '[packed]', '-map', '1:a:0?', '-frames:v', str(frames),
         '-c:v', 'libx264', '-threads', '3', '-preset', 'fast', '-crf', str(args.crf),
-        '-maxrate', '17M', '-bufsize', '34M', '-profile:v', 'high', '-level:v', '5.1',
+        '-maxrate', f'{maximum_rate}M', '-bufsize', f'{maximum_rate * 2}M',
+        '-profile:v', 'high', '-level:v', '5.1',
         '-g', str(fps), '-keyint_min', '1', '-video_track_timescale', str(fps * 256),
         '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv',
         '-c:a', 'copy', '-map_metadata', '-1', '-metadata',
@@ -127,6 +137,7 @@ def render(args) -> Path:
         'source_sha256': movie['source_sha256'], 'output_sha256': digest(target), 'output_bytes': target.stat().st_size,
         'packing': 'full-SBS-left-first', 'per_eye_size': [WIDTH, HEIGHT], 'frames': frames, 'fps': fps,
         'duration_seconds': frames / fps, 'identical_aac_packets': len(stereo_audio),
+        'encoding': encoding,
         'audio_finalization': audio_finalization,
         'left': 'original native YUV directly hstacked before H264 encoding',
         'right': 'shot-wide temporal inverse-depth horizontal forward reprojection for depth scenes; uniform+8px original studio plane; screen-plane protected titles',
