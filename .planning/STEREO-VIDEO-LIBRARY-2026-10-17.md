@@ -157,8 +157,8 @@ published identity fixes/resources. Private continuation invocation errors and
 their corrected remaining stages are retained. These are composed results, not
 a new complete-gate pass.
 
-At this checkpoint the intro, studio, two cave films, forest, Corpsewood, Town,
-Beast Tyrant and Crypt are verified: nine subjects complete, 11 worker subjects
+At this checkpoint the intro, studio, all seven ambient films, Beast Tyrant,
+Doomstalker and Plagueherald are verified: 12 subjects complete, eight hero films
 remain. Crypt retains all 2252 native frames at 60 fps, silence and zero-disparity
 loop endpoints; all left pictures and 21 right witnesses pass with minima
 43.46/45.08 dB. Worker and integrator inspected three actual encoded cue pairs.
@@ -203,8 +203,17 @@ asset, canonical manifest, neural input, transform, clock, AAC rule, quality flo
 and strict 100 MiB limit remains unchanged. Actual encoder policy is recorded in
 new render receipts and tracked provenance. The integrator verified all 74
 retained failed-render/verification files and unchanged completed outputs before
-authorizing the single serial scheduler restart. Doomstalker's new complete
-verification and decoded-picture review remain pending at this checkpoint.
+authorizing the single serial scheduler restart. The replacement passes all 868
+native frames, 679 original AAC packets, its exact 217/15-second presentation and
+44 right witnesses, with minima 38.66/41.82 dB. The three previously failing frames
+now reach 38.66/39.49/39.44 dB. The exact encoder commands differ only in their two
+VBV arguments; all 46 native snapshot, geometry and uncompressed-source witness
+files match byte-for-byte. Worker and integrator inspected actual cues144/359/805.
+Plagueherald also retains all 906 frames/708 AAC packets and its exact 15.1-second
+presentation, with minima 44.10/45.00 dB and three inspected decoded cue pairs.
+Dungeon closes the seven ambient subjects: all 1126 frames, silence, zero-disparity
+loop endpoints and 21 right witnesses pass, with minima43.02/44.58 dB and three
+independently inspected actual encoded pairs. These remain static desktop checks.
 
 Only empty future-work waiters were rebalanced: the existing ambient and hero
 neural producers retain their exact profile and continue untouched. Three
@@ -215,8 +224,9 @@ aliases, disjoint subjects, source pins and process identities are retained in
 the media worker's hero-rebalance.json and concurrency-ledger.json.
 The original five-hero producer has completed successfully and is reaped; its
 authorized six-thread, nice+15 successor now computes only Berserker, Elementalist
-and Nightshroud. The original ambient producer continues on Dungeon, with the
-other three disjoint heroes waiting for that lane. Exactly two model processes
+and Nightshroud. The original ambient producer has also completed successfully
+and is reaped; its authorized successor now computes only Quartermaster,
+Soothsinger and Summoner at the same six-thread profile. Exactly two model processes
 run concurrently. At an owned completed-child boundary, a separate ignored scheduler selects
 subjects whose complete depth receipts are ready. It runs only one immutable
 normal batch child at a time with the complete canonical manifest and explicit
