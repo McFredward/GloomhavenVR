@@ -60,7 +60,7 @@ inventory, version notes, installer roster, private baseline and final gate.
 Worker branches are not published. The independent688/689/691/693 identity
 repairs and694 loading/window-bounds repair are retained through their separate
 publication lane. Builds690 and692 are internal source candidates only.
-Published694 is merged; final stereo handover uses695 or later. Its exact
+Published694 is merged; the complete stereo handover is Build695. Its exact
 unchanged focused source/artifact/raster evidence is composed separately; the
 reported residual headset window softness remains open in that lane.
 
@@ -73,7 +73,7 @@ success. A source-only build can omit unfinished optional media; that build is
 not a complete installable library. No additional ZIP or HTTP publication is
 part of this handover; the user's ordinary install script creates its archive.
 
-## Evidence status while conversion continues
+## Completed media and composed validation
 
 Retained root evidence lives under `.planning/debug/stereo-library688/`; the
 directory name is preserved across later build-number reservations. The exact
@@ -81,8 +81,9 @@ hardware687 logs/review, logo render/verification and decoded cue reviews live
 there. The completed runtime and UI workers are archived in the main checkout as
 `stereo-library-runtime-worker-b89af9256/` and
 `stereo-library-ui-worker-e3a551635/`. The integrator verified every retained
-file's SHA256 and size before removing either worker worktree. Active media
-evidence remains in its worker until its producers and verification stop.
+file's SHA256 and size before removing either worker worktree. All media
+producers and serial verification are now stopped and tool-reaped at exit0.
+The media worker's complete evidence is retained for independent archive review.
 
 Completed source-side checks include22-file real-script fixture cases
 (192Python/209PowerShell assertions), source-bound localized UI875 assertions and
@@ -94,7 +95,8 @@ The full integrated attempt against frozen499bdc157/692 has finished: all 16
 source suites pass; the local attempt records 218 passes and eight failures
 across all 226 suites in 6161.391 seconds. Its authoritative result remains FAIL.
 Six subsequent tests-only fixture repairs have separate focused passing evidence;
-two original suites await their required media/load conditions. The four separately checked694
+the two deferred original suites now also pass unchanged, as detailed below.
+The four separately checked694
 additions make the current inventory230local/101CI/16source. Its explicit
 scheduler inventory assertions are updated and pass19 cases (17 pass, two
 platform skips); no scheduler logic or registry behavior changed in that repair.
@@ -135,17 +137,21 @@ files and control output remain byte-identical. The historical frozen failure
 has no queue dump, so its precise pending state remains unknown. All 6414 retained
 evidence files were independently verified before removing the stopped worker.
 
-The unrelated NPC639 packed
-atlas proof reaches its cold895-member resolution budget and fails the1s bound
-under concurrent inference/full-gate load; its exact elapsed time was not logged.
-Its production source is unchanged, and no cause is assigned. Retain the failure
-and repeat only that suite after the neural producers stop, without weakening
-the budget.
-The unchanged figure-mesh-bank-packaging suite passes 19 of its 20 cases; the
-whole-installer case correctly stops at the production missing-movie preflight
-before reaching its figure-bank assertions. Repeat that original suite only
-after all 22 real media files are present. No placeholder asset, reordered
-preflight or weakened packaging assertion is authorized.
+The original NPC639 packed-atlas failure reached its cold895-member resolution
+budget under concurrent inference/full-gate load; its exact elapsed was not
+logged and its cause remains unassigned. After every owned producer, renderer
+and verifier stopped, the unchanged focused suite passes4492 assertions and all
+four original controls. Actual cold resolution is0.550132s against the unchanged
+1s limit. Its completion cleanup removes11 cache directories/147,976,047B with
+zero protected-path skips; the original failure is retained.
+The original figure-mesh-bank-packaging attempt passed19 of20 cases and stopped
+correctly at missing-movie preflight. With all22 real movie files present, its
+unchanged full20 cases now pass in10.217s, including the actual PowerShell bank
+and complete-installer missing-game refusal, without game/dependency/props writes.
+An initial focused invocation had no PowerShell on PATH and skipped11 cases;
+that partial result is retained separately and is not the complete proof.
+Both final suites use the existing central runner; no threshold, fixture,
+preflight order or production source was altered for these continuations.
 
 Required independent continuation checks pass: exact wire vectors300597
 assertions, bundle-format/bank checks and the surface comparison with no removed
@@ -157,10 +163,26 @@ published identity fixes/resources. Private continuation invocation errors and
 their corrected remaining stages are retained. These are composed results, not
 a new complete-gate pass.
 
-At this checkpoint the intro, studio, all seven ambient films and nine heroes
-are verified: 18 subjects complete; only Nightshroud and Summoner remain.
-Every integrated film has its hash-bound native-frame/AAC/picture proof and
-three actual decoded cue pairs reviewed by both worker and integrator; the intro
+Final Build695 strict Debug and Release both pass with zero warnings/errors.
+The actual DLL metadata contains695/dev and no embedded MOV/MP4 resource. All22
+actual copied movie files in each configuration match the source hashes and exact
+roster. A fresh golden-only execution of the unchanged private copied wire project
+passes300597 assertions;125 fixture files and129 production inputs are pinned,
+and its seven executed artifact files remain retained after cache cleanup. This
+does not repeat the full local group. All18 movie runtime C# inputs are unchanged
+from frozen692; the seven separate694 production inputs are byte-identical to
+published a1ee28cd9. NetProtocol differs only in version/comments at that boundary.
+
+All20 subjects are complete: intro, studio, all seven ambient films and all11
+heroes. The exact22-file source/Content/installer-roster comparison passes:
+896,738,250 shipped movie bytes,21,528 original video frames,9,978 native AAC
+packets and708 independently checked encoded right-eye witnesses. The global
+minimum picture scores are35.32dB left and36.05552dB right, above the unchanged
+34dB floor. Every file remains below the unchanged100MiB limit. No trailer or
+calibration file enters the roster. The two required mono companions retain
+their exact approved/native hashes.
+Each of the19 worker films has its hash-bound native-frame/AAC/picture proof and
+three actual decoded cue pairs reviewed by both worker and integrator. The intro
 has its separate approved-scene and stronger-wordmark evidence.
 Crypt retains all 2252 native frames at 60 fps, silence and zero-disparity
 loop endpoints; all left pictures and 21 right witnesses pass with minima

@@ -1,5 +1,23 @@
 # Steam Link availability repair coordination, 2026-10-17
 
+## Complete stereo handover695; published694 source retained
+
+All20 stereo subjects and the22-file installer roster are complete on shared
+dev at Build695. Gameplay trailer remains explicitly excluded. Strict Debug and
+Release pass0W/0E; actual22-file copied outputs match source hashes. Fresh final
+wire goldens pass300597 assertions. The final composed boundary verifies all18
+movie C# inputs unchanged from frozen692 and all seven independent694 production
+inputs byte-identical to published a1ee28cd9. Its exact lifecycle/raster/geometry
+proofs below are inherited. Residual headset softness remains open; no new Frame
+action, receiver update or hardware result is claimed.
+
+The frozen complete attempt remains218/226 local PASS with eight original
+failures. All eight have separate focused passing continuations now: six
+tests-only fixture repairs plus unchanged NPC639 (cold atlas0.550132s/1s) and
+all20 unchanged figure-packaging cases after all22 real movies arrived. This
+composition is not a new complete-gate pass. See the stereo library record and
+main debug/stereo-library688 for source pins, full reports and archive receipts.
+
 ## Published694 presentation repair; merged shared dev; stereo695+
 
 Published origin/dev is a1ee28cd9/694, merged into shared local dev by99f565795.

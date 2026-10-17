@@ -1,5 +1,61 @@
 # State — where the project stands
 
+**Native stereo library and scenario review, 2026-10-17: Build695.**
+
+The maintainer's headset-approved GloomhavenVR intro keeps its exact 21 scenic
+depth fields; only the two existing wordmark appearances move farther forward.
+All 20 authorized subjects are complete: intro, 11 hero unlock films, seven
+ambient films and the original TwinSails studio clip. The explicitly excluded
+gameplay trailer keeps its native promotional behavior and has no converted
+companion or review action. Native source/serialized evidence identifies it as
+a retained menu promotion with showAtStart=false, not an ordinary scenario film.
+
+Advanced > Test triggers > Videos offers all 20 films inside a loaded scenario,
+plus Close. Review uses the common movable/shared movie window, clock and pose,
+with its own cosmetic decoder and no unlock/save/native-continuation callback.
+Genuine native videos take priority; leaving the scene/camera or an error cancels
+owned preparation/playback. Existing record72 retains its exact byte layout.
+
+The normal installer handles all 22 separate MOV files beside the DLL. Source,
+Content, installer roster and actual Debug/Release copies match byte-for-byte:
+896,738,250 bytes, 21,528 original video frames, 9,978 AAC packets and 708 encoded
+right-eye witnesses. Global picture minima are 35.32/36.05552 dB against the
+unchanged 34 dB floor; every movie is below 100 MiB. All seven ambient loop
+endpoints retain zero disparity. Timed source-specific print protection includes
+the native oversized emblem/banner reveals; lossless hero AAC finalization keeps
+the exact native presentation end. Future hero-only encoder headroom was raised
+after a correctly refused low-quality Doomstalker candidate, without changing
+geometry, native clocks, picture floors or accepted earlier files. All failures,
+recovery receipts and actual neural fields remain retained.
+
+Strict Debug and Release pass with zero warnings/errors; produced DLL metadata
+confirms695/dev and no embedded movie. Fresh final golden-only execution passes
+300597 assertions from the unchanged copied project linked to final sources.
+All 18 movie runtime C# inputs remain byte-identical to frozen692; seven retained
+independent694 inputs match published a1ee28cd9 exactly. ModBuild/comments are the
+only other production source difference from that composed boundary.
+
+Validation is composed honestly: the full frozen692 attempt records all 226
+local suites, 218 pass/eight fail, and all 16 source suites pass. Its authoritative
+result remains FAIL. Six tests-only boundary repairs have focused passing proof.
+Both deferred original suites now pass unchanged: NPC639 has4492 assertions and
+four controls, cold895 atlas0.550132s against1s; figure packaging passes all20
+cases with actual PowerShell and all22 real media. An earlier invocation skipped
+11 PowerShell cases and is retained separately. The independently checked694
+additions bring the current inventory to230 local/101 CI/16 source; their exact
+unchanged evidence is inherited rather than rerun. This is not a new full-gate
+pass. Frozen gate and completed fixture/runtime/UI evidence are archived with
+independent hashes; all media evidence remains retained. Completed-run cleanup
+preserves results/captures/source/model and borrowed inputs.
+
+Actual encoded cue pairs were inspected by worker and integrator for every new
+film; the intro has separate logo/approved-scene evidence. These are static
+desktop checks. New headset fusion, comfort, temporal playback and native spawn
+paths still require the requested in-scenario review. The separate694 residual
+window-softness report remains open. See
+[the library record](STEREO-VIDEO-LIBRARY-2026-10-17.md) and
+[the media contract](../docs/stereo-video-library.md).
+
 **Native Steam Link loading continuity and window effect bounds, 2026-10-17: Build694.**
 
 The maintainer confirms693 native MR works, then reports green flashes during

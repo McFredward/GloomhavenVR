@@ -187,14 +187,21 @@ ill-posed far-object witness whose supposedly background plane was nearer than
 the object. Correcting that fixture to a farther background passes; the failed
 attempt remains retained and no production geometry was relaxed.
 
-The studio clip's complete encoded verification passes 240 left frames and
-240 timestamps, 375 identical AAC packets and three right witnesses. Minimum PSNR
-is 56.16 dB left and 64.87 dB sampled right. The first cave ambience also passes
-1,125 left frames, all native 60 fps timestamps, three depth shots and 21 right
-witnesses, with minima 40.74 dB left/42.64 dB right
-and zero-disparity original loop endpoints. Both completed subjects have three
-actual decoded cue pairs visually inspected. Per-film provenance states completed
-media results as they become available; this paragraph is not a completed-library claim.
+Build695 completes all 20 subjects and the 22-file installer roster: the intro,
+11 heroes, seven ambient films and the original studio clip, plus the required
+mono intro/studio companions. The exact source/Content/installer/build-copy audit
+passes for 896,738,250 bytes of real movie files. Independent per-film gates
+retain all 21,528 original video frames and 9,978 AAC packets and verify 708
+encoded right-eye witnesses. Global minimum PSNR is 35.32 dB left and 36.05552 dB
+right, above the unchanged 34 dB floor. All seven ambient films retain their
+silent native clocks and zero-disparity loop endpoints. Every individual movie
+is below the unchanged 100 MiB limit.
+
+Each of the 19 worker-produced films has three actual encoded cue pairs inspected
+by both worker and integrator, with hash-bound receipts. The intro retains its
+separate approved-scene and stronger-wordmark evidence. Per-film provenance
+records the exact native clocks, source/output hashes, geometry, audio and picture
+results. Gameplay trailer and retired calibration media are excluded.
 
 The movable VR surface displays a recorded fixed stereo pair. Moving the window
 or head changes the view of the surface, not the original camera positions
