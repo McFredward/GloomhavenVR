@@ -1438,7 +1438,10 @@ internal sealed partial class CardsDriver
             // place the fan becomes visible (_fan.Open has exactly one caller — verified),
             // so hooking the sound here covers every open path: initial reveal, re-open,
             // and the RevealAlways auto-open at phase start.
-            PlayFanEdgeSound(open: true);
+            // Open/Close can defer during a burn; sound belongs to the actual edge,
+            // otherwise this per-frame retry stacks the same cue until the burn ends.
+            if (_fan.IsOpen)
+                PlayFanEdgeSound(open: true);
         }
         else if (!shouldOpen && _fan.IsOpen)
         {
@@ -1446,7 +1449,8 @@ internal sealed partial class CardsDriver
             // Demeo mirrors with OnCardHandHide (CardHandView.cs:691) — softer item by default.
             // (The two other _fan.Close() sites are teardown paths — hands down / gate hand
             // lost — where a sound would be wrong; this is the only player-facing close.)
-            PlayFanEdgeSound(open: false);
+            if (!_fan.IsOpen)
+                PlayFanEdgeSound(open: false);
         }
 
         // Task #9 (empty-fan feedback), re-ruled 2026-08-08: the placard may claim an empty hand

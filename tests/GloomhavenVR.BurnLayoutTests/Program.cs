@@ -119,5 +119,6 @@ static class Program {
             Check(!d.CompletedModel(replacement.GameCard),"Real recovery must also clear completed round or active flight claims");
         }
         Console.WriteLine($"Burn layout: {checks} assertions passed.");
+        Console.WriteLine($"Fan audio edges: {FanAudioChecks.Run()} assertions passed.");
     }
 }
