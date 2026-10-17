@@ -90,16 +90,18 @@ four affected close controls in a combined strict net472 Release0W/0E tree, and
 129 merged library geometry/inventory checks with33 refusal controls. Prior broad
 options/close evidence is reused for unchanged areas; those focused checks are
 not a complete gate. The frozen movie GPU fixture inventory is226local/100CI/16source.
-The full integrated attempt is running against frozen499bdc157/692 in a private
-validation worktree. Its16 source suites pass. The four separately checked694
+The full integrated attempt against frozen499bdc157/692 has finished: all 16
+source suites pass; the local attempt records 218 passes and eight failures
+across all 226 suites in 6161.391 seconds. Its authoritative result remains FAIL.
+Six subsequent tests-only fixture repairs have separate focused passing evidence;
+two original suites await their required media/load conditions. The four separately checked694
 additions make the current inventory230local/101CI/16source. Its explicit
 scheduler inventory assertions are updated and pass19 cases (17 pass, two
 platform skips); no scheduler logic or registry behavior changed in that repair.
 The local group exposed an older town-service-options fixture missing explicit
 SteamLink availability, TickGuard and Rebuild ports. Tests-only0796670ba repairs
 that boundary; the affected suite passes173 assertions and9 causal controls.
-The remaining full attempt continues unchanged. Two further tests-only repairs
-are integrated: desktop-render-runtime now declares the explicit inactive
+Two further tests-only repairs are integrated: desktop-render-runtime now declares the explicit inactive
 movie-plane ports, with fail-fast behavior for an unexpected active borrow;
 145 real-Unity assertions and33 causal controls pass. The options-notes-runtime
 fixture binds the exact current GameObject return/minLines method, forwards and
@@ -118,12 +120,32 @@ failure and an overbroad worker guard attempt remain retained; only the supporte
 named edit dispatches are forwarded. All342 indexed evidence files and343 archive
 files were verified independently before removing the stopped worker. This proof
 does not execute SteamLink discovery or whole-menu reconstruction.
+The wall-options boundary likewise supplies unavailable SteamLink for its
+existing direct-Frame/legacy configuration cases. Its unchanged program and
+production inputs pass 77 real-BepInEx assertions and all 15 original controls;
+all 357 indexed evidence files and 358 archive entries were independently checked.
+The sixth repair, scenario-scenery-runtime, uses its existing independent queue
+drain before checking loading-work readiness. A real four-millisecond/96-node
+budget cannot guarantee a drained queue after a fixed 100 updates under load.
+Controlled external process preemption reproduces the exact assertion with 1452
+pending nodes. The corrected case drains 1432 to zero without advancing its
+scenery clock, clearing watchers or changing production source/budgets. All 924
+assertions and 51 original controls pass; the four generated production source
+files and control output remain byte-identical. The historical frozen failure
+has no queue dump, so its precise pending state remains unknown. All 6414 retained
+evidence files were independently verified before removing the stopped worker.
+
 The unrelated NPC639 packed
 atlas proof reaches its cold895-member resolution budget and fails the1s bound
 under concurrent inference/full-gate load; its exact elapsed time was not logged.
 Its production source is unchanged, and no cause is assigned. Retain the failure
 and repeat only that suite after the neural producers stop, without weakening
 the budget.
+The unchanged figure-mesh-bank-packaging suite passes 19 of its 20 cases; the
+whole-installer case correctly stops at the production missing-movie preflight
+before reaching its figure-bank assertions. Repeat that original suite only
+after all 22 real media files are present. No placeholder asset, reordered
+preflight or weakened packaging assertion is authorized.
 
 Required independent continuation checks pass: exact wire vectors300597
 assertions, bundle-format/bank checks and the surface comparison with no removed
@@ -135,8 +157,12 @@ published identity fixes/resources. Private continuation invocation errors and
 their corrected remaining stages are retained. These are composed results, not
 a new complete-gate pass.
 
-At this checkpoint the intro, studio, two cave films, forest, Corpsewood, Town
-and Beast Tyrant are verified;12 worker subjects remain. Each subject must pass original native-clock/AAC,
+At this checkpoint the intro, studio, two cave films, forest, Corpsewood, Town,
+Beast Tyrant and Crypt are verified: nine subjects complete, 11 worker subjects
+remain. Crypt retains all 2252 native frames at 60 fps, silence and zero-disparity
+loop endpoints; all left pictures and 21 right witnesses pass with minima
+43.46/45.08 dB. Worker and integrator inspected three actual encoded cue pairs.
+Each subject must pass original native-clock/AAC,
 all-left-picture, right reprojection, depth receipt/hash and decoded-cue gates
 before its output enters Assets. Desktop cue inspection is distinct from actual
 headset playback. Independent inspection of all11 original hero title frames
@@ -168,6 +194,18 @@ right witnesses, with minima39.75/44.63dB. Both worker and integrator inspected 
 three normal decoded cue pairs and actual enlarged-emblem pictures at604/606/612;
 the native606 picture was also compared. These are static encoded-picture checks.
 
+The initial Doomstalker candidate is also correctly refused before publication:
+its 17 Mbps encoder ceiling is saturated (16.837 Mbps average), and native left
+frames 360–362 reach only 33.09/33.64/33.75 dB against the unchanged 34 dB floor.
+The bounded encoder repair raises only future hero renders to a 34 Mbps maximum
+and 68 Mbit buffer at the same CRF17. Ambient/studio retain 17/34; every completed
+asset, canonical manifest, neural input, transform, clock, AAC rule, quality floor
+and strict 100 MiB limit remains unchanged. Actual encoder policy is recorded in
+new render receipts and tracked provenance. The integrator verified all 74
+retained failed-render/verification files and unchanged completed outputs before
+authorizing the single serial scheduler restart. Doomstalker's new complete
+verification and decoded-picture review remain pending at this checkpoint.
+
 Only empty future-work waiters were rebalanced: the existing ambient and hero
 neural producers retain their exact profile and continue untouched. Three
 unstarted heroes move to a disjoint directory after the existing parallel hero
@@ -175,10 +213,16 @@ producer; three others follow the ambient producer. No third concurrent neural
 process or duplicate output writer is introduced. The exact prior/new commands,
 aliases, disjoint subjects, source pins and process identities are retained in
 the media worker's hero-rebalance.json and concurrency-ledger.json.
-At an owned completed-child boundary, a separate ignored scheduler next selects
+The original five-hero producer has completed successfully and is reaped; its
+authorized six-thread, nice+15 successor now computes only Berserker, Elementalist
+and Nightshroud. The original ambient producer continues on Dungeon, with the
+other three disjoint heroes waiting for that lane. Exactly two model processes
+run concurrently. At an owned completed-child boundary, a separate ignored scheduler selects
 subjects whose complete depth receipts are ready. It runs only one immutable
 normal batch child at a time with the complete canonical manifest and explicit
 skips; it changes neither a movie's order/timing nor renderer/verifier inputs.
+The restarted run-sched002 freezes the reviewed helper checkpoint20c7fa13a and
+canonical manifestf10b245d; no renderer overlaps another output writer.
 The documentation i18n checker passes all five guide pairs/ten files.
 
 The new logo and library headset pictures, comfort and native spawn paths remain
@@ -194,6 +238,18 @@ regenerable caches and retains logs/results/source/manifests/captures. A clean68
 baseline was built in a temporary private worktree, copied byte-for-byte with its
 actual net472 DLL and1309-file receipt, then the owned worktree was removed. The
 main checkout's shared refactor baseline was never overwritten.
+
+The completed frozen692 attempt and composed continuations are archived in
+`.planning/debug/stereo-library-frozen692-gate-499bdc157.tar.zst` with 253348 indexed
+files/links and 16609187638 summed regular-file bytes. The 4649312700-byte archive
+has SHA256 `fa948e2e9042a0c910486329b7e5fe109772e95ceb600a5a97dce51b9d89e3d1`;
+every archive entry was compared with its original, and all original source pins
+were rechecked. Nineteen selected reports and the exact actual Release DLL are
+also independently byte-verified in the adjacent directory. Preserved SDK source
+folders and 402 borrowed-input links were moved outside project caches before
+completion cleanup; all 67 bank/index targets remain byte-identical in main.
+Only then was the clean, stopped validation worktree removed. The frozen branch,
+manifest, initial failures and full evidence remain reproducible in the archive.
 
 Completed unpinned687 fixture evidence was compressed into
 `stereo-video-intro687/frozen-worker/completed-suite-evidence.tar.zst`, compared
