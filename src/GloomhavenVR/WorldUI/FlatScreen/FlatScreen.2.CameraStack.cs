@@ -289,9 +289,9 @@ internal sealed partial class FlatScreen
         _uiRt = uiRt;
         ClearUiRt(); // fresh RT color is undefined — the glass must start fully transparent
 
-        _glassMaterial = new Material(glassShader) { mainTexture = _uiRt };
+        _glassMaterial = CreateScreenMaterial(glassShader, _uiRt, glass: true);
         EnsureBackQuad();
-        _quadRenderer!.sharedMaterial = _glassMaterial;
+        SetScreenMaterial(_quadRenderer!, _glassMaterial, glass: true);
 
         _noUiSince = -1f;
         VRLog.Info("WorldUI", $"Screen layer split ENGAGED: UI cameras → transparent glass RT " +
@@ -311,7 +311,7 @@ internal sealed partial class FlatScreen
         Object.DontDestroyOnLoad(_backQuad); // survives Single-mode scene loads like the screen quad
         Object.Destroy(_backQuad.GetComponent<Collider>());
         _backRenderer = _backQuad.GetComponent<Renderer>();
-        _backRenderer.sharedMaterial = _screenMaterial;
+        SetScreenMaterial(_backRenderer, _screenMaterial!, glass: false);
         VRLayers.Apply(_backQuad);
         PlaceScreen(instant: true); // the fresh quad needs its pose now, not on the next head move
     }
@@ -352,7 +352,7 @@ internal sealed partial class FlatScreen
             _uiRt = null;
         }
         if (_quadRenderer != null && _screenMaterial != null)
-            _quadRenderer.sharedMaterial = _screenMaterial;
+            SetScreenMaterial(_quadRenderer, _screenMaterial, glass: false);
         _noUiSince = -1f;
         VRLog.Info("WorldUI", $"Screen layer split RELEASED ({reason}) — single-RT path " +
                               "(all cameras composite the background RT; screen quad opaque).");

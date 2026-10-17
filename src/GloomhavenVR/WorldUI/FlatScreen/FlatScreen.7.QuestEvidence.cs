@@ -45,6 +45,11 @@ internal sealed partial class FlatScreen
             + " head=" + QuestCameraFacts(head)
             + " glass=" + QuestConsumerFacts(_quadRenderer, _glassMaterial)
             + " background=" + QuestConsumerFacts(_backRenderer, _screenMaterial));
+        if (QuestStandalonePlatform.DebugLogging)
+        {
+            QuestDrawEvidence(menu.name, sample, "glass", _quadRenderer, _glassMaterial);
+            QuestDrawEvidence(menu.name, sample, "background", _backRenderer, _screenMaterial);
+        }
         for (int index = 0; index < _captured.Count && index < 8; index++)
         {
             CapturedCamera capture = _captured[index];
@@ -82,6 +87,25 @@ internal sealed partial class FlatScreen
             + ",shader=" + (material == null ? "none" : material.shader.name + ",supported="
                 + material.shader.isSupported + ",queue=" + material.renderQueue)
             + ",texture=" + (material == null || material.mainTexture == null ? "none" : material.mainTexture.name);
+
+    private static void QuestDrawEvidence(string scene, int sample, string role, Renderer? renderer, Material? material)
+    {
+        if (renderer == null || material == null) return;
+        Mesh? mesh = renderer.GetComponent<MeshFilter>()?.sharedMesh;
+        string[] keywords = material.shaderKeywords;
+        // Two settled-menu samples only, with bounded keyword text. CPU mesh and
+        // material facts do not prove the final GPU vertex bindings or eye pixels.
+        UnityEngine.Debug.Log("[Quest startup] presentation menu-draw scene=" + scene + " sample=" + sample
+            + " role=" + role + " shader=" + material.shader.name + " instancing=" + material.enableInstancing
+            + " rendererBlock=" + renderer.HasPropertyBlock() + " batchingStatic=" + renderer.isPartOfStaticBatch
+            + " globalStereoInstancing=" + Shader.IsKeywordEnabled("STEREO_INSTANCING_ON")
+            + " globalStereoMultiview=" + Shader.IsKeywordEnabled("STEREO_MULTIVIEW_ON")
+            + " globalSinglePass=" + Shader.IsKeywordEnabled("UNITY_SINGLE_PASS_STEREO")
+            + " materialKeywords=" + string.Join(",", keywords, 0, System.Math.Min(keywords.Length, 16))
+            + " mesh=" + (mesh == null ? "none" : mesh.name + ",vertices=" + mesh.vertexCount
+                + ",stride=" + mesh.GetVertexBufferStride(0) + ",indexFormat=" + mesh.indexFormat)
+            + " texture=" + (material.mainTexture == null ? "none" : material.mainTexture.name));
+    }
 
     private static void QuestProbeCapture(RenderTexture? target, string scene, int sampleIndex, string role)
     {

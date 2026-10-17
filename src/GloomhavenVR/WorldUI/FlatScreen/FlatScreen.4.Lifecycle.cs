@@ -453,12 +453,12 @@ internal sealed partial class FlatScreen
                 Shader.Find("Hidden/BlitCopy")
                 ?? Shader.Find("Sprites/Default")
                 ?? Shader.Find("UI/Default"));
-            _screenMaterial = new Material(shader) { mainTexture = _rt };
+            _screenMaterial = CreateScreenMaterial(shader, _rt, glass: false);
             QuestStandalonePlatform.SetFlatScreenMono(_screenMaterial, _rt);
             // ITEM 1: remember the shader's own queue so the menu/scenario depth policy
             // (TickBackdropDepth) can restore it outside menu modes.
             _screenMaterialQueueDefault = _screenMaterial.renderQueue;
-            _quadRenderer.sharedMaterial = _screenMaterial;
+            SetScreenMaterial(_quadRenderer, _screenMaterial, glass: false);
 
             // No FlatScreen-owned reticle: the RayInteractor's beam + dot clamp to
             // the screen hit via UiHitOverride (test #7 — one convergent visual).
@@ -522,6 +522,11 @@ internal sealed partial class FlatScreen
             {
                 Object.Destroy(_screenMaterial);
                 _screenMaterial = null;
+            }
+            if (_questOpaqueUnderlay != null)
+            {
+                Object.Destroy(_questOpaqueUnderlay);
+                _questOpaqueUnderlay = null;
             }
         }
         if (_visible)

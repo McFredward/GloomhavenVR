@@ -553,6 +553,7 @@ internal sealed partial class FlatScreen
                                       ? "(menu/intro — renders before the mod hands so hands held in front show)."
                                       : "(scenario — shader default; summoned screen stays over the 3D world)."));
         }
+        SyncScreenUnderlayQueue(wantQueue);
 
         if (menuLike && !_handsDiagLogged && (VRHands.Left != null || VRHands.Right != null))
         {
