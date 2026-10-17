@@ -6,6 +6,11 @@ Shader "CoverageRuntimeFixture/Surface"
         _Cutout ("Cutout", Float) = 0
         _AlphaToMask ("Alpha to coverage", Float) = 0
         _ZWrite ("Depth writes", Float) = 1
+        _ZTest ("Depth comparison", Float) = 4
+        _SrcBlend ("Source RGB", Float) = 1
+        _DstBlend ("Destination RGB", Float) = 0
+        _SrcBlendAlpha ("Source alpha", Float) = 1
+        _DstBlendAlpha ("Destination alpha", Float) = 0
         _Mask ("Color channels", Float) = 15
         _StencilRef ("Stencil ref", Float) = 0
         _StencilComp ("Stencil comparison", Float) = 8
@@ -14,7 +19,8 @@ Shader "CoverageRuntimeFixture/Surface"
     SubShader
     {
         Tags { "Queue"="Geometry" }
-        Cull Off ZTest LEqual ZWrite [_ZWrite] ColorMask [_Mask]
+        Cull Off ZTest [_ZTest] ZWrite [_ZWrite] ColorMask [_Mask]
+        Blend [_SrcBlend] [_DstBlend], [_SrcBlendAlpha] [_DstBlendAlpha]
         AlphaToMask [_AlphaToMask]
         Stencil { Ref [_StencilRef] Comp [_StencilComp] Pass [_StencilPass] }
         Pass

@@ -163,8 +163,10 @@ internal sealed partial class FlatScreen
         get
         {
             FlatScreen? owner = _coverageOwner;
-            if (owner == null || !owner._visible || owner._screenMaterial == null) return null;
-            Renderer? renderer = owner._backQuad != null ? owner._backRenderer : owner._quadRenderer;
+            if (owner == null || !owner._visible || owner._screenMaterial == null
+                || owner._screenMaterial.shader == null
+                || owner._screenMaterial.shader.name != "Hidden/BlitCopy") return null;
+            Renderer? renderer = !ReferenceEquals(owner._backQuad, null) ? owner._backRenderer : owner._quadRenderer;
             return renderer != null && renderer.enabled && renderer.gameObject.activeInHierarchy
                 && renderer.sharedMaterial == owner._screenMaterial ? renderer : null;
         }

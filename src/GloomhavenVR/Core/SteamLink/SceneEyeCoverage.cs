@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 
 namespace GloomhavenVR.Core.SteamLink
 {
-    // Owns two alpha-only commands on one explicitly supplied head camera. This
+    // Owns an alpha-only depth prefix and optional exact screen-backdrop draw. This
     // is an opaque-depth prefix, NOT certification of later transparent draws.
     // The caller owns camera/enable-epoch admission and must Disarm before changing
     // its target, rendering path or clear policy. No camera, RT or depth is created.
@@ -61,13 +61,14 @@ namespace GloomhavenVR.Core.SteamLink
         // and destruction cannot retain yesterday's rectangle until a cold scan.
         internal void SetOpaqueBackdropSource(Func<Renderer?>? source)
         {
+            if (_disposed) return;
             _backdropSource = source;
             if (_commands != null) RecordCommands(null);
         }
 
         private void RecordCommands(Renderer? backdrop)
         {
-            if (_commands == null || _material == null) return;
+            if (_disposed || _commands == null || _material == null) return;
             _commands.Clear();
             _commands.DrawProcedural(Matrix4x4.identity, _material, 0, MeshTopology.Triangles, 3);
             _commands.DrawProcedural(Matrix4x4.identity, _material, 1, MeshTopology.Triangles, 3);

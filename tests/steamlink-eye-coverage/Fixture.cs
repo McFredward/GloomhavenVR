@@ -44,7 +44,7 @@ public static class CoverageRuntimeFixture
     {
         public bool passed,reversedZ,xrExecuted,windowsExecuted,gameWideCoverageProven;
         public string unity,backend,device,colorSpace,failure;
-        public int checks,lifecycleChecks,depthlessControls;
+        public int checks,lifecycleChecks,depthlessControls,backdropCases,ownerChecks;
         public List<Row> rows=new List<Row>();
     }
     private static Report result=new Report();
@@ -81,14 +81,18 @@ public static class CoverageRuntimeFixture
             quad.uv=new[]{Vector2.zero,Vector2.right,Vector2.one,Vector2.up};quad.triangles=new[]{0,1,2,0,2,3};quad.RecalculateBounds();
             var foreignTarget=Keep(new RenderTexture(32,32,24,RenderTextureFormat.ARGB32,RenderTextureReadWrite.Linear));
             Check(foreignTarget.Create(),"Foreign target allocated");foreign.targetTexture=foreignTarget;
-            Lifecycle(shader);
+            bool backdropOnly=Array.IndexOf(args,"-coverageBackdropOnly")>=0;
+            bool ownerOnly=Array.IndexOf(args,"-coverageOwnerOnly")>=0;
+            if(backdropOnly || ownerOnly)OwnerControls();else Lifecycle(shader);
             foreach(int samples in new[]{1,2,4,8})
             {
+                if(ownerOnly)break;
                 var desc=new RenderTextureDescriptor(32,32,RenderTextureFormat.ARGB32,24){msaaSamples=samples};
                 if(SystemInfo.GetRenderTextureSupportedMSAASampleCount(desc)!=samples)continue;
-                foreach(string name in new[]{"empty","opaque","cutout","alpha-to-coverage","stencil-suffix","excluded-depthless"})Probe(name,samples);
+                if(backdropOnly)Backdrop(samples);
+                else foreach(string name in new[]{"empty","opaque","cutout","alpha-to-coverage","stencil-suffix","excluded-depthless"})Probe(name,samples);
             }
-            Check(result.rows.Count>=6 && result.depthlessControls>0,"Actual sample matrix and excluded route executed");
+            Check(ownerOnly ? result.ownerChecks>0 : backdropOnly ? result.backdropCases>0 && result.ownerChecks>0 : result.rows.Count>=6 && result.depthlessControls>0,"Actual selected scope executed");
             coverage.Dispose();Life(!coverage.Ready && !coverage.Arm(camera,99) && coverage.Reason==SceneEyeCoverage.Refusal.Disposed,"Disposed cannot rearm");
             result.passed=true;code=0;
         }
@@ -195,4 +199,124 @@ public static class CoverageRuntimeFixture
         }
     }
     private static int Bits(float value){return BitConverter.ToInt32(BitConverter.GetBytes(value),0);}
+
+    private static void OwnerControls()
+    {
+        int count=owned.Count;
+        Renderer screen=BackdropSurface(new Vector3(0,0,1),Vector3.one,new Color(1,0,0,0));
+        Renderer back=BackdropSurface(new Vector3(0,0,2),Vector3.one,new Color(1,0,0,0));
+        Shader shader=Shader.Find("Hidden/BlitCopy");Check(shader && shader.isSupported,"Known opaque internal copy exists");
+        Material foreign=back.sharedMaterial;
+        Material opaque=Keep(new Material(shader));screen.sharedMaterial=opaque;back.sharedMaterial=opaque;
+        var owner=new GloomhavenVR.WorldUI.FlatScreen(true,opaque,screen,null);
+        Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==screen,"Nonsplit/fallback returns exact owned opaque quad");
+        screen.sharedMaterial=foreign;
+        Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Foreign material is not coverage authority");
+        screen.sharedMaterial=opaque;screen.enabled=false;
+        Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Disabled owner surface excluded");screen.enabled=true;
+        screen.gameObject.SetActive(false);Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Inactive owner surface excluded");screen.gameObject.SetActive(true);
+        owner.Visible(false);Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Owner hide is immediate");owner.Visible(true);
+        var split=new GloomhavenVR.WorldUI.FlatScreen(true,back.sharedMaterial,screen,back);
+        Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==back,"Split returns background and never UI glass");
+        owner.Release();Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==back,"Old owner release cannot clear new owner");
+        split.Release();Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Current shutdown releases owner");
+        var destroyed=new GloomhavenVR.WorldUI.FlatScreen(true,back.sharedMaterial,screen,back);
+        UnityEngine.Object.DestroyImmediate(back.gameObject);
+        Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Destroyed background never falls back to foreign glass");
+        destroyed.Release();
+        foreach(string fallback in new[]{"Sprites/Default","UI/Default"})
+        {
+            Shader candidate=Shader.Find(fallback);Check(candidate && candidate.isSupported,"Native fallback shader available");
+            Material transparent=Keep(new Material(candidate));screen.sharedMaterial=transparent;
+            var fallbackOwner=new GloomhavenVR.WorldUI.FlatScreen(true,transparent,screen,null);
+            Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Alpha-blended fallback is not declared opaque: "+fallback);
+            fallbackOwner.Release();
+        }
+        DestroyFrom(count);
+    }
+    private static void Owner(bool value,string why){result.ownerChecks++;Check(value,why);}
+    private static Renderer BackdropSurface(Vector3 position,Vector3 scale,Color color)
+    {
+        Material m=MaterialFor();m.renderQueue=1000;m.SetFloat("_ZWrite",0);m.SetFloat("_ZTest",(int)CompareFunction.Always);m.SetColor("_Color",color);
+        var go=Keep(new GameObject("Owned early depthless video"));go.layer=30;go.transform.position=position;go.transform.localScale=scale;
+        go.AddComponent<MeshFilter>().sharedMesh=quad;Renderer r=go.AddComponent<MeshRenderer>();r.sharedMaterial=m;return r;
+    }
+    private static void DestroyFrom(int count)
+    {for(int i=owned.Count-1;i>=count;i--){if(owned[i])UnityEngine.Object.DestroyImmediate(owned[i]);owned.RemoveAt(i);}}
+    private static void Backdrop(int samples)
+    {
+        int count=owned.Count;
+        var target=new RenderTexture(32,32,24,RenderTextureFormat.ARGB32,RenderTextureReadWrite.Linear){antiAliasing=samples};
+        Renderer selected=null;
+        try
+        {
+            Check(target.Create() && target.antiAliasing==samples,"Actual backdrop target samples");camera.targetTexture=target;
+            Renderer video=BackdropSurface(new Vector3(.15f,0,1),new Vector3(.55f,.65f,1),new Color(1,.125f,.25f,0));
+            Material hand=MaterialFor();hand.SetColor("_Color",new Color(1,.8f,.25f,1));Surface(triangle,hand,0);
+            Material ui=MaterialFor();ui.renderQueue=3000;ui.SetFloat("_ZWrite",0);
+            ui.SetFloat("_SrcBlend",(int)BlendMode.SrcAlpha);ui.SetFloat("_DstBlend",(int)BlendMode.OneMinusSrcAlpha);
+            ui.SetFloat("_SrcBlendAlpha",(int)BlendMode.One);ui.SetFloat("_DstBlendAlpha",(int)BlendMode.OneMinusSrcAlpha);ui.SetColor("_Color",new Color(0,0,1,.5f));
+            var glass=Keep(new GameObject("Intentionally transparent separate UI glass"));glass.layer=30;glass.transform.position=new Vector3(-.85f,0,-1);glass.transform.localScale=new Vector3(.1f,.55f,1);
+            glass.AddComponent<MeshFilter>().sharedMesh=quad;glass.AddComponent<MeshRenderer>().sharedMaterial=ui;
+            coverage.Disarm();Color[] stock=Render(target);
+            coverage.SetOpaqueBackdropSource(()=>selected);
+            Check(coverage.Arm(camera,(ulong)(100+samples)),"Backdrop arm");
+            Color[] missing=Render(target);int absent=0;
+            for(int i=0;i<missing.Length;i++)if(missing[i].r>.99f && missing[i].g<.2f && missing[i].a<.01f)absent++;
+            Check(absent>20,"Causal old depthless backdrop RGB is present but coverage absent");
+            selected=video;Color[] full=Render(target);
+            BackdropPixels(stock,full,true,"visible");
+            Check(camera.GetCommandBuffers(CameraEvent.AfterForwardOpaque).Length==1,"No extra CB or render target for backdrop");
+            foreach(string mode in new[]{"disabled","hidden","force-off","layer","moved","show","replacement","destroyed"})
+            {
+                if(mode=="disabled")video.enabled=false;
+                if(mode=="hidden"){video.enabled=true;video.gameObject.SetActive(false);}
+                if(mode=="force-off"){video.gameObject.SetActive(true);video.forceRenderingOff=true;}
+                if(mode=="layer"){video.forceRenderingOff=false;video.gameObject.layer=29;}
+                if(mode=="moved"){video.gameObject.layer=30;video.transform.position=new Vector3(.4f,0,1);}
+                if(mode=="show")video.transform.position=new Vector3(.15f,0,1);
+                if(mode=="replacement")
+                {video.gameObject.SetActive(false);selected=BackdropSurface(new Vector3(.15f,0,1),new Vector3(.55f,.65f,1),new Color(1,.125f,.25f,0));}
+                if(mode=="destroyed")UnityEngine.Object.DestroyImmediate(selected.gameObject);
+                coverage.Disarm();Color[] original=Render(target);Check(coverage.Arm(camera,(ulong)(110+samples)),"Lifecycle rearm");
+                Color[] actual=Render(target);BackdropPixels(original,actual,true,mode);
+            }
+            // Repeat visibility without rearming: no cold refresh can conceal stale
+            // commands. The same renderer's changed pose is read by DrawRenderer.
+            selected=BackdropSurface(new Vector3(.15f,0,1),new Vector3(.55f,.65f,1),new Color(1,.125f,.25f,0));
+            for(int n=0;n<3;n++)
+            {
+                selected.gameObject.SetActive(true);Color[] shown=Render(target);int opaque=0;
+                for(int i=0;i<shown.Length;i++)if(shown[i].r>.99f && shown[i].g<.2f && shown[i].a>.99f)opaque++;
+                Check(opaque>20,"Repeated show immediately stamps");selected.gameObject.SetActive(false);Color[] hidden=Render(target);
+                for(int i=0;i<hidden.Length;i++)Check(hidden[i].r>.001f || hidden[i].b>.001f || hidden[i].a<.008f,"Hidden quad leaves no stale alpha rectangle");
+            }
+            selected.gameObject.SetActive(true);selected.transform.position=new Vector3(.4f,0,1);
+            Color[] moved=Render(target);Check(moved[17*32+27].a>.99f,"Same CB follows current renderer transform");
+            UnityEngine.Object.DestroyImmediate(selected.gameObject);Color[] gone=Render(target);
+            for(int i=0;i<gone.Length;i++)Check(gone[i].r>.001f || gone[i].b>.001f || gone[i].a<.008f,"Destroy without rearm clears old managed renderer draw");
+            coverage.SetOpaqueBackdropSource(()=>{throw new InvalidOperationException("Owned getter failure");});Render(target);
+            Life(!coverage.Ready && coverage.Reason==SceneEyeCoverage.Refusal.Command && camera.GetCommandBuffers(CameraEvent.AfterForwardOpaque).Length==0,"Getter failure detaches mask without callback exception");
+            coverage.SetOpaqueBackdropSource(null);result.backdropCases++;
+            result.rows.Add(new Row{name="owned-depthless-backdrop",format=target.graphicsFormat.ToString(),samples=samples});
+        }
+        finally
+        {coverage.Disarm();coverage.SetOpaqueBackdropSource(null);camera.targetTexture=null;target.Release();UnityEngine.Object.DestroyImmediate(target);DestroyFrom(count);}
+    }
+    private static void BackdropPixels(Color[] original,Color[] actual,bool checkAlpha,string name)
+    {
+        int hand=0,ui=0;
+        for(int i=0;i<original.Length;i++)
+        {
+            Check(Bits(original[i].r)==Bits(actual[i].r) && Bits(original[i].g)==Bits(actual[i].g) && Bits(original[i].b)==Bits(actual[i].b),"Backdrop RGB bits including hand and UI "+name+"/"+i);
+            if(i%32>=5)Check(Mathf.Abs(actual[i].a-actual[i].r)<.008f,"Independent opaque R silhouette includes MSAA edge samples "+name+"/"+i);
+            // All opaque content has R1. The spatially separate blue UI contributes
+            // B=.5 with A=.5; avoid mixed silhouette pixels for that UI assertion.
+            if(actual[i].r>.99f){Check(actual[i].a>.99f,"Opaque screen/hand coverage "+name);if(actual[i].g>.7f)hand++;}
+            else if(actual[i].r<.001f && actual[i].g<.001f && actual[i].b>.49f && actual[i].b<.51f)
+            {Check(Mathf.Abs(actual[i].a-.5f)<.008f,"UI glass remains deliberately half transparent "+name);ui++;}
+            else if(actual[i].r<.001f && actual[i].b<.001f)Check(actual[i].a<.008f,"Room remains clear outside actual surfaces "+name);
+        }
+        Check(hand>10 && ui>4,"Hand order and intentional UI sample witnesses "+name);
+    }
 }
