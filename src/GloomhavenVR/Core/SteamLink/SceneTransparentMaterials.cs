@@ -129,10 +129,10 @@ namespace GloomhavenVR.Core.SteamLink
                 entry.Current = entry.Source != null && entry.Source.shader == entry.Original && entry.Clone != null
                     && (!entry.Dynamic || Alpha(entry.Source, out _, out _));
                 if (!entry.Current) continue;
-                entry.Clone.CopyPropertiesFromMaterial(entry.Source);
+                entry.Clone!.CopyPropertiesFromMaterial(entry.Source!);
                 if (entry.Dynamic)
                 {
-                    Alpha(entry.Source, out int src, out int dst);
+                    Alpha(entry.Source!, out int src, out int dst);
                     entry.Clone.SetInt(SrcA, src); entry.Clone.SetInt(DstA, dst);
                 }
             }
@@ -205,7 +205,9 @@ namespace GloomhavenVR.Core.SteamLink
         }
 
         private Material Canonical(Material material)
-            => material != null && _clones.TryGetValue(material, out Entry entry) ? entry.Source : material;
+            // Unity's oblivious Material[] slots legitimately include null;
+            // preserve that slot instead of inventing a fallback material.
+            => material != null && _clones.TryGetValue(material, out Entry entry) ? entry.Source : material!;
 
         private void Retire(Entry entry)
         {
