@@ -2785,6 +2785,17 @@
       "weight": 45
     },
     {
+      "id": "stereo-movie-render",
+      "command": [
+        "bash",
+        "scripts/stereo-movie-render-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
       "id": "stereo-video-tools",
       "command": [
         "python3",

@@ -612,7 +612,37 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 689;
+    public const ushort ModBuild = 690;
+
+    // ModBuild690 — extend the headset-approved intro to the native movie library.
+    // The maintainer approved687 and requested only slightly stronger foreground
+    // GloomhavenVR lettering plus every remaining film and scenario review actions.
+    // IntroSBSv2 reuses all21 exact scenic depth arrays/geometry; only its two
+    // existing wordmark appearances gain a rigid source-pixel foreground plane.
+    // The finite20-subject catalogue covers that intro,11 heroes,7 ambience and
+    // the original TwinSails clip. Explicitly exclude gameplay_trailer from media
+    // conversion, shipped companions and review; leave its native promo untouched.
+    // Preserve original60fps external/30fps studio clocks, endings and AAC packets.
+    // Movies remain separate Content; the normal installer packages the22-file
+    // roster. No model, inference runtime or video is embedded in this DLL.
+    // Native URL/clip seams select explicit revisions before original Play/Prepare.
+    // Camera-plane ambience/studio use recorded eye pictures, per-eye aspect,
+    // original RGB/alpha and live native UI; scoped alpha leases restore without
+    // decoder mode/target changes. Keep the studio's original4s continuation.
+    // Advanced/Test triggers offers EN/DE actions inside a scenario. Their owned
+    // cosmetic decoder uses the normal movable/shared video window without any
+    // unlock, promotion counter, save mutation or native continuation. Real game
+    // videos outrank reviews; cancellation reaps pending/playing owned decoders.
+    // Existing72 retains its byte layout. Finite Review/ aliases distinguish the
+    // exact selected revision from genuine native playback and peer mirrors.
+    // An explicit observer review-close request uses Native=false/Closed=true,
+    // exact alias/token and the author/opening pose key, with bounded retries;
+    // stale review intent cannot skip a replacement or genuine native movie.
+    // Decoder/root destruction, scene/camera loss, errors and retry clear owned
+    // subscriptions/materials/audio. A missing peer SBS uses only its matching
+    // original mono content; mono selections never gain local stereo silently.
+    // Retain the separately published688/689 Steam Link identity repairs. No
+    // Frame device action or additional archive/HTTP delivery belongs to this work.
 
     // ModBuild689 — complete owned Steam Link identity preparation and support Proton.
     // The688 installed SDK resource has the correct name,826688 bytes and exact

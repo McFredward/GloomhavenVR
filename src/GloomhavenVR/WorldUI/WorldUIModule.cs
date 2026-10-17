@@ -177,6 +177,9 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(Patches.MainMenuLogoSwap));
         // ModBuild 678: select the approved mod-local first-save movie before native Play.
         VRSession.Harmony?.PatchAll(typeof(NativeVideoMoviePatch));
+        // Native menu ambience and the studio clip retain their own decoder/timer.
+        VRSession.Harmony?.PatchAll(typeof(NativeAmbientMoviePatch));
+        VRSession.Harmony?.PatchAll(typeof(NativeStartupMoviePatch));
         // NO EXIT CONTROL MAY BE LEFT LATCHED (user, 2026-09-02, his SECOND deadlock in two
         // days: "Ich konnte aus dem Tutorial heraus nicht mehr ins Hauptmenu zurückkehren, da
         // das Fenster das mich normalerweise fragt nicht mehr angezeigt wurde"). UIMenuOption
