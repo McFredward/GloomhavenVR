@@ -5,7 +5,8 @@ not connect to a headset, start SteamVR, or execute the Windows helper. A portab
 fake public OpenVR exports/table exercise the helper's actual Background
 initialization, lookup, metadata reader and shutdown sequence; managed
 controls exercise classification, bounded protocol/PE/path checks, both real
-embedded payloads and their pins, public SDK override inheritance, logging,
+embedded payloads and their pins, fresh/repeated extraction and corrupt-cache
+refusal, Windows folder fallback, OpenVR/Proton environment inheritance, logging,
 finite retries, stale-query cancellation, and real owned-child deadline/reaping.
 
 ```sh

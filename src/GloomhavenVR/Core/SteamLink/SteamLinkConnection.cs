@@ -191,7 +191,7 @@ internal static class SteamLinkConnection
     internal const int MaximumOutput = 2048, HelperTimeoutMs = 5000;
     internal const string Resource = "GloomhavenVR.SteamLink.connection-reader.exe";
     internal const int HelperBytes = 42496;
-    internal const string HelperSha256 = "1c3a2c92e188d095cb80bc56b6452237b977571beac97da9159281491990284d";
+    internal const string HelperSha256 = "cec82e68968441902e717c6bc595ff0ae0b0b03ffe72bc5eb26cbfe19c40a30f";
     internal const string ApiResource = "GloomhavenVR.SteamLink.openvr_api.dll";
     internal const int ApiBytes = 826688;
     internal const string ApiSha256 = "5e591aa3f4a991edcc8910921833edafa67a1b117849bbb4e235df9833bed7a3";
