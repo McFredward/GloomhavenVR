@@ -1,5 +1,22 @@
 # Steam Link availability repair coordination, 2026-10-17
 
+## Active equal-resolution coverage follow-up697; preserve independent696
+
+The maintainer rejects a window-classification channel and explicitly authorizes
+an equal-resolution mask. Worker `worker/steamlink-hard-windows-697` owns the v2
+3168-square atlas, new full-resolution shader/bank, source selection and focused
+new FullCoverage suite. Both RGB and alpha2048-square, no box/C1 alpha prefilter,
+no threshold, tags, extra camera or mask RT. Root reserves697 after the independent
+movie startup/cheat handover696. Do not lower shared ModBuild after697 integrates.
+
+Current main remains untouched in these production paths so696 can finish its
+own source pins and push independently. New producer45-case GPU850 checks, two
+narrow continuations and19 registry tests are complete; public receiver dual
+v2/v1/original decoder has separate164-case native GPU evidence and final shipping
+pin checks in progress. Gloomhaven commits529da947a/a368bb5ef/cc7c3e8c9 are local
+checkpoints, not pushed or hardware-verified. Both public receiver and PC source
+must update before the next headset test. No Frame write/restart has occurred.
+
 ## Bounded stereo follow-up696 after successful695 headset review
 
 The maintainer accepts all20 deliberate movies in the headset. Only the
