@@ -588,20 +588,6 @@ internal static partial class VROptionsTab
                         // still on one screen — one navigation level deeper.
                     },
                 },
-                new()
-                {
-                    // The mod's own panel offered Mixed Reality here, with a key-colour picker.
-                    // Rig/VoidColor is NOT the same setting and does not replace it: MR also
-                    // disables every skybox and sweeps the sky geometry, which is the half that
-                    // makes passthrough compositing work at all.
-                    LocKey = "mixed_reality",
-                    Entries = new CuratedEntry[]
-                    {
-                        new("MixedReality", "Enabled", "vr_o_mrenabled"),
-                        new("MixedReality", "SteamLinkNative", "vr_o_steamlinknative"),
-                        new("MixedReality", "KeyColor", "key_color"),
-                    },
-                },
                 // THE "Leistung" SECTION IS GONE, both its rows with it, and the second one is the
                 // 2026-08-22 audit's question (b) applied to the last member of a family:
                 //
@@ -702,6 +688,11 @@ internal static partial class VROptionsTab
                         // der Himmel immer aus."). No dependency-layer entry: a choice row has no
                         // children.
                         new("Sky", "Style", "vr_o_sky"),
+                        // The environment MR tile already owns the master switch.
+                        // Keep its streaming method and chroma colour immediately
+                        // below that choice, with the existing dependency gates.
+                        new("MixedReality", "SteamLinkNative", "vr_o_steamlinknative"),
+                        new("MixedReality", "KeyColor", "key_color"),
                         // ELEMENT MOOD — the environment's answer to the element infusions. The
                         // strength dial folds under the toggle (VROptionsTab.8.Dependencies.cs).
                         new("Elements", "EnvironmentResponse", "vr_o_elemmood"),

@@ -983,6 +983,7 @@ internal static class ConfigCatalog
             case "EnvSound":
                 return ConfigTopic.Sound;
             case "Sky":
+            case "MixedReality":
             case "Elements":
             case "Haunt":
                 return ConfigTopic.Environment;
@@ -1048,7 +1049,8 @@ internal static class ConfigCatalog
             "buttons" => ConfigTopic.Buttons,
             "board" or "hexhighlight" or "selectionready" => ConfigTopic.BoardTargeting,
             "worldui" or "bars" => ConfigTopic.Panels,
-            "rig" or "mixedreality" or "stereo" or "wallfade" => ConfigTopic.Visual,
+            "mixedreality" => ConfigTopic.Environment,
+            "rig" or "stereo" or "wallfade" => ConfigTopic.Visual,
             // "boardfade" IS MULTIPLAYER. [PeerBoardFade] is what a MITSPIELER's control board does
             // while it blocks your view of the field, and until the 2026-08-22 audit it had no line
             // here at all — so all six dials fell through to "Sonstiges", the collector that exists

@@ -846,6 +846,25 @@ def main():
 
     failures = []
 
+    # Mixed reality selects the player's world, including its entire Advanced
+    # family; it must not acquire a second Graphics home after source changes.
+    scenery = [(section, key) for _c, cat, _s, sec, section, key, _cap in curated
+               if cat == "cat_environment" and sec == "sec_environment"]
+    if scenery[:3] != [("Sky", "Style"), ("MixedReality", "SteamLinkNative"),
+                       ("MixedReality", "KeyColor")]:
+        failures.append("Steam Link native passthrough and key colour must directly follow World / Scenery's environment choice.")
+    if any(cat == "cat_graphics" and section == "MixedReality"
+           for _c, cat, _s, _sec, section, _key, _cap in curated):
+        failures.append("Mixed Reality must not have redundant controls under Graphics.")
+    with open(os.path.join(OPTIONS, "ConfigCatalog.cs"), encoding="utf-8") as fh:
+        catalog = strip_comments(fh.read())
+    topic = catalog[catalog.index("private static ConfigTopic TopicOf("):
+                    catalog.index("private static bool HasBoardSuffix(")]
+    if not re.search(r'case\s+"MixedReality"\s*:(?:\s*case\s+"[^"]+"\s*:)*\s*return\s+ConfigTopic\.Environment\s*;', topic):
+        failures.append("The complete MixedReality section must classify as Environment in Advanced.")
+    if not re.search(r'"mixedreality"\s*=>\s*ConfigTopic\.Environment', topic):
+        failures.append("The mixedreality module fallback must classify as Environment in Advanced.")
+
     # ---- 1. advertised but absent -----------------------------------------------------------
     for cat, _ck, sec, _sk, section, key, _cap in curated:
         if not known(section, key, keys, wild):

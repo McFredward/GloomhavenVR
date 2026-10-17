@@ -214,6 +214,16 @@ namespace GloomhavenVR.WorldUI
             Check(mode.Value && speech.Value && effects.Value, "fresh installation enables NPCs and both local audio settings");
             _curated = Array.FindIndex(Curated, c => c.LocKey == "cat_environment");
             Check(_curated >= 0, "environment category exists");
+            CuratedSection scenery = Curated[_curated].Sections.Single(s => s.LocKey == "sec_environment");
+            Check(scenery.Entries.Take(3).Select(e => e.Section + "/" + e.Key).SequenceEqual(new[]
+                { "Sky/Style", "MixedReality/SteamLinkNative", "MixedReality/KeyColor" }),
+                "native Steam Link and chroma colour immediately follow the World environment chooser");
+            Check(!Curated.Single(c => c.LocKey == "cat_graphics").Sections.Any(s =>
+                    s.LocKey == "mixed_reality" || s.Entries.Any(e => e.Section == "MixedReality")),
+                "Graphics has no redundant mixed-reality section or controls");
+            Check(!Curated.SelectMany(c => c.Sections).SelectMany(s => s.Entries)
+                    .Any(e => e.Section == "MixedReality" && e.Key == "Enabled"),
+                "the existing environment MR tile is the only curated master switch");
             CuratedSection map = Curated[_curated].Sections.Single(s => s.LocKey == "sec_map3d");
             string[] keys = map.Entries.Where(e => !e.IsAction).Select(e => e.Key).ToArray();
             int mapSwitch = Array.IndexOf(keys, "Vanilla2DMap");
