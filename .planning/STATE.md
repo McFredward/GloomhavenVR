@@ -1,5 +1,33 @@
 # State — where the project stands
 
+**Opt-in stereo video calibration, 2026-10-17: Build683.**
+
+The trailer handoff's first stage is implemented: an independent silent9s
+Full-SBS chart, a fixed16:9 picture, actual MultiPass per-eye UI shader routing,
+mono preflight fallback and one-attempt offline main-menu lifecycle. Append
+`--ghvr-stereo-video-calibration` to the existing VR launch arguments; click the
+picture to close. Normal launches do not load its media or shader. Native films,
+audio, skip/completion, gameplay and wire behavior remain unchanged. No paid
+inference or film conversion has run. The next conversion stage is three5s
+samples after actual headset eye/orientation/depth/timing review.
+
+The complete pre-retirement gate passed226/226 local suites,16 source suites
+and300,518 golden assertions. After merging the separately authorized Steam Link
+retirement, Release0W/0E, source16/16, four affected suites,19 inventory unit tests
+and a fresh300,518 golden assertions pass. Current inventory224local/99CI/16source;
+this is composed evidence, not another complete224-suite pass. Compiled stereo
+types/bundle are unchanged from the complete gate. Specific proof includes31
+GPU/lifecycle assertions/10 controls,169 owner assertions/28 controls and measured
+decoded chart geometry; GL/Vulkan results do not establish headset fusion,
+D3D11 output or decoder timing. Read `.planning/STEREO-VIDEO-683.md` and
+`docs/stereo-video-calibration.md` for exact scope and retained failures.
+
+The Debug developer update contains the plugin and both small calibration movies;
+its handover/receipt is in ignored `.planning/debug/trailer/stereo-video-683/`.
+Main private evidence is `.planning/debug/stereo-video/`; completed test caches
+are cleaned while source/results/captures/pins and current deliverables remain.
+Real streamed MR stays separately assigned; its next handover remains684.
+
 **Synthetic Steam Link test removed, source checkpoint2026-10-17.**
 
 The maintainer explicitly requests removal of the test pattern and its setting.

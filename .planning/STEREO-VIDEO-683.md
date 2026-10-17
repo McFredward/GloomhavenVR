@@ -11,7 +11,7 @@ not convert or replace an ordinary film.
 The native PC inventory contains 19 film subjects / 354.8 seconds: one campaign
 intro, eleven character videos and seven ambient backgrounds. The current
 mod-local, notice-free intro remains the source for its later conversion.
-Embedded startup/promotion videos still require a complete asset census.
+The serialized native startup/promotion inventory is recorded separately below.
 
 A subsequent read-only census of native scene/sharedasset files found eight
 serialized VideoPlayers and two additional embedded VideoClips: `gameplay_trailer`
@@ -29,7 +29,7 @@ still need classification before claiming complete in-game coverage.
   It runs only in the actual offline MainMenu/MainMenu_gamepad scene with VR and
   world UI active. A click closes it; leaving that context or shutting down also
   releases its owned resources. No native movie or continuation is borrowed.
-  Opening and manual closure use a150ms CanvasGroup fade on the shared update
+  Opening and manual closure use a 150ms CanvasGroup fade on the shared update
   clock. Errors, context loss and shutdown still release immediately; cosmetic
   continuation never holds native flow.
 - The fixed, yaw-only picture is 1.2 real metres wide, 1.6 metres ahead at spawn.
@@ -88,7 +88,50 @@ owner passes169 assertions/12 production processes/28 causal controls. The
 large local run was already active; this bounded repair repeats its affected
 lifecycle and final source checks while retaining unchanged-area evidence.
 
-Final integration checks and exact counts are recorded below after completion.
+### Integrated validation
+
+The complete local gate before the parallel Steam Link retirement passed
+226/226 suites, all16 source suites and300,518 golden assertions. Its manifest,
+source inputs, stdout and completion/cleanup receipts are retained under the
+integration worktree evidence (relocated to the main checkout at completion):
+`integration683/guard.log` and `integration683/worktree-debug/test-runs/`.
+The guard returned1 only for the expected compiled changes; no test failed.
+The private baseline is dev6455c3f21; its additional fan/version differences are
+Build682 ancestry, not extra stereo behavior. Config667 and patches238 were
+unchanged; the sole stereo token addition is STEREO VIDEO CALIBRATION.
+
+The final renderer suite passes31 GPU/lifecycle assertions and10 causal controls
+on GL llvmpipe. The worker also passes31 on Intel RPL-P Vulkan, inheriting GL's
+controls. Binary inspection passes12 checks for the actual UnityFS7/2021.3.5f1
+bundle, all three D3D11/GL/Vulkan shader banks, four UI variants per bank and
+embedded license. This inspects the D3D11 bank; it does not execute a D3D11
+headset. The chart validator measures1620 decoded eye pictures,35,640 header
+cells and4860 marker centres with zero pixel error,16 real seeks and12 causal
+controls. An independent regeneration is byte-identical with the same tools.
+The final lifecycle owner passes169 assertions across12 production processes
+and28 controls. Opening/closing and the decoder-independent close are included.
+
+The subsequent dev merge includes the maintainer's separately authorized removal
+of the synthetic Steam Link test and two obsolete suites. Current inventory is
+224 local /99 CI /16 source suites. After that merge, strict Release compilation
+passes with zero warnings/errors; source16/16, four affected local suites
+(vr-options, vr-options-close, player-settings-help, stereo-video-calibration),
+inventory19 unit tests and a fresh300,518 golden assertions pass. The compiled
+comparison against the completed226-suite version changes only the seven
+expected retired-test owners/project files, removes25 obsolete types/resources
+and adds the unhooked ScenePayloadDraft. All four stereo types and the stereo
+bundle remain byte-identical to the complete-gate artifacts. Later dev changes
+through2d456d4a5 contain only documentation/offline research tooling, with no
+production source or suite-manifest change. This is composed validation after
+the bounded parallel retirement, **not a new complete224-suite pass**.
+
+The merged surface is config666 /patches238 /log tokens4797: one exact approved
+configuration retirement, three approved log retirements and our one addition.
+The existing path-bound authorization ledger covers those removals. Exact logs,
+exit codes, current surface and compiled delta are in `integration683/merged-*`.
+Stopped project caches are removed through cleanup_completed_run; retained
+reports, generated source, source pins, captures and result manifests remain.
+The shared game references and other agents' active inputs are never swept.
 
 ## Required headset review before conversion rollout
 
