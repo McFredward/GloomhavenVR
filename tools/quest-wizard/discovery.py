@@ -15,6 +15,7 @@ import threading
 
 from state import WizardError, ordinary, read_json, value_hash
 import host_paths
+import update_recommendation
 
 
 _LOADER_LOCK = threading.RLock()
@@ -322,7 +323,9 @@ def discover(repo, store):
                       "ownershipComplete": False})
     editors, hubs = unity_paths(store.root)
     recent, latest = recent_sessions(store)
-    return {"schema": 1, "event": "discovery", "modSource": mod_source(repo), "games": games, "unityEditors": editors, "unityHubs": hubs,
-            "recentSessions": recent, "latestSession": latest, "defaultApk": default_apk(store),
+    source, selected = mod_source(repo), default_apk(store)
+    return {"schema": 1, "event": "discovery", "modSource": source, "games": games, "unityEditors": editors, "unityHubs": hubs,
+            "recentSessions": recent, "latestSession": latest, "defaultApk": selected,
+            "updateRecommendation": update_recommendation.recommend(repo, store, source, selected, games, recent, helper),
             "host": {"system": platform.system(), "machine": platform.machine()},
             "capabilities": {"browse": host_paths.browse_available(), "artwork": False, "logs": True, "support": True, "spaceEstimate": True, "capture": False, "cleanCache": False}}
