@@ -98,6 +98,7 @@ internal static partial class VROptionsTab
     /// </summary>
     private static readonly Dictionary<string, DependencyRule> DependentRows = new(StringComparer.Ordinal)
     {
+        ["MixedReality/KeyColor"] = new("MixedReality", "SteamLinkNative", Off),
         // ---- Komfort ▸ Drehen: the two speed dials belong to their mode, the hand to any ------
         ["Comfort/SnapTurnDegrees"] = new("Comfort", "TurnMode", Named("Snap")),
         ["Comfort/SmoothTurnSpeed"] = new("Comfort", "TurnMode", Named("Smooth")),
@@ -447,6 +448,7 @@ internal static partial class VROptionsTab
         !HasItsOwnPage(item)
         // Native alpha passthrough uses no chroma-key color. Keep its saved value
         // for PC streaming without offering an ineffective Frame-only control.
-        && !(FrameNativePassthrough.Required && item.Section == "MixedReality" && item.Key == "KeyColor")
+        && !(FrameNativePassthrough.Required && item.Section == "MixedReality"
+            && (item.Key == "KeyColor" || item.Key == "SteamLinkNative"))
         && IsShownForCurrentVariant(item) && DependencyMet(item);
 }

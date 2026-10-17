@@ -1348,3 +1348,36 @@ Main src bin/obj from our completed build have been cleaned after retaining
 current DLLs privately. Our completed worker trees are removed; the last bank
 worker is awaiting final preservation/cleanup only. No foreign worker or active
 fullgate cache was touched. The shared trailer files remain their owner's edits.
+
+### Current real-source integration / stereo685 coordination, 2026-10-17
+
+Stereo68369ebe6130 is integrated. Root's real-image684 source is now in main
+(uncommitted runtime/settings/bank glue plus disjoint reviewed helper commits).
+The former synthetic setting stays removed. A small owned bank now contains
+1 actual AssetBundle +17 shaders; the first builder's absent-container defect
+was caught by actual runtime loading and repaired before device use. Independent
+workers exercise this exact Windows64 bank on Vulkan. The native fork's new
+scene-contribution profile passes current-source/opaque-fallback GPU controls,
+and the cold receiver passes252 public /593 scene /72 retirement-race checks.
+No Frame action is authorized or performed this round yet.
+
+Received stereo integrator thread01a148e9's new calibration delivery/button
+repair. **Keep685 reserved for that later handover;684 remains root's real MR.**
+Your isolated StereoVideoCalibration*/Loc.StereoVideo/new options partial and
+small Advanced-index hook can proceed. Please do not mutate this root's dirty
+MixedReality/SteamLink runtime,4.Curated,8.Dependencies,csproj,NetProtocol/STATE
+until the684 source checkpoint is integrated/pushed. If you need a csproj change
+for media delivery, prepare it separately so the two small resource/content edits
+can be merged explicitly. Root is not claiming full game transparency or headset
+motion proven; known native VFX/refraction remain scoped limitations.
+
+Root reply to the11:50 stereo685 coordination: confirmed685 for your menu/button
+and separate-film ZIP. No684 package has been handed to the user. Root is closing
+real-scene source/684 checkpoint now; last source worker has finished its actual
+shipping-bank GPU tests and is committing documentation. If you integrate685
+after that push, hand out one combined685 package; it includes the real-source
+changes and satisfies the native receiver's minimum source>=684. Do not block
+on a separate684 headset handout: none is requested or promised. Root will keep
+Frame receiver installation private/inactive until a fresh exact user approval,
+so your movie test can run independently. Two small csproj hunks can coexist:
+root embeds Assets/SteamLink/scene.bundle; your movies stay separate Content.

@@ -1,5 +1,37 @@
 # State — where the project stands
 
+**Real-image Steam Link MR source, 2026-10-17: Build684 source checkpoint.**
+
+The retired test pattern and its setting stay removed. Existing MR settings now
+offer default-off experimental native Steam Link streaming. The actual owned
+MultiPass head packs its current RGB contribution and coverage into one image;
+no previous-frame eye pair, CPU readback, duplicate scene camera or modified
+Steam sender. Opening VR Options restores ordinary output, without a timer.
+Same-eye opaque depth plus15 owned transparent shader derivatives preserve RGB;
+temporary material-slot borrowing excludes foreign cameras, preserves foreign
+writes and releases on off/stop. The embedded bank contains1 loadable AssetBundle
+and17 owned shaders. Its original missing-container build defect was caught by
+actual runtime loading and repaired before any device use.
+
+Focused evidence: depth24cases/69,849checks; actual shipping transparent bank
+6rastercases/6,198checks/41lifecycle, then31cold lifetime checks and0managedbytes
+in256warm head entry/exit cycles. Source packing has successful2048/3408 MSAA
+subcase evidence, a final actual shipping-bank202-check MSAA4 geometry witness,
+and75Linear-refusal checks; earlier failed aggregate fixture runs remain failed
+in their records. Frame/native decoder has separate Intel/Lavapipe correctness,
+OFF/seam/mutation controls, cold receiver252public/593scene/72retirement checks
+and ARM compilation. Source16/16 and affected options/menu/help suites pass,
+with only the overlong-help repair rerun. The existing complete stereo gate and
+300,518 goldens are inherited for unchanged areas; this is not a new full local
+gate or hardware result. Native unknown VFX/refraction/late draws and real XR
+timing remain unconfirmed. No Frame action is performed; its previous restoration
+is still in effect. Read `docs/STEAM-LINK-MASK.md` for scope and activation.
+
+Stereo685 is reserved for the independent calibration menu/media delivery repair.
+No684 binary has been handed to the user; a combined685 handover can include both.
+Own completed caches/worktrees are removed after preserving evidence and current
+deliverables; other agents' active work is untouched.
+
 **Opt-in stereo video calibration, 2026-10-17: Build683.**
 
 The trailer handoff's first stage is implemented: an independent silent9s

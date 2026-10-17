@@ -598,6 +598,7 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         new("MixedReality", "Enabled", "vr_o_mrenabled"),
+                        new("MixedReality", "SteamLinkNative", "vr_o_steamlinknative"),
                         new("MixedReality", "KeyColor", "key_color"),
                     },
                 },

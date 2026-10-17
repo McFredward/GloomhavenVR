@@ -612,7 +612,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 683;
+    public const ushort ModBuild = 684;
+
+    // ModBuild684 — experimental real-image Steam Link contribution/coverage source.
+    // The retired synthetic test setting/assets stay removed. The normal MR page
+    // gains an explicit default-off native-streaming choice requiring the matching
+    // Frame receiver. Only the actual owned MultiPass head is packed; menu/off,
+    // unsupported formats and failed ownership retain ordinary output. A same-eye
+    // alpha-only depth prefix and head-scoped owned transparent shader derivatives
+    // leave RGB, original materials, native cameras and the PC sender unchanged.
+    // Fixed scene atlas contains real contribution RGB plus coverage, not a key
+    // colour. Native unknown VFX/refraction and real XR ordering remain explicitly
+    // unconfirmed; no new headset/panning/complete-transparency claim is made.
+    // No wire layout, multiplayer gameplay or standalone Frame MR change.
 
     // ModBuild683 — opt-in stereoscopic movie calibration before offline conversion.
     // The maintainer accepted the staged 3D-video plan: prove eye routing, judge three
