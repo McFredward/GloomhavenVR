@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest requested rooms and retained pointer, 2026-10-17: feature / B682.**
+
+Capture114923 proves installed/current B681, previous680; the new screenshot was
+inspected. The maintainer confirms the pre-menu spinner is visible. Preserve its
+repair and the confirmed full viewport, density, menu and piles. The still-black
+Tutorial has empty room entities but a different registered handle: remove the
+invalid global handle/hidden-preview veto under the original lifecycle contract.
+Fix the actual pooled TMP material-getter exception in passive presentation
+evidence. Own ordinary 2D copy vertices/source/crop and invalidate only derived
+Quest copy recipes after inconsistent identical-source Android readbacks. Remove
+only diagnostic native BakeMesh; never hide the required laser hit marker.
+Retained original image and controlled lifecycle/GPU tests do not establish
+Android outcomes. Use compact Mod Update with existing banks; see
+[QUEST-TUTORIAL-114923-20261017.md](QUEST-TUTORIAL-114923-20261017.md).
+
 **Quest actual engine ownership and remaining display defects, 2026-10-17: feature / B681.**
 
 Capture105503 proves installed/current B680 and previous679. Both new screenshots

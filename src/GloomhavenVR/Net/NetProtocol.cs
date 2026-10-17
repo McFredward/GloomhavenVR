@@ -612,7 +612,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 681;
+    public const ushort ModBuild = 682;
+
+    // ModBuild682 — preserve the hit marker and recover requested native rooms.
+    // Capture114923 verifies current/installed681, previous680. The maintainer
+    // confirms the startup spinner is visible. Keep its source/UV/mesh policy,
+    // full XR viewport, density, working menu and pile inputs unchanged.
+    // Active native room entities have zero handles/children, while another
+    // registered entity owns a handle. Original Entity.Start creates handles
+    // independently of Engine.Start/Update: that global veto is invalid. Scope
+    // initial generation readiness to visible active room requests, retaining
+    // original owner/resources, native-content, pause, grace and once guards.
+    // The presentation observer also calls TMP_SubMeshUI.material on a pooled
+    // source and throws. Read its shared material without changing native UI.
+    // Identical native header/crop readbacks differ on Android. Own the 2D copy
+    // quad and snapshot source/crop with the unchanged sampler shader; retire
+    // only derived Quest copy caches. Retained-source GPU tests cannot establish
+    // the Adreno cause or prove complete headset artwork.
+    // The missing marker remains enabled in actual logs. Remove diagnostic
+    // BakeMesh only, preserving visible marker geometry/material/size/depth and
+    // passive bounded evidence. A native side effect is not proven. Compact
+    // code update only; no original asset conversion or local full APK build.
 
     // ModBuild681 — Quest native lifecycle focus, spinner inputs and live sources.
     // Capture105503 proves installed/current680, previous679. The original engine
