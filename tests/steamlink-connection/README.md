@@ -3,7 +3,8 @@
 This is one focused Linux CI suite for the cached PC availability gate. It does
 not connect to a headset, start SteamVR, or execute the Windows helper. A portable
 fake public OpenVR table exercises the helper's actual metadata reader; managed
-controls exercise classification, bounded protocol/PE/path checks, logging,
+controls exercise classification, bounded protocol/PE/path checks, both real
+embedded payloads and their pins, public SDK override inheritance, logging,
 finite retries, stale-query cancellation, and real owned-child deadline/reaping.
 
 ```sh
@@ -36,6 +37,15 @@ is a cached read; `Reset()` and `Invalidate()` cancel only the owned child.
 Normal logs announce a positive Frame/Link transition and warn once per session
 for an unreadable runtime registry/API or unavailable embedded reader. Ordinary
 unsupported headsets/transports and detailed properties stay at Debug.
+
+The public Valve OpenVR1.26.7 SDK loader is also embedded:826,688 bytes, SHA256
+`5e591aa3f4a991edcc8910921833edafa67a1b117849bbb4e235df9833bed7a3`.
+Its BSD3 license ships in `Licenses/`. Production extracts both checked payloads
+under their own source-hash directories. Only the child loads the SDK DLL; no
+installed SteamVR SDK copy, hand-written registry parser or second OpenVR client
+in Unity is required. Valve's SDK selects the runtime/config, including its public
+environment overrides and ordered path history. No runtime/provider binary is
+redistributed. The helper's unchanged committed EXE pin remains separate.
 
 The helper requires existing vrserver and vrcompositor processes and creates an
 isolated public `VRApplication_Background` client. It never initializes OpenVR in

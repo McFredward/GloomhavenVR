@@ -39,6 +39,20 @@ internal static class Program
         byte[] exe=File.ReadAllBytes(args[0]);Check(C.HelperPin(exe),"actual committed helper pin+PE64");
         for(int i=0;i<8;i++){byte[] changed=(byte[])exe.Clone();changed[i==0?0:i==1?60:changed.Length-i]^=1;Check(!C.HelperPin(changed),"mutated helper refused");}
         Check(!C.Pe64(exe,true),"EXE not DLL");Check(!C.HelperPin(exe.Take(exe.Length-1).ToArray()),"truncated resource refused");
+        byte[] api=File.ReadAllBytes(args[1]);
+        Check(C.ArtifactPin(api,C.ApiBytes,C.ApiSha256,true),"official SDK loader pin and PE64 DLL");
+        Check(!C.ArtifactPin(api,C.ApiBytes,C.ApiSha256,false),"SDK DLL cannot replace reader executable");
+        Check(!C.ArtifactPin(exe,C.HelperBytes,C.HelperSha256,true),"reader executable cannot replace SDK DLL");
+        Check(C.ReadResource(C.ApiResource,C.ApiBytes,C.ApiSha256,true)!.SequenceEqual(api),"actual SDK embedded resource through production reader");
+        Check(C.ReadResource(C.Resource,C.HelperBytes,C.HelperSha256,false)!.SequenceEqual(exe),"actual helper embedded resource through production reader");
+        Check(C.ReadResource(C.ApiResource,C.ApiBytes,C.ApiSha256,false)==null,"embedded wrong-kind SDK refused");
+        Check(C.ReadResource(C.ApiResource,C.ApiBytes-1,C.ApiSha256,true)==null,"truncated embedded length refused");
+        Check(C.ReadResource(C.ApiResource,C.ApiBytes,new string('0',64),true)==null,"changed embedded SDK pin refused");
+        Check(C.ReadResource(C.ApiResource+".missing",C.ApiBytes,C.ApiSha256,true)==null,"missing SDK cannot silently use installed runtime copy");
+        byte[] altered=(byte[])api.Clone();altered[altered.Length-1]^=1;
+        Check(!C.ArtifactPin(altered,C.ApiBytes,C.ApiSha256,true),"changed SDK bytes refused");
+        Check(C.Decode("{\"schema\":\"ghvr-steamlink-connection-v1\",\"error\":\"initialization\"}",2).Detail=="reader:initialization","actual helper failure stage retained");
+        Check(C.Decode("{\"schema\":\"ghvr-steamlink-connection-v1\",\"error\":\"untrusted\\ntext\"}",2).Detail=="reader:invalid-error","untrusted child failure text not logged");
         TestLogging();
         TestMonitor();
         TestChild();
@@ -55,8 +69,10 @@ internal static class Program
         foreach(var reason in new[]{C.Reason.WrongHeadset,C.Reason.WrongTransport,C.Reason.NativeUnavailable})
             C.LogTransition(pending,new C.Snapshot(reason));
         Check(GloomhavenVR.Core.VRLog.Warnings==2,"ordinary unsupported connection is not warning spam");
+        for(int i=0;i<20;i++)C.LogTransition(pending,new C.Snapshot(C.Reason.NativeUnavailable,detail:"reader:initialization"));
+        Check(GloomhavenVR.Core.VRLog.Warnings==3,"bounded actionable child failure warning once per session");
         C.Reset();C.LogTransition(pending,new C.Snapshot(C.Reason.RuntimePath));
-        Check(GloomhavenVR.Core.VRLog.Warnings==3,"new session retains useful failure warning");
+        Check(GloomhavenVR.Core.VRLog.Warnings==4,"new session retains useful failure warning");
         C.Reset();
     }
     private static void TestChild()
@@ -69,6 +85,15 @@ internal static class Program
         {
             Script("printf '%s\\n' '"+Message()+"'");
             Check(C.RunChild(helper,marker,CancellationToken.None).Available,"real managed launch/pipe/parser path with explicit fake metadata");
+            string[] names={"VR_OVERRIDE","VR_PATHREG_OVERRIDE","VR_CONFIG_PATH","VR_LOG_PATH","LD_PRELOAD","LD_AUDIT"};
+            string?[] saved=names.Select(Environment.GetEnvironmentVariable).ToArray();
+            try
+            {
+                foreach(string name in names)Environment.SetEnvironmentVariable(name,"owned-fixture");
+                Script("test \"$VR_OVERRIDE\" = owned-fixture && test \"$VR_PATHREG_OVERRIDE\" = owned-fixture && test \"$VR_CONFIG_PATH\" = owned-fixture && test \"$VR_LOG_PATH\" = owned-fixture && test -z \"$LD_PRELOAD\" && test -z \"$LD_AUDIT\" || exit 4; printf '%s\\n' '"+Message()+"'");
+                Check(C.RunChild(helper,marker,CancellationToken.None).Available,"owned child preserves native OpenVR selection overrides, strips unrelated injection");
+            }
+            finally { for(int i=0;i<names.Length;i++)Environment.SetEnvironmentVariable(names[i],saved[i]); }
             Script("printf '%s\\n' 'not metadata'");Check(!C.RunChild(helper,marker,CancellationToken.None).Available,"foreign output refused");
             Script("printf '%s\\n' 'warning' >&2");Check(!C.RunChild(helper,marker,CancellationToken.None).Available,"stderr cannot masquerade as valid metadata");
             Script("while :; do printf '%s' '0123456789012345678901234567890123456789012345678901234567890123456789'; done");

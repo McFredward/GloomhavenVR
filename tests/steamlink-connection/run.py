@@ -16,6 +16,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 RESOURCE = ROOT / 'src/GloomhavenVR/Assets/SteamLink/connection-reader.exe'
+API = ROOT / 'src/GloomhavenVR/Assets/SteamLink/openvr_api.dll'
 PIN = '1c3a2c92e188d095cb80bc56b6452237b977571beac97da9159281491990284d'
 
 
@@ -68,7 +69,7 @@ def main() -> int:
         managed = cache / 'managed'
         run('managed-build', [dotnet, 'build', str(HERE / 'ConnectionTests.csproj'), '-c', 'Release', '--disable-build-servers',
                               '-p:BaseIntermediateOutputPath=' + str(managed / 'obj') + '/', '-p:OutputPath=' + str(managed / 'bin') + '/'])
-        run('managed-controls', [dotnet, str(managed / 'bin/ConnectionTests.dll'), str(RESOURCE)], 30)
+        run('managed-controls', [dotnet, str(managed / 'bin/ConnectionTests.dll'), str(RESOURCE), str(API)], 30)
         if args.rebuild_native:
             rebuilt = cache / 'connection-reader.exe'
             run('resource-rebuild', ['bash', str(ROOT / 'scripts/build-steamlink-connection-reader.sh'), str(rebuilt)])
@@ -86,6 +87,7 @@ def main() -> int:
     finally:
         result = {'schema': 'ghvr-steamlink-connection-tests-v1', 'exit_code': status,
                   'helper_bytes': RESOURCE.stat().st_size, 'helper_sha256': hashlib.sha256(RESOURCE.read_bytes()).hexdigest(),
+                  'sdk_loader_bytes': API.stat().st_size, 'sdk_loader_sha256': hashlib.sha256(API.read_bytes()).hexdigest(),
                   'actual_windows_execution': False, 'hardware_identity_verified': False,
                   'receiver_verified': False, 'runs': records}
         (output / 'result.json').write_text(json.dumps(result, indent=2) + '\n')

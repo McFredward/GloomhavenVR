@@ -1,5 +1,32 @@
 # State — where the project stands
 
+**Steam Frame / Steam Link availability repair, 2026-10-17: Build688.**
+
+The new687 PC logs show `RuntimePath` before any public HMD metadata is read,
+so the native passthrough row stays hidden despite a Frame/Link stream. The
+maintainer supplied a valid single-runtime registry and confirmed the runtime's
+SDK DLL exists; its exact rejected guard cannot be established from that old
+coarse diagnostic. Remove the whole unnecessary lookup instead of guessing a
+path exception: embed the official OpenVR1.26.7 public Windows x64 SDK loader,
+826688B/SHA5e591aa3..., with exact source/blob provenance and BSD3 notice. Only
+the existing isolated bounded child loads it. Valve's SDK resolves the runtime,
+ordered path history and public overrides; Unity keeps its existing OpenXR
+session. Exact connected Steam Frame/vrlink admission and unsupported-headset
+fallback remain unchanged. Stage-specific bounded failures improve future logs.
+
+This small source repair precedes the independent extended stereo-video batch;
+that batch should rebase on688 and reserve689 or later. Read the shared
+`.planning/STEAM-LINK-688-COORDINATION.md` ownership note before overlapping edits.
+Focused connection/availability suites pass2/2:101 managed connection checks,
+98 native public-metadata checks,37 availability assertions and4 causal
+controls. Four affected source suites pass; strict integrated Release is0W/0E.
+Actual built-DLL reflection confirms both exact embedded payloads and688.
+The initial private reflection probe had nullable compile errors, corrected and
+rerun alone; production and passing unrelated checks were not repeated. Worker
+payload/provenance/license checks pass30+4. No new complete gate or live Windows
+headset result is claimed. Receipts and completed-cache cleanup are under
+`.planning/debug/steamlink-688-integrated/` and `steamlink-688-loader-worker/`.
+
 **Approved VR intro in stereo, 2026-10-17: Build687.**
 
 The maintainer confirmed the685 chart test, then explicitly retired its film and

@@ -26,13 +26,14 @@ internal static class SteamLinkConnection
 
     internal sealed class Snapshot
     {
-        internal Snapshot(Reason reason, string tracking = "", string model = "", string registered = "")
-        { State = reason; TrackingSystem = tracking; Model = model; RegisteredDeviceType = registered; }
+        internal Snapshot(Reason reason, string tracking = "", string model = "", string registered = "", string detail = "")
+        { State = reason; TrackingSystem = tracking; Model = model; RegisteredDeviceType = registered; Detail = detail; }
         internal Reason State { get; }
         internal bool Available => State == Reason.Ready;
         internal string TrackingSystem { get; }
         internal string Model { get; }
         internal string RegisteredDeviceType { get; }
+        internal string Detail { get; }
         internal bool ReceiverVerified => false;
     }
 
@@ -59,19 +60,24 @@ internal static class SteamLinkConnection
     {
         if (!before.Available && after.Available)
             VRLog.Info("Core", "Steam Frame connected through Steam Link; streaming mixed reality is available. Receiver installation is unverified.");
-        int warning = after.State == Reason.RuntimePath ? 1 : after.State == Reason.HelperUnavailable ? 2 : 0;
+        int warning = after.State == Reason.RuntimePath ? 1 : after.State == Reason.HelperUnavailable ? 2
+            : after.State == Reason.NativeUnavailable && after.Detail.Length != 0 ? 4 : 0;
         if (warning != 0 && (_warnedReasons & warning) == 0)
         {
             _warnedReasons |= warning;
-            VRLog.Warn("Core", after.State == Reason.RuntimePath
+            string message = after.State == Reason.RuntimePath
                 ? "Steam Link connection could not be checked: the SteamVR runtime registry or API path is unavailable or invalid."
-                : "Steam Link connection could not be checked: its embedded identity reader is missing, changed or unavailable.");
+                : after.State == Reason.HelperUnavailable
+                    ? "Steam Link connection could not be checked: its embedded identity reader is missing, changed or unavailable."
+                    : "Steam Link identity reader could not query the connected headset.";
+            VRLog.Warn("Core", message + (after.Detail.Length == 0 ? "" : " Detail: " + after.Detail));
         }
         if ((before.State != after.State || before.TrackingSystem != after.TrackingSystem
-            || before.Model != after.Model || before.RegisteredDeviceType != after.RegisteredDeviceType) && VRLog.WantsDebug)
+            || before.Model != after.Model || before.RegisteredDeviceType != after.RegisteredDeviceType
+            || before.Detail != after.Detail) && VRLog.WantsDebug)
             VRLog.Debug("Core", "Steam Link connection identity: " + after.State
                 + "; tracking=" + after.TrackingSystem + "; model=" + after.Model
-                + "; registered=" + after.RegisteredDeviceType + "; receiver=unverified.");
+                + "; registered=" + after.RegisteredDeviceType + "; detail=" + after.Detail + "; receiver=unverified.");
     }
 
     // Main-thread InputDevices.deviceConnected/disconnected/deviceConfigChanged.
@@ -156,7 +162,6 @@ internal static class SteamLinkConnection
         public bool connected = false;
         public int device_class = 0;
     }
-    [Serializable] private sealed class RuntimePaths { public string[] runtime = Array.Empty<string>(); }
 
     internal static Snapshot Decode(string raw, int exitCode)
     {
@@ -171,7 +176,13 @@ internal static class SteamLinkConnection
                 || keys.Except(wanted, StringComparer.Ordinal).Any()) return new Snapshot(Reason.NativeUnavailable);
             MetadataJson data = JsonUtility.FromJson<MetadataJson>(raw);
             if (data == null || data.schema != "ghvr-steamlink-connection-v1") return new Snapshot(Reason.NativeUnavailable);
-            if (exitCode != 0) return new Snapshot(data.error == "changed" ? Reason.Changed : Reason.NativeUnavailable);
+            if (exitCode != 0)
+            {
+                // Report finite owned-reader stages, never arbitrary child output.
+                string[] errors = { "arguments", "not_running", "library", "exports", "initialization", "interface", "disconnected", "properties", "changed" };
+                return new Snapshot(data.error == "changed" ? Reason.Changed : Reason.NativeUnavailable,
+                    detail: errors.Contains(data.error, StringComparer.Ordinal) ? "reader:" + data.error : "reader:invalid-error");
+            }
             return Classify(data.connected, data.device_class, data.tracking_system, data.model, data.registered_type);
         }
         catch (Exception) { return new Snapshot(Reason.NativeUnavailable); }
@@ -181,6 +192,9 @@ internal static class SteamLinkConnection
     internal const string Resource = "GloomhavenVR.SteamLink.connection-reader.exe";
     internal const int HelperBytes = 42496;
     internal const string HelperSha256 = "1c3a2c92e188d095cb80bc56b6452237b977571beac97da9159281491990284d";
+    internal const string ApiResource = "GloomhavenVR.SteamLink.openvr_api.dll";
+    internal const int ApiBytes = 826688;
+    internal const string ApiSha256 = "5e591aa3f4a991edcc8910921833edafa67a1b117849bbb4e235df9833bed7a3";
 
     private static Snapshot ReadWindows(CancellationToken cancellation)
     {
@@ -188,17 +202,23 @@ internal static class SteamLinkConnection
             return new Snapshot(Reason.UnsupportedPlatform);
         try
         {
+            // Build687 hardware stopped at RuntimePath before HMD lookup despite
+            // a valid single-entry registry and an existing runtime SDK copy.
+            // That whole search was unnecessary: openvr_api.dll is an app SDK
+            // loader, not the runtime's bin/vrclient_x64.dll. Ship the pinned
+            // public redistributable and let Valve resolve its own registry and
+            // overrides. Only our bounded child loads it, never Unity/OpenXR.
             string? library;
-            try { library = RuntimeLibrary(); }
-            catch (Exception) { return new Snapshot(Reason.RuntimePath); }
-            if (library == null) return new Snapshot(Reason.RuntimePath);
+            try { library = PrepareResource(ApiResource, ApiBytes, ApiSha256, "openvr_api.dll", true); }
+            catch (Exception ex) { return new Snapshot(Reason.HelperUnavailable, detail: "SDK extraction:" + ex.GetType().Name); }
+            if (library == null) return new Snapshot(Reason.HelperUnavailable, detail: "SDK resource, path or SHA256 pin");
             string? helper;
-            try { helper = PrepareHelper(); }
-            catch (Exception) { return new Snapshot(Reason.HelperUnavailable); }
-            if (helper == null) return new Snapshot(Reason.HelperUnavailable);
+            try { helper = PrepareResource(Resource, HelperBytes, HelperSha256, "connection-reader.exe", false); }
+            catch (Exception ex) { return new Snapshot(Reason.HelperUnavailable, detail: "reader extraction:" + ex.GetType().Name); }
+            if (helper == null) return new Snapshot(Reason.HelperUnavailable, detail: "reader resource, path or SHA256 pin");
             return RunChild(helper, library, cancellation);
         }
-        catch (Exception) { return new Snapshot(Reason.NativeUnavailable); }
+        catch (Exception ex) { return new Snapshot(Reason.NativeUnavailable, detail: "reader process:" + ex.GetType().Name); }
     }
 
     internal static bool LocalWindowsPath(string path) => path != null && path.Length >= 4 && path.Length < 1024
@@ -220,24 +240,6 @@ internal static class SteamLinkConnection
             current = Path.GetDirectoryName(current);
         }
         return true;
-    }
-
-    private static string? RuntimeLibrary()
-    {
-        string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrEmpty(local) || !LocalWindowsPath(local)) return null;
-        string registry = Path.Combine(local, "openvr", "openvrpaths.vrpath");
-        if (!PathSafe(registry)) return null;
-        byte[] raw = ReadBounded(registry, 32768);
-        string json = new UTF8Encoding(false, true).GetString(raw);
-        if (Regex.Matches(json, "\"runtime\"\\s*:").Count != 1) return null;
-        RuntimePaths paths = JsonUtility.FromJson<RuntimePaths>(json);
-        if (paths == null || paths.runtime == null || paths.runtime.Length == 0 || paths.runtime.Length > 4) return null;
-        string[] values = paths.runtime.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        if (values.Length != 1) return null; // No guessed runtime in an ambiguous registry.
-        string root = values[0].Replace('/', '\\').TrimEnd('\\');
-        string library = Path.Combine(root, "bin", "win64", "openvr_api.dll");
-        return PathSafe(library) && Pe64(ReadBounded(library, 8 * 1024 * 1024), true) ? library : null;
     }
 
     private static byte[] ReadBounded(string path, int maximum)
@@ -263,30 +265,40 @@ internal static class SteamLinkConnection
     }
 
     internal static bool HelperPin(byte[] raw)
+        => ArtifactPin(raw, HelperBytes, HelperSha256, false);
+
+    internal static bool ArtifactPin(byte[] raw, int bytes, string hash, bool dll)
     {
-        if (raw.Length != HelperBytes || !Pe64(raw, false)) return false;
+        if (raw.Length != bytes || !Pe64(raw, dll)) return false;
         using var sha = SHA256.Create();
-        return BitConverter.ToString(sha.ComputeHash(raw)).Replace("-", "").ToLowerInvariant() == HelperSha256;
+        return BitConverter.ToString(sha.ComputeHash(raw)).Replace("-", "").ToLowerInvariant() == hash;
     }
-    private static string? PrepareHelper()
+
+    internal static byte[]? ReadResource(string resourceName, int bytes, string hash, bool dll)
     {
-        using Stream? resource = typeof(SteamLinkConnection).Assembly.GetManifestResourceStream(Resource);
-        if (resource == null || resource.Length != HelperBytes) return null;
-        byte[] raw = new byte[HelperBytes]; int used = 0;
+        using Stream? resource = typeof(SteamLinkConnection).Assembly.GetManifestResourceStream(resourceName);
+        if (resource == null || resource.Length != bytes) return null;
+        byte[] raw = new byte[bytes]; int used = 0;
         while (used < raw.Length) { int read = resource.Read(raw, used, raw.Length - used); if (read <= 0) return null; used += read; }
-        if (!HelperPin(raw)) return null;
+        return ArtifactPin(raw, bytes, hash, dll) ? raw : null;
+    }
+
+    private static string? PrepareResource(string resourceName, int bytes, string hash, string fileName, bool dll)
+    {
+        byte[]? raw = ReadResource(resourceName, bytes, hash, dll);
+        if (raw == null) return null;
         string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         if (string.IsNullOrEmpty(local) || !LocalWindowsPath(local)) return null;
-        string directory = Path.Combine(local, "GloomhavenVR", "SteamLink", HelperSha256);
+        string directory = Path.Combine(local, "GloomhavenVR", "SteamLink", hash);
         Directory.CreateDirectory(directory);
         if (!PathSafe(directory)) return null;
-        string path = Path.Combine(directory, "connection-reader.exe");
+        string path = Path.Combine(directory, fileName);
         if (!File.Exists(path))
         {
             using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
             file.Write(raw, 0, raw.Length); file.Flush();
         }
-        return PathSafe(path) && HelperPin(ReadBounded(path, HelperBytes)) ? path : null;
+        return PathSafe(path) && ArtifactPin(ReadBounded(path, bytes), bytes, hash, dll) ? path : null;
     }
 
     internal static Snapshot RunChild(string helper, string library, CancellationToken cancellation)
@@ -299,10 +311,13 @@ internal static class SteamLinkConnection
         };
         string system = Environment.GetFolderPath(Environment.SpecialFolder.System);
         start.EnvironmentVariables["PATH"] = system;
-        foreach (string name in new[] { "LD_PRELOAD", "LD_AUDIT", "VR_OVERRIDE", "VR_CONFIG_PATH", "VR_LOG_PATH" })
+        // Preserve OpenVR's own path overrides so this client reaches the same
+        // runtime/config as the user's live SteamVR session. They are not an MR
+        // permission signal; the connected HMD/driver metadata still decides.
+        foreach (string name in new[] { "LD_PRELOAD", "LD_AUDIT" })
             start.EnvironmentVariables.Remove(name);
         using var child = new Process { StartInfo = start };
-        if (!child.Start()) return new Snapshot(Reason.NativeUnavailable);
+        if (!child.Start()) return new Snapshot(Reason.NativeUnavailable, detail: "reader:start");
         void Kill() { try { if (!child.HasExited) child.Kill(); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { } }
         using CancellationTokenRegistration cancel = cancellation.Register(Kill);
         try
@@ -311,9 +326,10 @@ internal static class SteamLinkConnection
         Task<string?> stderr = BoundedOutput(child.StandardError, 512, Kill);
         bool exited = child.WaitForExit(HelperTimeoutMs);
         if (!exited) { Kill(); exited = child.WaitForExit(1000); }
-        if (!exited || !Task.WaitAll(new Task[] { stdout, stderr }, 1000)) return new Snapshot(Reason.NativeUnavailable);
+        if (!exited || !Task.WaitAll(new Task[] { stdout, stderr }, 1000))
+            return new Snapshot(Reason.NativeUnavailable, detail: "reader:timeout");
         if (cancellation.IsCancellationRequested || stdout.Result == null || stderr.Result == null || !string.IsNullOrWhiteSpace(stderr.Result))
-            return new Snapshot(Reason.NativeUnavailable);
+            return new Snapshot(Reason.NativeUnavailable, detail: "reader:cancelled-or-output");
         return Decode(stdout.Result, child.ExitCode);
         }
         finally

@@ -612,7 +612,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 687;
+    public const ushort ModBuild = 688;
+
+    // ModBuild688 — repair hidden native Steam Link passthrough on a live Frame stream.
+    // The687 Windows hardware logs stop at RuntimePath before the HMD reader runs.
+    // The supplied OpenVR registry is valid and its runtime-side SDK DLL exists;
+    // the coarse old refusal does NOT prove which path/JSON/PE guard rejected it.
+    // Remove the unnecessary search chain altogether: openvr_api.dll is an app
+    // SDK loader, not SteamVR's runtime/provider. Embed Valve's exact public
+    // v1.26.7 Windows x64 redistributable with its BSD3 notice; extract it by hash
+    // alongside the separately pinned owned reader. Only the bounded child loads
+    // OpenVR, leaving Unity's existing OpenXR lifetime untouched. Let Valve resolve
+    // ordered registry history and its public environment overrides itself.
+    // Preserve connected HMD0/class + exact Steam Frame/vrlink classification,
+    // async finite attempts, cancellation and pure cached UI/source predicates.
+    // Bounded stage-specific diagnostics now distinguish resource/extraction and
+    // actual child/API failures without logging arbitrary output or warning every
+    // tick. This identifies hardware/transport only; it never attests the receiver.
+    // No movie, material, frame format, wire layout, default or Frame write changes.
 
     // ModBuild687 — the approved GloomhavenVR campaign intro becomes stereoscopic.
     // The maintainer reports the685 chart test successful, then explicitly retires
