@@ -54,9 +54,46 @@ internal static class Program
         Check(C.Decode("{\"schema\":\"ghvr-steamlink-connection-v1\",\"error\":\"initialization\"}",2).Detail=="reader:initialization","actual helper failure stage retained");
         Check(C.Decode("{\"schema\":\"ghvr-steamlink-connection-v1\",\"error\":\"untrusted\\ntext\"}",2).Detail=="reader:invalid-error","untrusted child failure text not logged");
         TestLogging();
+        TestPreparation();
         TestMonitor();
         TestChild();
         Console.WriteLine("{\"managed_connection_checks\":"+checks+",\"hardware_identity_verified\":false}");
+    }
+    private static void TestPreparation()
+    {
+        string valid=@"C:\Users\McFredward\AppData\Local";
+        int knownCalls=0;
+        string Known(){knownCalls++;return valid;}
+        Check(C.CacheFolder(valid,()=>throw new Exception("known-folder should not be needed"))==valid,"Windows LOCALAPPDATA avoids failed Mono shell-folder query");
+        Check(C.CacheFolder("C:/Users/McFredward/AppData/Local/",Known)==valid&&knownCalls==0,"OS folder separators normalized before local-path guard");
+        Check(C.CacheFolder("",Known)==valid&&knownCalls==1,"absent environment retains valid known-folder fallback");
+        foreach(string bad in new[]{@"\\server\share",@"C:relative",@"C:\..\outside",@"C:\x:y"})
+            Check(C.CacheFolder(bad,Known)==valid,"invalid environment never accessed before safe folder fallback");
+        Check(C.CacheFolder("",()=>"")=="","missing folder has no guessed system-directory fallback");
+        Check(C.CacheFolder("//server/share",()=>"relative")=="","no UNC or relative cache allowed");
+        string root=Path.Combine(Path.GetTempPath(),"steamlink-prepare-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
+        string stage="start";
+        bool Safe(string path)=>Path.GetFullPath(path).StartsWith(root+Path.DirectorySeparatorChar,StringComparison.Ordinal)
+            &&(File.GetAttributes(path)&FileAttributes.ReparsePoint)==0;
+        try
+        {
+            string? api=C.ExtractResource(C.ApiResource,C.ApiBytes,C.ApiSha256,"openvr_api.dll",true,root,Safe,ref stage);
+            Check(api!=null&&C.ArtifactPin(File.ReadAllBytes(api),C.ApiBytes,C.ApiSha256,true),"actual production extraction writes exact SDK into fresh cache");
+            string? helper=C.ExtractResource(C.Resource,C.HelperBytes,C.HelperSha256,"connection-reader.exe",false,root,Safe,ref stage);
+            Check(helper!=null&&C.HelperPin(File.ReadAllBytes(helper)),"actual production extraction writes exact owned helper");
+            DateTime written=File.GetLastWriteTimeUtc(api!);
+            Check(C.ExtractResource(C.ApiResource,C.ApiBytes,C.ApiSha256,"openvr_api.dll",true,root,Safe,ref stage)==api&&File.GetLastWriteTimeUtc(api!)==written,"valid repeated preparation does not rewrite loaded bytes");
+            byte[] corrupt=File.ReadAllBytes(api!);corrupt[corrupt.Length-1]^=1;File.WriteAllBytes(api!,corrupt);
+            Check(C.ExtractResource(C.ApiResource,C.ApiBytes,C.ApiSha256,"openvr_api.dll",true,root,Safe,ref stage)==null&&stage=="openvr_api.dll:cache-file-pin","changed existing cache rejected with exact stage");
+            Check(File.ReadAllBytes(api!).SequenceEqual(corrupt),"unrecognized cached bytes not overwritten");
+            string absent=Path.Combine(root,"missing");
+            Check(C.ExtractResource(C.ApiResource+".missing",C.ApiBytes,C.ApiSha256,"openvr_api.dll",true,absent,Safe,ref stage)==null&&stage=="openvr_api.dll:embedded-resource-or-pin"&&!Directory.Exists(absent),"missing embedded data distinguished before any directory write");
+            string blocked=Path.Combine(root,"blocked");
+            Check(C.ExtractResource(C.ApiResource,C.ApiBytes,C.ApiSha256,"openvr_api.dll",true,blocked,_=>false,ref stage)==null&&stage=="openvr_api.dll:cache-directory-identity","OS directory refusal distinguished from bad resource");
+            string second=Path.Combine(root,"second");
+            Check(C.ExtractResource(C.ApiResource,C.ApiBytes,C.ApiSha256,"openvr_api.dll",true,second,p=>Directory.Exists(p),ref stage)==null&&stage=="openvr_api.dll:cache-file-identity","OS file refusal distinguished from directory refusal");
+        }
+        finally {Directory.Delete(root,true);}
     }
     private static void TestLogging()
     {
@@ -85,13 +122,13 @@ internal static class Program
         {
             Script("printf '%s\\n' '"+Message()+"'");
             Check(C.RunChild(helper,marker,CancellationToken.None).Available,"real managed launch/pipe/parser path with explicit fake metadata");
-            string[] names={"VR_OVERRIDE","VR_PATHREG_OVERRIDE","VR_CONFIG_PATH","VR_LOG_PATH","LD_PRELOAD","LD_AUDIT"};
+            string[] names={"VR_OVERRIDE","VR_PATHREG_OVERRIDE","VR_CONFIG_PATH","VR_LOG_PATH","PROTON_VR_RUNTIME","WINEPREFIX","WINEDLLPATH","LD_PRELOAD","LD_AUDIT"};
             string?[] saved=names.Select(Environment.GetEnvironmentVariable).ToArray();
             try
             {
                 foreach(string name in names)Environment.SetEnvironmentVariable(name,"owned-fixture");
-                Script("test \"$VR_OVERRIDE\" = owned-fixture && test \"$VR_PATHREG_OVERRIDE\" = owned-fixture && test \"$VR_CONFIG_PATH\" = owned-fixture && test \"$VR_LOG_PATH\" = owned-fixture && test -z \"$LD_PRELOAD\" && test -z \"$LD_AUDIT\" || exit 4; printf '%s\\n' '"+Message()+"'");
-                Check(C.RunChild(helper,marker,CancellationToken.None).Available,"owned child preserves native OpenVR selection overrides, strips unrelated injection");
+                Script("test \"$VR_OVERRIDE\" = owned-fixture && test \"$VR_PATHREG_OVERRIDE\" = owned-fixture && test \"$VR_CONFIG_PATH\" = owned-fixture && test \"$VR_LOG_PATH\" = owned-fixture && test \"$PROTON_VR_RUNTIME\" = owned-fixture && test \"$WINEPREFIX\" = owned-fixture && test \"$WINEDLLPATH\" = owned-fixture && test -z \"$LD_PRELOAD\" && test -z \"$LD_AUDIT\" || exit 4; printf '%s\\n' '"+Message()+"'");
+                Check(C.RunChild(helper,marker,CancellationToken.None).Available,"owned child preserves OpenVR and Proton runtime bridge selection, strips unrelated injection");
             }
             finally { for(int i=0;i<names.Length;i++)Environment.SetEnvironmentVariable(names[i],saved[i]); }
             Script("printf '%s\\n' 'not metadata'");Check(!C.RunChild(helper,marker,CancellationToken.None).Available,"foreign output refused");
