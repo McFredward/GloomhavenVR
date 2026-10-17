@@ -27,7 +27,7 @@ def method(source: str, signature: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--catalogue-source', type=Path, default=ROOT / 'src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs')
+    parser.add_argument('--catalogue-source', type=Path, default=ROOT / 'src/GloomhavenVR/Net/VideoWindowState.cs')
     parser.add_argument('--control', action='append', help='Run only this causal control; repeat for a focused repair check.')
     args = parser.parse_args()
     fixture = ROOT / 'tests/GloomhavenVR.VideoReviewOptionsTests'
@@ -41,12 +41,12 @@ def main() -> int:
         'catalogue': args.catalogue_source,
     }
     source = {key: path.read_text() for key, path in paths.items()}
-    movies = re.search(r'private static readonly string\[\] Movies\s*=\s*\{(.*?)\};', source['catalogue'], re.S)
+    catalogue_start = source['catalogue'].index('internal static class VideoMovieKeys')
+    catalogue_end = source['catalogue'].index('\n}', catalogue_start)
+    catalogue = source['catalogue'][catalogue_start:catalogue_end]
+    movies = re.search(r'private static readonly string\[\] Movies\s*=\s*\{(.*?)\};', catalogue, re.S)
     assert movies, 'The production movie catalogue must be present; integrate the runtime lane first.'
-    intro = re.search(r'private const string IntroName = "([^"]+)";', source['catalogue'])
-    assert intro
-    keys = [intro[1] + '.mov' if value == 'IntroKey' else value[1:-1]
-            for value in re.findall(r'IntroKey|"[^"]+\.mov"', movies[1])]
+    keys = re.findall(r'"([^"]+\.mov)"', movies[1])
     expected = json.loads((fixture / 'catalogue.json').read_text())
     assert len(keys) == len(set(keys)) and set(keys) == set(expected), 'Audited runtime/UI catalogue changed; review every new movie name/action.'
     localized = re.findall(r'^\s*"([^"]+\.mov)"\s*=>', source['loc'], re.M)
@@ -135,10 +135,14 @@ def main() -> int:
              'Movie rows are one-shot actions, not menu toggles'),
             ('delayed-feedback', 'ui', '                RefreshVideoReviewRows();', '                // skipped immediate feedback',
              'Preparation feedback appears on the press'),
-            ('lost-close', 'ui', '            NativeVideoReview.Stop();', '            // skipped close',
+            ('lost-close', 'ui', '            NativeVideoReview.RequestClose();', '            // skipped close',
              'Explicit close releases the review and explains replay'),
-            ('lost-stop-all', 'page', '            NativeVideoReview.Stop();', '            // skipped all-off close',
+            ('lost-stop-all', 'page', '            NativeVideoReview.RequestClose();', '            // skipped all-off close',
              'All-off closes the owned review movie'),
+            ('observer-close-local-only', 'ui', '            NativeVideoReview.RequestClose();', '            NativeVideoReview.Stop();',
+             'Observer close sends shared review close intent through the GUI API'),
+            ('observer-all-off-local-only', 'page', '            NativeVideoReview.RequestClose();', '            NativeVideoReview.Stop();',
+             'Observer all-off sends shared review close intent through the GUI API'),
             ('lost-refusal', 'ui', '        if (NativeVideoReview.LastFailure != NativeVideoReviewFailure.None)',
              '        if (NativeVideoReview.LastFailure == (NativeVideoReviewFailure)255)', 'Busy feedback appears on the press'),
             ('wrong-context', 'ui', 'NativeVideoReviewFailure.InvalidContext => Loc.VideoReviewScenarioRequired,',

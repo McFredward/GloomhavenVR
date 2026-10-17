@@ -94,8 +94,9 @@ namespace GloomhavenVR.WorldUI
         internal static NativeVideoReviewFailure LastFailure;
         internal static string LastKey = "";
         internal static bool Active;
+        internal static bool ObservingReview, ObservingNativeMovie;
         internal static bool Context = true;
-        internal static int Starts, Stops;
+        internal static int Starts, Stops, CloseRequests, ObserverCloseRequests;
         internal static readonly List<string> Requests = new();
         internal static bool TryStart(string key)
         {
@@ -115,19 +116,34 @@ namespace GloomhavenVR.WorldUI
         }
         internal static void Stop()
         {
+            if (!Active) return;
             Stops++;
             Active = false;
             Status = NativeVideoReviewStatus.Closed;
             LastFailure = NativeVideoReviewFailure.None;
+        }
+        internal static void RequestClose()
+        {
+            CloseRequests++;
+            if (Active) Stop();
+            else if (ObservingReview)
+            {
+                // Observe only the GUI intent at the API boundary. Real network
+                // closure/election is covered by the separate runtime fixture.
+                ObserverCloseRequests++;
+                ObservingReview = false;
+                Status = NativeVideoReviewStatus.Closed;
+                LastFailure = NativeVideoReviewFailure.None;
+            }
         }
         internal static void Reset()
         {
             Status = NativeVideoReviewStatus.Idle;
             LastFailure = NativeVideoReviewFailure.None;
             LastKey = "";
-            Active = false;
+            Active = ObservingReview = ObservingNativeMovie = false;
             Context = true;
-            Starts = Stops = 0;
+            Starts = Stops = CloseRequests = ObserverCloseRequests = 0;
             Requests.Clear();
         }
     }

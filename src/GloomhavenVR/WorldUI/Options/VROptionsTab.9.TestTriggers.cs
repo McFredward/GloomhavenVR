@@ -224,7 +224,7 @@ internal static partial class VROptionsTab
                                   + "Both channels go back to the real state; any review video closes.");
             ElementMood.ClearForce("the tester pressed 'all test triggers off'");
             Haunt.ClearForce("the tester pressed 'all test triggers off'");
-            NativeVideoReview.Stop();
+            NativeVideoReview.RequestClose();
             RefreshVideoReviewRows();
             // …AND EVERY PEER'S TOO. The stop row is this page's guarantee that one press gets back
             // to the real state, and since 2026-08-15 the override is shared — so the guarantee has

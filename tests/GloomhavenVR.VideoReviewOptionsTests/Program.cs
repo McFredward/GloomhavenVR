@@ -135,6 +135,46 @@ internal static class Program
             Check(!ElementMood.Forcing && !Haunt.Forcing && GloomhavenVR.Net.RemoteTestTriggers.Presses == presses + 1,
                 "All-off preserves both existing effect releases and their shared press");
             Check(VROptionsTab.Caption == Loc.VideoReviewClosed, "All-off refreshes the video status");
+
+            // An observer has no local review decoder for lifecycle Stop() to close.
+            // Both GUI doors must request shared closure through the explicit API.
+            NativeVideoReview.Reset();
+            NativeVideoReview.ObservingReview = true;
+            NativeVideoReview.Status = NativeVideoReviewStatus.Playing;
+            VROptionsTab.Build();
+            VROptionsTab.Actions.Single(row => row.Caption == Loc.VideoReviewClose).Click();
+            Check(NativeVideoReview.CloseRequests == 1 && NativeVideoReview.ObserverCloseRequests == 1,
+                "Observer close sends shared review close intent through the GUI API");
+            Check(NativeVideoReview.Stops == 0 && NativeVideoReview.Starts == 0 && !NativeVideoReview.Active,
+                "Observer close does not borrow or create a local decoder");
+            Check(VROptionsTab.Caption == Loc.VideoReviewClosed && VROptionsTab.Rebuilds == 0,
+                "Observer close shows API feedback without rebuilding controls");
+            NativeVideoReview.Reset();
+            NativeVideoReview.ObservingReview = true;
+            NativeVideoReview.Status = NativeVideoReviewStatus.Preparing;
+            ElementMood.Forcing = Haunt.Forcing = true;
+            presses = GloomhavenVR.Net.RemoteTestTriggers.Presses;
+            VROptionsTab.Build();
+            VROptionsTab.Actions.Single(row => row.Caption == "vr_tt_stop").Click();
+            Check(NativeVideoReview.CloseRequests == 1 && NativeVideoReview.ObserverCloseRequests == 1,
+                "Observer all-off sends shared review close intent through the GUI API");
+            Check(NativeVideoReview.Stops == 0 && !ElementMood.Forcing && !Haunt.Forcing
+                  && GloomhavenVR.Net.RemoteTestTriggers.Presses == presses + 1,
+                "Observer all-off preserves both existing shared effect releases");
+            Check(VROptionsTab.Caption == Loc.VideoReviewClosed && VROptionsTab.Rebuilds == 0,
+                "Observer all-off shows API feedback without rebuilding controls");
+            NativeVideoReview.Reset();
+            NativeVideoReview.ObservingNativeMovie = true;
+            NativeVideoReview.Status = NativeVideoReviewStatus.Busy;
+            NativeVideoReview.LastFailure = NativeVideoReviewFailure.RemoteMovieActive;
+            VROptionsTab.Build();
+            VROptionsTab.Actions.Single(row => row.Caption == Loc.VideoReviewClose).Click();
+            VROptionsTab.Actions.Single(row => row.Caption == "vr_tt_stop").Click();
+            Check(NativeVideoReview.CloseRequests == 2 && NativeVideoReview.ObserverCloseRequests == 0
+                  && NativeVideoReview.Stops == 0 && NativeVideoReview.ObservingNativeMovie,
+                "GUI close requests cannot close a genuine peer game movie");
+            Check(VROptionsTab.Caption == Loc.VideoReviewNativeBusy,
+                "Refused native close retains the existing localized game-video feedback");
             VROptionsTab.Build(noRoot: true);
             Check(VROptionsTab.Actions.Count == 0, "No menu root means no abandoned movie actions");
         }

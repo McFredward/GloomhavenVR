@@ -48,7 +48,7 @@ internal static partial class VROptionsTab
 
         BuildLinkRow(ContentRoot, Loc.VideoReviewClose, () =>
         {
-            NativeVideoReview.Stop();
+            NativeVideoReview.RequestClose();
             RefreshVideoReviewRows();
         }, asAction: true);
         RefreshVideoReviewRows();
