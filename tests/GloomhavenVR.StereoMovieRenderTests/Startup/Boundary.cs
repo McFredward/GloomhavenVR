@@ -11,6 +11,15 @@ using Object = UnityEngine.Object;
 // draw are source-bound by the runner. Unsupported gameplay/map paths fail closed.
 public static class StereoEyeFixture { public static Camera.MonoOrStereoscopicEye ActiveEye; }
 public static class MovieDecoderFixture { public static Texture? Texture; public static bool Prepared; }
+public static class MovieSourceFixture
+{
+    // The private text placeholder reads back an empty URL; cause is unknown.
+    // Attempt the real setter, then transport supplied decoder metadata. Production parsing,
+    // finite admission, selection and all camera/lifecycle policies remain real.
+    private static readonly Dictionary<VideoPlayer, string> Urls = new Dictionary<VideoPlayer, string>();
+    public static string GetUrl(VideoPlayer player) => Urls.TryGetValue(player, out string value) ? value : player.url;
+    public static void SetUrl(VideoPlayer player, string value) { player.url = value; Urls[player] = value; }
+}
 public sealed class IntroPlayer { }
 public sealed class UIManager { public static UIManager? Instance => null; }
 namespace GloomhavenVR.Core

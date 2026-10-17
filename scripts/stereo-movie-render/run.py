@@ -98,10 +98,15 @@ def startup_sources(source_root, movie, lease, surface):
     keys = keys[:keys.index('/// <summary>Presentation only.')]
     defaults = (ROOT / 'src/GloomhavenVR/Defaults/Defaults.WorldUI.cs').read_text()
     defaults = '\n'.join(line for line in defaults.splitlines() if re.search(r'internal const .* (StereoScreen|ScreenDepthStrength|VideoDepthLayer|VideoDepth|ScreenParallaxScale) =', line))
-    return {'CaptureStack.cs': flat + '}\n', 'CaptureRender.cs': (source_root / 'FlatScreen.7.CaptureRender.cs').read_text(),
+    result = {'CaptureStack.cs': flat + '}\n', 'CaptureRender.cs': (source_root / 'FlatScreen.7.CaptureRender.cs').read_text(),
         'Compositor.cs': stereo + '}\n', 'Movie.cs': movie, 'NativeMovieCameraPlane.cs': lease, 'StereoVideoSurface.cs': surface,
         'Movies.cs': movies, 'Keys.cs': keys, 'StartupPatch.cs': (source_root / 'NativeEmbeddedMoviePatches.cs').read_text(),
         'Defaults.cs': 'namespace GloomhavenVR;\ninternal static class Defaults\n{\n' + defaults + '\n}\n'}
+    for name in ('Movies.cs', 'Movie.cs', 'NativeMovieCameraPlane.cs'):
+        code = result[name]
+        code = re.sub(r'player\.url = ([^;]+);', r'global::MovieSourceFixture.SetUrl(player, \1);', code)
+        result[name] = code.replace('player.url', 'global::MovieSourceFixture.GetUrl(player)')
+    return result
 
 
 def main():
@@ -211,12 +216,12 @@ def main():
             ('startup-error-release-lost', 'NativeMovieCameraPlane.cs', 'if (ReferenceEquals(player, _startupPlayer)) ReleaseStartup();',
                 '/* injected: failed native source retains the persistent reservation */', 'Error',
                 'studio reservation restores current original alpha on native continuation or ownership loss: error'),
-            ('startup-mono-fallback-lost', 'Movies.cs', '                    player.url = companion;',
-                '                    player.url = stereo;', 'IntroDisabled',
+            ('startup-mono-fallback-lost', 'Movies.cs', '                    global::MovieSourceFixture.SetUrl(player, companion);',
+                '                    global::MovieSourceFixture.SetUrl(player, stereo);', 'IntroDisabled',
                 'unowned startup cannot hide a native plane or expose a packed source: intro'),
         ]
         variants += [
-            ('startup-original-prefix', 'Movies.cs', 'if (IsStereoUrl(player.url) && !FlatScreen.TryPrepareStartupMovie(player))',
+            ('startup-original-prefix', 'Movies.cs', 'if (IsStereoUrl(global::MovieSourceFixture.GetUrl(player)) && !FlatScreen.TryPrepareStartupMovie(player))',
                 'if (player.frame == long.MinValue)', 'Run',
                 'automatic studio prefix prepares the actual capture and stereo lifecycle without options or a scenario board'),
             ('startup-throwing-readiness', 'CaptureStack.cs', '            if (!owner._visible) owner.Tick();',
@@ -253,8 +258,8 @@ def main():
                 *[source_root / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.4.Lifecycle.cs',
                     'FlatScreen.7.CaptureRender.cs', 'FlatScreenStereo.2.Compositor.cs', 'FlatScreenStereo.4.PerEye.cs',
                     'FlatScreenStereo.5.Movie.cs', 'NativeMovieCameraPlane.cs', 'NativeVideoMovies.cs', 'NativeEmbeddedMoviePatches.cs', 'StereoVideoSurface.cs')]]},
-            'boundaries': 'Decoder readiness/pixels and XR eye input. Startup adds actual stereo constructor/config binding, native source admission, Show/Tick/capture/split/stereo lifecycle. FlatScreen constructor is a minimal ownership port pinned to its actual owner assignment. Nonmovie scene services and physical quad pose are explicit fixture ports; final-cull Harmony seam is covered separately by desktop-render-runtime; actual built-in fallback Camera.Render executes here.',
-            'limits': 'No native MOV decode, headset/XR provider, D3D11, comfort, audio, multiplayer or native plane latch timing evidence.'}, indent=2) + '\n')
+            'boundaries': 'Decoder readiness/pixels and XR eye input. Startup additionally supplies decoder URL metadata after attempting the actual setter: the private text placeholder reads back empty, cause unknown. Production parsing/admission are unchanged. Startup adds actual stereo constructor/config binding, native source admission, Show/Tick/capture/split/stereo lifecycle. FlatScreen constructor is a minimal ownership port pinned to its actual owner assignment. Nonmovie scene services and physical quad pose are explicit fixture ports; final-cull Harmony seam is covered separately by desktop-render-runtime; actual built-in fallback Camera.Render executes here.',
+            'limits': 'No native MOV decode or native URL transport/admission, headset/XR provider, D3D11, comfort, audio, multiplayer or native plane latch timing evidence. Production finite-key admission is exercised with supplied decoder metadata.'}, indent=2) + '\n')
         manifest_path = run / 'manifest.json'
         manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
         result = execute(['xvfb-run', '-a', str(unity), '-batchmode', '-force-glcore', '-projectPath', str(project),

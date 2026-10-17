@@ -59,6 +59,10 @@ public static class StereoVideoRenderProgram
         var camera = NativeCamera();
         var player = new GameObject("actual IntroPlayer source admission").AddComponent<VideoPlayer>();
         Configure(player, camera); player.targetCameraAlpha = .73f;
+        File.WriteAllText(Path.Combine(output, "admission-input.txt"), "native-url=" + player.url + "\nprovided-url=" + MovieSourceFixture.GetUrl(player) + "\nsource=" + player.source
+            + "\nactive=" + player.isActiveAndEnabled + "\nkey=" + NativeVideoMovies.KeyFromUrl(MovieSourceFixture.GetUrl(player))
+            + "\ncanonical=" + NativeVideoMovies.CanonicalKey(NativeVideoMovies.KeyFromUrl(MovieSourceFixture.GetUrl(player)))
+            + "\nmono=" + File.Exists(MovieSourceFixture.GetUrl(player)) + "\nstereo=" + File.Exists(MovieSourceFixture.GetUrl(player).Replace(".mov", ".sbs-v1.mov")) + "\n");
         var window = new FlatScreen();
         Texture2D packed = Packed(); MovieDecoderFixture.Texture = packed; MovieDecoderFixture.Prepared = prepared;
         var ui = new GameObject("Original studio UI", typeof(Canvas));
@@ -72,7 +76,7 @@ public static class StereoVideoRenderProgram
             {
                 window.Tick();
                 Check(!window.Routed, "pre-menu capture without a registered movie keeps its normal mono intro guard");
-                NativeVideoMovies.SetNativeUrl(player, player.url, Canonical.Substring(0, Canonical.Length - 4));
+                NativeVideoMovies.SetNativeUrl(player, MovieSourceFixture.GetUrl(player), Canonical.Substring(0, Canonical.Length - 4));
                 NativeVideoMovies.RegisterCameraPlane(player);
                 camera.Render();
                 Check(window.Routed && camera.targetTexture == window.Glass,
@@ -89,7 +93,7 @@ public static class StereoVideoRenderProgram
                 Check(player.targetCameraAlpha == 0,
                     "studio packed plane is reserved before original Play rather than first hidden at late pre-cull");
             }
-            Check(player.url.EndsWith(".sbs-v1.mov") && NativeVideoMovies.CameraPlaneSource == player,
+            Check(MovieSourceFixture.GetUrl(player).EndsWith(".sbs-v1.mov") && NativeVideoMovies.CameraPlaneSource == player,
                 "native source admission selects the exact registered studio revision before presentation");
             Check(player.renderMode == VideoRenderMode.CameraNearPlane && player.targetCamera == camera && player.targetTexture == null,
                 "startup keeps original native decoder render mode and target binding");
@@ -132,7 +136,7 @@ public static class StereoVideoRenderProgram
                 }
                 else if (ending == "destroy-player") Object.DestroyImmediate(player);
                 else if (ending == "destroy-camera") Object.DestroyImmediate(camera);
-                else if (ending == "source") player.url = Path.Combine(Path.GetDirectoryName(typeof(StereoVideoRenderProgram).Assembly.Location)!, "Movies", Canonical);
+                else if (ending == "source") MovieSourceFixture.SetUrl(player, Path.Combine(Path.GetDirectoryName(typeof(StereoVideoRenderProgram).Assembly.Location)!, "Movies", Canonical));
                 else if (ending == "camera") player.targetCamera = head;
                 else if (ending == "surface") window.LoseMovieSurface();
                 else if (ending == "vr") VRSession.IsRunning = false;
@@ -148,6 +152,7 @@ public static class StereoVideoRenderProgram
         }
         finally
         {
+            File.WriteAllLines(Path.Combine(output, "lifecycle.log"), VRLog.Messages);
             NativeMovieCameraPlane.RestoreAll(); window.End();
             MovieDecoderFixture.Texture = null; VRRigDriver.HeadCamera = null;
             result.Release(); Object.DestroyImmediate(result); Object.DestroyImmediate(packed);
@@ -175,7 +180,7 @@ public static class StereoVideoRenderProgram
         {
             try { NativeStartupMoviePatch.Prefix(player); }
             catch { Check(false, "throwing startup readiness cannot escape the prefix and skip native Play or continuation"); }
-            Check(!NativeVideoMovies.IsStereoUrl(player.url) && player.targetCameraAlpha == 1,
+            Check(!NativeVideoMovies.IsStereoUrl(MovieSourceFixture.GetUrl(player)) && player.targetCameraAlpha == 1,
                 "unowned startup cannot hide a native plane or expose a packed source: " + reason);
             Check(!ReservationActive(), "startup fallback owns no persistent reservation: " + reason);
             if (foreign != null) Check(camera.targetTexture == foreign, "foreign startup camera target remains independent");
@@ -183,6 +188,7 @@ public static class StereoVideoRenderProgram
         }
         finally
         {
+            File.WriteAllLines(Path.Combine(output, "lifecycle.log"), VRLog.Messages);
             window.End(); NativeMovieCameraPlane.RestoreAll(); VRRigDriver.HeadCamera = null;
             if (foreign != null) { foreign.Release(); Object.DestroyImmediate(foreign); }
             Object.DestroyImmediate(player.gameObject); Object.DestroyImmediate(camera.gameObject); Object.DestroyImmediate(head.gameObject);
@@ -196,7 +202,7 @@ public static class StereoVideoRenderProgram
         camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = Color.black; return camera;
     }
     private static void Configure(VideoPlayer player, Camera camera)
-    { player.playOnAwake = false; player.source = VideoSource.Url; player.url = Path.Combine(Path.GetDirectoryName(typeof(StereoVideoRenderProgram).Assembly.Location)!, "Movies", Canonical); player.renderMode = VideoRenderMode.CameraNearPlane; player.targetCamera = camera; }
+    { player.playOnAwake = false; player.renderMode = VideoRenderMode.CameraNearPlane; player.targetCamera = camera; player.source = VideoSource.Url; MovieSourceFixture.SetUrl(player, Path.Combine(Path.GetDirectoryName(typeof(StereoVideoRenderProgram).Assembly.Location)!, "Movies", Canonical)); }
     private static void Initialize(string output)
     {
         VRSession.IsRunning = true; WorldUIConfig.ConversionActive = true; VRLog.Messages.Clear();

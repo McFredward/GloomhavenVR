@@ -15,6 +15,8 @@ public static class StereoVideoRunner
         string[] args = Environment.GetCommandLineArgs();
         manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(args[Array.IndexOf(args, "-stereoManifest") + 1]));
         AppDomain.CurrentDomain.AssemblyResolve += Resolve;
+        if (Array.IndexOf(UnityEditorInternal.InternalEditorUtility.tags, "UICamera") < 0)
+            UnityEditorInternal.InternalEditorUtility.AddTag("UICamera");
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload | EnterPlayModeOptions.DisableSceneReload;
         EditorApplication.update += Run;
