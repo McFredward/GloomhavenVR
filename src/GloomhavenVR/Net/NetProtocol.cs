@@ -612,7 +612,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 689;
+    public const ushort ModBuild = 691;
+
+    // ModBuild691 — fix the actual produced Steam Link path guard, not its inputs.
+    // Hardware689/f71 stops at cache-folder. Actual689 IL binds path.Skip(2) to
+    // GLOBAL GH.Runtime.StringExtensions.Skip, which starts at count-1 and leaves
+    // the drive colon. Every normal local Windows path therefore fails the guard.
+    // Actual UnityMono+shipping DLL+real GH.Runtime reproduces it. Prior isolated
+    // source fixtures omitted that assembly and bound Enumerable.Skip instead;
+    // their green result did not exercise the production binding. Use an explicit
+    // System.Linq.Enumerable.Skip call, cover the hostile global overload in the
+    // focused fixture and verify the produced DLL against the real game library.
+    // Keep folder resolution, resource/native pins, refusal boundaries, bounded
+    // child/session lifetime, exact Steam Frame/vrlink and Proton behavior intact.
+    // No Frame reinstall/write, new shader, movie or wire change.690 remains an
+    // unreleased internal stereo checkpoint; its later public handover is692+.
 
     // ModBuild689 — complete owned Steam Link identity preparation and support Proton.
     // The688 installed SDK resource has the correct name,826688 bytes and exact
