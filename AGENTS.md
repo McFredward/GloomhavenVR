@@ -71,6 +71,14 @@ remain explicit. Restore a native lifecycle only under source-qualified original
 owner/readiness conditions; never use this ruling to force hidden room renderers
 or gameplay state.
 
+**Quest evidence binding, B681:** the original GH.Runtime defines a global
+`Debug` facade with conditional `Log` methods. Unqualified mod calls can compile
+away without `ENABLE_LOGS`; a file-level `Debug` alias can instead conflict with
+that global type. Use fully qualified `UnityEngine.Debug` for direct evidence,
+retain Debug guards/budgets and qualify compiled call targets against real game
+references. Tiny fixtures must include the conditional global facade when testing
+this boundary. Do not enable all game logs to work around a binding defect.
+
 The maintainer requested integration of `feature/immersive-town-services` into
 `dev`. All subsequent NPC, Steam Frame, and other development now integrates and
 pushes to `dev`; create worker worktrees from the current `dev` commit. The NPC
