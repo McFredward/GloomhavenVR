@@ -1,5 +1,22 @@
 # Steam Link availability repair coordination, 2026-10-17
 
+## Active bounded follow-up694: crisp windows and loading continuity; stereo695+
+
+The maintainer confirms693 now works on Frame/Steam Link. The next scoped
+passthrough handover reserves694 for two hardware-reported presentation defects:
+window soft edges and green chromakey flashes during loading. Current hardware
+files in the main debug folder remain691; do not claim new693 log evidence.
+Root owns SteamLinkConnectionLifecycle.cs, SteamLinkSceneRuntime.cs and the
+MixedReality.Tick pending branch, focused presentation/lifecycle tests and scoped
+notes. The window worker investigates Canvas/PanelSupersample alpha under real
+Unity raster, without a global alpha threshold or receiver change. No movie,
+FlatScreenStereo, installer or Frame files are owned by this follow-up.
+
+Publish only the completed bounded repair over origin/dev693, then merge into
+shared local dev preserving the independent unfinished movie catalogue. Its
+complete handover advances to695 or later. Keep all existing movie checkpoints
+local until the owning thread's full roster is complete.
+
 ## Published693 handover: observed Frame Link identity; stereo694+
 
 Published origin/dev is c27cd7f7e/693 and is merged into shared dev preserving
