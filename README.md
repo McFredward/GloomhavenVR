@@ -71,7 +71,7 @@ Drop it and it settles back onto a hex.
 - Two environments built for the mod: an indoor cellar and an outdoor night forest, both reacting
   to the scenario's elements.
 - Mixed reality. The sky drops away and the table stands in your actual room, including native
-  passthrough on Steam Frame standalone with a compatible SteamVR/Proton runtime.
+  passthrough on Steam Frame standalone and over Steam Link with the additional headset patch.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -135,9 +135,15 @@ something else if you stand around long enough.
 
 There is one setting for this, with five options. Same table, same scenario in all of them. The two
 rooms above are the ones built for the mod. The other three are the game's own sky, no sky at all,
-and mixed reality. Steam Frame standalone uses native passthrough; PC streaming uses a green key
-with a compatible streaming app. On the Frame, choose **Mixed reality** in **VR Options → World & sound**.
-If it is grey, hover over it for guidance on updating SteamVR and the game's Proton version.
+and mixed reality. Choose **Mixed Reality** under **VR Options → World & sound** to put the
+table in your room.
+
+- **Steam Frame standalone:** native passthrough is built in. If unavailable, hover over the option
+  for guidance on updating SteamVR and the game's Proton version.
+- **Steam Frame over Steam Link:** native passthrough combines the game with your room without
+  replacing a colour. First [install Steam Link Native Passthrough on the Frame](https://github.com/McFredward/steam-link-native-passthrough/blob/main/docs/INSTALL.md),
+  then enable **Steam Link native passthrough** below the environment choices.
+- **Virtual Desktop:** use its passthrough colour replacement with the mod's green background.
 
 <p align="center">
   <img src="docs/img/env-styles-en.png" width="720" alt="The five environment settings: cellar and night forest, both built for this mod, above the game's own sky, off (black) and mixed reality">
@@ -209,6 +215,10 @@ not yours.
 standalone · two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
 
 [→ Install](docs/install/INSTALL.md) · <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Install on Steam Frame</a> · [→ Playing & controls](docs/PLAYING.md)
+
+For native mixed reality when streaming from a PC to Steam Frame, follow the separate
+[Steam Link passthrough setup](https://github.com/McFredward/steam-link-native-passthrough/blob/main/docs/INSTALL.md)
+and check its supported SteamVR version. This patch is not needed for standalone play.
 
 On Steam Frame, setup adds a second library entry: launch **GloomhavenVR** for VR.
 The original **Gloomhaven** entry remains for flat play; both use the same saves.

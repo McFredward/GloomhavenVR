@@ -71,7 +71,7 @@ gleich macht. Leg sie zurück, dann setzt sie sich wieder auf ein Feld.
 - Zwei Umgebungen, die für die Mod gebaut wurden: ein Keller drinnen und ein Nachtwald draußen,
   beide reagieren auf die Elemente des Szenarios.
 - Mixed Reality. Der Himmel verschwindet, und der Tisch steht in deinem echten Zimmer, auch mit
-  nativem Passthrough auf Steam Frame standalone bei kompatibler SteamVR-/Proton-Version.
+  nativem Passthrough auf Steam Frame standalone und über Steam Link mit dem zusätzlichen Headset-Patch.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -137,10 +137,15 @@ bleibt, bemerkt vielleicht noch etwas anderes.
 
 Dafür gibt es eine Einstellung mit fünf Möglichkeiten. Derselbe Tisch, dasselbe Szenario in allen.
 Die beiden Räume oben sind die, die für die Mod gebaut wurden. Die anderen drei sind der Himmel des
-Spiels, gar kein Himmel und Mixed Reality. Steam Frame standalone nutzt natives Passthrough;
-PC-Streaming nutzt einen Greenscreen mit einer kompatiblen Streaming-App. Auf der Frame wählst du
-**Mixed Reality** unter **VR-Optionen → Umgebung & Ton**. Ist die Option grau, gibt der Mouseover-Hinweis
-Hinweise zum Aktualisieren von SteamVR und der Proton-Version des Spiels.
+Spiels, gar kein Himmel und Mixed Reality. Wähle **Mixed Reality** unter
+**VR-Optionen → Umgebung & Ton**, um den Tisch in dein Zimmer zu stellen.
+
+- **Steam Frame standalone:** Natives Passthrough ist integriert. Ist die Option nicht verfügbar,
+  zeigt der Mouseover-Hinweis, ob SteamVR oder die Proton-Version des Spiels aktualisiert werden muss.
+- **Steam Frame über Steam Link:** Natives Passthrough verbindet das Spiel mit deinem Zimmer,
+  ohne eine Farbe zu ersetzen. [Installiere zuerst Steam Link Native Passthrough auf der Frame](https://github.com/McFredward/steam-link-native-passthrough/blob/main/docs/INSTALL.md)
+  und aktiviere danach **Steam Link: natives Passthrough** unter der Umgebungsauswahl.
+- **Virtual Desktop:** Nutze dessen Passthrough-Funktion, die den grünen Hintergrund der Mod ersetzt.
 
 <p align="center">
   <img src="docs/img/env-styles-de.png" width="720" alt="Die fünf Umgebungen: Keller und Nachtwald, beide für diesen Mod gebaut, darunter der Himmel des Spiels, Aus (schwarz) und Mixed Reality">
@@ -214,6 +219,10 @@ standalone · zwei getrackte Controller · Room-Scale. Entwickelt wurde die Mod 
 über Virtual Desktop.
 
 [→ Installation](docs/install/INSTALL.de.md) · <a href="docs/install/INSTALL-STEAM-FRAME.de.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Installation auf Steam Frame</a> · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
+
+Für native Mixed Reality beim PC-Streaming auf Steam Frame folge der separaten
+[Steam-Link-Passthrough-Anleitung](https://github.com/McFredward/steam-link-native-passthrough/blob/main/docs/INSTALL.md)
+und beachte die dort unterstützte SteamVR-Version. Für Standalone-Spiel brauchst du diesen Patch nicht.
 
 Auf Steam Frame fügt das Setup einen zweiten Bibliothekseintrag hinzu: Starte **GloomhavenVR** für VR.
 Der ursprüngliche Eintrag **Gloomhaven** bleibt für Flat-Spiel; beide nutzen dieselben Spielstände.
