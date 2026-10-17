@@ -612,7 +612,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 695;
+    public const ushort ModBuild = 697;
+
+    // ModBuild697 — equal-resolution native Steam Link scene coverage.
+    // The maintainer rejects window-classification tags and authorizes fixing the
+    // general mask instead. V2 packs RGB and coverage at the same2048-square grid,
+    // without v1's four-sample alpha reduction or extra C1 reconstruction. Four
+    // haloed windmill strips give both fields equal video density; genuine glass,
+    // gradients, native MSAA and additive RGB at A0 remain continuous. The shipped
+    // bank retains v1 for comparisons, but production selects the explicit v2 packer
+    // and logs its actual profile. A matching dual-profile Frame receiver update
+    // is required; the mod never writes headset files or alters the Steam sender.
+    // No window/object metadata, second scene camera, auxiliary mask RT, native
+    // gameplay or multiplayer wire change. See STEAM-LINK-697-FULL-COVERAGE.md for
+    // targeted raster/native proof and the remaining hardware/codec boundary.
+
 
     // ModBuild695 — complete the approved stereo library and scenario review controls.
     // Deliver all20 subjects: stronger GloomhavenVR intro lettering,11 original

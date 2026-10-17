@@ -1,3 +1,19 @@
+**Native Steam Link equal-resolution coverage, 2026-10-18: Build697.**
+
+The maintainer rejects a window-classification channel and authorizes a general
+full-resolution mask. New v2 samples RGB and opacity from the same current source
+at equal2048-square spatial resolution, removing the old dedicated four-sample
+alpha box and C1 reconstruction. The neutral-grey mask uses four non-overlapping,
+globally haloed windmill strips around central RGB in a3168-square canvas. Both
+fields have identical video density; true glass/fades, source MSAA and additive
+RGB at zero alpha are retained. No new semantic tags, threshold, camera or mask
+RT. Existing standalone MR, connection/lifecycle admission and multiplayer state
+are unchanged. A matching updated Frame receiver is required; it retains v1
+support for older mods. No Frame installation or hardware outcome is claimed.
+See [the scoped record](STEAM-LINK-697-FULL-COVERAGE.md) for exact geometry, source
+pins, cost and focused verification boundaries. The independent movie handover696
+must remain integrated; this bounded renderer change does not replace it.
+
 # State — where the project stands
 
 **Native stereo library and scenario review, 2026-10-17: Build695.**

@@ -2893,6 +2893,20 @@
         "local"
       ],
       "weight": 35
+    },
+    {
+      "id": "steamlink-full-coverage",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-full-coverage/run.py",
+        "--output",
+        ".planning/debug/steamlink-full-coverage"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
     }
   ]
 }

@@ -65,3 +65,31 @@ is not a promise of zero antialiasing at every geometric edge.
 The new owned bank is built with actual Unity2021.3.5f1 for D3D11/GLCore/Vulkan.
 No native-material derivative, opaque-depth prefix, shader blend, gameplay,
 multiplayer state, source identity or loading-continuity policy is changed.
+
+## Focused producer results
+
+Actual Unity2021.3.5/Intel Vulkan runs execute the shipping bank and production
+SceneEyeOutput. The complete45-case matrix passes850 checks,616 halo and24 guard
+checks. At exact3168 output, a plain fully opaque step matches its source:
+10–90% width0.800px, no extra partially covered pixels, versus legacy2.306px/four
+partial pixels. The full exact-step and two-axis gradient RGBA images are byte
+identical to source. At actual3408 output across32 moving4xMSAA phases, mean edge
+width decreases2.807→1.907px (32.1%), with maximum50% silhouette-position error
+0.359→0.192px. This retains real source antialiasing rather than thresholding A.
+
+Constant unbacked glass0/.25/.5/.75/1 and positive RGB at A0 remain intact. The
+same-bank default loader has a separate16-check raster witness; no ignored old
+bank/worktree is required. A bounded independent BT709 limited-range NV12 /
+lossless H264420 supplement samples4824 mask points and12 format cells, maximum
+one code difference. It is not Steam Link's actual codec. An initial incorrect
+outermost-resampled-halo expectation and a missing raw-input colorspace in the
+optional codec test are retained as failed evidence; affected continuations are
+separate. Full software details and cleanup receipts are in main debug under
+`steamlink-full-coverage-697/`, including actual raster PNGs and source pins.
+
+The strict producer Release build and actual bank metadata/container checks pass
+with zero warnings/errors. Source diagnostics gate passes1/1; suite registry
+passes19 tests with two platform skips. These are focused checks, not another
+complete local-gate pass. Final composed build/native decoder evidence is added
+at handover. No source raster or owned lossless codec test establishes the final
+headset edge, actual stream bitrate or receiver motion comfort.
