@@ -1,6 +1,15 @@
 # Steam Link availability repair coordination, 2026-10-17
 
-## Urgent produced-artifact repair in progress:691, stereo handover692 or later
+## Produced-artifact repair published:691, stereo handover692 or later
+
+Published origin/dev is de9782add/691, merged into shared dev with both the691
+repair note and the independent unreleased690 movie note retained. Guard source
+SHA ce372250... matches the tested worker and actual final DLL. Fresh scoped
+checks:124 managed,203 native, exact old-call mutant refusal, net472 typecheck,
+strictRelease0W/0E and instrument-only1/1. The actual produced691 DLL passes12
+real-UnityMono/real-GH.Runtime checks; identical probe on retained689 proves the
+old refusal with9 checks. Reuse these for the unchanged identity lane when
+composing the independent stereo gate; do not repeat the whole suite for this.
 
 Newest hardware is689/f71 and stops at cache-folder again. The actual produced
 DLL now proves the cause: `path.Skip(2)` binds to GLOBAL GH.Runtime.StringExtensions.Skip,
