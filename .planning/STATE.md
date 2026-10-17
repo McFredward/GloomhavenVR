@@ -1,5 +1,34 @@
 # State — where the project stands
 
+**Observed Steam Frame / Steam Link profile admission, 2026-10-17: Build693.**
+
+New691/de978 PC hardware completes extraction, child launch and native public
+HMD metadata lookup. The actual result is tracking=cv, model=Deckard MP,
+registered empty; only Classify returns WrongHeadset. This is live Windows
+confirmation that691's path/native-query repair works, not another cache failure.
+The maintainer confirms this is Frame over Steam Link, not Virtual Desktop or
+standalone. Earlier canonical Steam Frame/vrlink assumptions did not describe
+this device's exposed profile.
+
+Admit exactly Deckard MP+cv with empty or explicit vrlink registration. Preserve
+canonical behavior and reject generic cv, other/partial models, VD transports,
+contradictory registration, disconnected/controllers and invalid metadata. This
+is empirical cooperative-profile recognition, never receiver/transport attestation.
+No helper/SDK bytes, path, shader, setting/default, wire or Frame change occurs.
+Replay the actual public identity and extend the actual produced-artifact probe;
+final693 DLL with real GH.Runtime under UnityMono passes23 controls, including11
+identity cases. The Core source SHA c4f97f35... matches the tested fixture. Focused
+connection checks pass187 managed/203 native, the preserved old-path-call mutant
+refusal and net472 typecheck; strict Release0W/0E and source instrumentation1/1.
+Unchanged691 availability37/4 and other native/wire/raster evidence are inherited.
+
+Publish only this bounded693 repair over public691, then merge it into shared
+local dev; the independent unfinished692 stereo checkpoint advances to694+.
+Receipts, paired input pins, scoped checks and cleanup live under
+`.planning/debug/steamlink-693-frame-profile/`; see
+`.planning/STEAM-LINK-693-FRAME-PROFILE.md`. Proton streaming and the final headset
+picture after this admission remain hardware boundaries.
+
 **Proven produced-artifact Steam Link path repair, 2026-10-17: Build691.**
 
 New689/f71 logs explicitly stop at openvr_api.dll:cache-folder. The actual
