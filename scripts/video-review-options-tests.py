@@ -36,6 +36,8 @@ def main() -> int:
         'ui': options / 'VROptionsTab.VideoReview.cs',
         'loc': ROOT / 'src/GloomhavenVR/Core/Loc/Loc.VideoReview.cs',
         'page': options / 'VROptionsTab.9.TestTriggers.cs',
+        'cheats': options / 'VROptionsTab.Cheats.cs',
+        'defaults': ROOT / 'src/GloomhavenVR/Defaults/Defaults.WorldUI.cs',
         'inject': options / 'VROptionsTab.1.Inject.cs',
         'rows': options / 'VROptionsTab.2.Rows.cs',
         'catalogue': args.catalogue_source,
@@ -70,7 +72,18 @@ def main() -> int:
                                                        for key, text in source.items()}, indent=2) + '\n')
     page = ('using GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class VROptionsTab {\n'
             + method(source['page'], 'private static int BuildTestTriggers()') + '\n}\n')
-    originals = {'ui': source['ui'], 'loc': source['loc'], 'page': page}
+    # Bind the actual config/default gate, index door and complete page composition.
+    # Only the five unrelated save/gameplay row builders remain explicit fixture ports.
+    cheats_class = source['cheats'].index('internal static partial class VROptionsTab\n{')
+    cheats_end = source['cheats'].index('    // ---- button 1:')
+    cheats_text = source['cheats'][source['cheats'].rindex('    private static string Text('):source['cheats'].rindex('\n}')]
+    cheats = ('using System; using System.Collections.Generic; using GloomhavenVR.Core; using TMPro; using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\n'
+              + source['cheats'][cheats_class:cheats_end]
+              + method(source['cheats'], 'private static bool SessionOnline()') + '\n' + cheats_text + '\n}\n')
+    default = re.search(r'internal const bool CheatsEnabled\s*=\s*(?:true|false);', source['defaults'])
+    assert default, 'Actual Cheats default binding drift'
+    defaults = 'namespace GloomhavenVR.Core { internal static class Defaults { ' + default[0] + ' } }\n'
+    originals = {'ui': source['ui'], 'loc': source['loc'], 'page': page, 'cheats': cheats, 'defaults': defaults}
     for key, text in originals.items():
         (run / (key + '.fixture')).write_text(text)
     project = project_dir / 'GloomhavenVR.VideoReviewOptionsTests.csproj'
@@ -96,6 +109,8 @@ def main() -> int:
                    '-p:ReviewUiSource=' + str(run / 'ui.current'),
                    '-p:ReviewLocSource=' + str(run / 'loc.current'),
                    '-p:TriggerPageSource=' + str(run / 'page.current'),
+                   '-p:CheatsPageSource=' + str(run / 'cheats.current'),
+                   '-p:CheatsDefaultSource=' + str(run / 'defaults.current'),
                    '--', str(run / 'runtime-catalogue.json')]
         log_path = run / (name + '.log')
         environment = os.environ.copy()
@@ -130,8 +145,8 @@ def main() -> int:
             ('wrong-movie', 'ui', 'NativeVideoReview.TryStart(key);', 'NativeVideoReview.TryStart(NativeVideoReview.GetKey(0));',
              'Each movie requests its own exact canonical key'),
             ('lost-first', 'ui', 'int i = 0;', 'int i = 1;',
-             'All audited movies, back, close and all-off actions remain reachable'),
-            ('tab-action', 'ui', '}, asAction: true);\n            rows++;', '}, asAction: false);\n            rows++;',
+             'All audited movies, back, close and progress actions remain reachable'),
+            ('tab-action', 'ui', '}, asAction: true));\n            rows++;', '}, asAction: false));\n            rows++;',
              'Movie rows are one-shot actions, not menu toggles'),
             ('delayed-feedback', 'ui', '                RefreshVideoReviewRows();', '                // skipped immediate feedback',
              'Preparation feedback appears on the press'),
@@ -162,6 +177,27 @@ def main() -> int:
             ('per-frame-format', 'ui', 'if (_videoReviewSnapshot && state == _videoReviewState && failure == _videoReviewFailure',
              'if (_videoReviewSnapshot && Loc.CurrentLanguage == "__mutant__" && state == _videoReviewState && failure == _videoReviewFailure',
              'Unchanged open status does not allocate per frame'),
+            ('public-spoilers', 'page', 'int rows = 0;', 'int rows = BuildVideoReviewTriggers();',
+             'Public test triggers never expose spoiler movie actions'),
+            ('cheats-page-lock', 'cheats', 'if (!CheatsAvailable)', 'if (bool.Parse("false"))',
+             'Disabled Cheats page falls back to the index without spoiler names'),
+            ('direct-review-lock', 'ui', 'ContentRoot == null || !CheatsAvailable', 'ContentRoot == null',
+             'Direct video builder cannot reveal a catalogue with Cheats disabled'),
+            ('stale-play-lock', 'ui', 'if (CheatsAvailable)\n                    NativeVideoReview.TryStart(key);',
+             'if (bool.Parse("true"))\n                    NativeVideoReview.TryStart(key);',
+             'Revoked Cheats callbacks never call TryStart'),
+            ('live-gate-refresh', 'ui', ' && cheats == _videoReviewCheats)', ')',
+             'Revoked Cheats immediately removes spoiler movie rows'),
+            ('visible-revoked-spoilers', 'ui', 'row.SetActive(cheats);', 'row.SetActive(true);',
+             'Revoked Cheats immediately removes spoiler movie rows'),
+            ('cheats-default-on', 'defaults', 'CheatsEnabled = false;', 'CheatsEnabled = true;',
+             'Actual Cheats config and source-bound default start disabled'),
+            ('cosmetic-offline-only', 'ui', 'if (CheatsAvailable)\n                    NativeVideoReview.TryStart(key);',
+             'if (CheatsAvailable && !SessionOnline())\n                    NativeVideoReview.TryStart(key);',
+             'Each movie requests its own exact canonical key'),
+            ('close-revoked-lock', 'ui', '            NativeVideoReview.RequestClose();',
+             '            if (CheatsAvailable) NativeVideoReview.RequestClose();',
+             'Revoked Cheats still permits closing an existing review'),
         ]
         if args.control:
             assert set(args.control) <= {item[0] for item in mutations}, 'Unknown causal control'
