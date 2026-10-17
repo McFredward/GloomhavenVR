@@ -282,6 +282,26 @@ public static class QuestScenarioEvidenceProbe
         entity.m_EntityHandle = 42;
         consider(); Check(!engine.enabled, "An existing native handle prevents initial-generation recovery");
         entity.m_EntityHandle = 0;
+        // ApparanceEntity.Start can create a handle before the disabled engine's
+        // first Start. Another registered owner is not evidence of a running
+        // engine. Preserve both this pooled entity and an already generated
+        // preview tile while the actual visible room requests initial work.
+        var pooled = new GameObject("Pooled non-room entity").AddComponent<ApparanceEntity>();
+        pooled.m_EntityHandle = 77; pooled.gameObject.SetActive(false); engine.EntityComponents.Add(pooled);
+        consider();
+        Check(engine.enabled && pooled.m_EntityHandle == 77 && !pooled.gameObject.activeSelf,
+            "An unrelated registered native handle cannot block the visible ungenerated room");
+        reset();
+        var preview = new GameObject("Native preview tile").AddComponent<ProceduralMapTile>();
+        preview.visibility = ProceduralMapTile.Visibility.Preview; preview.IsPlacementCompleted = true;
+        var previewEntity = preview.gameObject.AddComponent<ApparanceEntity>();
+        previewEntity.m_EntityHandle = 88; engine.EntityComponents.Add(previewEntity);
+        var previewGenerated = new GameObject("Generated Content"); previewGenerated.transform.parent = preview.transform;
+        new GameObject("Native preview leaf").transform.parent = previewGenerated.transform;
+        consider();
+        Check(engine.enabled && previewEntity.m_EntityHandle == 88 && preview.IsPlacementCompleted && previewGenerated.transform.childCount == 1,
+            "Existing native preview content cannot block the visible ungenerated room");
+        reset();
         entity.Frozen = true;
         consider(); Check(!engine.enabled && entity.Frozen, "Frozen native entity retains ownership");
         entity.Frozen = false;
@@ -325,6 +345,8 @@ public static class QuestScenarioEvidenceProbe
         Check(engine.enabled, "Shutdown does not break a successfully restored native lifecycle");
         UnityEngine.Object.DestroyImmediate(host);
         UnityEngine.Object.DestroyImmediate(tile.gameObject);
+        UnityEngine.Object.DestroyImmediate(pooled.gameObject);
+        UnityEngine.Object.DestroyImmediate(preview.gameObject);
     }
     private static Scene NativeScene(string name)
     {

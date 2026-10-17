@@ -16,7 +16,10 @@ namespace GloomhavenVR.Core;
 ///
 /// Recover only the former, after a stable, fully requested initial scenario and
 /// only on the unique original scene owner. Respect OS pause/running-session boundaries, scene teardown,
-/// frozen/hidden entities, completed/generated content and existing native handles.
+/// frozen/hidden entities and completed/generated content in the requested room.
+/// ApparanceEntity.Start registers and creates entities independently of the engine's
+/// Start/Update. Existing preview/pooled handles therefore do not establish that the
+/// engine lifecycle ran, and must not veto an ungenerated visible room (B681 capture).
 /// Re-enable that one component once; let Unity invoke its original Start/Update.
 /// Never invoke generation manually, activate a root, reveal a renderer, fabricate
 /// placement readiness, reset the worker or repeatedly fight another disable owner.
@@ -134,17 +137,21 @@ internal static class QuestProceduralLifecycle
     {
         admission = "no-registered-entities";
         if (engine.EntityComponents == null || engine.EntityComponents.Count == 0) return false;
-        foreach (ApparanceEntity registered in engine.EntityComponents)
-            if (registered != null && registered.m_EntityHandle != 0) { admission = "existing-native-handle"; return false; }
         bool requested = false;
         foreach (ProceduralMapTile tile in UnityEngine.Object.FindObjectsOfType<ProceduralMapTile>(true))
         {
-            if (tile == null) continue;
+            // Original Entity.Start performs Register/CheckEntity/CreateEntity
+            // before Engine.Start/Update is guaranteed to run. B681 has thirteen
+            // registered entities, while both actual room entities have zero
+            // handles and no generated content: another entity's handle is not
+            // proof that this required update loop is running. Hidden previews
+            // and pooled rooms likewise do not own this visible initial request.
+            if (tile == null || tile.visibility != ProceduralMapTile.Visibility.All || !tile.isActiveAndEnabled) continue;
             Transform generated = tile.transform.Find("Generated Content");
             if (tile.IsPlacementCompleted || (generated != null && generated.childCount != 0))
             { admission = tile.IsPlacementCompleted ? "completed-placement" : "generated-content"; return false; }
             ApparanceEntity entity = tile.GetComponent<ApparanceEntity>();
-            if (tile.visibility == ProceduralMapTile.Visibility.All && tile.isActiveAndEnabled && generated != null
+            if (generated != null
                 && generated.gameObject.activeInHierarchy && entity != null && entity.isActiveAndEnabled
                 && entity.IsPopulated && !entity.Frozen && entity.ProcedureID != 0
                 && entity.m_EntityHandle == 0 && !entity.IsBusy && engine.EntityComponents.Contains(entity)) requested = true;

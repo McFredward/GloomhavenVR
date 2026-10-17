@@ -55,7 +55,7 @@ def reap_fixture_group(group):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "renderer-state", "entity-parameter-property",
-        "lifecycle-desktop", "lifecycle-inactive", "lifecycle-native-handle", "lifecycle-grace", "lifecycle-repeat", "lifecycle-native-content",
+        "lifecycle-desktop", "lifecycle-inactive", "lifecycle-native-handle", "lifecycle-unrelated-handle", "lifecycle-preview-content", "lifecycle-grace", "lifecycle-repeat", "lifecycle-native-content",
         "lifecycle-playerloop-focus", "lifecycle-playerloop-window", "lifecycle-playerloop-pause", "lifecycle-playerloop-install", "lifecycle-playerloop-failure"))
     parser.add_argument("--gpu", action="store_true")
     parser.add_argument("--playerloop", action="store_true")
@@ -92,8 +92,12 @@ def main():
                               "Desktop cannot recover a native component"),
         "lifecycle-inactive": ('!engine.gameObject.activeInHierarchy ? "inactive-owner"', 'false ? "inactive-owner"',
                                "Inactive native owner is never activated"),
-        "lifecycle-native-handle": ("if (registered != null && registered.m_EntityHandle != 0)", "if (registered != null && registered.m_EntityHandle < 0)",
+        "lifecycle-native-handle": ("&& entity.m_EntityHandle == 0 && !entity.IsBusy", "&& !entity.IsBusy",
                                     "An existing native handle prevents initial-generation recovery"),
+        "lifecycle-unrelated-handle": ("bool requested = false;", 'foreach (ApparanceEntity registered in engine.EntityComponents)\n            if (registered != null && registered.m_EntityHandle != 0) { admission = "existing-native-handle"; return false; }\n        bool requested = false;',
+                                       "An unrelated registered native handle cannot block the visible ungenerated room"),
+        "lifecycle-preview-content": ("if (tile == null || tile.visibility != ProceduralMapTile.Visibility.All || !tile.isActiveAndEnabled) continue;", "if (tile == null) continue;",
+                                      "Existing native preview content cannot block the visible ungenerated room"),
         "lifecycle-grace": ("private const float GraceSeconds = 3f;", "private const float GraceSeconds = 0f;",
                             "Three-second grace cannot complete prematurely"),
         "lifecycle-repeat": ('Attempted.Contains(engine.GetInstanceID()) ? "already-attempted"', 'false ? "already-attempted"',
@@ -117,8 +121,6 @@ def main():
         if lifecycle_source.count(before) != 1:
             raise AssertionError("Lifecycle mutation binding drift: " + args.control)
         lifecycle_source = lifecycle_source.replace(before, after, 1)
-        if args.control == "lifecycle-native-handle":
-            lifecycle_source = lifecycle_source.replace("&& entity.m_EntityHandle == 0 && !entity.IsBusy", "&& !entity.IsBusy", 1)
     (editor / "Lifecycle.cs").write_text("#nullable enable\n" + lifecycle_source.replace("namespace GloomhavenVR.Core;", "namespace GloomhavenVR.Core {") + "\n}\n")
     (project / "Assets/HeadUnlit.shader").write_bytes((ROOT / "unity/GloomhavenVR.Assets/Assets/Bundle/Head/HeadUnlit.shader").read_bytes())
     (editor / "Probe.cs").write_bytes((ROOT / "tests/QuestScenarioEvidence.Tests/Probe.cs").read_bytes())

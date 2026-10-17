@@ -58,6 +58,17 @@ public static class QuestProceduralPlayerLoopProbe
                 var entity = tile.gameObject.AddComponent<ApparanceEntity>(); entity.m_EntityHandle = 0;
                 _engine.EntityComponents.Add(entity);
                 new GameObject("Generated Content").transform.parent = tile.transform;
+                // Preserve an actual controlled pre-existing non-room handle,
+                // as independently created by original Entity.Start before
+                // Engine.Start. This was B681's false global veto on hardware.
+                var pooled = new GameObject("Pooled pre-existing entity").AddComponent<ApparanceEntity>();
+                pooled.m_EntityHandle = 71; pooled.gameObject.SetActive(false); _engine.EntityComponents.Add(pooled);
+                var preview = new GameObject("Generated preview room").AddComponent<ProceduralMapTile>();
+                preview.visibility = ProceduralMapTile.Visibility.Preview; preview.IsPlacementCompleted = true;
+                var previewEntity = preview.gameObject.AddComponent<ApparanceEntity>();
+                previewEntity.m_EntityHandle = 72; _engine.EntityComponents.Add(previewEntity);
+                var generatedPreview = new GameObject("Generated Content"); generatedPreview.transform.parent = preview.transform;
+                new GameObject("Original preview geometry").transform.parent = generatedPreview.transform;
                 SceneController.Instance = new GameObject("SceneController").AddComponent<SceneController>();
                 QuestStandalonePlatform.Enabled = true; VRSession.IsRunning = true;
                 Check(!Application.isFocused, "Headless PlayerLoop exposes actual false desktop window focus");
@@ -97,6 +108,10 @@ public static class QuestProceduralPlayerLoopProbe
                 string state = QuestProceduralLifecycle.Describe(_engine);
                 Check(_engine.enabled && ApparanceEngine.NativeStarts == 1 && ApparanceEngine.NativeUpdates > 0,
                     "Actual installed driver restores native Start and Update despite input focus loss");
+                Check(_engine.EntityComponents[0].m_EntityHandle == 0
+                    && _engine.EntityComponents[1].m_EntityHandle == 71 && !_engine.EntityComponents[1].gameObject.activeSelf
+                    && _engine.EntityComponents[2].m_EntityHandle == 72,
+                    "Actual PlayerLoop leaves requested, pooled and preview entity handles unchanged");
                 Check(state.Contains("codeStarted=True") && state.Contains("xrFocus=False") && state.Contains("recovery=attempted"),
                     "Actual lifecycle evidence separates original continuation from input focus");
                 File.WriteAllText("ProbeOutput/playerloop-state.txt", state + "\n");
