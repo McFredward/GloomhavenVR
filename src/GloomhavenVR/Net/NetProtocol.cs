@@ -612,7 +612,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 684;
+    public const ushort ModBuild = 685;
+
+    // ModBuild685 — stereo calibration is a repeatable Advanced-menu action.
+    // Both supplied683 logs recognized the old argv but reported its separate SBS
+    // movie missing. The maintainer requested a menu button instead, and explicitly
+    // requires media WITH the DLL in the installer ZIP, never embedded in the DLL.
+    // Put the reviewed SBS/mono MP4s in normal Debug/Release content, Windows deploy
+    // and both regular ZIP layouts. Preflight and archive checks require both files.
+    // VR Options > Advanced now requests the independent silent test with live EN/DE
+    // preparing/playing/mono/closed/missing/failed feedback. Closing or a failure can
+    // be followed by another deliberate press; active presses never duplicate a
+    // decoder, old callbacks never affect a new one, and invalid-context requests
+    // are refused rather than queued. The old launch argument is inert.
+    // Preserve native movies/audio/continuations, fixed picture/fades and per-eye
+    // shader routing. No calibration config/default, inference, wire or gameplay
+    // change. Focused lifecycle/menu/install/ZIP evidence is not headset evidence.
 
     // ModBuild684 — experimental real-image Steam Link contribution/coverage source.
     // The retired synthetic test setting/assets stay removed. The normal MR page

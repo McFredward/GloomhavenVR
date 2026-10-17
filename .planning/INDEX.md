@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-17 for Build683: explicit stereo video calibration before conversion.
+Updated 2026-10-17 for Build685: repeatable stereo menu action and separate-media installation.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [STEREO-VIDEO-MENU-685.md](STEREO-VIDEO-MENU-685.md) | Build683 missing-file evidence, repeatable Advanced menu action and separate-media build/install/ZIP repair |
 | [STEREO-VIDEO-683.md](STEREO-VIDEO-683.md) | Offline stereo calibration, embedded-video census, actual GPU/lifecycle evidence and required headset review |
 | [TRAILER-3D-VIDEO-HANDOFF.md](TRAILER-3D-VIDEO-HANDOFF.md) | Accepted staged stereo-video direction, media authorities and later conversion/integration scope |
 | [WATER-673-REVIEW.md](WATER-673-REVIEW.md) | Exact native water publication, owned slots/queues, final compiled scope and focused validation limits |

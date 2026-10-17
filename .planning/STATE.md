@@ -1,5 +1,28 @@
 # State — where the project stands
 
+**Stereo calibration menu and separate films, 2026-10-17: Build685.**
+
+Both current hardware logs identify683 and recognize the exact old argv, then
+report the SBS movie missing. The new entry is VR Options > Advanced > Start
+stereo video test (German: Stereo-Videotest starten). It displays live EN/DE
+preparation/playback/mono/error/closure feedback and supports deliberate retry
+after close or failure without restarting the application. Active presses keep
+one decoder; old callbacks cannot affect a later attempt. Close VR Options to
+view the chart unobstructed. The launch parameter is now inert.
+
+The maintainer explicitly requires both movies beside the DLL in the regular
+installer ZIP, not embedded in the DLL. Reviewed identical separate Content
+now reaches Debug/Release output, Windows installation and both ZIP packagers;
+missing inputs fail preflight. There is no new setting or native-film behavior.
+Worker evidence: owner198 assertions/29 controls, existing options7339/21 plus
+menu25/8, packaging34Python/19PowerShell/15MSBuild-copy assertions. Final merged
+checks and handover receipts live in `.planning/debug/stereo-video-menu685/`.
+Read `.planning/STEREO-VIDEO-MENU-685.md` for scoped failures/inherited evidence.
+A fresh complete local gate or correct headset picture is not claimed.
+
+This handover includes the separately validated default-off684 real-scene source
+checkpoint below; no Frame receiver action is performed by this movie repair.
+
 **Real-image Steam Link MR source, 2026-10-17: Build684 source checkpoint.**
 
 The retired test pattern and its setting stay removed. Existing MR settings now
