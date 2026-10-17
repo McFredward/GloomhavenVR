@@ -460,7 +460,6 @@
       "kind": "external",
       "source_sha256": "22fc9f48d4da6783fed379122e8c5675c4149afd9c0bc90550a9e4e22696fec5",
       "source_bytes": 115673514,
-      "source_relative": "StreamingAssets/Movies/CP_Intro/GH_CP_Intro.mov",
       "fps": 60,
       "frames": 2931,
       "dimensions": [
@@ -632,7 +631,10 @@
       ],
       "root_owned": true,
       "native_source_sha256": "589d421dc23d9733df8092f1042de527179ed9b52e37f18ae5bd50c8b49f4a20",
-      "source_origin": "Already approved, mod-local GloomhavenVR intro; root-owned revision."
+      "source_origin": "Already approved, mod-local GloomhavenVR intro; root-owned revision.",
+      "native_source_relative": "StreamingAssets/Movies/CP_Intro/GH_CP_Intro.mov",
+      "source_root": "repository",
+      "source_relative": "src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov"
     },
     {
       "key": "Heroes/BeastTyrant.mov",

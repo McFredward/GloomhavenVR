@@ -132,6 +132,8 @@ def main() -> int:
                 '--depths', str(args.depths), '--out', str(render_dir), '--wait-depth']
             child(command, args.out / (label + '-render.log'))
             render = json.loads((render_dir / 'receipt.json').read_text())
+        if json.loads((render_dir / 'movie-snapshot.json').read_text()) != movie:
+            raise ValueError('Existing render used a different shot/source/mask movie manifest')
         verify_dir = args.out / ('verify-' + label) / 'run-media001'
         if (verify_dir / 'result.json').exists():
             proof = json.loads((verify_dir / 'result.json').read_text())
