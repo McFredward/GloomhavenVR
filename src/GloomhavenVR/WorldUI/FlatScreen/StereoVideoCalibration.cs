@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands.Interact;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.WorldUI;
 using TMPro;
 using UnityEngine;

@@ -158,6 +158,16 @@ public sealed class SceneController
     public string GetCurrentSceneName { get { Reads++; return Scene; } }
 }
 public static class FFSNetwork { public static bool IsOnline; }
+namespace GloomhavenVR.Hands.Interact
+{
+    internal static class UguiPokeSurfaces
+    {
+        internal static readonly HashSet<UnityEngine.Canvas> Canvases = new();
+        internal static int Registrations, Removals;
+        internal static void Register(UnityEngine.Canvas canvas) { Registrations++; Canvases.Add(canvas); }
+        internal static void Unregister(UnityEngine.Canvas canvas) { Removals++; Canvases.Remove(canvas); }
+    }
+}
 namespace GloomhavenVR.WorldUI
 {
     internal static class File
@@ -171,13 +181,6 @@ namespace GloomhavenVR.WorldUI
     internal static class CanvasConversion { internal static UnityEngine.Camera? WorldCamera; }
     internal static class PanelLayout { internal static float WorldScale = 1f; }
     internal static class ModalFallback { internal const int ModalHostSortingOrder = 200; }
-    internal static class UguiPokeSurfaces
-    {
-        internal static readonly HashSet<UnityEngine.Canvas> Canvases = new();
-        internal static int Registrations, Removals;
-        internal static void Register(UnityEngine.Canvas canvas) { Registrations++; Canvases.Add(canvas); }
-        internal static void Unregister(UnityEngine.Canvas canvas) { Removals++; Canvases.Remove(canvas); }
-    }
     internal sealed class StereoVideoSurface : IDisposable
     {
         internal static int AvailabilityChecks, Attachments, Disposals;
