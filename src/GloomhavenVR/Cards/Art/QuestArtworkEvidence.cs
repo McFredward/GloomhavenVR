@@ -59,7 +59,7 @@ internal static class QuestArtworkEvidence
                 + " crop=" + Geometry(crop) + " output=" + Label(drawn.texture)
                 + " outputCrop=" + Geometry(outputCrop) + " outerUv=" + outerUv;
             detail += DrawState(image);
-            Emit(detail, texture, crop, drawn.texture, outputCrop);
+            Emit(role, detail, image, texture, crop, drawn.texture, outputCrop);
         }
         catch (Exception error) { Failed(role, error); }
     }
@@ -102,7 +102,7 @@ internal static class QuestArtworkEvidence
             string detail = " role=" + role + " source=" + Label(source) + " uv=" + Geometry(crop)
                 + " output=" + Label(drawn);
             detail += DrawState(image);
-            Emit(detail, source, PixelRect(source, crop), drawn, PixelRect(drawn, crop));
+            Emit(role, detail, image, source, PixelRect(source, crop), drawn, PixelRect(drawn, crop));
         }
         catch (Exception error) { Failed(role, error); }
     }
@@ -170,16 +170,26 @@ internal static class QuestArtworkEvidence
         Debug.Log("[Quest startup] artwork role=" + role + " unavailable=" + error.GetType().Name);
     }
 
-    private static void Emit(string detail, Texture source, Rect crop, Texture output, Rect outputCrop)
+    private static void Emit(string role, string detail, Graphic image, Texture source, Rect crop, Texture output, Rect outputCrop)
     {
-        // Two 6x6 RGBA crops (192 base64 characters each) leave room for the actual
-        // consumer's clipping/material state within one Android logcat record.
-        // Still at most eight records in the protected startup share, not sixteen.
-        string first = Sample(source, crop);
-        string second = Sample(output, outputCrop);
-        string message = "[Quest startup] artwork" + detail + " rgba6=" + first + " outputRgba6=" + second;
-        if (Encoding.UTF8.GetByteCount(message) <= 1000) Debug.Log(message);
-        else Debug.Log("[Quest startup] artwork" + detail + " samples=omitted-record-limit");
+        // Keep BOTH real6x6 pixel observations even when actual Android instance IDs,
+        // long native names, clipping and current material metadata exceed one logcat
+        // record. B679's missing observations cannot be diagnosed by dropping the
+        // very samples once we finally reach a parked capture source. Compress only
+        // metadata; no extra GPU readback, log record or quota is introduced.
+        string samples = " rgba6=" + Sample(source, crop) + " outputRgba6=" + Sample(output, outputCrop);
+        string message = "[Quest startup] artwork" + detail + samples;
+        if (Encoding.UTF8.GetByteCount(message) > 1000)
+        {
+            Material sourceMaterial = image.material;
+            string shader = sourceMaterial != null && sourceMaterial.shader != null ? Name(sourceMaterial.shader.name) : "none";
+            string compact = " role=" + Name(role) + " metadataCompressed=true source=" + Label(source)
+                + " crop=" + Geometry(crop) + " output=" + Label(output) + " outputCrop=" + Geometry(outputCrop)
+                + " enabled=" + image.enabled + " self=" + image.gameObject.activeSelf
+                + " hierarchy=" + image.gameObject.activeInHierarchy + " sourceShader=" + shader;
+            message = "[Quest startup] artwork" + compact + samples;
+        }
+        Debug.Log(message);
     }
 
     private static string Sample(Texture texture, Rect pixels)
@@ -213,7 +223,13 @@ internal static class QuestArtworkEvidence
 
     private static Rect PixelRect(Texture texture, Rect uv) =>
         new(uv.x * texture.width, uv.y * texture.height, uv.width * texture.width, uv.height * texture.height);
-    private static string Name(string name) => name.Length > 24 ? name.Substring(0, 24) : name;
+    private static string Name(string name)
+    {
+        int count = Mathf.Min(name.Length, 24);
+        while (count > 0 && Encoding.UTF8.GetByteCount(name.Substring(0, count)) > 24) count--;
+        if (count > 0 && char.IsHighSurrogate(name[count - 1])) count--;
+        return count == name.Length ? name : name.Substring(0, count);
+    }
     private static string Label(Texture texture) => Name(texture.name) + "#" + texture.GetInstanceID()
         + "@" + texture.updateCount + ":" + texture.width + "x" + texture.height;
     private static string Geometry(Rect rect) => rect.x.ToString("F3", CultureInfo.InvariantCulture) + ","

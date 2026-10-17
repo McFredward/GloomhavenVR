@@ -166,6 +166,27 @@ public static partial class DiagnosticProgram
                 "invalid reflection binding emits a bounded failure rather than silence");
             Check(!raw.enabled && raw.texture != null && !hiddenHost.activeSelf,
                 "raw observation leaves native lifecycle and texture untouched");
+            imageObject.name = new string('界', 40);
+            string previousAtlasName = atlas.name;
+            atlas.name = new string('界', 40);
+            source.name = new string('界', 40);
+            RectTransform imageRect = image.rectTransform;
+            // Stress real formatted native metadata without generating a second
+            // GPU draw: these parked bounds and multibyte names exceed one record.
+            imageRect.sizeDelta = new Vector2(float.MaxValue / 8, float.MaxValue / 8);
+            imageRect.anchoredPosition = Vector2.zero;
+            image.sprite = source;
+            QuestArtworkEvidence.Image(image, "long-header-state");
+            Check(artworkRecords.Count == 6 && artworkRecords[5].Contains("metadataCompressed=true")
+                && artworkRecords[5].Contains(" rgba6=") && artworkRecords[5].Contains(" outputRgba6=")
+                && System.Text.Encoding.UTF8.GetByteCount(artworkRecords[5]) <= 1000,
+                "long native metadata retains paired pixel samples within the Android byte limit");
+            Check(artworkRecords[5].Contains("crop=") && artworkRecords[5].Contains("outputCrop=")
+                && artworkRecords[5].Contains("enabled=True") && artworkRecords[5].Contains("hierarchy=False"),
+                "metadata compression retains native crops and actual image lifecycle flags");
+            atlas.name = previousAtlasName;
+            imageObject.name = "card-image";
+            imageRect.sizeDelta = new Vector2(100, 100); imageRect.anchoredPosition = Vector2.zero;
             ((IDictionary)typeof(QuestArtworkEvidence).GetField("Seen", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Clear();
             typeof(QuestArtworkEvidence).GetField("_records", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, 0);
             artworkRecords.Clear();
