@@ -38,7 +38,15 @@ object and beginning a separate native sprite-logo sequence. The complete clip
 is8seconds. Conversion does not change that native continuation or wait; a
 standalone review can show the complete clip. The source startup camera is the
 UI-only orthographic camera27 in `level12`, with the VideoPlayer58 drawing to its
-near plane and no RenderTexture.
+near plane and no RenderTexture. VideoPlayer58 serializes `playOnAwake=false`,
+`looping=false` and `targetCameraAlpha=1`, so serialized autoplay does not precede
+`IntroPlayer.ShowVideo` and its explicit `Play` call.
+
+The ambient `MainVideoProvider` is level1 component11392, bound to VideoPlayer10593.
+It serializes disabled, `playOnAwake=false`, `looping=true`, CameraFarPlane,
+`targetCameraAlpha=1` and no RenderTexture. `BackgroundView` supplies the native
+ambient URL before explicit playback. Its retained serialized initial trailer
+clip is not an added conversion subject and does not revoke the exclusion.
 
 The retained gameplay trailer is not scheduled by the supplied menu scenes:
 `MainMenu`/`MainMenu_gamepad` (`level2`/`level3`) serialize
