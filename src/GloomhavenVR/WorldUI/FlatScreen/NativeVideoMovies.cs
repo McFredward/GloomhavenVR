@@ -10,30 +10,83 @@ using UnityEngine.Video;
 
 namespace GloomhavenVR.WorldUI;
 
-/// <summary>Resolve explicit campaign movie variants while preserving native continuation identity.</summary>
+/// <summary>Resolve explicit movie revisions without changing native continuation identity.</summary>
 internal static class NativeVideoMovies
 {
     private const string IntroName = "CP_Intro/GH_CP_Intro";
     internal const string IntroKey = IntroName + ".mov";
-    internal const string StereoIntroKey = IntroName + ".sbs-v1.mov";
+    internal const string StereoIntroKey = IntroName + ".sbs-v2.mov";
+    internal const string LegacyStereoIntroKey = IntroName + ".sbs-v1.mov";
     internal const string NativeIntroKey = IntroName + ".native.mov";
+    // These are the actual shipped originals, including the native misspelling Amibient.
+    // A canonical mono selection never upgrades on another machine. Only an explicit
+    // selected revision can resolve its SBS file, then its exact original left companion.
+    private static readonly string[] Movies =
+    {
+        IntroKey,
+        "Heroes/Doomstalker.mov", "Heroes/Soothsinger.mov", "Heroes/Berserker.mov",
+        "Heroes/Summoner.mov", "Heroes/BeastTyrant.mov", "Heroes/Quartermaster.mov",
+        "Heroes/Nightshroud.mov", "Heroes/Elementalist.mov", "Heroes/Sunkeeper.mov",
+        "Heroes/Sawbones.mov", "Heroes/Plagueherald.mov",
+        "Ambient/Ambient_03_Forest_01.mov", "Ambient/Ambient_Crypt_01.mov",
+        "Ambient/Amibient_07_Dungeon_01.mov", "Ambient/Ambient_05_Corpsewood_01.mov",
+        "Ambient/Ambient_06_Town_01.mov", "Ambient/Ambient_02_Cave_01.mov",
+        "Ambient/Ambient_04_Cave_02.mov",
+        "Embedded/TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.mov",
+    };
+    private sealed class Selection { internal string Url = string.Empty, Key = string.Empty; }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<VideoPlayer, Selection> Selections = new();
     private static bool _reportedReplacement;
-    private static uint _introOpening;
-    private static VideoPlayer? _selectedPlayer;
-    private static string _selectedUrl = string.Empty, _selectedKey = string.Empty;
+    private static uint _introOpening, _opening;
+    internal static int Count => Movies.Length;
+    internal static string GetKey(int index) => Movies[index];
+    private static readonly List<VideoPlayer> CameraPlanePlayers = new(3);
+    internal static void RegisterCameraPlane(VideoPlayer player)
+    {
+        if (!CameraPlanePlayers.Contains(player)) CameraPlanePlayers.Add(player);
+    }
+    internal static VideoPlayer? CameraPlaneSource
+    {
+        get
+        {
+            VideoPlayer? selected = null;
+            float depth = float.MinValue;
+            for (int i = CameraPlanePlayers.Count - 1; i >= 0; i--)
+            {
+                VideoPlayer player = CameraPlanePlayers[i];
+                if (player == null) { CameraPlanePlayers.RemoveAt(i); continue; }
+                Camera camera = player.targetCamera;
+                if (!player.isActiveAndEnabled || camera == null || !camera.isActiveAndEnabled
+                    || !IsStereoUrl(player.url)
+                    || (player.renderMode != VideoRenderMode.CameraNearPlane && player.renderMode != VideoRenderMode.CameraFarPlane)) continue;
+                if (selected == null || camera.depth > depth) { selected = player; depth = camera.depth; }
+            }
+            return selected;
+        }
+    }
 
-    internal static string CanonicalKey(string? key) => key == StereoIntroKey || key == NativeIntroKey
-        ? IntroKey : key ?? string.Empty;
+    internal static string CanonicalKey(string? key)
+    {
+        if (key == NativeIntroKey || key == LegacyStereoIntroKey) return IntroKey;
+        if (key == null) return string.Empty;
+        for (int i = 0; i < Movies.Length; i++)
+            if (key == StereoKey(Movies[i])) return Movies[i];
+        return key;
+    }
     internal static bool SamePresentation(string? first, string? second) => CanonicalKey(first) == CanonicalKey(second);
+    internal static string StereoKey(string canonical) => canonical == IntroKey ? StereoIntroKey
+        : canonical.Substring(0, canonical.Length - 4) + ".sbs-v1.mov";
+    internal static bool IsCanonical(string key) => Array.IndexOf(Movies, key) >= 0;
+    internal static bool IsStereoKey(string? key) => !string.IsNullOrEmpty(key) && CanonicalKey(key) != key
+        && key != NativeIntroKey;
+
     internal static string NativePlaybackKey(VideoPlayer player)
     {
         string key = KeyFromUrl(player.url);
-        if (key != IntroKey) return key;
-        // The native and approved replacement share a basename. Only the intercepted
-        // assignment proves which content was selected; never upgrade an original owner
-        // to the approved movie merely because another installation has that replacement.
-        return ReferenceEquals(player, _selectedPlayer) && player.url == _selectedUrl
-            ? _selectedKey : NativeIntroKey;
+        if (Selections.TryGetValue(player, out Selection? selected) && selected.Url == player.url) return selected.Key;
+        // The native intro and approved replacement share a basename. Only the
+        // intercepted assignment proves which content was selected.
+        return key == IntroKey ? NativeIntroKey : key;
     }
     internal static string KeyFromUrl(string? url)
     {
@@ -44,20 +97,18 @@ internal static class NativeVideoMovies
         string key = path.Substring(path.LastIndexOf('/', last - 1) + 1);
         return IsPlaybackKey(key) ? key : string.Empty;
     }
-    internal static bool IsStereoUrl(string? url) => KeyFromUrl(url) == StereoIntroKey;
+    internal static bool IsStereoUrl(string? url) => IsStereoKey(KeyFromUrl(url));
 
-    // The maintainer approved the trailer's opening as the first-save intro on 2026-10-16.
-    // Keep the game installation read-only: the replacement travels beside the plugin. Both
-    // native playback and cosmetic peer decoders must resolve the selected movie variant;
-    // publishing this machine's mod path would break multiplayer and native skip matching.
     internal static bool IsPlaybackKey(string key)
     {
         if (string.IsNullOrEmpty(key) || key.Length > 128) return false;
         string extension = Application.platform == RuntimePlatform.Switch ? ".mp4" : ".mov";
         if (!key.EndsWith(extension, StringComparison.Ordinal)) return false;
+        string canonical = CanonicalKey(key);
+        if (IsCanonical(canonical)) return extension == ".mov" || key == canonical;
+        // Retain the existing native hero grammar for game revisions/additional heroes.
+        // Stereo revisions are admitted only by the exact catalogue above.
         string stem = key.Substring(0, key.Length - extension.Length);
-        if (stem == IntroName || (extension == ".mov" && key == StereoIntroKey)
-            || (extension == ".mov" && key == NativeIntroKey)) return true;
         if (!stem.StartsWith("Heroes/", StringComparison.Ordinal) || stem.Length <= 7) return false;
         for (int i = 7; i < stem.Length; i++)
         {
@@ -68,11 +119,10 @@ internal static class NativeVideoMovies
         return true;
     }
 
-    private static bool TryModIntro(string key, out string url)
+    private static bool TryModMovie(string key, out string url)
     {
         url = string.Empty;
-        // Only these approved MOV variants ship. Other assets and platform-specific MP4s stay native.
-        if (key != IntroKey && key != StereoIntroKey) return false;
+        if (!IsPlaybackKey(key) || key == NativeIntroKey || Application.platform == RuntimePlatform.Switch) return false;
         string directory = Path.GetDirectoryName(typeof(NativeVideoMovies).Assembly.Location)!;
         string candidate = Path.Combine(directory, "Movies", key.Replace('/', Path.DirectorySeparatorChar));
         if (!File.Exists(candidate)) return false;
@@ -84,12 +134,10 @@ internal static class NativeVideoMovies
     {
         url = string.Empty;
         if (!IsPlaybackKey(key)) return false;
-        if (TryModIntro(key, out url)) return true;
-        // A selected SBS revision may degrade only to its exact approved left-eye companion.
-        // Falling through to the game's unrelated original intro would change shared content.
-        if (key == StereoIntroKey) return TryModIntro(IntroKey, out url);
-        if (key == IntroKey) return false;
-        // This alias selects the read-only game movie even on a fully modded peer.
+        if (TryModMovie(key, out url)) return true;
+        if (IsStereoKey(key)) key = CanonicalKey(key);
+        // The approved intro may only degrade to its approved original left picture.
+        if (key == IntroKey) return TryModMovie(IntroKey, out url);
         if (key == NativeIntroKey) key = IntroKey;
         string root;
         if (Application.platform == RuntimePlatform.OSXPlayer)
@@ -106,44 +154,104 @@ internal static class NativeVideoMovies
         return true;
     }
 
+    internal static bool TrySelectReview(string canonical, out string selectedKey, out string url)
+    {
+        selectedKey = canonical;
+        url = string.Empty;
+        if (!IsCanonical(canonical)) return false;
+        string stereoKey = StereoKey(canonical);
+        if (StereoVideoSurface.IsAvailable(out _) && TryModMovie(stereoKey, out url))
+        {
+            selectedKey = stereoKey;
+            return true;
+        }
+        return TryResolvePlaybackKey(canonical, out url);
+    }
+
+    internal static void SetAmbientUrl(VideoPlayer player, string originalUrl)
+    {
+        SetNativeUrl(player, originalUrl, KeyFromUrl(originalUrl).Replace(".mov", string.Empty));
+        RegisterCameraPlane(player);
+    }
+
+    internal static void SetEmbeddedSource(VideoPlayer player)
+    {
+        // Both actual serialized clips are camera-plane sources. Keep that mode and
+        // exact target camera: the game's normal callbacks and timing remain intact.
+        string canonical = player.source == VideoSource.VideoClip && player.clip != null
+            ? "Embedded/" + player.clip.name + ".mov" : CanonicalKey(KeyFromUrl(player.url));
+        if (!canonical.StartsWith("Embedded/", StringComparison.Ordinal) || !IsCanonical(canonical)) return;
+        NativeVideoReview.CancelForNativePlayback();
+        bool vr = VRSession.IsRunning && WorldUIConfig.ConversionActive;
+        string selected = StereoKey(canonical);
+        if (vr && StereoVideoSurface.IsAvailable(out _) && TryModMovie(selected, out string stereo))
+        {
+            player.source = VideoSource.Url;
+            SetNativeUrl(player, stereo, canonical.Substring(0, canonical.Length - 4));
+            RegisterCameraPlane(player);
+        }
+        else if (TryModMovie(canonical, out string mono))
+        {
+            player.source = VideoSource.Url;
+            // SetNativeUrl applies the same native mono/stereo preflight and provenance.
+            SetNativeUrl(player, mono, canonical.Substring(0, canonical.Length - 4));
+            RegisterCameraPlane(player);
+        }
+        else if (player.source == VideoSource.Url && IsStereoUrl(player.url))
+        {
+            // The original serialized clip remains bound even while source is Url.
+            // If a mod companion disappears, reuse it instead of exposing packed SBS.
+            if (player.clip != null) player.source = VideoSource.VideoClip;
+            VRLog.Warn("WorldUI", $"NATIVE MOVIE STEREO FALLBACK: key={selected}, reason=embedded companion unavailable; original serialized clip retained.");
+        }
+    }
+
     internal static void SetNativeUrl(VideoPlayer player, string originalUrl, string requestedName)
     {
+        // This is the original setter seam, before first Play/Prepare. Never restart a
+        // native decoder or change renderMode/targetTexture after playback starts.
+        NativeVideoReview.CancelForNativePlayback();
         string url = originalUrl;
         string key = KeyFromUrl(originalUrl);
         if (key == IntroKey) key = NativeIntroKey;
-        if (requestedName == IntroName && Application.platform != RuntimePlatform.Switch)
+        string canonical = requestedName + ".mov";
+        bool intro = canonical == IntroKey;
+        if (IsCanonical(canonical) && Application.platform != RuntimePlatform.Switch)
         {
-            unchecked { _introOpening++; }
+            unchecked { _opening++; if (intro) _introOpening++; }
             bool presentingVr = VRSession.IsRunning && WorldUIConfig.ConversionActive;
+            string stereoKey = StereoKey(canonical);
             string reason = "versioned stereo asset is missing";
-            bool hasStereo = TryModIntro(StereoIntroKey, out string stereo);
+            bool hasStereo = TryModMovie(stereoKey, out string stereo);
             if (presentingVr && hasStereo && StereoVideoSurface.IsAvailable(out reason))
             {
                 url = stereo;
-                key = StereoIntroKey;
+                key = stereoKey;
             }
             else
             {
-                if (TryModIntro(IntroKey, out string replacement))
-                {
-                    url = replacement;
-                    key = IntroKey;
-                }
+                if (TryModMovie(canonical, out string replacement)) { url = replacement; key = canonical; }
                 if (presentingVr)
-                    VRLog.Warn("WorldUI", $"NATIVE INTRO STEREO FALLBACK: opening={_introOpening}, key={StereoIntroKey}, "
-                        + $"resolved={key}, reason={reason}; native playback continues in 2D.");
+                {
+                    string token = intro ? "NATIVE INTRO STEREO FALLBACK" : "NATIVE MOVIE STEREO FALLBACK";
+                    VRLog.Warn("WorldUI", $"{token}: opening={_opening}, key={stereoKey}, resolved={key}, reason={reason}; native playback continues in 2D.");
+                }
             }
-            VRLog.Note("WorldUI", $"NATIVE INTRO SELECTED: opening={_introOpening}, key={key}; native playback owns clock, audio and completion.");
-            if (url != originalUrl && !_reportedReplacement)
+            if (intro)
             {
-                _reportedReplacement = true;
-                VRLog.Note("WorldUI", "NATIVE INTRO REPLACEMENT: using the approved mod-local campaign movie; native playback owns completion.");
+                VRLog.Note("WorldUI", $"NATIVE INTRO SELECTED: opening={_introOpening}, key={key}; native playback owns clock, audio and completion.");
+                if (url != originalUrl && !_reportedReplacement)
+                {
+                    _reportedReplacement = true;
+                    VRLog.Note("WorldUI", "NATIVE INTRO REPLACEMENT: using the approved mod-local campaign movie; native playback owns completion.");
+                }
             }
+            else VRLog.Note("WorldUI", $"NATIVE MOVIE SELECTED: opening={_opening}, key={key}; native playback owns clock, audio and completion.");
         }
         player.url = url;
-        _selectedPlayer = player;
-        _selectedUrl = url;
-        _selectedKey = key;
+        Selection selected = Selections.GetValue(player, _ => new Selection());
+        selected.Url = url;
+        selected.Key = key;
     }
 }
 
@@ -185,5 +293,34 @@ internal static class NativeVideoMoviePatch
             result.Add(call);
         }
         return result;
+    }
+}
+
+/// <summary>Replace the existing ambient setter before its ordinary single Play.</summary>
+[HarmonyPatch(typeof(BackgroundView), "Update")]
+internal static class NativeAmbientMoviePatch
+{
+    [HarmonyTranspiler]
+    internal static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+    {
+        var code = new List<CodeInstruction>(instructions);
+        MethodInfo setter = AccessTools.PropertySetter(typeof(VideoPlayer), nameof(VideoPlayer.url));
+        int count = 0;
+        foreach (CodeInstruction instruction in code) if (instruction.Calls(setter)) count++;
+        if (count != 1)
+        {
+            VRLog.Warn("WorldUI", "NATIVE MOVIE STEREO FALLBACK: ambient URL assignment changed; keeping original playback.");
+            return code;
+        }
+        MethodInfo replacement = AccessTools.Method(typeof(NativeVideoMovies), nameof(NativeVideoMovies.SetAmbientUrl));
+        for (int i = 0; i < code.Count; i++)
+        {
+            if (!code[i].Calls(setter)) continue;
+            var changed = new CodeInstruction(code[i]);
+            changed.opcode = OpCodes.Call;
+            changed.operand = replacement;
+            code[i] = changed;
+        }
+        return code;
     }
 }

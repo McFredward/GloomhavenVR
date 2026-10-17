@@ -112,7 +112,7 @@ internal static class MovieResolutionTests
                 && changed[1].Calls(AccessTools.Method(typeof(NativeVideoMovies), nameof(NativeVideoMovies.SetNativeUrl)))
                 && original.opcode == OpCodes.Callvirt,
                 "transpiler preserves branch and exception markers without mutating original IL");
-            string stereo = Path.Combine(Path.GetDirectoryName(mod)!, "GH_CP_Intro.sbs-v1.mov");
+            string stereo = Path.Combine(Path.GetDirectoryName(mod)!, "GH_CP_Intro.sbs-v2.mov");
             File.WriteAllText(stereo, "versioned stereo movie");
             StereoVideoSurface.Available = true;
             plays = player.PlayCalls;
@@ -142,7 +142,7 @@ internal static class MovieResolutionTests
                 "native alias normalizes only the exact intro continuation representation");
             check(NativeVideoWindow.TryResolvePlaybackKey(NativeVideoMovies.IntroKey, out url) && url == mod,
                 "owner mono key is never silently upgraded to local stereo media");
-            foreach (string invalid in new[] { "CP_Intro/GH_CP_Intro.sbs-v2.mov", "CP_Intro/GH_CP_Intro.sbs.mov", "Heroes/Brute.sbs-v1.mov", "CP_Intro/GH_CP_Intro.native-v2.mov", "Heroes/Brute.native.mov" })
+            foreach (string invalid in new[] { "CP_Intro/GH_CP_Intro.sbs-v3.mov", "CP_Intro/GH_CP_Intro.sbs.mov", "Heroes/Brute.sbs-v1.mov", "CP_Intro/GH_CP_Intro.native-v2.mov", "Heroes/Brute.native.mov" })
                 check(!NativeVideoWindow.IsPlaybackKey(invalid) && !NativeVideoWindow.TryResolvePlaybackKey(invalid, out url) && url.Length == 0,
                     "unknown stereo revision or filename is refused: " + invalid);
             StereoVideoSurface.Available = false;

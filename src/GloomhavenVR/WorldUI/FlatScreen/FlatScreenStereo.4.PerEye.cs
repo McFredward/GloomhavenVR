@@ -242,6 +242,8 @@ internal sealed partial class FlatScreenStereo
         if (mat == null)
             return;
 
+        if (_stereoMovie != null && ShowStereoMovie(cam, mat)) return;
+
         if (_videoShift && _shiftBlitFrame != Time.frameCount
             && _leftRt != null && _rtRight != null && _rtLeftShifted != null)
         {

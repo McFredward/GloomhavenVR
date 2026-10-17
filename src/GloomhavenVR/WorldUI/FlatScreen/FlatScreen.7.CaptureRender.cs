@@ -62,6 +62,7 @@ internal sealed partial class FlatScreen
             RenderPipelineManager.beginCameraRendering -= OnCaptureBeginCameraRendering;
             RenderPipelineManager.endCameraRendering -= OnCaptureEndCameraRendering;
             RestoreCaptureMask();
+            NativeMovieCameraPlane.RestoreAll();
         }
     }
 
@@ -103,6 +104,7 @@ internal sealed partial class FlatScreen
         RenderTexture? target = TargetFor(captured);
         if (target != null && camera.targetTexture != target)
             camera.targetTexture = target;
+        if (_stereo.OwnsMoviePlane(camera)) NativeMovieCameraPlane.BeforeRender(camera);
         int mask = camera.cullingMask;
         // An exhausted unnamed-layer pool falls back to the native UI layer.
         // That shared layer cannot be excluded without blanking the real menu.
@@ -115,6 +117,7 @@ internal sealed partial class FlatScreen
 
     private void OnCapturePostRender(Camera camera)
     {
+        NativeMovieCameraPlane.AfterRender(camera);
         if (_captureMaskedCamera != null && camera == _captureMaskedCamera)
             RestoreCaptureMask();
     }

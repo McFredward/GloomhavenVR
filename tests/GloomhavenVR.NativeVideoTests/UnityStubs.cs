@@ -61,7 +61,7 @@ namespace UnityEngine
         public void SetActive(bool active) { activeSelf = active; }
     }
     public struct Scene { public bool isLoaded => true; }
-    public sealed class Camera : Component { }
+    public sealed class Camera : Component { public float depth; }
     public sealed class Canvas : Component { public RenderMode renderMode; public Camera? worldCamera; }
     public sealed class CanvasGroup : Component { }
     public enum RenderMode { WorldSpace }
@@ -78,6 +78,7 @@ namespace UnityEngine
     }
     public struct Quaternion { }
     public struct Color { public static Color white => new(); }
+    public static class Time { public static float unscaledTime; }
     public static class Mathf { public static int Max(int a, int b) => Math.Max(a, b); }
 }
 namespace UnityEngine.UI
@@ -94,8 +95,29 @@ namespace UnityEngine.UI
 }
 namespace UnityEngine.Video
 {
+    public enum VideoSource { VideoClip, Url }
+    public enum VideoRenderMode { APIOnly, CameraNearPlane, CameraFarPlane }
+    public enum VideoAudioOutputMode { Direct }
+    public sealed class VideoClip { public string name = string.Empty; }
     public sealed class VideoPlayer : UnityEngine.Component
     {
+        public VideoSource source;
+        public VideoClip? clip;
+        public UnityEngine.Camera targetCamera = null!;
+        public VideoRenderMode renderMode;
+        public VideoAudioOutputMode audioOutputMode;
+        public bool playOnAwake, isLooping;
+        public ushort audioTrackCount;
+        public event Action<VideoPlayer>? prepareCompleted, loopPointReached;
+        public event Action<VideoPlayer, string>? errorReceived;
+        public int StopCalls, PrepareCalls;
+        public void Prepare() { PrepareCalls++; }
+        public void Prepared() { isPrepared = true; prepareCompleted?.Invoke(this); }
+        public void Ended() { isPlaying = false; loopPointReached?.Invoke(this); }
+        public void Failed() => errorReceived?.Invoke(this, "injected failure");
+        public void Stop() { StopCalls++; isPlaying = isPaused = false; }
+        public void SetDirectAudioVolume(ushort track, float volume) { }
+
         public event Action<VideoPlayer>? started;
         public void StartPlayback() => started?.Invoke(this);
         public bool isPlaying, isPaused, isPrepared;
@@ -265,4 +287,19 @@ namespace GloomhavenVR.WorldUI.MapRoom
         internal static bool OwnsGrab(GloomhavenVR.WorldUI.GrabbableModal holder) =>
             ReferenceEquals(holder, OwnedGrab);
     }
+}
+
+public static class AudioController { public static float GetGlobalVolume() => .8f; }
+public sealed class BackgroundView { private void Update() { } }
+public sealed class IntroPlayer { private void ShowVideo() { } }
+public sealed class PromotionVideoHandler { public void PlayVideo() { } }
+namespace GloomhavenVR.Core.Events
+{
+    internal readonly struct SceneLoadedEvent { }
+    internal static class VREvents
+    {
+        internal static event Action<SceneLoadedEvent>? SceneLoaded;
+        internal static void LoadScene() => SceneLoaded?.Invoke(default);
+    }
+    internal static class VRModeStateMachine { internal static bool ScenarioBoardExists = true; }
 }

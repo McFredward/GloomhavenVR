@@ -128,7 +128,7 @@ internal sealed partial class FlatScreen
             // left RT so the single suspended image carries everything. Applying the flip
             // here is still same-frame — cameras render after Update — so no frame
             // is ever one-eyed or UI-less; bases/clears are recomputed immediately.
-            bool routing = !preMenu && !_stereo.Suspended;
+            bool routing = (!preMenu || _stereo.StereoMovieActive) && !_stereo.Suspended;
             if (routing != _splitRouting)
             {
                 SetSplitRouting(routing, routing

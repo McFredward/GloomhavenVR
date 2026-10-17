@@ -6,10 +6,14 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <VideoSource Condition="'$(VideoSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs</VideoSource>
     <MovieSource Condition="'$(MovieSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs</MovieSource>
+    <ReviewSource Condition="'$(ReviewSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoReview.cs</ReviewSource>
+    <EmbeddedSource Condition="'$(EmbeddedSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/NativeEmbeddedMoviePatches.cs</EmbeddedSource>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(VideoSource)" Link="Production/NativeVideoWindow.cs" />
     <Compile Include="$(MovieSource)" Link="Production/NativeVideoMovies.cs" />
+    <Compile Include="$(ReviewSource)" Link="Production/NativeVideoReview.cs" />
+    <Compile Include="$(EmbeddedSource)" Link="Production/NativeEmbeddedMoviePatches.cs" />
     <Compile Include="$(ChromeSweepSource)" Link="Production/ModalChromeSweep.cs" />
     <Compile Include="$(PointerGuardSource)" Link="Production/PointerGuard.cs" />
   </ItemGroup>

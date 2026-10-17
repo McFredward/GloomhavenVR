@@ -49,6 +49,9 @@ internal static class NativeVideoWindow
     internal static UIWindow? Window { get; private set; }
     internal static bool Visible => _root != null && _root.activeSelf;
     internal static uint NativePlaybackGeneration => _nativePlaybackGeneration;
+    internal static uint OriginatingPlaybackGeneration => NativeVideoReview.Active ? NativeVideoReview.Generation : _nativePlaybackGeneration;
+    internal static VideoPlayer? OriginatingPlayer => NativePlayer ?? NativeVideoReview.Source;
+    internal static bool HasRemoteSource => _remoteSource != null;
 
     // The native movie camera is also the decoder's live presentation/continuation lease.
     // Its pixels already go to the discarded sink; disabling it would invalidate NativePlayer.
@@ -67,6 +70,17 @@ internal static class NativeVideoWindow
             VideoPlayer? player = owner.m_VideoPlayer;
             return player != null && player.isActiveAndEnabled && (player.isPlaying || player.isPaused)
                 ? player : null;
+        }
+    }
+
+    internal static bool NativePlaybackBusy
+    {
+        get
+        {
+            VideoCamera? owner = VideoCamera.s_This;
+            return owner != null && owner.m_Camera != null && owner.m_Camera.isActiveAndEnabled
+                && owner.m_VideoPlayer != null && owner.m_VideoPlayer.isActiveAndEnabled
+                && (!owner.m_VideoPlayer.isPrepared || owner.m_VideoPlayer.isPlaying || owner.m_VideoPlayer.isPaused);
         }
     }
 
@@ -91,7 +105,8 @@ internal static class NativeVideoWindow
     {
         get
         {
-            VideoPlayer? player = NativePlayer;
+            VideoPlayer? player = OriginatingPlayer;
+            if (player == NativeVideoReview.Source && player != null) return NativeVideoReview.SelectedKey;
             if (player == null || string.IsNullOrEmpty(player.url))
                 return string.Empty;
             return NativeVideoMovies.NativePlaybackKey(player);
@@ -147,9 +162,10 @@ internal static class NativeVideoWindow
 
     internal static void Tick()
     {
+        NativeVideoReview.Tick();
         // The network elects one presentation owner. A peer that also has its own native
         // decoder displays the elected cosmetic mirror while its native callbacks run normally.
-        VideoPlayer? source = _remoteSource ?? (_nativePresentationSuppressed ? null : NativePlayer);
+        VideoPlayer? source = _remoteSource ?? (_nativePresentationSuppressed ? null : OriginatingPlayer);
         if (!WorldUIConfig.ConversionActive || CanvasConversion.WorldCamera == null
             || source == null || !source.isActiveAndEnabled || !source.isPrepared
             || !(source.isPlaying || source.isPaused) || source.frame < 0 || source.texture == null
@@ -263,7 +279,8 @@ internal static class NativeVideoWindow
         CanvasConversion.RegisterStandalonePanelOrder(_panel);
         _shownSource = source;
         _shownUrl = source.url;
-        string selectedKey = source == _remoteSource && _remoteKey.Length > 0 ? _remoteKey : NativeVideoMovies.NativePlaybackKey(source);
+        string selectedKey = source == _remoteSource && _remoteKey.Length > 0 ? _remoteKey
+            : source == NativeVideoReview.Source ? NativeVideoReview.SelectedKey : NativeVideoMovies.NativePlaybackKey(source);
         string routing = _shownStereo ? (_stereo != null ? "stereo" : "left-only") : "mono";
         // HW-VERIFY
         VRLog.Note("WorldUI", "NATIVE VIDEO WINDOW: opened from a prepared video texture; native playback unchanged. "
@@ -318,8 +335,14 @@ internal static class NativeVideoWindow
         if (ReferenceEquals(root, _root)) Close();
     }
 
+    internal static void CloseReview(VideoPlayer? player)
+    {
+        if (player != null && _shownSource == player) Close();
+    }
+
     internal static void Shutdown()
     {
+        NativeVideoReview.Stop();
         Close();
         SetRemoteSource(null);
         _nativePresentationSuppressed = false;
@@ -328,6 +351,11 @@ internal static class NativeVideoWindow
 
     internal static bool TrySkipNativeMovie()
     {
+        if (Visible && _shownSource != null && _shownSource == NativeVideoReview.Source)
+        {
+            NativeVideoReview.Stop();
+            return true;
+        }
         // The original intro's click calls Escape -> its own ClickTracker callback, which stops
         // video AND performs FadeInShow. VideoCamera.Stop alone omits that continuation. Resolve
         // the live owner at click time; never escape a different popup or a cosmetic peer movie.

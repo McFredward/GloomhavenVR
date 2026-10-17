@@ -59,7 +59,9 @@ internal static class VideoWindowCodec
         if (string.IsNullOrEmpty(clip) || clip!.Length > MaxClipBytes) return false;
         if (clip.IndexOf("..", StringComparison.Ordinal) >= 0) return false;
         if (!clip.StartsWith("Heroes/", StringComparison.Ordinal)
-            && !clip.StartsWith("CP_Intro/", StringComparison.Ordinal)) return false;
+            && !clip.StartsWith("CP_Intro/", StringComparison.Ordinal)
+            && !clip.StartsWith("Ambient/", StringComparison.Ordinal)
+            && !clip.StartsWith("Embedded/", StringComparison.Ordinal)) return false;
         for (int j = 0; j < clip.Length; j++)
         {
             char c = clip[j];

@@ -51,9 +51,9 @@ internal static class RemoteVideoPlayback
 
     private static void TrackNative()
     {
-        VideoPlayer? native = NativeVideoWindow.NativePlayer;
+        VideoPlayer? native = NativeVideoWindow.OriginatingPlayer;
         string clip = NativeVideoWindow.PlaybackKey;
-        uint generation = NativeVideoWindow.NativePlaybackGeneration;
+        uint generation = NativeVideoWindow.OriginatingPlaybackGeneration;
         if (!VideoWindowCodec.ValidClip(clip)) native = null;
         if (native != null && (_native != native || _nativeClip != clip || _nativeGeneration != generation))
         {
@@ -193,7 +193,7 @@ internal static class RemoteVideoPlayback
                 FailMirror("movie asset unavailable");
                 return;
             }
-            if (_active.Clip == NativeVideoMovies.StereoIntroKey && !NativeVideoMovies.IsStereoUrl(url))
+            if (NativeVideoMovies.IsStereoKey(_active.Clip) && !NativeVideoMovies.IsStereoUrl(url))
                 VRLog.Note("Net", $"SHARED VIDEO STEREO FALLBACK: owner={_owner}, opening={_activeToken}, "
                     + $"key={_active.Clip}, reason=selected stereo asset is missing; using its approved 2D companion at the owner clock.");
             var root = new GameObject("GloomhavenVR Shared Video Decoder");

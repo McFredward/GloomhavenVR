@@ -89,6 +89,8 @@ PY
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$mutation_dir/NativeVideoWindow.fixture" \
         --property:MovieSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs" \
+        --property:ReviewSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoReview.cs" \
+        --property:EmbeddedSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeEmbeddedMoviePatches.cs" \
         --property:ChromeSweepSource="$sweep" \
         --property:PointerGuardSource="$pointer_guard" > "$mutation_dir/mutant.log" 2>&1; then
         cat "$mutation_dir/mutant.log"
@@ -113,20 +115,20 @@ import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
 mutations = {
     'movie-interception': ('if (count != 1)', 'if (count != 0)'),
-    'movie-exact-name': ('requestedName == IntroName && Application.platform', 'Application.platform'),
-    'movie-peer-resolution': ('if (TryModIntro(key, out url)) return true;', ''),
+    'movie-exact-name': ('string canonical = requestedName + ".mov";', 'string canonical = IntroKey;'),
+    'movie-peer-resolution': ('if (key == IntroKey) return TryModMovie(IntroKey, out url);', 'if (key == IntroKey) return false;'),
     'stereo-before-play': ('StereoVideoSurface.IsAvailable(out reason)', 'player.isPaused'),
-    'stereo-version': ('extension == ".mov" && key == StereoIntroKey', 'extension == ".mov" && key.StartsWith(IntroName + ".sbs-", StringComparison.Ordinal)'),
-    'stereo-companion': ('if (key == StereoIntroKey) return TryModIntro(IntroKey, out url);', 'if (key == StereoIntroKey) return false;'),
-    'stereo-no-native-substitution': ('if (key == StereoIntroKey) return TryModIntro(IntroKey, out url);', 'if (key == StereoIntroKey) { if (TryModIntro(IntroKey, out url)) return true; key = NativeIntroKey; }'),
-    'stereo-no-peer-upgrade': ('if (TryModIntro(key, out url)) return true;', 'if (key == IntroKey && TryModIntro(StereoIntroKey, out url)) return true; if (TryModIntro(key, out url)) return true;'),
+    'stereo-version': ('if (IsCanonical(canonical)) return', 'if (key.StartsWith(IntroName + ".sbs-", StringComparison.Ordinal)) return true; if (IsCanonical(canonical)) return'),
+    'stereo-companion': ('if (IsStereoKey(key)) key = CanonicalKey(key);', 'if (IsStereoKey(key)) return false;'),
+    'stereo-no-native-substitution': ('if (IsStereoKey(key)) key = CanonicalKey(key);', 'if (IsStereoKey(key)) { string mono = CanonicalKey(key); key = mono == IntroKey && !TryModMovie(mono, out _) ? NativeIntroKey : mono; }'),
+    'stereo-no-peer-upgrade': ('if (TryModMovie(key, out url)) return true;', 'if (key == IntroKey && TryModMovie(StereoIntroKey, out url)) return true; if (TryModMovie(key, out url)) return true;'),
     'native-owner-identity': ('if (key == IntroKey) key = NativeIntroKey;', 'if (key == IntroKey) key = IntroKey;'),
-    'native-no-peer-upgrade': ('if (key == NativeIntroKey) key = IntroKey;', 'if (key == NativeIntroKey) { if (TryModIntro(IntroKey, out url)) return true; key = IntroKey; }'),
-    'mono-no-native-substitution': ('if (key == IntroKey) return false;', ''),
+    'native-no-peer-upgrade': ('if (key == NativeIntroKey) key = IntroKey;', 'if (key == NativeIntroKey) { if (TryModMovie(IntroKey, out url)) return true; key = IntroKey; }'),
+    'mono-no-native-substitution': ('if (key == IntroKey) return TryModMovie(IntroKey, out url);', ''),
 }
 before, after = mutations[sys.argv[3]]
-assert source.count(before) == 1
-pathlib.Path(sys.argv[2]).write_text(source.replace(before, after))
+assert source.count(before) >= 1
+pathlib.Path(sys.argv[2]).write_text(source.replace(before, after, 1))
 PY
     case "$mutation" in
         movie-interception) expected='actual Harmony interception assigns mod intro before the single native Play and setup' ;;
@@ -144,6 +146,8 @@ PY
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$source_file" \
         --property:MovieSource="$mutation_dir/NativeVideoMovies.fixture" \
+        --property:ReviewSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoReview.cs" \
+        --property:EmbeddedSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeEmbeddedMoviePatches.cs" \
         --property:ChromeSweepSource="$mutation_dir/ChromeSweep.fixture" \
         --property:PointerGuardSource="$mutation_dir/PointerGuard.fixture" > "$mutation_dir/movie-mutant.log" 2>&1; then
         cat "$mutation_dir/movie-mutant.log"

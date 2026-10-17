@@ -84,6 +84,8 @@ namespace GloomhavenVR.WorldUI
     {
         internal static VideoPlayer? NativePlayer, Remote;
         internal static uint NativePlaybackGeneration;
+        internal static uint OriginatingPlaybackGeneration => NativePlaybackGeneration;
+        internal static VideoPlayer? OriginatingPlayer => NativePlayer;
         internal static bool Suppressed, AssetAvailable = true;
         internal static string NativeKey = "Heroes/A.mov", ResolvedKey = string.Empty;
         internal static string PlaybackKey => NativePlayer != null ? NativeKey : string.Empty;
@@ -97,6 +99,7 @@ namespace GloomhavenVR.WorldUI
     {
         internal const string StereoIntroKey = "CP_Intro/GH_CP_Intro.sbs-v1.mov";
         internal const string NativeIntroKey = "CP_Intro/GH_CP_Intro.native.mov";
+        internal static bool IsStereoKey(string? key) => key != null && key.EndsWith(".sbs-v1.mov", StringComparison.Ordinal);
         internal static bool IsStereoUrl(string url) => url.EndsWith(StereoIntroKey, StringComparison.Ordinal);
         private static string? Canonical(string? key) => key == StereoIntroKey || key == NativeIntroKey ? "CP_Intro/GH_CP_Intro.mov" : key;
         internal static bool SamePresentation(string? first, string? second) => Canonical(first) == Canonical(second);
