@@ -270,6 +270,9 @@ AUTHORIZED_RETIREMENTS = {
         "typeof(FigureVisualMirror), nameof(FigureVisualMirror.CloneVisual)": "src/GloomhavenVR/Core/Perf/ScenarioIdleAnimationBudget.cs",
     },
     "logTokens": {
+        # Explicit user request, 2026-10-17 after the successful685 chart test:
+        # retire that movie and menu action, then convert the approved VR intro.
+        "STEREO VIDEO CALIBRATION": "src/GloomhavenVR/WorldUI/FlatScreen/StereoVideoCalibration.cs",
         # The same explicit pattern removal retires only these source-owned
         # format/parser diagnostics; unrelated logs with these names stay guarded.
         "GVR-SP1": "src/GloomhavenVR/Core/SteamLink/PresenterSource.cs",

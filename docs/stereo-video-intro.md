@@ -96,6 +96,11 @@ is unchanged. Peers resolve the exact selected revision and never upgrade an
 owner-selected2D movie locally. A renderer failure displays the same SBS file's
 left half at16:9. A missing SBS asset may resolve only its approved2D companion;
 missing both refuses the cosmetic decoder with owner/opening/key/reason context.
+The approved2D key requires its mod-local companion as well. A native owner
+missing both mod movies publishes the explicit `.native.mov` alias, which peers
+resolve only to their read-only game original even if their mod movies exist.
+The URL assignment retains that selected provenance for the current player;
+adding media later cannot change an already published opening's identity.
 These are explicitly logged degraded states, not a capability-consensus protocol
 or a guarantee of identical depth after a broken peer installation. Native
 continuation never waits for presentation repair.

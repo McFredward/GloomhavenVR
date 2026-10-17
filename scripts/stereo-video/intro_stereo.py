@@ -169,7 +169,10 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
                "-framerate", "60", "-i", "pipe:0", "-i", str(source),
                "-map", "0:v:0", "-map", "1:a:0", "-frames:v", "2931",
                "-vf", "scale=out_color_matrix=bt709,format=yuv420p,setsar=1",
-               "-c:v", "libx264", "-threads", "3", "-preset", "fast", "-crf", "16",
+               # Keep the single delivered movie within the repository's binary
+               # file limit; full-frame left-eye comparison still gates quality.
+               "-c:v", "libx264", "-threads", "3", "-preset", "fast", "-crf", "18",
+               "-maxrate", "15M", "-bufsize", "30M",
                "-profile:v", "high", "-level:v", "5.1", "-g", "60", "-keyint_min", "1",
                "-video_track_timescale", "15360", "-color_primaries", "bt709",
                "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",

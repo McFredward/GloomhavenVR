@@ -8,7 +8,8 @@ long, including its final black tail.
 The replacement is a mod-local H264/AAC MOV at 1920×1080, 60 fps, 2931 frames. Game
 StreamingAssets remain read-only. The movie ships beside the plugin as
 `Movies/CP_Intro/GH_CP_Intro.mov`. Native and cosmetic multiplayer decoders use
-the same canonical movie key. The native player still owns volume, skip,
+the same explicitly selected movie variant; native continuation keeps its
+canonical intro identity. The native player still owns volume, skip,
 completion, errors and continuation. A missing optional movie falls back to
 the original game file; release/developer installers include the new asset.
 
