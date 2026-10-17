@@ -35,6 +35,7 @@ namespace GloomhavenVR.Core.SteamLink
         private readonly Slot[] _slots = new Slot[PoolSize];
         private readonly RegistrationPairPolicy _pairs = new RegistrationPairPolicy();
         private readonly bool _captureSubmissionMetadata;
+        private readonly bool _presenterProfile;
         private RegistrationPattern? _leftWorkspace, _rightWorkspace;
         private Slot? _active;
         private bool _disposed;
@@ -45,14 +46,17 @@ namespace GloomhavenVR.Core.SteamLink
         public EyeSubmission LastReportedLeftSubmission { get; private set; }
         public EyeSubmission LastReportedRightSubmission { get; private set; }
         public string Session => _pairs.Session;
+        public string Profile => _presenterProfile ? PresenterSource.Profile : RegistrationSource.Profile;
+        public int ProfileRevision => _presenterProfile ? PresenterSource.ProfileRevision : 1;
         public RegistrationPairContext? ActiveContext => _active?.Context;
         public uint CompletedPairs { get; private set; }
         public uint SkippedCohorts { get; private set; }
         public bool NeedsSubmissionReceipt => _captureSubmissionMetadata && _receiptsReported < 4;
 
-        public RegistrationTextures(bool captureSubmissionMetadata = false)
+        public RegistrationTextures(bool captureSubmissionMetadata = false, bool presenterProfile = false)
         {
             _captureSubmissionMetadata = captureSubmissionMetadata;
+            _presenterProfile = presenterProfile;
             // This is a capability check, not a backend-name guess. D3D11 has
             // not been tested by the local OpenGL/Vulkan production fixtures.
             if (!SystemInfo.supportsGraphicsFence)
@@ -133,8 +137,12 @@ namespace GloomhavenVR.Core.SteamLink
             available.LeftSubmission = available.RightSubmission = default;
             _leftWorkspace = RegistrationSource.PreparePattern(Session, ProbeEye.Left, next!.Phase, _leftWorkspace);
             _rightWorkspace = RegistrationSource.PreparePattern(Session, ProbeEye.Right, next.Phase, _rightWorkspace);
-            available.LeftRecord = RegistrationSource.Stamp(_leftWorkspace, next, available.Left);
-            available.RightRecord = RegistrationSource.Stamp(_rightWorkspace, next, available.Right);
+            available.LeftRecord = _presenterProfile
+                ? PresenterSource.Stamp(_leftWorkspace, next, available.Left)
+                : RegistrationSource.Stamp(_leftWorkspace, next, available.Left);
+            available.RightRecord = _presenterProfile
+                ? PresenterSource.Stamp(_rightWorkspace, next, available.Right)
+                : RegistrationSource.Stamp(_rightWorkspace, next, available.Right);
             Upload(available.LeftTexture!, available.Left.Canvas, available.Upload);
             Upload(available.RightTexture!, available.Right.Canvas, available.Upload);
             _active = available; // Publish only after BOTH complete textures are uploaded.

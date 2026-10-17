@@ -102,11 +102,13 @@ internal static class SteamLinkMaskRuntime
                 case SteamLinkMaskStep.Prepare:
                     if (SystemInfo.supportsGraphicsFence)
                     {
-                        _registration = new RegistrationTextures(VRLog.WantsDebug);
+                        _registration = new RegistrationTextures(VRLog.WantsDebug, presenterProfile: true);
                         if (VRLog.WantsDebug)
                             VRLog.Debug(Scope, "PAYLOAD registration prepared session=" + _registration.Session
-                                + " profile=" + RegistrationSource.Profile + " pool_pairs=" + RegistrationTextures.PoolSize
-                                + " graphics=" + SystemInfo.graphicsDeviceType + "; no native video/eye/UV authority.");
+                                + " profile=" + _registration.Profile + " profile_revision=" + _registration.ProfileRevision
+                                + " guard_sha256=" + PresenterSource.SignatureSha256 + " pool_pairs=" + RegistrationTextures.PoolSize
+                                + " graphics=" + SystemInfo.graphicsDeviceType
+                                + "; synthetic format recognition only; no source authentication, liveness or native video/eye/UV authority.");
                         break;
                     }
                     // Preserve the already hardware-tested static diagnostic on
