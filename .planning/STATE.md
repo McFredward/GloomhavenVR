@@ -111,7 +111,7 @@ payload/provenance/license checks pass30+4. No new complete gate or live Windows
 headset result is claimed. Receipts and completed-cache cleanup are under
 `.planning/debug/steamlink-688-integrated/` and `steamlink-688-loader-worker/`.
 
-**Stereo library and scenario review in progress, 2026-10-17: reserved Build694+.**
+**Stereo library and scenario review in progress, 2026-10-17: reserved Build695+.**
 
 The maintainer explicitly approves687's actual headset intro as perfect except
 that the GloomhavenVR wordmark should protrude slightly more. Both supplied logs
@@ -139,18 +139,24 @@ Separate initialized workers from dev9f48730df own offline media, native/shared
 runtime and localized review UI. Local pinned Small/FP32 inference has started;
 no paid inference is used. Root's foreground-wordmark renderer and real22-file
 installer/archive fixture checks pass. The stronger-wordmark intro, original
-studio companion/stereo clip, two cave films and forest are integrated locally;
-15 conversions remain. Disjoint ambient and hero neural producers run locally.
+studio companion/stereo clip, two cave films, forest and Corpsewood are integrated
+locally;14 conversions remain. Disjoint ambient and hero neural producers run locally.
 Source review has addressed decoder teardown, native priority and observer review
 closure. Runtime and UI worker evidence is independently hash/size verified and
 archived before their worktrees were removed. A full gate on frozen692 passes
 16 source suites; its226 local suites continue. An older town-options fixture
 compile failure is repaired by tests-only0796670ba and passes173 assertions plus
-9 causal controls separately. Preserve the initial failed attempt and compose
-remaining evidence honestly. Native hero title inspection also requires complete
-source-specific printed-panel masks before hero publication; neural inputs remain
-unchanged. No692 binary or completed library is handed over yet. The final batch
-advances beyond independently published693. No additional ZIP/HTTP delivery: the normal installation script
+9 causal controls separately. Two further desktop/notes fixture boundaries are
+being repaired independently. The unchanged NPC639 packed-atlas proof fails its
+1s cold-resolution budget under concurrent load; retain that failure and rerun
+only the affected suite after neural producers stop, without assigning a cause
+or relaxing its bound. Exact wire vectors300597, bundle/surface checks and the
+reviewed compiled delta are covered separately; preserve initial failures and
+compose evidence honestly. Timed native hero printed-panel protection now passes
+129 geometry/inventory checks plus33 refusal controls, preserving original zoom
+reveals, preceding scenery and all existing ambient/neural inputs. No692 binary
+or completed library is handed over yet. The independent window/loading repair
+reserves694, so final stereo uses695+. No additional ZIP/HTTP delivery: the normal installation script
 continues to create its archive. No Frame write/restart occurs in this work.
 The independent published688/689/691/693 identity fixes are retained through the shared
 dev merge; this unfinished media batch remains unpublished until completion.

@@ -59,7 +59,8 @@ runtime and localized UI ownership. The integrator owns native patch registratio
 inventory, version notes, installer roster, private baseline and final gate.
 Worker branches are not published. The independent688/689/691/693 identity
 repairs are retained through their separate publication lane. Builds690 and692
-are internal source candidates only; final stereo handover uses694 or later.
+are internal source candidates only. The independent window/loading follow-up
+reserves694; final stereo handover uses695 or later.
 
 Movies are explicit separate Content beside the DLL. `packaging/movie-files.txt`
 names22 files:20 stereo subjects, the approved mono intro and original mono
@@ -92,18 +93,42 @@ frozen499bdc157/692 in a private validation worktree. Its16 source suites pass.
 The local group exposed an older town-service-options fixture missing explicit
 SteamLink availability, TickGuard and Rebuild ports. Tests-only0796670ba repairs
 that boundary; the affected suite passes173 assertions and9 causal controls.
-The remaining full attempt continues unchanged. Its initial failure is retained;
-later checks and focused repairs will be recorded as composed evidence, not a
-new complete-gate pass.
+The remaining full attempt continues unchanged. Two further old fixture ports
+need repair: desktop-render-runtime lacks the new explicit movie-plane members,
+and options-notes-runtime binds the former void BuildNote signature instead of
+the current GameObject return/minLines parameter. Separate initialized workers
+own only those fixtures and their focused reruns. The unrelated NPC639 packed
+atlas proof reaches its cold895-member resolution budget and fails the1s bound
+under concurrent inference/full-gate load; its exact elapsed time was not logged.
+Its production source is unchanged, and no cause is assigned. Retain the failure
+and repeat only that suite after the neural producers stop, without weakening
+the budget.
 
-At this checkpoint the intro, studio, two cave films and forest are verified;
-15 worker subjects remain. Each subject must pass original native-clock/AAC,
+Required independent continuation checks pass: exact wire vectors300597
+assertions, bundle-format/bank checks and the surface comparison with no removed
+config keys, log markers or patch registrations. The actual frozen692 Release
+DLL was decompiled and its21 changed/9 added files reviewed. Eight unrelated
+Net/Plugin types differ only by the inlined build number, BuildInfo differs only
+by branch metadata, and remaining changes match the movie work or separately
+published identity fixes/resources. Private continuation invocation errors and
+their corrected remaining stages are retained. These are composed results, not
+a new complete-gate pass.
+
+At this checkpoint the intro, studio, two cave films, forest and Corpsewood are
+verified;14 worker subjects remain. Each subject must pass original native-clock/AAC,
 all-left-picture, right reprojection, depth receipt/hash and decoded-cue gates
 before its output enters Assets. Desktop cue inspection is distinct from actual
 headset playback. Independent inspection of all11 original hero title frames
 found that generic protected regions missed some printed symbol edges and banner
-lines. Source-specific early/middle/late union regions are being corrected before
-hero publication, preserving original neural inputs and completed ambient proofs.
+lines, and flattened scenery before delayed printed reveals. Integrated timed,
+source-specific banner/symbol regions now preserve oversized original zoom
+reveals and smooth preparation/release. Main geometry/inventory checks pass129
+with33 refusal controls. All seven ambient movie objects and all neural inputs
+match the retained pre-repair manifest. Forty-nine deterministic numerical
+ambient witnesses and four actual pinned Beast Tyrant source/depth witnesses
+confirm the bounded change; these expected reprojections are separate from the
+encoded-deliverable inspection. The approved mono intro's source byte count was
+also corrected, retaining the separate native original byte count and both hashes.
 The new logo and library headset pictures, comfort and native spawn paths remain
 unverified until the maintainer's requested in-scenario review.
 
