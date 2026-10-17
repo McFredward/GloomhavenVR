@@ -179,6 +179,10 @@ namespace GloomhavenVR.Quest
         }
         static bool IsPresentationDetail(string message)
         {
+            // B680's pre-menu spinner reports arrived after the movie/detail
+            // lane filled. Preserve its existing two bounded observations in
+            // the startup share; retain the grep token and all global ceilings.
+            if (message.StartsWith("[Quest startup] presentation spinner ", StringComparison.Ordinal)) return false;
             return message.StartsWith("[Quest startup] original movie state ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] original movie decoded frame ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] original movie pixels ", StringComparison.Ordinal)

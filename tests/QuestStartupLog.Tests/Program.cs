@@ -242,6 +242,26 @@ internal static class Program
         Check(LogCounter(tutorial, "startupRecords") == 92
             && LogCounter(tutorial, "startupBytes") <= 32 * 1024,
             "tutorial-partition: gameplay evidence left its bounded startup share");
+        for (int i = 0; i < 2; i++)
+        {
+            string spinner = "[Quest startup] presentation spinner sample=" + i + " " + new string('s', 300);
+            tutorial.Append(spinner); tutorial.Append(spinner);
+        }
+        text = File.ReadAllText(path);
+        Check(Count(text, "[Quest startup] presentation spinner sample=") == 2,
+            "spinner-reserve: pre-menu detail saturation swallowed or duplicated the bounded spinner evidence");
+        Check(LogCounter(tutorial, "startupRecords") == 94
+            && LogCounter(tutorial, "startupBytes") <= 32 * 1024,
+            "spinner-partition: two spinner observations exceeded the existing startup share");
+        for (int i = 0; i < 2; i++)
+        {
+            string pointer = "[Quest startup] pointer sample=" + i + " " + new string('p', 450);
+            tutorial.Append(pointer); tutorial.Append(pointer);
+        }
+        text = File.ReadAllText(path);
+        Check(Count(text, "[Quest startup] pointer sample=") == 2
+            && LogCounter(tutorial, "startupRecords") == 96,
+            "pointer-reserve: two settled pointer observations left the existing startup record share");
         Check(new FileInfo(path).Length <= QuestGameStartupLog.MaxBytes,
             "tutorial-byte-bound: retained gameplay evidence expanded the global budget");
 
