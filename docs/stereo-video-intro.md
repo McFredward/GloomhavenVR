@@ -88,6 +88,16 @@ snapshots are retained. The final encoder takes unmodified original YUV directly
 for left, and explicitly BT709-decoded RGB for right. The neural depth input uses
 upstream's ordinary OpenCV reader; it never supplies final picture color.
 
+The first correctly colored full candidate (private render-v3) retained all
+2931 frames and2291 original AAC packets. Its left-eye YUV comparison passed
+every frame (minimum34.48dB), but a bright spell's right RGB witness at1859
+measured33.78dB against the required34dB minimum. It was not delivered. A separate
+lossless420 roundtrip measured41.65dB and exposed avoidable conversion rounding;
+full-chroma/accurate-rounding conversion improved that oracle to45.16dB.
+Render-v4 uses that conversion, CRF17 and17Mbps/34Mb VBV. Validation thresholds
+remain unchanged; full-size per-eye pictures, source frame addresses and audio
+are unchanged. Candidate receipts and failed validation remain private evidence.
+
 ## Native playback and delivery
 
 The native URL setter chooses the exact stereo asset before the original first

@@ -168,13 +168,14 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
                "-f", "rawvideo", "-pixel_format", "bgr24", "-video_size", "1920x1080",
                "-framerate", "60", "-i", "pipe:0", "-threads", "2", "-i", str(source),
                "-filter_complex_threads", "1", "-filter_complex",
-               "[0:v]scale=out_color_matrix=bt709,format=yuv420p,setsar=1[right];"
+               "[0:v]scale=flags=bicubic+accurate_rnd+full_chroma_int+full_chroma_inp:"
+               "out_color_matrix=bt709,format=yuv420p,setsar=1[right];"
                "[1:v][right]hstack=inputs=2,setsar=1[packed]",
                "-map", "[packed]", "-map", "1:a:0", "-frames:v", "2931",
                # Keep the single delivered movie within the repository's binary
                # file limit; full-frame left-eye comparison still gates quality.
-               "-c:v", "libx264", "-threads", "3", "-preset", "fast", "-crf", "18",
-               "-maxrate", "15M", "-bufsize", "30M",
+               "-c:v", "libx264", "-threads", "3", "-preset", "fast", "-crf", "17",
+               "-maxrate", "17M", "-bufsize", "34M",
                "-profile:v", "high", "-level:v", "5.1", "-g", "60", "-keyint_min", "1",
                "-video_track_timescale", "15360", "-color_primaries", "bt709",
                "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
