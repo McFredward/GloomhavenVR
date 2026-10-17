@@ -1,22 +1,57 @@
 # State — where the project stands
 
-**Stereo intro work in progress, 2026-10-17: reserved Build687.**
+**Approved VR intro in stereo, 2026-10-17: Build687 source.**
 
-The maintainer reports the685 test successful. Both pinned hardware logs identify
-685 and show one silent full-SBS prepare/picture/close lifecycle with no calibration
-failure or mono fallback. Raw byte snapshots and review are retained under
-`.planning/debug/stereo-video-menu685/hardware-success-20261017/`. This is the
-user's successful test, not a measured fusion/timing/performance certification.
+The maintainer confirmed the685 chart test, then explicitly retired its film and
+menu action and requested the already replaced, currently flat **GloomhavenVR
+intro** first. The three-sample plan is superseded; all other films wait for the
+maintainer's actual intro result. Pinned685 hardware logs and review remain in
+`.planning/debug/stereo-video-menu685/hardware-success-20261017/`.
 
-The explicit next instruction removes test film and menu action, proceeds directly
-to the **already replaced, currently flat GloomhavenVR intro**, and postpones all
-other videos until that intro works on hardware. The three-sample plan is superseded.
-Separate cleanup/runtime workers are integrated in the private stereo-intro
-worktree based on current dev686. Local Small/CPU depth inference and SBS encoding
-are running; no paid service is used. No687 binary or completed conversion result
-is handed over yet. Native decoder/audio/clock/skip/continuation remain authoritative;
-the exact selected movie revision travels on unchanged72. See
-`docs/stereo-video-intro.md` for source pins, reprojection and fallback limits.
+The completed full-SBS-left-first intro is3840x1080,60fps,2931frames/48.85s,
+93,329,919 bytes, SHA256
+`6929a4ad75df7ab7ea77cfed9630338110984e14d05b048b0fdf7c54709db93c`.
+Only the approved mod-local2D intro (SHA22fc9f48...) was used. Original frame
+addresses, edits, ending, titles/logos and all2291 AAC packet payloads/timestamps
+are retained. Local CPU Video Depth Anything Small provides the reprojected
+right view; no paid inference, other movie conversion or model ships in-game.
+The native player retains audio/clock/skip/continuation, and unchanged72 carries
+the selected explicit movie revision. Test media/action/localization are removed.
+Both intro movies remain separate Content beside the DLL; the normal installer
+builds its regular archive. The maintainer explicitly rejects an additional ZIP
+handover. No separate archive/HTTP publication is part of this delivery.
+
+Offline verification passes every frame address and left picture,21 depth-shot
+receipts and78 encoded right witnesses (native-YUV420 minimum35.33dB left,
+36.06dB sampled right). Geometry has10 physical checks and12 negative controls.
+Static decoded-image review is retained. These checks do not establish headset
+depth, motion, fusion, comfort, decoder performance or native first-save flow.
+The movable window carries a fixed stereo pair; there is no head-pose view
+synthesis or positional parallax inside the film. See `docs/stereo-video-intro.md`
+and its adjacent media provenance for exact source/model/tool/receipt pins.
+
+Validation is composed: the frozen complete223-suite attempt recorded221passes
+and2failures. The first was a prematurely started build without the completed
+SBS Content file; the second missed an unchanged1s NPC deadline during heavy
+conversion load. Both pass in a quiet, serial final-tree repeat (rules229/3,
+NPC production/deadline). Original failures remain retained. Final affected8/8
+includes both new Steam Link suites, native/video playback, options/help and MR;
+source checks pass15/16 plus the instrument-only repeat after a formatting-only
+warning reset. Inventory is225local/100CI/16source. Fresh final goldens pass
+300,540 assertions after replacing one obsolete mono-expression source contract
+with five decoded-per-eye aspect contracts; the initial300535/1 failure remains
+recorded. Strict final-candidate Release0W/0E and the compiled-form review use a
+private clean686 baseline; generic per-eye renderer/shader are byte-identical.
+This is not a new complete225-suite gate. Evidence is archived under
+`.planning/debug/stereo-video-intro687/`.
+
+The combined source includes the independent visible686 Steam Link MR follow-up
+from8f5f3adc1: exact opaque UI/video alpha coverage and cached shader admission;
+native availability requires identified connected Steam Frame+vrlink. Saved false
+stays false, its preference defaults true, and the global MR master remains off.
+Other headsets/transports retain chroma-key controls. Public identity does not
+attest a receiver. No Frame write, restart or new receiver/hardware result occurs
+in this stereo task. Read `.planning/STEAM-LINK-687-AVAILABILITY.md` for scope.
 
 **Stereo calibration menu and separate films, 2026-10-17: Build685.**
 

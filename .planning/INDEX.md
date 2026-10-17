@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-17 for Build685: repeatable stereo menu action and separate-media installation.
+Updated 2026-10-17 for Build687: approved VR intro in stereo; calibration action/media retired.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current

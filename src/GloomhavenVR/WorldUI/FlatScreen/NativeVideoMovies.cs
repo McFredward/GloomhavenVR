@@ -71,7 +71,7 @@ internal static class NativeVideoMovies
     private static bool TryModIntro(string key, out string url)
     {
         url = string.Empty;
-        // Only this MOV is shipped. Other assets and platform-specific MP4s stay native.
+        // Only these approved MOV variants ship. Other assets and platform-specific MP4s stay native.
         if (key != IntroKey && key != StereoIntroKey) return false;
         string directory = Path.GetDirectoryName(typeof(NativeVideoMovies).Assembly.Location)!;
         string candidate = Path.Combine(directory, "Movies", key.Replace('/', Path.DirectorySeparatorChar));
