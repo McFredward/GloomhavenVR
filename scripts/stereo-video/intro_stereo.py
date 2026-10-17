@@ -157,13 +157,14 @@ def read_depth_receipt(path: Path, shot: dict, wait: bool) -> dict:
             time.sleep(0.5)
 
 
-def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_depth: bool = False) -> Path:
+def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_depth: bool = False,
+           logo_depth=None) -> Path:
     if digest(source) != INTRO_SHA256:
         raise ValueError("Only the already replaced GloomhavenVR intro can be converted")
     manifest = json.loads(shots_path.read_text())
     validate_shots(manifest)
     directory.mkdir(parents=True, exist_ok=False)
-    target = directory / "GH_CP_Intro.sbs-v1.mov"
+    target = directory / ("GH_CP_Intro.sbs-v2.mov" if logo_depth is not None else "GH_CP_Intro.sbs-v1.mov")
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-n",
                "-f", "rawvideo", "-pixel_format", "bgr24", "-video_size", "1920x1080",
                "-framerate", "60", "-i", "pipe:0", "-threads", "2", "-i", str(source),
@@ -223,7 +224,12 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
                     left = np.frombuffer(raw, dtype=np.uint8).reshape(HEIGHT, WIDTH, 3)
                     holes = 0
                     if data is None:
-                        right = left
+                        field = logo_depth.field(shot["id"], index) if logo_depth is not None else None
+                        if field is None:
+                            right = left
+                        else:
+                            right, holes = forward_warp(left, field)
+                            record["maximum_disparity_px"] = max(record["maximum_disparity_px"], float(field.max()))
                     else:
                         low, high = info["normalization_p02_p98"]
                         field = disparity_field(data[index - shot["start"]], left, low, high)
@@ -276,7 +282,8 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
          "right": "depth-based horizontal forward reprojection with foreground depth test",
          "disocclusion_fill": "farther adjoining source background; no generative inpainting",
          "depth_bounds_px": [-4, 12], "shot_manifest_sha256": digest(shots_path),
-         "elapsed_seconds": time.monotonic() - began, "hardware_result": "unverified"})
+         "elapsed_seconds": time.monotonic() - began, "hardware_result": "unverified",
+         "logo_depth": logo_depth.provenance() if logo_depth is not None else None})
     return target
 
 
@@ -291,8 +298,16 @@ def main() -> int:
     parser.add_argument("--depths", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--wait-depth", action="store_true", help="Consume completed shots while inference finishes")
+    parser.add_argument("--logo-depth", type=Path, help="Approved original-wordmark foreground specification")
+    parser.add_argument("--logo", type=Path, default=Path(__file__).resolve().parents[2] /
+                        "src/GloomhavenVR/Assets/GloomhavenVR_logo.png")
     args = parser.parse_args()
-    print(encode(args.source.resolve(), args.shots.resolve(), args.depths.resolve(), args.out.resolve(), args.wait_depth))
+    logo_depth = None
+    if args.logo_depth is not None:
+        from intro_logo_depth import IntroLogoDepth
+        logo_depth = IntroLogoDepth(args.logo_depth.resolve(), args.logo.resolve())
+    print(encode(args.source.resolve(), args.shots.resolve(), args.depths.resolve(), args.out.resolve(),
+                 args.wait_depth, logo_depth))
     return 0
 
 

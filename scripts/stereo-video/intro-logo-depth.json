@@ -1,0 +1,11 @@
+{
+  "source_sha256": "22fc9f48d4da6783fed379122e8c5675c4149afd9c0bc90550a9e4e22696fec5",
+  "logo_sha256": "398e9d04303ba8442c9b8348500130e7a87410a180ee3047c6b1687c57dd7a88",
+  "disparity_px": 12,
+  "fire_registration": [
+    [1.2636646090198653, 0.002465353229567213, 416.95808018841615],
+    [-0.002465353229567213, 1.2636646090198653, 372.85322717354904]
+  ],
+  "authority": "Maintainer 2026-10-17: approved687 intro is perfect; the GloomhavenVR logo should protrude slightly more. All other pictures and clocks remain authoritative.",
+  "registration_provenance": "Approved source's stationary fire-title anchor at frame468:271 matches,71 RANSAC inliers; exact transform already used to add the approved VR suffix."
+}

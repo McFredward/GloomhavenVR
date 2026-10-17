@@ -67,6 +67,10 @@ def verify_right_frames(args, manifest: dict) -> list[dict]:
     reprojection, and records its distance from a duplicated original picture.
     """
     cv2.setNumThreads(1)
+    logo_depth = None
+    if getattr(args, "logo_depth", None) is not None:
+        from intro_logo_depth import IntroLogoDepth
+        logo_depth = IntroLogoDepth(args.logo_depth.resolve(), args.logo.resolve())
     owned, logs, results = [], [], []
     try:
         for name, path in (("source", args.source), ("packed", args.stereo)):
@@ -106,6 +110,10 @@ def verify_right_frames(args, manifest: dict) -> list[dict]:
                     field = disparity_field(depth[frame - shot["start"]], original, *info["normalization_p02_p98"])
                     field *= min(1.0, float(original[124:962].mean()) / 8.0)
                     expected, _ = forward_warp(original, field)
+                elif logo_depth is not None:
+                    field = logo_depth.field(shot["id"], frame)
+                    if field is not None:
+                        expected, _ = forward_warp(original, field)
                 # Compare in the declared delivery format, exactly as the full
                 # left-eye PSNR filter does. RGB includes a second chroma upsample
                 # and rounding error which is not H264 encoding distortion.
@@ -164,6 +172,9 @@ def main() -> int:
     parser.add_argument("--model-root", type=Path, required=True)
     parser.add_argument("--shots", type=Path, default=Path(__file__).with_name("intro-shots.json"))
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--logo-depth", type=Path, help="Validate the approved foreground-wordmark revision")
+    parser.add_argument("--logo", type=Path, default=Path(__file__).resolve().parents[2] /
+                        "src/GloomhavenVR/Assets/GloomhavenVR_logo.png")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=False)
     code = 1
