@@ -19,22 +19,45 @@ internal static class QuestArtworkEvidence
 
     internal static void SpriteField(Component? owner, string fieldName, string role)
     {
-        if (!CanObserve(role) || owner == null || !owner.gameObject.activeInHierarchy) return;
+        if (!CanObserve(role)) return;
         try
         {
-            FieldInfo? field = owner.GetType().GetField(fieldName,
-                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-            if (field?.GetValue(owner) is not Image image || image == null || !image.isActiveAndEnabled) return;
+            if (owner == null) { Missing(role, "owner"); return; }
+            FieldInfo? field = null;
+            for (Type? type = owner.GetType(); type != null && field == null; type = type.BaseType)
+                field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic
+                    | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            if (field == null) { Missing(role, "field"); return; }
+            Image(field.GetValue(owner) as Image, role);
+        }
+        catch (Exception error) { Failed(role, error); }
+    }
+
+    internal static void Image(Image? image, string role)
+    {
+        if (!CanObserve(role)) return;
+        try
+        {
+            if (image == null) { Missing(role, "image"); return; }
             Sprite? drawn = image.overrideSprite;
-            if (drawn == null || drawn.texture == null) return;
+            if (drawn == null || drawn.texture == null)
+            {
+                if (Admit(role, 0)) State(" role=" + role + " unavailable=sprite" + DrawState(image));
+                return;
+            }
             Sprite source = CardFaceMipBake.OriginalFor(drawn);
             Texture2D texture = source.texture;
-            if (texture == null || !Admit(role, drawn.GetInstanceID())) return;
+            if (texture == null) { Missing(role, "texture"); return; }
+            // A native offscreen-capture host is intentionally inactive between
+            // draws. Its Image/texture is still the real source and must remain
+            // observable. Do not change native visibility to obtain a reading.
+            if (!Admit(role, Identity(drawn, image))) return;
             Rect crop = source.textureRect;
             Rect outputCrop = drawn.textureRect;
+            Vector4 outerUv = UnityEngine.Sprites.DataUtility.GetOuterUV(drawn);
             string detail = " role=" + role + " sprite=" + Name(source.name) + " source=" + Label(texture)
                 + " crop=" + Geometry(crop) + " output=" + Label(drawn.texture)
-                + " outputCrop=" + Geometry(outputCrop);
+                + " outputCrop=" + Geometry(outputCrop) + " outerUv=" + outerUv;
             detail += DrawState(image);
             Emit(detail, texture, crop, drawn.texture, outputCrop);
         }
@@ -43,25 +66,56 @@ internal static class QuestArtworkEvidence
 
     internal static void Raw(Component? owner, string role)
     {
-        if (!CanObserve(role) || owner == null || !owner.gameObject.activeInHierarchy) return;
+        if (!CanObserve(role)) return;
         try
         {
-            foreach (RawImage image in owner.GetComponentsInChildren<RawImage>(false))
+            if (owner == null) { Missing(role, "owner"); return; }
+            RawImage? fallback = null;
+            foreach (RawImage image in owner.GetComponentsInChildren<RawImage>(true))
             {
-                if (image == null || !image.isActiveAndEnabled || image.texture == null) continue;
-                Texture drawn = image.texture;
-                Texture source = WorldUI.PanelMipBake.OriginalFor(drawn);
-                if (!Admit(role, drawn.GetInstanceID())) return;
-                Rect crop = image.uvRect;
-                string detail = " role=" + role + " source=" + Label(source) + " uv=" + Geometry(crop)
-                    + " output=" + Label(drawn);
-                detail += DrawState(image);
-                Emit(detail, source, PixelRect(source, crop), drawn, PixelRect(drawn, crop));
+                if (image == null) continue;
+                if (fallback == null) fallback = image;
+                if (image.texture == null || !image.gameObject.activeSelf) continue;
+                RawImage(image, role);
                 return;
             }
+            RawImage(fallback, role);
         }
         catch (Exception error) { Failed(role, error); }
     }
+
+    internal static void RawImage(RawImage? image, string role)
+    {
+        if (!CanObserve(role)) return;
+        try
+        {
+            if (image == null) { Missing(role, "image"); return; }
+            Texture? drawn = image.texture;
+            if (drawn == null)
+            {
+                if (Admit(role, 0)) State(" role=" + role + " unavailable=texture" + DrawState(image));
+                return;
+            }
+            if (!Admit(role, Identity(drawn, image))) return;
+            Texture source = WorldUI.PanelMipBake.OriginalFor(drawn);
+            Rect crop = image.uvRect;
+            string detail = " role=" + role + " source=" + Label(source) + " uv=" + Geometry(crop)
+                + " output=" + Label(drawn);
+            detail += DrawState(image);
+            Emit(detail, source, PixelRect(source, crop), drawn, PixelRect(drawn, crop));
+        }
+        catch (Exception error) { Failed(role, error); }
+    }
+
+    private static int Identity(UnityEngine.Object textureOrSprite, Graphic image) => unchecked(
+        textureOrSprite.GetInstanceID() * 31 + (image.enabled ? 1 : 0));
+
+    private static void Missing(string role, string what)
+    {
+        if (Admit(role, 0)) State(" role=" + role + " unavailable=" + what);
+    }
+
+    private static void State(string detail) => Debug.Log("[Quest startup] artwork" + detail);
 
     private static bool CanObserve(string role) => QuestStandalonePlatform.Enabled && VRLog.WantsDebug
         && _records < 8 && (!Seen.TryGetValue(role, out HashSet<int> seen) || seen.Count < 2);
@@ -77,7 +131,8 @@ internal static class QuestArtworkEvidence
         Material? material = renderer.materialCount > 0 ? renderer.GetMaterial(0) : null;
         string shader = material != null && material.shader != null ? Name(material.shader.name) : "none";
         Color tint = renderer.GetColor();
-        string detail = " graphic=" + Name(image.name) + " shader=" + shader
+        string detail = " graphic=" + Name(image.name) + " enabled=" + image.enabled
+            + " self=" + image.gameObject.activeSelf + " hierarchy=" + image.gameObject.activeInHierarchy + " shader=" + shader
             + " rect=" + Geometry(image.rectTransform.rect) + " rectClip=" + renderer.hasRectClipping
             + " cull=" + renderer.cull + " tint=" + tint.r.ToString("F2", CultureInfo.InvariantCulture)
             + "," + tint.g.ToString("F2", CultureInfo.InvariantCulture) + "," + tint.b.ToString("F2", CultureInfo.InvariantCulture)

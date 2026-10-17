@@ -62,6 +62,7 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
         ('raw-source-current-copy', 'RawPortrait.cs', 'source = live;', 'source = displayed;', 'already baked raw portrait refreshes changed original contents'),
         ('sprite-update-stale', 'CardFaceMipBake.cs', '&& update == source.texture.updateCount;', '&& true;', 'same-object source update invalidates preparation without GPU hash'),
         ('stale-camera-suppresses-evidence', 'QuestArtworkEvidence.cs', '&& _records < 8 &&', '&& Camera.current == null && _records < 8 &&', 'at most two actual artwork generations per role and eight total records'),
+        ('inactive-source-silent', 'QuestArtworkEvidence.cs', 'if (image == null) { Missing(role, "image"); return; }\n            Sprite?', 'if (image == null || !image.isActiveAndEnabled) { Missing(role, "image"); return; }\n            Sprite?', 'inactive capture source and disabled image remain passively observable'),
         ('silhouette-crop-lost', 'QuestArtworkRegion.cs', 'new Vector2((float)x / source.width, (float)y / source.height)', 'Vector2.zero', 'silhouette crop preserves exact native alpha'),
     ]
     if args.case:

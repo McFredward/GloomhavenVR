@@ -137,6 +137,38 @@ public static partial class DiagnosticProgram
             QuestArtworkEvidence.SpriteField(owner, "headerImage", "desktop");
             Check(artworkRecords.Count == 0, "artwork readback is gated before work on desktop and normal log level");
             QuestStandalonePlatform.Enabled = true;
+            var hiddenHost = Keep(new GameObject("parked-native-capture"));
+            image.transform.SetParent(hiddenHost.transform, false);
+            hiddenHost.SetActive(false);
+            image.enabled = false;
+            QuestArtworkEvidence.Image(image, "hidden-header");
+            Check(artworkRecords.Count == 1 && artworkRecords[0].Contains("enabled=False")
+                && artworkRecords[0].Contains("hierarchy=False") && artworkRecords[0].Contains(" rgba6="),
+                "inactive capture source and disabled image remain passively observable");
+            Check(!image.enabled && !hiddenHost.activeSelf && image.sprite == changed,
+                "observing a hidden native source never enables or replaces it");
+            image.enabled = true;
+            QuestArtworkEvidence.Image(image, "hidden-header");
+            Check(artworkRecords.Count == 2 && artworkRecords[1].Contains("enabled=True"),
+                "real loader enable transition is distinguished from the parked hierarchy");
+            QuestArtworkEvidence.Image(null, "missing-native");
+            QuestArtworkEvidence.Image(null, "missing-native");
+            Check(artworkRecords.Count == 3 && artworkRecords[2].Contains("unavailable=image"),
+                "missing actual native image emits one bounded reason instead of silence");
+            raw.transform.SetParent(hiddenHost.transform, false);
+            raw.enabled = false;
+            QuestArtworkEvidence.RawImage(raw, "hidden-avatar");
+            Check(artworkRecords.Count == 4 && artworkRecords[3].Contains("hierarchy=False")
+                && artworkRecords[3].Contains(" rgba6="), "parked actual avatar can be observed without a hierarchy search");
+            QuestArtworkEvidence.SpriteField(owner, "not-a-native-field", "bad-binding");
+            Check(artworkRecords.Count == 5 && artworkRecords[4].Contains("unavailable=field"),
+                "invalid reflection binding emits a bounded failure rather than silence");
+            Check(!raw.enabled && raw.texture != null && !hiddenHost.activeSelf,
+                "raw observation leaves native lifecycle and texture untouched");
+            ((IDictionary)typeof(QuestArtworkEvidence).GetField("Seen", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Clear();
+            typeof(QuestArtworkEvidence).GetField("_records", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, 0);
+            artworkRecords.Clear();
+            image.enabled = true; hiddenHost.SetActive(true);
             Camera previousCamera = Camera.current;
             var staleCamera = Keep(new GameObject("last-multipass-camera")).AddComponent<Camera>();
             staleCamera.enabled = false;
