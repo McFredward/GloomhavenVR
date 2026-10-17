@@ -1,5 +1,16 @@
 # State — where the project stands
 
+**Quest Wizard update tile, 2026-10-17: host-only / runtime B683 retained.**
+
+Repeated compact updates exceed the homepage hint's eight-owner limit, marking
+retained Campaign data as missing and hiding the update recommendation. Follow
+closed metadata under a total byte/owner budget; reuse the selected receipt and
+do not require deleted ancestor APK payloads to locate the retained bank. Keep
+current selected APK checks, input identity, cycles and missing-bank guards.
+Actual update ownership/signature/data qualification is unchanged. A real Chrome
+fixture uses a twelve-update metadata chain; no CSS or runtime repair is needed.
+See [QUEST-HOME-HINT-20261017.md](QUEST-HOME-HINT-20261017.md).
+
 **Quest B682 regression recovery, 2026-10-17: feature / B683.**
 
 Capture123858 verifies installed/current682, previous681. Both new screenshots
