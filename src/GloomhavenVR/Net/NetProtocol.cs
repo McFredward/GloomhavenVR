@@ -612,7 +612,26 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 694;
+    public const ushort ModBuild = 695;
+
+    // ModBuild695 — complete the approved stereo library and scenario review controls.
+    // Deliver all20 subjects: stronger GloomhavenVR intro lettering,11 original
+    // hero films,7 native ambient films and the original8s TwinSails studio clip.
+    // Keep gameplay_trailer excluded by the maintainer's explicit instruction;
+    // its native promotional behavior is unchanged. The normal installer handles
+    // all22 separate movie files beside the DLL, never embedded or in an extra ZIP.
+    // Every original frame/PTS and AAC packet is retained. Source-specific timed
+    // protection keeps printed banners/emblems rigid through their original zoom
+    // reveals. A lossless hero audio remux preserves the native presentation end;
+    // higher hero-only encoder headroom meets the unchanged picture/size floors.
+    // These offline repairs do not change runtime model/inference dependencies.
+    // Advanced/Test triggers/Videos offers each film inside a loaded scenario,
+    // using the normal movable/shared movie window with native films taking
+    // priority and no unlock, save or native continuation callback. Existing72
+    // byte layout remains unchanged. See690/692 for exact lifecycle/close rules.
+    // Retain the separately published694 loading/UI-effect-bounds repair. Native
+    // frame/audio/reprojection checks and actual decoded cue inspections pass;
+    // the new logo/library's headset playback remains a separate hardware check.
 
     // ModBuild694 — retain native Steam Link MR through scene loading and sharpen coverage.
     // The maintainer confirms693 successfully enables Frame/Steam Link MR, but
