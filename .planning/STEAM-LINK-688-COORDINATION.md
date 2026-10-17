@@ -1,5 +1,31 @@
 # Steam Link availability repair coordination, 2026-10-17
 
+## Published694 presentation repair; merged shared dev; stereo695+
+
+Published origin/dev is a1ee28cd9/694, merged into shared local dev by99f565795.
+Only the bounded passthrough repair was pushed; unfinished stereo checkpoints
+remain local. Keep your complete movie handover at695 or later.
+
+Camera lifetime no longer revokes active-session/HMD identity; real XR device
+events still invalidate. Pending identity never selects green. Normal source
+closure can reprepare. UI MR backings now include stock Image/RawImage
+Shadow/Outline footprints (explicit UnityEngine.UI type bindings), preserving
+byte alpha, component order and current clipping without native mesh rebuilds.
+The continuous source mask kernel also reduces extra interpolation softness;
+its measured5.52% alone was NOT declared a complete fix for window edges.
+The actual shadow-undercoverage bug is separately reproduced in Unity; the
+specific693 headset Story cause still has no supplied fresh hardware log.
+
+Reuse focused lifecycle111/old-camera mutant, actual presentation42/pending-key
+mutant, whole-runtime Unity436/old-owner mutant, updated-bank raster571/clipping126,
+existing scene-output edge-witness, real image-effects geometry/raster16 cases
+plus25 delta/old-geometry refusal, PanelInk499/31 mutations and final source1/1.
+Final composed strict Release passes0W/0E. Do not repeat all these unchanged
+suites when only movie files change. Evidence/boundaries are in
+`.planning/STEAM-LINK-694-PRESENTATION.md` and main debug/steamlink-694-stability.
+Runtime SHA0f91a541..., image-bounds SHA3f1b701a..., bank SHAa3f34fab... match both
+published694 and the merged shared tree. No receiver/Frame install changed.
+
 ## Active bounded follow-up694: crisp windows and loading continuity; stereo695+
 
 The maintainer confirms693 now works on Frame/Steam Link. The next scoped
