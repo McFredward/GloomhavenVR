@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><GenerateDocumentationFile>false</GenerateDocumentationFile></PropertyGroup>
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><GenerateDocumentationFile>false</GenerateDocumentationFile><SteamLinkConnectionSource Condition="'$(SteamLinkConnectionSource)' == ''">$(MSBuildThisFileDirectory)../../src/GloomhavenVR/Core/SteamLink/SteamLinkConnection.cs</SteamLinkConnectionSource></PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../src/GloomhavenVR/Core/SteamLink/SteamLinkConnection.cs" Link="SteamLinkConnection.cs" />
+    <Compile Remove="artifact/**/*.cs" />
+    <Compile Include="$(SteamLinkConnectionSource)" Link="SteamLinkConnection.cs" />
     <EmbeddedResource Include="../../src/GloomhavenVR/Assets/SteamLink/connection-reader.exe" LogicalName="GloomhavenVR.SteamLink.connection-reader.exe" />
     <EmbeddedResource Include="../../src/GloomhavenVR/Assets/SteamLink/openvr_api.dll" LogicalName="GloomhavenVR.SteamLink.openvr_api.dll" />
   </ItemGroup>

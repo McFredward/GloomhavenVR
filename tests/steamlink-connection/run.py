@@ -44,7 +44,7 @@ def main() -> int:
     dotnet = os.environ.get('DOTNET', shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet'))
     env = dict(os.environ, DOTNET_CLI_USE_MSBUILD_SERVER='0', DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1', PYTHONDONTWRITEBYTECODE='1')
 
-    def run(name: str, command: list[str], timeout: int = 120) -> None:
+    def run(name: str, command: list[str], timeout: int = 120, expected_code: int = 0) -> None:
         target = output / (name + '.log')
         with target.open('wb') as sink:
             child = subprocess.Popen(command, cwd=ROOT, env=env, stdout=sink, stderr=subprocess.STDOUT, start_new_session=True)
@@ -55,8 +55,8 @@ def main() -> int:
                     os.killpg(child.pid, signal.SIGKILL)
                 child.wait()
                 raise
-        records.append({'name': name, 'exit_code': code, 'log': target.name})
-        if code:
+        records.append({'name': name, 'exit_code': code, 'expected_exit_code': expected_code, 'log': target.name})
+        if code != expected_code:
             raise RuntimeError(f'{name} failed ({code}); see {target}')
 
     try:
@@ -74,6 +74,22 @@ def main() -> int:
             run('managed-build', [dotnet, 'build', str(HERE / 'ConnectionTests.csproj'), '-c', 'Release', '--disable-build-servers',
                                   '-p:BaseIntermediateOutputPath=' + str(managed / 'obj') + '/', '-p:OutputPath=' + str(managed / 'bin') + '/'])
             run('managed-controls', [dotnet, str(managed / 'bin/ConnectionTests.dll'), str(RESOURCE), str(API)], 30)
+            # Restore exactly the production bug in a frozen private source copy.
+            # The same global game-like extension is compiled in both variants;
+            # only binding changes. Fail early, before any child/deadline tests.
+            source = (ROOT / 'src/GloomhavenVR/Core/SteamLink/SteamLinkConnection.cs').read_text()
+            explicit = 'System.Linq.Enumerable.Skip(path, 2)'
+            assert source.count(explicit) == 1, 'Expected one unambiguous production path call'
+            mutations = output / 'source-mutant'
+            mutations.mkdir()
+            changed = mutations / 'SteamLinkConnection.cs'
+            changed.write_text(source.replace(explicit, 'path.Skip(2)'))
+            mutant = cache / 'binding-mutant'
+            run('binding-mutant-build', [dotnet, 'build', str(HERE / 'ConnectionTests.csproj'), '-c', 'Release', '--disable-build-servers',
+                                        '-p:SteamLinkConnectionSource=' + str(changed),
+                                        '-p:BaseIntermediateOutputPath=' + str(mutant / 'obj') + '/', '-p:OutputPath=' + str(mutant / 'bin') + '/'])
+            run('binding-mutant-rejected', [dotnet, str(mutant / 'bin/ConnectionTests.dll'), '--binding-only'], 15, expected_code=3)
+            assert 'BINDING_REGRESSION: game extension must not control production path guard' in (output / 'binding-mutant-rejected.log').read_text(), 'Mutant must fail at the actual binding regression'
         if args.rebuild_native:
             rebuilt = cache / 'connection-reader.exe'
             run('resource-rebuild', ['bash', str(ROOT / 'scripts/build-steamlink-connection-reader.sh'), str(rebuilt)])

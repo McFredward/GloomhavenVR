@@ -45,6 +45,37 @@ Normal logs announce a positive Frame/Link transition and warn once per session
 for an unreadable runtime registry/API or unavailable embedded reader. Ordinary
 unsupported headsets/transports and detailed properties stay at Debug.
 
+The source fixture deliberately includes a global `StringExtensions.Skip(string,
+int)` with the game's count-minus-one behavior. This ensures the production
+guard's explicit `System.Linq.Enumerable.Skip` is tested in the competing overload
+scope that the original isolated suite omitted. Six early binding checks run
+before process tests. The default runner also compiles a private mutation back
+to `path.Skip(2)` and requires the exact path assertion to fail with exit3;
+that mutant never repeats the five-second child deadline. The adversary lives
+only in this test directory and is not included by the production project.
+
+An optional read-only produced-artifact probe closes the separate compiler-input
+gap. It invokes the actual final plugin's guard/cache methods with the real game
+`GH.Runtime` under Unity's Mono; it does not recompile the production class or
+initialize Unity/OpenVR. A retained689 binary can be included as a separate
+process to demonstrate its refusal on the identical canonical inputs:
+
+```sh
+python3 -B tests/steamlink-connection/probe-artifact.py \
+  --dll /path/to/final/GloomhavenVR.dll \
+  --managed /path/to/Gloomhaven_Data/Managed \
+  --mono /path/to/MonoBleedingEdge/bin/mono --expected-build 691 \
+  --legacy-dll /path/to/retained689/GloomhavenVR.dll \
+  --output .planning/debug/connection-produced-artifact
+```
+
+`--legacy-dll` and `--expected-build` are optional. The probe requires an installed
+.NET SDK compiler and the Mono distribution's `lib/mono/4.5` reference assemblies.
+It hashes all read-only input DLLs/runtime files before and after the probe,
+retains logs and source, and removes only its generated executable/cache after
+reaping. This tests produced overload binding; a Linux Mono pass does not prove
+Windows shell folders, Proton child launch, connected hardware or receiver state.
+
 The public Valve OpenVR1.26.7 SDK loader is also embedded:826,688 bytes, SHA256
 `5e591aa3f4a991edcc8910921833edafa67a1b117849bbb4e235df9833bed7a3`.
 Its BSD3 license ships in `Licenses/`. Production extracts both checked payloads
