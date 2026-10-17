@@ -1,5 +1,45 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Exact native SubpassBegin refusal; restored and investigating offline, 2026-10-17
+
+Approved fork r5 package loaded successfully against all82 actual native imports
+and exact-provider isolated loading. The maintainer confirmed the moving PC-VR
+pattern. CaptureID724593dd48cb378cea4215552344fc67, source4a7146d/CI38975977337.
+Actual selected pipeline281472362934688/generation143 becomes ready; adopted
+command generation22775/pool1 follows learned22769. No observer draw runs.
+
+The new first-refusal record identifies CmdBeginRenderPass2KHR, sequence3,
+RecordingOutsidePass, None→UnknownRoute17. Decoder UnknownExtension4 is at
+SubpassBegin chain1/index0: root VkSubpassBeginInfo1000109005, inline contents,
+one pNext header1000109099. RenderPassBegin chain is empty. Twenty contexts,
+41 attempts, no overflow/truncation/contention. Later selected pipeline/indexed
+draw encounters are retained, but deduplicated first/count/last evidence is not
+a complete per-call timeline or proof of missing payload/layout semantics.
+Do not whitelist the numeric tag, invent/read its payload or strip it from the
+original call. Public registry/native-origin research is now offline.
+
+Three source artifacts are saved and checksum verified (P01015,925,248B,
+sampled component codes21,233,664B, metadata4,129B). Optional128B SSBO is absent;
+there is no original-invocation, source-frame/eye/UV or passthrough proof. Exact
+protected evidence and consumed plan: fork
+`build/private-native-ssbo-run-20261017-r1/`. Fork665089f documents the result in
+`docs/research/native-subpass-refusal-20261017.md`.
+
+Separately agreed rollback is complete: activation/run library absent, no loaded
+diagnostic mappings or uncertainty, healthy original startup and maintainer
+confirmed normally visible/usable interface. Standby is safe. No automatic timer
+or restart occurred. No further Frame contact is authorized by this note.
+
+Three isolated r6 workers from current fork dev665089f now investigate the exact
+public/header contract, existing private native writer/consumer, and complete
+command descriptor-state preservation. The last review found a genuine further
+risk: ordinary tracker layout-change clearing is stronger than Vulkan binding
+compatibility, so an empty modeled Set1 is not evidence it was never bound.
+LaterDraw publication refusal alone cannot undo an earlier observer Set1 bind.
+No broader substitution/state exception is approved yet. Solve the complete
+route before another headset request. Main runtime/Build678 stays outside scope;
+no main full/wire gate is repeated for these coordination-only changes.
+
 ## r5 complete recording-path repair checked and pushed; fresh device permission pending, 2026-10-17
 
 Fork dev 4a7146d is pushed. Exact hosted CI 38975977337 succeeds: 130 CTests
