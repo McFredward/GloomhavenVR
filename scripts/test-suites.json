@@ -2772,6 +2772,43 @@
         "local"
       ],
       "weight": 3
+    },
+    {
+      "id": "stereo-video-calibration",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/stereo-video-calibration-tests.py",
+        "--self-test"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 20
+    },
+    {
+      "id": "stereo-video-render",
+      "command": [
+        "bash",
+        "scripts/stereo-video-render-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "stereo-video-tools",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/stereo-video-tools-tests.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
     }
   ]
 }

@@ -612,7 +612,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 682;
+    public const ushort ModBuild = 683;
+
+    // ModBuild683 — opt-in stereoscopic movie calibration before offline conversion.
+    // The maintainer accepted the staged 3D-video plan: prove eye routing, judge three
+    // converted samples in a headset, then process the film library. Add a tiny embedded
+    // UI shader and an independent, silent full-SBS calibration decoder. The exact
+    // --ghvr-stereo-video-calibration launch token starts once in the offline main menu;
+    // the ordinary launch does not inspect media or load the shader. Native movies,
+    // audio, completion/skip callbacks, shared movie clocks and gameplay stay unchanged.
+    // Each actual MultiPass eye selects its own half of one decoder texture; mono
+    // cameras select the left picture. Preserve per-eye aspect, UI clipping and texel
+    // borders. Missing shader support selects the separate mono companion; invalid
+    // dimensions/errors stop the diagnostic. Closing, menu exit, external destruction
+    // and shutdown release its material, render callback and decoder without a restart.
+    // Offline media and focused lifecycle/GPU controls are finite software evidence;
+    // actual headset fusion, decoded-eye timing and hardware performance remain open.
+    // No game-data, inference, wire-schema, config/default or ordinary-film change.
 
     // ModBuild682 — fan audio follows successful visibility transitions.
     // Build680's Frost Armor short rest has one original two-second burn, while

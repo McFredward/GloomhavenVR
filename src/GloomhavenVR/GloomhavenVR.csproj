@@ -15,6 +15,9 @@
     <!-- Keep the first-save movie mod-local; the original game data stays untouched. -->
     <Content Include="Assets\Movies\CP_Intro\GH_CP_Intro.mov"
              CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\CP_Intro\GH_CP_Intro.mov" />
+    <!-- The small, explicitly loaded stereo UI shader does not replace the main asset bank. -->
+    <EmbeddedResource Include="Assets\StereoVideo\ui-sbs.bundle"
+                      LogicalName="GloomhavenVR.StereoVideo.ui-sbs.bundle" />
     <!-- Shared with the preloader: both stages must agree on Frame's explicit VR opt-in. -->
     <Compile Include="..\GloomhavenVR.Preload\FrameLaunchOptIn.cs" Link="Core\Startup\FrameLaunchOptIn.cs" />
     <!--
