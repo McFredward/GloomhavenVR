@@ -39,6 +39,7 @@ internal static class Program
         VRSession.IsRunning = WorldUIConfig.ConversionActive = true; FFSNetwork.IsOnline = false;
         CanvasConversion.WorldCamera = new GameObject("FixtureHead").AddComponent<Camera>();
         Loc.CurrentLanguage = "English"; PanelLayout.WorldScale = 1f; VRLog.Lines.Clear(); VRLayers.Applies = 0;
+        Time.unscaledTime = 0f;
     }
     private static void Policy()
     {
@@ -116,6 +117,12 @@ internal static class Program
         var rect = (RectTransform)image!.transform;
         Check(Near(rect.sizeDelta.x / rect.sizeDelta.y, 16f / 9f), "window aspect comes from per-eye dimensions");
         Check(Near(rect.position.z, 1.6f) && Near(rect.localScale.x * rect.sizeDelta.x, 1.2f) && Near(rect.rotation.Forward.y, 0), "fixed prepared window has documented distance width and yaw only");
+        var group = image.gameObject.Components.OfType<CanvasGroup>().Single();
+        Check(Near(group.alpha, 0f), "prepared picture starts at zero alpha");
+        Time.unscaledTime = .075f; Tick();
+        Check(Near(group.alpha, .5f), "prepared picture fades in on the shared update clock");
+        Time.unscaledTime = .15f; Tick();
+        Check(Near(group.alpha, 1f), "prepared picture finishes opening without changing playback");
         var label = GameObject.All.SelectMany(g => g.Components).OfType<TextMeshProUGUI>().Single();
         Check(label.text.Contains("Click") && !label.raycastTarget, "English close hint does not steal picture clicks");
         Loc.CurrentLanguage = "German"; Tick(); Check(label.text.Contains("Schließen"), "German close hint updates through production localization");
@@ -130,6 +137,10 @@ internal static class Program
         Check(StereoVideoCalibration.OwnsClick(image.gameObject) && !StereoVideoCalibration.OwnsClick(label.gameObject), "click ownership is the exact picture object");
         var click = image.gameObject.Components.OfType<StereoVideoCalibrationClick>().Single();
         click.OnPointerClick(new PointerEventData());
+        Check(player.Stops == 0 && Near(group.alpha, 1f), "owned picture click begins fading before disposal");
+        Time.unscaledTime = .225f; Tick();
+        Check(player.Stops == 0 && Near(group.alpha, .5f), "manual close fades on the shared update clock");
+        Time.unscaledTime = .35f; Tick();
         Check(player.Stops == 1 && player.Destroyed && !player.gameObject.Active && image.Destroyed, "owned picture click stops and destroys calibration");
         Check(player.PreparedSubscribers == 0 && player.ErrorSubscribers == 0, "close detaches prepare and error callbacks");
         Check(StereoVideoSurface.Disposals == 1 && UguiPokeSurfaces.Removals == 1 && UguiPokeSurfaces.Canvases.Count == 0, "close disposes surface and unregisters pointer canvas");

@@ -20,6 +20,7 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal static class StereoVideoCalibration
 {
+    private const float FadeSeconds = 0.15f;
     private static bool _checkedArguments;
     private static bool _requested;
     private static bool _attempted;
@@ -28,6 +29,10 @@ internal static class StereoVideoCalibration
     private static GameObject? _root;
     private static VideoPlayer? _player;
     private static Canvas? _canvas;
+    private static CanvasGroup? _group;
+    private static bool _closing;
+    private static float _phaseAt;
+    private static float _fadeFrom;
     private static RawImage? _image;
     private static TextMeshProUGUI? _caption;
     private static StereoVideoSurface? _surface;
@@ -69,6 +74,12 @@ internal static class StereoVideoCalibration
             if (_image == null) BuildPicture(CanvasConversion.WorldCamera);
             if (_image != null) _image.texture = _player.texture;
             if (_caption != null) _caption.text = Loc.StereoVideoCalibrationClose;
+            if (_group != null)
+            {
+                float progress = Mathf.Clamp01((Time.unscaledTime - _phaseAt) / FadeSeconds);
+                _group.alpha = _closing ? _fadeFrom * (1f - progress) : progress;
+                if (_closing && progress >= 1f) Stop();
+            }
         }
         catch (Exception ex)
         {
@@ -123,6 +134,9 @@ internal static class StereoVideoCalibration
         _canvas.renderMode = RenderMode.WorldSpace;
         _canvas.worldCamera = head;
         _canvas.sortingOrder = ModalFallback.ModalHostSortingOrder;
+        _group = host.AddComponent<CanvasGroup>();
+        _group.alpha = 0f;
+        _phaseAt = Time.unscaledTime;
         host.AddComponent<GraphicRaycaster>();
         var rect = (RectTransform)host.transform;
         float aspect = _stereo ? StereoVideoSurface.PerEyeAspect(_player.texture.width, _player.texture.height)
@@ -172,6 +186,14 @@ internal static class StereoVideoCalibration
 
     internal static bool OwnsClick(GameObject target) => _image != null && ReferenceEquals(_image.gameObject, target);
 
+    internal static void RequestClose()
+    {
+        if (_group == null || _closing) return;
+        _closing = true;
+        _fadeFrom = _group.alpha;
+        _phaseAt = Time.unscaledTime;
+    }
+
     internal static void Stop()
     {
         if (_attempted) _finished = true;
@@ -193,6 +215,8 @@ internal static class StereoVideoCalibration
         _root = null;
         _player = null;
         _canvas = null;
+        _group = null;
+        _closing = false;
         _image = null;
         _caption = null;
     }
@@ -202,6 +226,6 @@ internal sealed class StereoVideoCalibrationClick : MonoBehaviour, IPointerClick
 {
     public void OnPointerClick(PointerEventData eventData)
     {
-        if (StereoVideoCalibration.OwnsClick(gameObject)) StereoVideoCalibration.Stop();
+        if (StereoVideoCalibration.OwnsClick(gameObject)) StereoVideoCalibration.RequestClose();
     }
 }

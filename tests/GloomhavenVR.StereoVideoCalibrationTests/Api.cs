@@ -90,6 +90,9 @@ namespace UnityEngine
     public struct Color { public static Color white => new(); }
     public class Texture : Object { public int width; public int height; }
     public class Camera : Component { }
+    public static class Time { public static float unscaledTime; }
+    public static class Mathf { public static float Clamp01(float value) => Math.Clamp(value, 0f, 1f); }
+    public class CanvasGroup : Component { public float alpha = 1f; }
     public enum RenderMode { WorldSpace }
     public class Canvas : Component
     { public RenderMode renderMode; public Camera? worldCamera; public int sortingOrder; }
