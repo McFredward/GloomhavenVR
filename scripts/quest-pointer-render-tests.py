@@ -25,7 +25,11 @@ def main():
     start = source.index("    private Material CreateBeamMaterial(out Color color)")
     end = source.index("    // ---- effective-state sync", start)
     factory = source[start:end]
-    (editor / "PointerProductionMaterialFactory.cs").write_text("using UnityEngine;\ninternal sealed class PointerProductionMaterialFactory {\npublic Material Build() { return CreateBeamMaterial(out _); }\n" + factory + "}\n")
+    (editor / "PointerProductionMaterialFactory.cs").write_text("using UnityEngine;\nnamespace GloomhavenVR.Hands.Interact { internal sealed class PointerProductionMaterialFactory {\n"
+        + "public Material Build(bool quest) { Core.QuestStandalonePlatform.Enabled=quest; return CreateBeamMaterial(out _); }\n"
+        + "public void Apply(Renderer renderer, bool quest) { Core.QuestStandalonePlatform.Enabled=quest; ApplyQuestPointerRendererDefaults(renderer); }\n"
+        + factory + "} }\n"
+        + "namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { internal static bool Enabled; } }\n")
     shutil.copyfile(ROOT / "tests/QuestPointerRender.Tests/Probe.cs", editor / "Probe.cs")
     (project / "Packages").mkdir(); (project / "ProjectSettings").mkdir()
     (project / "Packages/manifest.json").write_text('{"dependencies":{}}\n')
@@ -47,7 +51,7 @@ def main():
         if code:
             raise RuntimeError("Native pointer fixture failed: " + str(run / "unity.log"))
         report = json.loads((project / "ProbeOutput/results.json").read_text())
-        assert len(report["cases"]) == 5
+        assert len(report["cases"]) == 12
         (run / "source-hashes.json").write_text(json.dumps({"productionFactory": hashlib.sha256(factory.encode()).hexdigest(),
             "probe": hashlib.sha256((ROOT / "tests/QuestPointerRender.Tests/Probe.cs").read_bytes()).hexdigest(),
             "graphics": graphics, "hardwareVerified": False}, indent=2) + "\n")

@@ -1144,8 +1144,64 @@ internal sealed class RayInteractor : IPickProvider
         Shader? shader = material != null ? material.shader : null;
         text.Append(' ').Append(name).Append("Shader=").Append(shader != null ? shader.name : "none")
             .Append(' ').Append(name).Append("ShaderSupported=").Append(shader != null && shader.isSupported)
+            .Append(' ').Append(name).Append("MaterialInstancing=").Append(material != null && material.enableInstancing)
             .Append(' ').Append(name).Append("Queue=").Append(material != null ? material.renderQueue : -1)
             .Append(' ').Append(name).Append("SortingOrder=").Append(renderer.sortingOrder);
+        if (material != null)
+        {
+            AppendQuestLaserMaterialVector(text, name, material, "_Flip");
+            AppendQuestLaserMaterialVector(text, name, material, "_RendererColor");
+        }
+        bool hasBlock = renderer.HasPropertyBlock();
+        text.Append(' ').Append(name).Append("PropertyBlock=").Append(hasBlock);
+        if (hasBlock)
+        {
+            var block = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(block);
+            AppendQuestLaserBlockVector(text, name, block, "_Flip");
+            AppendQuestLaserBlockVector(text, name, block, "_RendererColor");
+        }
+        Mesh? mesh = renderer.GetComponent<MeshFilter>()?.sharedMesh;
+        text.Append(' ').Append(name).Append("Mesh=").Append(mesh != null ? mesh.name : "none");
+        if (mesh != null)
+        {
+            text.Append(' ').Append(name).Append("Vertices=").Append(mesh.vertexCount)
+                .Append(' ').Append(name).Append("VertexStreams=").Append(mesh.vertexBufferCount)
+                .Append(' ').Append(name).Append("VertexStride0=")
+                .Append(mesh.vertexBufferCount > 0 ? mesh.GetVertexBufferStride(0) : 0)
+                .Append(' ').Append(name).Append("MeshReadable=").Append(mesh.isReadable);
+            AppendQuestLaserVector(text, name + "MeshBoundsCenter", mesh.bounds.center);
+            AppendQuestLaserVector(text, name + "MeshBoundsSize", mesh.bounds.size);
+        }
+    }
+
+    private static void AppendQuestLaserMaterialVector(StringBuilder text, string name, Material material, string property)
+    {
+        text.Append(' ').Append(name).Append(property).Append('=');
+        if (!material.HasProperty(property))
+        {
+            text.Append("absent");
+            return;
+        }
+        AppendQuestLaserVector4(text, material.GetVector(property));
+    }
+
+    private static void AppendQuestLaserBlockVector(StringBuilder text, string name, MaterialPropertyBlock block, string property)
+    {
+        text.Append(' ').Append(name).Append("Block").Append(property).Append('=');
+        int propertyId = Shader.PropertyToID(property);
+        if (!block.HasProperty(propertyId))
+        {
+            text.Append("absent");
+            return;
+        }
+        AppendQuestLaserVector4(text, block.GetVector(propertyId));
+    }
+
+    private static void AppendQuestLaserVector4(StringBuilder text, Vector4 value)
+    {
+        text.AppendFormat(CultureInfo.InvariantCulture, "({0:F4},{1:F4},{2:F4},{3:F4})",
+            value.x, value.y, value.z, value.w);
     }
 
     private static void AppendQuestLaserCamera(StringBuilder text, string name, Camera? camera)
@@ -1171,6 +1227,7 @@ internal sealed class RayInteractor : IPickProvider
         _laser.useWorldSpace = true;
         _laser.positionCount = 2;
         _laser.material = CreateBeamMaterial(out Color color);
+        ApplyQuestPointerRendererDefaults(_laser);
         _laser.startColor = color;
         _laser.endColor = new Color(color.r, color.g, color.b, 0.05f);
         _laser.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -1185,6 +1242,7 @@ internal sealed class RayInteractor : IPickProvider
         reticleGo.transform.SetParent(_hand.transform, worldPositionStays: true);
         Renderer reticleRenderer = reticleGo.GetComponent<Renderer>();
         reticleRenderer.sharedMaterial = _laser.material;
+        ApplyQuestPointerRendererDefaults(reticleRenderer);
         // Same as the laser: draw the hit dot above the modal host (sortingOrder 1000)
         // so it never vanishes on a dialog; ZTest LEqual still hides it behind solids.
         reticleRenderer.sortingOrder = RayVisualSortingOrder;
@@ -1204,6 +1262,16 @@ internal sealed class RayInteractor : IPickProvider
         Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended");
         var material = shader != null ? new Material(shader) : new Material(Shader.Find("Hidden/InternalErrorShader"));
         material.color = color;
+        if (Core.QuestStandalonePlatform.Enabled)
+        {
+            // The native sprite shader also serves our ordinary MeshRenderer and
+            // LineRenderer. Its hidden SpriteRenderer inputs must be explicit on
+            // these draw types; the renderer block below takes final precedence.
+            // Keep native premultiplied blending (including target alpha for MR).
+            material.enableInstancing = false;
+            if (material.HasProperty("_Flip")) material.SetVector("_Flip", Vector4.one);
+            if (material.HasProperty("_RendererColor")) material.SetColor("_RendererColor", Color.white);
+        }
         // Test #14 item 3: reticle/beam partially vanished ON dialogs — world-space
         // canvas graphics (UI/Default, TMP) draw in the transparent queue (~3000)
         // and within one queue transparents sort by depth, so canvas geometry at the
@@ -1215,6 +1283,22 @@ internal sealed class RayInteractor : IPickProvider
         // surface tuning and can still lose to TMP sub-mesh sorting.
         material.renderQueue = 4600;
         return material;
+    }
+
+    private static void ApplyQuestPointerRendererDefaults(Renderer renderer)
+    {
+        if (!Core.QuestStandalonePlatform.Enabled)
+            return;
+        // B674 video shows large cyan facets on a hit while CPU sphere bounds
+        // remain centimetres. A native Vulkan/GL control reproduces that split by
+        // inflating the sprite-only _Flip field. This establishes the risk rather
+        // than the headset's final GPU value: pin the neutral inputs at the draw
+        // boundary and retain bounded property/mesh evidence for the next test.
+        var block = new MaterialPropertyBlock();
+        renderer.GetPropertyBlock(block);
+        block.SetVector("_Flip", Vector4.one);
+        block.SetColor("_RendererColor", Color.white);
+        renderer.SetPropertyBlock(block);
     }
 
     // ---- effective-state sync ----------------------------------------------------------
