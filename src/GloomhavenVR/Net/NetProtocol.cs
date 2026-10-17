@@ -612,7 +612,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 676;
+    public const ushort ModBuild = 677;
+
+    // ModBuild677 — explicit Quest primitive buffers and bounded consumer probes.
+    // Capture074018 proves B676 actually uses the owned Overlay shader but the
+    // user still reports a black menu and oversized blue hit-marker facets.
+    // Captured menu textures contain pixels; native Quad/Sphere streams have
+    // no COLOR attribute. Re-upload only these small, owned unlit consumers
+    // from their readable CPU positions/UVs/indices with explicit vertex color,
+    // preserving geometry, material, per-eye routing, depth and desktop meshes.
+    // This removes a shared input dependency; it does not establish the exact
+    // Android cause. Keep B675's hardware-confirmed XR allocation/viewport fix.
+    // At Debug, two Update-only private-camera draws compare actual consumer
+    // output independently of final XR output. Retain those and primitive
+    // records within existing log quotas; shrink source thumbnails to fit one
+    // Android logcat record and decode both current and historical dimensions.
+    // Host Wizard changes add local update recommendations, persistent Home
+    // navigation/live-job status, one hero logo and prominent project links.
+    // These host changes alone do not require native compilation. The runtime
+    // repair uses compact code compilation/update without rebuilding game/art
+    // banks. Focused GPU/compile/log/browser checks are recorded in the B677
+    // handoff; menu, laser and MR outcomes still require a new Quest test.
 
     // ModBuild676 — Quest mesh output with retained eye allocation and capture data.
     // Capture071329 confirms B675 resolves tracked-picture distortion. Retain

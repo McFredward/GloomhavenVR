@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest primitive uploads and actual consumer evidence, 2026-10-17: feature / B677.**
+
+Capture074018 confirms B676's owned shader is active but black menu and large
+blue hit-marker facets persist. Keep the hardware-confirmed B675 viewport fix.
+Re-upload only Quest's small unlit primitive consumers from their CPU geometry
+with explicit color inputs and owned lifetime. Two bounded Debug private-camera
+consumer draws separate real GPU drawing from source-texture readbacks. Shrink
+thumbnails to fit Android logcat and retain both supported collector layouts.
+No game/art/native-helper bank changes. Exact Android cause and headset outcome
+remain unverified. The combined Builder also contains the homepage/navigation
+improvements below. Use compact Mod Update; see
+[QUEST-RENDER-074018-20261017.md](QUEST-RENDER-074018-20261017.md).
+
+
 **Quest Wizard homepage and startup, 2026-10-17: host-only / runtime B676 retained.**
 
 Offer a highlighted Mod Update tile when the bundled runtime is newer and

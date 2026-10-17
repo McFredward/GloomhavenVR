@@ -173,7 +173,9 @@ namespace GloomhavenVR.Quest
             return message.StartsWith("[Quest startup] presentation menu-handover ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation menu-pixels ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation menu-thumbnail ", StringComparison.Ordinal)
-                || message.StartsWith("[Quest startup] presentation menu-draw ", StringComparison.Ordinal);
+                || message.StartsWith("[Quest startup] presentation menu-draw ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation menu-consumer-draw ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation primitive-upload ", StringComparison.Ordinal);
         }
         static bool IsPresentationDetail(string message)
         {

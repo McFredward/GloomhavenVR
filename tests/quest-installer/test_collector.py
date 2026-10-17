@@ -238,6 +238,27 @@ class CollectorTests(unittest.TestCase):
             self.assertEqual(manifest["files"], [])
         self.assertTrue(manifest["presentationThumbnailsUnavailable"])
 
+    def test_compact_menu_thumbnail_retains_dimensions_alpha_and_row_order(self):
+        pixels = bytes(component for y in range(8) for x in range(16) for component in (x * 13, y * 23, 61, x * 15))
+        line = ("[Quest startup] presentation menu-thumbnail scene=MainMenu sample=2 role=glass target=fixture"
+                " width=16 height=8 format=RGBA8-linear bottomRowFirst=true base64="
+                + base64.b64encode(pixels).decode() + "\n")
+        self.assertLess(len(line.encode()), 1023)
+        (self.root / "quest-startup.log").write_text("[Quest startup] ModBuild=677 input=" + KEY + "\n" + line)
+        manifest = {"files": [], "app": {"modBuild": 677, "inputKeyPrefix": KEY[:12]}}
+        collector.retain_menu_thumbnails(collector.Capture(None, "USB-QUEST", self.root, manifest))
+        row, = manifest["files"]
+        self.assertEqual((row["width"], row["height"]), (16, 8))
+        data = (self.root / row["path"]).read_bytes()
+        self.assertEqual(struct.unpack_from(">II", data, 16), (16, 8))
+        size = struct.unpack_from(">I", data, 33)[0]
+        raw = zlib.decompress(data[41:41 + size])
+        self.assertEqual(len(raw), 8 * 65)
+        self.assertEqual(raw[1:65], pixels[7 * 64:8 * 64])
+        self.assertEqual(raw[-64:], pixels[:64])
+        for width, height, payload in ((32, 8, pixels * 2), (16, 16, pixels * 2), (16, 8, pixels[:-1])):
+            with self.assertRaises(ValueError): collector.menu_thumbnail_png(payload, width, height)
+
     def remember(self, hardware="HARDWARE-1"):
         self.config.parent.mkdir(parents=True, exist_ok=True)
         self.config.write_text(json.dumps({"schema": 1, "adb": str(self.adb), "endpoint": "192.168.1.42:5555", "deviceSerial": hardware}))

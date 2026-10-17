@@ -46,14 +46,15 @@ THREADTIME = re.compile(r"^\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+(\d+)\s+\
 APP_LOG_PREFIXES = ("[Quest startup]", "[GloomhavenVR Quest]", "[GloomhavenVR]")
 
 
-def menu_thumbnail_png(pixels):
+def menu_thumbnail_png(pixels, width=32, height=16):
     """Retain the bounded producer sample; PNG rows run from top to bottom."""
-    if len(pixels) != 32 * 16 * 4:
-        raise ValueError("Menu sample is not the fixed 32x16 RGBA8 layout.")
+    if (width, height) not in ((32, 16), (16, 8)) or len(pixels) != width * height * 4:
+        raise ValueError("Menu sample is not a supported bounded RGBA8 layout.")
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
-    rows = b"".join(b"\0" + pixels[row * 128:(row + 1) * 128] for row in range(15, -1, -1))
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 16, 8, 6, 0, 0, 0))
+    stride = width * 4
+    rows = b"".join(b"\0" + pixels[row * stride:(row + 1) * stride] for row in range(height - 1, -1, -1))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
@@ -71,14 +72,15 @@ def retain_menu_thumbnails(capture):
         return
     pattern = (r"\[Quest startup\] presentation menu-thumbnail scene=(MainMenu(?:_gamepad)?) sample=2"
                r" role=(glass|background-left|background-right) target=[^\r\n ]+"
-               r" width=32 height=16 format=RGBA8-linear bottomRowFirst=true base64=([A-Za-z0-9+/=]{1,3000})(?:\r?\n|$)")
+               r" width=(32|16) height=(16|8) format=RGBA8-linear bottomRowFirst=true base64=([A-Za-z0-9+/=]{1,3000})(?:\r?\n|$)")
     decoded = set()
     for match in re.finditer(pattern, text):
-        scene, role, encoded = match.groups()
+        scene, role, width, height, encoded = match.groups()
+        width, height = int(width), int(height)
         if role in decoded: continue
         try:
             pixels = base64.b64decode(encoded, validate=True)
-            png = menu_thumbnail_png(pixels)
+            png = menu_thumbnail_png(pixels, width, height)
         except (ValueError, binascii.Error):
             capture.manifest.setdefault("presentationThumbnailsUnavailable", []).append({"role": role, "reason": "Invalid bounded RGBA8 record."})
             continue
@@ -86,7 +88,7 @@ def retain_menu_thumbnails(capture):
         path = capture.directory / name; path.write_bytes(png)
         capture.manifest["files"].append({"path": name, "kind": "decoded-menu-thumbnail", "bytes": len(png),
             "sha256": installer.digest(path), "sourceFile": log.name, "scene": scene,
-            "modBuild": int(banner[1]), "inputKey": banner[2], "width": 32, "height": 16,
+            "modBuild": int(banner[1]), "inputKey": banner[2], "width": width, "height": height,
             "note": "Downsampled native capture pixels; not an eye image or final color/readability proof."})
         decoded.add(role)
 

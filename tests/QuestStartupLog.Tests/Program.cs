@@ -188,11 +188,17 @@ internal static class Program
         priority.Append("[Quest startup] presentation menu-thumbnail final-image");
         priority.Append("[Quest startup] presentation menu-draw final-pass");
         priority.Append("[Quest startup] presentation menu-draw final-pass");
+        priority.Append("[Quest startup] presentation primitive-upload native-owned-layout");
+        priority.Append("[Quest startup] presentation menu-consumer-draw actual-gpu-draw");
         text = File.ReadAllText(path);
         Check(text.Contains("sample=settled") && text.Contains("final-consumer") && text.Contains("final-image")
             && Count(text, "final-pass") == 1, "menu-reserve: provider saturation lost or duplicated settled-menu evidence");
-        Check(LogCounter(priority, "menuDetailRecords") == 4,
+        Check(LogCounter(priority, "menuDetailRecords") == 6,
             "menu-partition: final evidence consumed provider slots or ordinary detail");
+        Check(text.Contains("primitive-upload native-owned-layout"),
+            "primitive-reserve: final primitive stream evidence was lost after provider saturation");
+        Check(text.Contains("menu-consumer-draw actual-gpu-draw"),
+            "consumer-reserve: actual GPU draw evidence was lost after provider saturation");
         details.Append("[Quest startup] presentation menu-handover after Intro saturation");
         Check(File.ReadAllText(Path.Combine(root, "presentation-reserve.log")).Contains("after Intro saturation")
             && LogCounter(details, "menuDetailRecords") == 1,

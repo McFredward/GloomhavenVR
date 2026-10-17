@@ -35,6 +35,7 @@ internal sealed class RayInteractor : IPickProvider
 
     private LineRenderer? _laser;
     private Transform? _reticle;
+    private Mesh? _questReticleMesh;
     private bool _questHitMarkerVisible;
     private const int QuestLaserEvidenceLimit = 6;
     private static int _questLaserEvidenceSamples;
@@ -1254,6 +1255,10 @@ internal sealed class RayInteractor : IPickProvider
 
         GameObject reticleGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         reticleGo.name = $"GloomhavenVR.Reticle_{_hand.Side}";
+        MeshFilter reticleFilter = reticleGo.GetComponent<MeshFilter>();
+        _questReticleMesh = Core.QuestPrimitiveMesh.Rebuild(reticleFilter.sharedMesh, "pointer-marker-" + _hand.Side);
+        if (_questReticleMesh != null)
+            reticleFilter.sharedMesh = _questReticleMesh;
         Object.Destroy(reticleGo.GetComponent<Collider>());
         reticleGo.transform.SetParent(_hand.transform, worldPositionStays: true);
         Renderer reticleRenderer = reticleGo.GetComponent<Renderer>();
@@ -1504,6 +1509,11 @@ internal sealed class RayInteractor : IPickProvider
         {
             Object.Destroy(_reticle.gameObject);
             _reticle = null;
+        }
+        if (_questReticleMesh != null)
+        {
+            Object.Destroy(_questReticleMesh);
+            _questReticleMesh = null;
         }
     }
 }
