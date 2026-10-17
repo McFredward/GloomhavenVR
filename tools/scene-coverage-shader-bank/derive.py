@@ -4,6 +4,8 @@ import argparse
 import copy
 import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 import sys
 sys.dont_write_bytecode = True
@@ -27,14 +29,33 @@ def need(ok, message):
         raise ValueError(message)
 
 
+def read_bounded(path):
+    # Validate the opened identity before reading and cap even a growing file.
+    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        before = os.fstat(fd)
+        need(stat.S_ISREG(before.st_mode), 'regular bounded input required')
+        need(0 < before.st_size <= MAXIMUM_BYTES, 'bundle extent refused')
+        raw = bytearray()
+        while len(raw) < MAXIMUM_BYTES + 1:
+            chunk = os.read(fd, min(65536, MAXIMUM_BYTES + 1 - len(raw)))
+            if not chunk:
+                break
+            raw.extend(chunk)
+        after = os.fstat(fd)
+        need(0 < len(raw) <= MAXIMUM_BYTES and len(raw) == before.st_size and
+             after.st_size == before.st_size and after.st_mtime_ns == before.st_mtime_ns and
+             after.st_ctime_ns == before.st_ctime_ns, 'bundle extent changed or refused')
+        return bytes(raw)
+    finally:
+        os.close(fd)
+
+
 def load(path, expected=None):
-    import UnityPy
-    path = Path(path)
-    need(path.is_file() and not path.is_symlink(), 'regular bounded input required')
-    raw = path.read_bytes()
-    need(0 < len(raw) <= MAXIMUM_BYTES, 'bundle extent refused')
+    raw = read_bounded(path)
     if expected is not None:
         need(len(expected) == 64 and digest(raw) == expected, 'source bundle pin mismatch')
+    import UnityPy
     env = UnityPy.load(raw)
     need(len(env.files) == 1, 'one owned bundle required')
     bundle = next(iter(env.files.values()))
@@ -116,7 +137,7 @@ def verify(source_path, derived_path, source_sha256):
             'compiled_blob_sha256': digest(blob), 'compiled_blob_bytes': len(blob),
             'complete_programs_and_other_shader_state_equal': True,
             'only_alpha_factor': {'source': 5, 'derived': 1, 'destination': 10},
-            'source_immutable': Path(source_path).read_bytes() == source[0],
+            'source_immutable': read_bounded(source_path) == source[0],
             'game_shader_admitted': False, 'runtime_adoption': False, 'windows_d3d11_proven': False}
 
 
@@ -147,8 +168,15 @@ def main():
     parser.add_argument('--source-sha256', required=True)
     parser.add_argument('--report', type=Path, required=True)
     args = parser.parse_args()
-    result = derive(args.source, args.output, args.source_sha256)
-    args.report.write_text(json.dumps(result, indent=2) + '\n')
+    # Reserve the report before deriving: alias/existing-report refusal cannot
+    # leave a candidate behind or overwrite either compiled input/output.
+    paths = [args.source.resolve(), args.output.resolve(), args.report.resolve()]
+    need(len(set(paths)) == 3, 'source, output and report paths must be distinct')
+    for path in [args.output, args.report]:
+        need(not path.exists() and not path.is_symlink(), 'new output and report required')
+    with args.report.open('x') as report:
+        result = derive(args.source, args.output, args.source_sha256)
+        report.write(json.dumps(result, indent=2) + '\n')
     print(json.dumps(result, sort_keys=True))
 
 
