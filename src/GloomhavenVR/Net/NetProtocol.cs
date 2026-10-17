@@ -612,7 +612,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 688;
+    public const ushort ModBuild = 689;
+
+    // ModBuild689 — complete owned Steam Link identity preparation and support Proton.
+    // The688 installed SDK resource has the correct name,826688 bytes and exact
+    // public SHA256, but no Local cache directory exists. Its coarse diagnostic
+    // cannot prove the precise pre-directory guard. Prefer Windows LOCALAPPDATA
+    // before the Mono known-folder wrapper and normalize separators before the
+    // local-drive guard, retaining exact PE/hash and no-reparse validation. Cover
+    // actual extraction/reuse/corrupt-cache refusal and expose finite failure
+    // stages so path, embedded bytes, filesystem and child/API failures differ.
+    // Linux users run this Windows game/helper under Proton. Remove the erroneous
+    // Windows vrserver.exe/vrcompositor.exe census; native Linux SteamVR is reached
+    // through Proton's inherited runtime/prefix environment and C:\vrclient bridge.
+    // The public SDK Background=3 initialization supplies the no-server guard;
+    // error121 returns not_running. Test the actual init/get022/read/shutdown path
+    // and rebuild/pin the PE. Unity's OpenXR session, connected Steam Frame/vrlink
+    // requirement, bounded async attempts and receiver-unverified status remain.
+    // No Frame write, source packing/shader, movie or multiplayer wire changes.
 
     // ModBuild688 — repair hidden native Steam Link passthrough on a live Frame stream.
     // The687 Windows hardware logs stop at RuntimePath before the HMD reader runs.

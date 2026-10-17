@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 RESOURCE = ROOT / 'src/GloomhavenVR/Assets/SteamLink/connection-reader.exe'
 API = ROOT / 'src/GloomhavenVR/Assets/SteamLink/openvr_api.dll'
-PIN = '1c3a2c92e188d095cb80bc56b6452237b977571beac97da9159281491990284d'
+PIN = 'cec82e68968441902e717c6bc595ff0ae0b0b03ffe72bc5eb26cbfe19c40a30f'
 
 
 def main() -> int:
@@ -26,7 +26,10 @@ def main() -> int:
     parser.add_argument('--sanitize', action='store_true', help='ASan/UBSan native metadata controls')
     parser.add_argument('--rebuild-native', action='store_true', help='Optional manual MinGW byte-identical resource rebuild')
     parser.add_argument('--typecheck', action='store_true', help='Local net472 Unity API typecheck, excluded from ordinary CI')
+    parser.add_argument('--native-only', action='store_true', help='Only affected native metadata/Background lifecycle and optional PE rebuild')
     args = parser.parse_args()
+    if args.native_only and args.typecheck:
+        parser.error('--native-only cannot include managed --typecheck')
     args.output.mkdir(parents=True, exist_ok=True)
     output = Path(tempfile.mkdtemp(prefix='run-', dir=args.output.resolve()))
     cache = output / 'owned-cache'
@@ -65,11 +68,12 @@ def main() -> int:
         if args.sanitize:
             env.update(ASAN_OPTIONS='detect_leaks=1:abort_on_error=1', UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
         run('native-metadata', [str(native)], 15)
-        # Separate intermediate/output roots prevent this tiny suite from changing Main or another project.
-        managed = cache / 'managed'
-        run('managed-build', [dotnet, 'build', str(HERE / 'ConnectionTests.csproj'), '-c', 'Release', '--disable-build-servers',
-                              '-p:BaseIntermediateOutputPath=' + str(managed / 'obj') + '/', '-p:OutputPath=' + str(managed / 'bin') + '/'])
-        run('managed-controls', [dotnet, str(managed / 'bin/ConnectionTests.dll'), str(RESOURCE), str(API)], 30)
+        if not args.native_only:
+            # Separate output roots never change Main or another project's cache.
+            managed = cache / 'managed'
+            run('managed-build', [dotnet, 'build', str(HERE / 'ConnectionTests.csproj'), '-c', 'Release', '--disable-build-servers',
+                                  '-p:BaseIntermediateOutputPath=' + str(managed / 'obj') + '/', '-p:OutputPath=' + str(managed / 'bin') + '/'])
+            run('managed-controls', [dotnet, str(managed / 'bin/ConnectionTests.dll'), str(RESOURCE), str(API)], 30)
         if args.rebuild_native:
             rebuilt = cache / 'connection-reader.exe'
             run('resource-rebuild', ['bash', str(ROOT / 'scripts/build-steamlink-connection-reader.sh'), str(rebuilt)])
@@ -86,6 +90,7 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
     finally:
         result = {'schema': 'ghvr-steamlink-connection-tests-v1', 'exit_code': status,
+                  'native_only': args.native_only, 'actual_proton_execution': False,
                   'helper_bytes': RESOURCE.stat().st_size, 'helper_sha256': hashlib.sha256(RESOURCE.read_bytes()).hexdigest(),
                   'sdk_loader_bytes': API.stat().st_size, 'sdk_loader_sha256': hashlib.sha256(API.read_bytes()).hexdigest(),
                   'actual_windows_execution': False, 'hardware_identity_verified': False,

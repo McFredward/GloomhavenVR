@@ -1,5 +1,33 @@
 # State — where the project stands
 
+**Steam Link identity cache and Proton follow-up, 2026-10-17: Build689.**
+
+The688/fc5c954e7 hardware still refuses SDK preparation before any HMD read.
+The maintainer verified the installed resource name,826688-byte size and exact
+SDK SHA256 in PowerShell; the Local cache directory does not exist. This narrows
+it to pre-directory preparation but does not prove a particular Mono HRESULT.
+Prefer inherited LOCALAPPDATA, normalize directory separators, retain the
+known-folder fallback and exact PE/hash/local-ancestor checks. Finite diagnostics
+now distinguish folder/resource/directory/file/cached-pin and child/API failure.
+
+Linux hosts use the same Windows game/helper under Proton. Remove the Windows
+vrserver.exe/vrcompositor.exe census; public Background=3 initialization is the
+no-server guard, with121 mapped to not_running. Preserve Proton/OpenVR runtime
+and prefix variables so Valve's SDK selects its existing C:\vrclient bridge.
+The rebuilt42496B helper has SHAcec82e68...; the official SDK stays unchanged.
+No Unity OpenVR initialization, Frame write/restart or receiver update occurs.
+
+Focused integrated connection/availability suites pass2/2:118 managed checks,
+98 native metadata+105 production Background-query checks,37 availability
+assertions and4 causal controls. Native203 also pass ASan/UBSan and byte-identical
+PE rebuild; four affected source checks pass. Strict Release0W/0E and actual DLL
+reflection confirm689 and both pinned resources. The first private inspector
+had a one-byte expected-length typo; only it was corrected and repeated. An
+initial runner launch refused a nonempty output directory before testing; the
+fresh scoped launch passes. Full prior wire/raster evidence is inherited for
+unchanged areas, not a new complete gate. Actual Windows/Proton HMD lookup is
+unconfirmed. Receipts/cleanup: `.planning/debug/steamlink-689-followup/`.
+
 **Steam Frame / Steam Link availability repair, 2026-10-17: Build688.**
 
 The new687 PC logs show `RuntimePath` before any public HMD metadata is read,
