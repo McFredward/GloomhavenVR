@@ -68,3 +68,11 @@ first owner-only attempt exposed the destroyed-object fallthrough described
 above; the corrected attempt passes. The four unchanged GPU cases and strict
 component compilation are inherited rather than repeated for this getter-only
 repair.
+
+Final no-allocation review moves the shader-name comparison into the existing
+screen Update cache. The eye getter only compares current material/shader object
+identity, immediately refuses a foreign shader change, and re-admits it only
+after an exact cold refresh. A final owner-only follow-up passes26 checks,
+including15 getter checks, and measures0 managed bytes across256 warmed getter
+calls with Mono's actual thread allocation counter. The raster/shader/component
+remain unchanged, so their passing evidence is inherited.

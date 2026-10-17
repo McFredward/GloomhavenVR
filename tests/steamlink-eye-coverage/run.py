@@ -70,7 +70,9 @@ private Renderer _backRenderer, _quadRenderer;
 internal FlatScreen(bool visible, Material material, Renderer screen, Renderer back) {
 _coverageOwner=this;_visible=visible;_screenMaterial=material;_quadRenderer=screen;
 _backRenderer=back;_backQuad=back != null ? back.gameObject : null;
+RefreshOpaqueBackdropMaterial();
 }
+internal void Refresh() { RefreshOpaqueBackdropMaterial(); }
 internal void Visible(bool value) { _visible=value; }
 internal void Release() { if (ReferenceEquals(_coverageOwner,this)) _coverageOwner=null; }
 }}

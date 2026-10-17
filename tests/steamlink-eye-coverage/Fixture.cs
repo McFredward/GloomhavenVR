@@ -45,6 +45,7 @@ public static class CoverageRuntimeFixture
         public bool passed,reversedZ,xrExecuted,windowsExecuted,gameWideCoverageProven;
         public string unity,backend,device,colorSpace,failure;
         public int checks,lifecycleChecks,depthlessControls,backdropCases,ownerChecks;
+        public long ownerCallbackAllocatedBytes;
         public List<Row> rows=new List<Row>();
     }
     private static Report result=new Report();
@@ -210,6 +211,14 @@ public static class CoverageRuntimeFixture
         Material opaque=Keep(new Material(shader));screen.sharedMaterial=opaque;back.sharedMaterial=opaque;
         var owner=new GloomhavenVR.WorldUI.FlatScreen(true,opaque,screen,null);
         Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==screen,"Nonsplit/fallback returns exact owned opaque quad");
+        var allocated=typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread",System.Reflection.BindingFlags.Public|System.Reflection.BindingFlags.Static);
+        Check(allocated!=null,"Actual Mono thread allocation counter exists");
+        var countBytes=(Func<long>)Delegate.CreateDelegate(typeof(Func<long>),allocated);
+        for(int i=0;i<128;i++){var ignored=GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop;}
+        long before=countBytes();
+        for(int i=0;i<256;i++){var ignored=GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop;}
+        result.ownerCallbackAllocatedBytes=countBytes()-before;
+        Check(result.ownerCallbackAllocatedBytes==0,"Warm exact-owner getter allocates zero managed bytes");
         screen.sharedMaterial=foreign;
         Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Foreign material is not coverage authority");
         screen.sharedMaterial=opaque;screen.enabled=false;
@@ -232,6 +241,13 @@ public static class CoverageRuntimeFixture
             Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Alpha-blended fallback is not declared opaque: "+fallback);
             fallbackOwner.Release();
         }
+        screen.sharedMaterial=opaque;
+        var changed=new GloomhavenVR.WorldUI.FlatScreen(true,opaque,screen,null);
+        opaque.shader=Shader.Find("Sprites/Default");
+        Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Same material foreign shader change immediately refuses cached authority");
+        changed.Refresh();Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Cold changed shader remains nonopaque");
+        opaque.shader=shader;Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==null,"Restored shader waits for exact cold refresh");
+        changed.Refresh();Owner(GloomhavenVR.WorldUI.FlatScreen.OpaqueBackdrop==screen,"Cold exact shader restoration re-admits");changed.Release();
         DestroyFrom(count);
     }
     private static void Owner(bool value,string why){result.ownerChecks++;Check(value,why);}
