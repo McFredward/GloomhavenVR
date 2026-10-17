@@ -74,17 +74,17 @@ test('home promotes a real metadata recommendation after twelve retained updates
   const {stdout,stderr}=await promisify(execFile)(process.env.QUEST_WIZARD_TEST_PYTHON??'python3',
     ['-B',resolve(root,'tests/home-update-fixture.py')],{maxBuffer:256*1024});
   assert.equal(stderr,'');
-  const cases=JSON.parse(stdout);assert.equal(cases.length,4);
+  const cases=JSON.parse(stdout);assert.equal(cases.length,5);
   assert.equal(cases[0].receiptCount,13,'fixture includes a full build and twelve compact updates');
   let client;
   try{
     client=await browser();
     for(const row of cases){
-      const promoted=row.name==='twelve-retained-updates';
+      const promoted=['twelve-retained-updates','cleaned-ancestor-apks'].includes(row.name);
       const server=await fixture({discoveryOverride:row.discovery});
       try{
         await ready(client,server);
-        if(promoted)await client.picture('home-update-real-retained-history');
+        if(promoted)await client.picture('home-update-'+row.name);
         assert.equal(await client.evaluate("document.getElementById('home-mod').classList.contains('recommended')"),promoted,row.name);
         assert.equal(await client.evaluate("document.getElementById('home-mod-badge').hidden"),!promoted,row.name);
         assert.equal(await client.evaluate("document.getElementById('home-mod-recommendation').hidden"),!promoted,row.name);

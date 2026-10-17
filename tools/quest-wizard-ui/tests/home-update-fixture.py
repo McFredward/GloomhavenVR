@@ -34,6 +34,7 @@ def recommendations():
         input_key, apk_sha, bank_sha = "b" * 64, "c" * 64, "d" * 64
         bank = None
         previous = None
+        apks = []
         for index in range(13):
             key = format(index + 1, "064x")
             apk = build / ("updates" if previous else "builds") / key / "GloomhavenVR-Quest.apk"
@@ -61,6 +62,7 @@ def recommendations():
             state.atomic_json(build / "latest-build.json", {"schema": 1, "apk": relative,
                                                            "receipt": receipt, "details": details})
             previous = apk
+            apks.append(apk)
         selected = discovery.default_apk(store)
         assert selected and selected["path"] == str(apk) and selected["modBuild"] == 682
 
@@ -92,6 +94,9 @@ def recommendations():
                         "updateRecommendation": recommendation}}
 
         cases = [observe("twelve-retained-updates")]
+        for ancestor in apks[:-1]:
+            ancestor.unlink()
+        cases.append(observe("cleaned-ancestor-apks"))
         source["modBuild"] = 682
         cases.append(observe("current-runtime"))
         source["modBuild"] = 683
