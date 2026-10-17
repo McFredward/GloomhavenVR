@@ -77,9 +77,16 @@ python scripts/stereo-video/intro_stereo.py \
 
 Outputs are never silently overwritten. Receipts retain original frame ranges,
 model pins, normalization, depth hashes and filled-hole measurements. The first
-production run started before receipt hardening; its actually loaded generator
-snapshots are retained separately and postvalidation with the hardened verifier
-is separate evidence. Do not attribute that later validation to the earlier run.
+intermediate encoder started before receipt hardening and was deliberately
+interrupted after its unconstrained bitrate projected beyond the single-file
+delivery budget. A second intermediate used the hardened receipts and bounded
+CRF18/15Mbps VBV, then was interrupted after independent color controls proved
+OpenCV's decode matched forced BT601 exactly despite this source's BT709 metadata
+(frame240: maximum15 RGB levels different from BT709,40.247dB). Neither candidate
+was delivered. Logs, partial files, commands and actually loaded generator
+snapshots are retained. The final encoder takes unmodified original YUV directly
+for left, and explicitly BT709-decoded RGB for right. The neural depth input uses
+upstream's ordinary OpenCV reader; it never supplies final picture color.
 
 ## Native playback and delivery
 
@@ -119,6 +126,9 @@ and disocclusion. Duplicate-eye, reversed-depth, global-shift and vertical-flip
 mutations fail. Shot gaps, lost ending and wrong source are rejected.
 `verify_intro.py` checks all decoded frame addresses, dimensions, audio packets,
 every consumed depth receipt/pin/hash, and compares every decoded left-eye frame
-with its approved original using ffmpeg PSNR. Those checks cannot prove correct
+with its approved original using ffmpeg PSNR. It independently decodes the packed
+output and compares right views at both sides of every segment and each midpoint
+against their same-clock reprojection, including separation from duplicated left
+pictures where the source provides a strong stereo witness. Those checks cannot prove correct
 depth, comfortable fusion, motion quality, hand edges, decoder performance or
 first-save continuation on a headset. Hardware evidence remains separate.

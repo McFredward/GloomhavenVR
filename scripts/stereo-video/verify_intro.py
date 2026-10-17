@@ -11,10 +11,11 @@ import re
 import signal
 import subprocess
 
+import cv2
 import numpy as np
 
 from intro_depth import INTRO_SHA256, digest, save, validate_model
-from intro_stereo import FRAMES, FPS, audio_packets, read_depth_receipt, validate_shots
+from intro_stereo import FRAMES, FPS, audio_packets, disparity_field, forward_warp, read_depth_receipt, validate_shots
 
 
 def run(command: list[str], log: Path, timeout: int = 1200) -> bytes:
@@ -58,6 +59,75 @@ def validate_probe(probe: dict) -> dict:
             "packed_size": [3840, 1080], "per_eye_size": [1920, 1080], "audio": "AAC stereo 48kHz"}
 
 
+def verify_right_frames(args, manifest: dict) -> list[dict]:
+    """Decode the actual packed movie once, verify both sides of cuts and each midpoint.
+
+    Pure geometry tests cannot detect an encoder wired to the left input twice.
+    This check compares the encoded right picture against its same-clock actual
+    reprojection, and records its distance from a duplicated original picture.
+    """
+    cv2.setNumThreads(1)
+    owned, logs, results = [], [], []
+    try:
+        for name, path in (("source", args.source), ("packed", args.stereo)):
+            command = ["ffmpeg", "-hide_banner", "-v", "error", "-nostdin", "-threads", "2",
+                       "-i", str(path), "-map", "0:v:0", "-an", "-vf",
+                       "scale=in_color_matrix=bt709:in_range=tv", "-pix_fmt", "bgr24", "-f", "rawvideo", "-"]
+            error = (args.out / f"right-{name}-decode.log").open("wb")
+            logs.append(error)
+            owned.append(subprocess.Popen(command, stdout=subprocess.PIPE, stderr=error, start_new_session=True))
+        source, packed = owned
+        for shot in manifest["shots"]:
+            witnesses = {shot["start"], (shot["start"] + shot["end"]) // 2, shot["end"] - 1}
+            depth, info = None, None
+            if shot["mode"] == "depth":
+                info = read_depth_receipt(args.depths / (shot["id"] + ".json"), shot, False)
+                with np.load(args.depths / (shot["id"] + ".npz")) as archive:
+                    depth = archive["depths"]
+            for frame in range(shot["start"], shot["end"]):
+                original_bytes = source.stdout.read(1920 * 1080 * 3)
+                actual_bytes = packed.stdout.read(3840 * 1080 * 3)
+                if len(original_bytes) != 1920 * 1080 * 3 or len(actual_bytes) != 3840 * 1080 * 3:
+                    raise ValueError("Decoded right-eye clock lost an original frame")
+                if frame not in witnesses:
+                    continue
+                original = np.frombuffer(original_bytes, np.uint8).reshape(1080, 1920, 3)
+                actual = np.frombuffer(actual_bytes, np.uint8).reshape(1080, 3840, 3)[:, 1920:]
+                expected = original
+                if depth is not None:
+                    field = disparity_field(depth[frame - shot["start"]], original, *info["normalization_p02_p98"])
+                    field *= min(1.0, float(original[124:962].mean()) / 8.0)
+                    expected, _ = forward_warp(original, field)
+                mse = float(np.mean((actual.astype(np.float32) - expected.astype(np.float32)) ** 2))
+                duplicate_mse = float(np.mean((actual.astype(np.float32) - original.astype(np.float32)) ** 2))
+                expected_difference = float(np.mean((expected.astype(np.float32) - original.astype(np.float32)) ** 2))
+                psnr = 10 * math.log10(255 ** 2 / mse) if mse else 999.0
+                if psnr < 34:
+                    raise ValueError(f"Encoded right eye lost reprojection/frame correspondence at {frame}: {psnr:.2f}dB")
+                # Only require separation when the source itself provides a strong
+                # stereo witness. Near-black/title frames intentionally match.
+                if expected_difference > 20 and duplicate_mse <= mse * 2:
+                    raise ValueError(f"Encoded right eye is consistent with a duplicated left at {frame}")
+                results.append({"frame": frame, "shot": shot["id"], "right_reference_psnr_db": psnr,
+                                "actual_right_vs_duplicate_left_mse": duplicate_mse,
+                                "expected_stereo_difference_mse": expected_difference})
+        for process in owned:
+            if process.stdout.read(1) or process.wait(timeout=60):
+                raise ValueError("Unexpected decoded frame or right-eye decoder failure")
+        return results
+    finally:
+        for process in owned:
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                finally:
+                    process.wait()
+        for error in logs:
+            error.close()
+
+
 def main() -> int:
     def interrupted(_signum, _frame):
         raise KeyboardInterrupt
@@ -88,6 +158,8 @@ def main() -> int:
 
 
 def verify(args) -> int:
+    if args.stereo.stat().st_size > 100 * 1024 ** 2:
+        raise ValueError("Stereo movie exceeds the repository's single-file delivery limit")
     if digest(args.source) != INTRO_SHA256:
         raise ValueError("Source is not the approved, already replaced GloomhavenVR intro")
     validate_model(args.model_root.resolve())
@@ -128,11 +200,14 @@ def verify(args) -> int:
     if len(values) != FRAMES or min(values) < 34:
         raise ValueError("Left-eye original frame correspondence/encoding quality failed")
     finite = [value for value in values if math.isfinite(value)]
+    right = verify_right_frames(args, manifest)
+    save(args.out / "right-frame-validation.json", right)
     proof = {"status": "passed", "source_sha256": INTRO_SHA256, "stereo_sha256": digest(args.stereo),
              "video": video_proof, "identical_aac_packets": len(stereo),
              "left_comparison": {"frames": len(values), "minimum_psnr_db": min(values),
                                  "mean_finite_psnr_db": sum(finite) / len(finite)},
              "depth_shots_validated": len(depth_proof), "verification_source_sha256": digest(Path(__file__)),
+             "encoded_right_witness_frames": len(right),
              "hardware_result": "unverified"}
     save(args.out / "result.json", proof)
     print(json.dumps(proof))

@@ -165,10 +165,12 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
     directory.mkdir(parents=True, exist_ok=False)
     target = directory / "GH_CP_Intro.sbs-v1.mov"
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-n",
-               "-f", "rawvideo", "-pixel_format", "bgr24", "-video_size", "3840x1080",
-               "-framerate", "60", "-i", "pipe:0", "-i", str(source),
-               "-map", "0:v:0", "-map", "1:a:0", "-frames:v", "2931",
-               "-vf", "scale=out_color_matrix=bt709,format=yuv420p,setsar=1",
+               "-f", "rawvideo", "-pixel_format", "bgr24", "-video_size", "1920x1080",
+               "-framerate", "60", "-i", "pipe:0", "-threads", "2", "-i", str(source),
+               "-filter_complex_threads", "1", "-filter_complex",
+               "[0:v]scale=out_color_matrix=bt709,format=yuv420p,setsar=1[right];"
+               "[1:v][right]hstack=inputs=2,setsar=1[packed]",
+               "-map", "[packed]", "-map", "1:a:0", "-frames:v", "2931",
                # Keep the single delivered movie within the repository's binary
                # file limit; full-frame left-eye comparison still gates quality.
                "-c:v", "libx264", "-threads", "3", "-preset", "fast", "-crf", "18",
@@ -180,12 +182,18 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
                "title=GloomhavenVR - Campaign Intro (Full SBS left first)",
                "-movflags", "+faststart", str(target)]
     save(directory / "command.json", command)
-    capture = cv2.VideoCapture(str(source))
-    process = None
+    decode_command = ["ffmpeg", "-hide_banner", "-v", "error", "-nostdin", "-threads", "2",
+                      "-i", str(source), "-map", "0:v:0", "-an", "-vf",
+                      "scale=in_color_matrix=bt709:in_range=tv", "-pix_fmt", "bgr24", "-f", "rawvideo", "-"]
+    save(directory / "decode-command.json", decode_command)
+    process, decoder, decode_error = None, None, None
     began = time.monotonic()
     records = []
     cv2.setNumThreads(1)
     try:
+        decode_error = (directory / "decode.log").open("wb")
+        decoder = subprocess.Popen(decode_command, stdout=subprocess.PIPE, stderr=decode_error,
+                                   start_new_session=True)
         with (directory / "encode.log").open("wb") as error:
             process = subprocess.Popen(command, stdin=subprocess.PIPE, stderr=error,
                                        stdout=subprocess.DEVNULL, start_new_session=True)
@@ -208,9 +216,10 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
                           "mode": shot["mode"], "holes_filled": 0, "maximum_hole_fraction": 0.0,
                           "maximum_disparity_px": 0.0, "minimum_disparity_px": 0.0}
                 for index in range(shot["start"], shot["end"]):
-                    okay, left = capture.read()
-                    if not okay or left.shape != (HEIGHT, WIDTH, 3):
+                    raw = decoder.stdout.read(HEIGHT * WIDTH * 3)
+                    if len(raw) != HEIGHT * WIDTH * 3:
                         raise ValueError(f"Missing original frame {index}")
+                    left = np.frombuffer(raw, dtype=np.uint8).reshape(HEIGHT, WIDTH, 3)
                     holes = 0
                     if data is None:
                         right = left
@@ -224,32 +233,37 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
                         right, holes = forward_warp(left, field)
                         record["maximum_disparity_px"] = max(record["maximum_disparity_px"], float(field.max()))
                         record["minimum_disparity_px"] = min(record["minimum_disparity_px"], float(field.min()))
-                    packed[:, :WIDTH] = left
-                    packed[:, WIDTH:] = right
-                    process.stdin.write(packed.tobytes())
+                    # The encoder takes left YUV pixels directly from the original
+                    # stream. Only the synthesized right eye traverses RGB/YUV.
+                    process.stdin.write(right.tobytes())
                     record["holes_filled"] += holes
                     record["maximum_hole_fraction"] = max(record["maximum_hole_fraction"], holes / (WIDTH * HEIGHT))
                     if index in (shot["start"], (shot["start"] + shot["end"]) // 2, shot["end"] - 1):
+                        packed[:, :WIDTH] = left
+                        packed[:, WIDTH:] = right
                         cv2.imwrite(str(directory / f"source-{index:04d}.jpg"), packed)
                 records.append(record)
                 save(directory / "geometry.json", records)
                 print(json.dumps(record), flush=True)
                 del data
-            okay, _ = capture.read()
-            if okay:
+            if decoder.stdout.read(1):
                 raise ValueError("Unexpected extra original frame")
+            if decoder.wait(timeout=60):
+                raise RuntimeError("Original BT709 decoder failed; see decode.log")
             process.stdin.close()
             if process.wait(timeout=600):
                 raise RuntimeError("SBS encoder failed; see encode.log")
     finally:
-        capture.release()
-        if process is not None and process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            finally:
-                process.wait()
+        for owned in (process, decoder):
+            if owned is not None and owned.poll() is None:
+                try:
+                    os.killpg(owned.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                finally:
+                    owned.wait()
+        if decode_error is not None:
+            decode_error.close()
     original_audio, stereo_audio = audio_packets(source), audio_packets(target)
     if original_audio != stereo_audio or len(stereo_audio) != 2291:
         raise ValueError("Original AAC payloads or packet timestamps changed")
@@ -257,7 +271,7 @@ def encode(source: Path, shots_path: Path, depths: Path, directory: Path, wait_d
          "output_bytes": target.stat().st_size, "packing": "full-SBS-left-first", "per_eye_size": [WIDTH, HEIGHT],
          "frames": FRAMES, "fps": FPS, "duration_seconds": FRAMES / FPS,
          "audio": "2291 original AAC packet payloads, timestamps and durations identical",
-         "left": "unmodified decoded original before final H264 encode",
+         "left": "original decoded YUV pixels directly hstacked before final H264 encode",
          "right": "depth-based horizontal forward reprojection with foreground depth test",
          "disocclusion_fill": "farther adjoining source background; no generative inpainting",
          "depth_bounds_px": [-4, 12], "shot_manifest_sha256": digest(shots_path),
