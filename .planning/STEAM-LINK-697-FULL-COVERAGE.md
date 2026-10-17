@@ -93,3 +93,30 @@ passes19 tests with two platform skips. These are focused checks, not another
 complete local-gate pass. Final composed build/native decoder evidence is added
 at handover. No source raster or owned lossless codec test establishes the final
 headset edge, actual stream bitrate or receiver motion comfort.
+
+## Matching receiver evidence
+
+The public receiver integrates a guarded dual executable: complete v2 admission,
+otherwise complete legacy v1 admission, otherwise the unchanged original output.
+The shipping31960-byte candidate SHA256 is
+`9ad1b56a20db039132ad6ec4557fe8ece3fff277316370bcefc9f70ec7aed367`.
+Both repositories contain byte-identical v2 JSON. All ten accepted original
+Frame-runtime file identities remain unchanged; no new runtime version is
+admitted. No window/object metadata or second image/descriptor is added.
+
+Actual native GPU runs pass168 cases on Intel and Lavapipe, including128
+independent original-shader colour/coverage oracles and40 exact-original fallback
+cases. Intel ASan/UBSan and validation/synchronization checks pass; deliberate
+rotation and E-times-A mutants fail their numerical controls. Reused command
+buffers transition v2→ordinary→v1→v2. All four private conformance methods run
+through their registered CTest, with no skips. Focused package/session/C++ checks
+and actual release-only host/AArch64 builds pass. A stopped installer update
+preserves either saved on/off state in bounded real-filesystem tests with a fake
+service/runtime boundary. These are software checks, not a new Frame install.
+
+Native shipping inputs and114 source pins are independently verified after
+integration. Receipts, private original/candidate, both current libraries and
+bounded failed evidence remain under the receiver repository's ignored
+`build/private-native-full-coverage-v2-20261018/`. Completed compiler/Unity caches
+and the native worker checkout are removed. The source mask, native decoder and
+cross-compiled receiver do not establish the new persistent headset result.
