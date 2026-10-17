@@ -34,6 +34,36 @@ Actual paired headset behavior remains unverified. Review and source-bound
 receipts: `.planning/CARD-SELECTION-680-REVIEW.md` and ignored
 `.planning/debug/card-selection680/`.
 
+**Steam Link original-invocation capture succeeded; Frame restored, 2026-10-17.**
+
+The separately approved r7 device run produced all four paired artifacts,
+including the previously absent 128-byte original-fragment record. Actual
+94-import resolution, isolated exact-provider load and chip7 KHR provider
+lease passed. Capture `4c5680d108a3fcf143722a05d94e02d8`, command22123/pool1/
+execution1, source image3329080/view3329082/memory3329081 agree. Fence and exact
+source-generation retirement completed; 32 deduplicated contexts/46 encounters
+have no overflow, contention or first refusal. All four copies are checksum
+verified on the workstation. The original expression reproduces the recorded
+RGBA bit-for-bit, not a framebuffer/display comparison.
+
+Current-pixel headers recover source session835dc49d01f049158280f6d714ff57df,
+app pair443/phase58, both encoded labels. Actual fragment R1=(0,.25,1,.5)
+supports the nominal full-canvas chart. A separate interior2x2 diagnostic
+footprint passes complete CRC headers; the old full4x4 reader still refuses
+edge ambiguity and is not relaxed. The raw tight-P010 interpretation remains
+inconsistent with the coherent native sampled lane; no cause is assigned.
+
+Separately approved manual rollback is complete: activation/run library absent,
+no loaded diagnostic mappings or uncertainty, original startup healthy, and the
+maintainer confirmed visible/usable UI. The Frame is safe in standby. No timer
+or automatic restart/rollback was added. Next work is offline direct-R1
+registration and same-invocation single-output panel reconstruction. Preserving
+the native eye route avoids a new CPU eye table; actual live source-mode/OFF,
+alpha consumer, all-view handling and real game coverage remain open. No native
+streaming passthrough is yet demonstrated, and no main runtime change is made
+by this round. Details: fork `docs/research/native-invocation-capture-20261017.md`;
+private captures/reviews stay in fork build/. Existing complete gates are reused.
+
 **Steam Link r7 software ready; Frame unchanged, 2026-10-17.**
 
 Fork dev16e7372 implements the source-backed zero-sRGB adapter guarded by the

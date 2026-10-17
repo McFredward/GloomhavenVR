@@ -1,5 +1,36 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Actual original-invocation proof; restored and working offline, 2026-10-17
+
+The approved r7 package produced the previously missing 128-byte original
+fragment record and all three paired source files. Capture
+`4c5680d108a3fcf143722a05d94e02d8` is saved/checksummed locally. Exact native
+94-import/provider loading and chip7 driver lease passed; command22123/pool1/
+execution1 and source image3329080/view3329082/memory3329081 agree. The source
+recording retired and the owned fence completed. No recording refusal,
+overflow, contention or provider miss occurred. Original RGBA reconstruction
+from actual recorded inputs is bit-exact; this is not display-pixel evidence.
+
+Current-pixel source tuple is session835dc49d01f049158280f6d714ff57df,
+app pair443/phase58 for both encoded labels. Actual R1=(0,.25,1,.5) supports a
+direct chart. The old full4x4 reader remains unchanged/refuses edge ambiguity;
+an explicitly distinct interior2x2 footprint passes full CRC headers and
+held-out checks. Independently trusted current PC-session provenance is absent.
+Raw tight-P010 is not the oracle for the coherent native sampled lane.
+
+Manual rollback is complete and the maintainer confirmed the restored UI is
+visible/usable. Activation and loaded run library are absent, no diagnostic
+mappings remain, and no automatic timer or restart is pending. Standby is safe.
+New disjoint fork-dev worker worktrees now implement only offline direct-R1
+registration and single-output same-invocation reconstruction/GPU checks.
+No new device action or runtime activation is authorized by this checkpoint.
+Physical eye naming can be avoided by preserving the existing native route;
+source-mode/OFF for reusable recordings, all-view coverage, alpha consumption
+and real game opacity remain genuine future requirements. The next headset
+proposal should target a visible synthetic-opacity result, not another purely
+metadata exercise. Private evidence is preserved; completed caches are removed.
+Details: fork `docs/research/native-invocation-capture-20261017.md`.
+
 ## r7 software ready; fresh device permission still needed, 2026-10-17
 
 Fork dev16e7372 is pushed and hosted CI39011995792 succeeds:134 CTests,
