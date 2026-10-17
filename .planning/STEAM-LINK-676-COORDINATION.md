@@ -1274,3 +1274,28 @@ GPU overhead. Preserve the stereo-video integrator's683 reservation and current
 Fullgate; no overlapping FlatScreen lifecycle changes or source push yet. This
 coordination text is ready as a separate documentation checkpoint. Trailer files
 in the shared checkout are unrelated and must stay untouched.
+
+## User priority: remove the shipped synthetic source — 2026-10-17
+
+The maintainer now explicitly requests removal of the synthetic test pattern
+from dev, including its setting. This supersedes the former retention of that
+player-facing diagnostic and the generic persisted-key retention rule for the
+exact SteamLink/PayloadTestEnabled key. Historical evidence stays private/in Git.
+
+A disjoint worker at main4c4988b42 removes the synthetic-only runtime, embedded
+art, menu/config hooks and obsolete suites. Ordinary menu focus/closure and
+MixedReality remain unchanged; exact key/token retirement uses the existing
+path-bound ledger. Root will run focused removal/menu/build gates. No new whole
+local gate is requested; the stereo-video integrator's683 fullgate continues.
+
+Root reserves **684** for handing over this removal after the already reserved
+stereo683 integration. Do not downgrade or reuse build numbers. The worker does
+not touch NetProtocol/STATE or any FlatScreen lifecycle. Please retain this
+coordination file and the unrelated trailer owner's files. Native device state
+remains fully restored/user-confirmed; there is no active helper or test timer.
+
+The next headset proposal should show real game imagery via normal MR settings,
+not request another synthetic-pattern-only round. New source packing and exact
+depth/MSAA/stencil experiments remain unhooked/offline until the actual real-eye
+path, RGB transfer, material coverage and native decoder agree. Do not label
+those prototype tests as completed game-scene passthrough.
