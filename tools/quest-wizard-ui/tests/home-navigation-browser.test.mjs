@@ -92,6 +92,8 @@ test('home promotes a real metadata recommendation after twelve retained updates
           assert.equal(row.discovery.updateRecommendation.inputsReady,true,
             'real retained-content ancestry remains ready beyond the old eight-receipt limit');
           assert.ok(row.metadataReads.length>=13,'fixture follows real closed ancestry receipts');
+          assert.equal(await client.evaluate("getComputedStyle(document.getElementById('home-mod')).borderTopColor!==getComputedStyle(document.getElementById('home-build')).borderTopColor"),true,
+            'the real recommendation has a visibly distinct tile border');
           await client.evaluate("document.querySelector('[data-language=de]').click()");
           assert.match(await client.evaluate("document.getElementById('home-mod-recommendation').textContent"),/B682 → B683/);
           await client.chooseHome('mod');
