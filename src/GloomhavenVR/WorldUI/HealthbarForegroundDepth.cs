@@ -130,8 +130,8 @@ internal static class HealthbarForegroundDepth
             : camera.stereoEnabled && XRSettings.enabled ? XRSettings.eyeTextureWidth : camera.scaledPixelWidth;
         int height = camera.targetTexture != null ? camera.targetTexture.height
             : camera.stereoEnabled && XRSettings.enabled ? XRSettings.eyeTextureHeight : camera.scaledPixelHeight;
+        Rect viewport = Viewport(camera, ref width, ref height);
         if (width < 1 || height < 1) { Detach(); return; }
-        Rect viewport = Viewport(camera, width, height);
         CommandBuffer capture = _capture!;
         capture.Clear();
         var descriptor = new RenderTextureDescriptor(width, height, RenderTextureFormat.Depth, 24)
@@ -171,7 +171,7 @@ internal static class HealthbarForegroundDepth
         ActorBarDepthShaders.SetCaptureAvailable(true);
     }
 
-    private static Rect Viewport(Camera camera, int width, int height)
+    private static Rect Viewport(Camera camera, ref int width, ref int height)
     {
         // Unity renders the entire targetTexture; Camera.rect/pixelRect are ignored.
         if (camera.targetTexture != null) return new Rect(0, 0, width, height);
@@ -187,7 +187,9 @@ internal static class HealthbarForegroundDepth
                 display.GetRenderPass(eye, out XRDisplaySubsystem.XRRenderPass pass);
                 if (pass.GetRenderParameterCount() == 0) continue;
                 pass.GetRenderParameter(camera, 0, out XRDisplaySubsystem.XRRenderParameter parameter);
-                if (parameter.viewport.width > 0 && parameter.viewport.height > 0) return parameter.viewport;
+                if (parameter.viewport.width > 0 && parameter.viewport.height > 0
+                    && pass.renderTargetDesc.width > 0 && pass.renderTargetDesc.height > 0)
+                    return XrViewportPixels(parameter.viewport, pass.renderTargetDesc, ref width, ref height);
             }
         }
         catch (Exception ex)
@@ -203,6 +205,21 @@ internal static class HealthbarForegroundDepth
         // viewport fraction instead of stretching the UI to the entire allocation.
         float scale = Mathf.Clamp(XRSettings.renderViewportScale, 0.01f, 1f);
         return new Rect(0, 0, width * scale, height * scale);
+    }
+
+    private static Rect XrViewportPixels(Rect normalized, RenderTextureDescriptor target, ref int width, ref int height)
+    {
+        // XRRenderParameter.viewport is normalized, including on desktop providers:
+        // Unity2021.3.5's XRView constructor multiplies it by renderTargetDesc.
+        // B674 Quest evidence reports (0,0,.8,.8) for a 1680x1760 target. Passing
+        // that rectangle to CommandBuffer.SetViewport requests a subpixel capture
+        // and restores the eye target with that same incorrect subpixel viewport.
+        // Use this pass's allocation rather than the global left-eye dimensions;
+        // MultiPass providers can supply a differently sized right-eye target.
+        width = target.width;
+        height = target.height;
+        return new Rect(normalized.x * width, normalized.y * height,
+            normalized.width * width, normalized.height * height);
     }
 
     private static void DrawHeld(CommandBuffer capture, Camera camera, Renderer[]? renderers)
