@@ -73,7 +73,7 @@ internal sealed partial class VRRigDriver
         var renderers = new List<Renderer>();
         var seen = new HashSet<int>();
         Plane[] frustum = GeometryUtility.CalculateFrustumPlanes(head);
-        int active = 0, all = 0, complete = 0, busy = 0, roots = 0;
+        int active = 0, tileEnabled = 0, all = 0, complete = 0, busy = 0, roots = 0;
         int componentEnabled = 0, hierarchyActive = 0, generatedMeshes = 0;
         int rootActive = 0, rootChildren = 0, populated = 0, handles = 0, frozen = 0, entitiesEnabled = 0, noProcedure = 0, parameterized = 0;
         var loaderStates = new int[8]; // no-loader, empty, never, loading, failed, unassigned, foreign-disabled, done
@@ -85,6 +85,7 @@ internal sealed partial class VRRigDriver
         {
             if (tile == null) continue;
             if (tile.gameObject.activeInHierarchy) active++;
+            if (tile.isActiveAndEnabled) tileEnabled++;
             if (tile.visibility == ProceduralMapTile.Visibility.All) all++;
             if (tile.IsPlacementCompleted) complete++;
             ApparanceEntity entity = tile.GetComponent<ApparanceEntity>();
@@ -98,9 +99,10 @@ internal sealed partial class VRRigDriver
                 if (entity.ProcedureID == 0) noProcedure++;
                 // Object-typed Debug observation avoids adding a new production
                 // Apparance.Net dependency solely to name ParameterCollection.
-                // Both original Apparance assemblies retain their fields in the
-                // Quest Player; a missing field reports no observed override.
-                if (typeof(ApparanceEntity).GetField("PartialParameterOverride")?.GetValue(entity) != null) parameterized++;
+                // Both original Apparance assemblies retain their members in the
+                // Quest Player. This is an original PROPERTY, not a field;
+                // GetField silently reported zero for every genuine override.
+                if (typeof(ApparanceEntity).GetProperty("PartialParameterOverride")?.GetValue(entity) != null) parameterized++;
             }
             Transform generated = tile.transform.Find("Generated Content");
             if (generated != null)
@@ -152,6 +154,9 @@ internal sealed partial class VRRigDriver
         foreach (ApparanceMeshInstances source in instancers)
             if (source != null && source.isActiveAndEnabled) { instanced++; instanceCount += source.instanceCount; }
         ApparanceEngine engine = ApparanceEngine.Instance;
+        ProceduralTileObserver[] observers = UnityEngine.Object.FindObjectsOfType<ProceduralTileObserver>(true);
+        int observerEnabled = 0;
+        foreach (ProceduralTileObserver observer in observers) if (observer != null && observer.isActiveAndEnabled) observerEnabled++;
         QuestScenarioRecord("sample=" + sample + " tiles=" + tiles.Length + " active=" + active + " all=" + all + " complete=" + complete + " busy=" + busy
             + " generatedRoots=" + roots + " rootActive=" + rootActive + " rootChildren=" + rootChildren
             + " entityEnabled=" + entitiesEnabled + " populated=" + populated + " handles=" + handles + " frozen=" + frozen + " noProcedure=" + noProcedure
@@ -160,11 +165,18 @@ internal sealed partial class VRRigDriver
             + " ml=no/empty/never/loading/failed/unassigned/foreign/done:" + string.Join(",", loaderStates)
             + " inHeadFrustum=" + inView + " meshes=" + meshes + " vertices=" + vertices + " meshWithoutColor=" + missingColor + " unsupported=" + unsupported
             + " instancers=" + instancers.Length + " activeInstancers=" + instanced + " instances=" + instanceCount
+            + " tileEnabled=" + tileEnabled + " observers=" + observerEnabled + "/" + observers.Length
             + " engine=" + (engine != null) + " engineActive=" + (engine != null && engine.isActiveAndEnabled) + " engineEntities=" + (engine != null ? engine.EntityComponents.Count : 0)
             + " engineInstancing=" + (engine != null && engine.EnableInstancedRendering));
         Renderer? representative = floor != null ? floor : other != null ? other : fallback;
         QuestScenarioRenderer(sample, floor != null ? "floor" : other != null ? "other" : "hidden-candidate", representative, head);
-        QuestScenarioGpu(sample, representative);
+        // B679 proves the disabled placeholder mesh can draw the white control;
+        // with no native handles/content there is no generated world to qualify
+        // on the GPU yet. Spend that same fourth record on the actual lifecycle
+        // owner instead, without increasing the eight-record launch allowance.
+        if (handles == 0 && complete == 0 && enabled == 0)
+            QuestScenarioRecord("sample=" + sample + " nativeEngine " + QuestProceduralLifecycle.Describe(engine));
+        else QuestScenarioGpu(sample, representative);
     }
 
     private static int QuestScenarioLoaderIndex(string state)

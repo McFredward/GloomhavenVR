@@ -16,7 +16,8 @@ from town_run_retention import cleanup_completed_run
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "renderer-state"))
+    parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "renderer-state", "entity-parameter-property",
+        "lifecycle-desktop", "lifecycle-inactive", "lifecycle-native-handle", "lifecycle-grace", "lifecycle-repeat", "lifecycle-native-content"))
     parser.add_argument("--gpu", action="store_true")
     args = parser.parse_args()
     base = ROOT / ".planning/debug/quest-scenario-evidence"
@@ -34,11 +35,37 @@ def main():
         source = source.replace("if (_questScenarioRecords >= 8) return;", "/* injected launch cap removal */", 1)
     elif args.control == "renderer-state":
         source = source.replace("if (renderer.enabled) componentEnabled++;", "if (on) componentEnabled++;", 1)
+    elif args.control == "entity-parameter-property":
+        source = source.replace('GetProperty("PartialParameterOverride")', 'GetField("PartialParameterOverride")', 1)
     (editor / "Scenario.cs").write_text("#nullable enable\n" + source.replace("namespace GloomhavenVR.Rig;", "namespace GloomhavenVR.Rig {") + "\n}\n")
     gpu_source = (ROOT / "src/GloomhavenVR/Rig/VRRigDriver.QuestScenarioGpu.cs").read_text()
     if args.control == "gpu-transform":
         gpu_source = gpu_source.replace("renderer.localToWorldMatrix, material", "Matrix4x4.Translate(Vector3.one * 1000f) * renderer.localToWorldMatrix, material", 1)
     (editor / "ScenarioGpu.cs").write_text("#nullable enable\n" + gpu_source.replace("namespace GloomhavenVR.Rig;", "namespace GloomhavenVR.Rig {") + "\n}\n")
+    lifecycle_source = (ROOT / "src/GloomhavenVR/Core/QuestProceduralLifecycle.cs").read_text()
+    lifecycle_controls = {
+        "lifecycle-desktop": ("!QuestStandalonePlatform.Enabled || !VRSession.IsRunning || !focused", "!VRSession.IsRunning || !focused",
+                              "Desktop cannot recover a native component"),
+        "lifecycle-inactive": ("|| engine == null || engine.enabled || !engine.gameObject.activeInHierarchy", "|| engine == null || engine.enabled",
+                               "Inactive native owner is never activated"),
+        "lifecycle-native-handle": ("if (registered != null && registered.m_EntityHandle != 0) return false;", "if (registered != null && registered.m_EntityHandle < 0) return false;",
+                                    "An existing native handle prevents initial-generation recovery"),
+        "lifecycle-grace": ("private const float GraceSeconds = 3f;", "private const float GraceSeconds = 0f;",
+                            "Three-second grace cannot complete prematurely"),
+        "lifecycle-repeat": ("|| Attempted.Contains(engine.GetInstanceID()) || Attempted.Count >= RepairLimit", "|| Attempted.Count >= RepairLimit",
+                             "A second disable owner is never fought or retried"),
+        "lifecycle-native-content": ("if (tile.IsPlacementCompleted || (generated != null && generated.childCount != 0)) return false;",
+                                     "if (tile.IsPlacementCompleted) return false;",
+                                     "Generated native content prevents initial-generation recovery"),
+    }
+    if args.control in lifecycle_controls:
+        before, after, _ = lifecycle_controls[args.control]
+        if lifecycle_source.count(before) != 1:
+            raise AssertionError("Lifecycle mutation binding drift: " + args.control)
+        lifecycle_source = lifecycle_source.replace(before, after, 1)
+        if args.control == "lifecycle-native-handle":
+            lifecycle_source = lifecycle_source.replace("&& entity.m_EntityHandle == 0 && !entity.IsBusy", "&& !entity.IsBusy", 1)
+    (editor / "Lifecycle.cs").write_text("#nullable enable\n" + lifecycle_source.replace("namespace GloomhavenVR.Core;", "namespace GloomhavenVR.Core {") + "\n}\n")
     (project / "Assets/HeadUnlit.shader").write_bytes((ROOT / "unity/GloomhavenVR.Assets/Assets/Bundle/Head/HeadUnlit.shader").read_bytes())
     (editor / "Probe.cs").write_bytes((ROOT / "tests/QuestScenarioEvidence.Tests/Probe.cs").read_bytes())
     (project / "Packages").mkdir()
@@ -59,7 +86,9 @@ def main():
         if args.control:
             expected = {"desktop-gate": "Desktop does not observe native scene", "launch-cap": "Recreated rig cannot reset launch cap",
                         "gpu-transform": "Actual unreadable native mesh produces visible GPU pixels",
-                        "renderer-state": "Inactive and component-disabled native renderers are counted independently"}[args.control]
+                        "renderer-state": "Inactive and component-disabled native renderers are counted independently",
+                        "entity-parameter-property": "Native hierarchy and generation admission distinguish a dormant entity from a completed world"}.get(args.control)
+            if args.control in lifecycle_controls: expected = lifecycle_controls[args.control][2]
             if code == 0 or expected not in (run / "unity.log").read_text():
                 raise AssertionError("Native negative control was not rejected by its expected assertion")
             (run / "control.json").write_text(json.dumps({"control": args.control, "rejected": True, "expected": expected, "processExit": code}, indent=2) + "\n")
@@ -73,6 +102,7 @@ def main():
         (run / "source-hashes.json").write_text(json.dumps({"source": hashlib.sha256(source.encode()).hexdigest(),
             "probe": hashlib.sha256((ROOT / "tests/QuestScenarioEvidence.Tests/Probe.cs").read_bytes()).hexdigest(),
             "gpuSource": hashlib.sha256(gpu_source.encode()).hexdigest(),
+            "lifecycleSource": hashlib.sha256(lifecycle_source.encode()).hexdigest(),
             "graphics": "vulkan" if args.gpu else "null",
             "assertions": report["assertions"], "hardwareVerified": False}, indent=2) + "\n")
         print("PASS native scenario evidence: assertions=" + str(report["assertions"]), flush=True)

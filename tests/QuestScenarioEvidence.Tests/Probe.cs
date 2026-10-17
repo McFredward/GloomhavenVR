@@ -5,12 +5,20 @@ using System.Linq;
 using System.Text;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
 
 namespace GloomhavenVR.Core
 {
     internal static class QuestStandalonePlatform { internal static bool Enabled; }
     internal enum VRLogLevel { Debug }
-    internal static class VRLog { internal static bool Debug; internal static bool Wants(VRLogLevel level) => Debug; }
+    internal static class VRLog
+    {
+        internal static bool Debug;
+        internal static int Warnings;
+        internal static bool Wants(VRLogLevel level) => Debug;
+        internal static void Warn(string category, string message) { Warnings++; UnityEngine.Debug.LogWarning(message); }
+    }
+    internal static class VRSession { internal static bool IsRunning = true; }
     internal static class MaterialLoaderHeal
     {
         internal static readonly Dictionary<int, string> States = new Dictionary<int, string>();
@@ -46,7 +54,8 @@ public class SceneController : MonoBehaviour
     public static SceneController Instance;
     public bool IsLoading, ScenarioIsLoading;
 }
-public class ProceduralMapTile : MonoBehaviour
+public class ProceduralTileObserver : MonoBehaviour { }
+public class ProceduralMapTile : ProceduralTileObserver
 {
     public enum Visibility { Hidden, Preview, PreviewWithDoors, All }
     public Visibility visibility;
@@ -57,15 +66,19 @@ public class ApparanceEntity : MonoBehaviour
     public bool IsBusy, IsPopulated = true, Frozen;
     public int m_EntityHandle = 42;
     public uint ProcedureID = 123;
-    public object PartialParameterOverride = new object();
+    public object PartialParameterOverride { get; set; } = new object();
 }
 public class ApparanceMeshInstances : MonoBehaviour { public int instanceCount; }
 public class ApparanceEngine : MonoBehaviour
 {
     public static ApparanceEngine Instance;
     public bool EnableInstancedRendering;
+    public ApparanceResources Resources;
+    public static long s_LastRunTime = 2;
+    public long m_LastRunTime = 1;
     public List<ApparanceEntity> EntityComponents = new List<ApparanceEntity>();
 }
+public class ApparanceResources : MonoBehaviour { }
 namespace GloomhavenVR.Rig
 {
     internal sealed partial class VRRigDriver : MonoBehaviour
@@ -152,13 +165,19 @@ public static class QuestScenarioEvidenceProbe
             floorRenderer.enabled = false;
             wall.SetActive(false); // Component still enabled: distinguish the native hide owners.
             tile.IsPlacementCompleted = false;
+            ApparanceEngine.Instance.enabled = false;
+            ApparanceEngine.Instance.EntityComponents[0].m_EntityHandle = 0;
             GloomhavenVR.Core.MaterialLoaderHeal.States[floorRenderer.GetInstanceID()] = "loading 1/2";
             GloomhavenVR.Core.MaterialLoaderHeal.States[wall.GetComponent<Renderer>().GetInstanceID()] = "no-loader";
             driver.RunNow(); Check(Records.Count == 8, "Second observation uses the complete eight-record launch budget");
             Check(Records[5].Contains("enabled=0 ") && Records[5].Contains("componentEnabled=1 hierarchyActive=1"),
                 "Inactive and component-disabled native renderers are counted independently");
-            Check(Records[5].Contains("rootActive=1 rootChildren=2") && Records[5].Contains("entityEnabled=1 populated=1 handles=1 frozen=0 noProcedure=0 parameterized=1"),
+            Check(Records[5].Contains("rootActive=1 rootChildren=2") && Records[5].Contains("entityEnabled=1 populated=1 handles=0 frozen=0 noProcedure=0 parameterized=1"),
                 "Native hierarchy and generation admission distinguish a dormant entity from a completed world");
+            Check(Records[5].Contains("tileEnabled=1 observers=1/1"), "Actual tile and inherited observer callbacks are counted independently of their entities");
+            Check(Records[7].Contains("nativeEngine instance=") && Records[7].Contains("component=False self=True hierarchy=True")
+                && Records[7].Contains("loaded=1 active=0") && Records[7].Contains("codeStarted=False"),
+                "A dormant world uses its existing GPU slot for exact native engine ownership and startup state");
             Check(Records[5].Contains("ml=no/empty/never/loading/failed/unassigned/foreign/done:1,0,0,1,0,0,0,0"),
                 "Material-loader diagnosis remains independent of renderer enabled and hierarchy flags");
             Check(Records[6].Contains("role=hidden-candidate") && Records[6].Contains("renderer=Floor main")
@@ -175,6 +194,7 @@ public static class QuestScenarioEvidenceProbe
             var next = new GameObject("Next rig").AddComponent<GloomhavenVR.Rig.VRRigDriver>(); next.Configure(head, anchor, true); next.RunNow();
             Check(Records.Count == 8, "Recreated rig cannot reset launch cap");
             Check(Records.All(x => Encoding.UTF8.GetByteCount(x) <= 904), "Every complete record fits one Android logcat message");
+            Lifecycle();
             Directory.CreateDirectory("ProbeOutput");
             File.WriteAllLines("ProbeOutput/records.log", Records);
             File.WriteAllText("ProbeOutput/result.json", "{\"assertions\":" + _assertions + ",\"hardwareVerified\":false}\n");
@@ -184,6 +204,116 @@ public static class QuestScenarioEvidenceProbe
     }
     private static void Capture(string text, string stack, LogType type)
     { if (text.StartsWith("[Quest startup] scenario ", StringComparison.Ordinal)) Records.Add(text); }
+
+    private static void Lifecycle()
+    {
+        // Real Unity enabled/hierarchy state; the bridge and native task decoder
+        // are external boundaries. A successful source fixture cannot establish
+        // that the Android worker produces a complete playable room.
+        foreach (ApparanceEngine previous in UnityEngine.Object.FindObjectsOfType<ApparanceEngine>(true))
+            UnityEngine.Object.DestroyImmediate(previous);
+        foreach (ProceduralMapTile previous in UnityEngine.Object.FindObjectsOfType<ProceduralMapTile>(true))
+            UnityEngine.Object.DestroyImmediate(previous.gameObject);
+        if (!UnityEditor.SceneManagement.EditorSceneManager.SaveScene(SceneManager.GetActiveScene(), "Assets/FixtureBeforeWorld.unity"))
+            throw new InvalidOperationException("Could not retain the existing diagnostic scene fixture.");
+        Scene unified = NativeScene("Gloomhaven_unified");
+        NativeScene("Game");
+        NativeScene("ProcGen");
+        var host = new GameObject("Apparance Engine"); SceneManager.MoveGameObjectToScene(host, unified);
+        var engine = host.AddComponent<ApparanceEngine>(); ApparanceEngine.Instance = engine;
+        engine.Resources = host.AddComponent<ApparanceResources>();
+        engine.enabled = false;
+        var tile = new GameObject("Requested native tile").AddComponent<ProceduralMapTile>();
+        tile.visibility = ProceduralMapTile.Visibility.All;
+        var entity = tile.gameObject.AddComponent<ApparanceEntity>(); entity.m_EntityHandle = 0;
+        engine.EntityComponents.Add(entity);
+        var generated = new GameObject("Generated Content"); generated.transform.parent = tile.transform;
+        var loading = SceneController.Instance;
+        loading.IsLoading = loading.ScenarioIsLoading = false;
+        const float before = 1f, after = 5f;
+        Action consider = () => { GloomhavenVR.Core.QuestProceduralLifecycle.Tick(before, true, false); GloomhavenVR.Core.QuestProceduralLifecycle.Tick(after, true, false); };
+        Action reset = () => { GloomhavenVR.Core.QuestProceduralLifecycle.Uninstall(); engine.enabled = false; };
+
+        GloomhavenVR.Core.QuestStandalonePlatform.Enabled = false;
+        consider(); Check(!engine.enabled, "Desktop cannot recover a native component");
+        GloomhavenVR.Core.QuestStandalonePlatform.Enabled = true;
+        GloomhavenVR.Core.VRSession.IsRunning = false;
+        consider(); Check(!engine.enabled, "Stopped VR cannot recover a native component");
+        GloomhavenVR.Core.VRSession.IsRunning = true;
+        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(before, false, false);
+        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(after, false, false);
+        Check(!engine.enabled, "Background application cannot recover a native component");
+        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(before, true, true);
+        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(after, true, true);
+        Check(!engine.enabled, "Paused application cannot recover a native component");
+        loading.ScenarioIsLoading = true;
+        consider(); Check(!engine.enabled, "Native scenario loading retains ownership");
+        loading.ScenarioIsLoading = false;
+        host.SetActive(false);
+        consider(); Check(!engine.enabled && !host.activeSelf, "Inactive native owner is never activated");
+        host.SetActive(true);
+        var duplicate = new GameObject("Inactive duplicate engine"); duplicate.SetActive(false); duplicate.AddComponent<ApparanceEngine>();
+        consider(); Check(!engine.enabled, "Duplicate native owners prevent an Instance ownership guess");
+        Check(GloomhavenVR.Core.QuestProceduralLifecycle.Describe(engine).Contains("loaded=2 active=0"), "Census retains disabled and inactive duplicate owners");
+        UnityEngine.Object.DestroyImmediate(duplicate);
+        engine.Resources = null;
+        consider(); Check(!engine.enabled, "Incomplete native resources prevent lifecycle recovery");
+        engine.Resources = host.GetComponent<ApparanceResources>();
+        entity.m_EntityHandle = 42;
+        consider(); Check(!engine.enabled, "An existing native handle prevents initial-generation recovery");
+        entity.m_EntityHandle = 0;
+        entity.Frozen = true;
+        consider(); Check(!engine.enabled && entity.Frozen, "Frozen native entity retains ownership");
+        entity.Frozen = false;
+        entity.IsPopulated = false;
+        consider(); Check(!engine.enabled && !entity.IsPopulated, "Native population gate is never fabricated");
+        entity.IsPopulated = true;
+        entity.ProcedureID = 0;
+        consider(); Check(!engine.enabled, "Missing original procedure cannot be treated as valid");
+        entity.ProcedureID = 123;
+        tile.visibility = ProceduralMapTile.Visibility.Hidden;
+        consider(); Check(!engine.enabled, "Hidden tile never requests lifecycle recovery");
+        tile.visibility = ProceduralMapTile.Visibility.All;
+        tile.enabled = false;
+        consider(); Check(!engine.enabled && !tile.enabled, "Disabled native observer is never enabled");
+        tile.enabled = true;
+        tile.IsPlacementCompleted = true;
+        consider(); Check(!engine.enabled, "Completed placement never requests initial-generation recovery");
+        tile.IsPlacementCompleted = false;
+        var content = new GameObject("Original generated leaf"); content.transform.parent = generated.transform;
+        consider(); Check(!engine.enabled && generated.transform.childCount == 1, "Generated native content prevents initial-generation recovery");
+        UnityEngine.Object.DestroyImmediate(content);
+        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(before, true, false);
+        Check(!engine.enabled, "Native disabled engine retains its stability grace");
+        Check(GloomhavenVR.Core.QuestProceduralLifecycle.Describe(engine).Contains("recovery=stable-request-wait"), "Census distinguishes an admitted stability wait");
+        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(3.99f, true, false);
+        Check(!engine.enabled, "Three-second grace cannot complete prematurely");
+        int warnings = GloomhavenVR.Core.VRLog.Warnings;
+        GloomhavenVR.Core.QuestProceduralLifecycle.Tick(4f, true, false);
+        Check(engine.enabled && engine.isActiveAndEnabled, "Only the unique disabled native engine resumes its original lifecycle");
+        Check(GloomhavenVR.Core.VRLog.Warnings == warnings + 1, "Successful lifecycle recovery reports one bounded anomaly");
+        Check(!tile.IsPlacementCompleted && entity.m_EntityHandle == 0 && entity.IsPopulated && generated.transform.childCount == 0,
+            "Recovery cannot fabricate generation handles, placement, parameters or visible geometry");
+        string census = GloomhavenVR.Core.QuestProceduralLifecycle.Describe(engine);
+        Check(census.Contains("component=True self=True hierarchy=True") && census.Contains("codeStarted=False") && census.Contains("recovery=attempted"),
+            "Census reports actual native owner state and original startup epoch");
+        engine.enabled = false;
+        consider(); Check(!engine.enabled, "A second disable owner is never fought or retried");
+        reset();
+        consider(); Check(engine.enabled, "A new installed lifetime can recover its own original component");
+        GloomhavenVR.Core.QuestProceduralLifecycle.Uninstall();
+        Check(engine.enabled, "Shutdown does not break a successfully restored native lifecycle");
+        UnityEngine.Object.DestroyImmediate(host);
+        UnityEngine.Object.DestroyImmediate(tile.gameObject);
+    }
+    private static Scene NativeScene(string name)
+    {
+        Scene scene = UnityEditor.SceneManagement.EditorSceneManager.NewScene(UnityEditor.SceneManagement.NewSceneSetup.EmptyScene,
+            UnityEditor.SceneManagement.NewSceneMode.Additive);
+        if (!UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene, "Assets/" + name + ".unity"))
+            throw new InvalidOperationException("Could not create native scene fixture: " + name);
+        return scene;
+    }
 
     public static void RunGpu()
     {
