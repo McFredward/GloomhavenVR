@@ -18,7 +18,7 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// <para><b>FOLLOW-UP USER REQUEST</b> (hardware, verbatim): "In der Triggertestview möchte ich wenn
 /// ich etwas triggere das es dauerhaft an ist und mit erneutem toggle wieder ausgemacht wird. So kann
-/// ich die Mischungen besser testen." <b>EVERY ROW ON THIS PAGE IS NOW A LATCH.</b> A press turns the
+/// ich die Mischungen besser testen." <b>EVERY ENVIRONMENT EFFECT ROW IS A LATCH.</b> A press turns the
 /// effect on and leaves it on; the same press again turns it off. Nothing expires — the two timed
 /// holds this page used to advertise (8 s for an element, 14 s for an apparition) are gone from the
 /// code and from the captions. Three consequences shape the rest of this file:</para>
@@ -88,7 +88,9 @@ namespace GloomhavenVR.WorldUI;
 /// He then ran the experiment and it answered: <i>"A/B Test durchgeführt, ich merke keinen
 /// Unterschied … Räum die Testauslöser wieder aus, da sollten wirklich nur die Easter Eggs und
 /// Element Auslöser drin sein."</i> The dial, its gate and this page's diagnostics block are all
-/// gone, and the rule above holds again with no exception: nothing here writes a
+/// gone. The maintainer's 2026-10-17 request explicitly adds video reviews to this page;
+/// that supersedes the historical restriction to elements and Easter eggs. These are deliberate
+/// one-shot movie actions with a close button, not environment latches. Nothing here writes a
 /// <c>ConfigEntry</c>, so there is nothing here for the player to undo.</para>
 ///
 /// <para><b>THE HAND-OFF MECHANISM STAYS, BECAUSE THE NEXT DIAGNOSTIC WILL NEED IT.</b> A test aid
@@ -177,6 +179,8 @@ internal static partial class VROptionsTab
 
         BuildHeader(ContentRoot, Loc.Mod("vr_tt_page"), "h_vr_tt_page");
 
+        int rows = BuildVideoReviewTriggers();
+
         // FOUR NOTES, AND THEY ARE THE FEATURE'S SAFETY RAILS, not decoration:
         //   1. what it does and does not touch. It USED to read "local only, nothing sent, no game
         //      state" and be an exception to the standing "everything is synchronised" rule; since
@@ -198,7 +202,6 @@ internal static partial class VROptionsTab
         BuildNote(ContentRoot, Loc.Mod("vr_tt_scope"));
         BuildNote(ContentRoot, Loc.Mod("vr_tt_override"));
 
-        int rows = 0;
         rows += BuildElementTriggers(waning: false, "vr_tt_elem_strong");
         rows += BuildElementTriggers(waning: true, "vr_tt_elem_waning");
         rows += BuildHauntTriggers();
@@ -218,9 +221,11 @@ internal static partial class VROptionsTab
             VRLog.Info("WorldUI", "TEST TRIGGER: 'all off' pressed on the Erweitert test page — element "
                                   + $"latches {(ElementMood.Forcing ? "were standing" : "were not standing")}, "
                                   + $"apparition latch {(Haunt.Forcing ? "was standing" : "was not standing")}. "
-                                  + "Both channels go back to the real state; nothing else is touched.");
+                                  + "Both channels go back to the real state; any review video closes.");
             ElementMood.ClearForce("the tester pressed 'all test triggers off'");
             Haunt.ClearForce("the tester pressed 'all test triggers off'");
+            NativeVideoReview.Stop();
+            RefreshVideoReviewRows();
             // …AND EVERY PEER'S TOO. The stop row is this page's guarantee that one press gets back
             // to the real state, and since 2026-08-15 the override is shared — so the guarantee has
             // to reach the people who are seeing it. Taking ownership with an empty set is what
@@ -242,7 +247,8 @@ internal static partial class VROptionsTab
     // Problem tritt bei beiden unveraendert auf. Raeum die Testausloeser wieder aus, da sollten
     // wirklich nur die Easter Eggs und Element Ausloeser drin sein." The experiment had answered
     // (the 467 log reports its WORKING branch on every clause), the dial had nothing left to ask,
-    // and the page is back to what its owner wants on it.
+    // and the page returned to those effects. On 2026-10-17 the user explicitly added video
+    // review actions, preserving the no-settings rule and the existing effect latches.
     //
     // The class doc's rule above is therefore TRUE AGAIN WITHOUT AN EXCEPTION: nothing on this page
     // writes a ConfigEntry, so there is nothing here for the player to undo. If a future diagnostic

@@ -649,7 +649,8 @@ internal static partial class VROptionsTab
     /// <para>Plain caption style, so it sits visibly below the header rather than competing with
     /// it.</para>
     /// </summary>
-    private static void BuildNote(Transform parent, string text, bool multiline = false)
+    private static GameObject BuildNote(Transform parent, string text, bool multiline = false,
+                                        int minLines = 1)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
@@ -672,7 +673,11 @@ internal static partial class VROptionsTab
                 if (available <= 24f) available = ((RectTransform)row.transform).rect.width;
                 LayoutGroup? group = parent.GetComponent<LayoutGroup>();
                 float width = Mathf.Max(1f, available - (group?.padding.horizontal ?? 0) - 24f);
-                float height = title.GetPreferredValues(text, width, float.PositiveInfinity).y + 16f;
+                float textHeight = title.GetPreferredValues(text, width, float.PositiveInfinity).y;
+                if (minLines > 1)
+                    textHeight = Mathf.Max(textHeight, title.GetPreferredValues(
+                        new string('\n', minLines - 1), width, float.PositiveInfinity).y);
+                float height = textHeight + 16f;
                 LayoutElement? layout = row.GetComponent<LayoutElement>();
                 if (layout != null)
                 {
@@ -694,6 +699,8 @@ internal static partial class VROptionsTab
         Transform? frame = row.transform.Find("MenuElementFrame");
         if (frame != null)
             frame.gameObject.SetActive(false);
+
+        return row;
     }
 
     /// <summary>
@@ -2408,6 +2415,7 @@ internal static partial class VROptionsTab
         }
         Rows.Clear();
         ClearMixedRealityAvailabilityRefreshers();
+        ClearVideoReviewRows();
         ValueLabels.Clear();
         Sliders.Clear();
     }
