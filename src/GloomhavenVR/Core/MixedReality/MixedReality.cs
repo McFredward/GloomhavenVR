@@ -624,6 +624,11 @@ internal static partial class MixedReality
         bool requested = Enabled.Value && VRSession.IsRunning;
         bool native = FrameNativePassthrough.Required;
         bool stream = SteamLink.SteamLinkSceneRuntime.Requested;
+        // A pending identity query is not a request for chroma key. Keep the
+        // ordinary image until admission completes, including a real HMD
+        // reconnect; never flash the saved green key during that transition.
+        bool checkingStream = !native && SteamLinkNative.Value
+            && SteamLink.SteamLinkConnectionLifecycle.Checking;
         bool streamReady = false;
         // The retired full-screen test pattern paused while settings were open.
         // Real-image MR must retain the settings in its scene and switch live:
@@ -652,7 +657,7 @@ internal static partial class MixedReality
         // until the actual running session accepts AlphaBlend, rather than exposing
         // an opaque black/green background or treating the pending write as a failure.
         bool want = requested && (native ? VRCameraPolicy.AllowedHead != null
-            && FrameNativePassthrough.TryEnter() : !stream || streamReady);
+            && FrameNativePassthrough.TryEnter() : !checkingStream && (!stream || streamReady));
         if (!want)
         {
             if (_active || CamOriginals.Count != 0)

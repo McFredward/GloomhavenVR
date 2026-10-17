@@ -38,13 +38,16 @@ internal static class SteamLinkSceneRuntime
         if (_output != null && _output.Head == head)
         {
             _output.TickCold();
-            if (!_output.Ready)
+            if (_output.Ready) return true;
+            if (!string.IsNullOrEmpty(_output.Failure))
             {
-                Refuse(head, string.IsNullOrEmpty(_output.Failure)
-                    ? "The current head source was closed or its material scope failed." : _output.Failure);
+                Refuse(head, _output.Failure);
                 return false;
             }
-            return _output.Ready;
+            // OnDisable/ownership loss releases render resources immediately.
+            // A camera re-enabled after loading needs a fresh source, not a
+            // permanent failed-head latch. Actual preparation/render failures
+            // retain their nonempty Failure and still refuse this head.
         }
         Exit();
         if (!ScenePayloadAssets.TryGet(out Shader pack, out Shader coverage, out reason))

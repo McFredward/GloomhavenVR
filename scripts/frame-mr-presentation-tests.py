@@ -34,9 +34,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/frame-mr-presentation')
-    controls = ['opaque-native', 'hdr-restore', 'menu-tick', 'menu-entry', 'menu-owner']
+    controls = ['opaque-native', 'hdr-restore', 'menu-tick', 'menu-entry', 'menu-owner', 'pending-key']
     parser.add_argument('--mutation', choices=controls)
-    parser.add_argument('--all', action='store_true', help='Run production and all five causal negative controls')
+    parser.add_argument('--all', action='store_true', help='Run production and all causal negative controls')
     args = parser.parse_args()
     if args.all:
         if args.mutation:
@@ -86,6 +86,10 @@ def main():
         old = '&& VRCameraPolicy.AllowedHead == head && Requested && MixedReality.Enabled.Value;'
         assert owner.count(old) == 1
         owner = owner.replace(old, old[:-1] + ' && !GloomhavenVR.WorldUI.VROptionsTab.IsOpen;')
+    if args.mutation == 'pending-key':
+        old = '!checkingStream && (!stream || streamReady)'
+        assert source.count(old) == 1
+        source = source.replace(old, '(!stream || streamReady)')
     declarations = [method(source, signature) for signature in (
         'internal static void Tick()', 'private static void Record(Camera cam)',
         'private static void ForceSolid(Camera cam, Color key)', 'internal static void RestoreAll()')]
@@ -136,7 +140,8 @@ def main():
                     'hdr-restore': 'MR off restores original head color and HDR',
                     'menu-tick': 'open settings applies native streaming immediately',
                     'menu-entry': 'open settings applies native streaming immediately',
-                    'menu-owner': 'open settings retains live source ownership'}[args.mutation]
+                    'menu-owner': 'open settings retains live source ownership',
+                    'pending-key': 'initial identity query never selects the saved green key'}[args.mutation]
         assert completed.returncode != 0 and expected in output, output
         print('PASS negative control: ' + args.mutation)
     else:
