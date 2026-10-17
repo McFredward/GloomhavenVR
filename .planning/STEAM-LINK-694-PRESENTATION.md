@@ -31,6 +31,22 @@ nonempty preparation/render failures keep their existing failed-head refusal.
 
 ## Delivery and verification boundary
 
+- Source-linked lifecycle plus actual asynchronous Monitor:111 assertions. The
+  old camera-dependent lifecycle compiles, then fails the exact loading-regression
+  assertion. Unity/XR/session/reader inputs are explicitly controlled ports.
+- Production MixedReality.Tick and camera restoration in actual Unity2021.3.5:
+  42 assertions, including pending initial identity and actual revalidation with
+  no green fallback. The old pending-key path fails its semantic counterexample.
+- Complete SceneHeadOutput/SteamLinkSceneRuntime with actual coverage, packing,
+  material callbacks and shipping shader bank:436 assertions,11 real renders,
+  five resumes and96 guard cells. Real GameObject.OnDisable, OnPreCull and
+  OnRenderImage execute. The old owner fails specifically at same-camera resume;
+  actual HDR/unknown-eye faults remain refused. XR metadata and host ownership
+  are explicit ports, not an actual XR session. This lifecycle evidence used the
+  unchanged prior bank; the updated coverage bank has its separate raster proof.
+- Focused source instrumentation:1/1 passes. Do not repeat the unchanged full
+  gate merely because the bounded tests were registered with the suite runner.
+
 This is a focused source/presentation repair, not a new complete local gate.
 Unchanged693 classifier/helper/cache/Proton/SDK/native checks are inherited.
 Native receiver layout, guard, installation and Frame service remain unchanged.
