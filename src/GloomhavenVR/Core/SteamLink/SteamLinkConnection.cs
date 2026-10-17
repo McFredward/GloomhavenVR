@@ -209,13 +209,14 @@ internal static class SteamLinkConnection
             // public redistributable and let Valve resolve its own registry and
             // overrides. Only our bounded child loads it, never Unity/OpenXR.
             string? library;
-            try { library = PrepareResource(ApiResource, ApiBytes, ApiSha256, "openvr_api.dll", true); }
-            catch (Exception ex) { return new Snapshot(Reason.HelperUnavailable, detail: "SDK extraction:" + ex.GetType().Name); }
-            if (library == null) return new Snapshot(Reason.HelperUnavailable, detail: "SDK resource, path or SHA256 pin");
+            string stage = "SDK preparation";
+            try { library = PrepareResource(ApiResource, ApiBytes, ApiSha256, "openvr_api.dll", true, ref stage); }
+            catch (Exception ex) { return new Snapshot(Reason.HelperUnavailable, detail: stage + ":" + ex.GetType().Name); }
+            if (library == null) return new Snapshot(Reason.HelperUnavailable, detail: stage);
             string? helper;
-            try { helper = PrepareResource(Resource, HelperBytes, HelperSha256, "connection-reader.exe", false); }
-            catch (Exception ex) { return new Snapshot(Reason.HelperUnavailable, detail: "reader extraction:" + ex.GetType().Name); }
-            if (helper == null) return new Snapshot(Reason.HelperUnavailable, detail: "reader resource, path or SHA256 pin");
+            try { helper = PrepareResource(Resource, HelperBytes, HelperSha256, "connection-reader.exe", false, ref stage); }
+            catch (Exception ex) { return new Snapshot(Reason.HelperUnavailable, detail: stage + ":" + ex.GetType().Name); }
+            if (helper == null) return new Snapshot(Reason.HelperUnavailable, detail: stage);
             return RunChild(helper, library, cancellation);
         }
         catch (Exception ex) { return new Snapshot(Reason.NativeUnavailable, detail: "reader process:" + ex.GetType().Name); }
@@ -283,22 +284,56 @@ internal static class SteamLinkConnection
         return ArtifactPin(raw, bytes, hash, dll) ? raw : null;
     }
 
-    private static string? PrepareResource(string resourceName, int bytes, string hash, string fileName, bool dll)
+    // Build688's actual Windows SDK resource has the exact expected name, size
+    // and SHA256, but no cache directory was created. Do not rely solely on
+    // Unity/Mono's SHGetFolderPath wrapper. Windows supplies LOCALAPPDATA directly;
+    // retain the known-folder API only as a fallback. Normalize separators before
+    // the local-drive guard, never turn a UNC/relative path into an accepted one.
+    internal static string CacheFolder(string? environment, Func<string> knownFolder)
     {
+        string folder = NormalizeFolder(environment);
+        return folder.Length != 0 ? folder : NormalizeFolder(knownFolder());
+    }
+
+    private static string NormalizeFolder(string? value)
+    {
+        string normalized = (value ?? "").Replace('/', '\\').TrimEnd('\\');
+        return LocalWindowsPath(normalized) ? normalized : "";
+    }
+
+    private static string? PrepareResource(string resourceName, int bytes, string hash, string fileName, bool dll, ref string stage)
+    {
+        stage = fileName + ":cache-folder";
+        string local = CacheFolder(Environment.GetEnvironmentVariable("LOCALAPPDATA"),
+            () => Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        if (local.Length == 0) return null;
+        return ExtractResource(resourceName, bytes, hash, fileName, dll, local, PathSafe, ref stage);
+    }
+
+    // Keep the actual filesystem path covered by focused tests. The only
+    // substituted boundary is the OS's Windows path/ancestor validator.
+    internal static string? ExtractResource(string resourceName, int bytes, string hash, string fileName, bool dll,
+        string local, Func<string, bool> pathSafe, ref string stage)
+    {
+        stage = fileName + ":embedded-resource-or-pin";
         byte[]? raw = ReadResource(resourceName, bytes, hash, dll);
         if (raw == null) return null;
-        string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrEmpty(local) || !LocalWindowsPath(local)) return null;
         string directory = Path.Combine(local, "GloomhavenVR", "SteamLink", hash);
+        stage = fileName + ":cache-directory-create";
         Directory.CreateDirectory(directory);
-        if (!PathSafe(directory)) return null;
+        stage = fileName + ":cache-directory-identity";
+        if (!pathSafe(directory)) return null;
         string path = Path.Combine(directory, fileName);
+        stage = fileName + ":cache-file-create";
         if (!File.Exists(path))
         {
             using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
             file.Write(raw, 0, raw.Length); file.Flush();
         }
-        return PathSafe(path) && ArtifactPin(ReadBounded(path, bytes), bytes, hash, dll) ? path : null;
+        stage = fileName + ":cache-file-identity";
+        if (!pathSafe(path)) return null;
+        stage = fileName + ":cache-file-pin";
+        return ArtifactPin(ReadBounded(path, bytes), bytes, hash, dll) ? path : null;
     }
 
     internal static Snapshot RunChild(string helper, string library, CancellationToken cancellation)
@@ -312,7 +347,10 @@ internal static class SteamLinkConnection
         string system = Environment.GetFolderPath(Environment.SpecialFolder.System);
         start.EnvironmentVariables["PATH"] = system;
         // Preserve OpenVR's own path overrides so this client reaches the same
-        // runtime/config as the user's live SteamVR session. They are not an MR
+        // runtime/config as the user's live SteamVR session. Under Proton this
+        // includes PROTON_VR_RUNTIME and the Wine prefix/DLL bridge environment:
+        // the Windows SDK resolves Proton's C:\vrclient runtime path itself.
+        // These inherited values are not an MR
         // permission signal; the connected HMD/driver metadata still decides.
         foreach (string name in new[] { "LD_PRELOAD", "LD_AUDIT" })
             start.EnvironmentVariables.Remove(name);

@@ -1,9 +1,12 @@
 # Steam Link mixed-reality development
 
-## Real-image source, Build686
+## Real-image source
 
 `VR Options → World → Scenery` now offers **Steam Link native
-passthrough**, default off. This is the real-image producer, not the retired
+passthrough** only after identifying a connected Steam Frame through Steam Link.
+Its preference defaults on for that identified connection; the general Mixed
+Reality master still defaults off, and saved preferences are retained.
+This is the real-image producer, not the retired
 test pattern. It requires the separately prepared matching Frame receiver;
 turning it on without that receiver displays an encoded image. Choose the
 Mixed Reality environment, then enable native streaming. Both switches apply
@@ -27,9 +30,36 @@ commands/materials. The current profile is still experimental: all native VFX,
 refraction, late explicit command-buffer draws and intermediate UI-alpha semantics
 are not certified by the owned shader tests. Actual XR callback order, codec
 quality and headset motion still require a real-game test. No Frame files are
-changed by building or enabling the PC source. A fresh concrete approval is
-required before preparing its temporary Frame component and native camera
-setting. The existing standalone native MR backend is separate and unchanged.
+changed by building or enabling the PC source. Install the public matching
+[Steam Link Native Passthrough receiver](https://github.com/McFredward/steam-link-native-passthrough)
+separately using its documented supported SteamVR version. The existing
+standalone native MR backend is separate and unchanged.
+
+## Host identity lookup: Windows and Proton
+
+Gloomhaven and this mod are Windows applications. A Linux gaming host runs the
+same PE reader under Proton, not a separate native Linux helper. Only a bounded
+isolated child loads the pinned public OpenVR SDK; Unity keeps its active OpenXR
+session. The caller first requires that active SteamVR session. The SDK's
+`VRApplication_Background` initialization supplies the no-server guard; a Windows
+process-name census cannot establish whether native Linux SteamVR is running.
+
+The child inherits OpenVR overrides and Proton's prefix/runtime bridge variables.
+Let the SDK use Proton's generated Windows OpenVR paths and `C:\vrclient` bridge,
+including its ordered runtime history. Do not parse the Linux host registry from
+the mod or initialize another OpenVR client inside Unity. Valve documents the
+[background-client contract](https://github.com/ValveSoftware/openvr/blob/v1.26.7/headers/openvr.h)
+and implements the [Proton path bridge](https://github.com/ValveSoftware/Proton/blob/proton_11.0/proton).
+This does not establish that a given Linux SteamVR/Steam Link release works;
+live host/transport interoperability still needs hardware evidence.
+
+The two pinned resources are extracted under
+`%LOCALAPPDATA%\GloomhavenVR\SteamLink\<SHA256>`, inside the Windows user's profile
+or Proton prefix. Prefer inherited `LOCALAPPDATA`, then the Windows known-folder
+API; normalize directory separators before local-path validation. Missing or
+invalid folders have no guessed installation/system-directory fallback. Exact
+resource, directory, file and cached-pin stages distinguish preparation failure
+from API failure. Never infer receiver installation from SDK presence.
 
 Focused evidence is in the linked research notes for
 [depth coverage](research/steamlink-eye-coverage-runtime-20261017.md),
