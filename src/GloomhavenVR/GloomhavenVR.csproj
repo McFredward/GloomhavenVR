@@ -15,6 +15,11 @@
     <!-- Keep the first-save movie mod-local; the original game data stays untouched. -->
     <Content Include="Assets\Movies\CP_Intro\GH_CP_Intro.mov"
              CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\CP_Intro\GH_CP_Intro.mov" />
+    <!-- Calibration media ships beside the plugin in ordinary builds/install ZIPs, never inside the DLL. -->
+    <Content Include="Assets\Movies\Calibration\calibration-sbs.mp4"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Calibration\calibration-sbs.mp4" />
+    <Content Include="Assets\Movies\Calibration\calibration-mono.mp4"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Calibration\calibration-mono.mp4" />
     <!-- The small, explicitly loaded stereo UI shader does not replace the main asset bank. -->
     <EmbeddedResource Include="Assets\StereoVideo\ui-sbs.bundle"
                       LogicalName="GloomhavenVR.StereoVideo.ui-sbs.bundle" />

@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "profile": "ghvr-stereo-calibration-v1",
+  "status": "measured-awaiting-headset-review",
+  "eye_order": "left-right",
+  "packing": "full-side-by-side",
+  "per_eye_size": [
+    1920,
+    1080
+  ],
+  "frame_rate": 60,
+  "frame_count": 540,
+  "duration_seconds": 9.0,
+  "cut_frames": [
+    180,
+    360
+  ],
+  "audio": "none",
+  "tools": {
+    "pillow": "12.2.0",
+    "ffmpeg": "ffmpeg version 8.0.1 Copyright (c) 2000-2025 the FFmpeg developers",
+    "ffprobe": "ffprobe version 8.0.1 Copyright (c) 2007-2025 the FFmpeg developers"
+  },
+  "source_sha256": {
+    "build.py": "c4cf2151aeedb8011faf8c82716db31408c6cff7511a53ddec98836f40a2673e",
+    "calibration.py": "0fa38d3b5cc56ef3e6dd1ad1fb27ab6bcb430cc42b5ccee94be23d689ca1f99a"
+  },
+  "disparity_convention": "x_left minus x_right; near +12px, screen 0px, far -12px",
+  "depth_origin": "Explicit code-drawn geometry; no inferred or generated scene depth",
+  "comfort_limit": "12px is 0.625% of eye width, not a universal angular or comfort bound; physical screen width, viewing distance and IPD still matter.",
+  "artifacts": {
+    "sbs": {
+      "file": "calibration-sbs.mp4",
+      "sha256": "df8ec395f12a37d7cd1f9f525a03754440b5c62467a4b265566c852665c944b4",
+      "bytes": 1560420,
+      "width": 3840,
+      "height": 1080,
+      "proof": {
+        "status": "passed",
+        "frames": 540,
+        "decoded_eye_frames": 1080,
+        "decoded_header_cells": 23760,
+        "depth_marker_centres": 3240,
+        "maximum_marker_error_px": 0,
+        "cut_frames": [
+          180,
+          360
+        ],
+        "duration_seconds": 9.0,
+        "source_frame_rate": 60,
+        "seeks": [
+          {
+            "frame": 0,
+            "seconds": 0.0,
+            "status": "passed"
+          },
+          {
+            "frame": 179,
+            "seconds": 2.9833333333333334,
+            "status": "passed"
+          },
+          {
+            "frame": 180,
+            "seconds": 3.0,
+            "status": "passed"
+          },
+          {
+            "frame": 181,
+            "seconds": 3.0166666666666666,
+            "status": "passed"
+          },
+          {
+            "frame": 359,
+            "seconds": 5.983333333333333,
+            "status": "passed"
+          },
+          {
+            "frame": 360,
+            "seconds": 6.0,
+            "status": "passed"
+          },
+          {
+            "frame": 361,
+            "seconds": 6.016666666666667,
+            "status": "passed"
+          },
+          {
+            "frame": 539,
+            "seconds": 8.983333333333333,
+            "status": "passed"
+          }
+        ]
+      }
+    },
+    "mono": {
+      "file": "calibration-mono.mp4",
+      "sha256": "909bdc0773c1d98b0640978f771665421f54f84ddd237244274efb05b52be2fd",
+      "bytes": 781901,
+      "width": 1920,
+      "height": 1080,
+      "proof": {
+        "status": "passed",
+        "frames": 540,
+        "decoded_eye_frames": 540,
+        "decoded_header_cells": 11880,
+        "depth_marker_centres": 1620,
+        "maximum_marker_error_px": 0,
+        "cut_frames": [
+          180,
+          360
+        ],
+        "duration_seconds": 9.0,
+        "source_frame_rate": 60,
+        "seeks": [
+          {
+            "frame": 0,
+            "seconds": 0.0,
+            "status": "passed"
+          },
+          {
+            "frame": 179,
+            "seconds": 2.9833333333333334,
+            "status": "passed"
+          },
+          {
+            "frame": 180,
+            "seconds": 3.0,
+            "status": "passed"
+          },
+          {
+            "frame": 181,
+            "seconds": 3.0166666666666666,
+            "status": "passed"
+          },
+          {
+            "frame": 359,
+            "seconds": 5.983333333333333,
+            "status": "passed"
+          },
+          {
+            "frame": 360,
+            "seconds": 6.0,
+            "status": "passed"
+          },
+          {
+            "frame": 361,
+            "seconds": 6.016666666666667,
+            "status": "passed"
+          },
+          {
+            "frame": 539,
+            "seconds": 8.983333333333333,
+            "status": "passed"
+          }
+        ]
+      }
+    }
+  },
+  "distribution": "Plugin-local Movies/Calibration Content alongside GloomhavenVR.dll; not embedded in the assembly.",
+  "generator": "scripts/stereo-video/build.py calibration"
+}
