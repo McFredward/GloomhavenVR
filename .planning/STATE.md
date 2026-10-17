@@ -1,5 +1,24 @@
 # State — where the project stands
 
+**Fan audio follows actual visibility transitions, 2026-10-17: Build682.**
+
+Build680's Frost Armor short rest shows one2.013s original burn with eight
+throttled fan-close sound requests. CardFan correctly refused closing while
+the burn layout was held; UpdatePalmGate nevertheless retried audio every frame.
+The caller now checks the resulting IsOpen state before emitting either close
+or open audio. No new timer, state, audio choice or change to the burn barrier.
+
+The existing burn-layout suite passes its unchanged228 assertions and16 controls,
+plus737 audio assertions and two controls restoring the unconditional cues. It
+executes the exact driver branch and complete original CardFan.Open/Close methods
+with named hierarchy/helper/audio sinks; it does not prove audible headset output.
+The runner now preserves generated source/log/control evidence and removes stopped
+caches through the shared cleanup API. No new suite or inventory count change.
+Root source/build/compiled-scope/publication receipts are retained under ignored
+`.planning/debug/short-rest-audio682/`; coordination and scope are recorded in
+`.planning/SHORT-REST-AUDIO-682.md`. Unchanged680/681 native, remote, wire and
+synthetic-source evidence is inherited; no new complete local gate is claimed.
+
 **Synthetic Steam Link presenter source prepared, 2026-10-17: Build681.**
 
 The explicit existing test setting now emits a separately named v2 source with

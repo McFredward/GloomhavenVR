@@ -1,4 +1,18 @@
-namespace UnityEngine { internal sealed class GameObject { internal bool activeInHierarchy=true; } internal static class Time { internal static float unscaledTime; } }
+namespace UnityEngine {
+    internal sealed class GameObject {
+        internal GameObject(string name="") { transform=new Transform(this); }
+        internal bool activeInHierarchy=true, activeSelf=true;
+        internal readonly Transform transform;
+        internal void SetActive(bool value) { activeSelf=value;activeInHierarchy=value; }
+    }
+    internal sealed class Transform {
+        internal Transform(GameObject owner) { gameObject=owner; }
+        internal readonly GameObject gameObject;
+        internal Transform? parent;
+        internal void SetParent(Transform value,bool worldPositionStays) { parent=value; }
+    }
+    internal static class Time { internal static float unscaledTime; }
+}
 namespace ScenarioRuleLibrary {
     internal class CAbilityCard { }
     internal class CPlayerActor { internal bool Controlled=true; internal CCharacterClass CharacterClass = new(); }

@@ -27,6 +27,11 @@ for signature in ['internal void Open(VRHand hand)', 'internal void Close()', 'p
     assert 'if (CardsDriver.BurnLayoutPending) return;' in method(fan,signature), 'Fan mutation must await burn'
 for text in ['if (_arriving.Count > 0 && !CardsDriver.BurnLayoutPending)', 'if (_closeElapsed >= 0f && !CardsDriver.BurnLayoutPending)', 'if (swapping && !CardsDriver.BurnLayoutPending)', 'if (_openElapsed >= 0f && !CardsDriver.BurnLayoutPending)']:
     assert text in fan, 'Fan animation must await burn'
+# Execute the driver's exact edge branch with real Open/Close. The rest of the
+# palm measurement is an explicit caller-input boundary, not a copied predicate.
+palm=method(update,'private void UpdatePalmGate()')
+edge=palm[palm.index('        if (shouldOpen && !_fan.IsOpen)'):palm.index('        // Task #9 (empty-fan feedback)')]
+fan_edges='\ninternal sealed partial class CardFan\n{\n'+method(fan,'internal void Open(VRHand hand)')+'\n'+method(fan,'internal void Close()')+'\n}\n'
 active=(cards/'Piles/ActivePileViewer.cs').read_text()
 assert 'if (CardsDriver.BurnLayoutPending) return;' in method(active,'private void Relayout(bool instant)'), 'Active grid must await burn'
 assert '_knownBurntCards.Clear();' not in method(source,'private void TickBurnToPile(').split('PruneRecoveredBurns(hand);')[1], 'Visible widget snapshots must not clear native burn claims'
@@ -46,5 +51,6 @@ result+=method(source,'private static RoundCardExit RoundCardExitOf(')+'\n'
 start=source.index('    private static PileKind PileFateOf(');end=source.index('\n        };',start)+len('\n        };')
 result+=source[start:end]+'\n'
 # Execute the actual rebuild admission, replacing only the large downstream renderer with a spy.
-result+='internal void RebuildProbe() {\n'+rebuild[rebuild.index('{')+1:rebuild.index('        NoteExhaustedRuleArmed();')]+' RenderRequestedLayout(); }\n}\n'
+result+='internal void RebuildProbe() {\n'+rebuild[rebuild.index('{')+1:rebuild.index('        NoteExhaustedRuleArmed();')]+' RenderRequestedLayout(); }\n'
+result+='internal void FanEdgeProbe(bool shouldOpen) {\n'+edge+'}\n}\n'+fan_edges
 out.write_text(result.replace('using UnityEngine;','using UnityEngine;\nusing ScenarioRuleLibrary;'))

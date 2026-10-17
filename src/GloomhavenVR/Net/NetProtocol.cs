@@ -612,7 +612,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 681;
+    public const ushort ModBuild = 682;
+
+    // ModBuild682 — fan audio follows successful visibility transitions.
+    // Build680's Frost Armor short rest has one original two-second burn, while
+    // UpdatePalmGate repeatedly requests PlaySound_UICardTabSelect. CardFan.Close
+    // correctly refuses layout changes during that burn, leaving IsOpen=true;
+    // the caller nevertheless played the close cue every frame until completion.
+    // Play open/close cues only after the corresponding IsOpen transition succeeds.
+    // The same native-burn barrier can refuse Open, which must remain silent too.
+    // Keep original burn timing, geometry, fan animations, audio selection/suppression
+    // and configuration. No gameplay, default, asset or wire-schema change.
+    // Focused burn-layout/audio regression and causal controls distinguish blocked
+    // requests from actual transitions; heard headset playback remains unverified.
 
     // ModBuild681 — explicitly versioned synthetic Steam Link presenter source.
     // The future receiver must recognize the CURRENT consumed image before using
