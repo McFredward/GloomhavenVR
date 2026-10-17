@@ -306,7 +306,9 @@ internal sealed partial class FlatScreen
     {
         if (_backQuad != null)
             return;
+        ReleaseQuestScreenMesh(ref _questBackMesh);
         _backQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        RebuildQuestScreenMesh(_backQuad, ref _questBackMesh, "flat-screen-background");
         _backQuad.name = "GloomhavenVR.FlatScreen.Background";
         Object.DontDestroyOnLoad(_backQuad); // survives Single-mode scene loads like the screen quad
         Object.Destroy(_backQuad.GetComponent<Collider>());
@@ -340,6 +342,7 @@ internal sealed partial class FlatScreen
             _backQuad = null;
             _backRenderer = null;
         }
+        ReleaseQuestScreenMesh(ref _questBackMesh);
         if (_glassMaterial != null)
         {
             Object.Destroy(_glassMaterial);

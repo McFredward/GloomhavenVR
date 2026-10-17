@@ -65,8 +65,14 @@ internal sealed partial class FlatScreen
         {
             QuestProbeCapture(_uiRt, menu.name, sample, "glass");
             QuestProbeCapture(_rt, menu.name, sample, "background-left");
-            RenderTexture? right = _screenMaterial != null ? _screenMaterial.GetTexture("_RightTex") as RenderTexture : null;
+            RenderTexture? right = _screenMaterial == null ? null : _screenMaterial.HasProperty("_RightTex")
+                ? _screenMaterial.GetTexture("_RightTex") as RenderTexture : _screenMaterial.mainTexture as RenderTexture;
             if (right != null && right != _rt) QuestProbeCapture(right, menu.name, sample, "background-right");
+            if (sample == 2 && QuestStandalonePlatform.DebugLogging && head != null)
+            {
+                QuestProbeConsumer(_quadRenderer, _glassMaterial, head, menu.name, "glass");
+                QuestProbeConsumer(_backRenderer, _screenMaterial, head, menu.name, "background");
+            }
         }
     }
 
@@ -119,7 +125,11 @@ internal sealed partial class FlatScreen
                 + " role=" + role + " readback=unsupported target=" + targetName);
             return;
         }
-        RenderTexture probe = new(32, 16, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+        // One complete RGBA8 thumbnail, including its prefix, must fit Android's
+        // roughly 1 KiB logcat payload as well as the startup log's bounded menu
+        // reserve. A 32x16 base64 record was truncated by logcat and consumed the
+        // reserve before the final consumer diagnostics could be retained.
+        RenderTexture probe = new(16, 8, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
         RenderTexture? previous = RenderTexture.active;
         try
         {
@@ -151,9 +161,8 @@ internal sealed partial class FlatScreen
                         + " nonBlack=" + nonBlack + " alphaPixels=" + alphaPixels);
                     if (sampleIndex == 2)
                     {
-                        // A complete 32x16 RGBA8 thumbnail fits below the logger's
-                        // 4096-character record ceiling. The existing capture script
-                        // retains it; no full-resolution readback or recurring scan.
+                        // This complete 16x8 RGBA8 thumbnail also fits a single
+                        // logcat record. No full-resolution readback or recurring scan.
                         byte[] rgba = new byte[pixels.Length * 4];
                         for (int index = 0; index < pixels.Length; index++)
                         {
@@ -163,7 +172,7 @@ internal sealed partial class FlatScreen
                         }
                         UnityEngine.Debug.Log("[Quest startup] presentation menu-thumbnail scene=" + scene
                             + " sample=" + sampleIndex + " role=" + role + " target=" + targetName
-                            + " width=32 height=16 format=RGBA8-linear bottomRowFirst=true base64="
+                            + " width=16 height=8 format=RGBA8-linear bottomRowFirst=true base64="
                             + System.Convert.ToBase64String(rgba));
                     }
                     if (role == "glass" && rgbMax <= 1 && sampleIndex == 2)

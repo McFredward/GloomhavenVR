@@ -426,7 +426,9 @@ internal sealed partial class FlatScreen
 
         if (_quad == null)
         {
+            ReleaseQuestScreenMesh(ref _questQuadMesh);
             _quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            RebuildQuestScreenMesh(_quad, ref _questQuadMesh, "flat-screen");
             _quad.name = "GloomhavenVR.FlatScreen";
             // Menu scenes load Single — the quad must survive them (root cause of the
             // black HMD menu: quad died with the scene, UICamera stayed on the RT).
@@ -518,6 +520,7 @@ internal sealed partial class FlatScreen
                 _quad = null;
                 _quadRenderer = null;
             }
+            ReleaseQuestScreenMesh(ref _questQuadMesh);
             if (_screenMaterial != null)
             {
                 Object.Destroy(_screenMaterial);
