@@ -27,6 +27,44 @@ payload/provenance/license checks pass30+4. No new complete gate or live Windows
 headset result is claimed. Receipts and completed-cache cleanup are under
 `.planning/debug/steamlink-688-integrated/` and `steamlink-688-loader-worker/`.
 
+**Stereo library and scenario review in progress, 2026-10-17: reserved Build688.**
+
+The maintainer explicitly approves687's actual headset intro as perfect except
+that the GloomhavenVR wordmark should protrude slightly more. Both supplied logs
+identify687/9f48730df, select the exact SBSv1 movie and report3840x1080/stereo
+routing. Snapshot/review: `.planning/debug/stereo-library688/hardware687/`.
+This is the user's visual approval, not a measured timing/fusion benchmark.
+
+The next authorized scope is modest original-wordmark foreground depth and all
+remaining movies, plus individual scenario-usable actions under Advanced > Test
+triggers in the existing grabbable movie window. Review must never invoke an
+unlock, native progression callback, promotion counter or save mutation, and must
+preserve shared content/clock/pose/skip and genuine native movie priority.
+
+The latest explicit steering EXCLUDES `gameplay_trailer` from conversion and
+review. The byte-level census found that retained216.67s promotional film and an
+8s TwinSails startup clip beyond19 external subjects. Both native main-menu
+PromotionVideoHandler instances serialize showAtStart=false; no ordinary C# or
+serialized menu PlayVideo caller was found. Its original path remains untouched.
+The resulting catalogue is20 subjects: approved intro,11 heroes,7 ambience and
+the studio clip. Preserve native60fps external/30fps studio frame addresses and
+all original audio packets. Actual startup shows only the first4s before native
+sprite animation; keep its timer, while deliberate review may play the full8s.
+
+Separate initialized workers from dev9f48730df own offline media, native/shared
+runtime and localized review UI. Local pinned Small/FP32 inference has started;
+no paid inference is used. Root's foreground-wordmark renderer and real22-file
+installer/archive fixture checks pass; the complete media batch and integrated
+runtime/gates are still pending. No688 binary or completed library is handed
+over yet. No additional ZIP/HTTP delivery: the normal installation script
+continues to create its archive. No Frame write/restart occurs in this work.
+
+To retain storage headroom, completed unpinned687 fixture evidence was archived
+byte-for-byte into `.planning/debug/stereo-video-intro687/frozen-worker/completed-suite-evidence.tar.zst`.
+Logs/results/source/captures/symbolic links are preserved; pinned directories,
+the actively borrowed model/depth inputs and current deliverables remain unpacked.
+The verified compression/cleanup receipt is under `.planning/debug/stereo-library688/`.
+
 **Approved VR intro in stereo, 2026-10-17: Build687.**
 
 The maintainer confirmed the685 chart test, then explicitly retired its film and
