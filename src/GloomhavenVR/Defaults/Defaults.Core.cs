@@ -37,7 +37,7 @@ internal static partial class Defaults
 {
     // ---- Core/MixedReality.cs ------------------------------------------------------
     internal const bool MixedReality_Enabled = false;                     // => [MixedReality] Enabled  (pinned: user ruling 2026-08-04 — MR see-through is the OWNER's personal setup, a fresh install must start in full VR; the tuned cfg's `true` briefly shipped in ModBuild 55 by accident and was reverted the same day)
-    internal const bool SteamLinkNative = false;                          // => [MixedReality] SteamLinkNative (requires the matching Frame receiver)
+    internal const bool SteamLinkNative = true;                           // => [MixedReality] SteamLinkNative (effective only on a proven Steam Frame/vrlink connection; requires the matching Frame receiver)
     internal static readonly Color KeyColor = new Color(0f, 1f, 0f, 1f);  // => [MixedReality] KeyColor
     internal const bool HideSkyMeshes = true;                             // => [MixedReality] HideSkyMeshes
     internal const bool OpaquePreviewTiles = true;                        // => [MixedReality] OpaquePreviewTiles  (INERT since build 532: scenery backings retired; persisted key/default retained)

@@ -2809,6 +2809,36 @@
         "local"
       ],
       "weight": 35
+    },
+    {
+      "id": "steamlink-connection",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-connection/run.py",
+        "--output",
+        ".planning/debug/steamlink-connection"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "steamlink-availability",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-availability/run.py",
+        "--output",
+        ".planning/debug/steamlink-availability"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
     }
   ]
 }

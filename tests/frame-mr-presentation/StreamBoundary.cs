@@ -25,6 +25,10 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.Core.SteamLink
 {
+    // Capability is a named input boundary; public OpenVR identity parsing and
+    // helper ownership have their own isolated tests, not a simulated HMD here.
+    internal static class SteamLinkConnection { internal static bool Available = true; }
+    internal static class SteamLinkConnectionLifecycle { internal static void Tick() { } }
     internal static class ScenePayloadAssets
     {
         internal static bool TryGet(out Shader pack, out Shader coverage, out string reason)

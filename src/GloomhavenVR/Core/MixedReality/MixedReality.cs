@@ -469,7 +469,10 @@ internal static partial class MixedReality
             "UI gets readable backing plates. Turning off restores the previous environment.");
         SteamLinkNative = _file.Bind("MixedReality", "SteamLinkNative", Defaults.SteamLinkNative,
             "Experimental native passthrough while streaming to Steam Frame over Steam Link. " +
+            "Available only on an identified Steam Frame/vrlink connection, enabled by default. " +
+            "Other headsets and streaming transports retain ordinary output even if this saved preference is on. " +
             "Requires the matching GloomhavenVR Frame receiver to be installed and enabled first. " +
+            "Without that receiver the packed transport image may be visible instead of passthrough. " +
             "Streams the real game image with separate opacity instead of replacing a colour. " +
             "Changes apply immediately, including while VR Options is open. " +
             "Disable this choice or mixed reality to stop it; no automatic timer is used. " +
@@ -607,6 +610,7 @@ internal static partial class MixedReality
     internal static void Tick()
     {
         Bind();
+        SteamLink.SteamLinkConnectionLifecycle.Tick();
 
         // ELEMENT MOOD IS TICKED HERE, not from SkyAlternative.Tick, because this is the only
         // per-frame call that runs on BOTH branches below. The user's requirement is that the

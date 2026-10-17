@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
@@ -25,8 +26,8 @@ def main() -> int:
     parser.add_argument('--rebuild-native', action='store_true', help='Optional manual MinGW byte-identical resource rebuild')
     parser.add_argument('--typecheck', action='store_true', help='Local net472 Unity API typecheck, excluded from ordinary CI')
     args = parser.parse_args()
-    output = args.output.resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    args.output.mkdir(parents=True, exist_ok=True)
+    output = Path(tempfile.mkdtemp(prefix='run-', dir=args.output.resolve()))
     cache = output / 'owned-cache'
     if cache.exists():
         raise RuntimeError('Output cache already exists; do not overwrite an active/foreign run')

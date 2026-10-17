@@ -14,8 +14,9 @@ Optional local checks: `--sanitize` instruments the native metadata reader;
 `--rebuild-native` requires `x86_64-w64-mingw32-gcc` and compares the executable
 byte for byte; `--typecheck` checks net472 against the game's Unity CoreModule and
 the existing UnityEngine.Modules JSONSerializeModule. `DOTNET`, `CC`, and
-`UNITY_MODULES` can select installed tools/references. Every output directory must
-be fresh. Logs and results remain; the completion retention API and exact owned
+`UNITY_MODULES` can select installed tools/references. Each output directory
+receives a fresh child run, so repeated suite runs preserve earlier evidence.
+Logs and results remain; the completion retention API and exact owned
 cache cleanup run after all children have been reaped. No global cache is deleted.
 
 The shipped helper is built from `tools/steamlink-connection-reader.c` with

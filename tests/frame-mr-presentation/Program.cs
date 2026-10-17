@@ -88,6 +88,20 @@ public static class FrameMrPresentationProgram
             Check(MixedReality.BackingsWanted, "existing PC backings remain enabled");
             MixedReality.RestoreAll();
 
+            // A persisted-on preference must never pack a transport image for
+            // an unsupported/unidentified HMD or a Virtual Desktop connection.
+            head.enabled = true;
+            MixedReality.SteamLinkNative.Value = true;
+            GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = false;
+            MixedReality.Tick();
+            Check(!GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active
+                && !GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Requested,
+                "unsupported saved-on preference retains ordinary output");
+            Check(head.backgroundColor == Color.green && head.allowHDR,
+                "unsupported connection preserves chromakey and HDR");
+            MixedReality.RestoreAll();
+            GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = true;
+
             // Production Tick and the real source owner execute with settings
             // open. Source preparation/XR stay named boundaries, not a pixel proof.
             head.enabled = true;

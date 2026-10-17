@@ -8,7 +8,7 @@
   ],
   "source_pins": {
     "unity/Assets/Shaders/SteamLinkSceneAtlas.shader": "167d85258fb9cf50aa71857b2219e5a76b98c4ac4360827e00a3c7526f281489",
-    "unity/Assets/Shaders/SteamLinkSceneCoverage.shader": "7162a8ecb6c10437645d8463a8b6beb08218afda1c362e6a855e6a1de33f3878",
+    "unity/Assets/Shaders/SteamLinkSceneCoverage.shader": "1730134a5765d93290b1112a04efa5173589cb9fdcde2d71613caffd38d8ddb3",
     "tests/steamlink-transparent-materials/variants.json": "7b1abb8b3c76216233555274612011cca6aefd8a19577fd52bd44b0b63b4fd81",
     "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/EnvParticleAlpha.shader": "64e46e578c5d556bcfa273208b8f9cfaf8992d4e082d73fd39e12a87075cabb3",
     "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/EnvHaunt.cginc": "f97e96a201ad932fc76ae261658ab0617dc60d39d5a786df0216db43b7ea4aba",
@@ -40,8 +40,8 @@
     "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders/TownSharedEnvironment.cginc": "8a3848063d60f50d26e8f14920c1487c12b1c204949863083f97ea3e7e1803d3",
     "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/WaterVR.shader": "27652fa007d06b75a47ed75f904922dbc2448f4fbb425cd89adc5e355a360051"
   },
-  "bundle_sha256": "b4aab0c2045d7140f37c43c1d86cf1a2de5d531e37e9b501a7aec2411fbcf38e",
-  "bundle_bytes": 172768,
+  "bundle_sha256": "fbe5f8eadd92ac43d3c94bcf0353cf5965b77af0c7a7c50d2c15499e9308f71b",
+  "bundle_bytes": 173134,
   "resource": "GloomhavenVR.SteamLink.scene.bundle",
   "limits": "Compiled shader bank only; GPU and real XR routing require separate checks."
 }

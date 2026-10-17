@@ -475,6 +475,7 @@ internal static class OpenXRBootstrap
     {
         VRSession.IsRunning = false;
         VRSession.RuntimeName = null;
+        SteamLink.SteamLinkConnectionLifecycle.Reset();
 
         StopAndDeinitQuiet();
         RenderQuality.EndSession(); // never reset a live swapchain from the per-frame rig path

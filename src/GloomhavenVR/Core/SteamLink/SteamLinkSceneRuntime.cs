@@ -19,7 +19,8 @@ internal static class SteamLinkSceneRuntime
 
     internal static bool Active => _output != null && _output.Ready;
     internal static bool Requested => MixedReality.SteamLinkNative != null
-        && MixedReality.SteamLinkNative.Value && !FrameNativePassthrough.Required;
+        && MixedReality.SteamLinkNative.Value && !FrameNativePassthrough.Required
+        && SteamLinkConnection.Available;
 
     internal static bool TryEnter(Camera? head)
     {
@@ -145,6 +146,7 @@ internal sealed class SceneHeadOutput : MonoBehaviour
         _target = head.targetTexture;
         _pack = new SceneEyeOutput(pack);
         _coverage = new SceneEyeCoverage(coverage);
+        _coverage.SetOpaqueBackdropSource(static () => WorldUI.FlatScreen.OpaqueBackdrop);
         if (!_coverage.Arm(head, epoch))
         {
             Failure = _coverage.Reason.ToString();

@@ -14,6 +14,7 @@ internal static partial class VROptionsTab
 {
     private static readonly List<Action> MixedRealityAvailabilityRefreshers = new();
     private static int _mixedRealityAvailabilitySignature = -1;
+    private static bool? _steamLinkAvailable;
 
     private static bool MixedRealityCanEnable =>
         !FrameNativePassthrough.Required || FrameNativePassthrough.IsAvailable;
@@ -58,7 +59,20 @@ internal static partial class VROptionsTab
     /// <summary>Only a changed capability/session result repaints controls in an already open pane.</summary>
     private static void RefreshMixedRealityAvailability()
     {
-        if (!IsOpen || MixedRealityAvailabilityRefreshers.Count == 0)
+        if (!IsOpen)
+            return;
+        bool steamLinkAvailable = Core.SteamLink.SteamLinkConnection.Available;
+        bool changed = _steamLinkAvailable.HasValue && _steamLinkAvailable.Value != steamLinkAvailable;
+        _steamLinkAvailable = steamLinkAvailable;
+        if (changed)
+        {
+            // The asynchronous identity check can finish while this pane is
+            // already open. Re-evaluate both the native switch and key colour;
+            // never leave an unavailable saved-on preference hiding its fallback.
+            TickGuard.Run("VROptionsTab.RebuildSteamLinkCapability", Rebuild, "WorldUI");
+            return;
+        }
+        if (MixedRealityAvailabilityRefreshers.Count == 0)
             return;
         int signature = (int)FrameNativePassthrough.Status * 4
             + (FrameNativePassthrough.Required ? 2 : 0) + (MixedRealityCanEnable ? 1 : 0);
@@ -73,5 +87,6 @@ internal static partial class VROptionsTab
     {
         MixedRealityAvailabilityRefreshers.Clear();
         _mixedRealityAvailabilitySignature = -1;
+        _steamLinkAvailable = null;
     }
 }

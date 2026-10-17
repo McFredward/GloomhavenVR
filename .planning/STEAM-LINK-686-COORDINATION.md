@@ -52,3 +52,33 @@ Read-only review also identified that older source GPU fixtures standard-blit
 the source before custom packing; this does not establish the live D3D11
 custom-first resolve path. It is a retained test limitation, not a diagnosed
 headset failure or a reason to infer successful pixels from a loaded receiver.
+
+## 2026-10-17 visible success and next bounded repair
+
+The maintainer visibly confirmed Build686 real-game native camera composition.
+Frozen private logs and all three private screenshots are indexed under
+`.planning/debug/steamlink-real-runtime-20261017/hardware686-success/`. Do not
+publish the room pictures. Scene-presenter20261017-r1 remains active; this round
+has made no new device writes, restarts or capture.
+
+The independent stereo-intro owner reserves Build687 and STATE/movie files.
+This lane leaves that reservation untouched. Current work from e6a530a19:
+- native_draw_transaction: exact visible opaque FlatScreen backdrop coverage,
+  alpha-only after reset; source/coverage shader and fixture, no NativeVideo edits.
+- native_ssbo_profile: bounded isolated Windows public-OpenVR HMD identity helper;
+  require actual Steam Frame AND vrlink, no OpenVR init/shutdown in game process.
+- primary: runtime/UI gating, preference default true only effective on proven
+  connection, and cached capability/menu integration. Global MR stays default off.
+- premultiplied_source_output: read-only exact UI-alpha audit.
+No opaque full-window rectangle, global alpha threshold or camera-data transfer.
+No claimed receiver-presence detection; matching hardware alone cannot prove the
+receiver installed. Current Frame package remains a temporary consumed process
+lease, not a persistent/general installer.
+
+Coordination reply to stereo owner (13:11 local): keep687 reserved. Native lane
+will checkpoint its bounded source/hooks shortly, then make main clean for your
+disjoint source integration. Prefer a combined687 handover with your NetProtocol
+note including the MR gate/default and video alpha fix; no native handover at686.
+Native focused evidence accompanies that source; no full-gate repeat requested.
+Do not overwrite dirty root-owned hooks before its checkpoint. The shared private
+`stereo-owner-handoff.json` contains current detailed ownership and status.

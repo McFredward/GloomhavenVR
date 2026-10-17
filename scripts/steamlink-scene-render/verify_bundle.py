@@ -42,10 +42,10 @@ def verify(bank, manifest):
         states[name] = [{'pass': state['m_Name'], 'zwrite': state['zWrite'], 'ztest': state['zTest'],
             'blend': state['rtBlend0']} for state in passes]
         if name == 'Hidden/GloomhavenVR/SteamLinkSceneCoverage':
-            require([p['m_Name'] for p in passes] == ['RESET', 'STAMP'], 'Actual depth coverage pass order')
-            require([p['zTest']['val'] for p in passes] == [8, 5], 'Always reset and logical Greater stamp')
+            require([p['m_Name'] for p in passes] == ['RESET', 'STAMP', 'BACKDROP'], 'Actual depth and owned backdrop coverage pass order')
+            require([p['zTest']['val'] for p in passes] == [8, 5, 8], 'Always reset, logical Greater depth and exact depthless backdrop')
             require(all(p['rtBlend0']['colMask']['val'] == 1 and p['zWrite']['val'] == 0 for p in passes),
-                    'Both draws write alpha only, never depth/RGB')
+                    'All coverage draws write alpha only, never depth/RGB')
         if name.endswith(('/Overlay.SceneCoverage', '/BoardLit.SceneCoverage', '/TownNpc.SceneCoverage', '/WaterVR.SceneCoverage')):
             color_passes = [p for p in passes if p['rtBlend0']['colMask']['val'] != 0]
             require(color_passes and all(p['rtBlend0']['srcBlendAlpha']['name'] == '_SceneCoverageSrcAlpha'
