@@ -85,7 +85,7 @@ evidence remains in its worker until its producers and verification stop.
 Completed source-side checks include22-file real-script fixture cases
 (192Python/209PowerShell assertions), source-bound localized UI875 assertions and
 four affected close controls in a combined strict net472 Release0W/0E tree, and
-18 merged library geometry/inventory checks with11 refusal controls. Prior broad
+129 merged library geometry/inventory checks with33 refusal controls. Prior broad
 options/close evidence is reused for unchanged areas; those focused checks are
 not a complete gate. The new GPU fixture is registered as local-only, giving
 226local/100CI/16source inventory. The full integrated attempt is running against
@@ -93,11 +93,19 @@ frozen499bdc157/692 in a private validation worktree. Its16 source suites pass.
 The local group exposed an older town-service-options fixture missing explicit
 SteamLink availability, TickGuard and Rebuild ports. Tests-only0796670ba repairs
 that boundary; the affected suite passes173 assertions and9 causal controls.
-The remaining full attempt continues unchanged. Two further old fixture ports
-need repair: desktop-render-runtime lacks the new explicit movie-plane members,
-and options-notes-runtime binds the former void BuildNote signature instead of
-the current GameObject return/minLines parameter. Separate initialized workers
-own only those fixtures and their focused reruns. The unrelated NPC639 packed
+The remaining full attempt continues unchanged. Two further tests-only repairs
+are integrated: desktop-render-runtime now declares the explicit inactive
+movie-plane ports, with fail-fast behavior for an unexpected active borrow;
+145 real-Unity assertions and33 causal controls pass. The options-notes-runtime
+fixture binds the exact current GameObject return/minLines method, forwards and
+checks the returned row, and passes470 native Unity/TMP assertions with its
+three unchanged causal controls. All953 desktop and1,623 note archive files were
+independently verified by SHA256 and size before either worker was removed.
+The four retained EN/DE narrow/wide note captures were also inspected. The
+actual stereo-movie-render GPU fixture passes44 assertions and eight causal
+controls in the frozen full attempt; this covers supplied decoded rasters under
+Unity2021.3.5/OpenGLCore, not native video decoding or headset presentation.
+The unrelated NPC639 packed
 atlas proof reaches its cold895-member resolution budget and fails the1s bound
 under concurrent inference/full-gate load; its exact elapsed time was not logged.
 Its production source is unchanged, and no cause is assigned. Retain the failure
@@ -114,8 +122,8 @@ published identity fixes/resources. Private continuation invocation errors and
 their corrected remaining stages are retained. These are composed results, not
 a new complete-gate pass.
 
-At this checkpoint the intro, studio, two cave films, forest and Corpsewood are
-verified;14 worker subjects remain. Each subject must pass original native-clock/AAC,
+At this checkpoint the intro, studio, two cave films, forest, Corpsewood and Town
+are verified;13 worker subjects remain. Each subject must pass original native-clock/AAC,
 all-left-picture, right reprojection, depth receipt/hash and decoded-cue gates
 before its output enters Assets. Desktop cue inspection is distinct from actual
 headset playback. Independent inspection of all11 original hero title frames
@@ -129,6 +137,28 @@ ambient witnesses and four actual pinned Beast Tyrant source/depth witnesses
 confirm the bounded change; these expected reprojections are separate from the
 encoded-deliverable inspection. The approved mono intro's source byte count was
 also corrected, retaining the separate native original byte count and both hashes.
+
+The first Beast Tyrant encode was correctly refused before asset publication:
+its747 video frames were complete, but simultaneous frame-bounded encoding had
+copied583 of the native584 AAC packets. The integrated audio finalizer copies the
+existing H264 bitstream and all original AAC packets, then restores the native
+MOV edit-list presentation boundary without changing packet payloads, timestamps
+or durations. A plain copy mux would otherwise extend the ending by8.667ms.
+Main-checkout real-media proof verifies584 unchanged AAC packets,747 unchanged
+video packets and the original249/20s presentation, with four causal refusal
+controls. All11 original hero sources also pass the strict supported native
+edit-layout/clock preflight, retaining their7,312 actual AAC packets. The refused
+candidate, raw mux, source snapshots, interrupted-child reaping proof and final
+receipts are preserved. No picture or neural input was changed by this repair.
+
+Only empty future-work waiters were rebalanced: the existing ambient and hero
+neural producers retain their exact profile and continue untouched. Three
+unstarted heroes move to a disjoint directory after the existing parallel hero
+producer; three others follow the ambient producer. No third concurrent neural
+process or duplicate output writer is introduced. The exact prior/new commands,
+aliases, disjoint subjects, source pins and process identities are retained in
+the media worker's hero-rebalance.json and concurrency-ledger.json.
+
 The new logo and library headset pictures, comfort and native spawn paths remain
 unverified until the maintainer's requested in-scenario review.
 
