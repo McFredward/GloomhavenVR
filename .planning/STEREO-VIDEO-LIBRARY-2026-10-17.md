@@ -157,9 +157,12 @@ published identity fixes/resources. Private continuation invocation errors and
 their corrected remaining stages are retained. These are composed results, not
 a new complete-gate pass.
 
-At this checkpoint the intro, studio, all seven ambient films, Beast Tyrant,
-Doomstalker and Plagueherald are verified: 12 subjects complete, eight hero films
-remain. Crypt retains all 2252 native frames at 60 fps, silence and zero-disparity
+At this checkpoint the intro, studio, all seven ambient films and nine heroes
+are verified: 18 subjects complete; only Nightshroud and Summoner remain.
+Every integrated film has its hash-bound native-frame/AAC/picture proof and
+three actual decoded cue pairs reviewed by both worker and integrator; the intro
+has its separate approved-scene and stronger-wordmark evidence.
+Crypt retains all 2252 native frames at 60 fps, silence and zero-disparity
 loop endpoints; all left pictures and 21 right witnesses pass with minima
 43.46/45.08 dB. Worker and integrator inspected three actual encoded cue pairs.
 Each subject must pass original native-clock/AAC,
@@ -233,6 +236,9 @@ normal batch child at a time with the complete canonical manifest and explicit
 skips; it changes neither a movie's order/timing nor renderer/verifier inputs.
 The restarted run-sched002 freezes the reviewed helper checkpoint20c7fa13a and
 canonical manifestf10b245d; no renderer overlaps another output writer.
+Both lanes have now reached their final subject, Nightshroud or Summoner. Once
+both lanes and the final render/verify family stop, reap them and hold heavy
+archival work until the deferred cold-atlas timing suite completes on an idle host.
 The documentation i18n checker passes all five guide pairs/ten files.
 
 The new logo and library headset pictures, comfort and native spawn paths remain
