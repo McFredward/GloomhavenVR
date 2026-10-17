@@ -101,11 +101,25 @@ internal static class MovieLibraryTests
             startupPlayer.targetCamera = startupPlayer.gameObject.AddComponent<Camera>();
             startupPlayer.renderMode = VideoRenderMode.CameraNearPlane;
             var startup = new IntroPlayer(startupPlayer);
+            int prepares = FlatScreen.StartupPrepareCalls;
             startup.Show();
             check(startupPlayer.PlayedUrl == studioStereo && startupPlayer.PlayCalls == 1 && startup.TimerStarts == 1
                 && startupPlayer.source == VideoSource.Url && startupPlayer.clip != null
                 && startupPlayer.renderMode == VideoRenderMode.CameraNearPlane,
                 "actual startup Harmony seam replaces bound clip before single native Play without changing timer or camera binding");
+            check(FlatScreen.StartupPrepareCalls == prepares + 1,
+                "actual startup Harmony seam asks the real presentation owner before original Play");
+            FlatScreen.StartupSurfaceReady = false;
+            startup.Show();
+            check(startupPlayer.PlayedUrl.EndsWith(studio) && startupPlayer.PlayCalls == 2 && startup.TimerStarts == 2
+                && !NativeVideoMovies.IsStereoUrl(startupPlayer.PlayedUrl) && startupPlayer.targetCameraAlpha == 1,
+                "unavailable startup surface uses exact mono before single native Play and unchanged timer");
+            File.Delete(Path.Combine(directory, studio));
+            startup.Show();
+            check(startupPlayer.source == VideoSource.VideoClip && startupPlayer.url == string.Empty
+                && startupPlayer.PlayCalls == 3 && startup.TimerStarts == 3,
+                "missing startup companion returns to serialized clip without retaining packed URL or skipping native timer");
+            FlatScreen.StartupSurfaceReady = true;
             startupPlayer.enabled = false;
         }
         finally

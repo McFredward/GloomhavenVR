@@ -7,17 +7,24 @@ using UnityEngine;
 public static class StereoVideoRunner
 {
     [Serializable] private class Entry { public string name, dll, expected, method; }
-    [Serializable] private class Manifest { public string result, evidence; public Entry[] cases; }
+    [Serializable] private class Manifest { public string result, evidence, dependencies; public Entry[] cases; }
     private static Manifest manifest;
     private static bool ran;
     public static void Start()
     {
         string[] args = Environment.GetCommandLineArgs();
         manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(args[Array.IndexOf(args, "-stereoManifest") + 1]));
+        AppDomain.CurrentDomain.AssemblyResolve += Resolve;
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload | EnterPlayModeOptions.DisableSceneReload;
         EditorApplication.update += Run;
         EditorApplication.EnterPlaymode();
+    }
+    private static Assembly Resolve(object sender, ResolveEventArgs args)
+    {
+        string name = new AssemblyName(args.Name).Name + ".dll";
+        string path = Path.Combine(manifest.dependencies ?? string.Empty, name);
+        return File.Exists(path) ? Assembly.LoadFile(path) : null;
     }
     private static void Run()
     {

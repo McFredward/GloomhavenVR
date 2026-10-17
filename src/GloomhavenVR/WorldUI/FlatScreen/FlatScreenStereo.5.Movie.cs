@@ -12,12 +12,27 @@ internal sealed partial class FlatScreenStereo
     internal bool StereoMovieActive => _stereoMovie != null;
     internal bool OwnsMoviePlane(Camera camera) => _active && _stereoMovie != null
         && _stereoMovie.targetCamera == camera && _rtRight != null && _rtLeftShifted != null;
+    internal bool OwnsStartupMovie(VideoPlayer player, Material material) => _active && _stereoMovie == player
+        && _quadMaterial == material && _rtRight != null && _rtRight.IsCreated()
+        && _rtLeftShifted != null && _rtLeftShifted.IsCreated();
+
+    // IntroPlayer.Start can select its camera-plane source after the last capture
+    // census. Reconcile at that exact original camera's first render, including
+    // its return to live logos; the packed plane must never enter a mono capture.
+    internal bool NeedsMovieCaptureSync(Camera camera)
+    {
+        VideoPlayer? current = NativeVideoMovies.CameraPlaneSource;
+        return current != _stereoMovie
+            && ((current != null && current.targetCamera == camera)
+                || (_stereoMovie != null && _stereoMovie.targetCamera == camera));
+    }
 
     private void SyncStereoMovie()
     {
         VideoPlayer? current = NativeVideoMovies.CameraPlaneSource;
-        if (_stereoMovie == current) return;
+        if (_stereoMovie == current) { NativeMovieCameraPlane.RefreshStartup(); return; }
         _stereoMovie = current;
+        NativeMovieCameraPlane.RefreshStartup();
         _shiftBlitFrame = -1;
         if (current != null)
             VRLog.Note("WorldUI", $"NATIVE MOVIE COMPOSITOR: key={NativeVideoMovies.NativePlaybackKey(current)}; actual headset eye selects its full SBS picture, live native UI stays on glass.");

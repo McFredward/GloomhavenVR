@@ -9,6 +9,54 @@ namespace GloomhavenVR.WorldUI;
 
 internal sealed partial class FlatScreen
 {
+    // IntroPlayer owns its original Play and four-second continuation. Reserve a
+    // replacement through the normal screen lifecycle before that Play; if the
+    // actual VR surface cannot own it, the caller keeps the exact mono companion.
+    internal static bool TryPrepareStartupMovie(UnityEngine.Video.VideoPlayer player)
+    {
+        FlatScreen? owner = _coverageOwner;
+        Camera camera = player.targetCamera;
+        if (owner == null || !VRSession.IsRunning || !WorldUIConfig.ConversionActive
+            || !WorldUIConfig.ShowIntro.Value || camera == null || !camera.isActiveAndEnabled
+            || Rig.VRRigDriver.HeadCamera == null || camera == Rig.VRRigDriver.HeadCamera
+            || (camera.targetTexture != null && camera.targetTexture != owner._rt
+                && camera.targetTexture != owner._uiRt)) return false;
+        try
+        {
+            if (!owner._visible) owner.Tick();
+            if (!owner._visible) return false;
+            owner.CaptureStack();
+            if (!OwnsStartupMovie(player)) return false;
+            NativeMovieCameraPlane.ReserveStartup(player);
+            return true;
+        }
+        catch (System.Exception error)
+        {
+            // This runs inside native ShowVideo's prefix, before its coroutine.
+            // Presentation failure must never prevent original Play/continuation.
+            try { NativeMovieCameraPlane.RestoreAll(); }
+            catch (System.Exception cleanup) { VRLog.Warn("WorldUI", "NATIVE MOVIE STARTUP CLEANUP: " + cleanup.GetType().Name); }
+            VRLog.Warn("WorldUI", "NATIVE MOVIE STARTUP PREPARE FAILED: " + error.GetType().Name + "; retaining native continuation.");
+            return false;
+        }
+    }
+
+    internal static bool OwnsStartupMovie(UnityEngine.Video.VideoPlayer player)
+    {
+        FlatScreen? owner = _coverageOwner;
+        Camera camera = player.targetCamera;
+        return owner != null && owner._visible && VRSession.IsRunning
+            && WorldUIConfig.ConversionActive && WorldUIConfig.ShowIntro.Value
+            && Rig.VRRigDriver.HeadCamera != null && Rig.VRRigDriver.HeadCamera.isActiveAndEnabled
+            && camera != null && camera.isActiveAndEnabled && owner._splitRouting
+            && owner._uiRt != null && owner._uiRt.IsCreated()
+            && camera.targetTexture == owner._uiRt && owner._screenMaterial != null
+            && owner._backRenderer != null && owner._backRenderer.enabled
+            && owner._backRenderer.gameObject.activeInHierarchy
+            && owner._backRenderer.sharedMaterial == owner._screenMaterial
+            && owner._stereo.OwnsStartupMovie(player, owner._screenMaterial);
+    }
+
     /// <summary>
     /// Redirect every backbuffer game camera into our RTs (I1, hardware test #5) —
     /// UI-classified cameras onto the glass RT while the split routes, everything

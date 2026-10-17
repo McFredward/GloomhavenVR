@@ -100,6 +100,10 @@ internal sealed partial class FlatScreen
                 VRLog.Info("WorldUI", $"FlatScreen first-render discovery: '{camera.name}' — " +
                     "late native backbuffer camera joined the capture before culling.");
         }
+        // A known startup camera can begin a film between census and render.
+        // Refresh the real split/compositor before choosing its target or hiding
+        // its packed plane. No options page, scenario board or later Tick is needed.
+        if (_stereo.NeedsMovieCaptureSync(camera)) CaptureStack();
         VRCameraPolicy.ExcludeStereo(camera, "screen capture render");
         RenderTexture? target = TargetFor(captured);
         if (target != null && camera.targetTexture != target)

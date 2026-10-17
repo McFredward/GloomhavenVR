@@ -26,6 +26,11 @@ public static class MovieDecoderFixture
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class FlatScreen
+    {
+        internal static bool OwnsStartupMovie(VideoPlayer player) => throw new System.InvalidOperationException(
+            "Persistent studio ownership belongs to the automatic startup fixture.");
+    }
     // Decoder pixel transport is outside the raster fixture. Real VideoPlayer properties
     // remain in use for the camera-plane alpha lease; the source census alone is supplied.
     internal static class NativeVideoMovies
@@ -38,6 +43,7 @@ namespace GloomhavenVR.WorldUI
         private bool _active = true;
         private bool _introGuard = false;
         private RenderTexture? _rtRight, _rtLeftShifted, _leftRt;
+        private Material? _quadMaterial = null;
         private int _shiftBlitFrame = -1;
         private bool EnsureShiftRt() => _rtLeftShifted != null;
         internal void Initialize(RenderTexture left, RenderTexture right, RenderTexture? background = null) { _rtLeftShifted = left; _rtRight = right; _leftRt = background; }

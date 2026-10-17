@@ -26,8 +26,51 @@ internal static class NativeMovieCameraPlane
     }
     private static readonly Stack<Lease> Leases = new(4);
     private static int _frame = -1;
+    private static VideoPlayer? _startupPlayer;
+    private static Camera? _startupCamera;
+    private static string _startupUrl = string.Empty;
+    private static float _startupAlpha;
+
+    // The studio decoder can latch its plane state before a late render callback.
+    // Its real replacement surface therefore reserves zero BEFORE native Play and
+    // keeps it across frames. Other movies retain their scoped camera-draw lease.
+    internal static void ReserveStartup(VideoPlayer player)
+    {
+        ReleaseStartup();
+        _startupPlayer = player; _startupCamera = player.targetCamera;
+        _startupUrl = player.url; _startupAlpha = player.targetCameraAlpha;
+        player.errorReceived += StartupError;
+        player.targetCameraAlpha = 0f;
+    }
+    private static void StartupError(VideoPlayer player, string message)
+    {
+        if (ReferenceEquals(player, _startupPlayer)) ReleaseStartup();
+    }
+    internal static void RefreshStartup()
+    {
+        if (ReferenceEquals(_startupPlayer, null)) return;
+        VideoPlayer player = _startupPlayer!;
+        if (player == null || _startupCamera == null || !player.isActiveAndEnabled
+            || player.targetCamera != _startupCamera || player.url != _startupUrl
+            || !FlatScreen.OwnsStartupMovie(player)) { ReleaseStartup(); return; }
+        if (player.targetCameraAlpha != 0f)
+        {
+            _startupAlpha = player.targetCameraAlpha; // Preserve a later native fade.
+            player.targetCameraAlpha = 0f;
+        }
+    }
+    private static void ReleaseStartup()
+    {
+        VideoPlayer? player = _startupPlayer;
+        _startupPlayer = null; _startupCamera = null; _startupUrl = string.Empty;
+        if (player == null) return;
+        player.errorReceived -= StartupError;
+        if (player.targetCameraAlpha == 0f) player.targetCameraAlpha = _startupAlpha;
+    }
     internal static float PresentationAlpha(VideoPlayer player)
     {
+        RefreshStartup();
+        if (ReferenceEquals(player, _startupPlayer)) return _startupAlpha;
         float alpha = player.targetCameraAlpha;
         if (alpha != 0f) return alpha; // Preserve a later native/foreign fade write.
         // Stack enumeration visits inner to outer. The last matching lease is the
@@ -38,7 +81,8 @@ internal static class NativeMovieCameraPlane
     }
     internal static void BeforeRender(Camera camera)
     {
-        if (_frame != Time.frameCount) { RestoreAll(); _frame = Time.frameCount; }
+        if (_frame != Time.frameCount) { RestoreDraws(); _frame = Time.frameCount; }
+        RefreshStartup();
         VideoPlayer? player = NativeVideoMovies.CameraPlaneSource;
         if (player == null || player.targetCamera != camera) return;
         Leases.Push(new Lease(camera, player));
@@ -49,6 +93,11 @@ internal static class NativeMovieCameraPlane
         if (Leases.Count > 0 && Leases.Peek().Camera == camera) Leases.Pop().Restore();
     }
     internal static void RestoreAll()
+    {
+        RestoreDraws();
+        ReleaseStartup();
+    }
+    private static void RestoreDraws()
     {
         while (Leases.Count > 0) Leases.Pop().Restore();
     }
