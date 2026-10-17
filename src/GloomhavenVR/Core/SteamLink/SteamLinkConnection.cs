@@ -48,7 +48,10 @@ internal static class SteamLinkConnection
         Snapshot before = State.Current;
         State.Tick(eligibleRunningSteamVrSession, nowSeconds);
         Snapshot after = State.Current;
-        if (!eligibleRunningSteamVrSession) _warnedReasons = 0;
+        if (!eligibleRunningSteamVrSession)
+        {
+            _warnedReasons = 0;
+        }
         LogTransition(before, after);
     }
 
