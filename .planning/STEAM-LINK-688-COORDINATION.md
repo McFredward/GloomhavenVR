@@ -1,6 +1,15 @@
 # Steam Link availability repair coordination, 2026-10-17
 
-## Next bounded693 handover: observed Frame Link identity; stereo694+
+## Published693 handover: observed Frame Link identity; stereo694+
+
+Published origin/dev is c27cd7f7e/693 and is merged into shared dev preserving
+the independent unfinished692 movie work. Source SHA c4f97f35... matches the
+tested worker and actual final693 DLL. Focused187 managed/203 native, retained
+old-path-call mutant refusal, net472 typecheck, strictRelease0W/0E, source
+instrumentation1/1 and actual-produced693 classifier23 controls all pass.
+Availability37/4 and unchanged native/PE/wire/raster evidence are inherited.
+Use these composed proofs for the unchanged identity lane rather than repeating
+the whole gate. The full stereo handover advances to694+.
 
 Fresh691/de978 hardware now completes extraction, child startup and public HMD
 query. Its exact decoded identity is tracking=cv, model=Deckard MP, registered
