@@ -288,7 +288,6 @@ internal static class ConfigCatalog
         // only mode that renders correctly in this game, and SinglePassInstanced is a black right
         // eye applied at session creation), so there is no stereo module to force-bind any more.
         Bind("mixedreality", MixedReality.Bind);
-        Bind("steamlink", SteamLinkMaskConfig.Bind);
         Bind("wallfade", WallFadeTuning.Bind);
         Bind("worldui", WorldUIConfig.Bind);
         Bind("stereoscreen", FlatScreenStereo.BindConfig); // rides worldui's file — bind it AFTER

@@ -1,5 +1,10 @@
 # Real-game contribution and coverage audit
 
+> Current direction, 2026-10-17: continue with real-game contribution/coverage.
+> The earlier synthetic PC test source and its VR setting have been removed at
+> the maintainer's request. Its historical evidence remains valid within its
+> original scope; none of the proposals below is activated by that old setting.
+
 Audit of main `35870108a`, ModBuild 682, using the current owned shader sources,
 existing complete native material metadata, earlier bounded runtime histograms,
 and the independently tested four-family prototype. No game asset, renderer,

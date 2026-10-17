@@ -245,6 +245,9 @@ def snapshot() -> dict:
 # an unrelated surface cannot borrow the same name to conceal its removal.
 AUTHORIZED_RETIREMENTS = {
     "configKeys": {
+        # Explicit user request, 2026-10-17: remove the completed synthetic
+        # pattern AND its setting. Existing user config files stay untouched.
+        "[SteamLink] PayloadTestEnabled": "src/GloomhavenVR/Core/SteamLink/SteamLinkMaskConfig.cs",
         # Explicit user policy, 2026-10-08: pure work removal is universal.
         "[Optimize] CacheTickDelegates": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
         "[Optimize] MapIconCache": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
@@ -267,6 +270,11 @@ AUTHORIZED_RETIREMENTS = {
         "typeof(FigureVisualMirror), nameof(FigureVisualMirror.CloneVisual)": "src/GloomhavenVR/Core/Perf/ScenarioIdleAnimationBudget.cs",
     },
     "logTokens": {
+        # The same explicit pattern removal retires only these source-owned
+        # format/parser diagnostics; unrelated logs with these names stay guarded.
+        "GVR-SP1": "src/GloomhavenVR/Core/SteamLink/PresenterSource.cs",
+        "PNG CRC": "src/GloomhavenVR/Core/SteamLink/ProbeTextures.cs",
+        "PNG IDAT": "src/GloomhavenVR/Core/SteamLink/ProbeTextures.cs",
         # Only appeared in the explicitly retired MapIconCache config help, not a log call.
         "PER RENDERING CAMERA PER FRAME": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
         "PRO RENDERNDER KAMERA PRO FRAME": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",

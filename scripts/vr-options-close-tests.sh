@@ -3,7 +3,33 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 test_dir="$(mktemp -d)"
-trap 'rm -rf "$test_dir"' EXIT
+evidence_root="${GHVR_OPTIONS_CLOSE_OUTPUT_ROOT:-$repo_root/.planning/debug/options-close}"
+mkdir -p "$evidence_root"
+evidence="$(mktemp -d "$evidence_root/run-XXXXXXXX")"
+cleanup() {
+    local code=$?
+    trap - EXIT
+    set +e # Receipt/copy failure must not prevent this run's exact cache removal.
+    # Preserve this bounded run's source and logs before removing its reaped
+    # compiler caches. No shared references or another run are cleanup inputs.
+    find "$test_dir" -mindepth 1 -maxdepth 1 -type f \
+        \( -name '*.cs' -o -name '*.csproj' -o -name '*.fixture' -o -name '*.mutant' -o -name '*.log' \) \
+        -exec cp -- {} "$evidence/" \;
+    python3 - "$repo_root" "$evidence" "$code" <<'PY'
+import importlib.util, json, pathlib, sys
+root, out = map(pathlib.Path, sys.argv[1:3]); code = int(sys.argv[3])
+completion = out / 'completion.log'
+completion.write_text('Options close focused run exit: ' + str(code) + '\n')
+spec = importlib.util.spec_from_file_location('options_retention', root / 'scripts/town_run_retention.py')
+retention = importlib.util.module_from_spec(spec); spec.loader.exec_module(retention)
+result = retention.cleanup_completed_run('options-close', code, completion, root, process_reaped=True)
+(out / 'cleanup.json').write_text(json.dumps(result, indent=2) + '\n')
+PY
+    rm -rf -- "$test_dir"
+    echo "Options close evidence: $evidence"
+    exit "$code"
+}
+trap cleanup EXIT
 python3 - "$repo_root" "$test_dir" <<'PY'
 import pathlib, sys
 root, out = map(pathlib.Path, sys.argv[1:])
@@ -30,8 +56,8 @@ PY
 cp "$repo_root/tests/GloomhavenVR.OptionsCloseTests/"*.cs "$test_dir/"
 cp "$repo_root/tests/GloomhavenVR.OptionsCloseTests/"*.csproj "$test_dir/"
 project="$test_dir/GloomhavenVR.OptionsCloseTests.csproj"
-dotnet run --project "$project" --configuration Release --property:OptionsCloseSource="$test_dir/Close.fixture"
-mutations=(native-order stale-clone stale-open callback-once reopen-gap ordinary-window mask-escape menu-tap-escape menu-escape-idle)
+dotnet run --disable-build-servers --project "$project" --configuration Release --property:UseSharedCompilation=false --property:OptionsCloseSource="$test_dir/Close.fixture" 2>&1 | tee "$test_dir/production.log"
+mutations=(native-order stale-clone stale-open callback-once reopen-gap ordinary-window)
 if (( $# > 0 )); then mutations=("$@"); fi
 for mutation in "${mutations[@]}"; do
     python3 - "$test_dir" "$mutation" <<'PY'
@@ -44,14 +70,14 @@ pairs = {
 'callback-once': ('        _onHidden = null;\n        if (pending == null)', '        if (pending == null)'),
 'reopen-gap': ('        wp.UserClosing = false;', '        wp.UserClosing = true;'),
 'ordinary-window': ('if (!MenuWindowFamily.IsModOwned(window))', 'if (window == null)'),
-'mask-escape': ('GloomhavenVR.Core.SteamLinkMaskRuntime.NotifyOptionsOpening();', ''),
-'menu-tap-escape': ('if (NonDominantHold.ShortTapThisFrame)\n            SteamLinkMaskRuntime.NotifyOptionsOpening();', ''),
-'menu-escape-idle': ('if (NonDominantHold.ShortTapThisFrame)\n            SteamLinkMaskRuntime.NotifyOptionsOpening();', 'SteamLinkMaskRuntime.NotifyOptionsOpening();'),
 }
-a, b = pairs[sys.argv[2]]; assert a in s; (out / 'Close.mutant').write_text(s.replace(a, b, 1))
+a, b = pairs[sys.argv[2]]; assert a in s
+mutated = s.replace(a, b, 1)
+(out / 'Close.mutant').write_text(mutated)
+(out / ('Close.' + sys.argv[2] + '.mutant')).write_text(mutated)
 PY
-    if dotnet run --project "$project" --configuration Release --property:OptionsCloseSource="$test_dir/Close.mutant" > "$test_dir/mutant.log" 2>&1; then
-        cat "$test_dir/mutant.log"
+    if dotnet run --disable-build-servers --project "$project" --configuration Release --property:UseSharedCompilation=false --property:OptionsCloseSource="$test_dir/Close.mutant" > "$test_dir/$mutation.log" 2>&1; then
+        cat "$test_dir/$mutation.log"
         echo "FAIL: $mutation escaped VR options close regression." >&2
         exit 1
     fi
@@ -61,10 +87,7 @@ PY
         callback-once) expected='duplicate close invokes callback once' ;;
         reopen-gap) expected='explicit reopen supersedes pending gap-close' ;;
         ordinary-window) expected='ordinary window pending close stays untouched' ;;
-        mask-escape) expected='opening VR options restores diagnostic output before native show' ;;
-        menu-tap-escape) expected='ordinary menu tap restores diagnostic output even without a pause menu' ;;
-        menu-escape-idle) expected='idle options tick does not stop diagnostic output' ;;
     esac
-    if ! rg -qF "$expected" "$test_dir/mutant.log"; then cat "$test_dir/mutant.log"; exit 1; fi
+    if ! rg -qF "$expected" "$test_dir/$mutation.log"; then cat "$test_dir/$mutation.log"; exit 1; fi
     echo "VR options close negative control: $mutation rejected."
 done
