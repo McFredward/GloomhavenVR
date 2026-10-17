@@ -50,6 +50,12 @@ to Codex and record the user's instructions of 2026-09-08.
 - Keep player documentation and release highlights focused on installation from release archives,
   controls and visible changes. Installer scripts, CI/build details and pending hardware tests
   belong in developer documentation or `.planning/`, not in player instructions.
+- The maintainer's 2026-10-18 video review ruling places every deliberate movie
+  test action under Advanced > Cheats, behind the existing default-off Cheats
+  configuration gate. These movies contain major spoilers. Do not expose their
+  names/actions on the ordinary Test triggers page; recheck permission when a
+  stale action is pressed. Normal game-authored movie playback is independent
+  of this test-only gate.
 - Release text and `packaging/release-highlights/<version>.md` are English-only,
   as requested by the maintainer on 2026-10-11. This exception does not change
   the English/German player guides or product localization.
