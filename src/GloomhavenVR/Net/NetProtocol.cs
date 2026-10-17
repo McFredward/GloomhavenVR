@@ -612,7 +612,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 683;
+    public const ushort ModBuild = 684;
+
+    // ModBuild684 — load actual Quest procedural content before native handover.
+    // Capture131952 proves installed/current683, previous682. The maintainer
+    // confirms spinner, initiative and held-figure information are repaired.
+    // Preserve B683 image copying, native sources, density and full eye viewport.
+    // The initial engine recovery must run during native loading, not wait for
+    // its dismissal and an arbitrary grace period. Keep original unique owner,
+    // resources, loaded scenes, requested content and OS-pause admission.
+    // Native WaitForProcGen retains its original coroutine and continuation;
+    // Quest additionally waits for actual requested visible placement/material
+    // readiness instead of trusting the desktop frame cap as completion.
+    // Keep hidden/pooled content and native renderer visibility authoritative.
+    // The late hit marker is active, layer-admitted and in the mono frustum,
+    // but its sphere is invisible in the headset. Use a bounded round marker
+    // through the already visible native LineRenderer consumer on Quest;
+    // retain endpoint, footprint, tint, depth tests and the desktop sphere.
+    // Headset appearance remains a hardware gate, not a Linux-fixture claim.
+    // Compact code update only: retain original banks and native helper assets.
 
     // ModBuild683 — recover Quest copy regressions; retain real generation.
     // Capture123858 proves installed/current682 and previous681. Both new

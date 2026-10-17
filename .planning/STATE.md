@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest native load readiness and hit marker, 2026-10-17: feature / B684.**
+
+Capture131952 verifies installed/current683, previous682. The maintainer confirms
+the spinner, initiative and held-figure information; preserve their image paths.
+The lifecycle still waits for native loading to end before enabling the engine.
+Move qualified original processing into loading and await actual visible requested
+placement/material readiness through the original native coroutine continuation.
+Use the hardware-visible line consumer for the missing Quest hit marker while
+preserving depth, endpoint, size and the desktop sphere. Final world/marker XR
+appearance remains hardware evidence to obtain. Immediate owned-cache cleanup
+reclaimed69.456GiB; canonical inputs/current project/captures/other agents remain.
+Compact Mod Update only; see [QUEST-LOADING-131952-20261017.md](QUEST-LOADING-131952-20261017.md).
+
 **Quest Wizard update tile, 2026-10-17: host-only / runtime B683 retained.**
 
 Repeated compact updates exceed the homepage hint's eight-owner limit, marking
