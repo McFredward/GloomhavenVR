@@ -154,6 +154,22 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal sealed partial class FlatScreen
 {
+    private static FlatScreen? _coverageOwner;
+
+    // Only the exact visible opaque screen surface is coverage-authoritative.
+    // The split UI glass is deliberately excluded, including during suspension.
+    internal static Renderer? OpaqueBackdrop
+    {
+        get
+        {
+            FlatScreen? owner = _coverageOwner;
+            if (owner == null || !owner._visible || owner._screenMaterial == null) return null;
+            Renderer? renderer = owner._backQuad != null ? owner._backRenderer : owner._quadRenderer;
+            return renderer != null && renderer.enabled && renderer.gameObject.activeInHierarchy
+                && renderer.sharedMaterial == owner._screenMaterial ? renderer : null;
+        }
+    }
+
     private const float ScreenAspect = 16f / 9f;
 
     /// <summary>Intro scene name (decompiled GH.Runtime Bootstrap.ShowSplash: "Intro").</summary>
@@ -431,6 +447,7 @@ internal sealed partial class FlatScreen
 
     public FlatScreen()
     {
+        _coverageOwner = this;
         // P5 (MISSION A.2): scene loads re-wire the game's UI cameras (CanvasManager.
         // OnSceneLoaded re-binds worldCamera) — release the whole captured stack on
         // the bus event and re-capture next Tick instead of waiting for old cameras

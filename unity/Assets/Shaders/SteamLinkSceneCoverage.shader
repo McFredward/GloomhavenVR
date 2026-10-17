@@ -20,6 +20,10 @@ Shader "Hidden/GloomhavenVR/SteamLinkSceneCoverage"
         }
         float4 reset() : SV_Target { return 0; }
         float4 stamp() : SV_Target { return float4(0, 0, 0, 1); }
+        float4 backdropVert(float4 vertex : POSITION) : SV_POSITION
+        {
+            return UnityObjectToClipPos(vertex);
+        }
         ENDCG
         Pass
         {
@@ -38,6 +42,17 @@ Shader "Hidden/GloomhavenVR/SteamLinkSceneCoverage"
             ZTest Greater
             CGPROGRAM
             #pragma vertex vert
+            #pragma fragment stamp
+            ENDCG
+        }
+        Pass
+        {
+            Name "BACKDROP"
+            // Same exact owned depthless quad, after RESET/STAMP. Keep native RGB,
+            // depth, stencil, MSAA sample coverage and the earlier hand draw order.
+            ZTest Always
+            CGPROGRAM
+            #pragma vertex backdropVert
             #pragma fragment stamp
             ENDCG
         }
