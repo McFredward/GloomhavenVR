@@ -612,7 +612,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 674;
+    public const ushort ModBuild = 675;
+
+    // ModBuild675 — full Quest eye viewports and explicit native pointer inputs.
+    // Capture063423/video confirms B674 still clips the tracked picture and
+    // produces large cyan facets on menu hits. CPU tracking/provider matrices
+    // match, but the 1680x1760 allocation uses a normalized .8 eye subrect.
+    // Select the saved/shared-mobile scale on initialized, stopped XR displays
+    // before StartSubsystems; retain a full viewport and never resize a live
+    // Vulkan swapchain. Changed resolution applies on the next app start.
+    // Small real GPU controls reproduce an inflated pointer with centimetre
+    // CPU bounds by changing Sprite _Flip. Pin neutral sprite inputs on the
+    // Quest material and both renderer blocks, preserving native alpha/depth.
+    // This establishes a rendering risk, not the headset's final GPU values.
+    // Foreground depth now converts normalized XR viewports using each actual
+    // pass descriptor; ordinary mono/RenderTexture paths retain pixel semantics.
+    // Qualify the exact managed display-start callback separately from native
+    // interop drift, keeping compact updates and unchanged content banks.
+    // Focused GPU/provider/compiler checks pass; headset outcome is unverified.
 
     // ModBuild674 — Quest offscreen movie work before stereo draw setup.
     // Capture215640 confirms visible Intro/menu/video, but reports head-dependent

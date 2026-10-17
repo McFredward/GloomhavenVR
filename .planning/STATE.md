@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest full eye viewport and native pointer inputs, 2026-10-17: feature / B675.**
+
+Capture063423 and the supplied video confirm B674 still clips/distorts the
+tracked picture and draws huge cyan facets on pointer hits. Provider CPU
+matrices match tracking, but the eyes use a normalized .8 subrect. Choose
+the saved/shared-mobile resolution before the stopped XR display starts;
+keep its running viewport full and defer later resolution changes to restart.
+Native Sprite input corruption reproduces huge GPU geometry with tiny CPU
+bounds; explicitly pin neutral material/renderer inputs on Quest while
+preserving the original alpha/depth. Fix a separate normalized foreground-depth
+viewport error with real per-pass dimensions. The exact reviewed managed
+startup hook remains a compact code update, retaining all game/art banks.
+Hardware resolution is not yet established. See
+[QUEST-RENDER-063423-20261017.md](QUEST-RENDER-063423-20261017.md).
+
 **Quest movie work before stereo draw setup, 2026-10-17: feature / B674.**
 
 Capture215640 confirms working Intro/menu/video, but head-dependent distortion
