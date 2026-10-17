@@ -1,5 +1,31 @@
 # State — where the project stands
 
+**Synthetic Steam Link presenter source prepared, 2026-10-17: Build681.**
+
+The explicit existing test setting now emits a separately named v2 source with
+12 neutral footer cells. The old registration-v1 canonical generator, both
+numeric panels, all complete CRC headers and immutable stereo/fence ownership
+remain unchanged; Update adds the footer before either eye texture is published.
+No eye-callback source work, timer, sender modification, gameplay/wire/default
+or ordinary-rendering change is introduced. A compact marker recognizes format,
+not body integrity or liveness; disabling/menu removes the whole source as before.
+
+Source-bound worker evidence passes151 CPU checks/8 cases/24 causal mutations and
+actual Unity/net472 type checking. Final integrated Release build passes with
+zero warnings/errors; the old GPU runner's explicit compile list gains the new
+class without changing its v1 defaults or expectations. Two optional new Unity
+pool launches failed before Stamp; no new pool/GPU pass is claimed. Its original
+lifetime implementation inherits prior evidence. This is a bounded change, not
+a new full/wire gate. No native streamed passthrough is yet demonstrated.
+
+Fork offline guard now independently passes91 owned GPU cases per Intel/lavapipe,
+including same-recorded-command ON/OFF/ON and bit-exact original fallback; host
+cost is measured separately. The Frame remains fully restored and safe in standby.
+All further device changes require a fresh concrete approval after package checks.
+Details: docs/research/steamlink-presenter-source-v2-20261017.md and private
+.planning/debug/steamlink-presenter-source-integration-20261017/. Completed own
+caches are removed; captures, source pins and failure evidence are retained.
+
 **Unconfirmed card selection repaired, 2026-10-17: Build680.**
 
 The supplied local Build677 logs contain seven null-name withdrawal exceptions.

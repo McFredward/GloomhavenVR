@@ -612,7 +612,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 680;
+    public const ushort ModBuild = 681;
+
+    // ModBuild681 — explicitly versioned synthetic Steam Link presenter source.
+    // The future receiver must recognize the CURRENT consumed image before using
+    // its two numeric panels; a CPU toggle at command recording cannot disable
+    // an already reusable native command. PresenterSource adds a fixed twelve-cell
+    // footer to the existing app-owned stereo test output under a new profile.
+    // Canonical registration-v1 bytes/headers remain unchanged. Both eyes are still
+    // prepared/frozen together in Update and their actual graphics fences retain
+    // the existing pool; eye callbacks add no uploads, allocation or source work.
+    // The existing explicit test setting chooses v2; menu/off removes the entire
+    // image as before. This is synthetic format recognition, not body/liveness
+    // authentication, game opacity or native streaming passthrough. No sender,
+    // gameplay, wire, config, default, asset or ordinary rendering change.
+    // Focused pure C# controls and actual Unity-reference compilation pass; the
+    // new optional Unity-pool launch failed before Stamp, not a new GPU proof.
 
     // ModBuild680 — unconfirmed card withdrawal, replacement and remote board parity.
     // Build677 hardware records seven release exceptions: Guildmaster actors may have

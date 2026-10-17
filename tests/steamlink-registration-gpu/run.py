@@ -15,7 +15,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).resolve().parent
 SOURCES = ("ProbeManifest.cs", "ProbePolicy.cs", "ProbeTextures.cs", "PayloadOutput.cs",
-           "RegistrationSource.cs", "RegistrationPairPolicy.cs", "RegistrationTextures.cs")
+           "RegistrationSource.cs", "RegistrationPairPolicy.cs", "RegistrationTextures.cs", "PresenterSource.cs")
 WIDTH, HEIGHT = 688, 548
 
 

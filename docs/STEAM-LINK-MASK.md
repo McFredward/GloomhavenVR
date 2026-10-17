@@ -120,6 +120,14 @@ and an irregular fractional-coverage silhouette; code values0/64/128/191/255
 and a192 overlap patch remain explicit numeric test inputs. This is synthetic
 coverage, not game alpha. No old full-canvas trust gate is loosened to accept it.
 
+Build681 explicitly selects `dense-asymmetric-registration-presenter-v2` /
+revision2 for that settings-controlled changing source. Twelve neutral footer
+cells recognize a frozen synthetic format in the future receiver, while the
+original v1 generator, all CRC headers and both numeric panels remain unchanged.
+The wrapper reports its new canvas hash and actual profile. This is not source
+authentication, liveness, game alpha or native presentation. Details and bounded
+CPU/type-check evidence: [presenter source v2](research/steamlink-presenter-source-v2-20261017.md).
+
 At Debug only, the first four completed CPU pairs retain source records and
 actual callback eye matrices, target extents and transfer observations. Getters
 are not sampled on every later frame and no unbounded per-frame history/log is
