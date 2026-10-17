@@ -77,5 +77,19 @@
   "verification_source_sha256": "ddb3859f92431c5971462282e37649ddd079840a3f2e846d513e3bb99f26737c",
   "generator_receipt_erratum": "The private initial generic render receipt described the right view as depth-based; this studio-only shot actually uses the explicit deterministic logo mode above. Encoded-picture validation used that actual mode.",
   "native_lifecycle": "Serialized IntroPlayer waits4seconds before its separate native sprite sequence. This mod does not change that wait; standalone review can show the complete original8secondclip.",
-  "hardware_result": "unverified"
+  "hardware_result": "unverified",
+  "static_decoded_review": {
+    "status": "reviewed",
+    "movie": "Embedded/TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.mov",
+    "stereo_sha256": "c714ee7cf97e1d20429f8d3959d262a69e88911ae8a4e237a7066b8dcfd2fe5b",
+    "frames": [
+      20,
+      120,
+      239
+    ],
+    "capture_receipt_sha256": "fb13b0d7ce121f981c1621e2fb7a52a188bb7fdc6a722b577628389b330ac5e6",
+    "reviewed_utc": "2026-10-17T13:32:41.685023+00:00",
+    "observations": "Three actual encoded left/right cue pairs inspected. No obvious missing content, squashed aspect or vertical registration defect at these static cues. Original studio lettering remains rigid.",
+    "limit": "Static decoded-image inspection only; headset fusion, comfort, temporal motion and decoder behavior remain unverified."
+  }
 }

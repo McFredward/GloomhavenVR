@@ -135,5 +135,19 @@
     "manifest_sha256": "1362c6e7240d44ac72e2af58be44199168e987b521a1643544d4089966fc7321",
     "hardware_result": "unverified"
   },
-  "hardware_result": "unverified"
+  "hardware_result": "unverified",
+  "static_decoded_review": {
+    "status": "reviewed",
+    "movie": "Ambient/Ambient_02_Cave_01.mov",
+    "stereo_sha256": "d5cf25fb538a73ec12a0fa2ed05966477760697715b6f8413ee3737b65739b42",
+    "frames": [
+      238,
+      602,
+      927
+    ],
+    "capture_receipt_sha256": "f5cc8205877cd343a5e2f97f19a2e3b8a6e4c57667fe135af8ebd9641be603b8",
+    "reviewed_utc": "2026-10-17T13:32:41.683922+00:00",
+    "observations": "Three actual encoded left/right cue pairs inspected across the three native cave views. No obvious missing scene content, squashed aspect or vertical registration defect at these static cues; foreground and background retain bounded horizontal separation.",
+    "limit": "Static decoded-image inspection only; headset fusion, comfort, temporal motion and decoder behavior remain unverified."
+  }
 }

@@ -118,7 +118,11 @@ pins/shapes/hashes, and checks start/middle/end encoded right witnesses for ever
 shot. Both picture metrics use declared native YUV420, with the same 34 dB minimum
 as the approved intro. Strong depth witnesses also reject a duplicated left eye.
 The verifier validates protected print regions and both native ambient loop
-endpoints. Decoder children are killed/reaped before the shared completion
+endpoints. `library_review.py` additionally extracts three actual encoded PNG
+cue pairs with explicit original frame addresses and checked selected PTS, using
+`-fps_mode passthrough`. Ambient cues cover all three native views; hero cues
+include the final protected name/symbol panel. Manual inspection follows the
+automatic gate, with its own hash-bound record in per-film provenance. Decoder children are killed/reaped before the shared completion
 cleanup API runs, including failures and interrupts.
 
 `tests/stereo-video-library/check_library.py` has18 physical/inventory checks and
@@ -133,7 +137,10 @@ attempt remains retained and no production geometry was relaxed.
 
 The studio clip's complete encoded verification passes240 left frames and
 240timestamps,375 identical AAC packets and three right witnesses. Minimum PSNR
-is56.16dB left and64.87dB sampled right. Per-film provenance states completed media
+is56.16dB left and64.87dB sampled right. The first cave ambience also passes1125 left frames, all native60fps timestamps,
+three depth shots and21 right witnesses, with minima40.74dB left/42.64dB right
+and zero-disparity original loop endpoints. Both completed subjects have three
+actual decoded cue pairs visually inspected. Per-film provenance states completed media
 results as they become available; this paragraph is not a completed-library claim.
 
 The movable VR surface displays a recorded fixed stereo pair. Moving the window
