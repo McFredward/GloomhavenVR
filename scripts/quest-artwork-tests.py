@@ -65,7 +65,9 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
         ('sprite-update-stale', 'CardFaceMipBake.cs', '&& update == source.texture.updateCount;', '&& true;', 'same-object source update invalidates preparation without GPU hash'),
         ('stale-camera-suppresses-evidence', 'QuestArtworkEvidence.cs', '&& _records < 8 &&', '&& Camera.current == null && _records < 8 &&', 'at most two actual artwork generations per role and eight total records'),
         ('inactive-source-silent', 'QuestArtworkEvidence.cs', 'if (image == null) { Missing(role, "image"); return; }\n            Sprite?', 'if (image == null || !image.isActiveAndEnabled) { Missing(role, "image"); return; }\n            Sprite?', 'Retained native header source and both pixel crops fit the protected Android record while parked' if args.native_header_project else 'inactive capture source and disabled image remain passively observable'),
-        ('overflow-drops-pixels', 'QuestArtworkEvidence.cs', 'message = "[Quest startup] artwork" + compact + samples;', 'message = "[Quest startup] artwork" + compact;', 'long native metadata retains paired pixel samples within the Android byte limit'),
+        ('overflow-drops-pixels', 'QuestArtworkEvidence.cs', 'message = "[Quest startup] artwork" + compact + " caller=" + _caller + samples;', 'message = "[Quest startup] artwork" + compact;', 'long native metadata retains paired pixel samples within the Android byte limit'),
+        ('scenario-fallback-silent', 'QuestArtworkEvidence.cs', 'Image(chosen != null ? chosen.headerImage : null, "ability-header");', ';', 'scenario callback reports missing native sources without an adoption callback'),
+        ('parked-template-hides-live-source', 'QuestArtworkEvidence.cs', '(face.gameObject.activeInHierarchy ? 16 : 0)', '(face.gameObject.activeInHierarchy ? 0 : 16)', 'scenario census reaches actual native header without adoption callback'),
         ('silhouette-crop-lost', 'QuestArtworkRegion.cs', 'new Vector2((float)x / source.width, (float)y / source.height)', 'Vector2.zero', 'silhouette crop preserves exact native alpha'),
     ]
     if args.case:

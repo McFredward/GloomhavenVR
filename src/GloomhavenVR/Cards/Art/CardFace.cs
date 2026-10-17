@@ -576,6 +576,10 @@ internal sealed class CardFace
             }
             if (ability != null)
             {
+                // Offer is the common original-widget seam for adopted cards AND
+                // inactive mod-owned clones. MaintainArtArrival alone requires an
+                // adopted owner and therefore cannot observe every visible face.
+                QuestArtworkEvidence.Image(ability.headerImage, "ability-header");
                 kind = CardBodyKind.Ability;
                 root = ability.RectTransform != null
                     ? ability.RectTransform

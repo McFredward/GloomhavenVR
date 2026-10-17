@@ -16,6 +16,50 @@ internal static class QuestArtworkEvidence
 {
     private static readonly Dictionary<string, HashSet<int>> Seen = new();
     private static int _records;
+    private static string _caller = "consumer";
+
+    /// <summary>Read the native sources from the already bounded scenario census.
+    /// B680's three consumer branches emitted no records although the scenario
+    /// Debug census ran. Those branches depend on adoption/conversion callbacks;
+    /// this independent original-component lookup must also report a missing or
+    /// disabled source. It shares the SAME eight records/two per-role ceiling,
+    /// never activates a widget and introduces no per-frame watcher.</summary>
+    internal static void ScenarioSources()
+    {
+        if (!QuestStandalonePlatform.Enabled || !VRLog.WantsDebug || _records >= 8) return;
+        string prior = _caller;
+        _caller = "scenario-census";
+        try
+        {
+            FullAbilityCard? chosen = null;
+            int best = -1;
+            foreach (FullAbilityCard face in UnityEngine.Object.FindObjectsOfType<FullAbilityCard>(true))
+            {
+                if (face == null || !face.gameObject.scene.IsValid() || !face.gameObject.scene.isLoaded) continue;
+                Image? header = face.headerImage;
+                // Prefer the actual live card over parked pool/prewarm templates,
+                // including a live card whose header has not arrived yet. Otherwise
+                // a healthy hidden template would conceal the user's missing art.
+                int score = (face.gameObject.activeInHierarchy ? 16 : 0)
+                    + (face.gameObject.activeSelf ? 4 : 0)
+                    + (header != null && header.overrideSprite != null ? 2 : 0)
+                    + (header != null && header.enabled ? 1 : 0);
+                if (score > best) { best = score; chosen = face; }
+            }
+            Image(chosen != null ? chosen.headerImage : null, "ability-header");
+
+            InitiativeTrack? track = InitiativeTrack.Instance;
+            Raw(track, "initiative-avatar");
+            InitiativeTrackActorAvatar? avatar = track != null
+                ? track.GetComponentInChildren<InitiativeTrackActorAvatar>() : null;
+            Image(avatar != null ? avatar.selectionImage : null, "initiative-frame");
+
+            if (Singleton<ActorStatPanel>.IsInitialized)
+                Image(Singleton<ActorStatPanel>.Instance.characterPortrait, "stat-portrait");
+        }
+        catch (Exception error) { Failed("native-sources", error); }
+        finally { _caller = prior; }
+    }
 
     internal static void SpriteField(Component? owner, string fieldName, string role)
     {
@@ -115,7 +159,7 @@ internal static class QuestArtworkEvidence
         if (Admit(role, 0)) State(" role=" + role + " unavailable=" + what);
     }
 
-    private static void State(string detail) => Debug.Log("[Quest startup] artwork" + detail);
+    private static void State(string detail) => Debug.Log("[Quest startup] artwork" + detail + " caller=" + _caller);
 
     private static bool CanObserve(string role) => QuestStandalonePlatform.Enabled && VRLog.WantsDebug
         && _records < 8 && (!Seen.TryGetValue(role, out HashSet<int> seen) || seen.Count < 2);
@@ -167,7 +211,7 @@ internal static class QuestArtworkEvidence
         _records++;
         if (!Seen.TryGetValue(role, out HashSet<int> seen)) Seen[role] = seen = new HashSet<int>();
         seen.Add(int.MinValue); seen.Add(int.MaxValue);
-        Debug.Log("[Quest startup] artwork role=" + role + " unavailable=" + error.GetType().Name);
+        Debug.Log("[Quest startup] artwork role=" + role + " unavailable=" + error.GetType().Name + " caller=" + _caller);
     }
 
     private static void Emit(string role, string detail, Graphic image, Texture source, Rect crop, Texture output, Rect outputCrop)
@@ -178,7 +222,7 @@ internal static class QuestArtworkEvidence
         // very samples once we finally reach a parked capture source. Compress only
         // metadata; no extra GPU readback, log record or quota is introduced.
         string samples = " rgba6=" + Sample(source, crop) + " outputRgba6=" + Sample(output, outputCrop);
-        string message = "[Quest startup] artwork" + detail + samples;
+        string message = "[Quest startup] artwork" + detail + " caller=" + _caller + samples;
         if (Encoding.UTF8.GetByteCount(message) > 1000)
         {
             Material sourceMaterial = image.material;
@@ -187,7 +231,7 @@ internal static class QuestArtworkEvidence
                 + " crop=" + Geometry(crop) + " output=" + Label(output) + " outputCrop=" + Geometry(outputCrop)
                 + " enabled=" + image.enabled + " self=" + image.gameObject.activeSelf
                 + " hierarchy=" + image.gameObject.activeInHierarchy + " sourceShader=" + shader;
-            message = "[Quest startup] artwork" + compact + samples;
+            message = "[Quest startup] artwork" + compact + " caller=" + _caller + samples;
         }
         Debug.Log(message);
     }

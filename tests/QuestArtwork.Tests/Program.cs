@@ -81,6 +81,7 @@ public static partial class DiagnosticProgram
         Check(RenderTexture.active == sentinel && GL.sRGBWrite == !sentinel.sRGB, "silhouette region restores prior target and color state");
         QualifyPanelCopies();
         QualifyNativeHeader();
+        QualifyScenarioSources();
         int Count(string field) => ((IDictionary)typeof(CardFaceMipBake).GetField(field, BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!).Count;
         var source = SpriteOf(atlas, new Rect(5, 7, 8, 6));
         Sprite? region = CardFaceMipBake.ReplacementFor(source);
