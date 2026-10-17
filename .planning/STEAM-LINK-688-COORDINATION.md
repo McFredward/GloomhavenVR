@@ -1,5 +1,24 @@
 # Steam Link availability repair coordination, 2026-10-17
 
+## Urgent produced-artifact repair in progress:691, stereo handover692 or later
+
+Newest hardware is689/f71 and stops at cache-folder again. The actual produced
+DLL now proves the cause: `path.Skip(2)` binds to GLOBAL GH.Runtime.StringExtensions.Skip,
+whose Substring(count-1) leaves the drive colon. All normal local Windows paths
+are rejected, independently of valid environment/known-folder values. The
+earlier source-only fixtures omitted GH.Runtime and therefore bound Enumerable.Skip;
+their green result did not cover production binding. Actual UnityMono+689+real
+GH.Runtime reproduces this with five controls; IL confirms the wrong call.
+
+The identity root will ship a single explicit Enumerable.Skip call, with hostile
+global-extension fixture coverage and actual produced-DLL verification. Since
+the independent thread has already reserved690 locally, this fix takes691;
+the complete stereo handover must advance to692 or later. No690 binary is handed
+over. Publish ONLY the bounded repair on published dev689, then merge into shared
+dev retaining all media checkpoints. Avoid pushing the unfinished22-file roster.
+Owned paths remain SteamLinkConnection.cs, its focused tests, scoped notes and
+the identity build note. No folder fallback, native helper or Frame patch change.
+
 ## Follow-up published: cache preparation and Proton, Build689
 
 Published origin/dev is f71a97db4 (689), focused2/2 and source4/4, strict Release
