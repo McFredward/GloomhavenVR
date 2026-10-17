@@ -612,7 +612,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 678;
+    public const ushort ModBuild = 679;
+
+    // ModBuild679 — campaign intro without the on-picture fan-mod notice.
+    // The maintainer explicitly requested removing the notice from the installed
+    // first-save movie. Reconstruct the accepted pictures from their clean source
+    // layers, preserving scene timing, the mod artwork, soundtrack and native fade.
+    // The full trailer keeps its existing notice. Playback, installers, config,
+    // gameplay and wire schema are unchanged; the build key identifies this media.
+    // Focused media/package checks inherit Build678's unchanged runtime evidence;
+    // actual headset first-save/skip remains unverified.
 
     // ModBuild678 — approved first-save GloomhavenVR campaign intro.
     // The maintainer approved the trailer opening and requested the same film in the

@@ -33,7 +33,16 @@ The approved soundtrack and existing cloned name patch are retained until 45.58s
 A 200ms crossfade brings in the original game's final sting, aligned by the
 measured 2.012-second decoded-audio offset. Only that native tail has 0.60 gain
 because its source peak exceeds full scale. There are no new voice, model or
-ASR calls. The lower-right unofficial/fan-made label remains throughout.
+ASR calls. At the maintainer's explicit 2026-10-17 request, Build 679 removes
+the on-picture unofficial/fan-made notice from this game intro. The full trailer
+retains its existing notice.
+
+The body notice occupied the original lower letterbox. The renderer restores
+actual normalized native-source pixels only within x1520/y1008/w384/h64;
+all 2566 source regions were checked to contain only that original black bar.
+The title and native ending omit their previous text overlay. No scene content
+is cropped or generated. All 2291 AAC packet payloads and timestamps are copied
+exactly from the reviewed Build 678 intro.
 
 ## Provenance and verification
 
@@ -42,10 +51,11 @@ ASR calls. The lower-right unofficial/fan-made label remains throughout.
 - Native PC movie SHA256
   `589d421dc23d9733df8092f1042de527179ed9b52e37f18ae5bd50c8b49f4a20`.
 - Delivered MOV SHA256
-  `25db586688981fee9f2d508c2fdc0c51896159802a50b4c0115a6bb818803778`.
+  `22fc9f48d4da6783fed379122e8c5675c4149afd9c0bc90550a9e4e22696fec5`.
 - Generator: `scripts/trailer/build_game_intro.py`, with private input manifest,
   exact command/filter, render receipt and review under
-  `.planning/debug/trailer/remake-v1/game-intro-v1/`.
+  `.planning/debug/trailer/remake-v1/game-intro-v2/` (Build 679); the preceding
+  Build 678 review remains under `game-intro-v1/`.
 
 The initial two-second logo attempt was rejected during root and independent
 review because it exposed a different-sized inherited title at 2s. The final
@@ -65,7 +75,7 @@ remote movie resolution and both installers. Debug and Release production
 builds have zero errors and warnings; the packaged movie matches the reviewed
 asset byte for byte.
 
-The complete local run initially passed 218 of 221 suites. A missing logging
+Build 678's complete local run initially passed 218 of 221 suites. A missing logging
 boundary in the unrelated native-atlas fixture was repaired without changing
 production code or assertions. The three affected atlas/recovery/scenery suites
 then passed serially with their original deadlines and negative controls. This
@@ -73,6 +83,13 @@ is composed coverage using the unchanged 218 passing suites, not a fresh
 221-suite pass. All 16 source suites and 300,518 wire golden assertions pass.
 Receipts, failed attempts and cleanup reports remain in the private review root.
 
+Build 679 repeats the focused native-video suite: 93 assertions, ten controls,
+actual packaging and both installer paths pass. Debug and Release builds have
+zero errors/warnings. All 2931 new frames retain the preceding same-clock scenic
+content within H264 encoding tolerance; the wider former footer region stays
+black in every frame. Worker and root visually reviewed the new movie. Unchanged
+runtime coverage above is inherited from Build 678, not claimed as a new full run.
+
 These checks do not establish actual headset presentation or first-save/skip
-behavior on the maintainer's hardware. Build 678's Debug update is available
+behavior on the maintainer's hardware. Build 679's Debug update is available
 from the review page for that hardware check.

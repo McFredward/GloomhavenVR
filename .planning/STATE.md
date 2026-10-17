@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Campaign intro notice removed at the maintainer's request, 2026-10-17: Build 679.**
+
+Only the game intro loses the on-picture unofficial/fan-made notice. Its former
+lower-letterbox text region is restored from actual normalized original pixels;
+all 2566 body regions contain only native black. Title/ending omit their overlay.
+All 2931 frames keep the accepted scene clock and 48.85s duration; all 2291 AAC
+packet payloads/timestamps exactly match Build 678. Root's 15 Watch cues and the
+worker's 16 cues show no residual notice. The wider footer is black in all frames.
+The full trailer retains its notice. No new generation or paid inference occurred.
+
+Fresh focused native-video validation passes 93 assertions, ten controls,
+actual packaging and both installer paths. Debug/Release builds have zero
+errors/warnings. Build 678's unchanged runtime coverage below is inherited;
+no new complete local/wire pass is claimed. Headset playback remains unverified.
+Current review, media/package receipts and cleanup evidence are under
+`.planning/debug/trailer/remake-v1/game-intro-v2/`. The former review link leads
+to this version. See `docs/trailer/game-intro.md` for exact media provenance.
+
 **Steam Link native header identified; fully restored, offline r6 review, 2026-10-17.**
 
 Approved fork r5 package loaded successfully against all82 actual native imports

@@ -2714,26 +2714,26 @@
     }
   },
   "campaign_intro": {
-    "status": "media-browser-reviewed-runtime-integrated-local-validation-complete",
+    "status": "label-removed-media-reviewed-runtime-validation-inherited",
     "source_accepted_opening": "First 46 seconds of current v11; all three opening AI shots retained at source tempo.",
-    "modbuild": 678,
+    "modbuild": 679,
     "asset": "src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov",
     "plugin_path": "Movies/CP_Intro/GH_CP_Intro.mov",
-    "sha256": "25db586688981fee9f2d508c2fdc0c51896159802a50b4c0115a6bb818803778",
-    "bytes": 56087082,
+    "sha256": "22fc9f48d4da6783fed379122e8c5675c4149afd9c0bc90550a9e4e22696fec5",
+    "bytes": 56456385,
     "frames": 2931,
     "fps": 60,
     "duration_seconds": 48.85,
     "native_game_files_changed": false,
     "new_paid_calls": 0,
     "guide": "docs/trailer/game-intro.md",
-    "private_review": ".planning/debug/trailer/remake-v1/game-intro-v1/REVIEW.html",
-    "private_media_receipt": ".planning/debug/trailer/remake-v1/game-intro-v1/render-v2/receipt.json",
+    "private_review": ".planning/debug/trailer/remake-v1/game-intro-v2/REVIEW.html",
+    "private_media_receipt": ".planning/debug/trailer/remake-v1/game-intro-v2/render/receipt.json",
     "hardware_verified": false,
     "date": "2026-10-17",
-    "private_browser_receipt": ".planning/debug/trailer/remake-v1/game-intro-v1/independent-review/final-navigation.json",
-    "private_debug_package_receipt": ".planning/debug/trailer/remake-v1/game-intro-v1/debug-package.json",
-    "private_verification_receipt": ".planning/debug/trailer/remake-v1/game-intro-v1/verification.json",
+    "private_browser_receipt": ".planning/debug/trailer/remake-v1/game-intro-v2/web-check.json",
+    "private_debug_package_receipt": ".planning/debug/trailer/remake-v1/game-intro-v2/debug-package.json",
+    "private_verification_receipt": ".planning/debug/trailer/remake-v1/game-intro-v2/verification.json",
     "validation": {
       "source_suites": 16,
       "initial_complete_local_passed": 218,
@@ -2743,7 +2743,13 @@
       "fresh_complete_local_pass": false,
       "wire_golden_assertions": 300518,
       "debug_release_errors": 0,
-      "debug_release_warnings": 0
-    }
+      "debug_release_warnings": 0,
+      "inherited_runtime_from_modbuild": 678,
+      "fresh_native_video_suite_passed": 1,
+      "fresh_native_video_assertions": 93,
+      "fresh_native_video_controls": 10
+    },
+    "on_picture_fan_mod_notice": false,
+    "full_trailer_notice_changed": false
   }
 }
