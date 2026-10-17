@@ -612,7 +612,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 693;
+    public const ushort ModBuild = 694;
+
+    // ModBuild694 — retain native Steam Link MR through scene loading and sharpen coverage.
+    // The maintainer confirms693 successfully enables Frame/Steam Link MR, but
+    // reports green flashes while loading and overly soft window edges. Head
+    // camera lifetime was incorrectly treated as XR-session/HMD identity lifetime.
+    // Keep admission across missing/disabled/replaced scene cameras; true HMD
+    // events, runtime/session stop and unsupported transports still revoke it.
+    // Pending identity checks preserve ordinary output rather than selecting
+    // the saved chromakey colour. Normally closed head-output resources can
+    // reprepare after camera activation; actual failures retain their refusal.
+    // Improve the spatial coverage reconstruction without binarizing alpha,
+    // changing scene RGB, adding cameras/readbacks or changing the receiver's
+    // atlas/guard layout. Continuous glass and materialisation remain supported.
+    // Source-linked lifecycle and actual Unity rendering tests retain old-code
+    // counterexamples. No Frame write/restart or new receiver install is needed.
+    // Publish this bounded repair only; incomplete independent stereo catalogue
+    // stays local and its completed handover advances to695 or later.
 
     // ModBuild693 — admit the Frame/Link profile actually exposed by SteamVR.
     // New691/de978 Windows hardware completes the owned SDK/child/public HMD
