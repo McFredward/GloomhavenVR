@@ -79,6 +79,15 @@ retain Debug guards/budgets and qualify compiled call targets against real game
 references. Tiny fixtures must include the conditional global facade when testing
 this boundary. Do not enable all game logs to work around a binding defect.
 
+**Quest GPU evidence, B683:** B682's isolated Linux Vulkan passes did not predict
+its Android XR copy regressions. Keep the hardware-qualified native blit submission
+until a replacement has actual headset evidence. Optional image filtering and
+physical card contours must retain native content or the established complete-body
+fallback when exact CPU alpha/pixels are unavailable; never persist a guessed mask
+from an unqualified GPU readback. Preserve source color encoding for CPU copies.
+Generated rooms, enabled renderers, mono-frustum tests and shader support are
+separate from final XR visibility; do not force native state to repair a readback.
+
 The maintainer requested integration of `feature/immersive-town-services` into
 `dev`. All subsequent NPC, Steam Frame, and other development now integrates and
 pushes to `dev`; create worker worktrees from the current `dev` commit. The NPC

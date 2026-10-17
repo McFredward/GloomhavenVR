@@ -626,7 +626,10 @@ internal static class NetProtocol
     // Optional Quest mip filtering reads existing supported CPU source pixels;
     // keep exact native source identity when that read is unavailable rather
     // than replacing correct art with an untrusted GPU readback. Desktop keeps
-    // its established GPU bake. No source asset or original bank is rewritten.
+    // its established GPU bake. Preserve source encoding for direct CPU bytes.
+    // The same untrusted alpha can cut the physical card: reject an incomplete
+    // native contour union and retain the existing complete-body fallback under
+    // bounded guards; never persist a guessed mask. No original bank is rewritten.
     // Bound actual shown-vs-pooled world material/loader facts and late pointer
     // render facts within existing record limits. Enabled CPU geometry is not
     // proof of a visible hit marker; its absence after Intro remains hardware

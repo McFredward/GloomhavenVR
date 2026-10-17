@@ -42,6 +42,16 @@ geometry/UVs instead of caching an untrusted replacement. Desktop retains its
 existing GPU path. Never guess source damage from failed readback samples or
 change legitimate original trim metadata. No original game data is reconverted.
 
+The same unsafe GPU alpha readback also feeds CardFace's contour union and
+CardMesh's physical cutout. Use exact CPU alpha for readable native sprites,
+resolving our filtering replacements back to their original source first. If any
+required contour source is unavailable, reject the entire union under existing
+reason/hash/attempt guards and retain the documented complete rounded-body
+fallback. Never cut a partial silhouette or persist guessed alpha. Keep outline
+blackout IDs clear after refusal so the original header remains visible. Preserve
+source encoding for both whole and trimmed optional mip copies; direct linear
+CPU bytes cannot be reinterpreted as sRGB.
+
 Retain the hit marker's original visual/input ownership. B681 already reported
 it absent, so the B682 submission cannot be claimed as its sole cause. Observe
 actual late renderer admission/depth facts within the existing two records and
