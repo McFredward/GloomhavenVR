@@ -45,7 +45,7 @@ namespace GloomhavenVR.Cards
         internal void SetCards(List<VRCard> cards) { Entries.Clear(); Entries.AddRange(cards); }
         internal void SetInsertionGap(int gap) {}
     }
-    internal sealed class PlayTray
+    internal sealed partial class PlayTray
     {
         private readonly VRCard?[] occupants = new VRCard?[2];
         internal int Target = -1;
@@ -57,14 +57,12 @@ namespace GloomhavenVR.Cards
         internal int SlotOf(VRCard card) => Array.IndexOf(occupants, card);
         internal void PlaceCard(VRCard card, int slot)
         {
-            RemoveCard(card); occupants[slot] = card;
+            for (int i = 0; i < 2; i++) if (ReferenceEquals(occupants[i], card)) occupants[i] = null;
+            occupants[slot] = card;
         }
-        internal void RemoveCard(VRCard card) { for (int i = 0; i < 2; i++) if (ReferenceEquals(occupants[i], card)) occupants[i] = null; }
+        internal void RemoveCard(VRCard card) { CancelPendingSelection(card); for (int i = 0; i < 2; i++) if (ReferenceEquals(occupants[i], card)) occupants[i] = null; }
         internal void NoteSlotActivity() {}
         internal void SyncFromGameState(CardsHandUI hand, VRCardFactory factory) => LastSyncedHand = hand;
-        // Inter-frame pending projection executes in the separate exact-PlayTray
-        // fixture. This suite observes the original native selection operations.
-        internal void SetSelectionPending(VRCard card, bool pending) {}
     }
     internal sealed class VRCardFactory {}
     internal static class CardsConfig
@@ -77,6 +75,7 @@ namespace GloomhavenVR.Cards
         private static readonly Queue<Action> actions = new();
         internal static int Count => actions.Count;
         internal static void Enqueue(Action call, Action completion) => actions.Enqueue(() => { call(); completion(); });
+        internal static void Pump() { if (actions.Count > 0) actions.Dequeue()(); }
         internal static void Drain() { while (actions.Count > 0) actions.Dequeue()(); }
     }
     internal static partial class CardsGameApi
@@ -89,6 +88,8 @@ namespace GloomhavenVR.Cards
         internal static bool MustRestInsteadOfPlay(CardsHandUI hand) => hand.PlayerActor.CharacterClass.HandAbilityCards.Count + hand.PlayerActor.CharacterClass.RoundAbilityCards.Count < 2;
         internal static int PlayableCardCount(CardsHandUI hand) => hand.PlayerActor.CharacterClass.HandAbilityCards.Count + hand.PlayerActor.CharacterClass.RoundAbilityCards.Count;
         internal static CAbilityCard? InitiativeCard(CardsHandUI hand) => hand.PlayerActor.CharacterClass.InitiativeAbilityCard;
+        private static UIReadyToggle? ReadyToggle() => null;
+        private static bool ControlsActor(CPlayerActor actor) => actor.IsUnderMyControl;
     }
     internal sealed partial class CardsDriver
     {

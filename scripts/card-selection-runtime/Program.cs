@@ -57,6 +57,10 @@ public static class InteractionProgram
         => harmony.Patch(AccessTools.Method(type, method), prefix: new HarmonyMethod(typeof(InteractionProgram), prefix));
     private static void Prepare()
     {
+        Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
+        SharedLibrary.Client.SharedClient.SetDLLDebugHandler(message => {
+            if (message.m_LogType == SharedLibrary.Logger.EDLLDebug.Error) Interlocked.Increment(ref errors);
+        });
         var harmony = new Harmony(Owner);
         // A scenario-only fixture supplies the already loaded save and local session.
         // Card mode, native widget guards, callbacks, SRL queue and rule moves are real.
@@ -177,6 +181,9 @@ public static class InteractionProgram
             Set(manager, "currentHand", hand);
             for (int slot = 0; slot < 2; slot++) { driver._tray.Target = slot; driver.Release(cards[slot], hand); CardActionQueue.Drain(); }
             Selected(hand, 2, "both slots selected");
+            // The production rebuild reapplies this exact ordering before it
+            // presents the fan whose insertion gap the user can target.
+            driver.ApplyOrder();
             int beforeMoves = moves;
             driver._tray.Target = -1;
             if (gap) driver.Gap(cards[0], 0);
@@ -203,7 +210,9 @@ public static class InteractionProgram
             Check(actor.CharacterClass.HandAbilityCards.Contains(cards[0].GameCard!.AbilityCard), "withdrawn card remains in actual native hand after focus return");
             if (gap && CardsDriver.Key(cards[0], out _, out _))
             {
-                driver.ApplyOrder(); Check(driver._fan.Cards[0] == cards[0], "withdrawal restores the captured actor's requested first fan gap after focus return");
+                driver.ApplyOrder(); Check(driver._fan.Cards[0] == cards[0], "withdrawal restores the captured actor's requested first fan gap after focus return"
+                    + " mode=" + mode + " index=" + index + " cycle=" + cycle + " order=" + string.Join(",", driver._fanOrder)
+                    + " fan=" + string.Join(",", driver._fan.Cards.Select(Id)));
             }
             // Replacement must serialize the original unselect before select,
             // even while native CanSelectInScenario would reject a third card.
@@ -219,6 +228,23 @@ public static class InteractionProgram
         Set(manager, "currentHand", hand); Set(cards[0].GameCard!, "_canToggleCard", (Func<bool>)(() => false));
         hand.SelectCard(cards[0].GameCard!.AbilityCard); Selected(hand, 0, "native locked toggle");
         Set(cards[0].GameCard!, "_canToggleCard", null);
+        hand.SelectCard(cards[0].GameCard!.AbilityCard); hand.SelectCard(cards[1].GameCard!.AbilityCard);
+        var committed = actor.CharacterClass.RoundAbilityCards.ToArray(); var initiative = actor.CharacterClass.InitiativeAbilityCard;
+        // Phase and mode are supplied native lifecycle inputs, not a simulated
+        // Ready-button click. Verify the real callback's post-selection fences.
+        var actionPhase = Data<CPhaseActionSelection>(); Set(actionPhase, "m_PhaseType", CPhase.PhaseType.ActionSelection);
+        Set(typeof(PhaseManager), "s_CurrentPhase", actionPhase);
+        foreach (var frozenMode in new[] { CardHandMode.ActionSelection, CardHandMode.Preview })
+        {
+            Property(hand, "currentMode", frozenMode); hand.UnselectCard(cards[0].GameCard!.AbilityCard);
+            Check(actor.CharacterClass.RoundAbilityCards.SequenceEqual(committed), "native action/preview callback cannot reopen a committed round");
+            CardsGameApi.SwapInitiative(hand);
+            Check(ReferenceEquals(actor.CharacterClass.InitiativeAbilityCard, initiative), "native action phase cannot swap already committed initiative");
+        }
+        Property(hand, "currentMode", CardHandMode.CardsSelection);
+        Set(typeof(PhaseManager), "s_CurrentPhase", new CPhaseSelectAbilityCardsOrLongRest());
+        hand.UnselectCard(cards[0].GameCard!.AbilityCard); hand.UnselectCard(cards[1].GameCard!.AbilityCard);
+        Selected(hand, 0, "later native editable selection");
     }
     private static void OrderIsolation()
     {
@@ -256,11 +282,51 @@ public static class InteractionProgram
         driver._boundHand = otherHand; driver._tray.PlaceCard(foreign, 0); var before = actor.CharacterClass.InitiativeAbilityCard;
         driver.Reconcile(hand);
         Check(ReferenceEquals(actor.CharacterClass.InitiativeAbilityCard, before), "old selection completion cannot reconcile against another actor's current tray");
+        var pending = Card(hand, 24); driver._tray.PlaceCard(pending, 0); driver.Reconcile(hand);
+        Check(ReferenceEquals(actor.CharacterClass.InitiativeAbilityCard, before), "pending same-actor presentation cannot rewrite the existing native initiative");
+        driver._tray.PlaceCard(foreign, 0);
         Set(manager, "currentHand", hand); driver.Swap(); Set(manager, "currentHand", otherHand);
         CardActionQueue.Drain();
         Check(!ReferenceEquals(actor.CharacterClass.InitiativeAbilityCard, before), "queued explicit initiative swap still affects the hand captured at request");
         Check(driver._tray.LastSyncedHand == null, "queued initiative completion cannot repopulate a different actor's current tray");
         Check(driver._tray.Occupant(0) == foreign, "foreign actor's physical recess remains untouched by prior-hand completion");
+    }
+    private static void RapidReleaseQueue()
+    {
+        var hand = Hand(Actor(null, "rapid-native", "rapid-native"));
+        var cards = Enumerable.Range(31, 3).Select(id => Card(hand, id)).ToArray(); var driver = new CardsDriver { _boundHand = hand };
+        driver._fan.SetCards(cards.ToList());
+        for (int slot = 0; slot < 2; slot++) { driver._tray.Target = slot; driver.Release(cards[slot], hand); CardActionQueue.Drain(); }
+        driver._tray.Target = 0; driver.Release(cards[2], hand);
+        driver._tray.Target = -1; driver.Release(cards[2], hand);
+        driver._tray.Target = 0; driver.Release(cards[2], hand);
+        Check(CardActionQueue.Count == 4, "normal release code admits replacement/withdrawal/replacement while earlier callbacks remain queued");
+        int before = moves;
+        CardActionQueue.Pump(); Check(!cards[0].GameCard!.IsSelected && !cards[2].GameCard!.IsSelected, "rapid native queue first withdraws displaced original");
+        CardActionQueue.Pump(); Check(!cards[2].GameCard!.IsSelected, "rapid native queue skips an explicitly withdrawn older incoming select");
+        Check(driver._tray.IsSelectionPending(cards[2], hand), "older native select acknowledgement cannot consume a newer physical drop token");
+        CardActionQueue.Pump(); Check(!cards[2].GameCard!.IsSelected, "rapid native queue next acknowledges intervening take-back");
+        Check(driver._tray.IsSelectionPending(cards[2], hand), "intervening native take-back leaves most recent drop awaiting its own acknowledgement");
+        CardActionQueue.Pump(); Check(cards[2].GameCard!.IsSelected, "rapid native queue finally acknowledges most recent replacement");
+        Check(!driver._tray.IsSelectionPending(cards[2], hand), "most recent native select acknowledgement consumes exactly its own drop token");
+        Check(moves == before + 2, "rapid release queue preserves native FIFO while explicitly superseded select emits no rule move");
+        Selected(hand, 2, "rapid native release final selection");
+    }
+    private static void FocusQueuedLeftIntent()
+    {
+        var hand = Hand(Actor(null, "queued-left", "queued-left"));
+        var right = Card(hand, 41); var incoming = Card(hand, 42);
+        hand.SelectCard(right.GameCard!.AbilityCard);
+        var driver = new CardsDriver { _boundHand = hand };
+        driver._tray.PlaceCard(right, 1); driver._fan.Add(incoming);
+        driver._tray.Target = 0; driver.Release(incoming, hand);
+        Check(CardActionQueue.Count == 1, "left placement captures one native select before view change");
+        var other = Hand(Actor(null, "queued-left-view", "queued-left-view")); var foreign = Card(other, 43);
+        driver._boundHand = other; driver._tray.RemoveCard(incoming); driver._tray.RemoveCard(right); driver._tray.PlaceCard(foreign, 0);
+        CardActionQueue.Drain();
+        Check(ReferenceEquals(hand.PlayerActor.CharacterClass.InitiativeAbilityCard, incoming.GameCard!.AbilityCard),
+            "queued left-slot drop retains original actor initiative across view change");
+        Check(driver._tray.Occupant(0) == foreign, "queued left intent never replaces the newly displayed actor's physical card");
     }
     public static int Run()
     {
@@ -275,6 +341,8 @@ public static class InteractionProgram
         }
         OrderIsolation();
         FocusCases();
+        FocusQueuedLeftIntent();
+        RapidReleaseQueue();
         Check(errors == 0, "all actual native card callbacks and SRL moves complete without errors");
         Check(!Harmony.GetAllPatchedMethods().Any(method => method.DeclaringType.Assembly == typeof(ScenarioRuleClient).Assembly && Harmony.GetPatchInfo(method).Owners.Contains(Owner)), "no ScenarioRuleLibrary method is patched");
         return checks;
@@ -288,6 +356,7 @@ public static class InteractionProgram
             rules.Join();
         }
         new Harmony(Owner).UnpatchSelf();
+        SharedLibrary.Client.SharedClient.SetDLLDebugHandler(null!);
         foreach (var value in objects) if (value != null) UnityEngine.Object.DestroyImmediate(value);
         objects.Clear();
     }

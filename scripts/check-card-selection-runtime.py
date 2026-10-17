@@ -41,7 +41,7 @@ def method(source, signature):
 
 def bind(source_root):
     cards = source_root / 'src/GloomhavenVR/Cards'
-    paths = ['Driver/CardsDriver.4.Rebuild.cs', 'Driver/CardsDriver.5.Interactions.cs', 'FanOrderMemory.cs', 'CardsGameApi.cs', 'Driver/CardsDriver.6.Flows.cs']
+    paths = ['Driver/CardsDriver.4.Rebuild.cs', 'Driver/CardsDriver.5.Interactions.cs', 'FanOrderMemory.cs', 'CardsGameApi.cs', 'Driver/CardsDriver.6.Flows.cs', 'Tray/PlayTray.4.Slots.cs']
     texts = {path: (cards / path).read_text() for path in paths}
     release = method(texts[paths[1]], 'private void OnCardReleased(')
     assert release.index('if (!CardsGameApi.HandOwnsWidget(gameHand, card.GameCard))') < release.index('int highlightSlot =')
@@ -50,7 +50,8 @@ def bind(source_root):
         'private static int FanId(', 'private static bool TryFanKey(',
         'private static FanOrderMemory FanOrdersFor(', 'private void ReorderFanBuffer()',
         'private void ClearFanInsertion()', 'private void CommitFanInsertion(']]
-    methods += [method(texts[paths[4]], signature) for signature in ['private void ReconcileInitiative(',
+    methods += [method(texts[paths[4]], signature) for signature in ['private void ReconcileInitiative(CardsHandUI hand)',
+        'private void ReconcileInitiative(CardsHandUI hand, CAbilityCard? inSlot0)',
         'private static string CardName(', 'private static int CardInit(', 'private void OnSwapRequested()']]
     api = texts['CardsGameApi.cs']
     assert 'hand.SelectCard(card);' in method(api, 'internal static void SelectCard(')
@@ -64,7 +65,22 @@ if (card.GameCard == null) throw new System.InvalidOperationException("fixture r
 ''' + block + '\n}}\n'
     bound = {'Driver.cs': generated, 'FanOrderMemory.cs': texts['FanOrderMemory.cs'],
         'Api.cs': 'using System.Collections.Generic; using ScenarioRuleLibrary;\nnamespace GloomhavenVR.Cards { internal static partial class CardsGameApi {\n'
-        + method(api, 'internal static bool SwapInitiative(') + '\n' + method(api, 'internal static bool HandOwnsWidget(') + '\n}}\n'}
+        + '\n'.join(method(api, signature) for signature in ['internal static bool SwapInitiative(', 'internal static bool HandOwnsWidget(',
+            'internal static CardHandMode Mode(', 'internal static bool IsSelectionPhase(', 'internal static bool IsConfirmed(']) + '\n}}\n'}
+    tray = texts[paths[5]]
+    bound['Pending.cs'] = 'namespace GloomhavenVR.Cards { internal sealed partial class PlayTray {\n' \
+        + method(tray, 'private sealed class PendingRoundSelection') \
+        + '\nprivate readonly PendingRoundSelection?[] _pendingRoundSelections = new PendingRoundSelection?[2];\n' \
+        + '\n'.join(method(tray, signature) for signature in ['internal object? BeginPendingSelection(',
+            'internal bool CompletePendingSelection(', 'internal void CancelPendingSelection(', 'internal void CancelPendingSelections()',
+            'internal bool IsSelectionPending(', 'internal void WithdrawPendingSelection(', 'internal bool SelectionWasWithdrawn(']) + '\n}}\n'
+    assert 'card.Released += OnCardReleased;' in texts[paths[0]]
+    physical = (source_root / 'src/GloomhavenVR/Hands/Interact/ProximityGrabber.cs').read_text()
+    widget = (cards / 'VRCard.cs').read_text()
+    laser = (cards / 'Driver/CardsDriver.3.Laser.cs').read_text()
+    assert 'Released?.Invoke(this, hand, velocity);' in method(widget, 'public override void OnRelease(')
+    assert 'released.OnRelease(_hand, _hand.PalmVelocity);' in physical
+    assert 'hand.Grabber.ForceGrab(card, releaseOnTriggerUp: true);' in laser
     return bound, {str((cards / path).relative_to(source_root)): hashlib.sha256(text.encode()).hexdigest() for path, text in texts.items()}
 
 
@@ -97,6 +113,15 @@ def main():
     # after physical removal but before native deselection can enter the queue.
     variants = [('production', '', '', '', '')]
     if not args.production_only:
+        original_reconcile = bound['Driver.cs']
+        old_reconcile = original_reconcile
+        for guard in ['        if (!CardsGameApi.HandOwnsWidget(hand, slot0.GameCard))\n            return;\n',
+                      ' || !CardsGameApi.IsInRound(hand, inSlot0)']:
+            assert old_reconcile.count(guard) == 1
+            old_reconcile = old_reconcile.replace(guard, '', 1)
+        left_fallback = '                    else if (!_tray.SelectionWasWithdrawn(pendingSelection))\n                        ReconcileInitiative(handRef, leftChoice);\n'
+        assert original_reconcile.count(left_fallback) == 2
+        no_left_fallback = original_reconcile.replace(left_fallback, '')
         variants += [
             ('old-null-name-abort', 'Driver.cs', '            List<int>? returnOrder = gap >= 0 && TryFanKey(card, out string character, out _)\n                ? FanOrdersFor(card).ForCharacter(character) : null;',
              '            List<int>? returnOrder = _fanOrders.ForCharacter(gameHand.PlayerActor.CharacterName);',
@@ -107,6 +132,18 @@ def main():
              'unnamed native actor can reorder its normal fan'),
             ('identity-domain-collision', 'Driver.cs', '? _unnamedFanOrders : _fanOrders;', '? _fanOrders : _fanOrders;',
              'named display equal to unnamed GUID cannot collide with its order'),
+            ('foreign-recess-reconciles-old-hand', 'Driver.cs', original_reconcile, old_reconcile,
+             "old selection completion cannot reconcile against another actor's current tray"),
+            ('pending-recess-rewrites-initiative', 'Driver.cs', ' || !CardsGameApi.IsInRound(hand, inSlot0)', '',
+             "pending same-actor presentation cannot rewrite the existing native initiative"),
+            ('old-hand-projected-after-focus-switch', 'Driver.cs', '                if (ReferenceEquals(_boundHand, handRef))\n', '',
+             "queued initiative completion cannot repopulate a different actor's current tray"),
+            ('stale-ack-consumes-new-drop', 'Pending.cs', '\n                && ReferenceEquals(_pendingRoundSelections[i], token)', '',
+             "older native select acknowledgement cannot consume a newer physical drop token"),
+            ('captured-left-choice-lost', 'Driver.cs', original_reconcile, no_left_fallback,
+             'queued left-slot drop retains original actor initiative across view change'),
+            ('explicit-user-withdrawal-ignored', 'Pending.cs', 'pending.ExplicitlyWithdrawn = true;', 'pending.ExplicitlyWithdrawn = false;',
+             'rapid native queue skips an explicitly withdrawn older incoming select'),
         ]
     manifest = {'result': str(run / 'results.txt'), 'cases': []}
     packages = Path.home() / '.nuget/packages'
@@ -152,6 +189,13 @@ def main():
     receipt = Path(manifest['result'])
     if receipt.is_file(): print(receipt.read_text(), end='')
     if returncode or not receipt.is_file(): raise SystemExit('FAIL card selection runtime; see ' + str(run / 'unity.log'))
+    projection_command = [str(Path(os.sys.executable)), str(ROOT / 'scripts/card-selection-runtime/projection/check.py'),
+        '--source-root', str(source_root), '--output-dir', str(args.output_dir.resolve() / 'projection')]
+    if args.production_only: projection_command.append('--production-only')
+    projection = subprocess.run(projection_command, capture_output=True, text=True)
+    (run / 'projection.log').write_text(projection.stdout + projection.stderr)
+    print(projection.stdout, end='')
+    if projection.returncode: raise SystemExit('FAIL complementary projection; see ' + str(run / 'projection.log'))
     outcome['exit_code'] = 0
     print('PASS original native selection and ' + str(len(variants) - 1) + ' causal controls; evidence: ' + str(run))
 
