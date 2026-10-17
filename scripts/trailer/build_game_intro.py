@@ -5,6 +5,9 @@ The native game's title-only opening differs from the trailer. Replace PEGI
 with the exact mod wordmark, keep every approved opening shot at source speed,
 and use the native end fade instead of the trailer's following combat section.
 Input originals are never modified. All inputs and frame ranges are receipted.
+For the in-game-only label exemption, restore the former text region from its
+actual same-clock native letterbox source and stream-copy the preceding intro's
+audio. No generated removal, filled rectangle, scaling or scenic crop is used.
 """
 
 from __future__ import annotations
@@ -42,10 +45,57 @@ def audio(path: Path, seconds: float) -> np.ndarray:
     return np.frombuffer(raw, dtype="<f4").reshape(-1, 2).copy()
 
 
+def audio_packets(path: Path) -> list[dict]:
+    """Compare actual AAC packet payloads and clocks, including encoder priming."""
+    return json.loads(subprocess.check_output([
+        "/usr/bin/ffprobe", "-v", "error", "-select_streams", "a:0", "-show_packets",
+        "-show_data_hash", "sha256", "-show_entries",
+        "packet=pts,dts,duration,size,data_hash", "-of", "json", str(path),
+    ]))["packets"]
+
+
+def letterbox_proof(path: Path, region: list[int]) -> dict:
+    """Fail closed if the retained native text region contains scenic imagery."""
+    if (len(region) != 4 or any(type(v) is not int for v in region)
+            or region[0] < 0 or region[1] < 962 or min(region[2:]) <= 0
+            or region[0] + region[2] > WIDTH or region[1] + region[3] > HEIGHT
+            or any(v % 2 for v in region)):
+        raise ValueError("Restoration must use an even, bounded native lower-letterbox region")
+    x, y, width, height = region
+    command = ["/usr/bin/ffmpeg", "-v", "error", "-nostdin", "-threads", "2",
+               "-i", str(path), "-vf",
+               f"setpts=PTS-STARTPTS,fps=60,scale=1920:1080:flags=lanczos,trim=start_frame=180:end_frame=2746,setpts=PTS-STARTPTS,crop={width}:{height}:{x}:{y}",
+               "-an", "-frames:v", "2566", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"]
+    result = subprocess.run(command, capture_output=True, check=True)
+    pixels = np.frombuffer(result.stdout, np.uint8)
+    expected = (2746 - 180) * height * width * 3
+    if pixels.size != expected:
+        raise ValueError("Clean source does not cover every original body frame")
+    per_frame_max = pixels.reshape(2746 - 180, -1).max(axis=1)
+    if int(per_frame_max.max()) > 3:
+        raise ValueError("Native restoration region is not the retained clean letterbox")
+    return {"source_frames": [180, 2746], "destination_frames": [180, 2746],
+            "source_frame_offset": 0, "source_normalization": "Original assembly: fps60, 3840x2160 to1920x1080 Lanczos; no temporal fitting",
+            "region_xywh": region, "frames_checked": 2566,
+            "native_rgb_maximum": int(per_frame_max.max()),
+            "per_frame_native_rgb_maximum": per_frame_max.tolist(),
+            "source_pixel_sha256": hashlib.sha256(result.stdout).hexdigest(),
+            "command": command,
+            "method": "Restore actual same-frame native source pixels only in the former text/shadow codec guard region; no synthesized fill or scenic crop."}
+
+
 def build(manifest: Path) -> None:
     spec = json.loads(manifest.read_text())
     inputs = {key: Path(spec[key]).resolve(strict=True)
               for key in ("native_intro", "approved_trailer", "logo", "font")}
+    for key in ("clean_picture_source", "preserved_audio_source"):
+        if key in spec:
+            inputs[key] = Path(spec[key]).resolve(strict=True)
+    show_label = spec.get("fan_mod_label", True)
+    if type(show_label) is not bool:
+        raise ValueError("fan_mod_label must be boolean")
+    if not show_label and "clean_picture_source" not in inputs:
+        raise ValueError("Removing the burned body label requires its actual clean native source")
     hashes = {key: digest(path) for key, path in inputs.items()}
     for key, expected in spec["input_sha256"].items():
         if hashes[key] != expected:
@@ -66,32 +116,49 @@ def build(manifest: Path) -> None:
     card = Image.new("RGB", (WIDTH, HEIGHT), "black")
     card.paste(logo, ((WIDTH - logo_width) // 2, round(451 - 64.5 * scale)), logo)
     card.save(out / "opening-logo.png")
-    (out / "branding.txt").write_text(LABEL)
+    if show_label:
+        (out / "branding.txt").write_text(LABEL)
+    restoration = None
+    if not show_label:
+        restoration = letterbox_proof(inputs["clean_picture_source"], spec["clean_picture_region"])
+        save(out / "letterbox-source-proof.json", restoration)
 
     # Preserve approved speech, the cloned name suffix and music. The original
     # campaign movie's final sting replaces the trailer continuation. Picture
     # alignment is +2s; decoded native audio is +2.012s (measured576 samples).
-    approved = audio(inputs["approved_trailer"], FRAMES / FPS)
-    native = audio(inputs["native_intro"], FRAMES / FPS)
-    count = round(FRAMES / FPS * RATE)
-    if len(approved) < count or len(native) < count:
-        raise ValueError("Input audio does not cover the native movie clock")
-    pcm = approved[:count].copy()
-    first, last = round(45.58 * RATE), round(45.78 * RATE)
-    shift = round(2.012 * RATE)
-    # The native export has an over-full-scale final sting (peak1.51).
-    # Bound only that inherited tail; the approved dialogue keeps its gain.
-    tail = native[first - shift:count - shift] * .60
-    ramp = np.ones(len(tail), np.float32)
-    ramp[:last - first] = np.linspace(0, 1, last - first)
-    pcm[first:] = pcm[first:] * (1 - ramp[:, None]) + tail * ramp[:, None]
-    if np.max(np.abs(pcm)) >= 1:
-        raise ValueError("Audio would clip")
-    subprocess.run([
-        "/usr/bin/ffmpeg", "-v", "error", "-nostdin", "-n", "-f", "f32le",
-        "-ar", str(RATE), "-ac", "2", "-i", "pipe:0", "-c:a", "pcm_f32le",
-        str(out / "soundtrack.wav"),
-    ], input=pcm.astype("<f4").tobytes(), check=True)
+    preserved_audio = inputs.get("preserved_audio_source")
+    audio_receipt = {"mode": "packet-copy", "source": str(preserved_audio)}
+    if preserved_audio:
+        audio_input = preserved_audio
+        original_audio_packets = audio_packets(preserved_audio)
+    else:
+        approved = audio(inputs["approved_trailer"], FRAMES / FPS)
+        native = audio(inputs["native_intro"], FRAMES / FPS)
+        count = round(FRAMES / FPS * RATE)
+        if len(approved) < count or len(native) < count:
+            raise ValueError("Input audio does not cover the native movie clock")
+        pcm = approved[:count].copy()
+        first, last = round(45.58 * RATE), round(45.78 * RATE)
+        shift = round(2.012 * RATE)
+        # The native export has an over-full-scale final sting (peak1.51).
+        # Bound only that inherited tail; the approved dialogue keeps its gain.
+        tail = native[first - shift:count - shift] * .60
+        ramp = np.ones(len(tail), np.float32)
+        ramp[:last - first] = np.linspace(0, 1, last - first)
+        pcm[first:] = pcm[first:] * (1 - ramp[:, None]) + tail * ramp[:, None]
+        if np.max(np.abs(pcm)) >= 1:
+            raise ValueError("Audio would clip")
+        subprocess.run([
+            "/usr/bin/ffmpeg", "-v", "error", "-nostdin", "-n", "-f", "f32le",
+            "-ar", str(RATE), "-ac", "2", "-i", "pipe:0", "-c:a", "pcm_f32le",
+            str(out / "soundtrack.wav"),
+        ], input=pcm.astype("<f4").tobytes(), check=True)
+        audio_input = out / "soundtrack.wav"
+        audio_receipt = {"mode": "approved-pcm-and-native-tail",
+                         "approved_unchanged_pcm_until_seconds": 45.58,
+                         "native_tail_crossfade_seconds": [45.58, 45.78],
+                         "native_tail_shift_seconds": 2.012, "native_tail_gain": .60,
+                         "pcm_peak": float(np.max(np.abs(pcm)))}
 
     # The first three seconds replace the trailer's existing opening card.
     # Keeping the longer native logo
@@ -103,13 +170,22 @@ def build(manifest: Path) -> None:
         "fontcolor=0xE6DDD0:fontsize=23:borderw=2:bordercolor=black@0.95:"
         "shadowcolor=black@0.9:shadowx=1:shadowy=1:x=w-tw-38:y=h-th-30"
     )
+    mark = footer + "," if show_label else ""
+    body = ("[0:v]trim=start_frame=180:end_frame=2746,setpts=PTS-STARTPTS,"
+            "setsar=1,format=yuv420p[body];\n")
+    if restoration:
+        x, y, width, height = restoration["region_xywh"]
+        body = ("[0:v]trim=start_frame=180:end_frame=2746,setpts=PTS-STARTPTS,"
+                "setsar=1,format=yuv420p[marked-body];\n"
+                "[4:v]setpts=PTS-STARTPTS,fps=60,scale=1920:1080:flags=lanczos,"
+                "trim=start_frame=180:end_frame=2746,setpts=PTS-STARTPTS,"
+                f"crop={width}:{height}:{x}:{y},setsar=1,format=yuv420p[native-region];\n"
+                f"[marked-body][native-region]overlay={x}:{y}:shortest=1:format=yuv420[body];\n")
     graph = (
         "[2:v]trim=end_frame=180,setpts=PTS-STARTPTS,"
         "fade=t=in:st=0:d=0.20,fade=t=out:st=2.80:d=0.20,"
-        f"{footer},setsar=1,format=yuv420p[title];\n"
-        "[0:v]trim=start_frame=180:end_frame=2746,setpts=PTS-STARTPTS,"
-        "setsar=1,format=yuv420p[body];\n"
-        f"[1:v]trim=end_frame=185,setpts=PTS-STARTPTS,{footer},"
+        f"{mark}setsar=1,format=yuv420p[title];\n"
+        + body + f"[1:v]trim=end_frame=185,setpts=PTS-STARTPTS,{mark}"
         "setsar=1,format=yuv420p[ending];\n"
         "[title][body][ending]concat=n=3:v=1:a=0,format=yuv420p[outv]\n"
     )
@@ -118,15 +194,20 @@ def build(manifest: Path) -> None:
         "/usr/bin/ffmpeg", "-v", "warning", "-nostdin", "-n", "-threads", "2",
         "-i", str(inputs["approved_trailer"]), "-threads", "2", "-ss", "43.766666666666667",
         "-i", str(inputs["native_intro"]), "-loop", "1", "-framerate", str(FPS),
-        "-i", str(out / "opening-logo.png"), "-i", str(out / "soundtrack.wav"),
+        "-i", str(out / "opening-logo.png"), "-i", str(audio_input),
+    ]
+    if restoration:
+        command.extend(["-threads", "2", "-i", str(inputs["clean_picture_source"])])
+    command.extend([
         "-filter_complex_threads", "2", "-filter_complex_script", str(out / "filter.ffgraph"),
         "-map", "[outv]", "-map", "3:a:0", "-frames:v", str(FRAMES),
         "-t", "48.85", "-c:v", "libx264", "-crf", "17", "-preset", "fast",
         "-threads", "4", "-pix_fmt", "yuv420p", "-color_primaries", "bt709",
-        "-color_trc", "bt709", "-colorspace", "bt709", "-c:a", "aac", "-b:a", "320k",
-        "-metadata", "title=GloomhavenVR - Unofficial Fan-Made Campaign Intro",
+        "-color_trc", "bt709", "-colorspace", "bt709",
+        *(["-c:a", "copy"] if preserved_audio else ["-c:a", "aac", "-b:a", "320k"]),
+        "-metadata", "title=GloomhavenVR - " + ("Unofficial Fan-Made " if show_label else "") + "Campaign Intro",
         "-movflags", "+faststart", str(movie),
-    ]
+    ])
     save(out / "command.json", command)
     with (out / "render.log").open("wb") as log:
         subprocess.run(command, cwd=out, stdout=log, stderr=subprocess.STDOUT, check=True)
@@ -139,6 +220,14 @@ def build(manifest: Path) -> None:
     assert abs(float(probe["format"]["duration"]) - 48.85) < .001
     subprocess.run(["/usr/bin/ffmpeg", "-v", "error", "-nostdin", "-i", str(movie),
                     "-f", "null", "-"], check=True, stdout=subprocess.DEVNULL)
+    if preserved_audio:
+        delivery_audio_packets = audio_packets(movie)
+        if delivery_audio_packets != original_audio_packets:
+            raise ValueError("Copied audio packets or timestamps differ from the approved intro")
+        audio_receipt.update({"packet_count": len(delivery_audio_packets),
+                              "packet_payloads_and_timestamps_exact": True,
+                              "packet_table_sha256": hashlib.sha256(json.dumps(
+                                  delivery_audio_packets, sort_keys=True).encode()).hexdigest()})
     assert hashes == {key: digest(path) for key, path in inputs.items()}
     save(out / "receipt.json", {
         "status": "rendered-and-decoded-awaiting-visual-review", "movie": str(movie),
@@ -148,9 +237,8 @@ def build(manifest: Path) -> None:
                      {"kind": "approved-trailer-at-source-speed", "frames": [180, 2746]},
                      {"kind": "native-fade-and-black-tail", "frames": [2746, 2931],
                       "native_source_frames": [2626, 2811]}],
-        "audio": {"approved_unchanged_pcm_until_seconds": 45.58,
-                  "native_tail_crossfade_seconds": [45.58, 45.78], "native_tail_shift_seconds": 2.012,
-                  "native_tail_gain": .60, "pcm_peak": float(np.max(np.abs(pcm)))},
+        "audio": audio_receipt, "fan_mod_label": show_label,
+        "clean_native_letterbox_restoration": restoration,
         "opening_approved_AI_preserved": ["O01", "E01", "E02"], "new_paid_calls": 0,
         "native_callbacks_or_game_data_changed": False, "probe": probe,
     })
