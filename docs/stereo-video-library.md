@@ -1,6 +1,6 @@
 # Native stereo movie library
 
-The maintainer approved the actual Build687 GloomhavenVR intro in the headset on
+The maintainer approved the actual Build 687 GloomhavenVR intro in the headset on
 2026-10-17 and requested the remaining native films using the same picture and
 depth profile. The intro's stronger wordmark is a separate root-owned revision.
 The gameplay trailer was explicitly excluded later in the same review because
@@ -26,23 +26,23 @@ There are exactly two embedded VideoClips in these references:
 
 | Source | Native resource | Decoded clock | Treatment |
 | --- | --- | --- | --- |
-| `sharedassets12.assets`, path8, `TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best` | `sharedassets12.resource`, offset0,758298bytes | 240frames at 30 fps,8s | Byte-identical original companion and versioned stereo MOV |
-| `sharedassets1.assets`, path1696, `gameplay_trailer` | `sharedassets1.resource`, offset0,220149969bytes | 6500actualframes at 30 fps,216.666667s | Explicitly excluded; native source remains unchanged |
+| `sharedassets12.assets`, path 8, `TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best` | `sharedassets12.resource`, offset 0, 758,298 bytes | 240 frames at 30 fps, 8 s | Byte-identical original companion and versioned stereo MOV |
+| `sharedassets1.assets`, path 1696, `gameplay_trailer` | `sharedassets1.resource`, offset 0, 220,149,969 bytes | 6,500 actual frames at 30 fps, 216.666667 s | Explicitly excluded; native source remains unchanged |
 
-Unity declares6501 frames for the trailer, whereas the extracted native media
-contains6500. This disagreement is recorded, not corrected by inserting a frame.
+Unity declares 6,501 frames for the trailer, whereas the extracted native media
+contains 6,500. This disagreement is recorded, not corrected by inserting a frame.
 The trailer extraction and census are private developer evidence only.
 
-The serialized startup `IntroPlayer` waits4seconds before hiding its Video
+The serialized startup `IntroPlayer` waits 4 seconds before hiding its Video
 object and beginning a separate native sprite-logo sequence. The complete clip
-is8seconds. Conversion does not change that native continuation or wait; a
+is 8 seconds. Conversion does not change that native continuation or wait; a
 standalone review can show the complete clip. The source startup camera is the
-UI-only orthographic camera27 in `level12`, with the VideoPlayer58 drawing to its
-near plane and no RenderTexture. VideoPlayer58 serializes `playOnAwake=false`,
+UI-only orthographic camera 27 in `level12`, with VideoPlayer 58 drawing to its
+near plane and no RenderTexture. VideoPlayer 58 serializes `playOnAwake=false`,
 `looping=false` and `targetCameraAlpha=1`, so serialized autoplay does not precede
 `IntroPlayer.ShowVideo` and its explicit `Play` call.
 
-The ambient `MainVideoProvider` is level1 component11392, bound to VideoPlayer10593.
+The ambient `MainVideoProvider` is component 11392 in `level1`, bound to VideoPlayer 10593.
 It serializes disabled, `playOnAwake=false`, `looping=true`, CameraFarPlane,
 `targetCameraAlpha=1` and no RenderTexture. `BackgroundView` supplies the native
 ambient URL before explicit playback. Its retained serialized initial trailer
@@ -50,7 +50,7 @@ clip is not an added conversion subject and does not revoke the exclusion.
 
 The retained gameplay trailer is not scheduled by the supplied menu scenes:
 `MainMenu`/`MainMenu_gamepad` (`level2`/`level3`) serialize
-`PromotionVideoHandler.showAtStart=false`, although `timesVideoShows` is3.
+`PromotionVideoHandler.showAtStart=false`, although `timesVideoShows` is 3.
 Consequently the class's stored `PromotionVideo` counter does not enable its
 first-three-launch branch. Neither supplied menu has a serialized `PlayVideo`
 UnityEvent, and the decompiled game has no additional caller. This is source and
@@ -58,31 +58,31 @@ asset evidence, not an observed hardware startup event.
 
 ## Offline conversion
 
-Use the existing `intro-requirements.lock` with CPU Torch2.1.1, Python3.11, and no
-xformers. The catalogue additionally uses UnityPy1.25.4. The model stays an
+Use the existing `intro-requirements.lock` with CPU Torch 2.1.1, Python 3.11, and no
+xformers. The catalogue additionally uses UnityPy 1.25.4. The model stays an
 external pinned input: Video Depth Anything Small, code revision
 `4f5ae23172ba60fd7bc11ef671cca678842c7072`, checkpoint revision
 `256875362cff76724b920335dfb4b29dd611f66e`, checkpoint SHA256
 `13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609`.
 No paid service, model or inference runtime is introduced into the game.
 
-`library_depth.py` uses the unchanged CPU FP32 profile: model input392, native
-32-frame temporal windows with10-frame overlap, every original frame, saved
-640x360 FP16 depth, and one2nd/98th-percentile normalization for each original
+`library_depth.py` uses the unchanged CPU FP32 profile: model input 392, native
+32-frame temporal windows with 10-frame overlap, every original frame, saved
+640x360 FP16 depth, and one 2nd/98th-percentile normalization for each original
 shot. The original near-black separators divide independent inference shots.
 Atomic hash-bound receipts permit a stopped batch to resume without overwriting
 completed depth. An invalid or orphan result is refused for explicit review.
 
-The initial32-frame benchmark performs two complete model windows. Thread counts
-4/8/6 took48.70/49.76/47.61seconds, respectively, with maximum numeric differences
-below 0.000020. Six threads preserve the accepted intro's setting. The first389
-ambient source frames completed in401.187seconds. These are local CPU timings,
+The initial 32-frame benchmark performs two complete model windows. Thread counts
+4/8/6 took 48.70/49.76/47.61 seconds, respectively, with maximum numeric differences
+below 0.000020. Six threads preserve the accepted intro's setting. The first 389
+ambient source frames completed in 401.187 seconds. These are local CPU timings,
 not headset decoder or renderer timings.
 
 `library_stereo.py` consumes only validated receipts. Original native YUV is the
 left picture before final H264 compression. The right picture uses the accepted
 horizontal forward reprojection, foreground depth test, luminance-guided depth
-upsampling, disparity[-4,+12]pixels and64pixel outer-edge feather. Newly exposed
+upsampling, disparity [-4,+12] pixels and a 64-pixel outer-edge feather. Newly exposed
 pixels take adjoining farther original background; there is no generative
 inpainting, replacement artwork or invented scene content.
 
@@ -91,7 +91,7 @@ Each final hero name/banner and class symbol has separate source-specific screen
 regions and original-frame timing. Original early/middle/late pictures, full-shot
 timelines and two-frame-spaced reveal pictures bind the observed envelopes to
 each source hash. The bounds include complete glyphs, emblem tips and thin banner
-borders. The preceding scenery keeps the exact unmasked neural field. A12-frame
+borders. The preceding scenery keeps the exact unmasked neural field. A 12-frame
 smooth preparation ends at the last clear source sample before visible print.
 The native zoom/blur briefly exceeds its settled envelope, sometimes reaching the
 picture edges; a conservative active-picture envelope protects that original
@@ -100,21 +100,21 @@ the print has settled. Character geometry outside the settled panels returns to
 the original neural field. Original cinematic bars are preserved. These masks
 change presentation only: shot addresses, source hashes, native clocks and neural
 depth receipts remain identical. All seven ambient movie objects are unchanged.
-The original studio mark uses a uniform+8pixel positive-disparity plane so its
+The original studio mark uses a uniform +8-pixel positive-disparity plane so its
 lettering remains rigid. Source black fades taper depth using the same luminance
-rule as687. Ambient first/last original black frames have zero disparity, closing
+rule as 687. Ambient first/last original black frames have zero disparity, closing
 their native loop without a new stereo jump.
 
 Each full-SBS movie retains its exact original frame count/fps, ending and all
 AAC packet payloads/timestamps/durations; ambient sources remain silent. Encoding
 uses the accepted explicit BT709 limited-range YUV420, accurate full-chroma right
-conversion, H264 High5.1 and CRF17. Ambient and studio films retain the17Mbps
-maximum rate and34Mbit buffer. New hero renders use a34Mbps maximum and68Mbit
-buffer to preserve the same34dB picture floor in detailed scenes. The initial
-Doomstalker candidate saturated the17Mbps ceiling (16.837Mbps average), with
-native frames360–362 below34dB; its exact candidate, sources, commands and failed
-PSNR/rate evidence remain retained privately. The accepted17Mbps Beast Tyrant
-output is unchanged. The longest hero is17.43seconds; the strict100MiB per-file
+conversion, H264 High 5.1 and CRF 17. Ambient and studio films retain the 17 Mbps
+maximum rate and 34 Mbit buffer. New hero renders use a 34 Mbps maximum and 68 Mbit
+buffer to preserve the same 34 dB picture floor in detailed scenes. The initial
+Doomstalker candidate saturated the 17 Mbps ceiling (16.837 Mbps average), with
+native frames 360–362 below 34 dB; its exact candidate, sources, commands and failed
+PSNR/rate evidence remain retained privately. The accepted 17 Mbps Beast Tyrant
+output is unchanged. The longest hero is 17.43 seconds; the strict 100 MiB per-file
 gate still applies. This increases rate-control headroom without changing CRF,
 codec/profile, pixel geometry, source/depth, clocks or audio. The actual encoder
 policy is recorded in each new render receipt and per-film provenance. Quality
@@ -160,37 +160,41 @@ picture, compares the complete original AAC packet sequence, validates depth
 pins/shapes/hashes, and checks start/middle/end encoded right witnesses for every
 shot. Hero print shots additionally check before preparation, during preparation,
 fully rigid onset and the released settled panel, using explicit native frame
-addresses in both rendering and verification. Both picture metrics use declared native YUV420, with the same 34 dB minimum
+addresses in both rendering and verification. Both picture metrics use declared
+native YUV420, with the same 34 dB minimum
 as the approved intro. Strong depth witnesses also reject a duplicated left eye.
 The verifier validates protected print regions and both native ambient loop
 endpoints. `library_review.py` additionally extracts three actual encoded PNG
 cue pairs with explicit original frame addresses and checked selected PTS, using
 `-fps_mode passthrough`. Ambient cues cover all three native views; hero cues
 include the final protected name/symbol panel. Manual inspection follows the
-automatic gate, with its own hash-bound record in per-film provenance. Decoder children are killed/reaped before the shared completion
+automatic gate, with its own hash-bound record in per-film provenance. Decoder
+children are killed/reaped before the shared completion
 cleanup API runs, including failures and interrupts.
 
-`tests/stereo-video-library/check_library.py` has129 physical/inventory checks and
+`tests/stereo-video-library/check_library.py` has 129 physical/inventory checks and
 33 refusal controls: known near/far directions, unchanged vertical addresses,
 real disocclusion, duplicated/reversed eye differences, actual YUV chroma crop,
-protected print regions, disparity limits, black fades, native30fps timing,
+protected print regions, disparity limits, black fades, native 30 fps timing,
 trailer/root-owned refusal, shot gaps, lost ending, wrong timestamps, half-SBS,
 wrong SAR, duration and color metadata. Timed print checks prove exact pre-title
 depth, smooth preparation, complete enlarged reveals and restored actor depth.
 Independent native printed edge coordinates expose the former clipped generic
 ROI, while an always-on mask is a causal failure control. Missing frame addresses
-and a protection transition ending after visible print are refused. Its first geometry attempt used an
+and a protection transition ending after visible print are refused. Its first
+geometry attempt used an
 ill-posed far-object witness whose supposedly background plane was nearer than
 the object. Correcting that fixture to a farther background passes; the failed
 attempt remains retained and no production geometry was relaxed.
 
-The studio clip's complete encoded verification passes240 left frames and
-240timestamps,375 identical AAC packets and three right witnesses. Minimum PSNR
-is56.16dB left and64.87dB sampled right. The first cave ambience also passes1125 left frames, all native60fps timestamps,
-three depth shots and21 right witnesses, with minima40.74dB left/42.64dB right
+The studio clip's complete encoded verification passes 240 left frames and
+240 timestamps, 375 identical AAC packets and three right witnesses. Minimum PSNR
+is 56.16 dB left and 64.87 dB sampled right. The first cave ambience also passes
+1,125 left frames, all native 60 fps timestamps, three depth shots and 21 right
+witnesses, with minima 40.74 dB left/42.64 dB right
 and zero-disparity original loop endpoints. Both completed subjects have three
-actual decoded cue pairs visually inspected. Per-film provenance states completed media
-results as they become available; this paragraph is not a completed-library claim.
+actual decoded cue pairs visually inspected. Per-film provenance states completed
+media results as they become available; this paragraph is not a completed-library claim.
 
 The movable VR surface displays a recorded fixed stereo pair. Moving the window
 or head changes the view of the surface, not the original camera positions
@@ -200,7 +204,7 @@ headset fusion, comfort, motion, decoder throughput or every native spawn path.
 Those remain subjects of the requested in-scenario review controls.
 
 `tests/stereo-video-library/check_audio.py` verifies the real Beast Tyrant ending:
-747 unchanged encoded H264 packets,584 identical native AAC packets and the same
+747 unchanged encoded H264 packets, 584 identical native AAC packets and the same
 12.45-second audio/video presentation. Four causal controls refuse the original
 encoder's missing last AAC packet, a plain copy mux's extended ending, a changed
 video PTS and a lost final video packet. This bounded media test neither runs
