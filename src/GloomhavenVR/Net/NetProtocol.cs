@@ -612,7 +612,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 679;
+    public const ushort ModBuild = 680;
+
+    // ModBuild680 — unconfirmed card withdrawal, replacement and remote board parity.
+    // Build677 hardware records seven release exceptions: Guildmaster actors may have
+    // no CharacterName, and optional fan-order lookup threw after physical slot removal
+    // but before the native UnselectCard action was queued. Use bounded native-actor
+    // identity for unnamed hands and keep cosmetic ordering independent of withdrawal.
+    // Shared-path review also reproduced replacement eviction between native callbacks,
+    // stale same-card completion, a withdrawn drop being reselected by its older action,
+    // and cross-actor/lost initiative after focus changes. Keep at most two current-drop
+    // presentation tokens, suppress explicitly superseded selects, clear markers when
+    // the scene queue is cancelled, and retain the captured native hand/left-card input.
+    // Native selection and initiative callbacks remain authoritative in all modes.
+    // Focused regressions cover repeated take-back, slot exchanges and actor changes;
+    // owner wanted/occupied/snap state and physical slot order use the unchanged
+    // presence records on observers. No card identity disclosure, wire/default, asset
+    // or game-data change. Actual paired headset behavior remains hardware validation.
 
     // ModBuild679 — campaign intro without the on-picture fan-mod notice.
     // The maintainer explicitly requested removing the notice from the installed

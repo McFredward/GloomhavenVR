@@ -2774,6 +2774,30 @@
         "local"
       ],
       "weight": 50
+    },
+    {
+      "id": "card-selection-runtime",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/check-card-selection-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "card-selection-remote-runtime",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/check-card-selection-remote-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 3
     }
   ]
 }

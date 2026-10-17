@@ -1,5 +1,39 @@
 # State — where the project stands
 
+**Unconfirmed card selection repaired, 2026-10-17: Build680.**
+
+The supplied local Build677 logs contain seven null-name withdrawal exceptions.
+Optional fan ordering threw after physical take-back but before native unselect;
+Guildmaster demonstrated the trigger in a shared scenario path. Unnamed actors
+now use a separate bounded native-GUID order domain. Missing identity never
+prevents the original native withdrawal callback.
+
+General review additionally reproduced intermediate replacement eviction, stale
+same-card completions, explicit take-back overtaken by an older select, and
+cross-actor/lost initiative on focus change. Two current-occupant presentation
+tokens preserve pending placements; deliberate withdrawal supersedes only its
+captured select. View release keeps native input, scene queue cancellation clears
+markers, and initiative uses the captured hand and its actual native round pair.
+Original game callbacks remain authoritative. Existing presence records4/18
+carry wanted/occupied/snap state and physical order; no wire/default/asset change.
+
+Original native callbacks pass3496 assertions/10 controls; complementary exact
+projection passes471/4. These are composed passes after repairing a projection
+source-read binding, with matching production/fixture hashes; no duplicate full
+native run is claimed. Debug/Release build with zero errors/warnings. Integrated
+16 source suites and seven affected existing local suites pass. Remote publication,
+codec and overlay application pass836/11 on stable integrated input. Its first
+attempt refused certification when the integrator edited build-note comments
+during execution; that failure is retained. New fixtures are local-only;
+inventory223 local /100 CI /16 source and the affected inventory test pass.
+Unchanged Build678 composed
+coverage and300,518 golden assertions are inherited, not a new complete local run.
+Private compiled comparison against the captured679 binary limits behavior
+changes to CardsDriver/PlayTray; eight other files contain version inlining only.
+Actual paired headset behavior remains unverified. Review and source-bound
+receipts: `.planning/CARD-SELECTION-680-REVIEW.md` and ignored
+`.planning/debug/card-selection680/`.
+
 **Steam Link r7 software ready; Frame unchanged, 2026-10-17.**
 
 Fork dev16e7372 implements the source-backed zero-sRGB adapter guarded by the
