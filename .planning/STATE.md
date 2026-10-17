@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest first tutorial and confirmed primitive repair, 2026-10-17: feature / B678.**
+
+Capture082642 verifies B677; the maintainer confirms visible menu and no blue
+pointer-hit facets. Retain that repair and the previously confirmed full viewport.
+Quest resolution now keeps its existing0.5–2.0 range at next app start, with
+actual per-eye pixels and explicit restart guidance; shared0.8 default remains.
+Repair Quest card/portrait copy and content-identity seams without game/art
+reconversion. The black first-Tutorial environment remains unproven: retain
+bounded generation/visibility/material and controlled GPU evidence, rather than
+replacing native world shaders speculatively. Exact-source focused tests and
+hardware limits are recorded in the handoff. See
+[QUEST-TUTORIAL-082642-20261017.md](QUEST-TUTORIAL-082642-20261017.md).
+
+
 **Quest primitive uploads and actual consumer evidence, 2026-10-17: feature / B677.**
 
 Capture074018 confirms B676's owned shader is active but black menu and large

@@ -612,7 +612,31 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 677;
+    public const ushort ModBuild = 678;
+
+    // ModBuild678 — first Quest tutorial: resolution and native artwork inputs.
+    // Capture082642 verifies B677 and the maintainer confirms that both the
+    // black menu and oversized blue pointer facets are resolved. Preserve those
+    // uploads and B675's full viewport. The first Tutorial now exposes a black
+    // environment, wrong initiative/stat portraits and damaged ability artwork.
+    // The Quest provider's0.8 target is1344x1408; the factor is not an absolute
+    // cross-platform pixel count. Remove the two artificial1.0 ceilings and
+    // retain the existing0.5--2.0 range at stopped-display startup only. Show
+    // actual pixels and restart semantics in the row and both player-help paths;
+    // the shared mobile default stays0.8, with no live Vulkan allocation resize.
+    // Quest mip copies use the existing explicit2D sampler. Runtime portrait
+    // atlases may share name/size while changing content: key their preparation
+    // by source identity/version, refresh stale consumers and bound metadata,
+    // preserving native UV/provenance and the ordinary desktop behavior.
+    // Bounded Debug artwork/source samples and scenario CPU/GPU observations
+    // survive earlier initialization saturation within unchanged log budgets.
+    // The procedural engine initialization alone does not establish generated
+    // terrain or final GPU output. Do not substitute shaders or relabel an
+    // unproven terrain repair as fixed; new evidence separates these boundaries.
+    // Focused platform/provider/artwork/diagnostic checks and strict compilation
+    // are recorded in the handoff. No original game/art bank reconversion or
+    // local full APK build; new headset sharpness, artwork and world outcomes
+    // still require hardware verification through the compact Mod Update path.
 
     // ModBuild677 — explicit Quest primitive buffers and bounded consumer probes.
     // Capture074018 proves B676 actually uses the owned Overlay shader but the
