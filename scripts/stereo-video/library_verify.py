@@ -13,6 +13,7 @@ import sys
 import cv2
 import numpy as np
 from intro_depth import validate_model
+from library_review import extract_cues
 from library_common import (WIDTH, HEIGHT, audio_packets, digest, field_for,
     forward_warp, load_movie, read_depth, save, source_for)
 
@@ -174,6 +175,7 @@ def verify(args) -> dict:
         raise ValueError(f'Original left picture or ending below34dB: {min(values) if values else "no frames"}')
     right = verify_right(args, movie, source)
     save(args.out / 'right-frame-validation.json', right)
+    review = extract_cues(args.stereo, movie, args.out / 'decoded-review')
     proof = {'status': 'passed', 'movie': movie['key'], 'source_sha256': movie['source_sha256'],
         'stereo_sha256': digest(args.stereo), 'stereo_bytes': args.stereo.stat().st_size,
         'video': video_proof, 'identical_aac_packets': len(stereo_audio),
@@ -182,7 +184,9 @@ def verify(args) -> dict:
         'minimum_right_witness_psnr_db': min(x['right_reference_psnr_db'] for x in right['witnesses']),
         'native_loop_endpoints': right['native_loop_endpoints'],
         'verification_source_sha256': digest(Path(__file__)), 'manifest_sha256': digest(args.manifest),
-        'hardware_result': 'unverified'}
+        'decoded_cue_frames': [entry['frame'] for entry in review['frames']],
+        'decoded_cue_receipt_sha256': digest(args.out / 'decoded-review/receipt.json'),
+        'manual_visual_review': 'pending', 'hardware_result': 'unverified'}
     save(args.out / 'result.json', proof)
     print(json.dumps(proof), flush=True)
     return proof
