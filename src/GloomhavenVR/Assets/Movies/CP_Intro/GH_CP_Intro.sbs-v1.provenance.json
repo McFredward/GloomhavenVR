@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "authority": "Maintainer 2026-10-17: convert the already replaced approved GloomhavenVR intro; other films await headset approval.",
+  "source": {
+    "path": "GH_CP_Intro.mov",
+    "sha256": "22fc9f48d4da6783fed379122e8c5675c4149afd9c0bc90550a9e4e22696fec5",
+    "provenance": "docs/trailer/game-intro.md",
+    "read_only_game_original_used": false
+  },
+  "output": {
+    "path": "GH_CP_Intro.sbs-v1.mov",
+    "sha256": "6929a4ad75df7ab7ea77cfed9630338110984e14d05b048b0fdf7c54709db93c",
+    "bytes": 93329919,
+    "packing": "full-SBS-left-first",
+    "packed_size": [
+      3840,
+      1080
+    ],
+    "per_eye_size": [
+      1920,
+      1080
+    ],
+    "frames": 2931,
+    "fps": 60,
+    "duration_seconds": 48.85,
+    "codec": "H264 High level 5.1, YUV420p, BT709 limited",
+    "audio": "AAC stereo 48kHz; all2291 packet payloads, PTS, DTS and durations identical"
+  },
+  "conversion": {
+    "left": "original decoded YUV pixels directly hstacked before final H264 encode",
+    "right": "depth-based horizontal forward reprojection with foreground depth test",
+    "disocclusion_fill": "farther adjoining source background; no generative inpainting",
+    "disparity_x_left_minus_x_right_px": [
+      -4,
+      12
+    ],
+    "depth_shots": 21,
+    "title_logo_and_black_segments": "screen plane",
+    "head_pose_view_synthesis": false,
+    "encoder": "libx264 CRF17, maxrate17Mbps, bufsize34Mb, GOP60; full-chroma accurate BT709 conversion"
+  },
+  "model": {
+    "name": "Video Depth Anything Small",
+    "code_revision": "4f5ae23172ba60fd7bc11ef671cca678842c7072",
+    "model_revision": "256875362cff76724b920335dfb4b29dd611f66e",
+    "checkpoint_sha256": "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609",
+    "checkpoint_bytes": 116440756,
+    "license": "Apache-2.0",
+    "execution": "Local CPU FP32, torch2.1.1+cpu, model input392, temporal window32, overlap10, output640x360 FP16; shot-wide normalization"
+  },
+  "inputs_sha256": {
+    "scripts/stereo-video/intro-shots.json": "e4f047827ea948609a3c239574f0dce6049860f0769c6fe050a3b6c58154bb0e",
+    "scripts/stereo-video/intro-requirements.lock": "5297aca6eef2986a5b80d1570653c3892118938284d55d87981128523cffd562",
+    "scripts/stereo-video/intro_depth.py": "4aa7ccf1d43b8fa2fb142c4807834440f7be6c5f87540b850c5e893d2a5722b6",
+    "scripts/stereo-video/intro_stereo.py": "c5af4db8ae3aa2de7ae182e3fc82c071001f113334ad0888e1bd8fb1972b14a7",
+    "scripts/stereo-video/verify_intro.py": "730be0203800114de99b526d26c20037071d15a5e5241ce6f4eb519ff8bbf8af"
+  },
+  "executed_sources_sha256": {
+    "intro_depth-launched.py": "f967b3ba8d1c87474332eef1390e595e69c962177eb750eb42c3a80bfb6c0931",
+    "intro_stereo-v4-launched.py": "c5af4db8ae3aa2de7ae182e3fc82c071001f113334ad0888e1bd8fb1972b14a7"
+  },
+  "execution_note": "Inference launched before atomic-receipt/worktree-check hardening. The original executed source is pinned separately; the completed depths and model pins were independently validated afterward.",
+  "receipts_sha256": {
+    "depth-manifest.json": "c46a0457a77cb365a0ef3310abd21c61e10ab0564394a3ca4452334683414213",
+    "render-v4/receipt.json": "745282a3ab58d2795d77d25cdcd4d2282303439c10202dcaeea4b7d7abb51b24",
+    "verification/result.json": "8e445b5dbe7eaa74b3c48465f029d78b5d193aa4ea56902b5193d8ece977a3c9",
+    "verification/right-frame-validation.json": "ee945260a8e47f15c6aa470ff264028f01ad220723e9fd42e118dc9f56be57fc"
+  },
+  "verification": {
+    "status": "passed",
+    "decoded_frame_addresses_checked": 2931,
+    "identical_aac_packets": 2291,
+    "left_frames_compared": 2931,
+    "left_minimum_psnr_db": 35.33,
+    "right_witness_frames": 78,
+    "right_minimum_psnr_db": 36.06456412741546,
+    "comparison_space": "Both eyes native YUV420, same34dB minimum; independent same-frame right reconstruction and duplicate-eye controls.",
+    "private_evidence_root": ".planning/debug/stereo-video-intro687/",
+    "hardware_result": "unverified"
+  }
+}

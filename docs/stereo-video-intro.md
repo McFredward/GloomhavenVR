@@ -114,6 +114,14 @@ The world-space RawImage uses the tested embedded per-eye shader and per-eye
 16:9 aspect. Mono/unknown cameras use left. Closing or external destruction
 releases the owned material/camera hooks. There is no new setting or test button.
 
+The recorded stereo pair follows the existing movable, yaw-only video window.
+Moving or resizing that window moves or scales the whole stereo presentation.
+Head position changes the view of the window, but cannot generate new scene
+perspectives, positional parallax or unseen surfaces behind foreground objects.
+Depth is encoded as fixed pixel disparity relative to the screen plane; window
+size, viewing distance and angle affect its apparent strength. This is a stereo
+film, without head-pose view synthesis or volumetric reconstruction.
+
 Existing TLV72 carries the actual versioned selected movie key; its wire layout
 is unchanged. Peers resolve the exact selected revision and never upgrade an
 owner-selected2D movie locally. A renderer failure displays the same SBS file's
@@ -148,3 +156,14 @@ against their same-clock reprojection, including separation from duplicated left
 pictures where the source provides a strong stereo witness. Those checks cannot prove correct
 depth, comfortable fusion, motion quality, hand edges, decoder performance or
 first-save continuation on a headset. Hardware evidence remains separate.
+
+The delivered movie SHA256 is
+`6929a4ad75df7ab7ea77cfed9630338110984e14d05b048b0fdf7c54709db93c`
+(93,329,919 bytes). Completed verification checks2931 original frame addresses,
+2291 identical AAC packets,21 depth shots and78 encoded right witnesses. Minimum
+native-YUV420 PSNR is35.33dB for all-frame left and36.06dB for sampled right.
+The adjacent `GH_CP_Intro.sbs-v1.provenance.json` pins the actual movie, model,
+executed generators and verification receipts. These are offline checks;
+headset depth and first-save continuation remain unverified. The maintainer
+requires no additional archive delivery: the normal installation script creates
+its regular ZIP from these separate Content files.
