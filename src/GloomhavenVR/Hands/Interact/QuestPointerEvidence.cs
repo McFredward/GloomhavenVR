@@ -46,20 +46,32 @@ internal static class QuestPointerEvidence
             text.Append(" span=").Append(Vector3.Distance(first, last).ToString("F3", CultureInfo.InvariantCulture));
             text.Append(" screen=").Append(Point(head.WorldToViewportPoint(first))).Append('>')
                 .Append(Point(head.WorldToViewportPoint(last)));
-            var snapshot = new Mesh();
-            try
-            {
-                own.BakeMesh(snapshot, head, true);
-                text.Append(" baked=").Append(snapshot.vertexCount).Append('/')
-                    .Append(snapshot.bounds.size.magnitude.ToString("F3", CultureInfo.InvariantCulture));
-            }
-            finally { UnityEngine.Object.Destroy(snapshot); }
+            // B681's next hardware report loses the hit marker even though the
+            // actual renderer remains active. The pointer's only new native
+            // rendering operation was this diagnostic's BakeMesh. Its Android
+            // side effects are unproven; do not ask a diagnostic to generate or
+            // destroy draw geometry. Passive endpoint/bounds and real consumer
+            // state below retain the useful distinction without touching the
+            // original LineRenderer's native mesh lifecycle.
+            text.Append(" baked=not-requested bounds=")
+                .Append(own.bounds.size.magnitude.ToString("F3", CultureInfo.InvariantCulture));
         }
         if (marker != null)
         {
             Renderer? renderer = marker.GetComponent<Renderer>();
             text.Append(" marker=").Append(renderer != null && renderer.enabled && marker.gameObject.activeInHierarchy);
-            if (renderer != null) text.Append('/').Append(renderer.bounds.size.magnitude.ToString("F3", CultureInfo.InvariantCulture));
+            if (renderer != null)
+            {
+                text.Append('/').Append(renderer.bounds.size.magnitude.ToString("F3", CultureInfo.InvariantCulture));
+                text.Append(" drawnLayer=").Append((head.cullingMask & (1 << marker.gameObject.layer)) != 0);
+                Material? material = renderer.sharedMaterial;
+                Texture? texture = material != null ? material.mainTexture : null;
+                text.Append(" material=").Append(material != null ? material.GetInstanceID() : 0)
+                    .Append(" texture=").Append(texture != null ? texture.GetInstanceID() : 0);
+                if (texture != null) text.Append('/').Append(texture.width).Append('x').Append(texture.height);
+                text.Append(" tintA=").Append(material != null && material.HasProperty("_Color")
+                    ? material.color.a.ToString("F2", CultureInfo.InvariantCulture) : "none");
+            }
         }
         LineRenderer[] lines = Resources.FindObjectsOfTypeAll<LineRenderer>();
         int active = 0, described = 0, scanned = Math.Min(lines.Length, 64);

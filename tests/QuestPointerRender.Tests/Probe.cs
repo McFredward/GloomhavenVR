@@ -25,6 +25,7 @@ public static class QuestPointerRenderProbe
     [Serializable] sealed class Report
     {
         public string unity, graphics, colorSpace;
+        public int assertions;
         public bool hardwareVerified = false;
         public List<Row> cases = new List<Row>();
     }
@@ -74,7 +75,7 @@ public static class QuestPointerRenderProbe
         try
         {
             void Require(bool condition, string message)
-            { if (!condition) throw new Exception(message); }
+            { report.assertions++; if (!condition) throw new Exception(message); }
             Require(sprite.shader == Shader.Find("Sprites/Default"), "Desktop keeps its original native sprite material");
             Require(owned.shader.name == "GloomhavenVR/Overlay", "Quest resolves the already owned ordinary mesh shader");
             Require(owned.renderQueue == 4600 && sprite.renderQueue == 4600, "Both platform paths retain pointer render queue");
@@ -203,11 +204,16 @@ public static class QuestPointerRenderProbe
             SameRgba(Capture("quest-owned-shader-missing-native-fallback", native, fallback, quest: true), desktop,
                 "Missing owned shader does not drop the beam/marker or change its fallback RGBA");
             Object.DestroyImmediate(fallback);
+            var beforeObservation = Capture("marker-before-passive-pointer-observation", explicitSphere, owned, quest: true);
             PointerEvidence(line, sphere.transform, camera);
-            Debug.Log("PASS native pointer GPU characterization: " + report.cases.Count);
+            var afterObservation = Capture("marker-after-passive-pointer-observation", explicitSphere, owned, quest: true);
+            SameRgba(afterObservation, beforeObservation,
+                "Pointer observation must preserve every rendered marker RGBA pixel");
+            File.WriteAllText(Path.Combine(output, "results.json"), JsonUtility.ToJson(report, true) + "\n");
+            UnityEngine.Debug.Log("PASS native pointer GPU characterization: " + report.cases.Count + " cases, " + report.assertions + " assertions");
             EditorApplication.Exit(0);
         }
-        catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
+        catch (Exception error) { UnityEngine.Debug.LogException(error); EditorApplication.Exit(1); }
         finally
         {
             Object.DestroyImmediate(sprite); Object.DestroyImmediate(owned); Object.DestroyImmediate(explicitSphere);
@@ -228,10 +234,18 @@ public static class QuestPointerRenderProbe
         var peer = new GameObject("second-pointer-東京-😀-very-long").AddComponent<LineRenderer>();
         peer.positionCount = 2; peer.useWorldSpace = false;
         peer.SetPositions(new[] { new Vector3(.3f, -.3f, 1.5f), new Vector3(.2f, .1f, 1.5f) });
+        bool beforeLineActive = line.gameObject.activeSelf;
         line.gameObject.SetActive(true);
         var beforeStart = line.GetPosition(0); var beforeEnd = line.GetPosition(1);
         var beforeProjection = camera.projectionMatrix;
         var beforeMaterial = line.sharedMaterial;
+        var markerRenderer = marker.GetComponent<Renderer>();
+        var beforeMarkerMaterial = markerRenderer.sharedMaterial;
+        var beforeMarkerMesh = marker.GetComponent<MeshFilter>().sharedMesh;
+        var beforeMarkerPosition = marker.position;
+        var beforeMarkerScale = marker.localScale;
+        var beforeMarkerActive = marker.gameObject.activeSelf;
+        int beforeMeshes = Resources.FindObjectsOfTypeAll<Mesh>().Length;
         try
         {
             GloomhavenVR.Core.QuestStandalonePlatform.Enabled = false;
@@ -257,17 +271,26 @@ public static class QuestPointerRenderProbe
             foreach (string message in messages)
                 Require(System.Text.Encoding.UTF8.GetByteCount(message) <= 500 && message.Contains("points=2")
                     && message.Contains("activeLines=2") && message.Contains("peers= second-point")
-                    && message.Contains("baked=4/") && message.Contains("primary=True"),
+                    && message.Contains("baked=not-requested bounds=") && message.Contains("primary=True")
+                    && message.Contains("drawnLayer=True") && message.Contains("tintA=0.35"),
                     "Pointer evidence must contain actual duplicate/native geometry within 500 bytes: " + message);
             Require(line.GetPosition(0) == beforeStart, "Pointer evidence must preserve start");
             Require(line.GetPosition(1) == beforeEnd, "Pointer evidence must preserve end");
             Require(line.sharedMaterial == beforeMaterial && line.enabled, "Pointer evidence must preserve renderer");
             Require(camera.projectionMatrix == beforeProjection, "Pointer evidence must preserve camera");
-            Debug.Log("PASS pointer observation: " + assertions + " assertions; native two-line census, baked geometry, gates, contexts, bounds and read-only state");
+            Require(marker.gameObject.activeSelf == beforeMarkerActive && markerRenderer.enabled,
+                "Pointer evidence must preserve the visible hit marker");
+            Require(markerRenderer.sharedMaterial == beforeMarkerMaterial && marker.GetComponent<MeshFilter>().sharedMesh == beforeMarkerMesh
+                && marker.position == beforeMarkerPosition && marker.localScale == beforeMarkerScale,
+                "Pointer evidence must preserve marker draw inputs");
+            Require(Resources.FindObjectsOfTypeAll<Mesh>().Length == beforeMeshes,
+                "Pointer evidence must not allocate native mesh objects");
+            UnityEngine.Debug.Log("PASS pointer observation: " + assertions + " assertions; native two-line census, passive geometry, gates, contexts, bounds and read-only state");
         }
         finally
         {
             Application.logMessageReceived -= capture;
+            line.gameObject.SetActive(beforeLineActive);
             Object.DestroyImmediate(peer.gameObject);
         }
     }
