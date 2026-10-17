@@ -94,9 +94,15 @@ every frame (minimum34.48dB), but a bright spell's right RGB witness at1859
 measured33.78dB against the required34dB minimum. It was not delivered. A separate
 lossless420 roundtrip measured41.65dB and exposed avoidable conversion rounding;
 full-chroma/accurate-rounding conversion improved that oracle to45.16dB.
-Render-v4 uses that conversion, CRF17 and17Mbps/34Mb VBV. Validation thresholds
-remain unchanged; full-size per-eye pictures, source frame addresses and audio
-are unchanged. Candidate receipts and failed validation remain private evidence.
+Render-v4 uses that conversion, CRF17 and17Mbps/34Mb VBV. A later end-of-spell
+witness exposed an inconsistent comparison space: left was tested in native
+YUV420, right against RGB before chroma subsampling and a second RGB reconstruction.
+An exact-frame offset control selects1913 unambiguously (RGB33.80dB versus27.26dB
+at1912 and13.00dB at1914); the same encoded right frame measures37.30dB in its
+declared YUV420 format. Both eyes now use that native-format comparison with the
+same34dB minimum. This correction is recorded separately from the encoder quality
+improvement; earlier failed results are retained. Full-size per-eye pictures,
+source frame addresses and audio are unchanged.
 
 ## Native playback and delivery
 

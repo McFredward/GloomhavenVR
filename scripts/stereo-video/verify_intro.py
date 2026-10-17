@@ -71,8 +71,12 @@ def verify_right_frames(args, manifest: dict) -> list[dict]:
     try:
         for name, path in (("source", args.source), ("packed", args.stereo)):
             command = ["ffmpeg", "-hide_banner", "-v", "error", "-nostdin", "-threads", "2",
-                       "-i", str(path), "-map", "0:v:0", "-an", "-vf",
-                       "scale=in_color_matrix=bt709:in_range=tv", "-pix_fmt", "bgr24", "-f", "rawvideo", "-"]
+                       "-i", str(path), "-map", "0:v:0", "-an"]
+            if name == "source":
+                command += ["-vf", "scale=in_color_matrix=bt709:in_range=tv", "-pix_fmt", "bgr24"]
+            else:
+                command += ["-pix_fmt", "yuv420p"]
+            command += ["-fps_mode", "passthrough", "-f", "rawvideo", "-"]
             error = (args.out / f"right-{name}-decode.log").open("wb")
             logs.append(error)
             owned.append(subprocess.Popen(command, stdout=subprocess.PIPE, stderr=error, start_new_session=True))
@@ -86,21 +90,40 @@ def verify_right_frames(args, manifest: dict) -> list[dict]:
                     depth = archive["depths"]
             for frame in range(shot["start"], shot["end"]):
                 original_bytes = source.stdout.read(1920 * 1080 * 3)
-                actual_bytes = packed.stdout.read(3840 * 1080 * 3)
-                if len(original_bytes) != 1920 * 1080 * 3 or len(actual_bytes) != 3840 * 1080 * 3:
+                actual_bytes = packed.stdout.read(3840 * 1080 * 3 // 2)
+                if len(original_bytes) != 1920 * 1080 * 3 or len(actual_bytes) != 3840 * 1080 * 3 // 2:
                     raise ValueError("Decoded right-eye clock lost an original frame")
                 if frame not in witnesses:
                     continue
                 original = np.frombuffer(original_bytes, np.uint8).reshape(1080, 1920, 3)
-                actual = np.frombuffer(actual_bytes, np.uint8).reshape(1080, 3840, 3)[:, 1920:]
+                planes = np.frombuffer(actual_bytes, np.uint8)
+                y_size, uv_size = 3840 * 1080, 1920 * 540
+                actual = np.concatenate((planes[:y_size].reshape(1080, 3840)[:, 1920:].ravel(),
+                    planes[y_size:y_size + uv_size].reshape(540, 1920)[:, 960:].ravel(),
+                    planes[y_size + uv_size:].reshape(540, 1920)[:, 960:].ravel()))
                 expected = original
                 if depth is not None:
                     field = disparity_field(depth[frame - shot["start"]], original, *info["normalization_p02_p98"])
                     field *= min(1.0, float(original[124:962].mean()) / 8.0)
                     expected, _ = forward_warp(original, field)
-                mse = float(np.mean((actual.astype(np.float32) - expected.astype(np.float32)) ** 2))
-                duplicate_mse = float(np.mean((actual.astype(np.float32) - original.astype(np.float32)) ** 2))
-                expected_difference = float(np.mean((expected.astype(np.float32) - original.astype(np.float32)) ** 2))
+                # Compare in the declared delivery format, exactly as the full
+                # left-eye PSNR filter does. RGB includes a second chroma upsample
+                # and rounding error which is not H264 encoding distortion.
+                conversion = ["ffmpeg", "-v", "error", "-threads", "1", "-filter_threads", "1",
+                    "-f", "rawvideo", "-pixel_format", "bgr24", "-video_size", "1920x1080", "-i", "-",
+                    "-vf", "scale=flags=bicubic+accurate_rnd+full_chroma_int+full_chroma_inp:"
+                    "out_color_matrix=bt709,format=yuv420p", "-frames:v", "2", "-pix_fmt", "yuv420p",
+                    "-f", "rawvideo", "-"]
+                converted = subprocess.check_output(conversion, input=expected.tobytes() + original.tobytes())
+                frame_size = 1920 * 1080 * 3 // 2
+                if len(converted) != 2 * frame_size:
+                    raise ValueError("Independent YUV420 reference conversion lost a witness")
+                reference = np.frombuffer(converted, np.uint8)[:frame_size].astype(np.float32)
+                duplicate = np.frombuffer(converted, np.uint8)[frame_size:].astype(np.float32)
+                actual_float = actual.astype(np.float32)
+                mse = float(np.mean((actual_float - reference) ** 2))
+                duplicate_mse = float(np.mean((actual_float - duplicate) ** 2))
+                expected_difference = float(np.mean((reference - duplicate) ** 2))
                 psnr = 10 * math.log10(255 ** 2 / mse) if mse else 999.0
                 if psnr < 34:
                     raise ValueError(f"Encoded right eye lost reprojection/frame correspondence at {frame}: {psnr:.2f}dB")
@@ -108,7 +131,8 @@ def verify_right_frames(args, manifest: dict) -> list[dict]:
                 # stereo witness. Near-black/title frames intentionally match.
                 if expected_difference > 20 and duplicate_mse <= mse * 2:
                     raise ValueError(f"Encoded right eye is consistent with a duplicated left at {frame}")
-                results.append({"frame": frame, "shot": shot["id"], "right_reference_psnr_db": psnr,
+                results.append({"frame": frame, "shot": shot["id"], "metric_space": "native-YUV420",
+                                "right_reference_psnr_db": psnr,
                                 "actual_right_vs_duplicate_left_mse": duplicate_mse,
                                 "expected_stereo_difference_mse": expected_difference})
         for process in owned:
