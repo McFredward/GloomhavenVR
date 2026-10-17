@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-17 for Build687: approved VR intro in stereo; calibration action/media retired.
+Updated 2026-10-17: published Build694 retained; complete stereo-library integration in progress.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,8 +10,11 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [STEREO-VIDEO-LIBRARY-2026-10-17.md](STEREO-VIDEO-LIBRARY-2026-10-17.md) | Active 20-subject stereo integration, stronger approved-intro wordmark, scenario review controls, exact media/proof status and gameplay-trailer exclusion |
+| [../docs/stereo-video-library.md](../docs/stereo-video-library.md) | Native media authorities, pinned conversion and encoder policies, original clocks/audio and verification boundaries |
+| [STEAM-LINK-694-PRESENTATION.md](STEAM-LINK-694-PRESENTATION.md) | Retained published loading continuity and UI-effect bounds repair, focused source/raster evidence and residual headset-softness limit |
 | [STEREO-VIDEO-MENU-685.md](STEREO-VIDEO-MENU-685.md) | Build683 missing-file evidence, repeatable Advanced menu action and separate-media build/install/ZIP repair |
-| [../docs/stereo-video-intro.md](../docs/stereo-video-intro.md) | Current approved GloomhavenVR intro-only conversion, model/media pins, native playback and verification scope |
+| [../docs/stereo-video-intro.md](../docs/stereo-video-intro.md) | Approved GloomhavenVR intro, stronger-wordmark revision, model/media pins, native playback and verification scope |
 | [STEREO-VIDEO-683.md](STEREO-VIDEO-683.md) | Historical calibration, embedded-video census and GPU/lifecycle evidence; runtime test retired after685 success |
 | [TRAILER-3D-VIDEO-HANDOFF.md](TRAILER-3D-VIDEO-HANDOFF.md) | Accepted staged stereo-video direction, media authorities and later conversion/integration scope |
 | [WATER-673-REVIEW.md](WATER-673-REVIEW.md) | Exact native water publication, owned slots/queues, final compiled scope and focused validation limits |
