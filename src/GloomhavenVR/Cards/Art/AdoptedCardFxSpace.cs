@@ -21,11 +21,14 @@ namespace GloomhavenVR.Cards;
 /// already places it one queue after the print (at most 3090, below the ghost hand).
 /// Apply that identical ordering here while leaving the native timeline, tint, texture,
 /// blend and hierarchy untouched. These are presentation corrections, not another burn.
+/// Quest's Linear renderer also needs the original Gamma-authored flame mask to
+/// remain numerical: a private bit-identical non-sRGB texture view preserves the
+/// shader's green-channel thresholds. The original native texture is never changed.
 ///
 /// Only initialized, adopted CardEffects materials are written. Initialize creates a
 /// private Material for EVERY non-null imgComp image and fgFx (CardEffects.cs:316-340),
 /// before any timeline runs. No authored/shared material is touched. We retain each
-/// original footprint/queue and restore those fields when CardFace yields or returns
+/// original footprint/queue/mask and restore those fields when CardFace yields or returns
 /// the face; every other property keeps the native timeline's latest value.
 /// </summary>
 internal sealed class AdoptedCardFxSpace
@@ -35,6 +38,7 @@ internal sealed class AdoptedCardFxSpace
     private const int FlameQueueCeiling = 3090;
     private readonly Dictionary<Material, Vector4> _bounds = new();
     private readonly Dictionary<Material, int> _queues = new();
+    private readonly Dictionary<Material, Texture> _fireMasks = new();
     private Material? _measuredFlame;
     private int _faceQueue = -1;
     private bool _reported;
@@ -83,6 +87,22 @@ internal sealed class AdoptedCardFxSpace
 
         Image? flame = fx._uiFxOverlay;
         Material? flameMaterial = flame != null ? flame.material : null;
+        Texture2D? originalFire = fx.overlayFrameBurn as Texture2D;
+        if (QuestStandalonePlatform.Enabled && flameMaterial != null && originalFire != null
+            && flameMaterial.shader != null && flameMaterial.shader.name == "GUI/GUI_Shine_Sphere_Blend_Shd"
+            && flameMaterial.HasProperty("_ParticleTexture")
+            && flameMaterial.GetTexture("_ParticleTexture") == originalFire)
+        {
+            Texture2D? mask = QuestCardFireMask.For(originalFire);
+            if (mask != null)
+            {
+                if (_fireMasks.TryGetValue(flameMaterial, out Texture retained))
+                    QuestCardFireMask.Release(retained == originalFire ? originalFire : retained);
+                _fireMasks[flameMaterial] = originalFire;
+                flameMaterial.SetTexture("_ParticleTexture", mask);
+                flame!.SetMaterialDirty();
+            }
+        }
         if (flameMaterial != null && !ReferenceEquals(flameMaterial, _measuredFlame))
         {
             _measuredFlame = flameMaterial;
@@ -114,13 +134,19 @@ internal sealed class AdoptedCardFxSpace
                 $"image footprint(s), inherited {inherited}, hosted {footprint}; flame queue " +
                 $"{(flameMaterial != null ? flameMaterial.renderQueue : -1)}, print queue {_faceQueue}. " +
                 "The original screen origin and opaque flame queue cannot describe this world canvas. " +
-                "Native material state is live; only our footprint/queue are restored at release. " +
+                "Native material state is live; our footprint/queue and numerical mask binding are restored at release. " +
                 "This measures the render inputs, not the final headset pixels.");
         }
     }
 
     internal void Restore()
     {
+        foreach (KeyValuePair<Material, Texture> entry in _fireMasks)
+        {
+            if (entry.Key != null && QuestCardFireMask.Matches(entry.Key.GetTexture("_ParticleTexture"), entry.Value))
+                entry.Key.SetTexture("_ParticleTexture", entry.Value);
+            QuestCardFireMask.Release(entry.Value);
+        }
         foreach (KeyValuePair<Material, Vector4> entry in _bounds)
             if (entry.Key != null)
                 entry.Key.SetVector(BoundsId, entry.Value);
@@ -129,6 +155,7 @@ internal sealed class AdoptedCardFxSpace
                 entry.Key.renderQueue = entry.Value;
         _bounds.Clear();
         _queues.Clear();
+        _fireMasks.Clear();
         _measuredFlame = null;
         _faceQueue = -1;
         _reported = false;

@@ -70,7 +70,7 @@ internal static class QuestCardFireEvidence
         return $"id={material.GetInstanceID()} shader={material.shader?.name} supported={material.shader?.isSupported} "
             + $"queue={material.renderQueue} anim={Read(material, "_FXAnim"):F3} glow={Read(material, "_Glow"):F2} "
             + $"tint={(material.HasProperty("_TintColor") ? material.GetColor("_TintColor") : Color.clear)} "
-            + $"particle={texture?.name} expected={expected != null && texture == expected}";
+            + $"particle={texture?.name} expected={expected != null && (texture == expected || QuestCardFireMask.Matches(texture, expected))}";
     }
     private static float Read(Material material, string property) => material.HasProperty(property)
         ? material.GetFloat(property) : float.NaN;

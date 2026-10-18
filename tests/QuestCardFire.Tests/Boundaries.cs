@@ -28,3 +28,12 @@ namespace GloomhavenVR.Core
         internal static bool Wants(VRLogLevel level) => DebugEnabled;
     }
 }
+namespace GloomhavenVR.Cards
+{
+    // This passive observer fixture does not create a numerical sampling alias.
+    // The actual alias producer/binding is exercised by the native-mask fixture.
+    internal static class QuestCardFireMask
+    {
+        internal static bool Matches(Texture? candidate, Texture? original) => false;
+    }
+}
