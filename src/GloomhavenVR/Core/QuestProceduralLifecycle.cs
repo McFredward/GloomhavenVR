@@ -42,6 +42,7 @@ internal static class QuestProceduralLifecycle
         _ignoredFreeformSuppression = ignoredFreeformSuppression;
         VRSession.Harmony?.PatchAll(typeof(UnityGameEditorRuntime_QuestPlacementLoading));
         VRSession.Harmony?.PatchAll(typeof(ApparanceEngine_QuestPendingRequests));
+        VRSession.Harmony?.PatchAll(typeof(AudioObject_QuestCombatEvidence));
         var owner = new GameObject("GloomhavenVR.QuestProceduralLifecycle");
         UnityEngine.Object.DontDestroyOnLoad(owner);
         _driver = owner.AddComponent<Driver>();

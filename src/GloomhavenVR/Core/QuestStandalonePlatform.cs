@@ -27,6 +27,11 @@ public static class QuestStandalonePlatform
     private static bool? _lastPassthroughRequest;
     private static bool _passthroughFailureLogged;
 
+    // Small Debug-only snapshots are retained outside the saturated text-log
+    // lanes; original playback/guide owners remain unchanged.
+    public static string[] AudioPlaybackDiagnostics => DebugLogging ? QuestCombatAudioEvidence.Snapshot : Array.Empty<string>();
+    public static string[] CardGuideDiagnostics { get; set; } = Array.Empty<string>();
+
     public static bool Enabled => Application.platform == RuntimePlatform.Android && _resourceDirectory != null;
     public static string ResourceDirectory => Enabled ? _resourceDirectory! : throw new InvalidOperationException("Quest standalone platform is not configured.");
     internal static string EnvironmentBundleDirectory => Enabled ? ResourceDirectory

@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**209 patch classes, 307 patched methods.**
+**210 patch classes, 308 patched methods.**
 
 ## Board
 
@@ -180,6 +180,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `StructuralInstancing_ShownPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioStructuralInstancing.cs:258</sub> | `ProceduralMapTile.ShowContent()` | postfix | `ScenarioStructuralInstancing`:38 |
 | `StructuralInstancing_MaterialPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioStructuralInstancing.cs:264</sub> | `MaterialLoaderData.CheckAllMaterialLoaded()` *(private)* | postfix | `ScenarioStructuralInstancing`:39 |
 | `StructuralInstancing_LoadedPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioStructuralInstancing.cs:270</sub> | `SceneController.DisableLoadingScreen()` | prefix | `ScenarioStructuralInstancing`:40 |
+| `AudioObject_QuestCombatEvidence`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudioEvidence.cs:70</sub> | `AudioObject._OnPlay()` *(private)* | postfix | `QuestProceduralLifecycle`:45 |
 | `UnityGameEditorRuntime_QuestPlacementLoading`<br/><sub>src/GloomhavenVR/Core/QuestProceduralLoading.cs:175</sub> | `UnityGameEditorRuntime.WaitForProcGen()` *(private)* | postfix | `QuestProceduralLifecycle`:43 |
 | `ApparanceEngine_QuestPendingRequests`<br/><sub>src/GloomhavenVR/Core/QuestProceduralRequests.cs:76</sub> | `ApparanceEngine.UpdateEngine()` *(private)* | postfix | `QuestProceduralLifecycle`:44 |
 | `TilesOcclusionVolume_Start_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:308</sub> | `TilesOcclusionVolume.Start()` *(private)* | postfix | `SceneRegistry`:156 |
@@ -392,7 +393,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `src/GloomhavenVR/Core/Perf/ScenarioIdleAnimationBudget.cs` | `ScenarioIdleAnimationLocomotionPatch`, `ScenarioIdleAnimationPlayPatch` |
 | `src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs` | `MaterialLoaderData_Ready_SceneryBudgetPatch`, `ProceduralBase_ContentPlaced_SceneryBudgetPatch`, `ProceduralMapTile_ShowContent_SceneryBudgetPatch`, `SceneController_LoadingComplete_SceneryBudgetPatch` |
 | `src/GloomhavenVR/Core/Perf/ScenarioStructuralInstancing.cs` | `StructuralInstancing_LoadedPatch`, `StructuralInstancing_MaterialPatch`, `StructuralInstancing_PlacedPatch`, `StructuralInstancing_ShownPatch` |
-| `src/GloomhavenVR/Core/QuestProceduralLifecycle.cs` | `ApparanceEngine_QuestPendingRequests`, `UnityGameEditorRuntime_QuestPlacementLoading` |
+| `src/GloomhavenVR/Core/QuestProceduralLifecycle.cs` | `ApparanceEngine_QuestPendingRequests`, `AudioObject_QuestCombatEvidence`, `UnityGameEditorRuntime_QuestPlacementLoading` |
 | `src/GloomhavenVR/Core/SceneRegistry.cs` | `ProceduralTileObserver_OnEnable_RegisterPatch`, `TilesOcclusionVolume_Start_RegisterPatch`, `UnityGameEditorDoorProp_Start_RegisterPatch` |
 | `src/GloomhavenVR/Core/Water/WaterTerrainVR.cs` | `ProceduralBase_NotifyContentPlacementComplete_WaterPatch` |
 | `src/GloomhavenVR/Net/NetModule.cs` | `ClientButtonLocker_TryLockButton_Patch`, `UIDistributePointsPopup_Hide_AssignmentPatch`, `UIDistributePointsPopup_RefreshAssignedPoints_Patch`, `UIDistributePointsSlot_AddPoint_Patch`, `UIDistributePointsSlot_EnableAddPoints_Patch`, `UIDistributePointsSlot_EnableRemovePoints_Patch`, `UIDistributePointsSlot_RemovePoint_Patch`, `UIDistributeReward_Distribute_Patch`, `UIDistributeReward_OnConfirmClick_Patch`, `UIDistributeReward_SetButtonInteractable_Patch`, `UIEventPanel_ClientContinueRoadEvent_Patch`, `UIEventPanel_CompleteEvent_Patch`, `UIEventPanel_ContinueEvent_Patch` |

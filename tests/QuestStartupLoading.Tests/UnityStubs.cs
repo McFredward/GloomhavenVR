@@ -146,7 +146,10 @@ namespace UnityEngine.Scripting
 }
 namespace GloomhavenVR.Core
 {
-    public static class QuestStandalonePlatform { public static bool DebugLogging; }
+    public static class QuestStandalonePlatform {
+        public static string[] AudioPlaybackDiagnostics => System.Array.Empty<string>();
+        public static string[] CardGuideDiagnostics { get; set; } = System.Array.Empty<string>();
+ public static bool DebugLogging; }
 }
 namespace UnityEngine.SceneManagement
 {
