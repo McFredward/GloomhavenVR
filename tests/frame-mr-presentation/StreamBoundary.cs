@@ -15,6 +15,9 @@ namespace GloomhavenVR.Core
     }
     internal static class FixtureXrSettings
     {
+        // No HMD is instantiated in this real-GPU presentation fixture. Actual
+        // camera eye/attachment bodies execute in steamlink-scene-startup.
+        internal static bool StereoEnabled(Camera head) => true;
         internal static UnityEngine.XR.XRSettings.StereoRenderingMode stereoRenderingMode =>
             UnityEngine.XR.XRSettings.StereoRenderingMode.MultiPass;
     }
@@ -32,6 +35,18 @@ namespace GloomhavenVR.Core.SteamLink
     {
         internal static bool Checking;
         internal static void Tick() { }
+    }
+    // The full async authority executes separately in stream-quality. This
+    // boundary controls only its current host receipt, not native encoder state.
+    internal static class SteamLinkStreamQuality
+    {
+        internal static bool Prepared = true;
+        internal static bool Requested(bool enabled) => enabled && VRSession.IsRunning
+            && !FrameNativePassthrough.Required && SteamLinkConnection.Available
+            && MixedReality.Enabled.Value && MixedReality.SteamLinkNative.Value;
+        internal static bool HostPrepared(bool enabled, int width, int height)
+            => !enabled || Requested(true) && Prepared;
+        internal static void Tick(bool enabled, int width, double now) { }
     }
     internal static class ScenePayloadAssets
     {

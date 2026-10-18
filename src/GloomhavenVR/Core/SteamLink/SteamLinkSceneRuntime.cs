@@ -25,7 +25,7 @@ internal static class SteamLinkSceneRuntime
     internal static bool TryEnter(Camera? head)
     {
         if (head == null || !head.isActiveAndEnabled || !VRSession.IsRunning
-            || !StereoReady(head))
+            || !StereoReady(head) || !TransportPrepared())
         {
             Exit();
             return false;
@@ -123,7 +123,15 @@ internal static class SteamLinkSceneRuntime
 
     internal static bool Owns(SceneHeadOutput output, Camera head, ulong epoch) =>
         ReferenceEquals(_output, output) && epoch == _epoch && VRSession.IsRunning
-        && VRCameraPolicy.AllowedHead == head && Requested && MixedReality.Enabled.Value;
+        && VRCameraPolicy.AllowedHead == head && Requested && MixedReality.Enabled.Value
+        && TransportPrepared();
+
+    // Metadata-only host boundary, queried again at the rendering authority
+    // seam: a setting/width change or helper completion can race the cold Tick.
+    // Edge-quality opt-out preserves the original native-source behavior.
+    internal static bool TransportPrepared() => TransportPrepared(XRSettings.eyeTextureWidth, XRSettings.eyeTextureHeight);
+    internal static bool TransportPrepared(int width, int height) => SteamLinkStreamQuality.HostPrepared(
+        MixedReality.SteamLinkEdgeQuality != null && MixedReality.SteamLinkEdgeQuality.Value, width, height);
 
     // A running VR session does not certify a camera's current XR attachment.
     // Startup/load teardown can temporarily render that same head as mono or
@@ -235,6 +243,7 @@ internal sealed class SceneHeadOutput : MonoBehaviour
             // a later admitted stereo render prepares a fresh coverage epoch.
             Camera.MonoOrStereoscopicEye eye = Head.stereoActiveEye;
             if (!SteamLinkSceneRuntime.StereoReady(Head)
+                || !SteamLinkSceneRuntime.TransportPrepared(source.width, source.height)
                 || (eye != Camera.MonoOrStereoscopicEye.Left
                     && eye != Camera.MonoOrStereoscopicEye.Right))
             {

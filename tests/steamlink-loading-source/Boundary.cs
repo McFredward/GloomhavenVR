@@ -26,6 +26,7 @@ namespace GloomhavenVR.Core
     {
         internal static FixtureChoice Enabled = new FixtureChoice { Value = true };
         internal static FixtureChoice SteamLinkNative = new FixtureChoice { Value = true };
+        internal static FixtureChoice SteamLinkEdgeQuality = new FixtureChoice { Value = true };
     }
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class FrameNativePassthrough { internal static bool Required = false; }
@@ -60,6 +61,10 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.Core.SteamLink
 {
     internal static class SteamLinkConnection { internal static bool Available = true; }
+    // External host metadata only. The actual lease/epoch authority executes in
+    // steamlink-stream-quality; this GPU fixture does not claim encoder readiness.
+    internal static class SteamLinkStreamQuality
+    { internal static bool HostPrepared(bool enabled, int width, int height) => true; }
     internal static class ScenePayloadAssets
     {
         private static AssetBundle? bank;

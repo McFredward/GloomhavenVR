@@ -657,7 +657,13 @@ internal static partial class MixedReality
         // Real-image MR must retain the settings in its scene and switch live:
         // otherwise enabling it only restores a black ordinary menu background,
         // with neither a source-prepared receipt nor any packed eye produced.
-        if (!native && stream && requested)
+        // Host acquisition is asynchronous. Keep an ordinary image until the
+        // matching current-width lease exists; do not emit old-policy atlas
+        // frames and then switch their sampling quality underneath the user.
+        // This host boundary is not proof of native encoder acknowledgement.
+        bool streamHostPrepared = SteamLink.SteamLinkStreamQuality.HostPrepared(SteamLinkEdgeQuality.Value,
+            UnityEngine.XR.XRSettings.eyeTextureWidth, UnityEngine.XR.XRSettings.eyeTextureHeight);
+        if (!native && stream && requested && streamHostPrepared)
         {
             Camera? streamHead = VRCameraPolicy.AllowedHead;
             if (streamHead != null)

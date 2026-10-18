@@ -8,6 +8,8 @@
     <Compile Include="Boundary.cs"/><Compile Include="Program.cs"/><Compile Include="StreamBoundary.cs"/>
     <Compile Include="$(PresentationSource)"/><Compile Include="$(CameraSource)"/>
     <Compile Include="$(StreamOwnerSource)"/>
+    <Compile Include="$(SteamLinkSource)/SteamLinkResolutionPolicy.cs"/>
+    <Compile Include="$(SteamLinkSource)/SceneAtlasProfile.cs"/>
     <Reference Include="$(UnityManaged)/UnityEngine/*.dll" Private="false"/>
   </ItemGroup>
 </Project>

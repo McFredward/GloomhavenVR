@@ -33,6 +33,14 @@ internal static class SteamLinkStreamQuality
     internal static bool Requested(bool enabled) => enabled && VRSession.IsRunning && !FrameNativePassthrough.Required
             && SteamLinkConnection.Available && MixedReality.Enabled != null && MixedReality.Enabled.Value
             && MixedReality.SteamLinkNative != null && MixedReality.SteamLinkNative.Value;
+    // This certifies only the current host-settings lease, NOT an acknowledged
+    // encoder format. The source used to start in parallel with acquisition and
+    // emitted old-policy atlas frames first. Never use a prior width/generation,
+    // a delay, or this API readback as proof of delivered video pixels.
+    internal static bool HostPrepared(bool enabled, int carrierWidth, int carrierHeight) => !enabled
+        || Requested(true) && SteamLinkResolutionPolicy.TryWidth(carrierWidth, carrierHeight, out int width)
+            && State.HostPrepared(width);
+
     internal static void Reset() => State.Reset();
     internal static bool ValidWidth(int value) => value >= 64 && value <= 16384 && value % 64 == 0;
     internal static int NormalizeWidth(int value)
@@ -73,17 +81,27 @@ internal static class SteamLinkStreamQuality
         private ulong _epoch;
         private double _next;
         private Phase _phase;
+        private ulong _activeEpoch;
+        private Task<ReleaseResult>? _activeCompletion;
         internal Monitor(Func<int, Task<ILease>> acquire, Action<bool, string> log)
         { _acquire = acquire; _log = log; }
         internal Phase Current { get { lock (_gate) return _phase; } }
         internal int Attempts { get { lock (_gate) return _attempts; } }
         internal Task Settled { get { lock (_gate) return _worker ?? Task.CompletedTask; } }
+        internal bool HostPrepared(int width)
+        {
+            lock (_gate) return ValidWidth(width) && _wanted && !_unsafe && _width == width
+                && _phase == Phase.Active && _activeEpoch == _epoch
+                && _stop != null && !_stop.Task.IsCompleted
+                && _activeCompletion != null && !_activeCompletion.IsCompleted;
+        }
 
         internal void Reset()
         {
             lock (_gate)
             {
                 _wanted = false; _epoch++; _attempts = 0; _next = 0;
+                _activeCompletion = null;
                 _stop?.TrySetResult(true);
                 _phase = _worker != null && !_worker.IsCompleted ? Phase.Releasing : Phase.Idle;
             }
@@ -122,18 +140,24 @@ internal static class SteamLinkStreamQuality
             try
             {
                 lease = await _acquire(width).ConfigureAwait(false);
+                Task<ReleaseResult> completion = lease.Completion;
                 bool current;
                 lock (_gate)
                 {
-                    current = lease.Applied && _wanted && _epoch == epoch && !stop.Task.IsCompleted;
-                    if (current) _phase = Phase.Active;
+                    current = lease.Applied && !completion.IsCompleted && _wanted
+                        && _epoch == epoch && !stop.Task.IsCompleted;
+                    if (current)
+                    {
+                        _activeEpoch = epoch; _activeCompletion = completion;
+                        _phase = Phase.Active;
+                    }
                 }
                 if (current)
                 {
                     _log(false, "active; foveation and sharpening disabled; requested uniform width " + width
                         + "px; driver setting readback " + lease.AppliedWidth
                         + "px, following the current XR carrier. This is not proof of negotiated video resolution.");
-                    await Task.WhenAny(stop.Task, lease.Completion).ConfigureAwait(false);
+                    await Task.WhenAny(stop.Task, completion).ConfigureAwait(false);
                 }
             }
             catch (Exception ex) { _log(true, "could not acquire settings lease (" + ex.GetType().Name + ")."); }
@@ -141,7 +165,7 @@ internal static class SteamLinkStreamQuality
             {
                 if (lease != null)
                 {
-                    lock (_gate) _phase = Phase.Releasing;
+                    lock (_gate) { _activeCompletion = null; _phase = Phase.Releasing; }
                     ReleaseResult released;
                     try { released = await lease.ReleaseAsync().ConfigureAwait(false); }
                     catch (Exception ex) { released = new ReleaseResult(false, false, detail: ex.GetType().Name); }

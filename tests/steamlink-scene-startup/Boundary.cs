@@ -51,12 +51,12 @@ namespace UnityEngine.Rendering
 namespace UnityEngine.XR
 {
     internal static class XRSettings
-    { internal enum StereoRenderingMode { MultiPass,SinglePass } internal static StereoRenderingMode stereoRenderingMode=StereoRenderingMode.MultiPass; }
+    { internal enum StereoRenderingMode { MultiPass,SinglePass } internal static StereoRenderingMode stereoRenderingMode=StereoRenderingMode.MultiPass; internal static int eyeTextureWidth=4040,eyeTextureHeight=4040; }
 }
 namespace GloomhavenVR.Core
 {
     internal sealed class Choice { internal bool Value=true; }
-    internal static class MixedReality { internal static Choice SteamLinkNative=new Choice(),Enabled=new Choice(); }
+    internal static class MixedReality { internal static Choice SteamLinkNative=new Choice(),Enabled=new Choice(),SteamLinkEdgeQuality=new Choice(); }
     internal static class VRSession { internal static bool IsRunning=true; }
     internal static class FrameNativePassthrough { internal static bool Required=false; }
     internal static class VRCameraPolicy { internal static UnityEngine.Camera? AllowedHead; }
@@ -76,6 +76,16 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.Core.SteamLink
 {
     internal static class SteamLinkConnection { internal static bool Available=true; }
+    // The actual lease state machine is compiled/executed by stream-quality.
+    // This fixture supplies only its current metadata authority, never a timer
+    // or a pretend actual-encoder acknowledgement.
+    internal static class SteamLinkStreamQuality
+    {
+        internal static bool Prepared=true;
+        internal static int Width=4040,Height=4040;
+        internal static bool HostPrepared(bool enabled,int width,int height)
+            => !enabled || Prepared && width==Width && height==Height;
+    }
     internal static class SceneAtlasProfile
     { internal const string RobustShaderName="robust",FullShaderName="full",RobustProfile="v3",FullProfile="v2",Profile="v1"; }
     internal static class ScenePayloadAssets

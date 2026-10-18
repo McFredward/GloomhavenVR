@@ -26,6 +26,8 @@ def main():
     parser.add_argument('--output', type=Path, default=ROOT / '.planning/debug/steamlink-scene-startup')
     parser.add_argument('--typecheck-only', action='store_true',
                         help='Compile the real Unity/net472 sources without repeating state/mutant cases.')
+    parser.add_argument('--admission-only', action='store_true',
+                        help='Run production and host-admission controls; inherit unchanged stereo mutation evidence.')
     parser.add_argument('--metadata', choices=('auto', 'unity', 'nuget'), default='auto',
                         help='Use installed Unity metadata, the pinned NuGet modules, or automatic fallback.')
     parser.add_argument('--unity-managed', type=Path,
@@ -42,6 +44,7 @@ def main():
     assert text.count('            || !StereoReady(head)') == 1
     assert text.count(old_mono) == 1
     late_guard = '''            if (!SteamLinkSceneRuntime.StereoReady(Head)
+                || !SteamLinkSceneRuntime.TransportPrepared(source.width, source.height)
                 || (eye != Camera.MonoOrStereoscopicEye.Left
                     && eye != Camera.MonoOrStereoscopicEye.Right))'''
     assert text.count(late_guard) == 1
@@ -56,10 +59,14 @@ def main():
                 Graphics.Blit(source, destination);
                 return;'''),
         'late-attachment': text.replace(late_guard, '''            if (eye != Camera.MonoOrStereoscopicEye.Left
-                && eye != Camera.MonoOrStereoscopicEye.Right)'''),
+                && eye != Camera.MonoOrStereoscopicEye.Right
+                || !SteamLinkSceneRuntime.TransportPrepared(source.width, source.height))'''),
         'no-cohort': text.replace(cohort_guard, '            if (!StereoCohortReady(eye, Time.frameCount) && Time.frameCount == int.MinValue)'),
         'same-frame-activation': text.replace('        return _cohortReady;', '        return _cohortReady || _cohortEyes == 3;'),
         'cross-frame-cohort': text.replace('            _cohortEyes = 0;', '            // Mutant retains eye labels across unrelated frames.'),
+        'pending-host-admission': text.replace(' || !TransportPrepared())', ')'),
+        'stale-host-owner': text.replace('        && TransportPrepared();', '        ;'),
+        'stale-source-width': text.replace('                || !SteamLinkSceneRuntime.TransportPrepared(source.width, source.height)\n', ''),
     }
     expected = {
         'unready-admission': 'startup non-stereo head must not arm',
@@ -68,7 +75,13 @@ def main():
         'no-cohort': 'mid-pair Right must stay ordinary',
         'same-frame-activation': 'following complete pair must also stay ordinary',
         'cross-frame-cohort': 'duplicate Left then Right on another frame never forms a complete cohort',
+        'pending-host-admission': 'Pending host lease must not prepare a source',
+        'stale-host-owner': 'Host lease loss before pre-cull revokes source ownership immediately',
+        'stale-source-width': 'Late actual source extent cannot use a host lease for another carrier',
     }
+    if args.admission_only:
+        variants = {name: variants[name] for name in ['production', 'pending-host-admission',
+                    'stale-host-owner', 'stale-source-width']}
     production = source.parent
     names = ['SteamLinkSceneRuntime.cs', 'SceneEyeCoverage.cs', 'SceneEyeOutput.cs',
              'SceneTransparentMaterials.cs', 'SceneAtlasProfile.cs']
@@ -146,10 +159,9 @@ def main():
     finally:
         reaped = all(c.poll() is not None for c in children)
         receipt = cleanup_completed_run('steamlink-scene-startup', code, log, ROOT, process_reaped=reaped)
-        if reaped:
-            for name in ['owned-portable-project', 'owned-typecheck-project', 'owned-typecheck-metadata']:
-                project = run/name
-                if project.is_dir() and not project.is_symlink(): shutil.rmtree(project)
+        if reaped and receipt is not None:
+            metadata_copy = run/'owned-typecheck-metadata'
+            if metadata_copy.is_dir() and not metadata_copy.is_symlink(): shutil.rmtree(metadata_copy)
         (run/'cleanup.json').write_text(json.dumps({'retention_api': receipt, 'all_children_reaped': reaped}, indent=2)+'\n')
         (run/'result.json').write_text(json.dumps({'exit_code': code, 'cases': results,
             'assertions': assertions if code == 0 else None,

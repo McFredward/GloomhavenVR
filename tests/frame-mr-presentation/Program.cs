@@ -110,6 +110,21 @@ public static class FrameMrPresentationProgram
             GloomhavenVR.Core.SteamLink.SteamLinkConnectionLifecycle.Checking = false;
             GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = true;
 
+            // This calls the actual production Tick, camera restore and source
+            // owner. A pending host receipt must never expose the old atlas or
+            // a green fallback. GPU pixels remain the ordinary opaque image.
+            GloomhavenVR.Core.SteamLink.SteamLinkStreamQuality.Prepared = false;
+            MixedReality.Tick();
+            Check(!GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active
+                && head.backgroundColor == original && head.allowHDR && sky.enabled,
+                "pending host policy preserves ordinary presentation without chromakey");
+            clear = Pixel(head, 2, 2);
+            Check(Mathf.Abs(clear.r - original.r) < .02f && clear.a > .99f,
+                "pending host policy renders the original opaque image");
+            Check(MixedReality.Enabled.Value && MixedReality.SteamLinkNative.Value,
+                "pending host policy retains both saved native preferences");
+            GloomhavenVR.Core.SteamLink.SteamLinkStreamQuality.Prepared = true;
+
             // Production Tick and the real source owner execute with settings
             // open. Source preparation/XR stay named boundaries, not a pixel proof.
             head.enabled = true;
@@ -123,6 +138,15 @@ public static class FrameMrPresentationProgram
             Check(head.backgroundColor == Color.clear && !head.allowHDR && !sky.enabled,
                 "open settings uses transparent native-stream background");
             Check(MixedReality.BackingsWanted, "live settings retain MR readability backings");
+
+            GloomhavenVR.Core.SteamLink.SteamLinkStreamQuality.Prepared = false;
+            MixedReality.Tick();
+            Check(!offered.Ready && head.backgroundColor == original && head.allowHDR && sky.enabled,
+                "host receipt loss restores ordinary camera and sky immediately");
+            GloomhavenVR.Core.SteamLink.SteamLinkStreamQuality.Prepared = true;
+            MixedReality.Tick(); offered = GloomhavenVR.Core.SteamLink.SceneHeadOutput.Last!;
+            Check(offered.IsOwned && head.backgroundColor == Color.clear,
+                "current host receipt recovers native presentation without resetting preferences");
             GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = false;
             GloomhavenVR.Core.SteamLink.SteamLinkConnectionLifecycle.Checking = true;
             MixedReality.Tick();

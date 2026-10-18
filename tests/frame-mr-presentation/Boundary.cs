@@ -32,6 +32,7 @@ internal static partial class MixedReality
     private static readonly object _file = new();
     internal static readonly Entry<bool> Enabled = new(false);
     internal static readonly Entry<bool> SteamLinkNative = new(false);
+    internal static readonly Entry<bool> SteamLinkEdgeQuality = new(true);
     internal static readonly Entry<Color> KeyColor = new(Color.green);
     private static bool _active, _loggedActive, _skyboxSaved;
     private static Color _loggedColor;

@@ -22,6 +22,9 @@ internal static class Program
         SceneEyeOutput.Next=SceneEyeResult.Rendered;Graphics.Ordinary=0;
         MixedReality.Enabled.Value=true;MixedReality.SteamLinkNative.Value=true;
         SteamLinkConnection.Available=true;VRSession.IsRunning=true;
+        MixedReality.SteamLinkEdgeQuality.Value=true;SteamLinkStreamQuality.Prepared=true;
+        SteamLinkStreamQuality.Width=SteamLinkStreamQuality.Height=4040;
+        UnityEngine.XR.XRSettings.eyeTextureWidth=UnityEngine.XR.XRSettings.eyeTextureHeight=4040;
         QualitySettings.activeColorSpace=ColorSpace.Gamma;
         Time.frameCount=100;
         var head=new Camera();VRCameraPolicy.AllowedHead=head;return head;
@@ -46,6 +49,44 @@ internal static class Program
     { Invoke(output,"OnPreCull");Camera.Begin(head);Image(output);Camera.End(head); }
     public static void Main()
     {
+        var pendingHead=Fresh();SteamLinkStreamQuality.Prepared=false;
+        Check(!SteamLinkSceneRuntime.TryEnter(pendingHead),"Pending host lease must not prepare a source");
+        Check(pendingHead.gameObject.Components==0&&!SteamLinkSceneRuntime.Active,"Pending host lease has no active source resources");
+        Check(SteamLinkSceneRuntime.Requested,"Waiting host settings must retain native request, never select chroma");
+        SteamLinkStreamQuality.Prepared=true;var admitted=Enter(pendingHead);Render(admitted,pendingHead);
+        Check(SceneEyeOutput.Packed==1,"Prepared current lease starts only after fresh complete stereo cohort");
+
+        pendingHead=Fresh();admitted=Enter(pendingHead);SteamLinkStreamQuality.Prepared=false;
+        Invoke(admitted,"OnPreCull");
+        Check(!admitted.Ready,"Host lease loss before pre-cull revokes source ownership immediately");
+        Image(admitted);
+        Check(SceneEyeOutput.Packed==0&&Graphics.Ordinary==1,"Host lease loss before pre-cull preserves one ordinary image");
+        Check(!admitted.Ready&&admitted.Failure=="","Host lease loss is temporary, never a permanent source fault");
+        SteamLinkStreamQuality.Prepared=true;admitted=Enter(pendingHead);Render(admitted,pendingHead);
+        Check(SceneEyeOutput.Packed==1,"Host lease recovery prepares a fresh source without Reset");
+
+        pendingHead=Fresh();admitted=Enter(pendingHead);Invoke(admitted,"OnPreCull");
+        SteamLinkStreamQuality.Prepared=false;Image(admitted);
+        Check(SceneEyeOutput.Packed==0&&Graphics.Ordinary==1,"Host completion after pre-cull cannot publish an atlas");
+
+        pendingHead=Fresh();admitted=Enter(pendingHead);
+        UnityEngine.XR.XRSettings.eyeTextureWidth=5050;Render(admitted,pendingHead);
+        Check(SceneEyeOutput.Packed==0&&Graphics.Ordinary==1,"New XR carrier cannot reuse an old-width host lease");
+        Check(!admitted.Ready&&admitted.Failure=="","Host width wait never poisons returning source");
+        SteamLinkStreamQuality.Width=5050;admitted=Enter(pendingHead,false);
+        // The fixture's image extent must reflect the new actual carrier too.
+        Invoke(admitted,"OnPreCull");Invoke(admitted,"OnRenderImage",new RenderTexture{width=5050},new RenderTexture{width=5050});
+        Check(SceneEyeOutput.Packed==0,"New host width still requires a fresh complete stereo cohort");
+
+        pendingHead=Fresh();admitted=Enter(pendingHead);Invoke(admitted,"OnPreCull");
+        Invoke(admitted,"OnRenderImage",new RenderTexture{width=5050},new RenderTexture{width=5050});
+        Check(SceneEyeOutput.Packed==0&&Graphics.Ordinary==1,"Late actual source extent cannot use a host lease for another carrier");
+        Check(!admitted.Ready&&admitted.Failure=="","Late source width wait closes without a permanent latch");
+
+        pendingHead=Fresh();SteamLinkStreamQuality.Prepared=false;MixedReality.SteamLinkEdgeQuality.Value=false;
+        admitted=Enter(pendingHead);Render(admitted,pendingHead);
+        Check(SceneEyeOutput.Packed==1,"Explicit edge-quality opt-out keeps native source usable without a lease");
+
         var cohortHead=Fresh();var cohort=Enter(cohortHead,false);
         // A component introduced after Left already finished sees only Right.
         cohortHead.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(cohort,cohortHead);

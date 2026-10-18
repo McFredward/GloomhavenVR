@@ -34,7 +34,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/frame-mr-presentation')
-    controls = ['opaque-native', 'hdr-restore', 'menu-tick', 'menu-entry', 'menu-owner', 'pending-key']
+    controls = ['opaque-native', 'hdr-restore', 'menu-tick', 'menu-entry', 'menu-owner', 'pending-key', 'pending-host']
     parser.add_argument('--mutation', choices=controls)
     parser.add_argument('--all', action='store_true', help='Run production and all causal negative controls')
     args = parser.parse_args()
@@ -67,6 +67,8 @@ def main():
     # named MultiPass boundary, while Shader/Camera/HDR/clear use real Unity.
     assert owner.count('XRSettings.stereoRenderingMode') == 1
     owner = owner.replace('XRSettings.stereoRenderingMode', 'FixtureXrSettings.stereoRenderingMode')
+    assert owner.count('head.stereoEnabled') == 1
+    owner = owner.replace('head.stereoEnabled', 'FixtureXrSettings.StereoEnabled(head)')
     if args.mutation == 'opaque-native':
         assert source.count('native || stream ? Color.clear : KeyColor.Value') == 1
         source = source.replace('native || stream ? Color.clear : KeyColor.Value', 'KeyColor.Value')
@@ -75,21 +77,29 @@ def main():
         assert restore.count('MrNativeCamera.RestoreAll();') == 1
         source = source.replace(restore, restore.replace('MrNativeCamera.RestoreAll();', '/* injected: restoration removed */'))
     if args.mutation == 'menu-tick':
-        old = 'if (!native && stream && requested)'
+        old = 'if (!native && stream && requested && streamHostPrepared)'
         assert source.count(old) == 1
         source = source.replace(old, 'if (!native && stream && requested && !WorldUI.VROptionsTab.IsOpen)')
     if args.mutation == 'menu-entry':
-        old = 'if (head == null || !head.isActiveAndEnabled || !VRSession.IsRunning)'
+        old = '|| !StereoReady(head) || !TransportPrepared())'
         assert owner.count(old) == 1
         owner = owner.replace(old, old[:-1] + ' || GloomhavenVR.WorldUI.VROptionsTab.IsOpen)')
     if args.mutation == 'menu-owner':
-        old = '&& VRCameraPolicy.AllowedHead == head && Requested && MixedReality.Enabled.Value;'
+        old = '&& TransportPrepared();'
         assert owner.count(old) == 1
         owner = owner.replace(old, old[:-1] + ' && !GloomhavenVR.WorldUI.VROptionsTab.IsOpen;')
     if args.mutation == 'pending-key':
         old = '!checkingStream && (!stream || streamReady)'
         assert source.count(old) == 1
         source = source.replace(old, '(!stream || streamReady)')
+    if args.mutation == 'pending-host':
+        old = 'if (!native && stream && requested && streamHostPrepared)'
+        assert source.count(old) == 1 and owner.count(' || !TransportPrepared())') == 1
+        # Remove both independently defended admission seams. Compile success
+        # alone is never sufficient; the actual pending-presentation assertion
+        # must reject this former parallel prepare/admit behavior.
+        source = source.replace(old, 'if (!native && stream && requested)')
+        owner = owner.replace(' || !TransportPrepared())', ')')
     declarations = [method(source, signature) for signature in (
         'internal static void Tick()', 'private static void Record(Camera cam)',
         'private static void ForceSolid(Camera cam, Color key)', 'internal static void RestoreAll()')]
@@ -110,6 +120,7 @@ def main():
     command = [dotnet, 'build', str(fixture / 'Presentation.csproj'), '-c', 'Release', '-p:UseSharedCompilation=false',
         '-p:CaseName=FrameMrPresentation', '-p:PresentationSource=' + str(generated),
         '-p:StreamOwnerSource=' + str(generated_owner),
+        '-p:SteamLinkSource=' + str(owner_path.parent),
         '-p:CameraSource=' + str(camera_path), '-p:UnityManaged=' + str(args.unity.parent / 'Data/Managed'),
         '-p:BaseIntermediateOutputPath=' + str(build / 'obj') + '/',
         '-p:OutputPath=' + str(build / 'bin') + '/']
@@ -141,7 +152,8 @@ def main():
                     'menu-tick': 'open settings applies native streaming immediately',
                     'menu-entry': 'open settings applies native streaming immediately',
                     'menu-owner': 'open settings retains live source ownership',
-                    'pending-key': 'initial identity query never selects the saved green key'}[args.mutation]
+                    'pending-key': 'initial identity query never selects the saved green key',
+                    'pending-host': 'pending host policy preserves ordinary presentation without chromakey'}[args.mutation]
         assert completed.returncode != 0 and expected in output, output
         print('PASS negative control: ' + args.mutation)
     else:

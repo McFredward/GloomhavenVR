@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using GloomhavenVR.Core;
@@ -71,6 +72,8 @@ internal static class Program
     {
         Check(Q.Requested(true),"Genuine active native Link MR requested");
         Check(!Q.Requested(false),"Quality off");
+        Check(Q.HostPrepared(false,0,0),"Explicit quality opt-out does not block the native source");
+        Check(!Q.HostPrepared(true,4040,4040),"No source host admission before initial lease acquisition");
         VRSession.IsRunning=false;Check(!Q.Requested(true),"No running XR");VRSession.IsRunning=true;
         FrameNativePassthrough.Required=true;Check(!Q.Requested(true),"Standalone untouched");FrameNativePassthrough.Required=false;
         GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available=false;Check(!Q.Requested(true),"Other headset/transport untouched");GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available=true;
@@ -125,9 +128,50 @@ internal static class Program
         postStart=await Q.GuardStartedAsync(()=>throw new InvalidOperationException(),()=>throw new IOException());
         Check(!postStart.Applied&&!(await postStart.ReleaseAsync()).Exited,"Post-Start cleanup exception remains unsafe");
     }
+    private static async Task SourceAdmission()
+    {
+        var pending=new TaskCompletionSource<Q.ILease>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first=new Lease{AppliedWidth=4096};var second=new Lease{AppliedWidth=4864};int calls=0;
+        var gate=new Q.Monitor(width=>Interlocked.Increment(ref calls)==1?pending.Task:Task.FromResult<Q.ILease>(second),(_,_)=>{});
+        Check(!gate.HostPrepared(4096),"Idle generation has no source host admission");
+        gate.Tick(true,4096,0);await Until(()=>calls==1,"Source host preparation starts asynchronously");
+        Check(!gate.HostPrepared(4096),"First atlas cannot use a pending host lease");
+        pending.SetResult(first);await Until(()=>gate.Current==Q.Phase.Active,"Current host lease acquired");
+        Check(gate.HostPrepared(4096),"Matching acquired host generation can admit a source");
+        Check(!gate.HostPrepared(4864),"A larger current carrier cannot reuse the old host width");
+        gate.Tick(true,4864,1);
+        Check(!gate.HostPrepared(4096)&&!gate.HostPrepared(4864),"Width change revokes old host admission before asynchronous release");
+        await Until(()=>first.Releases==1,"Previous host generation asks restoration");
+        Check(!gate.HostPrepared(4864),"New carrier waits until old lease restoration completes");
+        first.Finish();await gate.Settled;gate.Tick(true,4864,3);
+        await Until(()=>gate.Current==Q.Phase.Active,"New current-width host lease acquired");
+        Check(gate.HostPrepared(4864)&&!gate.HostPrepared(4096),"Only new host width is admitted");
+        gate.Tick(true,0,4);Check(gate.HostPrepared(4864),"Temporary cold extent loss does not revoke a known host generation");
+        // Hold the real owner's private monitor only across this exact race:
+        // Task completion is visible, while its async finally cannot yet run.
+        // This makes omission of the Completion guard fail deterministically.
+        object ownerGate=typeof(Q.Monitor).GetField("_gate",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(gate)!;
+        lock(ownerGate)
+        {
+            second.Finish();
+            Check(!gate.HostPrepared(4864),"Completed helper immediately revokes source admission before worker continuation");
+        }
+        await gate.Settled;
+        gate.Reset();Check(!gate.HostPrepared(4864),"Reset never inherits completed host admission");
+
+        var completed=new Lease();completed.Finish();
+        var ended=new Q.Monitor(_=>Task.FromResult<Q.ILease>(completed),(_,_)=>{});
+        ended.Tick(true,4096,0);await ended.Settled;
+        Check(!ended.HostPrepared(4096),"Already completed acquired helper is never published as prepared");
+
+        var live=new Lease();var off=new Q.Monitor(_=>Task.FromResult<Q.ILease>(live),(_,_)=>{});
+        off.Tick(true,4096,0);await Until(()=>off.HostPrepared(4096),"Off case obtains current source admission");
+        off.Tick(false,4096,1);Check(!off.HostPrepared(4096),"Explicit off synchronously revokes source admission");
+        await Until(()=>live.Releases==1,"Off case restoration starts");live.Finish();await off.Settled;
+    }
     public static async Task Main(string[] args)
     {
-        Protocol();Gates();await StateMachine();
+        Protocol();Gates();await StateMachine();await SourceAdmission();
         foreach(string path in args)foreach(string line in File.ReadAllLines(path))
         {
             if(line.Contains("\"event\":\"acquired\""))Check(Q.DecodeAcquired(line,3072),"Actual C acquired serializer");
