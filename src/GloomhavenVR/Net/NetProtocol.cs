@@ -612,7 +612,29 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 686;
+    public const ushort ModBuild = 687;
+
+    // ModBuild687 — Quest boot sprite lifetime and queued native submissions.
+    // Capture114020 verifies installed/current686, previous685. The maintainer
+    // confirms complete card artwork and physical cuts; preserve their consumer,
+    // the laser hit marker, full viewport, density and hardware-qualified blit.
+    // The boot RT consumer still flashes while later native sprites display.
+    // Bind the Intro atlas/UV directly through the persistent mod material on
+    // Quest; preserve borrowed flags, native handover and desktop owned copies.
+    // Full Tick/scene/unload/head-rebuild tests qualify that reference lifetime.
+    // Honor the original signed spin tuning on Quest, without a display timer.
+    // Actual readiness names busy/incomplete Wall1 inside completed roomB.
+    // Original task-first scheduling can consume its5ms before queued rebuild
+    // submission. Give only already-requested active All-room entities an
+    // original Update(.1f) submission opportunity after native UpdateEngine.
+    // Preserve task decode, EndContentUpdate and actual placement completion;
+    // never Refresh, clear busy, invent readiness or reveal hidden renderers.
+    // Actual original managed-assembly tests reproduce controlled starvation;
+    // 18 genuine native requests x3 builds return all54 completion tasks.
+    // B686 lacks the queue flag, so this is not a proven headset root cause.
+    // Include handle/queued state in the same bounded first-blocker record.
+    // Full world visibility and scenario load closure remain hardware gates.
+    // Compact code update only; original/mod banks and native helper unchanged.
 
     // ModBuild686 — Quest consumer paths, animated loading and drop guides.
     // Capture103822 proves installed/current685, previous684. The maintainer
