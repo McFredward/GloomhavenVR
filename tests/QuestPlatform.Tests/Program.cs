@@ -91,6 +91,7 @@ internal static class Program
         Reject(() => QuestStandalonePlatform.Configure(directory, setNative, null!, () => ownerRunning), "resource-validation: null passthrough observer accepted");
         Check(!QuestStandalonePlatform.Enabled, "resource-validation: failed configuration partially enabled standalone");
         QuestStandalonePlatform.Configure(directory, setNative, () => nativeActive, () => ownerRunning, () => sessionGeneration);
+        EnvironmentReceiptCases();
         Check(FrameDefaults.Active && QuestStandalonePlatform.StandaloneMsaaDefault == FrameDefaults.MsaaLevel,
             "quest-mobile-defaults: Quest must share current Frame defaults without a desktop opt-in marker");
         Check(!FrameNativePassthrough.Required, "quest-native-backend: shared defaults must not select Frame composition on Quest");
@@ -227,6 +228,34 @@ internal static class Program
             && QualitySettings.antiAliasing == 8 && XRSettings.eyeTextureResolutionScale == 1f,
             "desktop-render-controller: current desktop MSAA and stable-allocation viewport controller must remain reachable");
         Console.WriteLine("PASS Quest platform/core lifecycle: " + assertions + " assertions (XR/environment seams; not native rendering/AOT proof)");
+    }
+
+    static void EnvironmentReceiptCases()
+    {
+        var index = System.Text.Encoding.UTF8.GetBytes("{\"format\":1,\"entries\":[]}");
+        string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(index)).ToLowerInvariant();
+        string source = "{\"path\":\"pcg_databases_assets_assets/pcg/a.bundle\",\"sha256\":\"" + new string('b', 64) + "\"}";
+        string document = "{\"schema\":1,\"association\":\"owned-PC-original-static-environment-GHEM1\",\"gameKey\":\"" + new string('a',64)
+            + "\",\"indexSha256\":\"" + hash + "\",\"sources\":[" + source + "]}";
+        byte[] Bytes(string text) => System.Text.Encoding.UTF8.GetBytes(text);
+        Check(QuestStandalonePlatform.OwnedEnvironmentSources(index, Bytes(document)).SetEquals(new[] {
+            "pcg_databases_assets_assets/pcg/a.bundle:" + new string('b',64) }), "environment-receipt: exact index and source association");
+        void Invalid(string text, string name)
+        {
+            try { QuestStandalonePlatform.OwnedEnvironmentSources(index, Bytes(text)); }
+            catch (InvalidDataException) { Check(true, "environment-receipt: " + name); return; }
+            Check(false, "environment-receipt: rejected " + name);
+        }
+        Invalid(document.Replace(hash, new string('c',64)), "different index");
+        Invalid(document.Replace("a.bundle", "../a.bundle"), "escaping source");
+        Invalid(document.Replace("[" + source + "]", "[" + source + "," + source + "]"), "duplicate source");
+        Invalid(document.Replace("[" + source + "]", "[]"), "empty source set");
+        Invalid(document.Replace("\"schema\":1", "\"schema\":1.5"), "fractional schema");
+        Invalid(document.Replace("\"sources\":[", "\"sources\":null,\"ignored\":["), "null sources");
+        Check(SelfUpdateJson.Parse(new string(' ', 4 * 1024 * 1024) + "{}") == null,
+            "environment-json: ordinary self-update limit remains four MiB");
+        Check(QuestEnvironmentJson.Read(Bytes(new string(' ', 4 * 1024 * 1024) + "{}")).Count == 0,
+            "environment-json: owned eight MiB allowance does not lower the native index bound");
     }
 
     static void QuestResolutionOptionsCases()

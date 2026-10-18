@@ -154,6 +154,11 @@ namespace GloomhavenVR.Rig
 }
 namespace GloomhavenVR.Core
 {
+    // Independent bounded diagnostics are not part of this loading-view fixture.
+    internal static class QuestCombatAudioEvidence
+    { internal static string[] Snapshot => Array.Empty<string>(); internal static string[] ObserveBackground() => Array.Empty<string>(); }
+    internal static class QuestPerformanceEvidence
+    { internal static string[] Snapshot() => Array.Empty<string>(); }
     // Compilation boundaries for later platform display APIs. This fixture
     // executes Activate/resource-directory ownership, not swapchain allocation.
     public static class FrameDefaults { public const int MsaaLevel = 4; public const float EyeResolutionScale = .8f; }

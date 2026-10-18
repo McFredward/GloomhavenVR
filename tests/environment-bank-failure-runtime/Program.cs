@@ -2,6 +2,8 @@ using System;
 using System.Collections;
 using System.IO;
 using System.Reflection;
+using System.Text;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 using GloomhavenVR.Core;
@@ -35,6 +37,42 @@ public static class EnvironmentBankFailureProgram
         Check(ScenarioEnvironmentMeshBank.IsReady,"complete production parser accepts the actual retained native index");
         Check(ScenarioEnvironmentMeshBank.Diagnostics.Contains("firstFailure=none"),"successful native parse has no manufactured failure");
         Check(!ScenarioEnvironmentMeshBank.IsUnavailable&&VRLog.Notes.Count==0,"successful parser retains native bank readiness");
+        byte[] nativeIndex = native.LoadAsset<TextAsset>(path)!.bytes;
+        var bankType = typeof(ScenarioEnvironmentMeshBank);
+        var questManifest = bankType.GetMethod("ReadQuestIndex", BindingFlags.NonPublic|BindingFlags.Static)!.Invoke(null,new object[]{nativeIndex})!;
+        object Field(object value,string name)=>value.GetType().GetField(name,BindingFlags.Public|BindingFlags.Instance)!.GetValue(value)!;
+        var questEntries = (Array)Field(questManifest,"entries");
+        var admitted = (IDictionary)bankType.GetField("Entries",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!;
+        var identity = bankType.GetMethod("Identity",BindingFlags.NonPublic|BindingFlags.Static,null,
+            new[]{bankType.GetNestedType("Signature",BindingFlags.NonPublic)!},null)!;
+        Check(questEntries.Length==admitted.Count&&questEntries.Length>1000,"reflection-free Quest parser retains every native index entry");
+        foreach(object entry in questEntries)
+        {
+            string key=(string)identity.Invoke(null,new[]{Field(entry,"signature")})!;
+            Check(admitted.Contains(key),"Quest parser retains exact name/vertex/readable/float-bits/unsigned-submesh identity");
+            var original=admitted[key]!;
+            Check((string)Field(entry,"key")== (string)Field(original,"key"),"Quest parser retains exact original key");
+            foreach(string arrayName in new[]{"sources","variants"})
+            {
+                var actual=(Array)Field(entry,arrayName); var expected=(Array)Field(original,arrayName);
+                Check(actual.Length==expected.Length,"Quest parser retains complete native source/variant membership");
+                for(int n=0;n<actual.Length;n++)
+                foreach(var field in actual.GetValue(n)!.GetType().GetFields(BindingFlags.Public|BindingFlags.Instance))
+                    Check(Equals(field.GetValue(actual.GetValue(n)),field.GetValue(expected.GetValue(n))),"Quest parser retains exact source/variant field");
+            }
+        }
+        foreach(string number in new[]{"0","2147483648","4294967295"})
+        {
+            var json=QuestEnvironmentJson.Read(Encoding.UTF8.GetBytes("{\"n\":["+number+"]}"));
+            Check(QuestEnvironmentJson.Unsigned(QuestEnvironmentJson.Array(json,"n",1,1)[0])==uint.Parse(number),"Quest reader preserves complete uint domain without a serializer specialization");
+        }
+        foreach(string number in new[]{"-1","4294967296","1.5","1e999"})
+        {
+            bool rejected=false;
+            try { var json=QuestEnvironmentJson.Read(Encoding.UTF8.GetBytes("{\"n\":["+number+"]}")); QuestEnvironmentJson.Unsigned(QuestEnvironmentJson.Array(json,"n",1,1)[0]); }
+            catch(InvalidDataException){rejected=true;}
+            Check(rejected,"Quest reader rejects invalid unsigned geometry metadata");
+        }
         Reset();QuestStandalonePlatform.Enabled=true;
         Check(!ScenarioEnvironmentMeshBank.IsReady&&ScenarioEnvironmentMeshBank.IsUnavailable,"missing required owned source receipt fails open");
         Check(ScenarioEnvironmentMeshBank.Diagnostics.Contains("firstFailure=index:InvalidDataException:missing owned environment source receipt"),"retained state identifies the missing owned-receipt stage and exact cause");

@@ -15,6 +15,8 @@ def main():
     core = root / "src/GloomhavenVR/Core"
     sources = {
         "QuestStandalonePlatform.cs": core / "QuestStandalonePlatform.cs",
+        "QuestEnvironmentJson.cs": core / "Perf/QuestEnvironmentJson.cs",
+        "SelfUpdateRelease.cs": core / "SelfUpdate/SelfUpdateRelease.cs",
         "QuestEyeAllocation.cs": core / "QuestEyeAllocation.cs",
         "QuestEyeResolution.cs": root / "src/GloomhavenVR/Rig/QuestEyeResolution.cs",
         "QuestText.cs": core / "Loc/QuestText.cs",

@@ -111,7 +111,8 @@ internal static class ScenarioEnvironmentMeshBank
             byte[] bytes = asset.bytes;
             if (bytes.Length > 8 * 1024 * 1024) throw new InvalidDataException("environment index bound");
             using var input = new MemoryStream(bytes, false);
-            Manifest manifest = (Manifest)new DataContractJsonSerializer(typeof(Manifest)).ReadObject(input);
+            Manifest manifest = QuestStandalonePlatform.Enabled ? ReadQuestIndex(bytes)
+                : (Manifest)new DataContractJsonSerializer(typeof(Manifest)).ReadObject(input);
             if (manifest.format != 1 || manifest.entries.Length > 8192) throw new InvalidDataException("environment index format/bound");
             HashSet<string>? questSources = null;
             if (QuestStandalonePlatform.Enabled)
@@ -149,6 +150,39 @@ internal static class ScenarioEnvironmentMeshBank
             }
             return false;
         }
+    }
+    private static Manifest ReadQuestIndex(byte[] bytes)
+    {
+        var document = QuestEnvironmentJson.Read(bytes);
+        var rows = QuestEnvironmentJson.Array(document, "entries", 0, 8192);
+        var manifest = new Manifest { format = QuestEnvironmentJson.Integer(document, "format"), entries = new Entry[rows.Count] };
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = QuestEnvironmentJson.Object(rows[i]);
+            var signature = QuestEnvironmentJson.Object(QuestEnvironmentJson.Required(row, "signature"));
+            var indices = QuestEnvironmentJson.Array(signature, "indices", 1, 32);
+            var bounds = QuestEnvironmentJson.Array(signature, "bounds", 6, 6);
+            var sources = QuestEnvironmentJson.Array(row, "sources", 1, 128);
+            var variants = QuestEnvironmentJson.Array(row, "variants", 1, 3);
+            var entry = new Entry { key = QuestEnvironmentJson.String(row, "key"), signature = new Signature {
+                name = QuestEnvironmentJson.String(signature, "name"), readable = QuestEnvironmentJson.Boolean(signature, "readable"),
+                vertices = QuestEnvironmentJson.Integer(signature, "vertices"), indices = new uint[indices.Count], bounds = new float[6] },
+                sources = new Source[sources.Count], variants = new Variant[variants.Count] };
+            for (int n = 0; n < indices.Count; n++) entry.signature.indices[n] = QuestEnvironmentJson.Unsigned(indices[n]);
+            for (int n = 0; n < 6; n++) entry.signature.bounds[n] = QuestEnvironmentJson.Single(bounds[n]);
+            for (int n = 0; n < sources.Count; n++)
+            {
+                var source = QuestEnvironmentJson.Object(sources[n]);
+                entry.sources[n] = new Source { path = QuestEnvironmentJson.String(source, "path"), sha256 = QuestEnvironmentJson.String(source, "sha256") };
+            }
+            for (int n = 0; n < variants.Count; n++)
+            {
+                var variant = QuestEnvironmentJson.Object(variants[n]);
+                entry.variants[n] = new Variant { tier = QuestEnvironmentJson.Integer(variant, "tier"), file = QuestEnvironmentJson.String(variant, "file"), sha256 = QuestEnvironmentJson.String(variant, "sha256") };
+            }
+            manifest.entries[i] = entry;
+        }
+        return manifest;
     }
     private static TextAsset? Asset(string filename)
     {

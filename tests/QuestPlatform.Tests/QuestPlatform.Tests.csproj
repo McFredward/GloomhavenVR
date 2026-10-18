@@ -4,6 +4,8 @@
     <Compile Include="Program.cs" />
     <Compile Include="PlatformStubs.cs" />
     <Compile Include="$(RuntimeSource)/QuestStandalonePlatform.cs" />
+    <Compile Include="$(RuntimeSource)/QuestEnvironmentJson.cs" />
+    <Compile Include="$(RuntimeSource)/SelfUpdateRelease.cs" />
     <Compile Include="$(RuntimeSource)/QuestEyeAllocation.cs" />
     <Compile Include="$(RuntimeSource)/QuestEyeResolution.cs" />
     <Compile Include="$(RuntimeSource)/QuestText.cs" />

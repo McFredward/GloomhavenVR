@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Native bank-name/index proof and bounded environment failure retention.
 
-Loads the retained desktop bank unchanged and builds one tiny invalid-index test
-bank. No original game bank or Android player is rebuilt. A specific B691 Android
-index failure remains unproved because its payload was not captured.
+Loads the retained desktop bank unchanged through both readers and builds one tiny
+invalid-index test bank. No original game bank or Android player is rebuilt.
 """
 import argparse
 import ctypes
@@ -25,7 +24,8 @@ def worker(run):
     fixture = ROOT / 'tests/environment-bank-failure-runtime'
     bank = ROOT / 'prebuilt/ghvr-environment.bundle'
     paths = [ROOT / 'src/GloomhavenVR/Core/Perf' / name for name in
-             ('ScenarioEnvironmentMeshBank.cs', 'ScenarioEnvironmentMeshStream.cs')]
+             ('ScenarioEnvironmentMeshBank.cs', 'ScenarioEnvironmentMeshStream.cs', 'QuestEnvironmentJson.cs')]
+    paths.append(ROOT / 'src/GloomhavenVR/Core/SelfUpdate/SelfUpdateRelease.cs')
     sources = {path.name: path.read_text() for path in paths}
     mutations = [
         ('index-reason-lost', 'RetainFailure("index", error);', '/* omitted index reason */',
@@ -38,6 +38,10 @@ def worker(run):
          'retained exception obeys its strict 384-character bound'),
         ('control-character-leak', 'if (char.IsControl(text[i]))', 'if (false && char.IsControl(text[i]))',
          'retained state includes bounded outer and inner loader causes with no control characters'),
+        ('quest-index-counts-lost', 'QuestEnvironmentJson.Unsigned(indices[n])', '0u',
+         'Quest parser retains exact name/vertex/readable/float-bits/unsigned-submesh identity'),
+        ('quest-index-bounds-lost', 'QuestEnvironmentJson.Single(bounds[n])', '0f',
+         'Quest parser retains exact name/vertex/readable/float-bits/unsigned-submesh identity'),
     ]
     variants = [('production', sources['ScenarioEnvironmentMeshBank.cs'], '')]
     for name, before, after, expected in mutations:
@@ -50,8 +54,9 @@ def worker(run):
             'Complete production environment MeshBank and MeshStream compile unchanged, except explicit negative-control variants.',
             'Actual native retained desktop bank/index, mixed/lower-case Contains and LoadAsset execute in Unity2021.3.5f1.',
             'Only a tiny deliberately invalid index bank is compiled; original game data and full Android environment bank are never rebuilt.',
-            'Platform selection and unused owned-provenance admission are explicit boundary surrogates; no actual Android failing payload was available.',
-            'No source-mesh matching, Android native parser outcome, terrain/pillar submission or headset FPS claim.'
+            'Desktop and reflection-free Quest readers must agree across all 1,139 native entries, float bits, unsigned indices and all source/variant fields.',
+            'Platform selection and missing owned-provenance admission are explicit boundary surrogates; actual source-receipt validation runs separately in quest-platform-tests.',
+            'No Android native parser outcome, terrain/pillar submission or headset FPS claim.'
         ]}, indent=2) + '\n')
     manifest = {'result': str(run / 'results.txt'), 'bank': str(bank), 'cases': []}
     editor = Path('/home/claw/unity-2021.3.5/Editor/Unity')
@@ -59,7 +64,7 @@ def worker(run):
     for name, text, expected in variants:
         case = run / name; production = case / 'production'; production.mkdir(parents=True)
         (production / paths[0].name).write_text(text)
-        (production / paths[1].name).write_text(sources[paths[1].name])
+        for path in paths[1:]: (production / path.name).write_text(sources[path.name])
         project = case / 'EnvironmentBankFailure.csproj'; shutil.copyfile(fixture / project.name, project)
         assembly = 'EnvironmentBankFailure_' + name.replace('-', '_')
         command = [dotnet, 'build', str(project), '-c', 'Release', '--nologo', '--verbosity', 'quiet',

@@ -13,6 +13,8 @@ def main():
     paths = {
         "QuestLoadingView.cs": root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestLoadingView.cs",
         "QuestGameModLifecycle.cs": root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameModLifecycle.cs",
+        "QuestEnvironmentJson.cs": root / "src/GloomhavenVR/Core/Perf/QuestEnvironmentJson.cs",
+        "SelfUpdateRelease.cs": root / "src/GloomhavenVR/Core/SelfUpdate/SelfUpdateRelease.cs",
         "QuestStandalonePlatform.cs": root / "src/GloomhavenVR/Core/QuestStandalonePlatform.cs",
         "Loc/QuestText.cs": root / "src/GloomhavenVR/Core/Loc/QuestText.cs",
     }

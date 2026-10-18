@@ -1,8 +1,6 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Json;
 using System.Security.Cryptography;
 using GloomhavenVR.Rig;
 using UnityEngine;
@@ -48,22 +46,24 @@ public static class QuestStandalonePlatform
     {
         if (!Enabled) throw new InvalidOperationException("Owned environment provenance requires Quest standalone.");
         if (provenance.Length > 8 * 1024 * 1024) throw new InvalidDataException("owned environment provenance bound");
-        using var input = new MemoryStream(provenance, false);
-        var manifest = new DataContractJsonSerializer(typeof(EnvironmentSources)).ReadObject(input) as EnvironmentSources
-            ?? throw new InvalidDataException("missing owned environment provenance");
+        var manifest = QuestEnvironmentJson.Read(provenance);
         using var sha = SHA256.Create();
         string indexHash = BitConverter.ToString(sha.ComputeHash(index)).Replace("-", string.Empty).ToLowerInvariant();
-        if (manifest.schema != 1 || manifest.association != "owned-PC-original-static-environment-GHEM1"
-            || manifest.indexSha256 != indexHash || !EnvironmentHash(manifest.gameKey)
-            || manifest.sources == null || manifest.sources.Length < 1 || manifest.sources.Length > 8192)
+        if (QuestEnvironmentJson.Integer(manifest, "schema") != 1
+            || QuestEnvironmentJson.String(manifest, "association") != "owned-PC-original-static-environment-GHEM1"
+            || QuestEnvironmentJson.String(manifest, "indexSha256") != indexHash
+            || !EnvironmentHash(QuestEnvironmentJson.String(manifest, "gameKey")))
             throw new InvalidDataException("owned environment index/source association");
+        var sources = QuestEnvironmentJson.Array(manifest, "sources", 1, 8192);
         var result = new HashSet<string>(StringComparer.Ordinal);
-        foreach (EnvironmentSource source in manifest.sources)
+        foreach (object? row in sources)
         {
-            if (source == null || source.path == null || !source.path.StartsWith("pcg_databases_assets_assets/pcg/", StringComparison.Ordinal)
-                || !source.path.EndsWith(".bundle", StringComparison.Ordinal) || source.path.Contains("..")
-                || source.path.Contains("\\") || source.path.Contains(":") || Path.IsPathRooted(source.path)
-                || !EnvironmentHash(source.sha256) || !result.Add(source.path + ":" + source.sha256))
+            var source = QuestEnvironmentJson.Object(row);
+            string path = QuestEnvironmentJson.String(source, "path"), hash = QuestEnvironmentJson.String(source, "sha256");
+            if (!path.StartsWith("pcg_databases_assets_assets/pcg/", StringComparison.Ordinal)
+                || !path.EndsWith(".bundle", StringComparison.Ordinal) || path.Contains("..")
+                || path.Contains("\\") || path.Contains(":") || Path.IsPathRooted(path)
+                || !EnvironmentHash(hash) || !result.Add(path + ":" + hash))
                 throw new InvalidDataException("owned environment source identity");
         }
         return result;
@@ -74,14 +74,6 @@ public static class QuestStandalonePlatform
         foreach (char value in hash) if (!(value >= '0' && value <= '9') && !(value >= 'a' && value <= 'f')) return false;
         return true;
     }
-    [DataContract] private sealed class EnvironmentSources
-    {
-        [DataMember] public int schema = 0;
-        [DataMember] public string association = string.Empty, gameKey = string.Empty, indexSha256 = string.Empty;
-        [DataMember] public EnvironmentSource[] sources = Array.Empty<EnvironmentSource>();
-    }
-    [DataContract] private sealed class EnvironmentSource
-    { [DataMember] public string path = string.Empty, sha256 = string.Empty; }
     public static bool ModRunning => Enabled && VRSession.IsRunning;
     public static bool RigReady => ModRunning && VRRigDriver.HeadCamera != null && VRRigDriver.HeadCamera.isActiveAndEnabled;
     public static Camera? HeadCamera => RigReady ? VRRigDriver.HeadCamera : null;
