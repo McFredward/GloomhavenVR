@@ -1169,8 +1169,9 @@ internal sealed class LoadingIndicator
         // pixels through ReadPixels, whose Quest data has already proved unsafe
         // for optional derived art; a matching name/recipe cannot validate those
         // saved pixels. The Intro scene already supplies the same native layers.
-        // Keep their existing owned GPU copy through scene teardown, avoiding both
-        // disk cache reads and writes on Quest. Desktop's proven cache is retained.
+        // Retain the direct native atlas through our owned material across scene
+        // teardown, avoiding disk cache reads and writes on Quest. Desktop's
+        // proven cache is retained.
         return !QuestStandalonePlatform.Enabled;
     }
 
