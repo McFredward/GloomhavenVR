@@ -12,6 +12,22 @@ public static partial class EnvironmentProgram
         LateNativeCommandBufferConsumer();
         NativeChunkLightmapWrites();
         LateNativeLightingFlags();
+        using (var room = new Room())
+        {
+            var floor = room.Floor(); room.Floor(2f);
+            Check(!Shader.Find("Fixture/UnavailableWorld").isSupported,
+                "actual foreign-API environment shader is unsupported on this graphics device");
+            BundleShaders.Unsupported = true;
+            try
+            {
+                Configure(false, true, 100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+                room.Render(); room.Render();
+                Check(floor.sharedMaterial == room.Original
+                    && VRLog.Faults.FindAll(m => m.Contains("shader unsupported")).Count == 1,
+                    "resolved unsupported environment shader retains original native slots with one bounded report");
+            }
+            finally { BundleShaders.Unsupported = false; }
+        }
         return count;
     }
 

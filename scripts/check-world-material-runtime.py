@@ -198,6 +198,9 @@ def main():
         changes.append(('quest-public-list-identity-ignored',[
             ('ScenarioEnvironmentBudget.CameraBoundary.cs','&& ReferenceEquals(snapshot, Camera.onPreCull);','&& snapshot != null;',1)],
             'mutation during actual public dispatch revokes private slots before native culling'))
+    changes.append(('unsupported-world-shader-admitted',[
+        ('WorldMaterialBudget.Materials.cs','if (!_shader.isSupported)','if (false && !_shader.isSupported)',1)],
+        'resolved unsupported world shader keeps original native slots'))
     variants=[('production',sources,'')]
     if not args.production_only:
         for name,edits,expected in changes:
@@ -254,6 +257,7 @@ def main():
     unity=run/'unity';(unity/'Assets/Editor').mkdir(parents=True);(unity/'Packages').mkdir();(unity/'ProjectSettings').mkdir()
     shutil.copyfile(fixture/'Editor/WorldRunner.cs',unity/'Assets/Editor/WorldRunner.cs')
     shutil.copyfile(fixture/'Bridge.shader',unity/'Assets/Bridge.shader');native=(fixture/'Native.shader').read_text()
+    shutil.copyfile(fixture/'Unsupported.shader',unity/'Assets/Unsupported.shader')
     for shader in ('Amp_Basic_N_MRAO','Amp_Low/Amp_Basic_N_MRAO_Low','Amp_Basic_WallFade',
             'Amp_Low/Amp_Basic_WallFade_Low','Amp_Basic','Amp_Low/Amp_Basic_Low','Fixture/UnreviewedWorld'):
         (unity/'Assets'/(shader.replace('/','_')+'.shader')).write_text(native.replace('Amp_Basic_N_MRAO',shader,1))

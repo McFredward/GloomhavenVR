@@ -93,6 +93,7 @@ def main():
     wall_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs'
     clock_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.AnimationClock.cs'
     trace_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.DrawTrace.cs'
+    unsupported_path = ROOT/'tests/world-material-runtime/Unsupported.shader'
     occlusion_path = args.source_root/'src/GloomhavenVR/Core/OcclusionFade.cs'
     dissolve_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.Dissolve.cs'
     import importlib.util
@@ -352,7 +353,7 @@ def main():
         (swallowed_fixture/'Program.cs').write_text(program.replace(guard,
             'if (callbackFailure != null && bool.Parse("false")) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();'))
     manifest = {'result':str(run/'results.txt'),'cases':[]}
-    bound_sources = {attachment_binder:attachment_binder.read_text(), **{path:path.read_text() for path in attachment_paths}, source_path:source,boundary_path:boundary,ambient_path:ambient,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
+    bound_sources = {unsupported_path:unsupported_path.read_text(), attachment_binder:attachment_binder.read_text(), **{path:path.read_text() for path in attachment_paths}, source_path:source,boundary_path:boundary,ambient_path:ambient,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
     for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
         bank_path = args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file
         bound_sources[bank_path] = bank_path.read_text()
@@ -398,6 +399,7 @@ def main():
     shutil.copyfile(fixture/'Editor/EnvironmentRunner.cs',unity_project/'Assets/Editor/EnvironmentRunner.cs')
     shutil.copyfile(fixture/'NativeMaterials.shader',unity_project/'Assets/NativeMaterials.shader')
     shutil.copyfile(fixture/'NativeHighBranch.shader',unity_project/'Assets/NativeHighBranch.shader')
+    shutil.copyfile(unsupported_path,unity_project/'Assets/Unsupported.shader')
     # Exact versions match the production BepInEx.Core -> HarmonyX dependency
     # graph. Private test copies never overwrite references or the editor install.
     native_dependencies = (

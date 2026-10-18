@@ -98,10 +98,11 @@ namespace GloomhavenVR.Core
     }
     internal static class BundleShaders
     {
-        internal static bool ThrowResolve;
+        internal static bool ThrowResolve, Unsupported;
         internal static Shader? Resolve(string name, string scope, string whenFound, string whenMissing)
         {
             if (ThrowResolve) throw new InvalidOperationException("generated shader resolver fault");
+            if (Unsupported) return Shader.Find("Fixture/UnavailableWorld");
             return Shader.Find(name);
         }
     }

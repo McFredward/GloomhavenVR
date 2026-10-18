@@ -735,6 +735,7 @@ internal static class ScenarioEnvironmentBudget
         private int _meshVisits, _nativeScopeRefusals, _nativeMaterialRefusals, _nativeWallChannelRefusals;
         private int _terrainRefusals, _mpbRefusals, _lightmapRefusals, _lodRefusals, _shadowRefusals, _geometryRefusals, _lightProbeFlagRefusals, _reflectionFlagRefusals;
         private Shader? _shader;
+        private bool _unsupportedShaderNoted;
 
         internal bool IsPreparingPresentation => _pending.Count > 0 || _parts.Count > 0;
 
@@ -1029,6 +1030,15 @@ internal static class ScenarioEnvironmentBudget
                 if (!CompatibleMaterial(original, surface.Floor || surface.Structural)) return;
             _shader ??= BundleShaders.Resolve(SimpleShader, Scope, "simpler scenario environment shader available", "original environment materials retained");
             if (_shader == null) return;
+            if (!_shader.isSupported)
+            {
+                if (!_unsupportedShaderNoted)
+                {
+                    _unsupportedShaderNoted = true;
+                    VRLog.Note(Scope, "Simpler scenario environment shader unsupported by the current graphics API; original environment materials retained.");
+                }
+                return;
+            }
             var changed = new Material[surface.Original.Length];
             for (int i = 0; i < changed.Length; i++)
             {
