@@ -612,7 +612,26 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 703;
+    public const ushort ModBuild = 704;
+
+    // ModBuild704 — prepare host stream settings before native MR source admission.
+    // Fresh703 hardware A/B: ordinary output is sharp; MR output is soft. Actual
+    // PC eye targets now change4040->5050->6060, but Frame uniform video remains
+    //3264x6400. The old2048/3168 RGB atlas fraction still spends image detail on
+    // coverage. This bounded correction does NOT restore that lost RGB budget.
+    // Source preparation previously raced the asynchronous stream-settings task,
+    // allowing an atlas before its current host policy was acquired. Require a
+    // matching width/current epoch and live helper task before cold preparation,
+    // again at callback ownership, and for the actual current source extent.
+    // Pending/failed policy keeps the ordinary image, never the green chroma
+    // fallback. Off/resize/completion revoke immediately; explicit quality-Off
+    // retains the prior no-lease source path. No timer or Off prewarming.
+    // A host receipt is NOT proof of native encoder reconfiguration. The entire
+    // reported one-second edge transition remains unverified. No shader, bank,
+    // receiver or XR/projection change. Game+local-menu+camera is still the target;
+    // the clean current local dashboard episode has no video-format change.
+    // The earlier dashboard episode includes separate tracking loss; do not
+    // assign its Synchronized transition to all ordinary menu openings.
 
     // ModBuild703 — restore the PCVR eye-resolution control's live allocation.
     // Build702 hardware edits above1.0 were deferred because Frame standalone's

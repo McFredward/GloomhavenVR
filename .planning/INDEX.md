@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-18: Build703 live PCVR resolution; native dashboard and RGB-quality assessment.
+Updated 2026-10-18: Build704 direct MR comparison and host-source preparation boundary.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [STEAM-LINK-704-COMPARISON.md](STEAM-LINK-704-COMPARISON.md) | Actual703 A/B and delivered video, host preparation repair, remaining quality and native-menu transport constraints |
 | [STEAM-LINK-703-LIVE-RESOLUTION.md](STEAM-LINK-703-LIVE-RESOLUTION.md) | Actual702 delivered-video evidence, live PCVR slider repair, chosen game/menu/camera behavior and explicit remaining transport work |
 | [STEREO-VIDEO-LIBRARY-2026-10-17.md](STEREO-VIDEO-LIBRARY-2026-10-17.md) | Headset-accepted20-subject/22-file library;696 automatic studio admission and Cheats-gated spoiler reviews, composed evidence and trailer exclusion |
 | [../docs/stereo-video-library.md](../docs/stereo-video-library.md) | Native media authorities, pinned conversion and encoder policies, original clocks/audio and verification boundaries |

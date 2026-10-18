@@ -1,5 +1,21 @@
 # State — where the project stands
 
+**Direct native-MR comparison and host preparation, 2026-10-18: Build704.**
+
+The maintainer directly confirms sharp Off / soft On in703. Actual PC targets
+now change4040/5050/6060, but read-only Frame logs show constant3264x6400 MR video.
+The extra v3 RGB/coverage packing loss remains; no further width-only quality
+claim. Host source admission now waits for the matching current live settings
+lease and revokes on resize/Off/helper completion, retaining ordinary output
+while pending. This closes a proven source/acquisition race, not native encoder
+readiness or the entire reported one-second edge transition. No receiver change.
+
+The clean local dashboard episode has no decoder-format change; the first one
+also includes tracking loss and must not be generalized. Game + menu + camera
+remains open native work. Focused114/138/47 evidence with ten affected causal
+controls is composed with unchanged earlier evidence, not a complete gate.
+See [the current comparison record](STEAM-LINK-704-COMPARISON.md).
+
 **Live PCVR eye resolution and native dashboard assessment, 2026-10-18: Build703.**
 
 Actual Frame702 video is3264x6400 despite an acknowledged4096 request; the v3
