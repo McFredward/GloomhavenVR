@@ -21,6 +21,7 @@ static class Program
         QuestStandalonePlatform.Enabled = VRSession.IsRunning = VRLog.Debug = true;
         SceneController.Instance = new(); RoomVisibilityManager.s_Instance = new(); AudioSettings.Reads = 0;
         AudioController.Reads = 0; AudioController.Music = AudioController.Ambient = null;
+        QuestCombatAudioTap.Calls = 0;
     }
     static int Main()
     {
@@ -64,6 +65,39 @@ static class Program
         owner.Source.clip.name = "SFX_MeleeAttack";
         for (int id = 20; id < 26; id++) { owner.Source.clip.Id = id; QuestCombatAudioEvidence.Observe(owner); }
         Check(QuestCombatAudioEvidence.Snapshot.Length == 8, "attack-reserve: six attack starts were not retained after other effects");
+        foreach (string cue in new[] { "Hit1", "EnemyImpact_02", "Health_Loss_to_Wound" })
+        {
+            Reset(); owner = new AudioObject(); owner.Source!.clip.name = "SFX_UITutorialFlowOpen";
+            QuestCombatAudioEvidence.Observe(owner);
+            owner.Source.clip.name = cue; QuestCombatAudioEvidence.Observe(owner);
+            Check(QuestCombatAudioEvidence.Snapshot.Length == 1 && AudioSettings.Reads == 1,
+                "common-hit-priority: actual hit/impact/wound did not retain its named allowance");
+        }
+        Reset(); owner = new AudioObject(); owner.Source!.clip.name = "OpaqueNativeClip";
+        owner.audioID = "PlaySound_GenericImpact"; owner.category!.Name = "SFX Reverb";
+        QuestCombatAudioEvidence.Observe(owner);
+        Check(QuestCombatAudioEvidence.Snapshot.Single().Contains("nativeId=PlaySound_GenericImpact category=SFX Reverb"),
+            "native-id-priority: exact native cue/category unavailable for an unnamed clip");
+        foreach (bool uiById in new[] { false, true })
+        {
+            Reset(); owner = new AudioObject(); owner.Source!.clip.name = uiById ? "OpaqueNativeClip" : "SFX_UITutorialDamageHint";
+            owner.audioID = uiById ? "PlaySound_UITutorialHitHint" : "PlaySound_GenericImpact";
+            owner.Source.outputAudioMixerGroup!.name = "3DSoundsReverb";
+            QuestCombatAudioEvidence.Observe(owner);
+            Check(QuestCombatAudioEvidence.Snapshot.Length == 0 && AudioSettings.Reads == 0,
+                "ui-hit-exclusion: tutorial hint consumed named hit capacity");
+        }
+        Reset(); owner = new AudioObject(); owner.Source!.clip.name = "OpaqueCurrentClip";
+        owner.audioID = "PlaySound_UITutorialFlowOpen"; owner.audioItem = new() { Name = "PlaySound_GenericOnHit" };
+        RoomVisibilityManager.s_Instance!.Maps!.activeInHierarchy = false;
+        QuestCombatAudioEvidence.Observe(owner);
+        Check(QuestCombatAudioEvidence.Snapshot.Single().Contains("nativeId=PlaySound_GenericOnHit") && QuestCombatAudioTap.Calls == 1,
+            "current-native-item: stale pooled UI ID or presentation Maps gate concealed actual damage cue");
+        Reset(); owner = new AudioObject(); owner.Source!.clip.name = "SFX_BruteMeleeAttack";
+        QuestCombatAudioEvidence.Observe(owner);
+        Check(QuestCombatAudioTap.Calls == 0, "impact-reserve: attack windup consumed finite damage-output allowance");
+        owner.Source.clip.Id++; owner.Source.clip.name = "Hit1"; QuestCombatAudioEvidence.Observe(owner);
+        Check(QuestCombatAudioTap.Calls == 1, "impact-reserve: actual hit did not request finite native output evidence");
         Reset(); owner.Throw = true; QuestCombatAudioEvidence.Observe(owner);
         Check(QuestCombatAudioEvidence.Snapshot.Single() == "observation-unavailable=InvalidOperationException", "native-continuation: observation failure escaped into playback");
         Reset(); VRLog.Debug = false;

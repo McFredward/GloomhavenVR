@@ -20,6 +20,7 @@ namespace HarmonyLib
 }
 namespace GloomhavenVR.Core
 {
+    internal static class QuestCombatAudioTap { internal static void PlaybackStarting(ClockStone.AudioObject owner) { } }
     public static class QuestStandalonePlatform { public static bool Enabled = true; }
     public static class VRSession { public static bool IsRunning = true; }
 }

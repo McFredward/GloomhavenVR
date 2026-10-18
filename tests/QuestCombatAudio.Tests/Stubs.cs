@@ -39,8 +39,11 @@ public static class AudioController
 }
 namespace ClockStone
 {
+    public class AudioCategory { public string Name = "SFX"; }
+    public class AudioItem { public string Name = ""; }
     public class AudioObject
     {
+        public string audioID = ""; public AudioCategory? category = new(); public AudioItem? audioItem;
         public UnityEngine.AudioSource? Source = new();
         public int Reads;
         public bool Throw;
@@ -53,6 +56,7 @@ namespace GloomhavenVR.Core
 {
     public static class QuestStandalonePlatform { public static bool Enabled = true; }
     internal static class QuestCombatAudio { internal static bool HasPrepared(UnityEngine.AudioSource source) => false; }
+    internal static class QuestCombatAudioTap { internal static int Calls; internal static void Observe(UnityEngine.AudioSource source, UnityEngine.AudioClip clip, System.Action<string> append) { Calls++; } }
     public static class VRSession { public static bool IsRunning = true; }
     public enum VRLogLevel { Debug }
     public static class VRLog { public static bool Debug = true; public static bool Wants(VRLogLevel level) => Debug; }

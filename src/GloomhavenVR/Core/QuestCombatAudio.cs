@@ -16,6 +16,7 @@ internal static class QuestCombatAudio
         // Restore an earlier pool use before deciding whether this use qualifies.
         // The original may swap primary/secondary sources during crossfades.
         if (owner == null) return;
+        QuestCombatAudioTap.PlaybackStarting(owner);
         Restore(owner);
         if (!QuestStandalonePlatform.Enabled || !VRSession.IsRunning) return;
         Camera? head = Rig.VRRigDriver.HeadCamera;
