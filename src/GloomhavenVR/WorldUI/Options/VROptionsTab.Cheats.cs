@@ -308,6 +308,7 @@ internal static partial class VROptionsTab
         rows += BuildWinScenarioRow();
         rows += BuildGoldRow();
         rows += BuildVideoReviewTriggers();
+        rows += BuildSteamLinkProjectionProbe();
         return rows;
     }
 

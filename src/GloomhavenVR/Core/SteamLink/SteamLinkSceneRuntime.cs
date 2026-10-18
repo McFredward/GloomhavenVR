@@ -24,6 +24,7 @@ internal static class SteamLinkSceneRuntime
 
     internal static bool TryEnter(Camera? head)
     {
+        SteamLinkProjectionProbe.Tick();
         if (head == null || !head.isActiveAndEnabled || !VRSession.IsRunning
             || !StereoReady(head) || !TransportPrepared())
         {
@@ -105,6 +106,7 @@ internal static class SteamLinkSceneRuntime
 
     internal static void Reset()
     {
+        SteamLinkProjectionProbe.Stop();
         Exit();
         _failedHead = null;
         _reportedReason = null;
@@ -114,6 +116,7 @@ internal static class SteamLinkSceneRuntime
 
     internal static void Exit()
     {
+        SteamLinkProjectionProbe.Tick();
         SceneHeadOutput? previous = _output;
         _output = null; // Revoke callback authority before releasing any owned resource.
         if (previous == null) return;
@@ -258,7 +261,23 @@ internal sealed class SceneHeadOutput : MonoBehaviour
             }
             try
             {
-                SceneEyeResult result = _pack!.TryRender(source, destination, eye);
+                // The explicit diagnostic never clears the borrowed source. All
+                // authority/HostPrepared checks above still use that actual eye.
+                RenderTexture input = SteamLinkProjectionProbe.InputForFrame(source, Time.frameCount);
+                SceneEyeResult result;
+                if (!ReferenceEquals(input, source))
+                {
+                    bool testRendered = false;
+                    result = default;
+                    try { result = _pack!.TryRender(input, destination, eye); testRendered = result == SceneEyeResult.Rendered; }
+                    catch (Exception) { /* A diagnostic failure cannot poison ordinary MR. */ }
+                    if (!testRendered)
+                    {
+                        SteamLinkProjectionProbe.PackFailed();
+                        result = _pack!.TryRender(source, destination, eye);
+                    }
+                }
+                else result = _pack!.TryRender(source, destination, eye);
                 packed = result == SceneEyeResult.Rendered;
                 if (!packed) Failure = result.ToString();
                 else if (VRLog.WantsDebug)
