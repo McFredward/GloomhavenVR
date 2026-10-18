@@ -351,8 +351,8 @@ class OwnedEnvironmentTests(unittest.TestCase):
         code = ("import sys,os,json;from pathlib import Path;sys.path.insert(0,sys.argv[1]);import builder,storage;"
                 "files=json.loads(sys.argv[6]);"
                 "context=builder._mod_bank_workspace(Path(sys.argv[2]),Path(sys.argv[3]),sys.argv[4],files);"
-                "context.__enter__();copy=storage.shutil.copyfile;"
-                "storage.shutil.copyfile=lambda a,b:(copy(a,b),os._exit(77));"
+                "context.__enter__();copy=storage._copy_snapshot_member;"
+                "storage._copy_snapshot_member=lambda *a:(copy(*a),os._exit(77));"
                 "storage.snapshot(Path(sys.argv[5]),files,Path(sys.argv[3])/'project')")
         run = subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", "-c", code,
                               str(ROOT / "tools/quest-builder"), str(output), str(root), key,

@@ -583,10 +583,13 @@ class UpdateDriverTests(unittest.TestCase):
         code = source / "src/GloomhavenVR/Core/Plugin.cs"; code.parent.mkdir(parents=True)
         code.write_bytes(b"unchanged actual runtime source")
         code_row = storage.record_file(code, code.relative_to(source).as_posix())
+        recipe = source / 'tools/quest-movies/recipe.json'; recipe.parent.mkdir(parents=True)
+        storage.write_json(recipe, {'schema': 1, 'movies': []})
+        recipe_row = storage.record_file(recipe, recipe.relative_to(source).as_posix())
         manifest = source / release.MANIFEST
         def publish(commit):
             storage.write_json(manifest, {"schema": 1, "kind": release.RELEASE_KIND, "sourceCommit": commit,
-                "modBuild": 671, "files": [code_row], "localDependencyRoots": list(release.LOCAL_DEPENDENCIES)})
+                "modBuild": 671, "files": [code_row, recipe_row], "localDependencyRoots": list(release.LOCAL_DEPENDENCIES)})
         # Real release byte verification supplies the manifest row. Small fixture
         # package requirements avoid shipping unrelated pinned native archives.
         with patch.object(release, "PUBLIC_PACKAGES", {}), patch.object(release, "REQUIRED", {code_row["path"]}), \
