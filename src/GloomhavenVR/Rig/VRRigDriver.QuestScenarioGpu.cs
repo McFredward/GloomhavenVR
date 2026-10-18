@@ -51,7 +51,8 @@ internal sealed partial class VRRigDriver
             {
                 Light light = lights[index];
                 lighting += light.type + ":" + Number(light.intensity) + "," + Vector(light.transform.position)
-                    + ",r" + Number(light.range) + ",rgb" + Number(light.color.r) + "," + Number(light.color.g) + "," + Number(light.color.b) + ";";
+                    + ",r" + Number(light.range) + ",rgb" + Number(light.color.r) + "," + Number(light.color.g) + "," + Number(light.color.b)
+                    + ",mode=" + light.renderMode + ",shadows=" + light.shadows + ";";
             }
             string context = " sourceLayer=" + renderer.gameObject.layer + " copiedLights=" + lights.Count + "/" + candidates
                 + " probes=" + renderer.lightProbeUsage + " api=" + SystemInfo.graphicsDeviceType + " tier=" + Graphics.activeTier
