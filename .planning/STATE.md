@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Per-route Frame result and Debug-only host observation, 2026-10-18: Build705.**
+
+The fresh separately authorized capture has12 populated central records across
+both active companions/selectors and guarded closed/open/closed contexts. Both
+paths independently lose the v3 header while the menu is open and regain it
+afterward: first raw-G128/1023 ->52/1023 ->128/1023. This removes the old shared
+first-winner ambiguity for these routes. Both original source alpha fields are
+exactly1 throughout; copying them cannot fix this path. R1/flags/tint do not
+change. The single-cell ratio is not a proved global fade or gamma law. All32
+files passed checksum checks; public installation and normal UI are restored.
+
+Build705 adds a bounded, read-only public host OpenVR observer at Debug only
+for requested native Frame/Steam Link MR. It runs off Unity's thread, writes no
+settings or render state, and changes nothing on the Frame. It checks whether
+an actual public fade/grid/focus state accompanies the observed input change.
+No source/receiver/quality/menu fix or new headset result is claimed. See
+[the scoped observation record](STEAM-LINK-705-COMPOSITOR-OBSERVATION.md).
+
 **Completed native menu capture, 2026-10-18; game remains Build704.**
 
 The corrected isolated diagnostic completed all three manual UI contexts and

@@ -17,8 +17,8 @@ namespace GloomhavenVR.Core.SteamLink;
 internal static class SteamLinkCompositorMonitor
 {
     internal const string Resource = "GloomhavenVR.SteamLink.compositor-state-probe.exe";
-    internal static readonly int HelperBytes = 0; // Frozen by the packaging integration.
-    internal static readonly string HelperSha256 = "";
+    internal static readonly int HelperBytes = 957952;
+    internal static readonly string HelperSha256 = "fd5496814dbcc4a37de7d73e46fae155000197404adec353f29bdeb2e0009b38";
     internal const int MaximumSamples = 32, MaximumLine = 1024, MaximumBytes = 32768;
     internal const int StopGraceMs = 5000;
     private static readonly Monitor State = new(LaunchAsync, line =>

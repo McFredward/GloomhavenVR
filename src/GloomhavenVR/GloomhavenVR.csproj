@@ -74,6 +74,9 @@
                       LogicalName="GloomhavenVR.SteamLink.connection-reader.exe" />
     <EmbeddedResource Include="Assets\SteamLink\stream-quality.exe"
                       LogicalName="GloomhavenVR.SteamLink.stream-quality.exe" />
+    <!-- Read-only PC compositor state observer, launched only for Debug native Steam Link MR. -->
+    <EmbeddedResource Include="Assets\SteamLink\compositor-state-probe.exe"
+                      LogicalName="GloomhavenVR.SteamLink.compositor-state-probe.exe" />
     <!-- Public Valve SDK loader for that isolated reader; immutable pin and BSD notice ship with the source. -->
     <EmbeddedResource Include="Assets\SteamLink\openvr_api.dll"
                       LogicalName="GloomhavenVR.SteamLink.openvr_api.dll" />

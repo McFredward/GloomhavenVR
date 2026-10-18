@@ -1,0 +1,21 @@
+{
+  "schema": "ghvr-steamlink-compositor-monitor-build-v1",
+  "source_repository": "https://github.com/McFredward/steam-link-native-passthrough",
+  "source_commit": "91de8a5ebf0d97d8a2d2cc6b2cdd10f685bb6e03",
+  "source_sha256": {
+    "pc/compositor-state-probe.cpp": "469aa5ccc6e0892555bc764481fa41179929f823ba2d79199f846f15b2fb9f92",
+    "pc/compositor-state-probe-core.h": "20af2c850e17a1567411f13ca6a9e340ce7f4c77f72994173efbf04545da9161",
+    "pc/compositor-state-probe-test.cpp": "8334e109cc6f0044742198f3beefc942a3228ab89c7fcdac6d6e102cb6f2de47",
+    "pc/compositor-state-probe-build.sh": "d2af430fe80d9c36717dfde8633898d7bf68ef01b6628414ec2bf6c11a70e7fa"
+  },
+  "openvr_header_sha256": "3d32d8eb5bcbe2e250610123aee8142c68f0e7d4da823f87513b6a2a333078d7",
+  "script_sha256": "7f6daab126feea620c9f47ff1e088cde4b59765915e345b0f5ad0e2f73f7fc69",
+  "compiler": "x86_64-w64-mingw32-g++-win32",
+  "compiler_sha256": "700d63d40cdf85fd3b3e6c54eb75ea8ee0aa707cfaa7a5bf03e5d1306f69da07",
+  "compiler_version": "x86_64-w64-mingw32-g++-win32 (GCC) 13-win32",
+  "output_bytes": 957952,
+  "output_sha256": "fd5496814dbcc4a37de7d73e46fae155000197404adec353f29bdeb2e0009b38",
+  "windows_or_proton_executed": false,
+  "hardware_verified": false,
+  "behavior": "Debug-only read-only public OpenVR Background client; no settings or rendering changes"
+}

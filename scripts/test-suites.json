@@ -2853,6 +2853,21 @@
       "weight": 8
     },
     {
+      "id": "steamlink-compositor-monitor",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-compositor-monitor/run.py",
+        "--output",
+        ".planning/debug/steamlink-compositor-monitor"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
+    },
+    {
       "id": "steamlink-stream-quality",
       "command": [
         "python3",

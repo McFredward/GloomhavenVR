@@ -612,7 +612,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 704;
+    public const ushort ModBuild = 705;
+
+    // ModBuild705 — bounded, read-only PC compositor context for native MR.
+    // Real route-separated Frame observations show both active companions
+    // lose the v3 header when the local dashboard opens and regain it afterward.
+    // R1/flags/tint are unchanged; existing YUV samples have opaque alpha.
+    // These samples do not prove a global fade law or identify its exact stage.
+    // Only at Debug, with genuine Frame/Steam Link native MR requested, run one
+    // isolated Background OpenVR observer off the Unity thread. It reads public
+    // fade/grid/dashboard context; it never writes settings or compositor state,
+    // starts/stops SteamVR, changes scene rendering or patches a sender binary.
+    // Bound/deduplicate its reports and stop on owned EOF when no longer wanted.
+    // Ordinary users and standalone perform no observation. This is diagnosis,
+    // not a fix for menu composition, source transition or remaining RGB loss.
 
     // ModBuild704 — prepare host stream settings before native MR source admission.
     // Fresh703 hardware A/B: ordinary output is sharp; MR output is soft. Actual
