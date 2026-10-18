@@ -174,7 +174,7 @@ def builder_module():
     # those dependencies before loading builder even in a Git-free isolated launch.
     missing = object()
     names = ["profile", "storage"]
-    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "script_remap_resume", "editor_overlay", "preparation_identity", "preparation_metadata")
+    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "script_remap_resume", "editor_overlay", "preparation_identity", "preparation_metadata", "figure_banks")
               if (REPO / "tools/quest-builder" / (name + ".py")).is_file()]
     names += ["startup", "builder"]
     aliases = [name for name in names if name != "builder"] + ["_ghvr_wireless_" + name for name in names]
@@ -189,6 +189,13 @@ def builder_module():
             sys.modules[spec.name] = module
             spec.loader.exec_module(module)
             if name == "builder":
+                # B690's Wizard compares figure requirements after these local
+                # aliases have been restored. Retain the exact selected helper
+                # while its storage functions still bind to this Builder, just
+                # like the Builder's eagerly captured APK/update dependencies.
+                # Older source snapshots without figure support remain valid.
+                if "figure_banks" in names:
+                    module.figure_banks = sys.modules["figure_banks"]
                 return module
             sys.modules[name] = module
     finally:

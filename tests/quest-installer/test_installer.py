@@ -778,7 +778,8 @@ class InstallerTests(unittest.TestCase):
     def test_builder_import_preserves_preexisting_profile_storage_and_startup_modules(self):
         names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets",
                  "build_provenance", "_ghvr_wireless_build_provenance", "native_plugins", "_ghvr_wireless_native_plugins",
-                 "staging_resume", "_ghvr_wireless_staging_resume", "editor_overlay", "_ghvr_wireless_editor_overlay", "script_remap_resume", "_ghvr_wireless_script_remap_resume")
+                 "staging_resume", "_ghvr_wireless_staging_resume", "editor_overlay", "_ghvr_wireless_editor_overlay", "script_remap_resume", "_ghvr_wireless_script_remap_resume",
+                 "figure_banks", "_ghvr_wireless_figure_banks")
         previous = {name: types.ModuleType("existing_" + name) for name in names}
         profile, storage, startup = (previous[name] for name in ("profile", "storage", "startup"))
         with mock.patch.dict(sys.modules, previous):
@@ -803,7 +804,8 @@ class InstallerTests(unittest.TestCase):
         with mock.patch.dict(sys.modules):
             names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets",
                      "build_provenance", "_ghvr_wireless_build_provenance", "native_plugins", "_ghvr_wireless_native_plugins",
-                     "staging_resume", "_ghvr_wireless_staging_resume", "editor_overlay", "_ghvr_wireless_editor_overlay", "script_remap_resume", "_ghvr_wireless_script_remap_resume")
+                     "staging_resume", "_ghvr_wireless_staging_resume", "editor_overlay", "_ghvr_wireless_editor_overlay", "script_remap_resume", "_ghvr_wireless_script_remap_resume",
+                     "figure_banks", "_ghvr_wireless_figure_banks")
             for name in names:
                 sys.modules.pop(name, None)
             module = installer.builder_module()
@@ -821,7 +823,7 @@ import types
 sys.path.insert(0, sys.argv[1])
 import installer
 names = ("profile", "storage", "script_order", "media", "shaders", "dlcs", "audio",
-         "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "script_remap_resume", "editor_overlay", "preparation_identity", "preparation_metadata", "preparation_repair", "project_access", "startup")
+         "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "script_remap_resume", "editor_overlay", "preparation_identity", "preparation_metadata", "preparation_repair", "project_access", "figure_banks", "startup")
 aliases = names + tuple("_ghvr_wireless_" + name for name in (*names, "builder"))
 assert all(name not in sys.modules for name in aliases), "test dependencies already loaded"
 if sys.argv[2] == "preexisting":
@@ -847,6 +849,10 @@ assert module.apk_input_hashes.storage.BuildError is module.BuildError
 assert module.apk_input_hashes.storage.digest is module.digest
 assert module.portable_packages.storage.BuildError is module.BuildError
 assert module.portable_packages.storage.digest is module.digest
+assert callable(module.figure_banks.plan)
+assert module.figure_banks.BuildError is module.BuildError
+assert module.figure_banks.record_file is module.record_file
+assert Path(module.figure_banks.__file__) == installer.REPO / "tools/quest-builder/figure_banks.py"
 assert callable(module.portable_packages.import_apk)
 assert callable(module.portable_packages.export_package)
 capacity = module._local_helper("update_capacity").qualification_module(module._module_context())

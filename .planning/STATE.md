@@ -1,5 +1,16 @@
 # State — where the project stands
 
+**Quest Builder update import repair, 2026-10-18: feature / runtime B690 unchanged.**
+
+Support161102 fails in actual Wizard requirements planning: its isolated Builder
+loader restores temporary aliases before the new figure helper imports storage.
+Retain the exact selected helper inside that loader and use it for both planning
+and production; preserve host modules and CLI behavior. Five isolated production-
+boundary cases include the precise failing negative control; 65 focused host
+checks pass. No runtime/figure recipe/preparation ABI changes or original-bank
+conversion. Retain `.ghvrq` and resume with the corrected game-free Builder.
+See [QUEST-BUILDER-IMPORT-161102-20261018.md](QUEST-BUILDER-IMPORT-161102-20261018.md).
+
 **Quest assets and steady-frame work, 2026-10-18: feature / B690.**
 
 Capture150639 verifies current689/previous688. Preserve hardware-confirmed rooms,

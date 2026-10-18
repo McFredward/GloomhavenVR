@@ -39,7 +39,14 @@ def _native_resume():
     return module
 
 
-def _figures():
+def _figures(builder):
+    # Wizard/API loaders deliberately restore their temporary storage aliases.
+    # Their captured helper keeps the selected source and BuildError identity;
+    # reopening it later would import from the host application's module cache.
+    captured = getattr(builder, "figure_banks", None)
+    if captured is not None:
+        return captured
+    # Direct CLI loads retain their own pinned sibling directory on sys.path.
     spec = importlib.util.spec_from_file_location("quest_owned_figure_banks", Path(__file__).with_name("figure_banks.py"))
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     return module
@@ -710,7 +717,7 @@ def update_requirements(builder, source, base, files, mod_build):
                                                        original.get("proceduralBackend")))
     figure_changed = False
     if any(row.get("path") == "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestFigureMeshContent.cs" for row in files):
-        expected_figures = _figures().plan(source, original["game"])
+        expected_figures = _figures(builder).plan(source, original["game"])
         figure_changed = (base.get("figureBanks") or {}).get("producerKey") != expected_figures["producerKey"]
     return {"rebuildReasons": reasons, "codeChanged": code_changed, "artChanged": art_changed,
             "nativeHelperChanged": native_changed, "figureBanksChanged": figure_changed,
@@ -1201,7 +1208,7 @@ def run(builder, args, repo, output):
                 replacements["assets/Quest/installation-manifest.json"] = json.dumps(installation, sort_keys=True).encode()
             replacements.update(card_alpha_delivery(builder, inputs, output, builder.game_data(args.game_root)))
             if plan.get("figureBanksChanged"):
-                figures = _figures()
+                figures = _figures(builder)
                 figure_root, figure_manifest = figures.produce(builder, args, source, builder.game_data(args.game_root),
                     output, inputs["game"], Path(tools["editor"]))
                 replacements.update(figures.replacements(figure_root, figure_manifest))
