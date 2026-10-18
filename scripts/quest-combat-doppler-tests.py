@@ -31,6 +31,7 @@ def main():
         ("desktop-gate", "!QuestStandalonePlatform.Enabled ||", "false ||", "scope-gate"),
         ("ambience-gate", "source.loop ||", "false ||", "scope-gate"),
         ("pool-restore", "if (source.dopplerLevel == 0f) source.dopplerLevel = original.Doppler;", "if (source.dopplerLevel == 0f) source.dopplerLevel = 0f;", "pool-stop"),
+        ("secondary-clip-write", "QuestCombatAudioBank.Prepare(owner.primaryAudioSource);", "QuestCombatAudioBank.Prepare(owner.primaryAudioSource); QuestCombatAudioBank.Prepare(owner.secondaryAudioSource);", "native-crossfade"),
     )
     results = []; code = 1; process = None; reaped = True
     try:

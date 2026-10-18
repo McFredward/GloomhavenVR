@@ -21,7 +21,12 @@ namespace HarmonyLib
 namespace GloomhavenVR.Core
 {
     internal static class QuestCombatAudioTap { internal static void PlaybackStarting(ClockStone.AudioObject owner) { } }
-    internal static class QuestCombatAudioBank { internal static void Prepare(UnityEngine.AudioSource? source) { } internal static void Restore(UnityEngine.AudioSource? source) { } internal static void Inherit(UnityEngine.AudioSource? primary,UnityEngine.AudioSource? secondary) { } }
+    internal static class QuestCombatAudioBank {
+        internal static System.Collections.Generic.List<UnityEngine.AudioSource> Prepared=new(),Restored=new();
+        internal static void Prepare(UnityEngine.AudioSource? source) { if(source!=null)Prepared.Add(source); }
+        internal static void Restore(UnityEngine.AudioSource? source) { if(source!=null)Restored.Add(source); }
+        internal static void Inherit(UnityEngine.AudioSource? primary,UnityEngine.AudioSource? secondary) { }
+    }
     public static class QuestStandalonePlatform { public static bool Enabled = true; }
     public static class VRSession { public static bool IsRunning = true; }
 }

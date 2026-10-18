@@ -12,6 +12,7 @@ internal static class Program
     static AudioObject Fresh()
     {
         QuestStandalonePlatform.Enabled = VRSession.IsRunning = true;
+        QuestCombatAudioBank.Prepared.Clear(); QuestCombatAudioBank.Restored.Clear();
         GloomhavenVR.Rig.VRRigDriver.HeadCamera = new(); return new();
     }
     static void Main()
@@ -53,8 +54,12 @@ internal static class Program
             owner.secondaryAudioSource = new() { dopplerLevel = .25f };
             QuestCombatAudio.Prepare(owner);
             Check(source.dopplerLevel == 0 && owner.secondaryAudioSource.dopplerLevel == 0, "dual-source: next native pooled source retained velocity pitch");
+            Check(QuestCombatAudioBank.Prepared.Count == 1 && QuestCombatAudioBank.Prepared[0] == source
+                && QuestCombatAudioBank.Restored.Count == 0, "native-crossfade: changing a secondary clip can stop its original playback");
             (owner.primaryAudioSource, owner.secondaryAudioSource) = (owner.secondaryAudioSource, owner.primaryAudioSource);
             Hook(typeof(AudioObject_QuestCombatReset), "Prefix", owner);
+            Check(QuestCombatAudioBank.Restored.Count == 2 && QuestCombatAudioBank.Restored.Contains(source)
+                && QuestCombatAudioBank.Restored.Contains(owner.primaryAudioSource!), "native-pool-clip-restore: reset failed to release both source leases");
             Check(source.dopplerLevel == 1 && owner.primaryAudioSource.dopplerLevel == .25f, "pool-reset: original primary/secondary swap lost exact source state");
             QuestCombatAudio.Prepare(owner); QuestCombatAudio.Prepare(owner);
             QuestCombatAudio.Restore(owner);

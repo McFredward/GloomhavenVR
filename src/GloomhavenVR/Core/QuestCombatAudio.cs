@@ -17,13 +17,20 @@ internal static class QuestCombatAudio
         // The original may swap primary/secondary sources during crossfades.
         if (owner == null) return;
         QuestCombatAudioTap.PlaybackStarting(owner);
-        Restore(owner);
-        if (!QuestStandalonePlatform.Enabled || !VRSession.IsRunning) return;
+        RestoreSource(owner.primaryAudioSource);
+        RestoreSource(owner.secondaryAudioSource);
+        if (!QuestStandalonePlatform.Enabled || !VRSession.IsRunning)
+        {
+            QuestCombatAudioBank.Restore(owner.primaryAudioSource);
+            QuestCombatAudioBank.Restore(owner.secondaryAudioSource);
+            return;
+        }
         // B692 proves startup quad Vorbis packets were exported under a mono
         // header. Use the separately owned original-channel bank for every
         // exact qualifying cue, including doors, before native playback starts.
         QuestCombatAudioBank.Prepare(owner.primaryAudioSource);
-        QuestCombatAudioBank.Prepare(owner.secondaryAudioSource);
+        // Only the primary is started by these native methods. Changing a
+        // secondary clip here would stop an already playing crossfade source.
         Camera? head = Rig.VRRigDriver.HeadCamera;
         if (head == null || head.transform.lossyScale.x <= 1.0001f) return;
         PrepareSource(owner.primaryAudioSource);
@@ -65,13 +72,14 @@ internal static class QuestCombatAudio
     internal static void Restore(AudioObject owner)
     {
         if (owner == null) return;
+        QuestCombatAudioBank.Restore(owner.primaryAudioSource);
+        QuestCombatAudioBank.Restore(owner.secondaryAudioSource);
         RestoreSource(owner.primaryAudioSource);
         RestoreSource(owner.secondaryAudioSource);
     }
 
     private static void RestoreSource(AudioSource? source)
     {
-        QuestCombatAudioBank.Restore(source);
         if (source == null || !Originals.TryGetValue(source, out Original? original)) return;
         // An independent native writer takes precedence over our old value.
         if (source.dopplerLevel == 0f) source.dopplerLevel = original.Doppler;
