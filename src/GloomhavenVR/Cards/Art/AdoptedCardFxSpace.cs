@@ -38,7 +38,7 @@ internal sealed class AdoptedCardFxSpace
     private const int FlameQueueCeiling = 3090;
     private readonly Dictionary<Material, Vector4> _bounds = new();
     private readonly Dictionary<Material, int> _queues = new();
-    private readonly Dictionary<Material, Texture> _fireMasks = new();
+    private readonly QuestCardFireMaskBindings _fireMasks = new();
     private Material? _measuredFlame;
     private int _faceQueue = -1;
     private bool _reported;
@@ -87,22 +87,8 @@ internal sealed class AdoptedCardFxSpace
 
         Image? flame = fx._uiFxOverlay;
         Material? flameMaterial = flame != null ? flame.material : null;
-        Texture2D? originalFire = fx.overlayFrameBurn as Texture2D;
-        if (QuestStandalonePlatform.Enabled && flameMaterial != null && originalFire != null
-            && flameMaterial.shader != null && flameMaterial.shader.name == "GUI/GUI_Shine_Sphere_Blend_Shd"
-            && flameMaterial.HasProperty("_ParticleTexture")
-            && flameMaterial.GetTexture("_ParticleTexture") == originalFire)
-        {
-            Texture2D? mask = QuestCardFireMask.For(originalFire);
-            if (mask != null)
-            {
-                if (_fireMasks.TryGetValue(flameMaterial, out Texture retained))
-                    QuestCardFireMask.Release(retained == originalFire ? originalFire : retained);
-                _fireMasks[flameMaterial] = originalFire;
-                flameMaterial.SetTexture("_ParticleTexture", mask);
-                flame!.SetMaterialDirty();
-            }
-        }
+        if (QuestStandalonePlatform.Enabled && _fireMasks.Bind(flameMaterial, fx.overlayFrameBurn))
+            flame!.SetMaterialDirty();
         if (flameMaterial != null && !ReferenceEquals(flameMaterial, _measuredFlame))
         {
             _measuredFlame = flameMaterial;
@@ -141,12 +127,7 @@ internal sealed class AdoptedCardFxSpace
 
     internal void Restore()
     {
-        foreach (KeyValuePair<Material, Texture> entry in _fireMasks)
-        {
-            if (entry.Key != null && QuestCardFireMask.Matches(entry.Key.GetTexture("_ParticleTexture"), entry.Value))
-                entry.Key.SetTexture("_ParticleTexture", entry.Value);
-            QuestCardFireMask.Release(entry.Value);
-        }
+        _fireMasks.ReleaseAll();
         foreach (KeyValuePair<Material, Vector4> entry in _bounds)
             if (entry.Key != null)
                 entry.Key.SetVector(BoundsId, entry.Value);
@@ -155,7 +136,6 @@ internal sealed class AdoptedCardFxSpace
                 entry.Key.renderQueue = entry.Value;
         _bounds.Clear();
         _queues.Clear();
-        _fireMasks.Clear();
         _measuredFlame = null;
         _faceQueue = -1;
         _reported = false;

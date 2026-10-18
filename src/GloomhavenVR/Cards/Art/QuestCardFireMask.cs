@@ -93,3 +93,50 @@ internal static class QuestCardFireMask
         Copies.Remove(source);
     }
 }
+
+/// <summary>Material-scoped leases shared by adopted originals and owned clones.</summary>
+internal sealed class QuestCardFireMaskBindings
+{
+    private static readonly int Particle = Shader.PropertyToID("_ParticleTexture");
+    private readonly Dictionary<Material, Texture> _originals = new();
+
+    internal bool Bind(Material? material, Texture? nativeBurnMask)
+    {
+        if (material == null) return false;
+        // Each caller supplies its exact native overlayFrameBurn, after the
+        // ordinary game/mirror texture write. Ghost/native handovers release
+        // our lease without replacing their newly selected texture.
+        Texture? current = material.HasProperty(Particle) ? material.GetTexture(Particle) : null;
+        if (nativeBurnMask is not Texture2D source || material.shader == null
+            || material.shader.name != "GUI/GUI_Shine_Sphere_Blend_Shd"
+            || current != source && !QuestCardFireMask.Matches(current, source))
+        { Release(material); return false; }
+        Texture2D? mask = QuestCardFireMask.For(source);
+        if (mask == null) { Release(material); return false; }
+        if (_originals.TryGetValue(material, out Texture retained)) QuestCardFireMask.Release(retained);
+        _originals[material] = source;
+        if (current == mask) return false;
+        material.SetTexture(Particle, mask);
+        return true;
+    }
+
+    internal void Release(Material material)
+    {
+        if (!_originals.TryGetValue(material, out Texture original)) return;
+        if (material != null && QuestCardFireMask.Matches(material.GetTexture(Particle), original))
+            material.SetTexture(Particle, original);
+        QuestCardFireMask.Release(original);
+        _originals.Remove(material!);
+    }
+
+    internal void ReleaseAll()
+    {
+        foreach (KeyValuePair<Material, Texture> entry in _originals)
+        {
+            if (entry.Key != null && QuestCardFireMask.Matches(entry.Key.GetTexture(Particle), entry.Value))
+                entry.Key.SetTexture(Particle, entry.Value);
+            QuestCardFireMask.Release(entry.Value);
+        }
+        _originals.Clear();
+    }
+}

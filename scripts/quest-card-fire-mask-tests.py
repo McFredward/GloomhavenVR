@@ -22,16 +22,51 @@ def main():
     parser.add_argument('--native-project', type=Path, required=True)
     parser.add_argument('--case', action='append')
     args = parser.parse_args()
-    files = {name: (ROOT / 'src/GloomhavenVR/Cards/Art' / name).read_text() for name in ('QuestCardFireMask.cs', 'AdoptedCardFxSpace.cs')}
+    files = {name: (ROOT / 'src/GloomhavenVR/Cards/Art' / name).read_text() for name in ('QuestCardFireMask.cs', 'AdoptedCardFxSpace.cs', 'QuestHostedItemFireMask.cs')}
+    import re
+    def block(text, signature):
+        start = text.index(signature); brace = text.index('{', start); end = brace + 1; depth = 1
+        while depth:
+            depth += (text[end] == '{') - (text[end] == '}'); end += 1
+        return text[start:end]
+    net = ROOT / 'src/GloomhavenVR/Net'
+    remote = (net / 'Remote/RemoteCardArt.cs').read_text()
+    native = (net / 'Remote/RemoteCardArt.Native.cs').read_text()
+    item_native = (net / 'Remote/RemoteCardArt.ItemNative.cs').read_text()
+    item = (net / 'ItemAppearanceBindings.cs').read_text()
+    writes = (net / 'Remote/NativePlaybackWrites.cs').read_text()
+    bounds = (ROOT / 'src/GloomhavenVR/Cards/Art/CardFxBounds.cs').read_text()
+    assert 'Destroy(_questFlameMasks.Release)' in item_native
+    native_block = block(native, 'if (node.Role == 11 && (supported & NativePlaybackProperties.ParticleMask) != 0)')
+    item_block = block(item, 'if (node.Role == 11)')
+    assert native_block.index('NativePlaybackWrites.Texture(') < native_block.index('_questFlameMasks.Bind(')
+    assert item_block.index('NativePlaybackWrites.Texture(') < item_block.index('flameQueue?.Invoke(')
+    fields = '\n'.join(re.findall(r'^    private static readonly int \w+ = Shader[.]PropertyToID\([^;]+;', remote, re.M))
+    files['ActualRemoteFlames.cs'] = ('using System; using UnityEngine; using Object=UnityEngine.Object; using UnityEngine.UI; using GloomhavenVR.Cards; using GloomhavenVR.Core;\nnamespace GloomhavenVR.Net;\ninternal sealed partial class RemoteCardArt {\n'
+        + fields + '\n' + block(remote, 'private void WriteFlameConstants(') + '\n'
+        + block(remote, 'private void ApplyQuestFlameMask(') + '\n' + block(remote, 'private static void SetFloatIfPresent(') + '\n'
+        + block(remote, 'private void ReleaseOwnedMaterials(') + '\n' + block(item_native, 'private void ApplyItemFlameQueue(') + '\n'
+        + 'internal void NativeFlame(Image graphic, Material material, bool ghost) { uint supported = uint.MaxValue; var node = new FixtureNode { Role=11, Flags=ghost?8:0 };\n' + native_block + '\n}\n'
+        + 'internal void ItemFlame(Image graphic, Material material, bool ghost) { uint support = uint.MaxValue; var node = new FixtureNode { Role=11, Flags=ghost?8:0 }; ItemCardEffects Effects = _itemNativeSource!; Action<Image,Material> flameQueue=ApplyItemFlameQueue;\n' + item_block + '\n}\n}\n'
+        + 'internal static class NativePlaybackWrites {\n' + block(writes, 'internal static void Texture(') + '\n}\n'
+        + 'internal sealed class ActualItemMaterials { internal System.Collections.Generic.Dictionary<Graphic,Material> _materials = new();\n' + block(item, 'internal void Destroy(') + '\n}\n')
+    files['ActualHostedBounds.cs'] = ('using UnityEngine; using GloomhavenVR.Core; using UnityEngine.UI;\nnamespace GloomhavenVR.Cards; internal static class CardFxBounds {\n'
+        + 'private static readonly int PosAndBoundsId=Shader.PropertyToID("_PosAndBounds"), GreyOutId=Shader.PropertyToID("_GreyOut");\n'
+        + block(bounds, 'internal static void Reseat(') + '\n' + bounds[bounds.index('private static bool Approximately('):bounds.index(';', bounds.index('private static bool Approximately(')) + 1]
+        + '\nprivate static void ReportRefusalOnce(Vector2 size) {} private static void ReportOnce(ItemCardEffects fx,Vector4 was,Vector4 want,int written,int seen) {}\n}\n')
+    remote_hashes = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in [net / 'Remote/RemoteCardArt.cs', net / 'Remote/RemoteCardArt.Native.cs', net / 'Remote/RemoteCardArt.ItemNative.cs', net / 'ItemAppearanceBindings.cs', ROOT / 'src/GloomhavenVR/Cards/Art/CardFxBounds.cs']}
     variants = [
         ('production', '', '', '', ''),
         ('numerical-view-still-srgb', 'QuestCardFireMask.cs', 'source.mipmapCount, true)', 'source.mipmapCount, false)', 'numerical alias retains native format'),
         ('mask-blocks-not-copied', 'QuestCardFireMask.cs', 'copy.LoadRawTextureData(source.GetRawTextureData());', 'copy.LoadRawTextureData(new byte[source.GetRawTextureData().Length]);', 'exact native flame mask recovers original Gamma-space coverage'),
         ('desktop-mask-replaced', 'QuestCardFireMask.cs', '!QuestStandalonePlatform.Enabled || QualitySettings.activeColorSpace', 'QualitySettings.activeColorSpace', 'desktop keeps its exact native mask binding'),
-        ('private-mask-binding-lost', 'AdoptedCardFxSpace.cs', 'flameMaterial.SetTexture("_ParticleTexture", mask);', ';', 'actual adopted binding changes only numerical sampling'),
-        ('release-restoration-lost', 'AdoptedCardFxSpace.cs', 'entry.Key.SetTexture("_ParticleTexture", entry.Value);', '{}', 'release restores native mask even after the Quest capability stops'),
+        ('private-mask-binding-lost', 'QuestCardFireMask.cs', 'material.SetTexture(Particle, mask);', ';', 'actual adopted binding changes only numerical sampling'),
+        ('release-restoration-lost', 'QuestCardFireMask.cs', 'entry.Key.SetTexture(Particle, entry.Value);', '{}', 'release restores native mask even after the Quest capability stops'),
         ('gpu-block-copy-lost', 'QuestCardFireMask.cs', 'Graphics.CopyTexture(source, copy);', ';', 'GPU-only native textures use an exact ordinary block copy'),
         ('last-lease-leaks', 'QuestCardFireMask.cs', 'UnityEngine.Object.Destroy(entry.Copy);', 'entry.Copy.name += ".leaked";', 'last mask lease releases private GPU textures'),
+        ('native-clone-mask-not-bound', 'ActualRemoteFlames.cs', '_questFlameMasks.Bind(material, _nativeBindings.BurnTexture);', '{}', 'current native clone owns its numerical burn mask'),
+        ('item-clone-mask-not-bound', 'ActualRemoteFlames.cs', '_questFlameMasks.Bind(material, _itemNativeSource?.overlayFrameBurn);', '{}', 'native item clone owns its numerical burn mask after the native texture write'),
+        ('hosted-item-mask-not-bound', 'QuestHostedItemFireMask.cs', 'if (_masks.Bind(_flame.material, _source.overlayFrameBurn))', 'if (bool.Parse("false"))', 'original hosted item uses its exact fgFx burn mask'),
     ]
     if args.case:
         variants = [v for v in variants if v[0] in args.case]
@@ -108,7 +143,7 @@ def main():
         (project / 'ProjectSettings/ProjectSettings.asset').write_text('%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n  m_ActiveColorSpace: 1\n')
         manifest_path = run / 'manifest.json'; manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
         (run / 'source-hashes.json').write_text(json.dumps({'runtime': {name: hashlib.sha256(text.encode()).hexdigest() for name, text in files.items()},
-            'fixtureFiles': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in fixture.iterdir() if p.is_file()}, 'headsetVerified': False}, indent=2) + '\n')
+            'remoteSourceHashes': remote_hashes, 'fixtureFiles': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in fixture.iterdir() if p.is_file()}, 'headsetVerified': False}, indent=2) + '\n')
         command = [str(unity), '-batchmode', '-force-vulkan', '-projectPath', str(project), '-executeMethod', 'DiagnosticRunner.Start', '-interactionManifest', str(manifest_path), '-logFile', str(run / 'unity.log')]
         if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a'] + command
         process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True)
@@ -116,7 +151,7 @@ def main():
         result = Path(manifest['result'])
         if result.is_file(): print(result.read_text()[-8192:], end='', flush=True)
         if code or not result.is_file(): raise RuntimeError('Actual fire snapshot fixture failed: ' + str(run / 'unity.log'))
-        if any((ROOT / 'src/GloomhavenVR/Cards/Art' / name).read_text() != text for name, text in files.items()): raise RuntimeError('Runtime source changed during qualification')
+        if any((ROOT / 'src/GloomhavenVR/Cards/Art' / name).read_text() != text for name, text in files.items() if not name.startswith('Actual')) or any(hashlib.sha256((ROOT / name).read_bytes()).hexdigest() != digest for name,digest in remote_hashes.items()): raise RuntimeError('Runtime source changed during qualification')
         print('PASS Quest native numerical fire mask: ' + str(len(variants)) + ' production/causal cases; actual native Linear GPU output', flush=True)
     finally:
         if process is not None and process.poll() is None: process.kill(); process.wait()

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
+using System.Reflection;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using UnityEngine;
@@ -101,6 +102,56 @@ public static class DiagnosticProgram
         QuestStandalonePlatform.Enabled = true; space.Maintain(face, (RectTransform)host.transform);
         Texture ghost = original!.GetTexture("_ParticleTexture"); material.SetTexture("_ParticleTexture", ghost); space.Restore();
         Check(material.GetTexture("_ParticleTexture") == ghost, "release preserves a later game-authored ghost-mask handover");
+        var itemObject = Keep(new GameObject("hosted-original-item",typeof(RectTransform),typeof(ItemCardUI),typeof(ItemCardEffects)));
+        itemObject.transform.SetParent(host.transform,false); ((RectTransform)itemObject.transform).sizeDelta=new Vector2(330,480);
+        var item = itemObject.GetComponent<ItemCardUI>(); var itemFx = itemObject.GetComponent<ItemCardEffects>(); item.cardEffects=itemFx;
+        var itemFlameObject = Keep(new GameObject("not-a-name-based-overlay",typeof(RectTransform),typeof(CanvasRenderer),typeof(Image)));
+        itemFlameObject.transform.SetParent(itemObject.transform,false); var itemImage=itemFlameObject.GetComponent<Image>();
+        var itemMaterial=Keep(new Material(material)); itemMaterial.SetTexture("_ParticleTexture",burn); itemImage.material=itemMaterial;
+        itemFx.overlayFrameBurn=burn; itemFx.overlayFrameGhost=ghost; itemFx.SetNativeOverlay(itemImage);
+        CardFxBounds.Reseat(item);
+        Check(item.GetComponent<QuestHostedItemFireMask>()==null,"uninitialized native item never acquires or rewrites a flame material");
+        itemFx.cardBounds=new Vector2(330,480); host.GetComponent<Canvas>().renderMode=RenderMode.ScreenSpaceOverlay;
+        CardFxBounds.Reseat(item);
+        Check(item.GetComponent<QuestHostedItemFireMask>()==null,"screen-space native item keeps the original rendering path");
+        host.GetComponent<Canvas>().renderMode=RenderMode.WorldSpace; CardFxBounds.Reseat(item);
+        var hosted=item.GetComponent<QuestHostedItemFireMask>();
+        void TickHosted() => hosted!.GetType().GetMethod("LateUpdate",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(hosted,null);
+        TickHosted();
+        Check(hosted!=null&&QuestCardFireMask.Matches(itemMaterial.GetTexture("_ParticleTexture"),burn)
+            &&itemFx.NativeOverlay==itemImage&&itemFx.overlayFrameBurn==burn,
+            "original hosted item uses its exact fgFx burn mask without a graphic-name search");
+        var cloneOwner=new GloomhavenVR.Net.RemoteCardArt(); cloneOwner.Configure(burn,ghost,itemFx);
+        var cloneMaterial=Keep(new Material(itemMaterial)); cloneOwner.Own(cloneMaterial); image.material=cloneMaterial;
+        cloneOwner.NativeFlame(image,cloneMaterial,false);
+        Check(QuestCardFireMask.Matches(cloneMaterial.GetTexture("_ParticleTexture"),burn),
+            "current native clone owns its numerical burn mask after the native texture write");
+        itemObject.SetActive(false);
+        Check(itemMaterial.GetTexture("_ParticleTexture")==burn&&QuestCardFireMask.Matches(cloneMaterial.GetTexture("_ParticleTexture"),burn),
+            "pooling the original restores its sampler without destroying the simultaneous clone view");
+        cloneOwner.NativeFlame(image,cloneMaterial,true);
+        Check(cloneMaterial.GetTexture("_ParticleTexture")==ghost,"current native clone ghost handover keeps the original ghost texture");
+        cloneOwner.LegacyFlame(cloneMaterial,false);
+        Check(QuestCardFireMask.Matches(cloneMaterial.GetTexture("_ParticleTexture"),burn)&&cloneMaterial.GetFloat("_Glow")==3,
+            "legacy ability and item clone flames own the same exact numerical burn input");
+        cloneOwner.LegacyFlame(cloneMaterial,true);
+        Check(cloneMaterial.GetTexture("_ParticleTexture")==ghost&&cloneMaterial.GetFloat("_Glow")==0,
+            "legacy clone ghost handover releases its numerical burn lease");
+        var nativeItemMaterial=Keep(new Material(itemMaterial)); image.material=nativeItemMaterial;
+        cloneOwner.ItemFlame(image,nativeItemMaterial,false);
+        Check(QuestCardFireMask.Matches(nativeItemMaterial.GetTexture("_ParticleTexture"),burn)&&cloneOwner.ItemCallbackSawNumeric,
+            "native item clone owns its numerical burn mask after the native texture write");
+        var itemMaterials=new GloomhavenVR.Net.ActualItemMaterials();itemMaterials._materials.Add(image,nativeItemMaterial);
+        cloneOwner.ReleaseItemMaterials(itemMaterials);
+        Check(nativeItemMaterial.GetTexture("_ParticleTexture")==burn,"native item material retirement restores and releases its own sampler lease");
+        cloneOwner.NativeFlame(image,cloneMaterial,false); cloneOwner.Release();
+        Check(cloneMaterial.GetTexture("_ParticleTexture")==burn,"clone release restores its native mask before destroying its owned material");
+        itemObject.SetActive(true); itemMaterial.SetTexture("_ParticleTexture",burn); TickHosted();
+        itemMaterial.SetTexture("_ParticleTexture",ghost); TickHosted();
+        Check(itemMaterial.GetTexture("_ParticleTexture")==ghost,"hosted item spent handover keeps native ghost sampling");
+        itemMaterial.SetTexture("_ParticleTexture",burn); TickHosted(); QuestStandalonePlatform.Enabled=false; TickHosted();
+        Check(itemMaterial.GetTexture("_ParticleTexture")==burn,"hosted original releases its numerical view when Quest support stops");
+        QuestStandalonePlatform.Enabled=true;
         QuestCardFireMask.Release(burn);
         Check(QuestCardFireMask.Matches(alias, burn), "one remaining consumer retains a shared live numerical view");
         QuestCardFireMask.Release(burn); QuestCardFireMask.Release(gpuSource);

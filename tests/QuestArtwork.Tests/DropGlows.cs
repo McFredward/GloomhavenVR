@@ -117,10 +117,12 @@ public static partial class DiagnosticProgram
             finally { RenderTexture.active = prior; }
         }
         gold.SetActive(false); Color32 background = Capture(); gold.SetActive(true);
+        Color32 materialLit = Capture();
         FlushTint(gold);
         Color32 lit = Capture();
+        Check(lit.Equals(materialLit), "Quest per-draw tint preserves the exact original material-only GPU color in the active color space");
         UnityEngine.Debug.Log("Owned additive cue pixels: background=" + background + " cue=" + lit
-            + " shader=" + gold.GetComponent<Renderer>().sharedMaterial.shader.name);
+            + " shader=" + gold.GetComponent<Renderer>().sharedMaterial.shader.name + " colorSpace=" + QualitySettings.activeColorSpace);
         Check(lit.r > background.r + 10 && lit.g > background.g + 10 && lit.b > background.b,
             "actual additive cue draws nonzero native GPU pixels");
         Color authoredTint = gold.GetComponent<Renderer>().sharedMaterial.color;
