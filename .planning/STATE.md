@@ -1,5 +1,26 @@
 # State — where the project stands
 
+**Published read-only setup preview, 2026-10-18; runtime remains707.**
+
+Native `dev` now publishes the separate `setup-inspection-v1` prerelease and
+the pinned `get-preview.ps1` / `get-preview.sh` one-line entry points. This is
+an explicit PC/Frame inventory test, not a released two-sided bridge or a
+sharpness fix. It cannot install, pair, change Frame files/settings, or restart
+anything. It can save only its own non-secret PC inspection report; OpenSSH
+may update the normal PC known-hosts file after the user accepts a fingerprint.
+Windows includes verified official portable Python3.14.8. Actual Windows
+PowerShell5.1 archive extraction, the bundled interpreter's inspection CLI,
+and actual Windows private-file create/update/read now pass CI atc0b2102
+(run39133860727). This caught and fixed CPython's Windows stat/fstat ctime
+semantic mismatch and a still-open descriptor blocking atomic publication.
+Content/replacement guards remain, including same-API ctime checks. The native
+gate passed atf1c5e74 (run39133534648); later changes only repair setup files.
+The published archive contains no native patch or Valve binaries. No device
+was contacted or changed during these checks. Own worker worktrees are removed;
+current archive, source pin and small results remain in ignored debug evidence.
+The complete-AU/reverse-control/selected-frame/coverage-renderer work described
+below remains required before a real new image-path headset test.
+
 **Negotiated sender companion authorized, 2026-10-18; runtime remains707.**
 
 The maintainer now permits a PC sender modification and selects the ordinary
