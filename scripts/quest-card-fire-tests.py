@@ -28,7 +28,11 @@ def main():
     variants = [
         ('production', '', '', ''),
         ('debug-gate-lost', '!QuestStandalonePlatform.DebugLogging', 'false', 'Quest/Debug gates precede native reads and formatting'),
-        ('idle-missing-property-admitted', '!(Read(source, "_FXAnim") > 0f)', 'Read(source, "_FXAnim") <= 0f', 'idle cards and missing fire metadata do not exhaust the observation lane'),
+        ('idle-zero-animation-admitted', '!(Read(source, "_FXAnim") > 0f)', 'false', 'idle cards and missing fire metadata do not exhaust the observation lane'),
+        ('discard-ghost-admitted', 'if (!(tint.r > tint.g && tint.r > tint.b && tint.a > 0f)) return;', 'if (tint.a < 0f) return;', 'ordinary discard overlays do not consume the first-burn evidence budget'),
+        ('transparent-warm-admitted', '&& tint.a > 0f', '', 'transparent warm metadata cannot consume the native burn evidence lane'),
+        ('settled-warm-fire-hidden', 'if (!(tint.r > tint.g && tint.r > tint.b && tint.a > 0f)) return;', 'if (tint.r >= float.NegativeInfinity) return;', 'settled native warm fire animation is observable without native effect flags'),
+        ('effect-flags-forced-through-tint', 'if (!fx.HasEffect(CardEffects.FXTask.BurnCard) && !fx.HasEffect(CardEffects.FXTask.LostMode))', 'if (true)', 'native burn flag admits the observation before its warm tint arrives'),
         ('draw-binding-hidden', 'Material? drawn = renderer != null && renderer.materialCount > 0 ? renderer.GetMaterial() : null;', 'Material? drawn = source;', 'actual base and stale CanvasRenderer material/texture/animation bindings remain distinct'),
         ('same-frame-throttle-lost', '&& now < next)', '&& now < -1f)', 'same-frame samples are throttled before expensive native work'),
         ('row-bound-lost', 'row.Length > RowLimit ? row.Substring(0, RowLimit) : row', 'row', 'one native fire record is bounded to 900 characters'),

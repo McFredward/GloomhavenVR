@@ -59,10 +59,24 @@ public static class DiagnosticProgram
         }
         QuestStandalonePlatform.Enabled = VRLog.DebugEnabled = true;
         var idleMaterial = Keep(new Material(shader)); idleMaterial.SetFloat("_FXAnim", 0);
+        idleMaterial.SetColor("_TintColor", new Color(1,.3f,0,1));
         var idle = Create(canvas, idleMaterial, idleMaterial, expected, false);
         var pending = Create(canvas, null, null, null, false); // Actual default UI shader has no _FXAnim.
         for (int i = 0; i < 512; i++) { Observe(idle, "sample"); Observe(pending, "sample"); }
         Check(QuestCardFireEvidence.Snapshot.Length == 0 && observations == 0, "idle cards and missing fire metadata do not exhaust the observation lane");
+        var ghostMaterial = Keep(new Material(shader)); ghostMaterial.SetFloat("_FXAnim", .75f);
+        ghostMaterial.SetColor("_TintColor", new Color(.8f,.8f,1,.7f)); ghostMaterial.SetTexture("_ParticleTexture",wrong);
+        var ghost = Create(canvas,ghostMaterial,ghostMaterial,expected,false);
+        // Event observations deliberately bypass the per-card sample clock: a
+        // flood of ordinary native discard transitions must leave the later burn
+        // lane intact, even when this same UI Image animates its blue ghost.
+        for (int i = 0; i < 512; i++) Observe(ghost,"ordinary-discard-"+i);
+        Check(QuestCardFireEvidence.Snapshot.Length == 0 && observations == 0,
+            "ordinary discard overlays do not consume the first-burn evidence budget");
+        ghostMaterial.SetColor("_TintColor", new Color(1,.3f,0,0));
+        for (int i = 0; i < 256; i++) Observe(ghost,"transparent-warm-overlay-"+i);
+        Check(QuestCardFireEvidence.Snapshot.Length == 0 && observations == 0,
+            "transparent warm metadata cannot consume the native burn evidence lane");
         Material priorBase = image.material; Material priorDraw = renderer.GetMaterial();
         Color priorGraphic = image.color, priorRendered = renderer.GetColor();
         int materialCount = Resources.FindObjectsOfTypeAll<Material>().Length;
@@ -87,10 +101,15 @@ public static class DiagnosticProgram
         Check(fx.NativeReads == readsBefore && Snapshot() == throttled, "same-frame samples are throttled before expensive native work");
         renderer.cull = false; renderer.SetMaterial(source,0); Observe(fx, "native-binding-change");
         Check(Snapshot().Contains("cull=False") && !Snapshot().Contains("particle=stale-fire-copy"), "actual renderer binding/cull changes are observed without a stale material cache");
+        source.SetColor("_TintColor",new Color(.8f,.8f,1,.7f));
+        Observe(fx,"burn-before-native-tint");
+        Check(Snapshot().Contains("event=burn-before-native-tint") && Snapshot().Contains("burn=True"),
+            "native burn flag admits the observation before its warm tint arrives");
         fx.Effects.Clear(); fx.Effects.Add(CardEffects.FXTask.LostMode); Observe(fx, "durable-lost-card");
         Check(Snapshot().Contains("burn=False lost=True"), "native durable lost effect remains observable independently of burn task");
+        source.SetColor("_TintColor",new Color(1,.3f,0,1));
         fx.Effects.Clear(); Observe(fx, "native-animation-only");
-        Check(Snapshot().Contains("burn=False lost=False") && Snapshot().Contains("anim=0.375"), "live native fire animation is observable without native effect flags");
+        Check(Snapshot().Contains("burn=False lost=False") && Snapshot().Contains("anim=0.375"), "settled native warm fire animation is observable without native effect flags");
         string[] independent = QuestCardFireEvidence.Snapshot; independent[0] = "caller-overwrite";
         Check(!Snapshot().Contains("caller-overwrite"), "snapshots are independent arrays");
         Observe(fx, new string('X',2400));
