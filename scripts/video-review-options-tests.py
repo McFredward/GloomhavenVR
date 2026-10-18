@@ -73,7 +73,8 @@ def main() -> int:
     page = ('using GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class VROptionsTab {\n'
             + method(source['page'], 'private static int BuildTestTriggers()') + '\n}\n')
     # Bind the actual config/default gate, index door and complete page composition.
-    # Only the five unrelated save/gameplay row builders remain explicit fixture ports.
+    # Unrelated save/gameplay rows and the separately tested projection-delivery
+    # action remain explicit fixture ports; this suite executes the movie UI.
     cheats_class = source['cheats'].index('internal static partial class VROptionsTab\n{')
     cheats_end = source['cheats'].index('    // ---- button 1:')
     cheats_text = source['cheats'][source['cheats'].rindex('    private static string Text('):source['cheats'].rindex('\n}')]
