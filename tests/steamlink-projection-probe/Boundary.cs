@@ -1,31 +1,10 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-namespace UnityEngine.Experimental.Rendering { internal enum GraphicsFormat { R8G8B8A8_UNorm } }
-namespace UnityEngine.Rendering { internal enum TextureDimension { Tex2D } }
 namespace UnityEngine
 {
-    internal class Object { internal static int Destroyed; internal static void Destroy(Object value) { Destroyed++; } }
-    internal enum HideFlags { HideAndDontSave }
-    internal struct Color { internal static Color clear => default; }
-    internal struct RenderTextureDescriptor
-    {
-        internal int width,height,msaaSamples,volumeDepth;internal bool useMipMap,autoGenerateMips,useDynamicScale;
-        internal Rendering.TextureDimension dimension;internal Experimental.Rendering.GraphicsFormat graphicsFormat;
-        internal RenderTextureDescriptor(int w,int h,Experimental.Rendering.GraphicsFormat format,int depth)
-        { width=w;height=h;graphicsFormat=format;msaaSamples=volumeDepth=1;useMipMap=autoGenerateMips=useDynamicScale=false;dimension=Rendering.TextureDimension.Tex2D; }
-    }
-    internal sealed class RenderTexture : Object
-    {
-        internal static RenderTexture? active;
-        internal readonly RenderTextureDescriptor Descriptor; internal HideFlags hideFlags;
-        internal bool Created=true;
-        internal RenderTexture(RenderTextureDescriptor descriptor) { Descriptor=descriptor; }
-        internal bool Create() => Created;
-        internal bool IsCreated() => Created;
-    }
-    internal static class GL { internal static bool sRGBWrite=true;internal static int Clears;internal static void Clear(bool depth,bool color,Color value) { Clears++; } }
-    internal static class Time { internal static int frameCount; }
+    internal class Object { internal static int Destroyed=0; }
+    internal static class GL { internal static int Clears=0; }
     internal sealed class GameObject { }
 }
 namespace GloomhavenVR.Core
@@ -59,12 +38,14 @@ namespace GloomhavenVR.WorldUI
         private static Core.Choice? _cheatsEnabled=new Core.Choice();
         private static bool CheatsAvailable => _cheatsEnabled!=null && _cheatsEnabled.Value;
         private static object? ContentRoot=new object();
-        internal static Action? TestAction;
+        internal static Action? TestAction,TestStopAction;
+        internal static int CloseCalls;internal static bool ThrowClose=false;
+        internal static void Close() { CloseCalls++;if(ThrowClose)throw new InvalidOperationException("fixture close refusal");IsOpen=false; }
         internal static void SetCheats(bool value) => _cheatsEnabled!.Value=value;
         internal static int BuildTest() => BuildSteamLinkProjectionProbe();
         private static void BuildHeader(object root,string label,bool sub) { }
         private static void BuildNote(object root,string label,bool multiline) { }
-        private static UnityEngine.GameObject BuildLinkRow(object root,string caption,Action action,bool asAction) { TestAction=action;return new UnityEngine.GameObject(); }
+        private static UnityEngine.GameObject BuildLinkRow(object root,string caption,Action action,bool asAction) { if(caption==Core.Loc.SteamLinkProjectionProbeStop)TestStopAction=action;else TestAction=action;return new UnityEngine.GameObject(); }
         private static void RegisterCheatRow(UnityEngine.GameObject row,Func<string> caption) { }
     }
 }

@@ -1,25 +1,25 @@
-# Explicit Steam Link projection probe checks
+# Explicit Steam Link projection-delivery preview checks
 
 Run `python3 tests/steamlink-projection-probe/run.py --output <evidence-directory>`.
 
-This bounded suite compiles and executes the actual probe owner, strict readiness parser,
-per-frame input latch and actual `SceneHeadOutput` callback bodies. The process/pipe and GPU
-boundaries are supplied explicitly; the actual probe/UI/localization compile against pinned
-Unity 2021.3.5 and .NET Framework 4.7.2 metadata. Synthetic helper metadata is not a Windows
-or OpenVR transcript. Six semantic mutations prove the Debug/source gates, first menu close,
-same-frame eye latch, immediate revocation before delayed cleanup and original-source retry.
+This bounded suite executes the actual preview owner, strict readiness parser, UI callbacks
+and actual `SceneHeadOutput` callback bodies. Process/pipe and GPU boundaries are supplied
+explicitly. The actual owner/UI/localization compile against pinned Unity 2021.3.5 and .NET
+Framework 4.7.2 metadata. Synthetic metadata is not a Windows/OpenVR transcript. Nine
+semantic mutations prove Debug/source gates, immediate launch without Tick/menu close,
+menu reopening, prompt ownership revocation, automatic options closure, unchanged input and local-metadata retention without readiness.
 
-The fixture covers pending, ready, menu reopening, live permission loss, late start, process
-exit, EOF, bounded malformed output, explicit retry, unknown ownership, metadata retention,
-zero-input loss, actual-source host admission and an isolated failed probe pack. It runs no
-native process, queries no OpenVR API, modifies no Steam settings and contacts no headset.
-The separate `steamlink-projection-witness` suite is responsible for the real shader/GPU
-zero-input witness. Neither suite establishes independent overlay delivery through Steam Link,
-a correctly reprojected moving-head picture, or a production full-quality rendering solution.
+The preview starts its owned helper directly on an accepted click and closes VR Options.
+A failed automatic close does not delay launch and leaves a separate Stop action available.
+Initial menu visibility is tolerated only until its first actual close; reopening ends the
+preview. Duplicate/stale starts cannot overlap helpers or hide the controls. Permission loss,
+EOF, exit and malformed/over-budget output retire the owned child without automatic retries.
+Unknown child ownership remains sticky. The teardown grace only retires the child and pipes;
+it never disables MR or restarts Steam/SteamVR.
 
-The runtime action is intentionally temporary, only under **Advanced > Cheats**, and requires
-Debug plus an actually admitted robust-v3 native Frame/Steam Link MR source. The helper does
-not expire; reopening VR Options, disabling permission/MR or ending VR requests stdin EOF.
-Its finite teardown grace only releases the child and pipes. It never disables MR or restarts
-Steam/SteamVR. A diagnostic pack refusal retries the untouched actual source and does not
-poison ordinary MR. Both eyes finish a decision already latched for the current XR frame.
+The preview NEVER allocates/clears/replaces an image, changes a camera or changes the carrier.
+The game's original source is packed as usual before AND after helper API readiness. Ready
+is a local API receipt, not proof that Steam Link delivered the overlay to the headset.
+There is no zero-input witness or independent-alpha/quality success claim in this preview.
+No helper/OpenVR API, Steam setting or headset is used by this fixture. Frozen native overlay
+poses require a still head during a later explicitly requested visual check.

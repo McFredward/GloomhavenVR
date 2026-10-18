@@ -32,12 +32,14 @@ namespace GloomhavenVR.WorldUI
         private static Core.Choice? _cheatsEnabled=new Core.Choice();
         private static bool CheatsAvailable => _cheatsEnabled!=null && _cheatsEnabled.Value;
         private static object? ContentRoot=new object();
-        internal static Action? TestAction;
+        internal static Action? TestAction,TestStopAction;
+        internal static int CloseCalls;internal static bool ThrowClose=false;
+        internal static void Close() { CloseCalls++;if(ThrowClose)throw new InvalidOperationException("fixture close refusal");IsOpen=false; }
         internal static void SetCheats(bool value) => _cheatsEnabled!.Value=value;
         internal static int BuildTest() => BuildSteamLinkProjectionProbe();
         private static void BuildHeader(object root,string label,bool sub) { }
         private static void BuildNote(object root,string label,bool multiline) { }
-        private static UnityEngine.GameObject BuildLinkRow(object root,string caption,Action action,bool asAction) { TestAction=action;return new UnityEngine.GameObject(); }
+        private static UnityEngine.GameObject BuildLinkRow(object root,string caption,Action action,bool asAction) { if(caption==Core.Loc.SteamLinkProjectionProbeStop)TestStopAction=action;else TestAction=action;return new UnityEngine.GameObject(); }
         private static void RegisterCheatRow(UnityEngine.GameObject row,Func<string> caption) { }
     }
 }

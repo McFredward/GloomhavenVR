@@ -109,13 +109,12 @@ namespace GloomhavenVR.Core.SteamLink
     internal sealed class SceneEyeOutput : IDisposable
     {
         internal static int Packed;
-        internal static bool ThrowZero,RefuseZero;
         internal static readonly List<UnityEngine.RenderTexture> Inputs=new();
         internal static SceneEyeResult Next=SceneEyeResult.Rendered;
         internal string Profile=>"v3";
         internal SceneEyeOutput(UnityEngine.Shader shader) { }
         internal SceneEyeResult TryRender(UnityEngine.RenderTexture source,UnityEngine.RenderTexture destination,UnityEngine.Camera.MonoOrStereoscopicEye eye)
-        { Inputs.Add(source);if(ReferenceEquals(source,SteamLinkProjectionProbe.Zero)) { if(ThrowZero)throw new InvalidOperationException("Owned probe failure");if(RefuseZero)return SceneEyeResult.SourceFormat; }if(Next==SceneEyeResult.Rendered)Packed++;return Next; }
+        { Inputs.Add(source);if(Next==SceneEyeResult.Rendered)Packed++;return Next; }
         public void Dispose() { }
     }
     internal sealed class SceneTransparentMaterials : IDisposable
@@ -136,12 +135,9 @@ namespace GloomhavenVR.Core.SteamLink
 {
     internal static class SteamLinkProjectionProbe
     {
-        internal static UnityEngine.RenderTexture? Zero;
-        internal static bool UseZero;
-        internal static int Stops,Failures;
+        internal static bool ApiReady;
+        internal static int Stops;
         internal static void Tick() { }
-        internal static void Stop() { Stops++;UseZero=false; }
-        internal static void PackFailed() { Failures++;UseZero=false; }
-        internal static UnityEngine.RenderTexture InputForFrame(UnityEngine.RenderTexture source,int frame) => UseZero ? Zero! : source;
+        internal static void Stop() { Stops++; }
     }
 }

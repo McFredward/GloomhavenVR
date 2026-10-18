@@ -156,6 +156,7 @@ internal static class SteamLinkProjectionProbe
                         bool ready = protocol.Accept(input);
                         if (input.StartsWith("SFNP_PROJECTION_META_V2 ", StringComparison.Ordinal)
                             || input.StartsWith("SFNP_PROJECTION_GEOMETRY_V2 ", StringComparison.Ordinal)
+                            || input.StartsWith("SFNP_PROJECTION_LOCAL_V2 ", StringComparison.Ordinal)
                             || input.StartsWith("SFNP_PROJECTION_REFUSED_V2 ", StringComparison.Ordinal))
                             if (CurrentEpoch(epoch)) _log(input);
                         if (input.StartsWith("SFNP_PROJECTION_REFUSED_V2 ", StringComparison.Ordinal))
