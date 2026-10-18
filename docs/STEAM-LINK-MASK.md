@@ -1,195 +1,167 @@
 # Steam Link mixed-reality development
 
-## Real-image source
+This page describes the game-side source. The companion project's
+[compatibility page](https://github.com/McFredward/steam-link-native-passthrough/blob/dev/docs/COMPATIBILITY.md)
+separates the stable Frame-only result from the newer paired preview. Historical
+research/build notes describe their own checkpoints, not the current install flow.
 
-`VR Options → World → Scenery` now offers **Steam Link native
-passthrough** only after identifying a connected Steam Frame through Steam Link.
-Its preference defaults on for that identified connection; the general Mixed
-Reality master still defaults off, and saved preferences are retained.
-This is the real-image producer, not the retired
-test pattern. It requires the separately prepared matching Frame receiver;
-turning it on without that receiver displays an encoded image. Choose the
-Mixed Reality environment, then enable native streaming. Both switches apply
-immediately; opening VR Options does not pause the real-image source. Disabling the master MR
-switch restores the chosen environment; disabling only native streaming returns
-to the existing chroma-key backend. There is no automatic timeout.
+## Player controls and dependencies
+
+Open **VR Options → World → Scenery**, choose **Mixed Reality**, then enable
+**Steam Link native passthrough** below the environment choices. In German the
+path is **VR-Optionen → Umgebung → Schauplatz**, with **Steam Link: natives
+Passthrough**. Connection detection exposes this choice only after identifying
+Steam Frame over Steam Link. Its saved preference defaults on for an identified
+connection; the Mixed Reality master defaults off and saved choices are retained.
+
+Both switches apply immediately, including while VR Options remains open. The
+native choice uses independent coverage, not colour replacement. Turning it off
+returns to the chroma-key method; turning Mixed Reality off restores the selected
+environment. There is no timeout. Standalone Frame passthrough uses its own native
+backend and requires no streaming companion.
+
+The streamed source requires the matching receiver. Detection of the headset,
+SDK or a saved preference is not evidence that a receiver is installed or active.
+With only the legacy route available, an enabled source and a missing receiver
+can expose the packed image. Turn native streaming off if the picture is wrong.
+Building/enabling the game mod changes no Frame files.
+
+## Shared source and rendering ownership
 
 The actual MultiPass head renders once. Two alpha-only commands use that eye's
-existing opaque depth, and known owned transparent materials temporarily borrow
-alpha-correct derivatives only while that head renders. Other cameras and the
-game's material objects retain their original rendering. The final image effect
-packs scene contribution RGB and coverage from the same source into one image.
-The unmodified Steam Link sender binary transports it; the Frame decoder retains native
-reprojection/foveation and combines the contribution with camera passthrough.
-Emission at coverage zero is preserved. No CPU pixel readback or second scene
-camera is introduced.
+existing opaque depth. Known owned transparent materials temporarily borrow
+alpha-correct derivatives only during that head's render. Other cameras and the
+game's material objects retain their original rendering. The producer supplies
+RGB contribution **E** and independent coverage **A** from the same current eye:
 
-The initial profile is Gamma SDR UNorm/MultiPass. Wrong formats, lost ownership,
-unknown eyes and shutdown retain ordinary output and release owned
-commands/materials. The current profile is still experimental: all native VFX,
-refraction, late explicit command-buffer draws and intermediate UI-alpha semantics
-are not certified by the owned shader tests. Actual XR callback order, codec
-quality and headset motion still require a real-game test. No Frame files are
-changed by building or enabling the PC source. Install the public matching
-[Steam Link Native Passthrough receiver](https://github.com/McFredward/steam-link-native-passthrough)
-separately using its documented supported SteamVR version. The existing
-standalone native MR backend is separate and unchanged.
+```text
+composite = E + (1 − A) × local_camera
+```
 
-## Equal-resolution coverage and transport recognition
+Do not multiply E by A twice or derive A from a colour. Additive contribution at
+A0 must survive; an RGBA render target alone is not proof of correct opacity.
+There is no CPU image readback or second scene camera. Unsupported colour space,
+renderer, stereo shape, unknown eye or lost ownership keeps ordinary output and
+retires owned commands/materials. The currently admitted source is built-in
+rendering, Gamma SDR UNorm and MultiPass.
 
-Build699 prepares `scene-contribution-atlas-v3` and requires its matching updated
-Frame receiver. Independent coverage and scene RGB use the same2048-square
-logical resolution from the same current eye source. No half-resolution alpha
-box or C1 reconstruction filter remains in this path. This applies to all scene
-geometry, without window tags or opacity thresholds. Genuine fractional edges,
-glass and contribution at zero coverage remain distinct from packing softness.
+Coverage production still does not certify every native VFX, refraction shader,
+background-sampling material or late explicit draw. Refraction of the real room
+would require its camera content; the game does not receive that camera video.
+Focused source audits cover [depth](research/steamlink-eye-coverage-runtime-20261017.md),
+[same-eye output](research/steamlink-scene-output-20261017.md) and
+[transparent materials](research/steamlink-transparent-materials-runtime-20261017.md).
 
-The3168-square carrier keeps v2's four haloed coverage strips around central RGB.
-V3 changes only its format recognition: twelve separated128-square neutral-grey
-cells, in two unused corners, use four well-separated levels with inclusive
-sixteen-code windows. These windows identify the format; they do not threshold
-coverage or authenticate a frame, eye, body or exact UV registration. Both
-planes still share the original native invocation's current image and R1 chart.
-No previous mask, sticky decision, extra camera, descriptor or queue is added.
+## Two output routes
 
-Build697's v2 real-stream test failed with different apparent scale/passthrough
-between eyes. An owned lossy-codec reproduction shows that its small32-square,
-two-code-window header can be accepted in one chart and rejected in another.
-The exact shipping native fragment reproduces the observed output split; the
-actual failed hardware guard values and encoder parameters remain unknown.
-Build698 therefore restored v1 temporarily. V2 is retained unchanged for
-regression controls and must not be re-enabled from its earlier ideal GPU proof.
+| Route | Source output | Current status |
+|---|---|---|
+| Stable Frame-only atlas | E and A packed into one current per-eye video image; ordinary PC sender | Native passthrough and corrected stereo edges demonstrated in the headset; packing can reduce sharpness |
+| Paired PC + Frame preview | Ordinary RGBA colour source after an explicit compatible-source grant; sender/receiver companions carry exact associated coverage | Windows/NVIDIA/HEVC software-checked preview; retained quality and combined menu picture **not yet hardware-confirmed** |
 
-The new receiver recognizes v3 first, then the frozen legacy v1; historical v2
-tools remain quarantined. A v3 producer with an older receiver can display the
-packed image. Building/enabling the mod does not update the headset patch.
-At a fixed stream resolution the larger mask consumes more video area, reducing
-RGB's allocation. The source profile itself does not change SteamVR resolution
-or bitrate. The separate optional Build700 quality lease below requests uniform
-encoding and an explicit width through public SteamVR settings.
-Owned source/codec/native tests are separate from the still-required headset
-picture and streaming-cost checks. See [the bounded v3 record](../.planning/STEAM-LINK-699-ROBUST-COVERAGE.md)
-and the [failed v2 review](../.planning/STEAM-LINK-698-EYE-DIVERGENCE.md).
+The two routes share source coverage but not admission. `SteamLinkCoverageBridge`
+observes the native sender's source IPC with bounded asynchronous work.
+`CanAcceptOrdinaryRgba` grants the source format; `CoverageOperational` is a
+separate reported state. Neither is a visible headset result. The source must
+not wait for operational coverage before sending ordinary RGBA if that would
+prevent the new encoder generation from reaching its first valid frame.
 
-## Streamed edge quality (Build700)
+`SteamLinkSceneRuntime` selects the route on its cold ownership boundary. A route
+change retires the current output and begins a fresh complete stereo epoch; it
+must not repack only the second eye of an in-flight pair. Permission is checked
+again at the actual rendering boundary. Loss cannot authorize a stale mask or a
+previous source epoch. Cancellation and retirement of the observer run off the
+XR thread and cannot permit overlapping observer workers.
 
-The maintainer confirmed correct stereo in Build699, but still sees shimmering
-outlines. Equal virtual RGB/coverage resolution does not guarantee equal video
-quality. Retained native metadata demonstrates central high-detail colour and
-peripheral low-detail coverage reconstruction; source raster phases and lossy
-video also impose separate limits absent in direct standalone RGBA composition.
-The current hardware stream's exact reconstruction weights are not measured.
+The paired transport requires authenticated compatible peers and exact source,
+frame, eye and extent association. Its coverage metadata travels with the actual
+HEVC access unit; a separately received latest mask, timestamp or compositor
+submit counter is insufficient. The sender preserves the ordinary colour route;
+this intention is not a measured resolution/latency improvement. For protocol
+and adapter contracts see the companion project's
+[developer guide](https://github.com/McFredward/steam-link-native-passthrough/blob/dev/docs/DEVELOPING.md)
+and [bridge protocol](https://github.com/McFredward/steam-link-native-passthrough/blob/dev/docs/protocols/stream-bridge-v1.md).
+Linux/Proton connection detection does not establish native Linux sender support.
 
-**World → Scenery → Steam Link edge quality** defaults on for eligible native
-Frame/Steam Link MR. It temporarily disables foveated encoding and pre-encode
-sharpening. Since Build702 its uniform video-width request follows the actual
-current XR carrier dimensions, rounded upward to the driver's64-pixel alignment
-(4040 becomes4096). It does not write eye allocation, viewport or render scale.
-The former separate encoding-width control is removed; its saved key is inert.
-A higher existing manual uniform width is kept. Immediately observed smaller
-readbacks refuse and restore the temporary settings instead of claiming success.
+## Stable atlas and edge-quality policy
 
-This removes Build701's additional fixed3072 video ceiling, which the latest
-hardware logs identify alongside4040x4040 sources. It does not make the existing
-v3 atlas pixel-lossless: its scene occupies2048/3168 of the carrier's linear size.
-Increasing encoder width alone cannot restore source samples already lost while
-packing that atlas. Readback is not proof of asynchronously negotiated or decoded
-video dimensions. The helper's64..16384 arithmetic bounds are not a tested client
-maximum. Higher video widths cost network/decoder capacity; no standalone-identical
-picture is claimed. Changing eye resolution above the existing XR allocation
-continues to require a VR restart; this policy does not add live reallocation.
+The current legacy profile is `scene-contribution-atlas-v3`, with equal 2048²
+logical colour/opacity grids inside a 3168² carrier. Twelve separated neutral-grey
+header cells recognize the layout. They neither threshold coverage nor authenticate
+a session, body or exact UV registration. The receiver samples colour and coverage
+through the original native invocation's current image/chart, retaining admitted
+native decode, reprojection, distortion and foveation mapping.
 
-One isolated public Background OpenVR client snapshots all four typed settings
-before any write, enables the complete policy, and holds it only while requested
-native MR remains eligible. It survives camera, loading and options-menu changes, including transient unknown
-XR extents within an already requested generation;
-Off, disconnection or game exit requests cooperative restoration. There is no
-active timeout. Restoration compares each still-owned value, preserving observed
-manual edits. Startup is bounded to five seconds; a pending Off can wait for that
-window. Unknown restoration blocks reacquisition in this game process. Killing
-or crashing the helper itself can prevent restoration; concurrent same-value
-manual edits cannot be identified by public IVRSettings. Build701 also preserves an originally missing value when OpenVR specifically
-reports UnsetSettingHasNoDefault, removing that temporary key again on release.
-An effective default cannot be distinguished from an explicit override, so
-restoration of its value does not reconstruct that override's original absence.
+A larger opacity plane does not preserve the ordinary stream's colour allocation:
+the scene occupies only 2048/3168 of the carrier's linear size before encoding.
+The native camera remains local. Legacy v1 stays accepted; v2 is quarantined after
+a stereo failure and is not justified by its earlier ideal GPU results. See the
+[v3 record](https://github.com/McFredward/steam-link-native-passthrough/blob/dev/docs/research/robust-native-coverage-20261018.md) and
+[v2 regression review](https://github.com/McFredward/steam-link-native-passthrough/blob/dev/docs/research/eye-divergence-20261018.md).
 
-The helper is embedded in the mod, hash-verified before execution and uses the
-same Windows/Proton public SDK bridge as connection detection. There is no Steam
-binary patch or Frame update for Builds700–702. The accepted v3 shaders, atlas, mask,
-receiver, both-eye admission and fractional opacity are unchanged. Standalone,
-Virtual Desktop and other connections do not acquire this lease. See the
-[scoped evidence and limits](../.planning/STEAM-LINK-700-EDGE-QUALITY.md).
+**World → Scenery → Steam Link edge quality** defaults on for eligible legacy
+native streaming. A separate isolated public OpenVR helper temporarily disables
+foveated encoding and pre-encode sharpening and requests a uniform video width
+aligned upward from the current XR carrier extent (4040 becomes 4096). Higher
+existing manual widths are preserved. It does not change the application's eye
+allocation, render scale or viewport; Mixed Reality is not a resolution control.
+Increasing encoder width cannot restore source samples lost in atlas packing.
 
-Build700's first hardware review did not exercise this policy: all three leases
-were refused at snapshot. Build701 admits explicitly absent settings without
-inventing defaults. Successful application produces `Steam Link stream quality:
-active`; a refusal now reports the exact bounded key/API code. The original
-hardware failure did not record that code, and visible edge improvement was not
-inferred from the automated checks. The maintainer subsequently confirmed that
-Build701 removes the outlines; Build702 preserves that policy while repairing
-the newly reported fixed-width image-quality regression.
+All four typed settings are snapshotted before any write. Restoration compares
+owned values and preserves observed manual edits. Explicitly absent supported
+settings are removed again on release; an effective default is not proof that a
+key was originally absent. Off, disconnection or game exit requests cooperative
+restoration. A crash can prevent restoration, and same-value concurrent edits
+cannot be distinguished through the public API. No active timeout is imposed.
 
-New source epochs also wait for a complete explicitly observed stereo frame
-before starting atlas output at a new frame boundary. Temporary non-stereo
-camera attachments close normally and can resume; genuine rendering faults
-remain refusals. This stores eye/frame metadata only, not previous-eye images.
+The lease survives camera/loading/options changes while its legacy generation
+remains requested. The paired ordinary-RGBA path is admitted only after that
+legacy quality lease is released; it must not inherit atlas-specific encoder
+changes. SteamVR setting readback is not evidence of negotiated/decoded video
+resolution. See the [quality investigation](https://github.com/McFredward/steam-link-native-passthrough/blob/dev/docs/research/stream-quality-comparison-20261018.md).
 
-## Host identity lookup: Windows and Proton
+## Local Steam menu and focus
 
-Gloomhaven and this mod are Windows applications. A Linux gaming host runs the
-same PE reader under Proton, not a separate native Linux helper. Only a bounded
-isolated child loads the pinned public OpenVR SDK; Unity keeps its active OpenXR
-session. The caller first requires that active SteamVR session. The SDK's
-`VRApplication_Background` initialization supplies the no-server guard; a Windows
-process-name census cannot establish whether native Linux SteamVR is running.
+For the legacy atlas, `VRSession.InputFocus` must explicitly be true at the cold
+and render ownership seams. False or unknown focus temporarily restores ordinary
+output without changing the desired option or dropping the quality lease. Focus
+regain requires a fresh complete stereo pair. Actual PC logs establish focus
+loss for a full dashboard; not every local quick menu/bar variant is confirmed
+to produce that signal.
 
-The child inherits OpenVR overrides and Proton's prefix/runtime bridge variables.
-Let the SDK use Proton's generated Windows OpenVR paths and `C:\vrclient` bridge,
-including its ordered runtime history. Do not parse the Linux host registry from
-the mod or initialize another OpenVR client inside Unity. Valve documents the
-[background-client contract](https://github.com/ValveSoftware/openvr/blob/v1.26.7/headers/openvr.h)
-and implements the [Proton path bridge](https://github.com/ValveSoftware/Proton/blob/proton_11.0/proton).
-This does not establish that a given Linux SteamVR/Steam Link release works;
-live host/transport interoperability still needs hardware evidence.
+The paired ordinary-RGBA path is deliberately not gated by this legacy-header
+workaround. Simultaneous native game/menu composition remains a headset test,
+not a conclusion from this branch or from a source grant. The game's own VR
+Options does not pause native MR.
 
-The two pinned resources are extracted under
-`%LOCALAPPDATA%\GloomhavenVR\SteamLink\<SHA256>`, inside the Windows user's profile
-or Proton prefix. Prefer inherited `LOCALAPPDATA`, then the Windows known-folder
-API; normalize directory separators before local-path validation. Missing or
-invalid folders have no guessed installation/system-directory fallback. Exact
-resource, directory, file and cached-pin stages distinguish preparation failure
-from API failure. Never infer receiver installation from SDK presence.
+## Host identity: Windows and Proton
 
-Focused evidence is in the linked research notes for
-[depth coverage](research/steamlink-eye-coverage-runtime-20261017.md),
-[same-eye output](research/steamlink-scene-output-20261017.md), and
-[owned transparent materials](research/steamlink-transparent-materials-runtime-20261017.md).
-The small embedded shader bank is reproducible with
-`scripts/steamlink-scene-render/build.py`; its verifier requires the actual
-AssetBundle container, complete compiled shader inventory and program banks.
+Gloomhaven and the mod are Windows applications. A Linux gaming host runs the
+same PE reader under Proton, not a separate native Linux helper. A bounded child
+loads the pinned public OpenVR SDK while Unity retains its active OpenXR session.
+The active SteamVR session and background-client initialization guard this lookup;
+a Windows process-name census cannot establish that native Linux SteamVR runs.
 
-## Retired synthetic source
+The child inherits OpenVR overrides and Proton's prefix/runtime variables. Let
+the SDK use Proton's Windows OpenVR paths and `C:\vrclient` bridge; do not parse
+the Linux registry from the mod or initialize another OpenVR client inside Unity.
+Valve documents the [background-client contract](https://github.com/ValveSoftware/openvr/blob/v1.26.7/headers/openvr.h)
+and the [Proton bridge](https://github.com/ValveSoftware/Proton/blob/proton_11.0/proton).
+This lookup does not prove live Linux SteamVR/Steam Link interoperability or
+support for a native Linux paired sender.
 
-The maintainer requested removal of the synthetic test pattern and its VR
-setting on 2026-10-17. The shipped mod no longer binds
-`SteamLink/PayloadTestEnabled`, creates the test driver, replaces either eye
-with a synthetic canvas, or embeds the pattern textures/manifests. The ordinary
-menu and VR-options lifecycle has no diagnostic-output stop hook.
+Pinned resources are extracted under
+`%LOCALAPPDATA%\GloomhavenVR\SteamLink\<SHA256>` in the Windows profile or Proton
+prefix. Inherited `LOCALAPPDATA`, then the Windows known-folder API, establish
+the base; missing/invalid folders have no guessed system/install fallback.
+Resource, directory, file and pin failures are distinguished from API failure.
+The shader bank remains reproducible with `scripts/steamlink-scene-render/build.py`.
 
-An older `dev.gloomhavenvr.steamlink.cfg` is left untouched on disk and is no
-longer opened by the mod. No user configuration file is deleted or migrated.
-This explicit removal supersedes the usual rule to retain persisted config keys.
+## Retired diagnostics and evidence
 
-The completed synthetic streaming experiment and its original source history
-remain useful development evidence. Historical scripts and controls were removed
-with their production source; their prior results remain in Git history and
-private captures. Their retirement is not a replacement passing test result.
-
-The [real-game coverage audit](research/steamlink-game-coverage-audit-20261017.md)
-records the native-material limits that remain relevant to the new producer.
-The separate receiver fork retains historical offline experiments; the
-synthetic-source removal installs nothing on the Frame and does not modify
-the Steam sender.
-
-Existing standalone Steam Frame passthrough, ordinary mixed-reality options,
-menu focus/availability, gameplay and multiplayer protocols are unchanged.
+The synthetic source/test-pattern setting was removed at the maintainer's request.
+Historical screenshots, scripts and dated results are not a current player feature
+or a replacement headset pass. An old `dev.gloomhavenvr.steamlink.cfg` is neither
+loaded nor silently deleted. Current player instructions live in the README and
+installation guides; runtime compatibility/paired setup live in the companion
+project. Gameplay and multiplayer protocols are separate from this output route.

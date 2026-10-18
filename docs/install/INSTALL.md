@@ -108,11 +108,11 @@ main menu or pause menu. Changes apply straight away and are saved for you.
 | Tab | What is in it |
 |---|---|
 | **Comfort** | Turning, locomotion, world grab and zoom, hands, aiming |
-| **Picture** | Presentation, windows & panels, mixed reality, the desktop monitor |
+| **Graphics** | Graphics profiles, resolution and details, windows & panels, the desktop monitor |
 | **Board & cards** | Control board, figures, cards, piles & hints |
 | **Panels** | Panels & readouts, health bars, the 2D screen, pointing, text entry |
 | **Avatar & multiplayer** | Your hand style and head mask, and playing together |
-| **World & sound** | Environment, the apparitions, sound, visibility, the campaign map |
+| **World** | Scenery and mixed reality, apparitions, sound, visibility, the campaign map |
 | **Advanced** | The deep twin of all of the above, plus every single setting |
 
 The mod's text follows the game's language: **English and German**; anything else falls back to

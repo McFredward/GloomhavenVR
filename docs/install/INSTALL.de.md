@@ -108,11 +108,11 @@ Pausenmenü. Änderungen wirken sofort und werden gespeichert.
 | Reiter | Was drinsteht |
 |---|---|
 | **Komfort** | Drehen, Fortbewegung, Welt greifen und zoomen, Hände, Zielen |
-| **Bild** | Darstellung, Fenster & Tafeln, Mixed Reality, der Desktop-Monitor |
+| **Grafik** | Grafikprofile, Auflösung und Details, Fenster & Tafeln, der Desktop-Monitor |
 | **Brett & Karten** | Kontrollbrett, Figuren, Karten, Stapel & Hinweise |
 | **Tafeln** | Tafeln & Anzeigen, Lebensbalken, der 2D-Bildschirm, Zeigen, Texteingabe |
 | **Avatar & Mehrspieler** | Dein Handstil und deine Kopfmaske, und das Zusammenspielen |
-| **Umgebung & Ton** | Umgebung, die Erscheinungen, Ton, Sichtbarkeit, die Kampagnenkarte |
+| **Umgebung** | Schauplatz und Mixed Reality, Erscheinungen, Ton, Sichtbarkeit, die Kampagnenkarte |
 | **Erweitert** | Der tiefe Zwilling von allem oben, dazu jede einzelne Einstellung |
 
 Der Text der Mod folgt der Sprache des Spiels: **Englisch und Deutsch**; alles andere fällt auf
