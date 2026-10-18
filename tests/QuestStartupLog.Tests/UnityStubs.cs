@@ -104,6 +104,13 @@ namespace GloomhavenVR.Quest
     // isolates startup logging and its subscription/reserve lifecycle.
     public static class QuestCardAlphaContent
     { public static bool Install(string apk, string streamingAssets, string root) { return false; } }
+    // Figure file delivery has its own production fixture. This logger fixture
+    // does not execute the startup coroutine or any asset installation.
+    public static class QuestFigureMeshContent
+    {
+        public static IEnumerator InstallRoutine(string apk, string streamingAssets, string root,
+            Action<QuestGameContentProgress> progress, Action present) { yield break; }
+    }
     public class QuestGameMenu { }
     public class QuestGameKeyboard { public bool Bound, Visible; public string Failure; }
     // These are lifecycle seams for the logging fixture, not a real mod execution proof.
