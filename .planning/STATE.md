@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Application-only quality route review, 2026-10-18; runtime remains707.**
+
+The707 preview logs local overlay visibility1 twice, but the maintainer sees no
+surface. Do not equate this with remote delivery or repeat that hardware branch.
+The user permits only game/mod and Frame receiver changes; no PC Steam sender
+hooks, binary changes or replacement display driver. Preserve ordinary RGB and
+investigate a separate app-owned coverage channel with a same-selected-image
+token plus independently proved source-ray/composition mapping. Both contracts
+are required; current protocol/lifetime foundations do not yet supply them.
+The alternative is an explicitly owned RGB+coverage streaming renderer, with
+larger tracking/codec/composition scope. See [the decision and exact current
+pixel budget](STEAM-LINK-APP-ONLY-QUALITY-20261018.md). No new runtime/device fix
+or hardware test is claimed by this research.
+
 **Immediate non-destructive delivery preview, 2026-10-18: Build707.**
 
 The actual706 test reports local API readiness for both charts, but the
