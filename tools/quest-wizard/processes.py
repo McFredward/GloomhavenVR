@@ -415,6 +415,8 @@ class ProgressParser:
         """Compiler logs belong to their actual child build, not Player import."""
         if source.startswith("figure-banks-"):
             return "update-art" if self.active_operation == "update-art" else "figure-banks"
+        if source.startswith("native-audio-"):
+            return "update-art" if self.active_operation == "update-art" else "native-audio"
         if source in self.import_worker_owners:
             return self._unity_operation(self.import_worker_owners[source])
         if re.fullmatch(r"mod-bundle(?:-launch)?-[A-Za-z0-9_.-]+\.log", source): return "mod-banks"

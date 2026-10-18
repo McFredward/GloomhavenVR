@@ -24,7 +24,10 @@ def copy_planning_sources(destination):
     for name in ('tools/quest-installer/installer.py', 'src/GloomhavenVR/Core/Perf/ScenarioFigureMeshBank.cs',
                  'src/GloomhavenVR/Net/NetProtocol.cs',
                  'unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestFigureMeshContent.cs',
-                 'unity/GloomhavenVR.Quest/Packages/manifest.json'):
+                 'unity/GloomhavenVR.Quest/Packages/manifest.json',
+                 'tools/quest-recovery/NativePortableRecovery/Program.cs',
+                 'tools/quest-recovery/NativePortableRecovery/NativePortableRecovery.csproj',
+                 'tools/quest-recovery/NativePortableRecovery/packages.lock.json'):
         target = destination / name; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(ROOT / name, target)
 
 
@@ -45,7 +48,7 @@ def probe(source, mode):
         foreign.__getattr__ = refuse
         sys.modules['storage'] = foreign
     absent = object()
-    names = ('storage', 'figure_banks', 'builder', 'profile', '_ghvr_wireless_figure_banks')
+    names = ('storage', 'figure_banks', 'audio_banks', 'builder', 'profile', '_ghvr_wireless_figure_banks', '_ghvr_wireless_audio_banks')
     before = {name: sys.modules.get(name, absent) for name in names}
     search_path = list(sys.path)
     helper = discovery.builder(source)
@@ -53,6 +56,12 @@ def probe(source, mode):
     assert sys.path == search_path
     assert all(sys.modules.get(name, absent) is value for name, value in before.items())
     assert str(source / 'tools/quest-builder') not in sys.path
+    # The audio helper runs after the same isolated aliases have been restored.
+    # Its producer estimate must still use this captured Builder's dependencies.
+    audio_plan = helper.audio_banks.plan(source, {'files': [
+        {'path': name, 'size': 44, 'sha256': 'a' * 64} for name in ('resources.assets', 'resources.resource')]})
+    assert len(audio_plan['producerKey']) == 64
+    assert helper.audio_banks.original_clips.__module__ == '_ghvr_wireless_audio'
 
     rows = [helper.record_file(source / name, name) for name in (
         'tools/quest-builder/builder.py', 'tools/quest-builder/preparation_identity.py',

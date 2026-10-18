@@ -57,6 +57,27 @@ class StageProgressTests(unittest.TestCase):
             row['status'] = 'complete'; self.store.save(saved)
             self.assertEqual(self.progress(name)['stagePercent'], 100)
 
+    def test_corrected_audio_has_an_independent_operation_after_completed_figures(self):
+        self.store.begin_stage(self.session, 'build', 'audio-sidecar')
+        self.store.operation(self.session, 'build', 'figure-banks', complete=True)
+        self.store.operation(self.session, 'build', 'native-audio')
+        before = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'native-audio', 300, 1000, 'work-shares',
+                            detail='32 original channel headers restored', operation='native-audio')
+        current = self.progress()
+        self.assertEqual(current['stageOperation'], 'native-audio')
+        self.assertGreater(current['stagePercent'], before)
+        operations = {item['id']: item for group in current['buildOverview']['groups'] for item in group['operations']}
+        self.assertTrue(operations['figure-banks']['closed'])
+        self.assertFalse(operations['native-audio']['closed'])
+        self.store.operation(self.session, 'build', 'native-audio', complete=True)
+        self.store.operation(self.session, 'build', 'weave')
+        self.assertGreaterEqual(self.progress()['stagePercent'], current['stagePercent'])
+        parser = ProgressParser()
+        self.assertEqual(parser._unity_operation('native-audio-unity.log'), 'native-audio')
+        parser.active_operation = 'update-art'
+        self.assertEqual(parser._unity_operation('native-audio-unity.log'), 'update-art')
+
     def test_substep_100_never_becomes_whole_stage_100_or_restarts_its_total(self):
         self.store.begin_stage(self.session, 'source', 'immutable')
         self.store.progress(self.session, 'source', 'source-copy', 40, 40, 'files')
@@ -380,7 +401,7 @@ class StageProgressTests(unittest.TestCase):
         self.assertEqual(sum(stage_plan.BUILD_SHARES.values()), 100)
         self.store.operation(self.session, 'build', 'startup-content')
         overview = self.progress()['buildOverview']
-        self.assertEqual(overview['total'], 24)
+        self.assertEqual(overview['total'], 25)
         self.assertEqual(overview['active'], 'startup-content')
         self.assertEqual([group['id'] for group in overview['groups']], ['inputs', 'recovery', 'project', 'code', 'import', 'export'])
         remaining = [item['id'] for group in overview['groups'] for item in group['operations'] if not item['closed']]

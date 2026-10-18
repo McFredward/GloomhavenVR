@@ -30,6 +30,7 @@ import release
 import update_driver as driver
 import quest_card_alpha as card_alpha
 import figure_banks
+import audio_banks
 
 
 class UpdateDriverTests(unittest.TestCase):
@@ -130,6 +131,39 @@ class UpdateDriverTests(unittest.TestCase):
         metadata = {"schema": 1, "recipe": card_alpha.RECIPE, "gameKey": self.manifest["game"]["key"],
                     "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(), "entries": len(entries)}
         return {card_alpha.MEMBER: payload, card_alpha.MANIFEST: storage.canonical(metadata)}
+
+    def test_missing_audio_sidecar_uses_tiny_producer_without_campaign_or_code_rebuild(self):
+        self.args.command = "update-mod"
+        self.builder.source_inventory = lambda repo: (self.current_mod["files"], "8" * 40, False)
+        self.builder.mod_build = lambda repo: self.current_mod["modBuild"]
+        self.builder.snapshot = Mock()
+        requirements = {"rebuildReasons": [], "codeChanged": False, "artChanged": False,
+                        "nativeHelperChanged": False, "figureBanksChanged": False, "audioBanksChanged": True}
+        root = self.root / "owned-audio"; bank = root / "banks" / audio_banks.BANK
+        bank.parent.mkdir(parents=True); bank.write_bytes(b"owned original-channel audio fixture")
+        index = bank.with_name(audio_banks.INDEX); index.write_text("GHVRQ_AUDIO_1\n")
+        manifest = {"schema": 1, "producerKey": "f" * 64, "target": "Android",
+                    "files": [storage.record_file(path, path.name) for path in (bank, index)]}
+        module = SimpleNamespace(produce=Mock(return_value=(root, manifest)), replacements=audio_banks.replacements)
+        with patch.object(driver, "update_requirements", return_value=requirements), \
+             patch.object(driver, "_audio_banks", return_value=module), \
+             patch.object(driver, "signing_tools", return_value={"editor": "fixture/Unity"}), \
+             patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
+             patch.object(driver, "_compile_code", side_effect=AssertionError("The native pair is already current")), \
+             patch.object(driver, "_game_subset", side_effect=AssertionError("Never reconvert Campaign assets")), \
+             patch.object(apk_update, "patch_resource_json", return_value={}), \
+             patch.object(apk_update, "update_android_versions", return_value=b"AXML qualified separately"):
+            plan = driver.inspect(self.builder, self.args, ROOT, self.output)
+            self.assertTrue(plan["audioBanksChanged"]); self.assertTrue(plan["requiresUnity"])
+            self.assertEqual(plan["rebuildReasons"], [])
+            updated = driver.run(self.builder, self.args, ROOT, self.output)
+        module.produce.assert_called_once(); self.builder.snapshot.assert_called_once()
+        self.assertEqual(self.builder.snapshot.call_args.kwargs["phase"], "update-source-snapshot")
+        with zipfile.ZipFile(self.apk) as before, zipfile.ZipFile(updated) as after:
+            self.assertEqual(after.read(audio_banks.PREFIX + bank.name), bank.read_bytes())
+            self.assertEqual(json.loads(after.read(audio_banks.METADATA)), manifest)
+            for name in (apk_update.LIBRARY, apk_update.METADATA, "assets/fixture.resource"):
+                self.assertEqual(before.read(name), after.read(name))
 
     def test_old_runtime_inventory_skips_alpha_module_and_extraction(self):
         with patch.object(driver.importlib.util, "spec_from_file_location", side_effect=AssertionError("Old runtime cannot request the new content contract")):
@@ -419,7 +453,7 @@ class UpdateDriverTests(unittest.TestCase):
             path = source / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
         rows = [storage.record_file(source / name, name) for name in
                 ("tools/quest-builder/builder.py", "tools/quest-builder/preparation_identity.py")]
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py", "audio_banks.py"):
             (source / "tools/quest-builder" / name).write_bytes((ROOT / "tools/quest-builder" / name).read_bytes())
         self.manifest["mod"]["files"] = copy.deepcopy(rows)
         self.current_mod["files"] = copy.deepcopy(rows)
@@ -563,7 +597,7 @@ class UpdateDriverTests(unittest.TestCase):
         self.current_mod.update(files=previous, modBuild=671); self.write_apk()
         self.args.command = "update-mod"; self.builder.mod_build = lambda repo: 671
         self.builder.source_inventory = lambda repo: (current, commit, dirty)
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py", "audio_banks.py"):
             path = source / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / "tools/quest-builder" / name, path)
         with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]), \
@@ -598,7 +632,7 @@ class UpdateDriverTests(unittest.TestCase):
                   "unity/GloomhavenVR.Assets/Assets/unchanged.asset": b"unchanged authored asset" * 4096}
         for name, body in values.items():
             path = repo / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py", "audio_banks.py"):
             path = repo / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / "tools/quest-builder" / name, path)
         rows = [storage.record_file(repo / name, name) for name in values]

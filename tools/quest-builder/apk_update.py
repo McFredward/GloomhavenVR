@@ -139,6 +139,7 @@ def inspect_base(path, *, validate_update_contracts=True):
                     "currentMod": update.get("mod", manifest.get("mod")) if update else manifest.get("mod"),
                     "currentProfile": update.get("profile", manifest.get("profile")) if update else manifest.get("profile"),
                     "figureBanks": _json(apk, "assets/Quest/figure-meshes.json", optional=True),
+                    "audioBanks": _json(apk, "assets/Quest/audio-clips.json", optional=True),
                     "dynamicProfile": bool(capsule and capsule.get("dynamicProfile"))}
     except (OSError, zipfile.BadZipFile) as exc:
         raise BuildError("The existing Quest APK could not be read.") from exc
@@ -729,11 +730,15 @@ def _replaceable(name):
                     "AndroidManifest.xml", INSTALLATION, "assets/quest-mod-content.zip", PROTON_CONTRACT,
                     "assets/bin/Data/unity_app_guid", "assets/quest-card-alpha.bin", "assets/Quest/card-alpha.json",
                     "assets/quest-card-pixels.bin", "assets/Quest/card-pixels.json",
-                    "assets/Quest/figure-meshes.json"} or _figure_member(name) or name in PROTON_HELPERS or _resource_member(name) or (name.startswith(MANAGED_RESOURCES) and name.endswith("-resources.dat"))
+                    "assets/Quest/figure-meshes.json", "assets/Quest/audio-clips.json"} or _figure_member(name) or _audio_member(name) or name in PROTON_HELPERS or _resource_member(name) or (name.startswith(MANAGED_RESOURCES) and name.endswith("-resources.dat"))
 
 
 def _figure_member(name):
     return re.fullmatch(r"assets/QuestFigureMeshes/ghvr-figure-meshes-(?:index\.json|quest-(?:75|45|20|5)-[0-9]{2,3}\.bundle)", name) is not None
+
+
+def _audio_member(name):
+    return name in {"assets/QuestAudioClips/ghvr-quest-native-audio.bundle", "assets/QuestAudioClips/ghvr-quest-native-audio.tsv"}
 
 
 def _qualify_proton_helpers(base, info, replacements, update_manifest, evidence):
@@ -1068,6 +1073,16 @@ Neither callback is optional: unsigned output is never an installable result.
         raise BuildError("APK update provenance must preserve the original game identity.")
     replacements[UPDATE] = _json_bytes(update_manifest)
     figure_hashes = {}
+    if "assets/Quest/audio-clips.json" in replacements:
+        try:
+            audio_manifest = json.loads(replacements["assets/Quest/audio-clips.json"])
+            if audio_manifest.get("schema") != 1 or audio_manifest.get("target") != "Android": raise ValueError()
+            for row in audio_manifest["files"]:
+                name = "assets/QuestAudioClips/" + row["path"]
+                if not _audio_member(name) or not _SHA.fullmatch(row["sha256"]) or type(row["size"]) is not int or not 0 < row["size"] <= 64 * 1024 * 1024:
+                    raise ValueError()
+                figure_hashes[name] = row
+        except (KeyError, TypeError, ValueError): raise BuildError("Owned corrected audio replacement manifest is invalid.")
     if "assets/Quest/figure-meshes.json" in replacements:
         try:
             figure_manifest = json.loads(replacements["assets/Quest/figure-meshes.json"])
@@ -1082,7 +1097,7 @@ Neither callback is optional: unsigned output is never an installable result.
     for name, value in replacements.items():
         _safe_name(name)
         if isinstance(value, Path):
-            if not _figure_member(name): raise BuildError("Only owned figure parts accept streamed file replacements: " + name)
+            if not (_figure_member(name) or _audio_member(name)): raise BuildError("Only owned figure/audio parts accept streamed file replacements: " + name)
             path = _ordinary_owned(value)
             if not path.is_file() or path.stat().st_size > MAX_MEMBER: raise BuildError("Invalid streamed figure replacement: " + name)
             # Production banks already have a producer hash in their signed

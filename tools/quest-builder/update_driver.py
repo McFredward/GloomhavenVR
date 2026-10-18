@@ -52,6 +52,14 @@ def _figures(builder):
     return module
 
 
+def _audio_banks(builder):
+    captured = getattr(builder, "audio_banks", None)
+    if captured is not None: return captured
+    spec = importlib.util.spec_from_file_location("quest_owned_audio_banks", Path(__file__).with_name("audio_banks.py"))
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    return module
+
+
 def card_alpha_delivery(builder, inputs, output, game):
     """Add only exact CPU outline bytes; retain every original serialized bank."""
     if not any(row.get("path") == "src/GloomhavenVR/Cards/Art/QuestCardAlpha.cs"
@@ -151,9 +159,10 @@ def inspect(builder, args, repo, output, data=None):
         reasons, code_changed, art_changed = (requirements[name] for name in ("rebuildReasons", "codeChanged", "artChanged"))
         native_helper_changed = requirements["nativeHelperChanged"]
         figure_banks_changed = requirements["figureBanksChanged"]
+        audio_banks_changed = requirements.get("audioBanksChanged", False)
     else:
         reasons = []
-        code_changed = art_changed = native_helper_changed = figure_banks_changed = False
+        code_changed = art_changed = native_helper_changed = figure_banks_changed = audio_banks_changed = False
     # Owned game and DLC qualification above must precede any local key creation.
     source_stamp = _core(builder)._base_stamp(base_apk)
     source_change_stamp = _selection_stamp(builder, [base_apk])
@@ -170,12 +179,13 @@ def inspect(builder, args, repo, output, data=None):
             "signing": identity, "sourcePackage": base.get("sourcePackage"),
             "ownedGame": proof, "inputs": inputs,
             "updateStrategy": "cached-full-build" if reasons else "compact-code" if mode == "update-mod" else "profile-only",
-            "rebuildReasons": reasons, "requiresUnity": bool(reasons or code_changed or art_changed or native_helper_changed or figure_banks_changed),
+            "rebuildReasons": reasons, "requiresUnity": bool(reasons or code_changed or art_changed or native_helper_changed or figure_banks_changed or audio_banks_changed),
             "codeChanged": code_changed, "artChanged": art_changed, "nativeHelperChanged": native_helper_changed,
             "figureBanksChanged": figure_banks_changed,
+            "audioBanksChanged": audio_banks_changed,
             "nativeCompilerRecipe": _native_resume().compiler_recipe(builder, __file__),
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
-                ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py")}}
+                ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py", "audio_banks.py")}}
     plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name not in ("baseApk", "sourcePackage")})
     root = output / "updates" / plan["updateKey"]
     builder.write_json(root / "plan.json", plan)
@@ -509,13 +519,15 @@ def _update_source_rows(files, *, art_changed, native_changed=False):
     """
     if art_changed: return files
     prefixes = ("src/", "tools/QuestWeaver/", "tools/figure-mesh/", "unity/GloomhavenVR.Quest/", "libs/RefAsm/", "libs/RuntimeDeps/")
+    audio_sources = {"tools/quest-builder/audio_banks.py"} | {"tools/quest-recovery/NativePortableRecovery/" + name
+        for name in ("Program.cs", "NativePortableRecovery.csproj", "packages.lock.json")}
     # The release inventory describes complete inputs; this private partial
     # compiler snapshot must not advertise itself as another complete release.
     native_paths = ({"tools/quest-procedural-runtime/" + name for name in (*_proton_helpers().SOURCE_NAMES, "runtime.py", "upstream.lock.json")}
                     | {"tools/quest-builder/proton_helper_update.py"}) if native_changed else set()
     return [row for row in files if row["path"] != "quest-builder-release.json" and
             (row["path"].startswith(prefixes)
-             or row["path"] in native_paths
+             or row["path"] in native_paths or row["path"] in audio_sources
              or "/" not in row["path"] and row["path"].endswith((".props", ".targets", ".config", ".json")))]
 
 
@@ -746,9 +758,14 @@ def update_requirements(builder, source, base, files, mod_build):
     if any(row.get("path") == "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestFigureMeshContent.cs" for row in files):
         expected_figures = _figures(builder).plan(source, original["game"])
         figure_changed = (base.get("figureBanks") or {}).get("producerKey") != expected_figures["producerKey"]
+    audio_changed = False
+    if any(row.get("path") == "src/GloomhavenVR/Core/QuestCombatAudioBank.cs" for row in files):
+        expected_audio = _audio_banks(builder).plan(source, original["game"])
+        audio_changed = (base.get("audioBanks") or {}).get("producerKey") != expected_audio["producerKey"]
     return {"rebuildReasons": reasons, "codeChanged": code_changed, "artChanged": art_changed,
             "nativeHelperChanged": native_changed, "figureBanksChanged": figure_changed,
-            "requiresUnity": bool(reasons or code_changed or art_changed or native_changed or figure_changed),
+            "audioBanksChanged": audio_changed,
+            "requiresUnity": bool(reasons or code_changed or art_changed or native_changed or figure_changed or audio_changed),
             "updateStrategy": "cached-full-build" if reasons else "compact-code"}
 
 
@@ -1184,7 +1201,7 @@ def run(builder, args, repo, output):
             builder.build_progress.operation("update-profile", complete=True, detail="Signed offline profile prepared; no Unity build.")
         else:
             changed_art = plan["artChanged"]
-            if plan["codeChanged"] or changed_art or plan.get("nativeHelperChanged") or plan.get("figureBanksChanged"):
+            if plan["codeChanged"] or changed_art or plan.get("nativeHelperChanged") or plan.get("figureBanksChanged") or plan.get("audioBanksChanged"):
                 builder.build_progress.operation("update-mod-source", detail="Freezing the current mod source.")
                 source_rows = _update_source_rows(inputs["mod"]["files"], art_changed=changed_art,
                                                  native_changed=bool(plan.get("nativeHelperChanged")))
@@ -1239,6 +1256,11 @@ def run(builder, args, repo, output):
                 figure_root, figure_manifest = figures.produce(builder, args, source, builder.game_data(args.game_root),
                     output, inputs["game"], Path(tools["editor"]))
                 replacements.update(figures.replacements(figure_root, figure_manifest))
+            if plan.get("audioBanksChanged"):
+                audio_bank = _audio_banks(builder)
+                audio_root, audio_manifest = audio_bank.produce(builder, args, source, builder.game_data(args.game_root),
+                    output, inputs["game"], Path(tools["editor"]))
+                replacements.update(audio_bank.replacements(audio_root, audio_manifest))
             builder.build_progress.operation("update-art", complete=True, detail="Changed mod art built or unchanged embedded banks reused.")
             replacements["assets/Quest/offline-profile.json"] = builder.canonical(inputs["profile"])
         update = {"schema": 1, "updateKey": update_key, "mode": args.command,

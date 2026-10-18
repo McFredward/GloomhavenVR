@@ -19,6 +19,11 @@ internal static class QuestCombatAudio
         QuestCombatAudioTap.PlaybackStarting(owner);
         Restore(owner);
         if (!QuestStandalonePlatform.Enabled || !VRSession.IsRunning) return;
+        // B692 proves startup quad Vorbis packets were exported under a mono
+        // header. Use the separately owned original-channel bank for every
+        // exact qualifying cue, including doors, before native playback starts.
+        QuestCombatAudioBank.Prepare(owner.primaryAudioSource);
+        QuestCombatAudioBank.Prepare(owner.secondaryAudioSource);
         Camera? head = Rig.VRRigDriver.HeadCamera;
         if (head == null || head.transform.lossyScale.x <= 1.0001f) return;
         PrepareSource(owner.primaryAudioSource);
@@ -51,6 +56,7 @@ internal static class QuestCombatAudio
         // Keep its authored value even when the new component is created while
         // the primary is already corrected, so a later pool use is unchanged.
         AudioSource? primary = owner.primaryAudioSource, secondary = owner.secondaryAudioSource;
+        QuestCombatAudioBank.Inherit(primary, secondary);
         if (primary == null || secondary == null || secondary.dopplerLevel != 0f
             || Originals.TryGetValue(secondary, out _) || !Originals.TryGetValue(primary, out Original? original)) return;
         Originals.Add(secondary, new Original { Doppler = original.Doppler });
@@ -65,6 +71,7 @@ internal static class QuestCombatAudio
 
     private static void RestoreSource(AudioSource? source)
     {
+        QuestCombatAudioBank.Restore(source);
         if (source == null || !Originals.TryGetValue(source, out Original? original)) return;
         // An independent native writer takes precedence over our old value.
         if (source.dopplerLevel == 0f) source.dopplerLevel = original.Doppler;
