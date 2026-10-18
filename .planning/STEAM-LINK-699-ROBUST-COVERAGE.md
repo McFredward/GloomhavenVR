@@ -55,13 +55,52 @@ candidate9ad1b56a20db039132ad6ec4557fe8ece3fff277316370bcefc9f70ec7aed367.
 All ten original runtime fingerprints stay unchanged; only the owned candidate
 and package/source pins intentionally change.
 
-Focused final evidence will include real compiled producer bank and independent
-Left/Right4040-square sources with actual8xMSAA, the original refusal controls,
-bounded measured-guard GPU controls, an actual producer PNG → lossy codec →
-actual new native fragment paired-eye regression fixture, and strict final DLL
-resource identities. Its source/native codec conversion and R1 surrogate limits
-must remain explicit. Unrelated movie/UI/gameplay/wire behavior inherits its
-unchanged prior evidence; this is not a new complete-suite pass.
+The actual Unity2021.3.5 compiled bank is181740 bytes, SHA256
+`cb9fc34466df92c64f53f10f5ef3a64b9168de8933d5aaa0b3cf8c61cc6e5bf0`.
+Its70 metadata checks and109 retained-shader comparisons establish all18 existing
+compiled program banks/states are unchanged. The bounded paired source test
+passes227 checks, including24 actual header cells and30 source/scene/mask probes
+with zero measured error. Both sources are4040-square with actual8xMSAA and
+independent content. The old/new packed pictures are byte-identical outside the
+union of their headers, across both complete4040-square carriers.
+
+The receiver candidate is31384 bytes, SHA256
+`44c4a6c6bf7543b53d14ab6d350d8498143d6c03f70bfb45b9c6812e6b900a49`.
+Seven focused new contract methods, unchanged historical-profile checks,23
+package methods and13 session methods pass; one existing platform skip remains
+explicit. C++ admission passes nine controls normally and with sanitizers.
+A narrow measured-vector GPU replay passes77 checks/twelve eye cases, with no
+validation errors. This last replay is not substituted for complete picture proof.
+
+The new whole-picture fixture consumes the actual compiled producer PNGs without
+repainting a header. Eight H264/HEVC QP23/32 conditions at1152/576 chart sizes
+preserve both eyes through the actual native candidate. Each condition samples
+30 source positions across the two eyes, including glass0.25/0.5/0.75 and
+positive E at A0, plus real source-over and same-command ordinary OFF/recovery.
+Maximum measured header error is3.909 codes; source RGBA error0.013006; native
+output versus the decoded-raster oracle differs by at most0.0000275. GPU and
+synchronization validation report zero errors. Its required actual v2/HEVC23
+control reproduces accepted-left/refused-right with6.552-code right header error;
+the coupled valid-stream criterion rejects it instead of treating fallback as a
+successful valid stream. This directly detects the old regression.
+
+The fixture explicitly reconstructs the original encoded-channel convention
+from decoded RGB before providing a complete native Float texture. It models
+the retained quarter R1 charts and an owned codec path, not the current headset's
+decoder output, foveation, actual late metadata or proprietary encoder settings.
+No new headset success is inferred. Evidence stays in main debug under
+`steamlink-699-source` / `steamlink-699-composed` and in the receiver's ignored
+`build/private-native-robust699-20261018`, `private-robust699-shipping` and
+`private-robust-scene-stream-699-20261018`.
+
+Strict net472 Debug/Release and actual Mono artifact/resource probes pass. Real
+host and AArch64 release libraries compile with the actual release switches.
+Three focused installer methods plus two new stopped upgrade preferences preserve
+enabled/disabled, replace the old candidate and never restart/activate a service.
+The controlled unit/runtime-verification boundaries are recorded; this is not
+a real device update. Suite inventory is232 local/101 CI/16 source. Unrelated
+movie/UI/gameplay/wire behavior inherits unchanged prior evidence; this is not
+a new complete-suite pass.
 
 No new Frame installation, capture or restart occurs during preparation. The
 installed old receiver does not recognize v3. Both sides must update before a

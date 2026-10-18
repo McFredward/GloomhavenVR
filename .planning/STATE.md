@@ -1,5 +1,38 @@
 # State — where the project stands
 
+**Robust full-resolution native Steam Link follow-up, 2026-10-18: Build699.**
+
+V3 restores equal2048-square contribution RGB and independent coverage, retaining
+v2's3168-square windmill geometry. Only the format header changes: twelve128-square
+separated four-level cells, ±16-code recognition windows, no coverage threshold.
+V1/v2 profiles and all18 pre-existing compiled shaders remain unchanged. The
+updated receiver recognizes v3 or legacy v1, preserving12/13/2 guard-fetch budgets,
+original native image/R1 binding and opaque ordinary fallback. No tags, extra
+camera, descriptor, old-eye queue or Steam sender modification is introduced.
+
+The actual compiled producer passes227 checks with two independent4040-square,
+actual8xMSAA sources. Thirty source/scene/mask probes and24 header cells match
+exactly; all retained shader banks pass109 comparison checks. The new end-to-end
+fixture then sends those actual PNGs through lossy H264/HEVC QP23/32 at1152/576
+chart sizes and executes the exact31384-byte native candidate on both charts in
+one decoded texture. All eight v3 conditions preserve both eyes; maximum guard
+error3.909 codes and source RGBA error0.013006. The same actual v2 inputs reproduce
+one accepted/one refused eye, which the coupled valid-stream criterion correctly
+rejects. This closes the old ideal-header/lossless-only test gap; it does not
+measure the failing hardware frame's R1/codec or establish a new headset result.
+
+Focused native contract/package/session/admission checks,77 guard-vector GPU
+checks, stopped-upgrade preference controls and real host/AArch64 release builds
+pass. Strict GH Debug/Release have zero warnings/errors; actual Mono DLL and
+embedded-bank identities are checked separately. New suite registration brings
+the local inventory to232; CI101/source16 are unchanged. Unrelated696 movie/UI/
+wire evidence is inherited, not a repeated full gate. See [the scoped record](STEAM-LINK-699-ROBUST-COVERAGE.md).
+
+Both PC producer and Frame receiver must update before the next functional test.
+The old installed patch cannot decode v3. No Frame changes/restarts were made
+during this preparation; request a fresh concrete approval once everything is
+ready. Harder headset edges and stereo agreement remain hardware checks.
+
 **Native Steam Link stereo regression containment, 2026-10-18: Build698.**
 
 The maintainer rejects697 in hardware: eye scale/depth differs and passthrough
