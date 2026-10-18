@@ -36,8 +36,9 @@ health observation mistook systemd's zero-to-populated main PID for a restart;
 read-only replay of the full original startup evidence passes the unchanged gate
 in the same invocation with no restart-counter increase. Backup/manual rollback
 are retained; no pixel capture, automatic timer or second restart was introduced.
-The maintainer has been signalled to stream699. Harder headset edges and stereo
-agreement remain pending visible hardware checks, not inferred from the logs.
+The maintainer now confirms the699 stream is running and both eyes are correct.
+That is visible stereo evidence; the separate specific window-edge comparison
+is still pending and is not inferred from the logs.
 
 **Native Steam Link stereo regression containment, 2026-10-18: Build698.**
 

@@ -122,5 +122,7 @@ Private deployment/rollback receipts are retained in the receiver repository's
 `build/private-robust699-deployment`. The exact predecessor package is backed up
 on the Frame, and completed duplicate/compiler caches are removed. There is no
 pixel capture, automatic expiry or rollback timer. The maintainer has been
-signalled to stream Build699 and compare both eyes and window edges. The visible
-hardware result remains pending; native status alone cannot establish it.
+signalled to stream Build699 and compare both eyes and window edges. The
+maintainer now explicitly reports: the stream is running and both eyes are
+correct. That confirms the visible stereo result for this run. The specific
+window-edge comparison remains pending; it is not established by native status.
