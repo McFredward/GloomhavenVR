@@ -39,6 +39,23 @@ def _native_resume():
     return module
 
 
+def card_alpha_delivery(builder, inputs, output, game):
+    """Add only exact CPU outline bytes; retain every original serialized bank."""
+    if not any(row.get("path") == "src/GloomhavenVR/Cards/Art/QuestCardAlpha.cs"
+               for row in inputs.get("mod", {}).get("files", [])):
+        return {}
+    spec = importlib.util.spec_from_file_location("quest_card_alpha", Path(__file__).with_name("quest_card_alpha.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        result = module.build(game, Path(output) / "cache", inputs["game"]["key"],
+            progress=lambda done, total, name: builder.build_progress.event(
+                "update-card-alpha", done, total, "files", name, operation="update-art"))
+    except (module.AlphaError, OSError, ValueError) as error:
+        raise builder.BuildError("Exact card-outline extraction failed; keep the existing APK and retry: " + str(error)) from error
+    return {module.MEMBER: Path(result["path"]).read_bytes(), module.MANIFEST: builder.canonical(result["manifest"])}
+
+
 def preflight(builder, game_root, base_apk, mode=None, *, output=None, progress=None, cancel=None):
     """Always read the selected owned installation before downloads/build reuse."""
     if not base_apk:
@@ -122,7 +139,7 @@ def inspect(builder, args, repo, output, data=None):
             "codeChanged": code_changed, "artChanged": art_changed, "nativeHelperChanged": native_helper_changed,
             "nativeCompilerRecipe": _native_resume().compiler_recipe(builder, __file__),
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
-                ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py")}}
+                ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py")}}
     plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name not in ("baseApk", "sourcePackage")})
     root = output / "updates" / plan["updateKey"]
     builder.write_json(root / "plan.json", plan)
@@ -413,7 +430,7 @@ def _code_rows(files, *, normalizer=None):
     only improve reporting, rather than guessing whether new code is equivalent.
     """
     prefixes = ("src/", "tools/QuestWeaver/", "libs/RefAsm/")
-    producers = {"tools/quest-builder/apk_update.py", "tools/quest-builder/update_driver.py",
+    producers = {"tools/quest-builder/apk_update.py", "tools/quest-builder/update_driver.py", "tools/quest-builder/quest_card_alpha.py",
                  "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs"}
     def selected(name):
         # Every release records its commit and complete host-file inventory.
@@ -946,9 +963,10 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
     apk, output = Path(apk), Path(output)
     package_abi = package_fingerprint(builder, source, inputs)
     producer = payload_producer(builder, source, inputs["mod"].get("files", []))
+    alpha = card_alpha_delivery(builder, inputs, output, Path(output) / "inputs/game" / inputs["game"]["key"])
     receipt_key = builder.value_hash({"scope": "full-build-update-capability-receipt-v1", "inputKey": inputs["inputKey"],
         "profile": inputs["profile"], "modBuild": inputs["mod"]["modBuild"], "packageAbi": package_abi,
-        "payloadProducer": producer})
+        "payloadProducer": producer, "cardAlpha": {name: hashlib.sha256(body).hexdigest() for name, body in alpha.items()}})
     stages = builder.Stages(output)
 
     def close_capability():
@@ -963,10 +981,11 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
                 "mode": "build-capability", "modBuild": inputs["mod"]["modBuild"], "profile": inputs["profile"]}
             with zipfile.ZipFile(apk) as archive:
                 profile = core._json(archive, core.PROFILE, optional=True)
+                alpha_matches = all(name in archive.namelist() and archive.read(name) == body for name, body in alpha.items())
             adopted = bool(capsule and capsule["packageAbi"] == package_abi and capsule["dynamicProfile"]
                            and capsule.get("payloadProducer") == producer
                            and base["inputKey"] == inputs["inputKey"] and profile == inputs["profile"]
-                           and update == expected_update)
+                           and update == expected_update and alpha_matches)
         except (builder.BuildError, OSError, ValueError, zipfile.BadZipFile):
             adopted = False
         if adopted:
@@ -979,7 +998,7 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
                 "mode": "build-capability", "modBuild": inputs["mod"]["modBuild"], "profile": inputs["profile"]}
             sign, verify = _signers(builder, tools, output)
             capable = apk.with_name(apk.stem + ".capable.apk")
-            result = core.repack(apk, capable, {core.CAPSULE: builder.canonical(capsule), core.PROFILE: builder.canonical(inputs["profile"])},
+            result = core.repack(apk, capable, {core.CAPSULE: builder.canonical(capsule), core.PROFILE: builder.canonical(inputs["profile"]), **alpha},
                 update_manifest=update, signer=sign, verifier=verify, repair_update_contracts=True)
             stamp = core._base_stamp(capable)
             os.replace(capable, apk)
@@ -1168,6 +1187,7 @@ def run(builder, args, repo, output):
                     installation = json.loads(original.read("assets/Quest/installation-manifest.json"))
                 installation["mod"] = manifest
                 replacements["assets/Quest/installation-manifest.json"] = json.dumps(installation, sort_keys=True).encode()
+            replacements.update(card_alpha_delivery(builder, inputs, output, builder.game_data(args.game_root)))
             builder.build_progress.operation("update-art", complete=True, detail="Changed mod art built or unchanged embedded banks reused.")
             replacements["assets/Quest/offline-profile.json"] = builder.canonical(inputs["profile"])
         update = {"schema": 1, "updateKey": update_key, "mode": args.command,

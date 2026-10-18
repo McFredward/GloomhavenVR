@@ -612,7 +612,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 684;
+    public const ushort ModBuild = 685;
+
+    // ModBuild685 — Quest loading dependencies and original physical card cuts.
+    // Capture094059 proves installed/current684, previous683. The maintainer
+    // confirms the hit marker everywhere; retain that consumer and eye density.
+    // Do not await invisible Object/TilesOcclusionVolume renderer materials:
+    // original occlusion code draws those inputs using its own explicit material.
+    // Preserve the original loading coroutine and visible-room readiness gate.
+    // Quest boot loading uses the live Intro sprites, not persisted ReadPixels
+    // PNGs. Keep hardware-qualified B683 blits and ordinary native playback.
+    // Build a small exact CPU-alpha sidecar from owned original card textures.
+    // Deliver it independently of retained banks before mod activation; use the
+    // original contour/mesh algorithm. Unknown image regions require exact
+    // alpha-union domination before omission; never infer a cut from GPU noise.
+    // Whole requested-world visibility remains an unresolved hardware gate.
+    // Bounded probes now observe the actual All room/all material parts with
+    // native DontSave lighting inputs; private non-XR output is not a visual fix.
+    // Compact code + small alpha asset update; no original bank reconversion.
 
     // ModBuild684 — load actual Quest procedural content before native handover.
     // Capture131952 proves installed/current683, previous682. The maintainer

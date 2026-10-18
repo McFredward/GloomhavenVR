@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest loading dependencies and physical card cuts, 2026-10-18: feature / B685.**
+
+Capture094059 verifies installed/current684, previous683; its screenshot was
+inspected. The maintainer confirms the laser hit point everywhere. Preserve it,
+the full viewport, density and qualified image copies. Remove invisible native
+occlusion inputs from the readiness dependency and bypass unreliable persisted
+GPU-readback boot-spinner PNGs on Quest. Exact owned CPU alpha restores the
+original ability/item contour and physical mesh, delivered as a small independent
+APK asset during compact Mod Update. Native placement completes, but whole-world
+appearance remains unresolved: do not infer unsupported visible shaders from
+hidden/pooled counts. Replace misleading unlit/submesh-zero diagnostics with
+bounded actual requested-room/all-part/native-light evidence; never force native
+visibility, lights or materials. See
+[QUEST-HARDWARE-094059-20261018.md](QUEST-HARDWARE-094059-20261018.md).
+
 **Quest native load readiness and hit marker, 2026-10-17: feature / B684.**
 
 Capture131952 verifies installed/current683, previous682. The maintainer confirms

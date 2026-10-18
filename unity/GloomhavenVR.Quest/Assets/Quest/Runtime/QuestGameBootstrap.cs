@@ -136,6 +136,20 @@ namespace GloomhavenVR.Quest
             string modRoot = Path.Combine(Application.persistentDataPath, "quest-mod-resources");
             yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");
             if (State == "failed") yield break;
+            // Exact card contours travel as a tiny independent APK asset. Never
+            // reopen/reinstall the Campaign or mod bank for an alpha-only update.
+            try
+            {
+                QuestCardAlphaContent.Install(Application.platform == RuntimePlatform.Android && !Application.isEditor
+                    ? Application.dataPath : null, Application.streamingAssetsPath, modRoot);
+            }
+            catch (Exception error)
+            {
+                // Optional physical contour data must not hold native startup.
+                // The existing complete-card fallback remains safe and this
+                // one useful failure is retained in an ordinary support log.
+                UnityEngine.Debug.LogWarning("[GloomhavenVR] [QuestCardAlpha] Exact card contours unavailable: " + error.Message);
+            }
             // Install accepted a private installation receipt or verified new
             // bytes on its worker. A warm launch does not repeat content hashes.
             ModContentReady = true;
