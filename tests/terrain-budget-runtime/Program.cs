@@ -121,6 +121,13 @@ public static partial class TerrainProgram
             "terrain current lease ends after its paired post-render recovery");
         Check(Visible(Pixels(camera))>100,"cheap terrain submits actual nonempty camera pixels");
         Check(!wall.forceRenderingOff&&!floor.forceRenderingOff&&Proxies(host).TrueForAll(r=>!r.enabled),"post-render restores every native source and disables private proxies");
+        string exactFacts=ScenarioTerrainBudget.Diagnostics;
+        Check(exactFacts.Contains("surfaces=1 pillars=0 exact=1 reduced=0")
+            &&exactFacts.Contains("pairedSurfaces/Pillars/Reduced=1/0/0")
+            &&exactFacts.Contains("pairedTriangles="+Triangles(original)+"/"+Triangles(original)),
+            "bounded terrain facts distinguish exact prepared geometry from paired native camera submission");
+        Check(!wall.forceRenderingOff&&Proxies(host).TrueForAll(r=>!r.enabled),
+            "reading terrain facts never acquires a native renderer lease or changes visibility");
         Check(wall.sharedMaterials[0]==slots[0]&&wall.GetComponent<MeshFilter>().sharedMesh==original&&collider.sharedMesh==original,"native source mesh materials and collision are untouched");
         var clone=Object.Instantiate(wall.gameObject); Check(clone.GetComponent<MeshRenderer>().sharedMaterials.Length==1&&clone.GetComponent<MeshRenderer>().sharedMaterial==material,"native clone retains nonempty original material slots");
         Check(clone.transform.childCount==0,"native clone inherits no private proxy"); Object.DestroyImmediate(clone);
@@ -174,6 +181,10 @@ public static partial class TerrainProgram
         Check(Triangles(first!)==Triangles(original),"geometry transition keeps exact original topology before endpoint");
         Morph(host); Pixels(camera);
         Check(Triangles(proxyFilter.sharedMesh)<Triangles(original)/2,"coarse 3D endpoint materially reduces submitted triangles");
+        Check(ScenarioTerrainBudget.Diagnostics.Contains("surfaces=1 pillars=0 exact=1 reduced=1")
+            &&ScenarioTerrainBudget.Diagnostics.Contains("pairedSurfaces/Pillars/Reduced=1/0/1")
+            &&ScenarioTerrainBudget.Diagnostics.Contains("pairedTriangles="+Triangles(proxyFilter.sharedMesh)+"/"+Triangles(original)),
+            "bounded terrain facts report actual reduced geometry and the paired camera triangle denominator");
         Check(proxyFilter.sharedMesh.bounds.size.z>0,"strongest terrain retains actual 3D volume");
         Check(Proxies(host).Find(r=>r.transform.position==wall.transform.position)!.sharedMaterial==material,"coarse geometry retains native shading when cheap shading is off");
         Check(floor.GetComponent<MeshFilter>().sharedMesh==floorOriginal&&floor.sharedMaterial==material

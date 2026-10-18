@@ -27,6 +27,9 @@ internal static class ScenarioEnvironmentMeshBank
     internal static void ConfigureAssetPreparation(Func<bool> ensureAssetsLoaded) => _ensureAssetsLoaded = ensureAssetsLoaded;
     internal static bool IsReady => PrepareIndex();
     internal static bool IsUnavailable => Failed.Contains("index") || Failed.Contains("asset-loader");
+    internal static string Diagnostics => "environmentBank loaded=" + _loaded + " entries=" + Entries.Count
+        + " nativeMatches=" + NativeEntries.Count + " meshes=" + Meshes.Count + " failures=" + Failed.Count
+        + " questOrigins=" + (_questSources?.Count ?? 0);
 
     internal static bool TryGetExact(Mesh native, out Mesh mesh) => TryGet(native, 100, out mesh);
     internal static bool TryGetDetail(Mesh native, int percent, out Mesh mesh) => TryGet(native, percent >= 100 ? 100 : percent >= 50 ? 50 : 0, out mesh);

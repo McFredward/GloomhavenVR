@@ -124,6 +124,15 @@ Focused qualification: `scripts/quest-figure-banks-tests.py` reads two licensed
 hero/enemy bundles, checks all four tiers and actual Android serialization, compares
 the real runtime key across NativeFormat import including read/write OFF, repairs
 an edited Unity asset and forbids exporter/compiler calls on a completed retry.
+The private Android project must enable `com.unity.modules.assetbundle` as well
+as JSON serialization. Without it, Unity 2021.3.5 can emit readable Mesh data but
+omit the native AssetBundle container; the Quest then reports a misleading newer
+runtime incompatibility. Compiler modules are pinned in the bank recipe. This
+module-only repair retains matching previous native exports and simplified meshes,
+then rebuilds only their Android containers. Finished bank sets are checked for an
+exact Android/Unity container-to-index mapping once; warm receipts stay cheap.
+The focused producer test also loads every part through Unity's native bundle
+loader. `--broken-container PATH` adds a known Mesh-only native-loader control.
 `scripts/quest-figure-content-tests.py` checks exact file/ZIP/hash installation,
 warm reuse, cancellation, targeted updates and index-last publication with causal
 controls. These checks do not establish whole-game generation time, Windows tool

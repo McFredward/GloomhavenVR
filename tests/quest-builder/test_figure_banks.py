@@ -34,6 +34,31 @@ class FigureBankTests(unittest.TestCase):
         self.assertFalse(any(name in json.dumps(first['recipe']) for name in ('update_driver.py', 'NetProtocol.cs', 'QuestGameBootstrap.cs')))
         self.assertEqual(first['recipe']['tiers'], [75, 45, 20, 5])
         self.assertEqual(first['recipe']['target'], 'Android')
+        self.assertEqual(first['recipe']['unityModules']['com.unity.modules.assetbundle'], '1.0.0')
+        self.assertNotEqual(first['producerKey'], first['geometryKey'])
+
+    def test_module_only_repair_reuses_exact_prior_geometry_without_bad_banks(self):
+        row = {'path': figures.SOURCE_ROOT + 'hero_example_assets_all.bundle', 'sha256': 'a' * 64, 'size': 44}
+        expected = figures.plan(ROOT, {'files': [row]})
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder); old = base / expected['geometryKey']; new = base / expected['producerKey']
+            recipe = {key: value for key, value in expected['recipe'].items() if key != 'unityModules'}
+            old.mkdir(); storage.write_json(old / 'completion.json', {'plan': {'recipe': recipe, 'sources': expected['sources'],
+                'producerKey': expected['geometryKey']}})
+            (old / 'derivatives').mkdir(); (old / 'extracted/native').mkdir(parents=True); (old / 'banks').mkdir()
+            (old / 'derivatives/figure-example.asset').write_bytes(b'exact immutable geometry')
+            storage.write_json(old / 'derivatives/source.json', {'producerKey': expected['geometryKey'], 'source': 'native'})
+            (old / 'extracted/native/source.mesh').write_bytes(b'exact native input')
+            (old / 'banks/broken.bundle').write_bytes(b'bad container')
+            figures._retain_previous_geometry(new, old, expected)
+            self.assertEqual((new / 'derivatives/figure-example.asset').read_bytes(), b'exact immutable geometry')
+            self.assertEqual(json.loads((new / 'derivatives/source.json').read_text())['producerKey'], expected['producerKey'])
+            self.assertEqual((new / 'extracted/native/source.mesh').read_bytes(), b'exact native input')
+            self.assertFalse((new / 'banks').exists())
+            # Different licensed originals cannot inherit another source's work.
+            altered = {**expected, 'sources': [{**row, 'sha256': 'b' * 64}]}
+            figures._retain_previous_geometry(base / 'wrong', old, altered)
+            self.assertFalse((base / 'wrong').exists())
 
     def test_only_original_flat_native_bundle_paths_are_admitted(self):
         for name in ('hero_x/../hero_example_assets_all.bundle', 'hero_x\\bad_assets_all.bundle'):

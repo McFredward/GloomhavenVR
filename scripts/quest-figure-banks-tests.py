@@ -22,7 +22,7 @@ from town_run_retention import cleanup_completed_run
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def worker(run):
+def worker(run, broken_container=None):
     sys.path.insert(0, str(ROOT / 'tools/quest-builder'))
     import builder
     import figure_banks
@@ -40,6 +40,7 @@ def worker(run):
             argv.append('-p:IdentityProbe=' + str(ROOT / 'tests/QuestFigureGenerator.Tests/IdentityProbe.cs'))
         if 'QuestFigureMeshGenerator.Build' in argv:
             argv[argv.index('QuestFigureMeshGenerator.Build')] = 'QuestFigureIdentityProbe.Build'
+            if broken_container: argv += ['-figureBrokenControl', str(broken_container)]
         return ordinary_command(argv, *a, **kw)
     builder.command = actual_identity_command
     started = time.monotonic()
@@ -48,9 +49,12 @@ def worker(run):
     assert {row['path'] for row in manifest['files']} >= {figure_banks.INDEX}
     assert manifest['target'] == 'Android'
     counts = {}
+    root_types = {}
     for row in manifest['files']:
         if row['path'] == figure_banks.INDEX: continue
         environment = UnityPy.load(str(cache / 'banks' / row['path']))
+        root_types[row['path']] = [obj.type.name for obj in environment.objects]
+        assert root_types[row['path']].count('AssetBundle') == 1, 'actual native AssetBundle registration required'
         for asset in environment.objects:
             if asset.type.name != 'Mesh': continue
             mesh = asset.read()
@@ -108,6 +112,8 @@ def worker(run):
     for row in manifest['files']:
         assert builder.digest(staging / 'Assets/StreamingAssets/QuestFigureMeshes' / row['path']) == row['sha256']
     result = {'scope': 'actual owned two-bundle extraction, Frame simplifiers, Unity Android AssetBundles; no headset FPS claim',
+              'nativeBundleContainers': root_types, 'nativeUnityLoadVerified': True,
+              'legacyNativeContainerRejected': bool(broken_container),
               'coldSeconds': cold, 'warmSeconds': warm, 'tiers': counts, 'manifest': manifest,
               'gameInputs': rows, 'producerKey': manifest['producerKey'], 'nativeAndroidKeys': expected_keys,
               'targetedProjectAssetRepair': True, 'wholeGameOrWindowsVerified': False}
@@ -116,8 +122,10 @@ def worker(run):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--worker', type=Path); args = parser.parse_args()
-    if args.worker: worker(args.worker); return
+    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--worker', type=Path)
+    parser.add_argument('--broken-container', type=Path, help='Known former Mesh-only Android file for a native loader negative control')
+    args = parser.parse_args()
+    if args.worker: worker(args.worker, args.broken_container); return
     ctypes.CDLL(None).prctl(36, 1, 0, 0, 0)
     base = ROOT / '.planning/debug/quest-figure-banks'; base.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=base)); log = run / 'runner.log'
@@ -135,7 +143,8 @@ def main():
     try:
         with log.open('w') as output:
             output.write('Quest figure bank evidence: ' + str(run) + '\n'); output.flush()
-            process = subprocess.Popen(['/home/claw/unitypy-venv/bin/python', __file__, '--worker', str(run)],
+            control = ['--broken-container', str(args.broken_container.resolve())] if args.broken_container else []
+            process = subprocess.Popen(['/home/claw/unitypy-venv/bin/python', __file__, '--worker', str(run), *control],
                 stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             code = process.wait(timeout=1800)
     finally:

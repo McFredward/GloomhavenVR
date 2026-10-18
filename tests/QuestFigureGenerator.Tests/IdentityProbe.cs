@@ -17,6 +17,32 @@ public static class QuestFigureIdentityProbe
         string Arg(string key) => args[Array.IndexOf(args, key) + 1];
         string input = Arg("-nativeMeshInput"), output = Arg("-nativeMeshOutput");
         QuestFigureMeshGenerator.Build(input, output, Arg("-figureProducerKey"));
+        if (Array.IndexOf(args, "-figureBrokenControl") >= 0)
+        {
+            AssetBundle broken = AssetBundle.LoadFromFile(Arg("-figureBrokenControl"));
+            if (broken != null)
+            { broken.Unload(true); throw new InvalidDataException("Native loader accepted the known missing-container defect"); }
+            Debug.Log("GHVRQ_FIGURES loader-control rejected missing native AssetBundle container");
+        }
+        // UnityPy reading Mesh bytes alone accepted B690's broken Android files:
+        // their AssetBundle native module was absent, so there was no container
+        // and the Quest player rejected them. Exercise Unity's actual bundle
+        // loader too, with the project's active Android target and exact editor.
+        foreach (string file in Directory.GetFiles(output, "*.bundle"))
+        {
+            AssetBundle bank = AssetBundle.LoadFromFile(file);
+            if (bank == null) throw new InvalidDataException("Android part rejected by native bundle loader: " + file);
+            try
+            {
+                Mesh[] meshes = bank.LoadAllAssets<Mesh>();
+                if (meshes.Length < 1 || bank.GetAllAssetNames().Length != meshes.Length)
+                    throw new InvalidDataException("Android part has incomplete native mesh registrations: " + file);
+                foreach (Mesh mesh in meshes)
+                    if (mesh.vertexCount < 3 || mesh.subMeshCount < 1 || mesh.bindposes.Length < 1)
+                        throw new InvalidDataException("Android bundle loader did not reconstruct a native Mesh");
+            }
+            finally { bank.Unload(true); }
+        }
         // NativeFormat recovery imports a serialized Mesh and its authored
         // read/write flag. Exercise that same native Unity importer, including
         // false, then the actual Android serializer. No ModelImporter guess.
