@@ -26,10 +26,13 @@ internal static class SteamLinkStreamQuality
         else VRLog.Info("Core", "Steam Link stream quality: " + message);
     });
 
-    internal static void Tick(bool enabled, int widthPixels, double nowSeconds)
+    internal static void Tick(bool enabled, int widthPixels, double nowSeconds, bool ordinaryCoverage = false)
     {
         SteamLinkCompositorMonitor.Tick(Requested(true));
-        State.Tick(Requested(enabled), NormalizeWidth(widthPixels), nowSeconds);
+        // This lease is solely the legacy RGB-atlas sampling workaround. The
+        // ordinary-RGBA bridge must restore its owned settings and retain the
+        // player's normal resolution/foveation controls without another lease.
+        State.Tick(!ordinaryCoverage && Requested(enabled), NormalizeWidth(widthPixels), nowSeconds);
     }
     internal static bool Requested(bool enabled) => enabled && VRSession.IsRunning && !FrameNativePassthrough.Required
             && SteamLinkConnection.Available && MixedReality.Enabled != null && MixedReality.Enabled.Value
@@ -43,6 +46,7 @@ internal static class SteamLinkStreamQuality
             && State.HostPrepared(width);
 
     internal static void Reset() { SteamLinkCompositorMonitor.Reset(); State.Reset(); }
+    internal static bool LegacyReleased => State.LegacyReleased;
     internal static bool ValidWidth(int value) => value >= 64 && value <= 16384 && value % 64 == 0;
     internal static int NormalizeWidth(int value)
     {
@@ -89,6 +93,14 @@ internal static class SteamLinkStreamQuality
         internal Phase Current { get { lock (_gate) return _phase; } }
         internal int Attempts { get { lock (_gate) return _attempts; } }
         internal Task Settled { get { lock (_gate) return _worker ?? Task.CompletedTask; } }
+        internal bool LegacyReleased
+        {
+            get
+            {
+                lock (_gate) return !_unsafe && !_wanted && _phase == Phase.Idle
+                    && (_worker == null || _worker.IsCompleted && !_worker.IsFaulted && !_worker.IsCanceled);
+            }
+        }
         internal bool HostPrepared(int width)
         {
             lock (_gate) return ValidWidth(width) && _wanted && !_unsafe && _width == width

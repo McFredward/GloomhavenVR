@@ -19,10 +19,10 @@ internal static class Program
     private static Camera Fresh()
     {
         SteamLinkSceneRuntime.Reset();VRLog.Warnings.Clear();SceneEyeOutput.Packed=0;
-        SceneEyeOutput.Next=SceneEyeResult.Rendered;Graphics.Ordinary=0;
+        SceneEyeOutput.Next=SceneEyeResult.Rendered;SceneEyeOutput.Ordinary=0;Graphics.Ordinary=0;
         MixedReality.Enabled.Value=true;MixedReality.SteamLinkNative.Value=true;
         SteamLinkConnection.Available=true;VRSession.IsRunning=true;
-        MixedReality.SteamLinkEdgeQuality.Value=true;SteamLinkStreamQuality.Prepared=true;
+        MixedReality.SteamLinkEdgeQuality.Value=true;SteamLinkStreamQuality.Prepared=true;SteamLinkStreamQuality.LegacyReleased=true;
         SteamLinkStreamQuality.Width=SteamLinkStreamQuality.Height=4040;
         UnityEngine.XR.XRSettings.eyeTextureWidth=UnityEngine.XR.XRSettings.eyeTextureHeight=4040;
         QualitySettings.activeColorSpace=ColorSpace.Gamma;
@@ -47,8 +47,48 @@ internal static class Program
         =>Invoke(output,"OnRenderImage",new RenderTexture(),new RenderTexture());
     private static void Render(SceneHeadOutput output,Camera head)
     { Invoke(output,"OnPreCull");Camera.Begin(head);Image(output);Camera.End(head); }
-    public static void Main()
+    private static SceneHeadOutput Prime(Camera head)
     {
+        Check(SteamLinkSceneRuntime.TryEnter(head),"fresh full-RGB/legacy source can prepare");
+        var output=Current!;
+        head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Left;Render(output,head);
+        head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(output,head);
+        Time.frameCount++;head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Left;
+        return output;
+    }
+    private static void OrdinaryBridge()
+    {
+        var head=Fresh();SteamLinkCoverageBridge.CanAcceptOrdinaryRgba=true;
+        SteamLinkStreamQuality.LegacyReleased=false;
+        Check(!SteamLinkSceneRuntime.TryEnter(head),"full RGBA waits for actual legacy settings restoration");
+        Check(head.gameObject.Components==0,"restoration wait records no source or atlas");
+        SteamLinkStreamQuality.LegacyReleased=true;var output=Prime(head);Render(output,head);
+        Check(output.OrdinaryRgba&&SceneEyeOutput.Ordinary==1&&SceneEyeOutput.Packed==0,"negotiated source uses ordinary RGBA without an atlas");
+        Check(!output.ReadyForProjection,"old atlas projection preview is not admitted for ordinary full-RGB source");
+        Check(UnityEngine.XR.XRSettings.eyeTextureWidth==4040&&UnityEngine.XR.XRSettings.eyeTextureHeight==4040,"native coverage never writes eye resolution");
+        head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(output,head);
+        Check(SceneEyeOutput.Ordinary==2&&SceneEyeOutput.Packed==0,"both explicit eyes preserve full RGB");
+        SteamLinkCoverageBridge.CanAcceptOrdinaryRgba=false;Invoke(output,"OnPreCull");Image(output);
+        Check(!output.Ready&&Graphics.Ordinary==3,"lost capability immediately keeps the ordinary RGB source");
+        Check(output.Failure==""&&VRLog.Warnings.Count==0,"capability loss does not poison the head");
+
+        head=Fresh();output=Prime(head);Render(output,head);
+        Check(SceneEyeOutput.Packed==1,"legacy requested path remains available");
+        SteamLinkCoverageBridge.CanAcceptOrdinaryRgba=true;
+        head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(output,head);
+        Check(SceneEyeOutput.Packed==2&&SceneEyeOutput.Ordinary==0,"mid-pair capability gain cannot change only the second eye");
+        Check(!SteamLinkSceneRuntime.TryEnter(head)&&!output.Ready,"cold route transition retires the old stereo epoch");
+        output=Prime(head);Render(output,head);
+        Check(output.OrdinaryRgba&&SceneEyeOutput.Ordinary==1,"next complete stereo epoch switches to full RGBA");
+        SteamLinkSceneRuntime.Reset();Check(!SteamLinkCoverageBridge.CanAcceptOrdinaryRgba,"session reset revokes live source permission");
+    }
+    public static void Main(string[] args)
+    {
+        if(Array.IndexOf(args,"--ordinary-only")>=0)
+        {
+            OrdinaryBridge();Console.WriteLine(checks+" ordinary source assertions passed");return;
+        }
+
         var pendingHead=Fresh();SteamLinkStreamQuality.Prepared=false;
         Check(!SteamLinkSceneRuntime.TryEnter(pendingHead),"Pending host lease must not prepare a source");
         Check(pendingHead.gameObject.Components==0&&!SteamLinkSceneRuntime.Active,"Pending host lease has no active source resources");

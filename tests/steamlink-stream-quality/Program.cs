@@ -169,8 +169,33 @@ internal static class Program
         off.Tick(false,4096,1);Check(!off.HostPrepared(4096),"Explicit off synchronously revokes source admission");
         await Until(()=>live.Releases==1,"Off case restoration starts");live.Finish();await off.Settled;
     }
+    private static async Task OrdinarySourceRelease()
+    {
+        Q.Reset();Q.Tick(true,4096,0,ordinaryCoverage:true);
+        var actual=(Q.Monitor)typeof(Q).GetField("State",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+        int attempts=(int)typeof(Q.Monitor).GetField("_attempts",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(actual)!;
+        Check(attempts==0&&Q.LegacyReleased,"ordinary RGBA does not acquire or force legacy stream settings");
+        var lease=new Lease();var gate=new Q.Monitor(_=>Task.FromResult<Q.ILease>(lease),(_,_)=>{});
+        Check(gate.LegacyReleased,"untouched legacy state is released");
+        gate.Tick(true,4096,0);Check(!gate.LegacyReleased,"acquisition immediately blocks ordinary source admission");
+        await Until(()=>gate.Current==Q.Phase.Active,"test legacy lease becomes active");
+        gate.Tick(false,4096,1);await Until(()=>lease.Releases==1,"switch to ordinary source requests exact legacy restoration");
+        Check(!gate.LegacyReleased,"ordinary source cannot start while restoration is pending");
+        lease.Finish();await gate.Settled;Check(gate.LegacyReleased,"ordinary source admitted only after actual restoration and exit");
+        var unsafeLease=new Lease();var unsafeGate=new Q.Monitor(_=>Task.FromResult<Q.ILease>(unsafeLease),(_,_)=>{});
+        unsafeGate.Tick(true,4096,0);await Until(()=>unsafeGate.Current==Q.Phase.Active,"unsafe fixture lease active");
+        unsafeGate.Tick(false,4096,1);await Until(()=>unsafeLease.Releases==1,"unsafe fixture restoration requested");
+        unsafeLease.Finish(false,true);await unsafeGate.Settled;
+        Check(!unsafeGate.LegacyReleased,"unconfirmed restoration never claims ordinary settings are restored");
+        unsafeGate.Reset();Check(!unsafeGate.LegacyReleased,"Reset cannot erase unresolved legacy ownership");
+    }
     public static async Task Main(string[] args)
     {
+        if(Array.IndexOf(args,"--ordinary-only")>=0)
+        {
+            await OrdinarySourceRelease();Console.WriteLine(checks+" ordinary settings assertions passed");return;
+        }
+
         Protocol();Gates();await StateMachine();await SourceAdmission();
         foreach(string path in args)foreach(string line in File.ReadAllLines(path))
         {

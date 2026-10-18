@@ -14,7 +14,7 @@ public sealed class OwnedSceneSink:MonoBehaviour
     internal SceneEyeOutput Output;
     public RenderTexture OriginalResolved;
     public Camera.MonoOrStereoscopicEye Label;
-    public bool Active=true,Menu,FrameValid=true;
+    public bool Active=true,Menu,FrameValid=true,OrdinaryRgba;
     public int Callbacks,SourceSamples,SourceWidth,SourceHeight;
     public bool SourceBindMS,Restored,SourceSrgb;
     public int SourceGraphicsFormat;
@@ -25,7 +25,7 @@ public sealed class OwnedSceneSink:MonoBehaviour
         SourceWidth=source.width;SourceHeight=source.height;SourceSrgb=source.sRGB;SourceGraphicsFormat=(int)source.graphicsFormat;
         Graphics.Blit(source,OriginalResolved); // Independent ordinary resolved source of THIS callback.
         RenderTexture active=RenderTexture.active;bool srgb=GL.sRGBWrite;
-        Last=Active&&!Menu&&FrameValid?Output.TryRender(source,destination,Label):SceneEyeResult.UnknownEye;
+        Last=Active&&!Menu&&FrameValid?(OrdinaryRgba?Output.TryRenderOrdinary(source,destination,Label):Output.TryRender(source,destination,Label)):SceneEyeResult.UnknownEye;
         Restored=RenderTexture.active==active&&GL.sRGBWrite==srgb;
         if(Last!=SceneEyeResult.Rendered)Graphics.Blit(source,destination);
     }
@@ -183,6 +183,46 @@ public static class SceneOutputFixture
         }
         finally{Object.DestroyImmediate(painter);foreach(RenderTexture target in owned)Release(target);}
     }
+    private static void OrdinaryRgba(SceneEyeOutput helper)
+    {
+        foreach(int size in new[]{256,4040})foreach(int samples in size==256?new[]{1,2,4,8}:new[]{1})
+        {
+            var descriptor=new RenderTextureDescriptor(size,size,RenderTextureFormat.ARGB32,24){msaaSamples=samples,sRGB=false};
+            if(SystemInfo.GetRenderTextureSupportedMSAASampleCount(descriptor)!=samples){result.unsupported_sample_counts++;continue;}
+            var target=Surface(size,size,samples);var original=Surface(size,size);
+            var cameraObject=new GameObject("Owned ordinary RGBA head callback");var camera=cameraObject.AddComponent<Camera>();
+            camera.enabled=false;camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.clear;
+            camera.orthographic=true;camera.orthographicSize=1;camera.nearClipPlane=.1f;camera.farClipPlane=10;
+            camera.transform.position=new Vector3(0,0,-1);camera.targetTexture=target;camera.allowHDR=false;camera.allowMSAA=true;camera.cullingMask=1<<30;
+            var sink=cameraObject.AddComponent<OwnedSceneSink>();sink.Output=helper;sink.OriginalResolved=original;sink.OrdinaryRgba=true;
+            var material=new Material(Get("SceneOutputOwned/Paint"));
+            var quad=GameObject.CreatePrimitive(PrimitiveType.Quad);quad.layer=30;quad.transform.localScale=new Vector3(2,2,1);quad.GetComponent<Renderer>().sharedMaterial=material;
+            try
+            {
+                foreach(var eye in new[]{Camera.MonoOrStereoscopicEye.Left,Camera.MonoOrStereoscopicEye.Right})
+                {
+                    sink.Label=eye;material.SetFloat("_Eye",eye==Camera.MonoOrStereoscopicEye.Left?0:1);
+                    material.SetFloat("_Phase",eye==Camera.MonoOrStereoscopicEye.Left?0:1);camera.Render();
+                    Check(sink.Last==SceneEyeResult.Rendered,"ordinary same-eye RGBA callback rendered");
+                    Check(sink.SourceWidth==size&&sink.SourceHeight==size,"ordinary source extent unchanged");
+                    Check(sink.Restored,"ordinary output restores graphics state");
+                    foreach(float x in new[]{.03f,.22f,.44f,.54f,.74f,.95f})foreach(float y in new[]{.1f,.45f,.81f})
+                    {
+                        Color expected=At(original,x,y),actual=At(target,x,y);
+                        Near(actual.r,expected.r,"ordinary full-frame R");Near(actual.g,expected.g,"ordinary full-frame G");Near(actual.b,expected.b,"ordinary full-frame B");Near(actual.a,expected.a,"same-source true A");
+                        result.edge_rgb_points++;result.mask_points++;
+                        if(expected.a==0&&expected.r>.15f){Check(actual.r>.15f,"ordinary emission survives at zero coverage");result.emission_points++;}
+                    }
+                    result.camera_cases++;result.actual_camera_callbacks=true;
+                    result.rows.Add(new Row{input_width=size,input_height=size,target_samples=samples,callback_samples=sink.SourceSamples,callbacks=sink.Callbacks,label=eye.ToString(),result=sink.Last.ToString()});
+                }
+            }
+            finally{Object.DestroyImmediate(quad);Object.DestroyImmediate(material);Object.DestroyImmediate(cameraObject);Release(target);Release(original);}
+        }
+        Check(result.emission_points>0,"ordinary full-resolution fixture contains positive emission at zero A");
+        Check(result.camera_cases>=4,"ordinary mode covers two explicit eyes and distinct source extents");
+    }
+
     public static IEnumerator Run(string evidence)
     {
         output=evidence;Stage("start current scene-eye fixture");result.unity=Application.unityVersion;
@@ -204,6 +244,10 @@ public static class SceneOutputFixture
         var outputHelper=new SceneEyeOutput(Get(SceneAtlasProfile.ShaderName));
         try
         {
+            if(result.mode=="ordinary-rgba")
+            {
+                OrdinaryRgba(outputHelper);result.passed=true;Save();yield break;
+            }
             if(result.mode=="eye-pair4040")
             {
                 Pair4040(outputHelper);result.passed=true;Save();yield break;

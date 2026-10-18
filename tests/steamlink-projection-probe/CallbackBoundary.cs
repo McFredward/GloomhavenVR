@@ -76,11 +76,14 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.Core.SteamLink
 {
     internal static class SteamLinkConnection { internal static bool Available=true; }
+    internal static class SteamLinkCoverageBridge
+    { internal static bool CanAcceptOrdinaryRgba=false;internal static void Reset(){CanAcceptOrdinaryRgba=false;} }
     // The actual lease state machine is compiled/executed by stream-quality.
     // This fixture supplies only its current metadata authority, never a timer
     // or a pretend actual-encoder acknowledgement.
     internal static class SteamLinkStreamQuality
     {
+        internal static bool LegacyReleased=true;
         internal static bool Prepared=true;
         internal static int Width=4040,Height=4040;
         internal static bool HostPrepared(bool enabled,int width,int height)
@@ -115,6 +118,8 @@ namespace GloomhavenVR.Core.SteamLink
         internal SceneEyeOutput(UnityEngine.Shader shader) { }
         internal SceneEyeResult TryRender(UnityEngine.RenderTexture source,UnityEngine.RenderTexture destination,UnityEngine.Camera.MonoOrStereoscopicEye eye)
         { Inputs.Add(source);if(Next==SceneEyeResult.Rendered)Packed++;return Next; }
+        internal SceneEyeResult TryRenderOrdinary(UnityEngine.RenderTexture source,UnityEngine.RenderTexture destination,UnityEngine.Camera.MonoOrStereoscopicEye eye)
+            => throw new InvalidOperationException("This legacy projection fixture does not negotiate the native coverage bridge.");
         public void Dispose() { }
     }
     internal sealed class SceneTransparentMaterials : IDisposable

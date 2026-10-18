@@ -625,6 +625,8 @@ internal static partial class MixedReality
     {
         Bind();
         SteamLink.SteamLinkConnectionLifecycle.Tick();
+        SteamLink.SteamLinkCoverageBridge.Tick(SteamLink.SteamLinkSceneRuntime.Requested
+            && Enabled.Value && VRSession.IsRunning && SteamLink.SteamLinkSceneRuntime.SourceProfileSupported, Time.unscaledTime);
         // Native MR must follow the allocation actually used by XR, never a
         // separate saved transport resolution. Reading dimensions does not write
         // EyeResolutionScale, the stable XR allocation, projection or viewport.
@@ -633,7 +635,7 @@ internal static partial class MixedReality
             SteamLink.SteamLinkResolutionPolicy.TryWidth(UnityEngine.XR.XRSettings.eyeTextureWidth,
                 UnityEngine.XR.XRSettings.eyeTextureHeight, out streamWidth);
         SteamLink.SteamLinkStreamQuality.Tick(SteamLinkEdgeQuality.Value,
-            streamWidth, Time.unscaledTime);
+            streamWidth, Time.unscaledTime, SteamLink.SteamLinkCoverageBridge.CanAcceptOrdinaryRgba);
 
         // ELEMENT MOOD IS TICKED HERE, not from SkyAlternative.Tick, because this is the only
         // per-frame call that runs on BOTH branches below. The user's requirement is that the
@@ -661,8 +663,7 @@ internal static partial class MixedReality
         // matching current-width lease exists; do not emit old-policy atlas
         // frames and then switch their sampling quality underneath the user.
         // This host boundary is not proof of native encoder acknowledgement.
-        bool streamHostPrepared = SteamLink.SteamLinkStreamQuality.HostPrepared(SteamLinkEdgeQuality.Value,
-            UnityEngine.XR.XRSettings.eyeTextureWidth, UnityEngine.XR.XRSettings.eyeTextureHeight);
+        bool streamHostPrepared = SteamLink.SteamLinkSceneRuntime.TransportPrepared();
         if (!native && stream && requested && streamHostPrepared)
         {
             Camera? streamHead = VRCameraPolicy.AllowedHead;

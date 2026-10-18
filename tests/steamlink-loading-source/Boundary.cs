@@ -61,10 +61,15 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.Core.SteamLink
 {
     internal static class SteamLinkConnection { internal static bool Available = true; }
+    internal static class SteamLinkCoverageBridge
+    {
+        internal static bool CanAcceptOrdinaryRgba=false;
+        internal static void Reset() { CanAcceptOrdinaryRgba=false; }
+    }
     // External host metadata only. The actual lease/epoch authority executes in
     // steamlink-stream-quality; this GPU fixture does not claim encoder readiness.
     internal static class SteamLinkStreamQuality
-    { internal static bool HostPrepared(bool enabled, int width, int height) => true; }
+    { internal static bool LegacyReleased=true; internal static bool HostPrepared(bool enabled, int width, int height) => true; }
     internal static class ScenePayloadAssets
     {
         private static AssetBundle? bank;

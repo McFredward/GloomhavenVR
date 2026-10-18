@@ -59,3 +59,9 @@ Every input is source-pinned and each terminated child is reaped before shared
 cleanup. Bounded source/result/failure artifacts remain; only exact disposable
 test caches may be deleted. Passing scope is recorded per case and targeted
 repair; failed aggregates are preserved and never relabeled complete passes.
+
+`--gpu-mode ordinary-rgba --color-space Gamma` checks the negotiated full-RGB
+source helper instead of the atlas. It executes actual camera callbacks for both
+explicit eyes at256/4040 and supported1/2/4/8 MSAA, comparing full-frame RGB/A
+against an independent ordinary resolve, including positive RGB at A0. No codec,
+XR submission or headset outcome is claimed by this GPU mode.

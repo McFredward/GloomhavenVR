@@ -47,6 +47,20 @@ namespace GloomhavenVR.Core.SteamLink
         // exactly once when the result is not Rendered. Never reuse an old atlas.
         public SceneEyeResult TryRender(RenderTexture source, RenderTexture? destination,
                                          Camera.MonoOrStereoscopicEye eye)
+            => Render(source, destination, eye, false);
+
+        // The full-RGB bridge consumes coverage from this very RGBA texture in
+        // the native DirectMode composition path. Do not pack a header, resize,
+        // multiply RGB by A, threshold alpha or create a second render. The
+        // ordinary Unity blit also performs the usual automatic MSAA resolve.
+        // A null destination is Unity's current XR target, not a resource ID;
+        // native submission/encoder association belongs to the native provider.
+        public SceneEyeResult TryRenderOrdinary(RenderTexture source, RenderTexture? destination,
+                                                 Camera.MonoOrStereoscopicEye eye)
+            => Render(source, destination, eye, true);
+
+        private SceneEyeResult Render(RenderTexture source, RenderTexture? destination,
+                                      Camera.MonoOrStereoscopicEye eye, bool ordinaryRgba)
         {
             if (_disposed) return SceneEyeResult.Disposed;
             if (_material == null) return SceneEyeResult.ShaderUnavailable;
@@ -67,6 +81,8 @@ namespace GloomhavenVR.Core.SteamLink
                 if (source == destination) return SceneEyeResult.SourceDestinationAlias;
                 if (!destination.IsCreated()) return SceneEyeResult.DestinationUnavailable;
                 if (!Shape(destination)) return SceneEyeResult.DestinationShape;
+                if (ordinaryRgba && (destination.width != source.width || destination.height != source.height))
+                    return SceneEyeResult.DestinationShape;
                 if (!Format(destination.graphicsFormat)) return SceneEyeResult.DestinationFormat;
                 if (destination.sRGB) return SceneEyeResult.DestinationSrgb;
                 if (destination.useDynamicScale) return SceneEyeResult.DestinationDynamicScale;
@@ -83,7 +99,8 @@ namespace GloomhavenVR.Core.SteamLink
                 // resolved source RGB/A. Unity auto-resolves ordinary bindMS=false
                 // MSAA sources, just as the original Graphics.Blit path does.
                 GL.sRGBWrite = false;
-                Graphics.Blit(source, destination, _material, 0);
+                if (ordinaryRgba) Graphics.Blit(source, destination);
+                else Graphics.Blit(source, destination, _material, 0);
                 return SceneEyeResult.Rendered;
             }
             catch (Exception) { return SceneEyeResult.BlitFailed; }

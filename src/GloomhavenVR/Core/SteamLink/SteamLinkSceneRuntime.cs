@@ -21,6 +21,7 @@ internal static class SteamLinkSceneRuntime
     internal static bool ProjectionProbeSourceReady => _output != null && _output.ReadyForProjection
         && _output.Head.isActiveAndEnabled && StereoReady(_output.Head)
         && Owns(_output, _output.Head, _epoch);
+    internal static bool SourceProfileSupported => Supported(out _);
     internal static bool Requested => MixedReality.SteamLinkNative != null
         && MixedReality.SteamLinkNative.Value && !FrameNativePassthrough.Required
         && SteamLinkConnection.Available;
@@ -42,6 +43,14 @@ internal static class SteamLinkSceneRuntime
         }
         if (_output != null && _output.Head == head)
         {
+            if (_output.OrdinaryRgba != SteamLinkCoverageBridge.CanAcceptOrdinaryRgba)
+            {
+                // Route transitions start a fresh complete stereo epoch. A
+                // background capability reply must not repack only the second
+                // eye of an already-rendering frame.
+                Exit();
+                return false;
+            }
             _output.TickCold();
             if (_output.Ready) return true;
             if (!string.IsNullOrEmpty(_output.Failure))
@@ -66,14 +75,14 @@ internal static class SteamLinkSceneRuntime
             // size, MSAA or native camera target is changed here.
             MrNativeCamera.Apply(head);
             _output = head.gameObject.AddComponent<SceneHeadOutput>();
-            if (!_output.Prepare(head, ++_epoch, pack, coverage))
+            if (!_output.Prepare(head, ++_epoch, pack, coverage, SteamLinkCoverageBridge.CanAcceptOrdinaryRgba))
             {
                 Refuse(head, _output.Failure);
                 return false;
             }
             _reportedReason = null;
             VRLog.Info("Core", "Steam Link native MR source prepared: "
-                + (pack.name == SceneAtlasProfile.RobustShaderName ? SceneAtlasProfile.RobustProfile
+                + (_output.OrdinaryRgba ? "ordinary-rgba-coverage-v1" : pack.name == SceneAtlasProfile.RobustShaderName ? SceneAtlasProfile.RobustProfile
                     : pack.name == SceneAtlasProfile.FullShaderName ? SceneAtlasProfile.FullProfile : SceneAtlasProfile.Profile) + "; "
                 + "same-eye image and coverage, MultiPass SDR. The matching Frame receiver is required.");
             return true;
@@ -109,6 +118,7 @@ internal static class SteamLinkSceneRuntime
 
     internal static void Reset()
     {
+        SteamLinkCoverageBridge.Reset();
         SteamLinkProjectionProbe.Stop();
         Exit();
         _failedHead = null;
@@ -136,8 +146,16 @@ internal static class SteamLinkSceneRuntime
     // seam: a setting/width change or helper completion can race the cold Tick.
     // Edge-quality opt-out preserves the original native-source behavior.
     internal static bool TransportPrepared() => TransportPrepared(XRSettings.eyeTextureWidth, XRSettings.eyeTextureHeight);
-    internal static bool TransportPrepared(int width, int height) => SteamLinkStreamQuality.HostPrepared(
-        MixedReality.SteamLinkEdgeQuality != null && MixedReality.SteamLinkEdgeQuality.Value, width, height);
+    internal static bool TransportPrepared(int width, int height)
+    {
+        // Keep the established output's route fixed across its current pair.
+        // A capability gain is consumed only by the cold owner above; a loss
+        // immediately leaves ordinary RGB, never a stale remote mask.
+        bool ordinary = _output != null ? _output.OrdinaryRgba : SteamLinkCoverageBridge.CanAcceptOrdinaryRgba;
+        return ordinary ? SteamLinkCoverageBridge.CanAcceptOrdinaryRgba && SteamLinkStreamQuality.LegacyReleased
+            : SteamLinkStreamQuality.HostPrepared(
+                MixedReality.SteamLinkEdgeQuality != null && MixedReality.SteamLinkEdgeQuality.Value, width, height);
+    }
 
     // A running VR session does not certify a camera's current XR attachment.
     // Startup/load teardown can temporarily render that same head as mono or
@@ -156,7 +174,8 @@ internal sealed class SceneHeadOutput : MonoBehaviour
     internal Camera Head { get; private set; } = null!;
     internal bool Ready => !_closed && _coverage != null && _coverage.Ready
         && _pack != null && _materials != null && _materials.Ready;
-    internal bool ReadyForProjection => Ready && _cohortReady && _pack!.Profile == SceneAtlasProfile.RobustProfile;
+    internal bool ReadyForProjection => Ready && !OrdinaryRgba && _cohortReady && _pack!.Profile == SceneAtlasProfile.RobustProfile;
+    internal bool OrdinaryRgba { get; private set; }
     internal string Failure { get; private set; } = "Scene source has not been prepared.";
     private SceneEyeCoverage? _coverage;
     private SceneEyeOutput? _pack;
@@ -170,9 +189,9 @@ internal sealed class SceneHeadOutput : MonoBehaviour
     private int _cohortFrame = -1, _cohortEyes;
     private bool _cohortReady;
 
-    internal bool Prepare(Camera head, ulong epoch, Shader pack, Shader coverage)
+    internal bool Prepare(Camera head, ulong epoch, Shader pack, Shader coverage, bool ordinaryRgba = false)
     {
-        Head = head; _epoch = epoch;
+        Head = head; _epoch = epoch; OrdinaryRgba = ordinaryRgba;
         _target = head.targetTexture;
         _pack = new SceneEyeOutput(pack);
         _coverage = new SceneEyeCoverage(coverage);
@@ -265,7 +284,9 @@ internal sealed class SceneHeadOutput : MonoBehaviour
             }
             try
             {
-                SceneEyeResult result = _pack!.TryRender(source, destination, eye);
+                SceneEyeResult result = OrdinaryRgba
+                    ? _pack!.TryRenderOrdinary(source, destination, eye)
+                    : _pack!.TryRender(source, destination, eye);
                 packed = result == SceneEyeResult.Rendered;
                 if (!packed) Failure = result.ToString();
                 else if (VRLog.WantsDebug)
@@ -278,7 +299,7 @@ internal sealed class SceneHeadOutput : MonoBehaviour
                             + " source=" + source.width + "x" + source.height + " format=" + source.graphicsFormat
                             + " samples=" + source.antiAliasing + " carrier="
                             + (destination == null ? "XR target" : destination.width + "x" + destination.height)
-                            + "; " + _pack!.Profile + ".");
+                            + "; " + (OrdinaryRgba ? "ordinary-rgba-coverage-v1; native provider owns texture/AU association" : _pack!.Profile) + ".");
                     }
                 }
             }

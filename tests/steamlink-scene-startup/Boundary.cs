@@ -76,11 +76,17 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.Core.SteamLink
 {
     internal static class SteamLinkConnection { internal static bool Available=true; }
+    internal static class SteamLinkCoverageBridge
+    {
+        internal static bool CanAcceptOrdinaryRgba=false;
+        internal static void Reset() { CanAcceptOrdinaryRgba=false; }
+    }
     // The actual lease state machine is compiled/executed by stream-quality.
     // This fixture supplies only its current metadata authority, never a timer
     // or a pretend actual-encoder acknowledgement.
     internal static class SteamLinkStreamQuality
     {
+        internal static bool LegacyReleased=true;
         internal static bool Prepared=true;
         internal static int Width=4040,Height=4040;
         internal static bool HostPrepared(bool enabled,int width,int height)
@@ -108,12 +114,14 @@ namespace GloomhavenVR.Core.SteamLink
     internal enum SceneEyeResult { Rendered,UnknownEye,SourceFormat }
     internal sealed class SceneEyeOutput : IDisposable
     {
-        internal static int Packed;
+        internal static int Packed,Ordinary;
         internal static SceneEyeResult Next=SceneEyeResult.Rendered;
         internal string Profile=>"v3";
         internal SceneEyeOutput(UnityEngine.Shader shader) { }
         internal SceneEyeResult TryRender(UnityEngine.RenderTexture source,UnityEngine.RenderTexture destination,UnityEngine.Camera.MonoOrStereoscopicEye eye)
         { if(Next==SceneEyeResult.Rendered)Packed++;return Next; }
+        internal SceneEyeResult TryRenderOrdinary(UnityEngine.RenderTexture source,UnityEngine.RenderTexture destination,UnityEngine.Camera.MonoOrStereoscopicEye eye)
+        { if(Next==SceneEyeResult.Rendered)Ordinary++;return Next; }
         public void Dispose() { }
     }
     internal sealed class SceneTransparentMaterials : IDisposable
