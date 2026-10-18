@@ -10,9 +10,11 @@ from pathlib import Path
 import shutil
 import subprocess
 import signal
+import struct
 import time
 import sys
 import tempfile
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -76,7 +78,7 @@ def main():
     log.write_text('Quest artwork evidence: ' + str(run) + '\n')
     print(log.read_text(), end='', flush=True)
     sources = {}
-    for relative in ('Cards/Art/CardFaceMipBake.cs', 'Core/QuestTextureCopy.cs', 'Cards/Art/QuestArtworkEvidence.cs', 'Cards/Art/QuestArtworkRegion.cs'):
+    for relative in ('Cards/Art/CardFaceMipBake.cs', 'Core/QuestTextureCopy.cs', 'Cards/Art/QuestArtworkEvidence.cs', 'Cards/Art/QuestArtworkRegion.cs', 'Cards/Art/QuestCardAlpha.cs', 'Cards/Art/CardContour.cs'):
         path = ROOT / 'src/GloomhavenVR' / relative
         sources[path.name] = path.read_text()
     panel = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelMipBake.cs').read_text()
@@ -104,7 +106,7 @@ internal static object State() => new SilhouetteState { GaveUpLogged = false };
 internal static void Capture(RectTransform root, object state) => TryCapture(root, CardBodyKind.Ability, (SilhouetteState)state);
 internal static int Attempts(object state) => ((SilhouetteState)state).Attempts;
 internal static string? Reason(object state) => ((SilhouetteState)state).LastReason;
-''' + constants + method(face, '    private sealed class SilhouetteState') + method(face, '    private static void Reject(') + method(face, '    private static void TryCapture(') + method(face, '    private static Rect DrawnLocalRect(') + method(face, '    private static bool IsFullyOpaque(') + method(face, '    private static Texture2D? ReadSpriteRegion(') + '\n}\n'
+''' + constants + method(face, '    private sealed class SilhouetteState') + method(face, '    private static void Reject(') + method(face, '    private static void TryCapture(') + method(face, '    private static bool DominatesUnknown(') + method(face, '    private static Rect DrawnLocalRect(') + method(face, '    private static bool IsFullyOpaque(') + method(face, '    private static Texture2D? ReadSpriteRegion(') + '\n}\n'
     variants = [
         ('production', '', '', '', ''),
         ('copy-source-missing', 'QuestTextureCopy.cs', 'Graphics.Blit(source, target, _material, 0);', 'Graphics.Blit(Texture2D.whiteTexture, target, _material, 0);', 'owned copy preserves repeated source/crop RGBA despite ambient camera and viewport'),
@@ -125,9 +127,13 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         ('game-conditional-erases-pixels', 'QuestArtworkEvidence.cs', 'UnityEngine.Debug.Log(message);', 'Debug.Log(message);', 'Actual retained native header emits one bounded source record' if args.native_header_project else 'scenario census reaches actual native header without adoption callback'),
         ('game-conditional-erases-state', 'QuestArtworkEvidence.cs', '=> UnityEngine.Debug.Log("[Quest startup] artwork" + detail', '=> Debug.Log("[Quest startup] artwork" + detail', 'scenario callback reports missing native sources without an adoption callback'),
         ('parked-template-hides-live-source', 'QuestArtworkEvidence.cs', '(face.gameObject.activeInHierarchy ? 16 : 0)', '(face.gameObject.activeInHierarchy ? 0 : 16)', 'scenario census reaches actual native header without adoption callback'),
-        ('silhouette-gpu-only-trusted', 'QuestArtworkRegion.cs', 'if (QuestStandalonePlatform.Enabled)\n        {\n            if (source is not Texture2D image || !image.isReadable) return null;', 'if (QuestStandalonePlatform.Enabled && source is Texture2D readable && readable.isReadable)\n        {\n            if (source is not Texture2D image || !image.isReadable) return null;', 'actual contour caller never writes a mask from GPU-only original alpha'),
-        ('silhouette-partial-union-trusted', 'ActualSilhouette.cs', '"Quest original outline alpha is not CPU-readable; retaining the complete card body");\n                    return;', '"Quest original outline alpha is not CPU-readable; retaining the complete card body");\n                    continue;', 'actual contour caller never writes a mask from GPU-only original alpha'),
+        ('silhouette-gpu-only-trusted', 'QuestArtworkRegion.cs', 'if (QuestStandalonePlatform.Enabled)\n        {\n            if (source is not Texture2D image || !image.isReadable)', 'if (QuestStandalonePlatform.Enabled && source is Texture2D readable && readable.isReadable)\n        {\n            if (source is not Texture2D image || !image.isReadable)', 'actual contour caller never writes a mask from GPU-only original alpha'),
+        ('silhouette-partial-union-trusted', 'ActualSilhouette.cs', 'if (DominatesUnknown(alpha, fw, fh, img, norm, sprite, crop))', 'if (alpha.Length > 0)', 'actual contour caller never writes a mask from GPU-only original alpha'),
         ('silhouette-crop-lost', 'QuestArtworkRegion.cs', 'System.Array.Copy(original, (y + row) * image.width + x, slice, row * width, width);', 'System.Array.Copy(original, (y + row) * image.width, slice, row * width, width);', 'silhouette crop preserves exact native alpha'),
+        ('owned-alpha-crop-lost', 'QuestCardAlpha.cs', 'alpha[(y + row) * entry.Width + x + column]', 'alpha[row * entry.Width + column]', 'owned alpha crops exact original mip-zero bytes without a GPU readback'),
+        ('owned-alpha-dimensions-ignored', 'QuestCardAlpha.cs', '|| entry.Width != source.width || entry.Height != source.height)', ')', 'owned alpha refuses mismatched native dimensions instead of guessing a resized contour'),
+        ('owned-alpha-unavailable', 'QuestArtworkRegion.cs', 'return QuestCardAlpha.Read(source, x, y, width, height);', 'return null;', 'owned CPU alpha is available for a GPU-only native texture'),
+        ('owned-alpha-interior-unconditionally-refused', 'ActualSilhouette.cs', 'if (DominatesUnknown(alpha, fw, fh, img, norm, sprite, crop))', 'if (alpha.Length < 0)', 'known native alpha proves an unreadable interior cannot change the ordinary union'),
     ]
     if args.case:
         variants = [row for row in variants if row[0] in args.case]
@@ -189,6 +195,18 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
                 shutil.copyfile(src, dst)
                 if src.with_name(src.name + '.meta').is_file(): shutil.copyfile(src.with_name(src.name + '.meta'), dst.with_name(dst.name + '.meta'))
                 owned_inputs.append({'source': str(src), 'sha256': hashlib.sha256(src.read_bytes()).hexdigest(), 'fixturePath': destination})
+            # The original PNG is a read-only local hardware input, never a
+            # tracked/distributed test asset. Its exact bottom-up CPU alpha also
+            # qualifies the actual native Sprite/crop through the new sidecar.
+            from PIL import Image
+            with Image.open(retained / 'Assets/QuestRecoveredBundles/019ed361c43574148b95d6abd6457479/AC_Brute_Background.png') as image:
+                alpha = image.convert('RGBA').getchannel('A').transpose(Image.Transpose.FLIP_TOP_BOTTOM).tobytes()
+                width, height = image.size
+            codec = zlib.compressobj(wbits=-15)
+            compressed = codec.compress(alpha) + codec.flush()
+            name = b'NativeHeaderTexture'
+            payload = b'GHVA1' + struct.pack('<ii', 1, len(name)) + name + struct.pack('<iii', width, height, len(compressed)) + compressed
+            (project / 'Assets/Resources/NativeCardAlpha.bytes').write_bytes(payload)
             (run / 'owned-inputs.json').write_text(json.dumps(owned_inputs, indent=2) + '\n')
         (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')

@@ -83,6 +83,7 @@ public static partial class DiagnosticProgram
         QualifyReadableCopies();
         QualifyReadableColorSpace();
         QualifyContourRefusal();
+        QualifyOwnedAlpha();
         QualifyPanelCopies();
         QualifyNativeHeader();
         QualifyNativePortraits();

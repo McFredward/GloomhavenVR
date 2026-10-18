@@ -27,7 +27,7 @@ public static class Singleton<T> where T : class
 }
 namespace GloomhavenVR.Core
 {
-    internal static class QuestStandalonePlatform { internal static bool Enabled; }
+    internal static class QuestStandalonePlatform { internal static bool Enabled; internal static string ResourceDirectory = ""; }
     internal static class VRLog
     {
         internal static bool WantsDebug;

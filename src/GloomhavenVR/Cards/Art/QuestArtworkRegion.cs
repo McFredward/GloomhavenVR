@@ -15,11 +15,12 @@ internal static class QuestArtworkRegion
     {
         // A corrupted GPU alpha copy is more than a filtering defect: CardMesh
         // permanently cuts its physical body from these values. Only trust the
-        // native readable mip-zero data on Quest. Refusal keeps the existing full
-        // rounded body; never invent an opaque mask or cache a guessed contour.
+        // native readable mip-zero data or the builder's exact original CPU alpha
+        // on Quest. Neither path samples an XR framebuffer or invents a mask.
         if (QuestStandalonePlatform.Enabled)
         {
-            if (source is not Texture2D image || !image.isReadable) return null;
+            if (source is not Texture2D image || !image.isReadable)
+                return QuestCardAlpha.Read(source, x, y, width, height);
             if (x < 0 || y < 0 || width < 1 || height < 1 || x + width > image.width || y + height > image.height) return null;
             Color32[] original;
             try { original = image.GetPixels32(0); }
