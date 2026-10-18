@@ -137,6 +137,13 @@ namespace GloomhavenVR.Quest
         public string Phase, File;
         public long ProcessedBytes, TotalBytes, OverallProcessedBytes, OverallTotalBytes;
         public int FileIndex, FileCount;
+        public QuestGameContentProgress(string phase, string file, long processed, long total,
+            long overallProcessed, long overallTotal, int fileIndex, int fileCount)
+        {
+            Phase = phase; File = file; ProcessedBytes = processed; TotalBytes = total;
+            OverallProcessedBytes = overallProcessed; OverallTotalBytes = overallTotal;
+            FileIndex = fileIndex; FileCount = fileCount;
+        }
     }
     public class QuestGameContentDeliveryResult
     {
