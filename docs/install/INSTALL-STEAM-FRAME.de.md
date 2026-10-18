@@ -175,11 +175,15 @@ Bei aktiver 3D-Karte kannst du **Immersive Stadt-NPCs** unter **VR Optionen → 
 
 ## Mixed Reality
 
-Wähle **Mixed Reality** unter **VR Optionen → Grafik**, um den Tisch in deinem Zimmer
-darzustellen. Standalone nutzt das native Passthrough der Frame, wenn die aktive Laufzeit
-es unterstützt. Ist die Auswahl grau, zeigt dir das Drüberzeigen den Grund. Aktualisiere
+Wähle **Mixed Reality** unter **VR-Optionen → Umgebung → Schauplatz**, um den Tisch
+in deinem Zimmer darzustellen. Standalone nutzt ohne zusätzlichen Patch das native
+Passthrough der Frame, wenn die aktive Laufzeit es unterstützt. Ist die Auswahl grau, zeigt dir das Drüberzeigen den Grund. Aktualisiere
 **SteamVR** und die **für Gloomhaven ausgewählte Proton-Version**, starte das Spiel
 erneut und prüfe die Auswahl noch einmal.
+
+Beim **PC-Streaming über Steam Link** wird dagegen der separate
+[Steam-Link-Passthrough-Patch](https://github.com/McFredward/steam-link-native-passthrough#readme) benötigt.
+Das ist eine andere Einrichtung als die Standalone-Installation in dieser Anleitung.
 
 ## Updates
 

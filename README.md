@@ -41,6 +41,10 @@
   <a href="docs/PLAYING.md">Playing &amp; controls</a>
 </p>
 
+> **Native mixed reality on Steam Frame:** built in for standalone; PC streaming
+> through Steam Link needs the [separate passthrough companion](https://github.com/McFredward/steam-link-native-passthrough#readme).
+> It uses real transparency, not colour replacement. [Setup and limits](https://github.com/McFredward/steam-link-native-passthrough/blob/dev/docs/COMPATIBILITY.md).
+
 > **Recommended: play the first tutorial.** It explains the gameplay basics and many VR-specific controls and interactions.
 
 <p align="center">
@@ -135,14 +139,15 @@ something else if you stand around long enough.
 
 There is one setting for this, with five options. Same table, same scenario in all of them. The two
 rooms above are the ones built for the mod. The other three are the game's own sky, no sky at all,
-and mixed reality. Choose **Mixed Reality** under **VR Options → World & sound** to put the
+and mixed reality. Choose **Mixed Reality** under **VR Options → World → Scenery** to put the
 table in your room.
 
-- **Steam Frame standalone:** native passthrough is built in. If unavailable, hover over the option
-  for guidance on updating SteamVR and the game's Proton version.
-- **Steam Frame over Steam Link:** native passthrough combines the game with your room without
-  replacing a colour. First [install Steam Link Native Passthrough on the Frame](https://github.com/McFredward/steam-link-native-passthrough/blob/main/docs/INSTALL.md),
-  then enable **Steam Link native passthrough** below the environment choices.
+- **Steam Frame standalone:** native passthrough is built in and needs no additional patch.
+  If unavailable, hover over the option for guidance on updating SteamVR and the game's Proton version.
+- **Steam Frame over Steam Link:** first install [Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#readme),
+  then enable **Steam Link native passthrough** below the environment choices. The confirmed
+  Frame-only patch can reduce sharpness; a separate PC/Frame preview aims to avoid that tradeoff,
+  but has not yet been confirmed in a combined headset test. Check its supported SteamVR version.
 - **Virtual Desktop:** use its passthrough colour replacement with the mod's green background.
 
 <p align="center">
@@ -186,7 +191,7 @@ or enchantress show who is using their hand; removing the card frees that NPC ag
 
 Immersive town NPCs default to on for PCVR and off for new Steam Frame standalone profiles.
 Saved choices are kept. To use the original windows, switch them off under
-**VR Options ▸ World & sound ▸ Campaign map**. This setting is hidden when the original 2D map is on.
+**VR Options ▸ World ▸ Campaign map**. This setting is hidden when the original 2D map is on.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -217,7 +222,7 @@ standalone · two tracked controllers · room-scale. It was developed on a Quest
 [→ Install](docs/install/INSTALL.md) · <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Install on Steam Frame</a> · [→ Playing & controls](docs/PLAYING.md)
 
 For native mixed reality when streaming from a PC to Steam Frame, follow the separate
-[Steam Link passthrough setup](https://github.com/McFredward/steam-link-native-passthrough/blob/main/docs/INSTALL.md)
+[Steam Link passthrough setup](https://github.com/McFredward/steam-link-native-passthrough#readme)
 and check its supported SteamVR version. This patch is not needed for standalone play.
 
 On Steam Frame, setup adds a second library entry: launch **GloomhavenVR** for VR.

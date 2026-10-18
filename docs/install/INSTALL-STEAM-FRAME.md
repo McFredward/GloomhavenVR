@@ -164,10 +164,15 @@ You can change **Immersive town NPCs** under **VR Options → World → Campaign
 
 ## Mixed reality
 
-Choose **Mixed reality** under **VR Options → Graphics** to place the table in your
-room. Standalone uses the Frame's native passthrough when the active runtime supports it.
+Choose **Mixed Reality** under **VR Options → World → Scenery** to place the table in your
+room. Standalone uses the Frame's native passthrough without an additional patch
+when the active runtime supports it.
 If the choice is grey, hover over it for the explanation. Update **SteamVR** and the
 **Proton version selected for Gloomhaven**, then restart the game and check again.
+
+**PC streaming through Steam Link** instead needs the separate
+[Steam Link passthrough companion](https://github.com/McFredward/steam-link-native-passthrough#readme).
+That is a different setup from the standalone installation covered here.
 
 ## Updating
 

@@ -41,6 +41,10 @@
   <a href="docs/PLAYING.de.md">Spielablauf &amp; Steuerung</a>
 </p>
 
+> **Native Mixed Reality auf Steam Frame:** Standalone ist sie integriert; beim PC-Streaming
+> über Steam Link brauchst du den [separaten Passthrough-Patch](https://github.com/McFredward/steam-link-native-passthrough#readme).
+> Er nutzt echte Transparenz statt Farbersetzung. [Einrichtung und Grenzen](https://github.com/McFredward/steam-link-native-passthrough/blob/dev/docs/COMPATIBILITY.md).
+
 > **Empfehlung: Spiele zuerst das erste Tutorial.** Es erklärt die Spielgrundlagen und viele Besonderheiten der VR-Bedienung.
 
 <p align="center">
@@ -138,13 +142,15 @@ bleibt, bemerkt vielleicht noch etwas anderes.
 Dafür gibt es eine Einstellung mit fünf Möglichkeiten. Derselbe Tisch, dasselbe Szenario in allen.
 Die beiden Räume oben sind die, die für die Mod gebaut wurden. Die anderen drei sind der Himmel des
 Spiels, gar kein Himmel und Mixed Reality. Wähle **Mixed Reality** unter
-**VR-Optionen → Umgebung & Ton**, um den Tisch in dein Zimmer zu stellen.
+**VR-Optionen → Umgebung → Schauplatz**, um den Tisch in dein Zimmer zu stellen.
 
-- **Steam Frame standalone:** Natives Passthrough ist integriert. Ist die Option nicht verfügbar,
-  zeigt der Mouseover-Hinweis, ob SteamVR oder die Proton-Version des Spiels aktualisiert werden muss.
-- **Steam Frame über Steam Link:** Natives Passthrough verbindet das Spiel mit deinem Zimmer,
-  ohne eine Farbe zu ersetzen. [Installiere zuerst Steam Link Native Passthrough auf der Frame](https://github.com/McFredward/steam-link-native-passthrough/blob/main/docs/INSTALL.md)
-  und aktiviere danach **Steam Link: natives Passthrough** unter der Umgebungsauswahl.
+- **Steam Frame standalone:** Natives Passthrough ist integriert und benötigt keinen zusätzlichen
+  Patch. Ist die Option grau, zeigt der Hinweis beim Drüberzeigen, ob SteamVR oder die Proton-Version
+  des Spiels aktualisiert werden muss.
+- **Steam Frame über Steam Link:** Installiere zuerst [Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#readme),
+  dann aktiviere **Steam Link: natives Passthrough** unter der Umgebungsauswahl. Der bestätigte
+  Frame-Patch kann Bildschärfe kosten; die separate PC/Frame-Vorschau soll das vermeiden, ist aber
+  noch nicht im gemeinsamen Brillentest bestätigt. Beachte die dort unterstützte SteamVR-Version.
 - **Virtual Desktop:** Nutze dessen Passthrough-Funktion, die den grünen Hintergrund der Mod ersetzt.
 
 <p align="center">
@@ -189,7 +195,7 @@ der Verzauberin zeigen, wer ihre Hand gerade nutzt; ohne die Karte ist der NPC w
 
 Die immersiven Stadt-NPCs sind bei PCVR standardmäßig aktiv, bei neuen Steam-Frame-Standalone-Profilen
 ausgeschaltet. Gespeicherte Einstellungen bleiben erhalten. Für die ursprünglichen Fenster schalte sie unter
-**VR Optionen ▸ Umgebung & Ton ▸ Kampagnenkarte** aus. Bei aktiver 2D-Karte ist diese Einstellung ausgeblendet.
+**VR-Optionen ▸ Umgebung ▸ Kampagnenkarte** aus. Bei aktiver 2D-Karte ist diese Einstellung ausgeblendet.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -221,7 +227,7 @@ standalone · zwei getrackte Controller · Room-Scale. Entwickelt wurde die Mod 
 [→ Installation](docs/install/INSTALL.de.md) · <a href="docs/install/INSTALL-STEAM-FRAME.de.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Installation auf Steam Frame</a> · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
 
 Für native Mixed Reality beim PC-Streaming auf Steam Frame folge der separaten
-[Steam-Link-Passthrough-Anleitung](https://github.com/McFredward/steam-link-native-passthrough/blob/main/docs/INSTALL.md)
+[Steam-Link-Passthrough-Anleitung](https://github.com/McFredward/steam-link-native-passthrough#readme)
 und beachte die dort unterstützte SteamVR-Version. Für Standalone-Spiel brauchst du diesen Patch nicht.
 
 Auf Steam Frame fügt das Setup einen zweiten Bibliothekseintrag hinzu: Starte **GloomhavenVR** für VR.
