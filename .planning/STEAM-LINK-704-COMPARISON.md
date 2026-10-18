@@ -133,3 +133,14 @@ existing Build704 evidence, including `manual-rollback-result.json`,
 saved locally. Under1MiB of inactive Frame staging is retained because six
 same-user maps were inaccessible, preventing a complete unmapped-library proof;
 no diagnostic manifest, drop-in or runtime mask remains active.
+
+The native diagnostic-only correction now retains exact copied queue/query
+facts and reuses the old constrained typed scheduling contract.22 actual
+`prepare()` vectors pass293 assertions normally and under ASan/UBSan; three
+causal controls detect blanket pNext rejection, a missing graphics guard and an
+invented family0. Strict host/AArch64 builds and unchanged shipping-preprocessor
+bytes are verified. Its116 strong imports match the already checked actual
+Frame providers; the source and diagnostic SPV hashes remain unchanged. The
+new package is prepared locally, not deployed; actual device admission and menu
+composition remain unproved. Evidence: `native/queue-profile-correction/` and
+`native/dashboard-transition-probe-queue-v2-prepared/`.
