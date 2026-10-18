@@ -126,23 +126,26 @@ public static partial class DiagnosticProgram
                 "owned alpha crop stays within its exact native texture");
 
             TextAsset nativeAlpha = Resources.Load<TextAsset>("NativeCardAlpha");
-            Sprite native = Resources.Load<Sprite>("NativeHeader");
-            if (nativeAlpha != null && native != null)
+            foreach (string nativeKind in new[] { "NativeHeader", "NativeItem" })
             {
+                Sprite native = Resources.Load<Sprite>(nativeKind);
+                if (nativeAlpha == null || native == null) continue;
                 Publish(nativeAlpha.bytes);
+                face.sizeDelta = nativeKind == "NativeItem" ? new Vector2(270, 258) : new Vector2(294, 450);
+                image.rectTransform.sizeDelta = face.sizeDelta;
                 image.sprite = native; image.preserveAspect = false;
                 state = ActualSilhouette.State(); CardMesh.Writes = 0; CardMesh.LastAlpha = null;
                 ActualSilhouette.Capture(face, state);
                 Check(CardMesh.Writes == 1 && CardMesh.LastAlpha != null,
-                    "actual retained native GPU-only header receives its owned original contour");
+                    "actual retained native GPU-only card receives its owned original contour: " + nativeKind);
                 int solid = 0, clear = 0;
                 foreach (byte opacity in CardMesh.LastAlpha!) { if (opacity >= 128) solid++; else clear++; }
                 Check(solid > CardMesh.LastAlpha!.Length / 2 && clear > 32,
-                    "native header contour retains real printed area and authored cutouts");
+                    "native card contour retains real printed area and authored cutouts: " + nativeKind);
                 int footprintWidth = 224, footprintHeight = CardMesh.LastAlpha.Length / footprintWidth;
                 Vector2[]? contour = CardContour.Extract(CardMesh.LastAlpha, footprintWidth, footprintHeight, out string? refusal);
                 Check(contour != null && contour.Length >= 8 && contour.Length <= CardContour.MaxVertices,
-                    "ordinary contour extraction accepts the exact owned native header: " + refusal);
+                    "ordinary contour extraction accepts the exact owned native card: " + nativeKind + ": " + refusal);
                 Mesh? body = CardContour.BuildBody(contour!, .0635f, .088f, .0015f, .02f, out refusal);
                 Check(body != null && body.subMeshCount == 2 && body.vertexCount > contour!.Length,
                     "ordinary native alpha constructs a real punched card mesh: " + refusal);

@@ -179,6 +179,8 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
             paths = {
                 'Assets/QuestRecoveredBundles/62ef3d424e9cc164580eaaf46c2f35bf/AC_Brute_Background.asset': 'Assets/Resources/NativeHeader.asset',
                 'Assets/QuestRecoveredBundles/019ed361c43574148b95d6abd6457479/AC_Brute_Background.png': 'Assets/Resources/NativeHeaderTexture.png',
+                'Assets/QuestRecoveredBundles/30a84ac1a80cfc34e841ad97d8f9b8fe/Boots_of_Striding.asset': 'Assets/Resources/NativeItem.asset',
+                'Assets/QuestRecoveredBundles/034fdd42cbcbb5545b9013c6db0e38f2/Boots_of_Striding.png': 'Assets/Resources/NativeItemTexture.png',
                 'Assets/Shader/GUI_AbilityCard_Shd.shader': 'Assets/Resources/NativeHeaderShader.shader',
                 'Assets/Sprite/Portrait_Brute.asset': 'Assets/Resources/NativeStatPortrait.asset',
                 'Assets/Texture2D/Portrait_Brute.png': 'Assets/Resources/NativeStatPortraitTexture.png',
@@ -199,13 +201,19 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
             # tracked/distributed test asset. Its exact bottom-up CPU alpha also
             # qualifies the actual native Sprite/crop through the new sidecar.
             from PIL import Image
-            with Image.open(retained / 'Assets/QuestRecoveredBundles/019ed361c43574148b95d6abd6457479/AC_Brute_Background.png') as image:
-                alpha = image.convert('RGBA').getchannel('A').transpose(Image.Transpose.FLIP_TOP_BOTTOM).tobytes()
-                width, height = image.size
-            codec = zlib.compressobj(wbits=-15)
-            compressed = codec.compress(alpha) + codec.flush()
-            name = b'NativeHeaderTexture'
-            payload = b'GHVA1' + struct.pack('<ii', 1, len(name)) + name + struct.pack('<iii', width, height, len(compressed)) + compressed
+            alpha_sources = [
+                ('NativeHeaderTexture', 'Assets/QuestRecoveredBundles/019ed361c43574148b95d6abd6457479/AC_Brute_Background.png'),
+                ('NativeItemTexture', 'Assets/QuestRecoveredBundles/034fdd42cbcbb5545b9013c6db0e38f2/Boots_of_Striding.png'),
+            ]
+            payload = b'GHVA1' + struct.pack('<i', len(alpha_sources))
+            for label, relative in alpha_sources:
+                with Image.open(retained / relative) as image:
+                    alpha = image.convert('RGBA').getchannel('A').transpose(Image.Transpose.FLIP_TOP_BOTTOM).tobytes()
+                    width, height = image.size
+                codec = zlib.compressobj(wbits=-15)
+                compressed = codec.compress(alpha) + codec.flush()
+                name = label.encode('utf-8')
+                payload += struct.pack('<i', len(name)) + name + struct.pack('<iii', width, height, len(compressed)) + compressed
             (project / 'Assets/Resources/NativeCardAlpha.bytes').write_bytes(payload)
             (run / 'owned-inputs.json').write_text(json.dumps(owned_inputs, indent=2) + '\n')
         (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
