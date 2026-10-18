@@ -60,6 +60,44 @@ def _audio_banks(builder):
     return module
 
 
+def _movies(builder):
+    captured = getattr(builder, "movie_banks", None)
+    if captured is not None: return captured
+    spec = importlib.util.spec_from_file_location("quest_owned_movie_banks", Path(__file__).with_name("movie_banks.py"))
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    return module
+
+
+def movie_delivery(builder, args, source, inputs, output, game, base):
+    """Replace changed movie files only, outside the original game conversion.
+
+    The selected source release already owns its numeric recipes and authored
+    intro. Do not copy those large independent inputs into a versioned compiler
+    snapshot. The media producer binds their exact source rows and caches each
+    output separately; its file-backed publisher avoids buffering whole films.
+    """
+    helper = _movies(builder)
+    replacements = helper.delivery(builder, source, inputs, output, game, args=args, previous=base.get("movieBanks"))
+    core = _core(builder)
+    if core.MOVIES not in replacements:
+        raise builder.BuildError("The current movie producer omitted its signed delivery manifest.")
+    try:
+        metadata = json.loads(replacements[core.MOVIES])
+        current = core._movie_rows(metadata)
+        previous = core._movie_rows(base["movieBanks"]) if base.get("movieBanks") is not None else {}
+    except (ValueError, TypeError, UnicodeError) as error:
+        raise builder.BuildError("The current movie delivery manifest is invalid.") from error
+    # A revised recipe can retain unchanged output bytes. Inspect only signed
+    # metadata and ZIP sizes here, never rehash every existing film to skip it.
+    with zipfile.ZipFile(base["resolvedApk"]) as archive:
+        entries = core._entries(archive)
+        for name in list(replacements):
+            if (name in current and current.get(name) == previous.get(name)
+                    and name in entries and entries[name].file_size == current[name]["size"]):
+                del replacements[name]
+    return replacements
+
+
 def card_alpha_delivery(builder, inputs, output, game):
     """Add only exact CPU outline bytes; retain every original serialized bank."""
     if not any(row.get("path") == "src/GloomhavenVR/Cards/Art/QuestCardAlpha.cs"
@@ -160,9 +198,10 @@ def inspect(builder, args, repo, output, data=None):
         native_helper_changed = requirements["nativeHelperChanged"]
         figure_banks_changed = requirements["figureBanksChanged"]
         audio_banks_changed = requirements.get("audioBanksChanged", False)
+        movie_banks_changed = requirements.get("movieBanksChanged", False)
     else:
         reasons = []
-        code_changed = art_changed = native_helper_changed = figure_banks_changed = audio_banks_changed = False
+        code_changed = art_changed = native_helper_changed = figure_banks_changed = audio_banks_changed = movie_banks_changed = False
     # Owned game and DLC qualification above must precede any local key creation.
     source_stamp = _core(builder)._base_stamp(base_apk)
     source_change_stamp = _selection_stamp(builder, [base_apk])
@@ -179,13 +218,17 @@ def inspect(builder, args, repo, output, data=None):
             "signing": identity, "sourcePackage": base.get("sourcePackage"),
             "ownedGame": proof, "inputs": inputs,
             "updateStrategy": "cached-full-build" if reasons else "compact-code" if mode == "update-mod" else "profile-only",
-            "rebuildReasons": reasons, "requiresUnity": bool(reasons or code_changed or art_changed or native_helper_changed or figure_banks_changed or audio_banks_changed),
+            "rebuildReasons": reasons, "requiresUnity": bool(reasons or code_changed or art_changed or native_helper_changed or figure_banks_changed or audio_banks_changed or movie_banks_changed),
             "codeChanged": code_changed, "artChanged": art_changed, "nativeHelperChanged": native_helper_changed,
             "figureBanksChanged": figure_banks_changed,
             "audioBanksChanged": audio_banks_changed,
+            "movieBanksChanged": movie_banks_changed,
             "nativeCompilerRecipe": _native_resume().compiler_recipe(builder, __file__),
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
                 ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py", "audio_banks.py")}}
+    for name in ("movie_banks.py", "movie_render.py", "requirements-movies.txt"):
+        path = Path(repo) / "tools/quest-builder" / name
+        if path.is_file(): plan["updateRecipe"][name] = builder.digest(path)
     plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name not in ("baseApk", "sourcePackage")})
     root = output / "updates" / plan["updateKey"]
     builder.write_json(root / "plan.json", plan)
@@ -466,6 +509,17 @@ def _art_rows(files):
                    and not row["path"].endswith(".md") or row["path"] in producers), key=lambda row: row["path"])
 
 
+def _separate_movie(name):
+    """Separate movie Content is delivered after compilation, never by IL2CPP.
+
+    The current desktop project explicitly copies these files alongside its
+    DLL. It does not embed them. Keep this exclusion limited to those media and
+    provenance suffixes: a future C# file or embedded asset in this directory
+    must still participate in the ordinary compiler identity.
+    """
+    return name.startswith("src/GloomhavenVR/Assets/Movies/") and name.endswith((".mov", ".provenance.json"))
+
+
 def _code_rows(files, *, normalizer=None):
     """Conservatively retain every consumed runtime/compiler source identity.
 
@@ -485,6 +539,7 @@ def _code_rows(files, *, normalizer=None):
         # This metadata is qualified by source_inventory but consumed by no
         # runtime compiler; a new Wizard archive must not rebuild native code.
         if name == "quest-builder-release.json": return False
+        if _separate_movie(name): return False
         if name.startswith(prefixes) or name in producers: return True
         if name.startswith("unity/GloomhavenVR.Quest/Assets/Quest/Runtime/"): return True
         return "/" not in name and name.endswith((".props", ".targets", ".config", ".json"))
@@ -504,6 +559,12 @@ def _code_rows(files, *, normalizer=None):
         pixel_previous = getattr(normalizer, "UPDATE_PIXEL_DELIVERY_PREVIOUS", None)
         if pixel_delivery is not None and pixel_previous is not None:
             rows = [pixel_previous if row == pixel_delivery else row for row in rows]
+        # These complete reviewed sources change only separate-media planning,
+        # streamed APK publication and classification of non-compiler Content.
+        # Unknown future host edits remain ordinary compiler identities.
+        media_aliases = getattr(normalizer, "REBASE_MEDIA_DELIVERY_ROWS", {})
+        rows = [media_aliases[row["path"]][1] if row["path"] in media_aliases
+                and row == media_aliases[row["path"]][0] else row for row in rows]
     return sorted(rows, key=lambda row: row["path"])
 
 
@@ -517,7 +578,13 @@ def _update_source_rows(files, *, art_changed, native_changed=False):
     A partial snapshot must never occupy inputs/mod, whose owner is a complete
     source conversion and may be reused by a genuine later full build.
     """
-    if art_changed: return files
+    # The independent movie producer owns separate media; copying hundreds of
+    # megabytes into every compiler/bank snapshot does not feed either compiler.
+    # In particular, an authored-bank update must not duplicate these files.
+    if art_changed:
+        media_helpers = {"tools/quest-builder/" + name for name in ("movie_banks.py", "movie_render.py", "requirements-movies.txt")}
+        return [row for row in files if not _separate_movie(row["path"])
+                and not row["path"].startswith("tools/quest-movies/") and row["path"] not in media_helpers]
     prefixes = ("src/", "tools/QuestWeaver/", "tools/figure-mesh/", "unity/GloomhavenVR.Quest/", "libs/RefAsm/", "libs/RuntimeDeps/")
     audio_sources = {"tools/quest-builder/audio_banks.py"} | {"tools/quest-recovery/NativePortableRecovery/" + name
         for name in ("Program.cs", "NativePortableRecovery.csproj", "packages.lock.json")}
@@ -525,7 +592,7 @@ def _update_source_rows(files, *, art_changed, native_changed=False):
     # compiler snapshot must not advertise itself as another complete release.
     native_paths = ({"tools/quest-procedural-runtime/" + name for name in (*_proton_helpers().SOURCE_NAMES, "runtime.py", "upstream.lock.json")}
                     | {"tools/quest-builder/proton_helper_update.py"}) if native_changed else set()
-    return [row for row in files if row["path"] != "quest-builder-release.json" and
+    return [row for row in files if row["path"] != "quest-builder-release.json" and not _separate_movie(row["path"]) and
             (row["path"].startswith(prefixes)
              or row["path"] in native_paths or row["path"] in audio_sources
              or "/" not in row["path"] and row["path"].endswith((".props", ".targets", ".config", ".json")))]
@@ -762,10 +829,15 @@ def update_requirements(builder, source, base, files, mod_build):
     if any(row.get("path") == "src/GloomhavenVR/Core/QuestCombatAudioBank.cs" for row in files):
         expected_audio = _audio_banks(builder).plan(source, original["game"])
         audio_changed = (base.get("audioBanks") or {}).get("producerKey") != expected_audio["producerKey"]
+    movie_changed = False
+    if any(row.get("path") == "src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs" for row in files):
+        expected_movies = _movies(builder).plan(source, original["game"])
+        movie_changed = (base.get("movieBanks") or {}).get("producerKey") != expected_movies["producerKey"]
     return {"rebuildReasons": reasons, "codeChanged": code_changed, "artChanged": art_changed,
             "nativeHelperChanged": native_changed, "figureBanksChanged": figure_changed,
             "audioBanksChanged": audio_changed,
-            "requiresUnity": bool(reasons or code_changed or art_changed or native_changed or figure_changed or audio_changed),
+            "movieBanksChanged": movie_changed,
+            "requiresUnity": bool(reasons or code_changed or art_changed or native_changed or figure_changed or audio_changed or movie_changed),
             "updateStrategy": "cached-full-build" if reasons else "compact-code"}
 
 
@@ -1121,7 +1193,7 @@ def _retain_current_apk(builder, plan, base, output):
     signing = plan.get("signing", {})
     certificate = signing.get("certificateSha256")
     if (plan.get("requiresUnity") or plan.get("rebuildReasons") or plan.get("codeChanged")
-            or plan.get("artChanged") or signing.get("mode") != "original"
+            or plan.get("artChanged") or plan.get("movieBanksChanged") or signing.get("mode") != "original"
             or not isinstance(certificate, str) or not re.fullmatch(r"[0-9a-f]{64}", certificate)
             or certificate != signing.get("sourceCertificateSha256")
             or plan["inputs"]["mod"]["modBuild"] != base.get("modBuild")
@@ -1261,6 +1333,11 @@ def run(builder, args, repo, output):
                 audio_root, audio_manifest = audio_bank.produce(builder, args, source, builder.game_data(args.game_root),
                     output, inputs["game"], Path(tools["editor"]))
                 replacements.update(audio_bank.replacements(audio_root, audio_manifest))
+            if plan.get("movieBanksChanged"):
+                builder.build_progress.operation("update-art", detail="Updating changed stereo movies; the original Campaign bank and unchanged films are retained.")
+                media_base = {**base, "resolvedApk": str(base_apk)}
+                replacements.update(movie_delivery(builder, args, Path(repo), inputs, output,
+                    builder.game_data(args.game_root), media_base))
             builder.build_progress.operation("update-art", complete=True, detail="Changed mod art built or unchanged embedded banks reused.")
             replacements["assets/Quest/offline-profile.json"] = builder.canonical(inputs["profile"])
         update = {"schema": 1, "updateKey": update_key, "mode": args.command,

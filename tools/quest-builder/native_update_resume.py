@@ -29,6 +29,13 @@ _LEGACY_RECIPE = "ce4a2de2b4a86cc7eec667875c128ad0116d5afcc095ead4d39e88f19630ed
 # rows and matched code/metadata qualification remain mandatory below.
 _PIXEL_SCOPE_PREVIOUS = 'd1171ab145d33bcdcbeba7cbc6d4117cf1aa2c519033934ae8f5a4450e319667'
 _PIXEL_SCOPE_CURRENT = '1507d267a9957ccc9b813a60e2f490badac20ac926f24b9c78cbae9c3c385163'
+# The complete reviewed media update recipe changes only classification of
+# separately delivered movie Content, bounded signed media metadata and the APK
+# publisher. Stage/build/weave/package compiler calls retain their old meaning.
+# Bind the entire current compiler recipe, including the new selector body;
+# unknown production edits cannot cross this finite compatibility bridge.
+_MEDIA_SCOPE_CURRENT = 'bc16df07b0539cc6f3428b733787122166a7363bfb326b3fdf8fd2124a5855de'
+_MEDIA_SCOPE_PREVIOUS = 'e59c521e2299a9f7a03691bdf1b7d577c1bffeaf2e01f9a734bcb44094784f34'
 _HEX = re.compile(r"[0-9a-f]{64}")
 
 
@@ -59,7 +66,7 @@ def compiler_recipe(builder, driver_path):
     flow, so select their production functions explicitly rather than treating
     a parser repair as a new native-code input.
     """
-    producers = ((Path(driver_path), ("_compile_code", "_build_code_player", "_bind_code_packages", "package_fingerprint", "_compact_player_command", "_native_producer_rows", "_code_rows", "_payload_rows", "_native_rows", "_art_rows")),
+    producers = ((Path(driver_path), ("_compile_code", "_build_code_player", "_bind_code_packages", "package_fingerprint", "_compact_player_command", "_native_producer_rows", "_code_rows", "_payload_rows", "_native_rows", "_art_rows", "_separate_movie")),
                  (Path(builder.apk_updates.__file__), None))
     rows = []
     for path, names in producers:
@@ -77,6 +84,9 @@ def _same_recipe(previous, recipe):
     if previous.get("nativeCompilerRecipe") == recipe:
         return True
     if recipe == _PIXEL_SCOPE_CURRENT and previous.get("nativeCompilerRecipe") == _PIXEL_SCOPE_PREVIOUS:
+        return True
+    if recipe == _MEDIA_SCOPE_CURRENT and previous.get("nativeCompilerRecipe") in (
+            _MEDIA_SCOPE_PREVIOUS, _PIXEL_SCOPE_PREVIOUS, _PIXEL_SCOPE_CURRENT):
         return True
     # Support213445: only this explicitly reviewed host-only publication repair
     # may cross the old compiler recipe. Any real producer change has a different

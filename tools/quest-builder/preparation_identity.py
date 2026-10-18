@@ -137,6 +137,25 @@ UPDATE_TOOL_HANDOFF_FIXED = {"path": "tools/quest-builder/update_driver.py", "si
 UPDATE_PIXEL_DELIVERY_FIXED = {'path': 'tools/quest-builder/update_driver.py', 'size': 89068, 'sha256': 'f9e61017f01ebc025eb27faa361fe4b159f7d2f75c66da4a2f19e28bda6fe765'}
 UPDATE_PIXEL_DELIVERY_PREVIOUS = {'path': 'tools/quest-builder/update_driver.py', 'size': 88626, 'sha256': 'a12ebd13504aa6b98fb099cfcd1d8f25bb5113107fd5e197cebf80b22ec67714'}
 
+# The current-dev rebase adds independently produced movies after preparation.
+# These exact reviewed host bytes only plan/deliver those sidecars, retain
+# compressed APK records, and exclude separate Content from compiler snapshots.
+# Original scene/media/shader producers and compact compiler calls are intact.
+# Preserve completed B693 owners for this complete finite pair; do not exclude
+# an arbitrary future update host from the original or compiler source census.
+REBASE_MEDIA_DELIVERY_ROWS = {
+    "tools/quest-builder/update_driver.py": (
+        {"path": "tools/quest-builder/update_driver.py", "size": 95525,
+         "sha256": "75fe1e36f9facd2626c7f9e004bb7537adcdbefa1130a2e181c3644e8a30c24f"},
+        {"path": "tools/quest-builder/update_driver.py", "size": 90630,
+         "sha256": "20e6752a3b8200824a7046617409edb7658e5925cb81c96599d11272fcb8010d"}),
+    "tools/quest-builder/apk_update.py": (
+        {"path": "tools/quest-builder/apk_update.py", "size": 85110,
+         "sha256": "9cc5911a65c4830c0ff0a23a4b0928a8e25b229fed850859288acf23bbfea84f"},
+        {"path": "tools/quest-builder/apk_update.py", "size": 80990,
+         "sha256": "533d0eb5917c103ee67cbbafd924dbd4040b299e16e374fb9bffb3860f04b7af"}),
+}
+
 def _memory_row(row):
     if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE, MEMORY_POLICY_MINIMUM, MEMORY_POLICY_PARALLEL):
         return MEMORY_POLICY_PREVIOUS
@@ -148,7 +167,11 @@ PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builde
                            "tools/quest-builder/README.md", "Quest-Builder.cmd", "Quest-Builder.sh",
                            "QUEST-BUILDER-START.txt", "tools/quest-builder/update_capacity.py",
                            "tools/quest-builder/apk_input_cache.py", "tools/quest-builder/portable_package.py",
-                           "tools/quest-builder/native_content_pack.py"}
+                           "tools/quest-builder/native_content_pack.py",
+                           "tools/quest-builder/native_update_resume.py",
+                           "tools/quest-builder/movie_banks.py", "tools/quest-builder/movie_render.py",
+                           "tools/quest-builder/requirements-movies.txt"}
+PREFIX_DELIVERY_ROOTS = ("tools/quest-movies/",)
 # The captured Windows TLS failure precedes the first completed native-runtime
 # transaction. Its Opus downloader cannot produce any earlier original assets.
 # Once that transaction closes, this source again qualifies the native outputs.
@@ -491,6 +514,32 @@ UPDATE_REQUIREMENTS_DELIVERY_ROWS = {
 }
 
 
+def _without_movie_delivery(tree):
+    """Normalize the exact late movie staging seam on the reviewed B693 body.
+
+    This producer runs after prepare() and supplies a separately keyed sidecar.
+    Require its exact call arguments, ordering and complete remaining build()
+    body. An unknown earlier consumer, new argument or unrelated edit cannot
+    acquire original Campaign compatibility through this narrow alias.
+    """
+    seam = ast.parse('''movie_bank = _local_helper("movie_banks")
+movie_payload = movie_bank.produce(_module_context(), args, source, inputs, output, game)
+movie_bank.stage(project, movie_payload)''').body
+    dump = lambda node: ast.dump(node, include_attributes=False)
+    known = {"e3e70e215d72af2f63164f4e999f7e6a2766b5e4725688b02997bb85a138dd4b",
+             "7b07d81c34b288708d57c78db208ce4ed0039918737bcffe4f6ea04934acadfc"}
+    for index, node in enumerate(tree.body):
+        if not isinstance(node, ast.FunctionDef) or node.name != "build": continue
+        if len(node.body) < 2 or not isinstance(node.body[1], ast.If): continue
+        branch = node.body[1]
+        if len(branch.body) < 3 or [dump(child) for child in branch.body[-3:]] != [dump(child) for child in seam]: continue
+        candidate = copy.deepcopy(node)
+        del candidate.body[1].body[-3:]
+        if hashlib.sha256(dump(candidate).encode()).hexdigest() in known:
+            tree.body[index] = candidate
+    return tree
+
+
 def builder_producer_digest(raw, *, original_prefix=False):
     """Qualify complete Builder code, or consumed original-prefix orchestration.
 
@@ -504,6 +553,7 @@ def builder_producer_digest(raw, *, original_prefix=False):
         tree = ast.parse(raw.decode("utf-8"))
     except (UnicodeError, SyntaxError) as error:
         raise BuildError("Preparation Builder source cannot be parsed.") from error
+    tree = _without_movie_delivery(tree)
     # The reviewed late build() additions stage separately keyed owned figure
     # and corrected startup-audio sidecars, outside retained Campaign producers.
     # Qualify the ENTIRE
@@ -641,6 +691,8 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     if original_prefix:
         reviewed = []
         for row in rows:
+            current, preceding = REBASE_MEDIA_DELIVERY_ROWS.get(row["path"], (None, row))
+            if row == current: row = preceding
             if row == UPDATE_PIXEL_DELIVERY_FIXED: row = UPDATE_PIXEL_DELIVERY_PREVIOUS
             if row in (UPDATE_DOWNLOAD_FIXED, UPDATE_DOWNLOAD_PARALLEL_PREVIOUS, UPDATE_RETAINED_APK_FIXED, UPDATE_TOOL_HANDOFF_FIXED): row = UPDATE_DOWNLOAD_PREVIOUS
             if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
@@ -662,6 +714,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
             rows = [row for row in rows if not row["path"].startswith(PREFIX_MOD_BANK_ROOTS)
                     and row["path"] not in PREFIX_MOD_BANK_HELPERS]
         rows = [row for row in rows if row["path"] not in PREFIX_DELIVERY_HELPERS
+                and not row["path"].startswith(PREFIX_DELIVERY_ROOTS)
                 and row["path"] not in PREFIX_PLAYER_REFERENCES
                 and row not in (MEMORY_HELPER_FIXED, MEMORY_HELPER_ADAPTIVE)
                 and not row["path"].startswith(PREFIX_PLAYER_ROOTS)]

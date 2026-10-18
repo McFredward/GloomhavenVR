@@ -27,14 +27,17 @@ class BuilderProducerIdentityTests(unittest.TestCase):
     def setUp(self):
         self.original = (ROOT / identity.BUILDER).read_bytes()
 
-    def test_exact_late_figure_delivery_preserves_campaign_producer_only(self):
-        addition = b'''    if args.target == "game":
-        figures = _local_helper("figure_banks")
-        figure_root, figure_manifest = figures.produce(_module_context(), args, source, game, output, inputs["game"], Path(tools["editor"]))
-        figures.stage(project, figure_root, figure_manifest)
-'''
-        self.assertEqual(self.original.count(addition), 1)
-        previous = self.original.replace(addition, b'', 1)
+    def test_exact_late_sidecar_delivery_preserves_campaign_producer_only(self):
+        # The reviewed conditional now stages audio and movies after figures.
+        # Removing just its former figure prefix leaves an invalidly indented
+        # audio body, rather than reconstructing the preceding Builder AST.
+        tree = ast.parse(self.original.decode())
+        build = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "build")
+        self.assertIsInstance(build.body[1], ast.If)
+        self.assertEqual(ast.dump(build.body[1].test, include_attributes=False),
+                         ast.dump(ast.parse('args.target == "game"', mode="eval").body, include_attributes=False))
+        del build.body[1]
+        previous = ast.unparse(tree).encode()
         for prefix in (False, True):
             self.assertEqual(identity.builder_producer_digest(previous, original_prefix=prefix),
                              identity.builder_producer_digest(self.original, original_prefix=prefix))

@@ -295,8 +295,12 @@ class NativeUpdateResumeTests(unittest.TestCase):
                     self.folder / "game", self.project, self.base, {}, self.root)
 
     def test_legacy_bridge_is_exactly_the_reviewed_current_production_recipe(self):
-        self.assertEqual(resume.compiler_recipe(self.builder, driver.__file__), resume._PIXEL_SCOPE_CURRENT)
+        self.assertEqual(resume.compiler_recipe(self.builder, driver.__file__), resume._MEDIA_SCOPE_CURRENT)
         self.assertTrue(resume._same_recipe({"nativeCompilerRecipe": resume._PIXEL_SCOPE_PREVIOUS}, resume._PIXEL_SCOPE_CURRENT))
+        for previous in (resume._PIXEL_SCOPE_PREVIOUS, resume._PIXEL_SCOPE_CURRENT, resume._MEDIA_SCOPE_PREVIOUS):
+            self.assertTrue(resume._same_recipe({"nativeCompilerRecipe": previous}, resume._MEDIA_SCOPE_CURRENT))
+        self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": "0" * 64}, resume._MEDIA_SCOPE_CURRENT))
+        self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": resume._MEDIA_SCOPE_PREVIOUS}, "1" * 64))
         self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": "0" * 64}, resume._PIXEL_SCOPE_CURRENT))
         self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": resume._PIXEL_SCOPE_PREVIOUS}, "1" * 64))
         self.assertTrue(resume._same_recipe({"updateRecipe": dict(resume._LEGACY_HOST)}, resume._LEGACY_RECIPE))
