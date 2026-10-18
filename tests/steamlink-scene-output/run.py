@@ -40,7 +40,7 @@ def main():
     mode.add_argument('--cpu-only', action='store_true', help='Only the new source-bound CPU geometry controls')
     parser.add_argument('--color-space',choices=['Gamma','Linear','both'],default='both')
     parser.add_argument('--backend',choices=['vulkan','gl'],default='vulkan')
-    parser.add_argument('--gpu-mode',choices=['full','negatives','edges','edge-witness'],default='full')
+    parser.add_argument('--gpu-mode',choices=['full','negatives','edges','edge-witness','eye-pair4040'],default='full')
     parser.add_argument('--shipping-bank',type=Path)
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     parser.add_argument('--output-root', type=Path, default=ROOT/'.planning/debug/steamlink-scene-output-worker-20261017')

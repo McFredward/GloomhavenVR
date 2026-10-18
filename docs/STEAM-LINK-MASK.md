@@ -35,23 +35,33 @@ changed by building or enabling the PC source. Install the public matching
 separately using its documented supported SteamVR version. The existing
 standalone native MR backend is separate and unchanged.
 
-## Equal-resolution scene coverage
+## Current transport and quarantined equal-resolution coverage
 
-The current producer uses `scene-contribution-atlas-v2`: independent coverage and
+The active producer selects the retained `scene-contribution-atlas-v1` shader.
+Build697's v2 headset test showed divergent eye images, including different
+apparent scale and passthrough in only one eye. Successful PC pack callbacks do
+not establish that the real receiver recognized both transported eye images.
+Selecting v1 contains that regression without another headset installation:
+the installed dual-profile receiver already supports it. This is a containment,
+not proof of the hardware cause or a fix for the earlier soft window edges.
+
+The retained experimental `scene-contribution-atlas-v2` has independent coverage and
 scene RGB have the same2048-square logical resolution, sampled from the same
 current eye source. The old half-resolution alpha box/reconstruction filter is
 removed from this path. This applies to all scene geometry, without window tags
 or thresholds that would erase genuine partial transparency. Coverage and format
 cells remain neutral grey in the video transport; scene RGB retains its colors.
 
-A matching updated receiver is required. It recognizes v2 and retains the frozen
-v1 decoder for older producers. Building/enabling the mod does not update the
+A matching updated receiver recognizes v2 and retains the frozen
+v1 decoder for the active producer. Building/enabling the mod does not update the
 headset patch. The3168-square carrier layout uses four haloed coverage strips
 around the central scene. At a fixed stream resolution, the larger mask consumes
 more video area, reducing the area's allocation to RGB; no SteamVR resolution or
 bitrate setting is changed automatically. Keep true MSAA/partial-opacity edges
 and codec limitations distinct from additional packing blur. Headset appearance
-and streaming cost still require hardware validation. See
+and streaming cost still require hardware validation before v2 can be selected
+again. Existing producer/native GPU checks did not include the actual lossy
+stereo stream, and do not establish physical-eye agreement. See
 [the scoped implementation record](../.planning/STEAM-LINK-697-FULL-COVERAGE.md).
 
 ## Host identity lookup: Windows and Proton

@@ -8,6 +8,12 @@ import re
 ROOT=Path(__file__).resolve().parents[2]
 
 
+def active_production_profile(source):
+    matches=re.findall(r'_pack\s*=\s*_bank\.LoadAsset<Shader>\("([^"]+)"\);',source)
+    assert matches==['assets/steamlink/steamlinksceneatlas.shader'],'Only the contained legacy v1 source is currently admitted'
+    return 'scene-contribution-atlas-v1'
+
+
 def main():
     path=ROOT/'tests/steamlink-scene-payload/profile.json'
     raw=path.read_bytes();p=json.loads(raw)
@@ -51,8 +57,16 @@ def main():
     assert 'float a=saturate(scene(q).a)' in full_shader
     assert 'coverageCell' not in full_shader and '3-2*f' not in full_shader
     assert 'return float4(scene((p-560)/2048).rgb,1)' in full_shader
-    assert 'steamlinkscenefullatlas.shader' in (ROOT/'src/GloomhavenVR/Core/SteamLink/ScenePayloadAssets.cs').read_text()
+    production=(ROOT/'src/GloomhavenVR/Core/SteamLink/ScenePayloadAssets.cs').read_text()
+    active=active_production_profile(production)
+    # A real source mutation must fail; retained v2 constants/assets are not
+    # themselves permission to select its unproven real-stream transport.
+    mutant=production.replace('assets/steamlink/steamlinksceneatlas.shader','assets/steamlink/steamlinkscenefullatlas.shader')
+    try:active_production_profile(mutant)
+    except AssertionError:pass
+    else:raise AssertionError('Quarantined v2 selection mutation was not refused')
     print(json.dumps({'passed':True,'profile':p['profile'],'profile_sha256':hashlib.sha256(raw).hexdigest(),'full_profile':full['profile'],
+        'active_production_profile':active,'quarantined_v2_selection_mutant_rejected':True,
         'full_profile_sha256':hashlib.sha256(full_raw).hexdigest(),
         'signature_sha256':strings['SignatureSha256'],'guard_y':values['GuardY'],
         'native_frame_association_proven':False,'passthrough_authorized':False}))

@@ -43,6 +43,7 @@ public static class SceneOutputFixture
         public string profile=SceneAtlasProfile.Profile,unity="",device="",backend="",color_space="";
         public int checks,camera_cases,mask_points,edge_rgb_points,guards,emission_points,original_fallbacks;
         public int actual_msaa_sources,unsupported_sample_counts,partial_geometric_msaa_pixels;
+        public int paired_source_draws,paired_requested_samples,paired_actual_samples;
         public bool dynamic_scale_control_supported=false;
         public string mode="full";
         public bool shipping_windows_packshader=false;
@@ -145,6 +146,43 @@ public static class SceneOutputFixture
     }
     private static void Save()=>File.WriteAllText(Path.Combine(output,"gpu-result.json"),JsonUtility.ToJson(result,true)+"\n");
     private static void Release(RenderTexture rt){rt.Release();Object.DestroyImmediate(rt);}
+    private static void Pair4040(SceneEyeOutput helper)
+    {
+        Check(QualitySettings.activeColorSpace==ColorSpace.Gamma,"Pair4040 requires Gamma");
+        result.paired_requested_samples=8;
+        var descriptor=new RenderTextureDescriptor(4040,4040,RenderTextureFormat.ARGB32,0){msaaSamples=8,sRGB=false};
+        int supported=SystemInfo.GetRenderTextureSupportedMSAASampleCount(descriptor);
+        Check(supported>=1,"Provider reports a usable multisample count");
+        if(supported!=8)result.unsupported_sample_counts++;
+        result.paired_actual_samples=supported;descriptor.msaaSamples=supported;
+        var owned=new List<RenderTexture>();var originals=new RenderTexture[2];var carriers=new RenderTexture[2];
+        var painter=new Material(Get("SceneOutputOwned/Paint"));
+        try
+        {
+            for(int eye=0;eye<2;eye++)
+            {
+                var source=new RenderTexture(descriptor){filterMode=FilterMode.Point,wrapMode=TextureWrapMode.Clamp};
+                owned.Add(source);Check(source.Create(),"Independent4040 source created");
+                Check(source.antiAliasing==supported,"Actual provider sample count recorded");
+                originals[eye]=Surface(4040,4040);owned.Add(originals[eye]);
+                carriers[eye]=Surface(4040,4040);owned.Add(carriers[eye]);
+                painter.SetFloat("_Eye",eye);Graphics.Blit(null,source,painter);Graphics.Blit(source,originals[eye]);
+                var label=eye==0?Camera.MonoOrStereoscopicEye.Left:Camera.MonoOrStereoscopicEye.Right;
+                Check(helper.Profile==SceneAtlasProfile.Profile,"Actual retained v1 output selected");
+                Check(helper.TryRender(source,carriers[eye],label)==SceneEyeResult.Rendered,"Current independent4040 "+label+" draw");
+                result.paired_source_draws++;
+                foreach(Vector2 point in new[]{new Vector2(.25f,.1f),new Vector2(.77f,.1f),new Vector2(.35f,.5f)})
+                    ColorCheck(carriers[eye],originals[eye],point.x,point.y);
+                MaskCheck(carriers[eye],originals[eye],1,975.25f,-.25f);Guards(carriers[eye]);
+                result.actual_msaa_sources++;Stage("paired4040 "+label+" requested8 actual"+source.antiAliasing);
+            }
+            Check(Mathf.Abs(At(originals[0],.25f,.1f).b-At(originals[1],.25f,.1f).b)>.09f,"Independent eye source artwork differs");
+            // A second eye must not overwrite/reuse the previously produced image.
+            ColorCheck(carriers[0],originals[0],.25f,.1f);ColorCheck(carriers[0],originals[0],.77f,.1f);
+            Check(result.paired_source_draws==2,"Exactly two successful current-eye draws");
+        }
+        finally{Object.DestroyImmediate(painter);foreach(RenderTexture target in owned)Release(target);}
+    }
     public static IEnumerator Run(string evidence)
     {
         output=evidence;Stage("start current scene-eye fixture");result.unity=Application.unityVersion;
@@ -166,6 +204,10 @@ public static class SceneOutputFixture
         var outputHelper=new SceneEyeOutput(Get(SceneAtlasProfile.ShaderName));
         try
         {
+            if(result.mode=="eye-pair4040")
+            {
+                Pair4040(outputHelper);result.passed=true;Save();yield break;
+            }
             foreach(int size in (result.mode=="negatives"?new int[0]:EdgeMode?new[]{256}:result.color_space=="Linear"?new[]{128}:new[]{2048,3408}))foreach(int samples in (result.color_space=="Linear"?new[]{1}:result.mode=="edge-witness"?new[]{4}:new[]{1,2,4,8}))
             {
                 var descriptor=new RenderTextureDescriptor(size,size,RenderTextureFormat.ARGB32,24){msaaSamples=samples,sRGB=false};

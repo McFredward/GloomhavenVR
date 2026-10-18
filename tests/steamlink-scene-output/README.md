@@ -12,6 +12,8 @@ python3 -B tests/steamlink-scene-output/run.py --gpu --color-space Gamma \
   --gpu-mode edge-witness --shipping-bank /private/actual/scene.bundle
 python3 -B tests/steamlink-scene-output/run.py --gpu --color-space Linear \
   --shipping-bank /private/actual/scene.bundle
+python3 -B tests/steamlink-scene-output/run.py --gpu --color-space Gamma \
+  --gpu-mode eye-pair4040 --shipping-bank /private/actual/scene.bundle
 ```
 
 Default execution checks the exact frozen profile/guard and actual net472 Unity
@@ -26,6 +28,16 @@ project checks that the Gamma-only helper draws nothing and the caller retains
 ordinary output. The controlled Mono-camera sink has deliberately supplied
 eye/policy labels; live XR authority is not asserted. Result row label/result
 records the last fallback callback, not the earlier admitted callback.
+
+`eye-pair4040` is a separate bounded producer control: it runs exactly two
+successful calls with distinct Left/Right4040-square sources and the retained
+shipping v1 shader. Both outputs are checked against their own resolved source;
+the left output is checked again after the right draw to detect source cross-use.
+It requests8xMSAA and records the provider's actual supported sample count;
+fallback support is not reported as8x evidence. This mode does not run the old
+matrix, native decoder, codec, physical stereo callbacks or headset association.
+The profile control also mutates the production selection back to quarantined
+v2 and verifies that the exact active-profile check refuses it.
 
 The owning camera renders once per tested current frame. Its real OnRenderImage
 callback copies an independent ordinary resolve, then calls the production
