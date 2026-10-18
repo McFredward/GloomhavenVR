@@ -10,7 +10,11 @@ namespace UnityEngine
 }
 namespace GloomhavenVR.Core
 {
-    internal static class VRLog { internal static void Info(string category,string text) { } }
+    internal static class VRLog
+    {
+        internal static readonly System.Collections.Concurrent.ConcurrentQueue<string> Messages=new();
+        internal static void Info(string category,string text) { Messages.Enqueue(text); }
+    }
 }
 namespace GloomhavenVR.Core.SteamLink
 {

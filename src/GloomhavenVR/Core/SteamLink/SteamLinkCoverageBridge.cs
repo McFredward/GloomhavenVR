@@ -68,6 +68,9 @@ internal static class SteamLinkCoverageBridge
         private readonly Func<Action<Snapshot>, CancellationToken, Task> _observe;
         private CancellationTokenSource? _cancel;
         private Task? _worker;
+        private Task? _cancellation;
+        private bool _closing;
+        private int _cleanupReports;
         private Snapshot _current = Snapshot.Unavailable;
         private bool _wanted;
         private ulong _epoch;
@@ -84,7 +87,7 @@ internal static class SteamLinkCoverageBridge
             lock (_gate)
             {
                 _wanted = false; _epoch++; _attempts = 0; _next = 0;
-                _current = Snapshot.Unavailable; _cancel?.Cancel();
+                _current = Snapshot.Unavailable; RequestCancellationLocked();
             }
         }
         internal void Tick(bool wanted, double now)
@@ -95,16 +98,17 @@ internal static class SteamLinkCoverageBridge
                 if (wanted != _wanted)
                 {
                     _wanted = wanted; _epoch++; _attempts = 0; _next = now;
-                    _current = Snapshot.Unavailable; _cancel?.Cancel();
+                    _current = Snapshot.Unavailable; RequestCancellationLocked();
                 }
                 if (_worker != null && !_worker.IsCompleted) return;
                 if (_worker != null && _worker.IsFaulted) { _ = _worker.Exception; }
-                _worker = null; _cancel?.Dispose(); _cancel = null;
+                _worker = null; _cancel = null; _cancellation = null;
                 if (!wanted || _attempts >= 3 || now < _next) return;
                 _attempts++; _next = now + 2;
                 ulong epoch = _epoch;
-                _cancel = new CancellationTokenSource();
-                CancellationToken token = _cancel.Token;
+                var cancel = new CancellationTokenSource();
+                _cancel = cancel; _closing = false;
+                CancellationToken token = cancel.Token;
                 _worker = Task.Run(async () =>
                 {
                     try
@@ -116,9 +120,48 @@ internal static class SteamLinkCoverageBridge
                         }, token).ConfigureAwait(false);
                     }
                     catch (Exception) { /* Optional bridge absence preserves the requested legacy route. */ }
-                    finally { lock (_gate) if (epoch == _epoch) _current = Snapshot.Unavailable; }
+                    finally
+                    {
+                        Task? cancellation;
+                        lock (_gate)
+                        {
+                            if (epoch == _epoch) _current = Snapshot.Unavailable;
+                            _closing = true;
+                            cancellation = _cancellation;
+                        }
+                        if (cancellation != null) await cancellation.ConfigureAwait(false);
+                        try { cancel.Dispose(); }
+                        catch (Exception error) { ReportCleanupFailure("dispose", error); }
+                    }
                 });
             }
+        }
+
+        // Build708's real Mono log contains AggregateException("Safe handle
+        // has been closed") from Cancel's registered pipe callbacks during an
+        // MR toggle; the log does not identify the inner callback. The game's
+        // ConnectAsync polls cancellation, whereas our pipe.Dispose and native
+        // async-I/O cancellation may run callbacks. Neither cancellation nor
+        // disposal belongs inside the XR tick/monitor lock. Revoke above first,
+        // then schedule exactly one cancellation. The owned observer awaits it
+        // before disposing its CTS or completing, so a new epoch cannot overlap
+        // pending callbacks and Cancel/Dispose cannot race one another.
+        private void RequestCancellationLocked()
+        {
+            if (_cancel == null || _closing || _cancellation != null) return;
+            CancellationTokenSource cancel = _cancel;
+            _cancellation = Task.Run(() =>
+            {
+                try { cancel.Cancel(); }
+                catch (Exception error) { ReportCleanupFailure("cancel", error); }
+            });
+        }
+
+        private void ReportCleanupFailure(string operation, Exception error)
+        {
+            if (Interlocked.Increment(ref _cleanupReports) <= 3)
+                VRLog.Info("Core", "Steam Link coverage bridge observer teardown: " + operation
+                    + " failure=" + error.GetType().Name + "; source permission remains revoked.");
         }
     }
 

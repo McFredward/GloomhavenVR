@@ -8,6 +8,7 @@ using B=GloomhavenVR.Core.SteamLink.SteamLinkCoverageBridge;
 internal static class Program
 {
     private static int checks;
+    [ThreadStatic] private static bool inTick;
     private static void Check(bool value,string why) { checks++;if(!value)throw new Exception(why); }
     private static async Task Until(Func<bool> predicate,string why)
     {
@@ -74,7 +75,8 @@ internal static class Program
         Check(monitor.Current.CanAcceptOrdinaryRgba&&!monitor.Current.CoverageOperational,"only current prepared source published");
         for(int i=0;i<50;i++)monitor.Tick(true,i);
         Check(calls==1,"no observer restart or feature expiry in a healthy session");
-        monitor.Reset();Check(!monitor.Current.CanAcceptOrdinaryRgba&&first.Cancelled,"Reset revokes before cleanup finishes");
+        monitor.Reset();Check(!monitor.Current.CanAcceptOrdinaryRgba,"Reset revokes before cleanup finishes");
+        await Until(()=>first.Cancelled,"Reset requests owned observer cancellation off-thread");
         monitor.Tick(true,60);Check(calls==1,"new epoch cannot overlap an old observer");
         first.Publish!(new B.Snapshot(1,45,true,true));
         Check(!monitor.Current.CanAcceptOrdinaryRgba,"late old observer cannot revive permission");
@@ -85,7 +87,8 @@ internal static class Program
         second.Publish!(B.Snapshot.Unavailable);
         Check(!monitor.Current.CanAcceptOrdinaryRgba,"EOF/rejection can revoke before owned teardown");
         second.Publish!(new B.Snapshot(2,45,true,false));
-        monitor.Tick(false,61);Check(!monitor.Current.CanAcceptOrdinaryRgba&&second.Cancelled,"MR Off synchronously revokes");
+        monitor.Tick(false,61);Check(!monitor.Current.CanAcceptOrdinaryRgba,"MR Off synchronously revokes");
+        await Until(()=>second.Cancelled,"MR Off requests owned observer cancellation off-thread");
         second.Finish.TrySetResult(true);await monitor.Settled;
         Check(!monitor.Current.CanAcceptOrdinaryRgba,"ended worker cannot retain a snapshot");
 
@@ -97,6 +100,94 @@ internal static class Program
         }
         failures.Tick(true,100);Check(failed==3&&!failures.Current.CanAcceptOrdinaryRgba,"missing peer stays inactive after bounded attempts");
         failures.Tick(true,double.NaN);Check(!failures.Current.CanAcceptOrdinaryRgba,"invalid cold clock is ineligible");
+
+        await CancellationFailures();
+        await BlockingCancellation();
+    }
+
+    private sealed class CancellationObserver
+    {
+        internal readonly TaskCompletionSource<bool> Started=new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource<bool> Finish=new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource<bool> BodyEnded=new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource<bool> CancelEntered=new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly ManualResetEventSlim ReleaseCancel=new(false);
+        internal Action<B.Snapshot>? Publish;
+        internal bool ThrowOnCancel,BlockOnCancel,CallbackOnTick;
+        internal int CancelCalls;
+        internal async Task Run(Action<B.Snapshot> publish,CancellationToken token)
+        {
+            Publish=publish;
+            // Retain a real registered callback after the observer body ends:
+            // retirement must also own any callback still executing elsewhere.
+            token.Register(()=>
+            {
+                Interlocked.Increment(ref CancelCalls);CallbackOnTick=inTick;CancelEntered.TrySetResult(true);
+                if(BlockOnCancel)ReleaseCancel.Wait();
+                if(ThrowOnCancel)throw new ObjectDisposedException("SafePipeHandle","Safe handle has been closed");
+            });
+            Started.TrySetResult(true);
+            await Finish.Task;BodyEnded.TrySetResult(true);
+        }
+    }
+
+    private static async Task CancellationFailures()
+    {
+        var old=new CancellationObserver{ThrowOnCancel=true};var fresh=new CancellationObserver{ThrowOnCancel=true};int calls=0;
+        var monitor=new B.Monitor((publish,token)=>(Interlocked.Increment(ref calls)==1?old:fresh).Run(publish,token));
+        monitor.Tick(true,0);await old.Started.Task;old.Publish!(new B.Snapshot(1,45,true,true));
+        Exception? escaped=null;
+        inTick=true;try{monitor.Tick(false,1);}catch(Exception error){escaped=error;}finally{inTick=false;}
+        Check(escaped==null,"cancellation callback failure cannot escape Tick");
+        Check(!monitor.Current.CanAcceptOrdinaryRgba,"throwing cancellation revokes source authority synchronously");
+        await old.CancelEntered.Task;
+        Check(!old.CallbackOnTick,"cancellation callback does not execute on the XR tick stack");
+        monitor.Tick(true,2);Check(calls==1,"throwing cancellation cannot overlap another observer");
+        old.Publish!(new B.Snapshot(1,45,true,true));
+        Check(!monitor.Current.CanAcceptOrdinaryRgba,"failed old cancellation cannot revive the next epoch");
+        old.Finish.TrySetResult(true);await monitor.Settled;
+        monitor.Tick(true,2);await fresh.Started.Task;fresh.Publish!(new B.Snapshot(2,45,true,true));
+        Check(monitor.Current.CoverageOperational,"fresh epoch survives a failed cancellation callback");
+        escaped=null;inTick=true;try{monitor.Reset();}catch(Exception error){escaped=error;}finally{inTick=false;}
+        Check(escaped==null,"cancellation callback failure cannot escape Reset");
+        Check(!monitor.Current.CanAcceptOrdinaryRgba,"Reset revokes before a throwing callback settles");
+        fresh.Finish.TrySetResult(true);await monitor.Settled;
+        Check(old.CancelCalls==1&&fresh.CancelCalls==1,"each owned observer is cancelled at most once");
+        Check(GloomhavenVR.Core.VRLog.Messages.Any(s=>s.Contains("cancel failure=AggregateException")),
+            "callback failure is bounded diagnostic evidence rather than a tick exception");
+    }
+
+    private static async Task BlockingCancellation()
+    {
+        var old=new CancellationObserver{BlockOnCancel=true};var fresh=new Observer();int calls=0;
+        var monitor=new B.Monitor((publish,token)=>Interlocked.Increment(ref calls)==1?old.Run(publish,token):fresh.Run(publish,token));
+        monitor.Tick(true,0);await old.Started.Task;old.Publish!(new B.Snapshot(1,45,true,true));
+        Task stop=Task.Run(()=>{inTick=true;try{monitor.Tick(false,1);}finally{inTick=false;}});
+        try
+        {
+            await old.CancelEntered.Task;
+            await Until(()=>stop.IsCompleted,"tick returns while cancellation callback is blocked");await stop;
+            Check(!old.CallbackOnTick,"blocking disposal callback is not run on the tick stack");
+            Check(!monitor.Current.CanAcceptOrdinaryRgba,"blocked callback cannot retain source permission");
+            old.Finish.TrySetResult(true);await old.BodyEnded.Task;
+            // BodyEnded signals before the monitor's async finally resumes.
+            // Give that actual continuation an opportunity to finish: a bare
+            // instantaneous IsCompleted check let the causal mutant race past.
+            Task lifetime=monitor.Settled;
+            await Task.WhenAny(lifetime,Task.Delay(200));
+            Check(!lifetime.IsCompleted,"observer lifetime includes its pending cancellation callbacks");
+            monitor.Tick(true,2);monitor.Reset();monitor.Tick(true,3);
+            Check(calls==1&&old.CancelCalls==1,"rapid Off Reset On cannot overlap or double-cancel owned teardown");
+            old.Publish!(new B.Snapshot(1,45,true,true));
+            Check(!monitor.Current.CanAcceptOrdinaryRgba,"late blocked observer cannot grant a new epoch");
+        }
+        finally
+        {
+            old.ReleaseCancel.Set();old.Finish.TrySetResult(true);await stop;await monitor.Settled;
+        }
+        monitor.Tick(true,3);await fresh.Started.Task;fresh.Publish!(new B.Snapshot(3,45,true,false));
+        Check(monitor.Current.CanAcceptOrdinaryRgba,"a new observer starts after all old callback work settles");
+        monitor.Reset();fresh.Finish.TrySetResult(true);await monitor.Settled;old.ReleaseCancel.Dispose();
     }
     private static void Paths()
     {
@@ -113,6 +204,7 @@ internal static class Program
         if(args.Length==0||args.Contains("--wire"))Wire();
         if(args.Length==0||args.Contains("--paths"))Paths();
         if(args.Length==0||args.Contains("--lifecycle"))await Lifecycle();
+        if(args.Contains("--cancel-lifetime"))await BlockingCancellation();
         Console.WriteLine(checks+" coverage bridge assertions passed");
     }
 }

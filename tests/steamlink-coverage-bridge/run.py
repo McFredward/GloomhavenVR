@@ -24,7 +24,7 @@ def sha(p):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / '.planning/debug/steamlink-coverage-bridge')
-    parser.add_argument('--suite', choices=['all', 'wire', 'lifecycle', 'callback', 'typecheck'], default='all')
+    parser.add_argument('--suite', choices=['all', 'wire', 'lifecycle', 'lifecycle-retirement', 'callback', 'typecheck'], default='all')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output.resolve()))
@@ -78,6 +78,17 @@ def main():
             assert bridge.count(old) == 1
             managed('stale-observer', bridge.replace(old, 'if (_wanted) _current = value;'),
                     HERE / 'Fixture.csproj', HERE, ['--lifecycle'], 'late old observer cannot revive permission')
+            old = '_current = Snapshot.Unavailable; RequestCancellationLocked();'
+            assert bridge.count(old) == 2
+            managed('synchronous-cancellation', bridge.replace(old, '_current = Snapshot.Unavailable; _cancel?.Cancel();'),
+                    HERE / 'Fixture.csproj', HERE, ['--lifecycle'], 'cancellation callback failure cannot escape Tick')
+        if args.suite in ('all', 'lifecycle', 'lifecycle-retirement'):
+            if args.suite == 'lifecycle-retirement':
+                managed('retirement', bridge, HERE / 'Fixture.csproj', HERE, ['--cancel-lifetime'])
+            old = 'if (cancellation != null) await cancellation.ConfigureAwait(false);'
+            assert bridge.count(old) == 1
+            managed('retire-before-callbacks', bridge.replace(old, ''),
+                    HERE / 'Fixture.csproj', HERE, ['--cancel-lifetime'], 'observer lifetime includes its pending cancellation callbacks')
         if args.suite in ('all', 'callback'):
             managed('callback', runtime, startup / 'Fixture.csproj', startup, ['--ordinary-only'])
             old = '? _pack!.TryRenderOrdinary(source, destination, eye)'
