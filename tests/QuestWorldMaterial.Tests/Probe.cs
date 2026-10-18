@@ -27,6 +27,7 @@ public static class QuestWorldMaterialProbe
         int exit = 0;
         try
         {
+            Check(QualitySettings.activeColorSpace.ToString() == File.ReadAllText("ProbeColorSpace.txt"), "The fixture uses its declared native color space");
             Check(SystemInfo.graphicsDeviceType == GraphicsDeviceType.Vulkan, "Native floor uses the real Vulkan graphics backend");
             Mesh mesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshPath);
             Material source0 = AssetDatabase.LoadAssetAtPath<Material>(Material0), source1 = AssetDatabase.LoadAssetAtPath<Material>(Material1);
@@ -122,6 +123,7 @@ public static class QuestWorldMaterialProbe
             Check(Original(renderer, mesh, source0, source1) && source0.GetColor("_Tint").a == 0,
                 "Qualification leaves actual native floor slots, topology and material alpha untouched");
             Check(!ShaderUtil.ShaderHasError(source0.shader), "The actually exercised original native shader has no compiler error");
+            OriginalGammaInputs(renderer, camera, target, light);
             Instancing(mesh, source0, source1, renderer, camera, target, light);
             Directory.CreateDirectory("ProbeOutput");
             File.WriteAllText("ProbeOutput/results.json", "{\"assertions\":" + _assertions + ",\"hardwareVerified\":false,\"actualPerObjectLighting\":true,\"originalNativeEngineExecuted\":false,\"graphics\":\"" + SystemInfo.graphicsDeviceType + "\"}\n");
@@ -131,6 +133,37 @@ public static class QuestWorldMaterialProbe
         }
         catch (Exception error) { UnityEngine.Debug.LogException(error); exit = 1; }
         finally { EditorApplication.Exit(exit); }
+    }
+
+    private static void OriginalGammaInputs(MeshRenderer renderer, Camera camera, RenderTexture target, Light light)
+    {
+        // The actual owned Windows PlayerSettings declares Gamma. Recovered
+        // DXBC therefore contains that original color-space math; recompiling
+        // the wrapper under Linear does not re-specialize those instructions.
+        // Keep the observed mobile zero-light cap and actual point intensity,
+        // not an artificial stronger light that conceals a transfer mismatch.
+        QualitySettings.pixelLightCount = 0; light.renderMode = LightRenderMode.Auto; light.intensity = 1;
+        var ambient = new SphericalHarmonicsL2();
+        ambient[0, 0] = .037f; ambient[1, 0] = .038f; ambient[2, 0] = .034f;
+        RenderSettings.ambientProbe = ambient;
+        Color background = camera.backgroundColor; camera.backgroundColor = Color.clear;
+        Color32[] pixels = Draw(camera, target, "original-gamma-instructions-zero-cap-point-one");
+        Check(pixels.Count(pixel => pixel.a == 255) > 100 && pixels.Count(pixel => pixel.a == 0) > 100,
+            "Native original color-space fixture distinguishes actual opaque floor from clear space");
+        Check(pixels.Any(pixel => pixel.r > 1 || pixel.g > 1 || pixel.b > 1), "Native original color-space fixture retains a measurable color signal");
+        Material[] originals = renderer.sharedMaterials;
+        Material[] emissive = originals.Select(material => new Material(material)).ToArray();
+        foreach (Material material in emissive) material.SetFloat("_EmissionMap", 1);
+        renderer.sharedMaterials = emissive;
+        Color32[] emissionPixels = Draw(camera, target, "original-native-emission-one");
+        Check(emissionPixels.Sum(pixel => (long)pixel.r + pixel.g + pixel.b) > pixels.Sum(pixel => (long)pixel.r + pixel.g + pixel.b) * 2,
+            "Actual original Amp_Basic emission switch isolates real native texture output from weak scene lighting");
+        Check(pixels.Zip(emissionPixels, (first, second) => first.a == second.a).All(equal => equal),
+            "Actual original emission switch preserves the complete native mesh and cutout coverage");
+        renderer.sharedMaterials = originals;
+        Check(originals.All(material => material.GetFloat("_EmissionMap") == 0), "Native emission evidence leaves original actual material properties untouched");
+        foreach (Material material in emissive) UnityEngine.Object.DestroyImmediate(material);
+        camera.backgroundColor = background;
     }
 
     private static void Instancing(Mesh mesh, Material source0, Material source1, Renderer original,

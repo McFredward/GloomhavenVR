@@ -62,9 +62,12 @@ internal sealed partial class VRRigDriver
             + " headMask=" + head.cullingMask.ToString("X8") + " anchorMask=" + (_anchor != null ? _anchor.cullingMask.ToString("X8") : "none")
             + " scenarioMask=" + (native != null ? native.cullingMask.ToString("X8") : "none")
             + " path=" + head.actualRenderingPath + " depth=" + head.depthTextureMode
+            + " clear=" + head.clearFlags + " invertCull=" + GL.invertCulling + " fog=" + RenderSettings.fog
             + " clips=" + Number(head.nearClipPlane) + "," + Number(head.farClipPlane)
             + " head=" + Vector(head.transform.position) + " headForward=" + Vector(head.transform.forward)
             + " loading=" + (loading != null && (loading.IsLoading || loading.ScenarioIsLoading))
+            + " pendingLoading=" + (RoomVisibilityManager.s_Instance != null && RoomVisibilityManager.s_Instance.Maps != null
+                ? QuestProceduralLoading.DescribePendingContent(RoomVisibilityManager.s_Instance.Maps) : "unavailable")
             + " ambient=" + RenderSettings.ambientMode + "," + ColorText(RenderSettings.ambientLight)
             + " ambientIntensity=" + Number(RenderSettings.ambientIntensity) + " lights=" + UnityEngine.Object.FindObjectsOfType<Light>().Length
             + " lightmaps=" + LightmapSettings.lightmaps.Length + " wallFade=" + Shader.GetGlobalInt("ToggleWallFade")
@@ -251,7 +254,9 @@ internal sealed partial class VRRigDriver
             + " enabled=" + renderer.enabled + " active=" + renderer.gameObject.activeInHierarchy + " masked=" + renderer.forceRenderingOff
             + " inactiveRoot=" + QuestScenarioInactiveRoot(renderer.transform)
             + " ml=" + Short(MaterialLoaderHeal.DescribeForRenderer(renderer))
-            + " admitted=" + ((head.cullingMask & (1 << renderer.gameObject.layer)) != 0) + " bounds=" + Vector(renderer.bounds.center) + "/" + Vector(renderer.bounds.size)
+            + " admitted=" + ((head.cullingMask & (1 << renderer.gameObject.layer)) != 0)
+            + " poseDet=" + Number(renderer.localToWorldMatrix.determinant)
+            + " headViewportMono=" + Vector(head.WorldToViewportPoint(renderer.bounds.center)) + " bounds=" + Vector(renderer.bounds.center) + "/" + Vector(renderer.bounds.size)
             + " mesh=" + (mesh != null ? Short(mesh.name) + ",v=" + mesh.vertexCount + ",parts=" + mesh.subMeshCount + ",indices=" + (mesh.subMeshCount > 0 ? mesh.GetIndexCount(0) : 0) + ",read=" + mesh.isReadable + ",stride=" + mesh.GetVertexBufferStride(0) : "none")
             + " attrs=" + attributes + " shader=" + (material != null && material.shader != null ? Short(material.shader.name) : "none")
             + " supported=" + (material != null && material.shader != null && material.shader.isSupported) + " instancing=" + (material != null && material.enableInstancing)

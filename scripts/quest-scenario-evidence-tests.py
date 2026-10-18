@@ -54,7 +54,7 @@ def reap_fixture_group(group):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "gpu-native-light", "gpu-private-cleanup", "renderer-state", "material-admission", "entity-parameter-property",
+    parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "gpu-native-light", "gpu-private-cleanup", "gpu-emission-clone", "renderer-state", "material-admission", "entity-parameter-property",
         "lifecycle-desktop", "lifecycle-inactive", "lifecycle-native-handle", "lifecycle-unrelated-handle", "lifecycle-preview-content", "lifecycle-native-loading", "lifecycle-repeat", "lifecycle-native-content",
         "loading-boundary", "loading-visible-scope", "loading-busy", "loading-material-assignment", "loading-occlusion-object", "loading-occlusion-tile", "loading-material-room", "loading-blocker-evidence", "loading-original-hidden-wait", "lifecycle-playerloop-focus", "lifecycle-playerloop-window", "lifecycle-playerloop-pause", "lifecycle-playerloop-install", "lifecycle-playerloop-failure"))
     parser.add_argument("--gpu", action="store_true")
@@ -98,6 +98,10 @@ def main():
         before = "if (copy != null) copy.enabled = false;"
         if gpu_source.count(before) != 1: raise AssertionError("Private native renderer cleanup binding drift")
         gpu_source = gpu_source.replace(before, "/* injected private renderer cleanup omission */", 1)
+    elif args.control == "gpu-emission-clone":
+        before = 'copies[index].SetFloat("_EmissionMap", 1f);'
+        if gpu_source.count(before) != 1: raise AssertionError("Native emission clone binding drift")
+        gpu_source = gpu_source.replace(before, 'copies[index].SetFloat("_EmissionMap", 0f);', 1)
     (editor / "ScenarioGpu.cs").write_text("#nullable enable\n" + gpu_source.replace("namespace GloomhavenVR.Rig;", "namespace GloomhavenVR.Rig {") + "\n}\n")
     lifecycle_source = (ROOT / "src/GloomhavenVR/Core/QuestProceduralLifecycle.cs").read_text()
     lifecycle_controls = {
@@ -200,6 +204,7 @@ def main():
         "nativeEngineExecuted": False,
     }, indent=2) + "\n")
     (project / "Assets/HeadUnlit.shader").write_bytes((ROOT / "unity/GloomhavenVR.Assets/Assets/Bundle/Head/HeadUnlit.shader").read_bytes())
+    (project / "Assets/NativeEmission.shader").write_bytes((ROOT / "tests/QuestScenarioEvidence.Tests/NativeEmission.shader").read_bytes())
     (editor / "Probe.cs").write_bytes((ROOT / "tests/QuestScenarioEvidence.Tests/Probe.cs").read_bytes())
     if args.playerloop:
         (editor / "PlayerLoopProbe.cs").write_bytes((ROOT / "tests/QuestScenarioEvidence.Tests/PlayerLoopProbe.cs").read_bytes())
@@ -229,6 +234,7 @@ def main():
                         "gpu-transform": "Actual unreadable native mesh produces visible GPU pixels",
                         "gpu-native-light": "Private native renderer receives original zero-pixel-cap room lighting",
                         "gpu-private-cleanup": "Private copied geometry is disabled before ordinary rendering resumes",
+                        "gpu-emission-clone": "Private native emission arm draws actual texture color without scene lights",
                         "renderer-state": "Inactive and component-disabled native renderers are counted independently",
                         "material-admission": "Excluded native placeholder materials cannot be diagnosed as shown shader failures",
                         "entity-parameter-property": "Native hierarchy and generation admission distinguish a dormant entity from a completed world"}.get(args.control)

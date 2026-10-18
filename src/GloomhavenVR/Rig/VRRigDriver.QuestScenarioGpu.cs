@@ -30,7 +30,8 @@ internal sealed partial class VRRigDriver
         if (!FiniteScenario(centre.x) || !FiniteScenario(centre.y) || !FiniteScenario(centre.z)
             || !FiniteScenario(size.x) || !FiniteScenario(size.y) || !FiniteScenario(size.z) || size.sqrMagnitude <= 0f)
         { QuestScenarioRecord("sample=" + sample + " gpu=unavailable reason=invalid-native-bounds"); return; }
-        RenderTexture? native = null, control = null;
+        RenderTexture? native = null, control = null, emissive = null;
+        Material[]? emissiveSlots = null;
         Material? white = null;
         try
         {
@@ -47,17 +48,29 @@ internal sealed partial class VRRigDriver
             string lighting = " pixelLights=" + QualitySettings.pixelLightCount + " probeSH0="
                 + Number(sourceProbe[0, 0]) + "," + Number(sourceProbe[1, 0]) + "," + Number(sourceProbe[2, 0]) + " lightTypes=";
             for (int index = 0; index < Math.Min(lights.Count, 3); index++)
-                lighting += lights[index].type + ":" + Number(lights[index].intensity) + ";";
+            {
+                Light light = lights[index];
+                lighting += light.type + ":" + Number(light.intensity) + "," + Vector(light.transform.position)
+                    + ",r" + Number(light.range) + ",rgb" + Number(light.color.r) + "," + Number(light.color.g) + "," + Number(light.color.b) + ";";
+            }
             string context = " sourceLayer=" + renderer.gameObject.layer + " copiedLights=" + lights.Count + "/" + candidates
-                + " probes=" + renderer.lightProbeUsage + lighting;
+                + " probes=" + renderer.lightProbeUsage + " api=" + SystemInfo.graphicsDeviceType + " tier=" + Graphics.activeTier
+                + " space=" + QualitySettings.activeColorSpace + lighting;
             int parts = mesh.subMeshCount;
             native = RenderQuestScenarioObserved(renderer, mesh, null, lights);
             control = RenderQuestScenarioObserved(renderer, mesh, white, lights);
+            // Amp_Basic's ORIGINAL explicit emissive switch can isolate native
+            // texture/program output from scene illumination without changing a
+            // live renderer, light or original material. This is private Debug
+            // evidence, never a material replacement or a proposed visual fix.
+            emissiveSlots = QuestScenarioEmissiveSlots(renderer);
+            if (emissiveSlots != null) emissive = RenderQuestScenarioObserved(renderer, mesh, null, lights, emissiveSlots);
             RenderTexture first = native, second = control;
+            RenderTexture? third = emissive;
             string nativeShader = original.shader != null ? Short(original.shader.name) : "none";
-            int pending = 2;
-            string nativePixels = "pending", controlPixels = "pending";
-            void Complete(AsyncGPUReadbackRequest request, bool reference, RenderTexture target)
+            int pending = third != null ? 3 : 2;
+            string nativePixels = "pending", controlPixels = "pending", emissivePixels = third != null ? "pending" : "not-qualified";
+            void Complete(AsyncGPUReadbackRequest request, int arm, RenderTexture target)
             {
                 try
                 {
@@ -75,30 +88,37 @@ internal sealed partial class VRRigDriver
                         }
                         stats = "max:" + max + ",nonBlack:" + nonBlack + ",alpha:" + alpha;
                     }
-                    if (reference) controlPixels = stats; else nativePixels = stats;
+                    if (arm == 2) emissivePixels = stats; else if (arm == 1) controlPixels = stats; else nativePixels = stats;
                 }
                 catch (Exception error)
-                { if (reference) controlPixels = error.GetType().Name; else nativePixels = error.GetType().Name; }
+                { if (arm == 2) emissivePixels = error.GetType().Name; else if (arm == 1) controlPixels = error.GetType().Name; else nativePixels = error.GetType().Name; }
                 finally
                 {
                     target.Release(); UnityEngine.Object.Destroy(target);
                     if (--pending == 0)
-                        QuestScenarioRecord("sample=" + sample + " gpu=bounds-fit phase=update width=32 height=32 parts=" + parts + " shader=" + nativeShader + " native="
-                            + nativePixels + " whitePositionUvControl=" + controlPixels + context
+                        QuestScenarioRecord("sample=" + sample + " gpu=bounds-fit phase=update probe=private-unshadowed-nonXR width=32 height=32 parts=" + parts + " shader=" + nativeShader + " native="
+                            + nativePixels + " nativeEmission1=" + emissivePixels + " whitePositionUvControl=" + controlPixels + context
                             + " nativePerObjectLightingObserved=private-copy unshadowed=true sourceInstancingVariantObserved=false finalXrPixelsObserved=false");
                 }
             }
-            AsyncGPUReadback.Request(first, 0, TextureFormat.RGBA32, request => Complete(request, false, first));
+            AsyncGPUReadback.Request(first, 0, TextureFormat.RGBA32, request => Complete(request, 0, first));
             native = null; // that request now owns its target
-            AsyncGPUReadback.Request(second, 0, TextureFormat.RGBA32, request => Complete(request, true, second));
+            AsyncGPUReadback.Request(second, 0, TextureFormat.RGBA32, request => Complete(request, 1, second));
             control = null;
+            if (third != null)
+            {
+                AsyncGPUReadback.Request(third, 0, TextureFormat.RGBA32, request => Complete(request, 2, third));
+                emissive = null;
+            }
         }
         catch (Exception error) { QuestScenarioRecord("sample=" + sample + " gpu=unavailable detail=" + error.GetType().Name); }
         finally
         {
             if (native != null) { native.Release(); UnityEngine.Object.Destroy(native); }
             if (control != null) { control.Release(); UnityEngine.Object.Destroy(control); }
+            if (emissive != null) { emissive.Release(); UnityEngine.Object.Destroy(emissive); }
             if (white != null) UnityEngine.Object.Destroy(white);
+            if (emissiveSlots != null) foreach (Material material in emissiveSlots) if (material != null) UnityEngine.Object.Destroy(material);
         }
     }
 
@@ -121,7 +141,31 @@ internal sealed partial class VRRigDriver
         return lights;
     }
 
-    private static RenderTexture RenderQuestScenarioObserved(Renderer source, Mesh mesh, Material? control, List<Light> lights)
+    private static Material[]? QuestScenarioEmissiveSlots(Renderer source)
+    {
+        // A native MPB can override the private material switch. Do not change
+        // its properties or claim an emissive arm we cannot actually select.
+        if (source.HasPropertyBlock()) return null;
+        Material[] originals = source.sharedMaterials;
+        foreach (Material material in originals)
+            if (material == null || material.shader == null || material.shader.name != "Amp_Basic"
+                || !material.HasProperty("_EmissionMap")) return null;
+        var copies = new Material[originals.Length];
+        try
+        {
+            for (int index = 0; index < originals.Length; index++)
+            { copies[index] = new Material(originals[index]); copies[index].SetFloat("_EmissionMap", 1f); }
+            return copies;
+        }
+        catch
+        {
+            foreach (Material material in copies) if (material != null) UnityEngine.Object.Destroy(material);
+            throw;
+        }
+    }
+
+    private static RenderTexture RenderQuestScenarioObserved(Renderer source, Mesh mesh, Material? control, List<Light> lights,
+        Material[]? materialOverrides = null)
     {
         const int privateLayer = 31;
         var target = new RenderTexture(32, 32, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
@@ -144,7 +188,7 @@ internal sealed partial class VRRigDriver
                     throw new InvalidOperationException("Source mesh pose contains unsupported shear.");
             surface.AddComponent<MeshFilter>().sharedMesh = mesh;
             copy = surface.AddComponent<MeshRenderer>(); copy.enabled = false;
-            Material[] slots = source.sharedMaterials;
+            Material[] slots = materialOverrides ?? source.sharedMaterials;
             if (control != null)
             {
                 slots = new Material[mesh.subMeshCount];

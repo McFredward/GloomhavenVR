@@ -162,9 +162,10 @@ namespace GloomhavenVR.Rig
         }
         internal static bool SelectPart(Renderer renderer, out int part, out Material material)
             => TryQuestScenarioPart(renderer, renderer.GetComponent<MeshFilter>().sharedMesh, out part, out material);
-        internal static RenderTexture DrawLitProbe(Renderer renderer, Material control = null)
+        internal static Material[] EmissionSlots(Renderer renderer) => QuestScenarioEmissiveSlots(renderer);
+        internal static RenderTexture DrawLitProbe(Renderer renderer, Material control = null, Material[] overrides = null)
             => RenderQuestScenarioObserved(renderer, renderer.GetComponent<MeshFilter>().sharedMesh, control,
-                QuestScenarioLights(renderer.gameObject.layer, out _));
+                QuestScenarioLights(renderer.gameObject.layer, out _), overrides);
         internal static int ActualLightCount(Renderer renderer) => QuestScenarioLights(renderer.gameObject.layer, out _).Count;
     }
 }
@@ -493,6 +494,41 @@ public static class QuestScenarioEvidenceProbe
                 "Private copied geometry is disabled before ordinary rendering resumes");
             Check(renderer.sharedMaterials[0] == lit && renderer.sharedMaterials[1] == lit && source.GetComponent<MeshFilter>().sharedMesh == mesh,
                 "All native material slots and unreadable geometry remain unchanged");
+            Check(GloomhavenVR.Rig.VRRigDriver.EmissionSlots(renderer) == null,
+                "An unrelated native shader cannot enter the exact Amp_Basic emission observation");
+            Shader emissionShader = UnityEditor.AssetDatabase.LoadAssetAtPath<Shader>("Assets/NativeEmission.shader");
+            Check(emissionShader != null && emissionShader.isSupported && emissionShader.name == "Amp_Basic",
+                "Emission binding fixture has the exact admitted shader and explicit native property shape");
+            var emission0 = new Material(emissionShader) { mainTexture = Texture2D.whiteTexture };
+            emission0.SetColor("_Tint", new Color(.2f, .7f, .4f, 0));
+            var emission1 = new Material(emission0);
+            renderer.sharedMaterials = new[] { emission0, lit };
+            Check(GloomhavenVR.Rig.VRRigDriver.EmissionSlots(renderer) == null,
+                "Mixed native material slots are refused before any partial emissive override");
+            renderer.sharedMaterials = new[] { emission0, emission1 };
+            var nativeBlock = new MaterialPropertyBlock(); nativeBlock.SetFloat("_EmissionMap", 0);
+            renderer.SetPropertyBlock(nativeBlock);
+            Check(GloomhavenVR.Rig.VRRigDriver.EmissionSlots(renderer) == null,
+                "Native property blocks cannot silently veto an allegedly emissive material arm");
+            renderer.SetPropertyBlock(null);
+            Material[] emissionSlots = GloomhavenVR.Rig.VRRigDriver.EmissionSlots(renderer);
+            Check(emissionSlots != null && emissionSlots.Length == 2 && emissionSlots[0] != emission0 && emissionSlots[1] != emission1,
+                "Native emission observation owns distinct complete material copies");
+            Check(emissionSlots[0].GetColor("_Tint") == emission0.GetColor("_Tint") && emissionSlots[0].mainTexture == emission0.mainTexture,
+                "Private native emission copies preserve actual tint and texture inputs");
+            RenderTexture emissionObserved = GloomhavenVR.Rig.VRRigDriver.DrawLitProbe(renderer, null, emissionSlots);
+            Color32[] emissionPixels = Read(emissionObserved); emissionObserved.Release();
+            Check(emissionPixels.Count(pixel => pixel.g > 100) > 50,
+                "Private native emission arm draws actual texture color without scene lights");
+            RenderTexture unmodifiedObserved = GloomhavenVR.Rig.VRRigDriver.DrawLitProbe(renderer);
+            Color32[] unmodifiedPixels = Read(unmodifiedObserved); unmodifiedObserved.Release();
+            Check(unmodifiedPixels.All(pixel => pixel.r <= 2 && pixel.g <= 2 && pixel.b <= 2),
+                "Following native draw retains its original non-emissive output");
+            Check(emission0.GetFloat("_EmissionMap") == 0 && emission1.GetFloat("_EmissionMap") == 0
+                && renderer.sharedMaterials[0] == emission0 && renderer.sharedMaterials[1] == emission1,
+                "Emission observation never edits a source material property or live slot");
+            foreach (Material copy in emissionSlots) UnityEngine.Object.DestroyImmediate(copy);
+            UnityEngine.Object.DestroyImmediate(emission0); UnityEngine.Object.DestroyImmediate(emission1);
             Directory.CreateDirectory("ProbeOutput");
             File.WriteAllText("ProbeOutput/result.json", "{\"assertions\":" + _assertions + ",\"hardwareVerified\":false,\"backend\":\"" + SystemInfo.graphicsDeviceType + "\"}\n");
             native.Release(); control.Release(); sentinel.Release(); ordinary.targetTexture.Release();

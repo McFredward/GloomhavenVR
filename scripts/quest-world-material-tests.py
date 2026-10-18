@@ -107,6 +107,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native-project", type=Path, required=True)
     parser.add_argument("--control", choices=("hide-world", "omit-lighting"))
+    parser.add_argument("--color-space", choices=("Linear", "Gamma"), default="Linear")
     args = parser.parse_args()
     base = ROOT / ".planning/debug/quest-world-material"
     base.mkdir(parents=True, exist_ok=True)
@@ -121,9 +122,10 @@ def main():
     (project / "ProjectSettings").mkdir()
     (project / "Packages/manifest.json").write_text('{"dependencies":{}}\n')
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
-    (project / "ProjectSettings/ProjectSettings.asset").write_text("%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n  m_ObjectHideFlags: 0\n  serializedVersion: 23\n  m_ActiveColorSpace: 1\n")
+    (project / "ProjectSettings/ProjectSettings.asset").write_text("%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n  m_ObjectHideFlags: 0\n  serializedVersion: 23\n  m_ActiveColorSpace: " + ("0" if args.color_space == "Gamma" else "1") + "\n")
     (run / "inputs.json").write_text(json.dumps(closure, indent=2) + "\n")
     (project / "ProbeControl.txt").write_text(args.control or "none")
+    (project / "ProbeColorSpace.txt").write_text(args.color_space)
     runner = run / "runner.log"
     runner.write_text("Quest native floor material evidence: " + str(run) + "\n")
     print(runner.read_text(), end="", flush=True)
@@ -153,7 +155,7 @@ def main():
         sources = {str(probe.relative_to(ROOT)): hashlib.sha256(probe.read_bytes()).hexdigest(),
                    "scripts/quest-world-material-tests.py": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
         (run / "source-hashes.json").write_text(json.dumps({"sourceHashes": sources, "graphics": "vulkan",
-            "hardwareVerified": False}, indent=2) + "\n")
+            "hardwareVerified": False, "colorSpace": args.color_space}, indent=2) + "\n")
         print("PASS native floor material: " + str(result["assertions"]) + " assertions", flush=True)
     finally:
         if process.poll() is None:
