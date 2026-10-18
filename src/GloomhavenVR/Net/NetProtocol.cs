@@ -612,8 +612,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 688;
+    public const ushort ModBuild = 689;
 
+    // ModBuild689 — qualify Quest Standalone budgets and tutorial clipping.
+    // Capture140053 verifies current688/previous687; complete rooms, native load
+    // closure and menu depth video are hardware-confirmed. Preserve their paths.
+    // Two Frame world budgets failed on Quest's unavailable CoreModule detour.
+    // Use a camera-owned, exact-public-list final callback; unavailable/changed
+    // boundaries restore originals before culling. Desktop detour stays intact.
+    // Keep shared defaults/pixel-light cap, authored Important lights and density.
+    // Drop only two unused full-game owner queries; keep five real guard families.
+    // Repair the original tutorial list's rectangular TMP clipping, retaining its
+    // stencil mask/material/native controller and existing shader variants.
+    // Passively retain bounded combat audio/guide snapshots and enrich the same
+    // four spinner edges; no audio, guide-rule or spinner visual cure is claimed.
+    // Actual Unity/Vulkan/ABI controls qualify source behavior, not device FPS.
+    // Compact managed-code update; original/mod/Wine banks and native helpers
+    // unchanged. No full APK/import/shader sweep or unrelated wire-gate claim.
+    // See .planning/QUEST-HARDWARE-140053-20261018.md and handoff validation.
+    //
     // ModBuild688 — preserve native engine ownership across original reconnect.
     // Capture125422 verifies installed/current687, previous686 and queued=False
     // on the incomplete busy Wall1; task-submission starvation is not this cause.

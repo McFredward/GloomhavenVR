@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Quest Standalone budgets and tutorial clipping, 2026-10-18: feature / B689.**
+
+Capture140053 verifies current688/previous687. Complete rooms, native scenario
+load closure and the looping menu depth video are hardware-confirmed. Preserve
+these paths and all qualified artwork, pointer and density behavior. Two shared
+Frame optimizations failed on Quest's unavailable final engine detour: restore
+material/geometry budget owners through an actual camera-owned callback boundary
+with exact delegate identity and native fallback. Preserve desktop and authored
+Important lights; cap0 alone cannot certify no pixel-light passes. Remove only
+two dead full-game owner queries, retaining all five real guard families and
+inactive/late-owner coverage. Repair exact native tutorial rectangle clipping
+with existing TMP variants. Bounded passive snapshots separate one-sided native
+card requests from rendering and identify actual combat clips without audio
+writes. Spinner appearance, sound and guide causes remain hardware gates; added
+facts do not claim cures. Use compact Mod Update with retained banks/helpers;
+no local full APK/import/shader sweep. See
+[QUEST-HARDWARE-140053-20261018.md](QUEST-HARDWARE-140053-20261018.md).
+
 **Quest original native reconnect, 2026-10-18: feature / B688.**
 
 Capture125422 verifies current687/previous686 and incomplete busy Wall1 with
