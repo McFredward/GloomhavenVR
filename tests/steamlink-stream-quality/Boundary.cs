@@ -9,6 +9,7 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.Core.SteamLink
 {
+    internal static class SteamLinkCompositorMonitor { internal static void Tick(bool requested){} internal static void Reset(){} }
     internal static class SteamLinkConnection
     {
         internal static bool Available=true;

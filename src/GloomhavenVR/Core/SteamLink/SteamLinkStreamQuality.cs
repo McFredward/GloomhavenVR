@@ -28,6 +28,7 @@ internal static class SteamLinkStreamQuality
 
     internal static void Tick(bool enabled, int widthPixels, double nowSeconds)
     {
+        SteamLinkCompositorMonitor.Tick(Requested(true));
         State.Tick(Requested(enabled), NormalizeWidth(widthPixels), nowSeconds);
     }
     internal static bool Requested(bool enabled) => enabled && VRSession.IsRunning && !FrameNativePassthrough.Required
@@ -41,7 +42,7 @@ internal static class SteamLinkStreamQuality
         || Requested(true) && SteamLinkResolutionPolicy.TryWidth(carrierWidth, carrierHeight, out int width)
             && State.HostPrepared(width);
 
-    internal static void Reset() => State.Reset();
+    internal static void Reset() { SteamLinkCompositorMonitor.Reset(); State.Reset(); }
     internal static bool ValidWidth(int value) => value >= 64 && value <= 16384 && value % 64 == 0;
     internal static int NormalizeWidth(int value)
     {
