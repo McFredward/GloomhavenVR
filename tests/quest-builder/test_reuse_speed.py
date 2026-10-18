@@ -129,16 +129,19 @@ class PreparationObserverIdentityTests(unittest.TestCase):
     def test_only_complete_reviewed_undo_profile_retains_original_producers(self):
         previous = list(recovery_resume.OBSERVATION_UNDO_WITNESSES_PREVIOUS.values())
         current = list(recovery_resume.OBSERVATION_EDITOR_OVERLAY.values())
-        before = recovery_resume.preparation_source_rows(previous)
-        self.assertEqual(recovery_resume.preparation_source_rows(current), before)
+        # Profile dictionaries have historical insertion orders; manifests
+        # qualify the same canonical set of original producer records.
+        normalized = lambda rows: sorted(recovery_resume.preparation_source_rows(rows), key=lambda row: row["path"])
+        before = normalized(previous)
+        self.assertEqual(normalized(current), before)
         row = next(item for item in current if item["path"] == "tools/quest-builder/prepare_resume.py")
         actual = ROOT / row["path"]
         self.assertEqual(actual.stat().st_size, row["size"])
         self.assertEqual(storage.digest(actual), row["sha256"])
         changed = [{**item, "sha256": "0" * 64} if item is row else item for item in current]
-        self.assertNotEqual(recovery_resume.preparation_source_rows(changed), before)
+        self.assertNotEqual(normalized(changed), before)
         mixed = [item for item in current if item["path"] != "tools/quest-builder/project_access.py"]
-        self.assertNotEqual(recovery_resume.preparation_source_rows(mixed), before)
+        self.assertNotEqual(normalized(mixed), before)
 
 
 if __name__ == "__main__":

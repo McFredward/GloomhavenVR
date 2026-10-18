@@ -2,7 +2,7 @@
 
 The native-cache fixtures contain inert bytes. They exercise the real cache
 inventory and preparation/update identity boundaries, never guest execution or
-Android compilation. Baseline hashes identify the actual B673 helper repair; acquisition aliases remain bounded separately.
+Android compilation. Baseline hashes identify the current delivered native producers; acquisition aliases remain bounded separately.
 """
 import copy
 import hashlib
@@ -25,12 +25,12 @@ import update_driver as driver
 RUNTIME = ROOT / "tools/quest-procedural-runtime"
 BACKEND = "proton-arm64ec-fex"
 NATIVE_BASELINE = {
-    "proton_runtime.py": "de8ca6e814838507592e23b99ed96c496de1733b8825a32d066da125b0ad8d79",
+    "proton_runtime.py": "c3d237cf22279b2effd36f62762801b49949185fe5fa16b019ff08d925ae7196",
     "proton_layout.py": "656e626e5097e62c702e29e3845a833fb0ad4f776b76ad3c07677a54ce8f924c",
     "proton_launcher.c": "b4b2758cbc723b945c5a200d6ff911a5dcdf507acbe64f93df317d5cd4ea116a",
     "proton.lock.json": "0f833bf80c23ee3d394880a11b0e332f0a7e52f02912b73cc8c39fcd4cb73f94",
-    "bridge.c": "91957a6740d335667a2cab972421b4fa5824d4bfa9f13defee6efe6bc4a94c86",
-    "worker.c": "e8f27b055a2e06f6a68678f00f49a49cf42d44c2e9ceeccfd65982c273ff3d48",
+    "bridge.c": "d33d2206e43dd295f3bd10896bb509fd7f6c9975d1b83a5f9562b1423781807a",
+    "worker.c": "df8ba156c413a742538c99aa85e157cc22e7a7a13cfbd043c3f7ec49bbcf9269",
     "protocol.h": "ff353f38e7ff9d1aabd7c48ccba93248e4764111e8a4d29649cd4435fac323a5",
 }
 

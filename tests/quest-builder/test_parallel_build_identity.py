@@ -16,7 +16,7 @@ import recovery_resume
 import storage
 import update_driver
 
-BASE = "45416ec2ff7f6c94340d5b7af550c7ce8e254c8d"
+BASE = "79a53d673149b92752c62c638382f812685d6394"  # Delivered B693, before current-dev media.
 
 
 class ParallelBuildIdentityTests(unittest.TestCase):
@@ -34,7 +34,7 @@ class ParallelBuildIdentityTests(unittest.TestCase):
             if name == identity.BUILDER: cls.old_builder = raw
         cls.new = [storage.record_file(ROOT / name, name) for name in cls.selected]
         cls.new += [storage.record_file(ROOT / name, name) for name in (
-            "tools/quest-builder/staging_copy.py", "tools/quest-builder/native_bank_resume.py")]
+            "tools/quest-builder/runtime_overlay.py",) if name not in cls.selected]
         cls.new.sort(key=lambda row: row["path"])
 
     def setUp(self):
@@ -56,15 +56,15 @@ class ParallelBuildIdentityTests(unittest.TestCase):
                                         original_prefix=True, completed=True),
                          identity._scope(self.after, self.new_source, recovery_resume,
                                         original_prefix=True, completed=True))
-        # An incomplete original prefix cannot use the late Editor overlay,
-        # which requires the complete closed ownership schedule first.
-        self.assertNotEqual(identity._scope(self.before, self.old_source, recovery_resume, original_prefix=True),
-                            identity._scope(self.after, self.new_source, recovery_resume, original_prefix=True))
+        # This baseline already carries the current Editor profile. Host-only
+        # changes may retain an incomplete prefix too; actual Editor mutations
+        # are tested separately by the closed27-owner overlay fixtures.
+        self.assertEqual(identity._scope(self.before, self.old_source, recovery_resume, original_prefix=True),
+                         identity._scope(self.after, self.new_source, recovery_resume, original_prefix=True))
 
     def test_actual_late_editor_overlay_retains_previous_whole_source_profile(self):
         edits = editor_overlay.changes(self.before, self.after)
-        self.assertEqual([row[0] for row in edits],
-                         ["unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs"])
+        self.assertEqual([row[0] for row in edits], [])
         self.assertEqual(identity._completed_editor_rows([row for row in self.old if row["path"] in editor_overlay.TARGETS]),
                          identity._completed_editor_rows([row for row in self.new if row["path"] in editor_overlay.TARGETS]))
 

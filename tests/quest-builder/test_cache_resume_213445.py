@@ -54,7 +54,7 @@ class PublishedNativeResumeTests(unittest.TestCase):
         storage.write_json(self.marker, {"state": "ready", "owner": self.owner})
         published = copy.deepcopy(self.current)
         published["nativeHelperChanged"] = changed_helper
-        published["nativeCompilerRecipe"] = resume._PREVIOUS_RECIPE if old_recipe else self.current["nativeCompilerRecipe"]
+        published["nativeCompilerRecipe"] = resume._MEDIA_SCOPE_PREVIOUS if old_recipe else self.current["nativeCompilerRecipe"]
         self.published_root, self.published = self.write_plan(published)
         # INPUT still describes the immutable original conversion. UPDATE carries
         # the source/profile that actually produced the newly published Player.
@@ -117,7 +117,8 @@ class PublishedNativeResumeTests(unittest.TestCase):
     def test_previous_explicit_recipe_uses_only_reviewed_bridge(self):
         self.publish()
         self.assertNotEqual(resume._PREVIOUS_RECIPE, resume._LEGACY_RECIPE)
-        self.assertEqual(self.current["nativeCompilerRecipe"], resume._LEGACY_RECIPE)
+        self.assertEqual(self.current["nativeCompilerRecipe"], resume._MEDIA_SCOPE_CURRENT)
+        self.assertTrue(resume._same_recipe({"nativeCompilerRecipe": resume._MEDIA_SCOPE_PREVIOUS}, resume._MEDIA_SCOPE_CURRENT))
         self.assertTrue(resume._same_recipe({"nativeCompilerRecipe": resume._PREVIOUS_RECIPE}, resume._LEGACY_RECIPE))
         self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": resume._PREVIOUS_RECIPE}, "9" * 64))
         self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": "9" * 64}, resume._LEGACY_RECIPE))
