@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+    <FrameworkPathOverride>$(FrameworkReferenceDir)</FrameworkPathOverride>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FixtureDir)/Boundary.cs" />
+    <Compile Include="$(ProductionDir)/RenderQuality.cs" />
+    <Compile Include="$(ProductionDir)/Defaults.cs" />
+  </ItemGroup>
+</Project>

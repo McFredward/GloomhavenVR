@@ -15,8 +15,9 @@ internal static class Program
     private static void FrameTick(float time) { Time.unscaledTime=time; RenderQuality.TickFromUpdate(); }
     private static void ResetViewportTick(float time)
     { XRSettings.AcceptDisplayViewport(1); FrameTick(time); }
-    private static XRDisplaySubsystem Start(float saved, int samples=0, bool rejectStartup=false)
+    private static XRDisplaySubsystem Start(float saved, int samples=0, bool rejectStartup=false, bool standalone=true)
     {
+        FrameDefaults.Active=standalone;
         RenderQuality.EndSession(); XRSettings.Reset(); SubsystemManager.Displays.Clear(); VRLog.Lines.Clear();
         Camera.current=null; VRRigDriver.HeadCamera=new(); VRSession.IsRunning=false; Time.unscaledTime=0;
         RenderQuality.Bind(); RenderQuality.EyeResolutionScale!.Value=saved; RenderQuality.MsaaLevel!.Value=samples;
@@ -27,7 +28,7 @@ internal static class Program
             && XRSettings.ViewportWrites==0 && QualitySettings.AntiAliasingWrites==0,
             "quality selection never touches native resources before provider initialization");
         XRSettings.ProviderInitialized=true;
-        var display=new XRDisplaySubsystem { RejectStartupAllocation=rejectStartup }; SubsystemManager.Displays.Add(display);
+        var display=new XRDisplaySubsystem { RejectStartupAllocation=rejectStartup, AllowLiveAllocation=!standalone }; SubsystemManager.Displays.Add(display);
         RenderQuality.PrepareSession(); // selection after Initialize must recognize a fresh stopped display
         RenderQuality.PrepareDisplays();
         Near(display.scaleOfAllViewports, Math.Clamp(saved / display.scaleOfAllRenderTargets, .01f, 1),
@@ -46,8 +47,10 @@ internal static class Program
         Tick(.56f); Near(XRSettings.renderViewportScale,.85f,"latest resolution applies after quiet period");
         Check(XRSettings.LiveAllocationWrites==0 && display.AllocationWrites==1,"live resolution never recreates XR allocation");
         Check(VRLog.Lines.Count(x=>x.StartsWith("Eye resolution live change requested:"))==1,"one committed resolution transition for slider burst");
-        int writes=XRSettings.ViewportWrites; for(int i=0;i<100;i++) Tick(.6f+i*.02f);
+        int writes=XRSettings.ViewportWrites; int markerReads=FrameDefaults.Reads;
+        for(int i=0;i<100;i++) Tick(.6f+i*.02f);
         Check(XRSettings.ViewportWrites==writes,"stable setting never repeats viewport writes");
+        Check(FrameDefaults.Reads==markerReads,"Standalone Update and diagnostics never reread the profile marker");
         // Native scene/profile setup can reset a previously accepted viewport while
         // the persisted request is unchanged, as observed in the Frame633 run.
         XRSettings.renderViewportScale=1; writes=XRSettings.ViewportWrites;
@@ -221,6 +224,97 @@ internal static class Program
         Near(RenderQuality.EyeResolutionScale.Value,1,"increase beyond reduced startup remains saved for restart");
         Check(VRLog.Lines.Any(x=>x.Contains("above-capacity request saved for next VR restart")),
             "reduced startup capacity limit is explicitly reported");
+        PcLiveAllocation();
         Console.WriteLine($"RenderQuality production lifecycle: {_assertions} assertions passed.");
+    }
+
+    private static void PcLiveAllocation()
+    {
+        var display=Start(1, standalone:false);
+        FrameTick(0); int startupWrites=display.AllocationWrites;
+        Check(display.LiveAllocationWrites==0,"PC unchanged startup allocation has no redundant live setter");
+        // Actual production class, not a duplicated policy: model the provider's
+        // display setter, readback and changed eye dimensions through Update.
+        RenderQuality.EyeResolutionScale!.Value=.8f; FrameTick(.1f);
+        RenderQuality.EyeResolutionScale.Value=1.5f; FrameTick(.2f); FrameTick(.54f);
+        Check(display.AllocationWrites==startupWrites,"PC intermediate resolution requests wait for slider quiet");
+        FrameTick(.56f);
+        Near(display.scaleOfAllRenderTargets,1.5f,"PC increase resizes the running actual XR allocation");
+        Check(XRSettings.eyeTextureWidth==5112 && display.LiveAllocationWrites==1,"PC increase changes modeled actual eye dimensions once");
+        Near(XRSettings.renderViewportScale,1,"PC actual allocation uses a full viewport");
+        Check(XRSettings.AllocationWrites==0,"PC uses the display setter, not a legacy allocation fallback");
+        RenderQuality.EyeResolutionScale.Value=.6f; FrameTick(.6f); FrameTick(.96f);
+        Near(display.scaleOfAllRenderTargets,.6f,"PC decrease resizes the running actual XR allocation");
+        Check(XRSettings.eyeTextureWidth==(int)Math.Round(3408*.6f) && display.LiveAllocationWrites==2,"PC decrease updates modeled actual dimensions immediately");
+        RenderQuality.EyeResolutionScale.Value=1; FrameTick(1); FrameTick(1.36f);
+        Near(display.scaleOfAllRenderTargets,1,"PC return to1 restores native actual allocation");
+        Near(XRSettings.renderViewportScale,1,"PC return to1 has no residual viewport cap");
+        Check(XRSettings.eyeTextureWidth==3408 && display.LiveAllocationWrites==3,"PC return to1 restores modeled runtime resolution");
+        int writes=display.AllocationWrites; int markerReads=FrameDefaults.Reads;
+        for(int i=0;i<200;i++)FrameTick(1.4f+i*.02f);
+        Check(FrameDefaults.Reads==markerReads,"PC Update and diagnostics never reread the profile marker");
+        Check(display.AllocationWrites==writes,"PC stable resolution never repeats allocation writes");
+        Check(VRLog.Lines.Count(x=>x.StartsWith("Eye resolution live change requested:"))==3,"PC stable resolution does not repeat lifecycle work or logging");
+        Check(!VRLog.Lines.Any(x=>x.Contains("above-capacity request saved for next VR restart")),"PC live changes have no standalone next-restart cap");
+        Check(VRLog.Lines.Any(x=>x.Contains("PC live allocation") && x.Contains("actual eye target 3408x3408")),"PC diagnostic reports real target dimensions separately from API acceptance");
+
+        display=Start(.8f, standalone:false); FrameTick(0);
+        RenderQuality.EyeResolutionScale!.Value=1.8f; FrameTick(.1f); FrameTick(.46f);
+        Near(display.scaleOfAllRenderTargets,1.8f,"PC reduced startup can increase beyond starting capacity live");
+        Check(display.LiveAllocationWrites==1,"PC increased capacity is committed once");
+
+        display=Start(1, standalone:false); Camera.current=new();
+        RenderQuality.EyeResolutionScale!.Value=.75f; Tick(.1f); Tick(.5f);
+        Check(display.LiveAllocationWrites==0,"PC unmarked rendering call cannot resize eye allocation");
+        FrameTick(.51f); Near(display.scaleOfAllRenderTargets,.75f,"PC known Update handles stale Camera.current safely");
+        int allocations=display.AllocationWrites;
+        RenderQuality.AdoptRunningSession();
+        Check(display.AllocationWrites==allocations,"PC hot reload adopts without an allocation setter");
+        FrameTick(.6f); FrameTick(.96f);
+        Check(display.AllocationWrites==allocations,"PC adopted matching allocation has no redundant setter");
+        RenderQuality.EyeResolutionScale.Value=1.25f; Tick(1); Tick(1.4f);
+        Check(display.AllocationWrites==allocations,"PC unmarked call cannot inherit Update allocation permission");
+        Camera.current=null; FrameTick(1.41f);
+        Near(display.scaleOfAllRenderTargets,1.25f,"PC newer settled request can apply after rendering ends");
+
+        // A legacy reduced viewport must not multiply a fresh actual allocation.
+        display=Start(1, standalone:false); display.scaleOfAllViewports=.65f;
+        RenderQuality.EyeResolutionScale!.Value=.9f; FrameTick(.1f); FrameTick(.46f);
+        Near(display.scaleOfAllViewports,1,"PC clears a legacy display viewport reduction");
+        Near(XRSettings.renderViewportScale,1,"PC clears the legacy compatibility viewport reduction");
+        Near(display.scaleOfAllRenderTargets,.9f,"PC allocation is independent of legacy viewport reduction");
+        Check(display.LiveAllocationWrites==1,"PC viewport cleanup does not create another allocation request");
+
+        display=Start(1, standalone:false); display.RejectLiveAllocation=true;
+        RenderQuality.EyeResolutionScale!.Value=1.4f; FrameTick(.1f); FrameTick(.46f);
+        Check(display.LiveAllocationWrites==1,"PC provider refusal receives one bounded allocation attempt");
+        Near(display.scaleOfAllRenderTargets,1,"PC refused allocation never pretends a larger target exists");
+        for(int i=0;i<200;i++)FrameTick(.5f+i*.02f);
+        Check(display.LiveAllocationWrites==1,"PC refused allocation does not retry every frame");
+        Check(VRLog.Lines.Count(x=>x.StartsWith("PC eye allocation request refused:"))==1,"PC allocation refusal is reported once per request");
+        display.RejectLiveAllocation=false; RenderQuality.EyeResolutionScale.Value=1.3f; FrameTick(5); FrameTick(5.36f);
+        Near(display.scaleOfAllRenderTargets,1.3f,"PC new request recovers from provider refusal");
+        Check(display.LiveAllocationWrites==2,"PC recovery uses exactly one new allocation attempt");
+
+        display=Start(1, standalone:false); display.IgnoreLiveAllocation=true;
+        RenderQuality.EyeResolutionScale!.Value=1.2f; FrameTick(.1f); FrameTick(.46f);
+        Near(display.scaleOfAllRenderTargets,1,"PC silent provider refusal preserves actual allocation readback");
+        for(int i=0;i<100;i++)FrameTick(.5f+i*.02f);
+        Check(display.LiveAllocationWrites==1,"PC silent provider refusal never creates a setter loop");
+        Check(VRLog.Lines.Any(x=>x.Contains("REFUSED or limited by provider")),"PC provider readback mismatch is explicit");
+        VRSession.IsRunning=false; RenderQuality.EyeResolutionScale.Value=.8f; FrameTick(3); FrameTick(3.4f);
+        Check(display.LiveAllocationWrites==1,"PC stopped session never writes render allocation");
+
+        display=Start(1, standalone:false); VRRigDriver.HeadCamera!.actualRenderingPath=RenderingPath.DeferredShading;
+        RenderQuality.EyeResolutionScale!.Value=.8f; FrameTick(.1f); FrameTick(.46f);
+        Near(display.scaleOfAllRenderTargets,.8f,"PC allocation path does not depend on unsupported deferred viewport scaling");
+        Check(display.LiveAllocationWrites==1,"PC deferred path makes one actual allocation request");
+        // The initial full lifecycle above is the independent safety control:
+        // every standalone live-allocation count must remain zero.
+        display=Start(1, standalone:true);
+        RenderQuality.EyeResolutionScale!.Value=1.5f; FrameTick(.1f); FrameTick(.46f);
+        Check(display.LiveAllocationWrites==0 && XRSettings.LiveAllocationWrites==0,"Standalone remains isolated from PC live allocation");
+        Near(display.scaleOfAllRenderTargets,1,"Standalone retains stable startup capacity after PC tests");
+
     }
 }
