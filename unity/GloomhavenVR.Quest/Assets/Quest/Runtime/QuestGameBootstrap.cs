@@ -148,6 +148,17 @@ namespace GloomhavenVR.Quest
                     StoreContentProgress(new QuestGameContentProgress(progress.Phase, progress.File, progress.ProcessedBytes, progress.TotalBytes,
                         (long)installedModWeight + progress.OverallProcessedBytes, (long)modContentWeight, progress.FileIndex, progress.FileCount), false);
                 }, UpdateStartupPresentation);
+            // Correct only the independently packaged native-channel startup clips.
+            // Warm launches reuse private receipts; compact updates never recook Campaign.
+            installedModWeight = modContentWeight;
+            yield return QuestAudioClipContent.InstallRoutine(Application.platform == RuntimePlatform.Android && !Application.isEditor
+                ? Application.dataPath : null, Application.streamingAssetsPath, Path.Combine(modRoot, "StreamingAssets"),
+                progress => {
+                    State = "extracting-mod-content";
+                    modContentWeight = installedModWeight + progress.OverallTotalBytes;
+                    StoreContentProgress(new QuestGameContentProgress(progress.Phase, progress.File, progress.ProcessedBytes, progress.TotalBytes,
+                        (long)installedModWeight + progress.OverallProcessedBytes, (long)modContentWeight, progress.FileIndex, progress.FileCount), false);
+                }, UpdateStartupPresentation);
             // Exact card contours travel as a tiny independent APK asset. Never
             // reopen/reinstall the Campaign or mod bank for an alpha-only update.
             // Activate publishes modRoot/StreamingAssets as ResourceDirectory.

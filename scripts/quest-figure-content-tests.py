@@ -46,14 +46,19 @@ def reap_owned(group):
 def main():
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--runtime-source', type=Path, default=root / 'unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestFigureMeshContent.cs')
+    parser.add_argument('--kind', choices=('figure', 'audio'), default='figure')
+    parser.add_argument('--runtime-source', type=Path)
     parser.add_argument('--case', action='append')
     args = parser.parse_args()
+    stem = 'QuestAudioClipContent' if args.kind == 'audio' else 'QuestFigureMeshContent'
+    suite = 'quest-' + args.kind + '-content'
+    fixture_name = 'QuestAudioContent.Tests' if args.kind == 'audio' else 'QuestFigureContent.Tests'
+    if args.runtime_source is None: args.runtime_source = root / 'unity/GloomhavenVR.Quest/Assets/Quest/Runtime' / (stem + '.cs')
     original = args.runtime_source.read_text()
     cases = [('production', '', '', '')]
     controls = [
         ('digest-ignored', 'if (BitConverter.ToString(hash.Hash).Replace("-", "").ToLowerInvariant() != item.sha256)', 'if (item.size < 0)', 'ASSERT[bad-part-rejected]'),
-        ('warm-rereads', '&& File.ReadAllText(receipt) == proof)', '&& item.size < 0)', 'Owned figure part missing'),
+        ('warm-rereads', '&& File.ReadAllText(receipt) == proof)', '&& item.size < 0)', 'Owned ' + args.kind + ' part missing'),
         ('temporary-leaked', 'finally { if (File.Exists(temporary)) File.Delete(temporary); }', 'finally { }', 'ASSERT[no-temp-leak]'),
         ('index-not-last', 'Array.Sort(manifest.files, (a, b) => a.path == Index ? 1 : b.path == Index ? -1 : string.CompareOrdinal(a.path, b.path));', '// no publication ordering', 'ASSERT[index-last]'),
     ]
@@ -61,16 +66,16 @@ def main():
     if args.case:
         cases = [case for case in cases if case[0] in args.case]
         if len(cases) != len(set(args.case)): parser.error('Unknown or repeated case')
-    base = root / '.planning/debug/quest-figure-content'; base.mkdir(parents=True, exist_ok=True)
+    base = root / '.planning/debug' / suite; base.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=base))
-    runner = run / 'runner.log'; runner.write_text('Quest figure content evidence: ' + str(run) + '\n')
+    runner = run / 'runner.log'; runner.write_text('Quest ' + args.kind + ' content evidence: ' + str(run) + '\n')
     print(runner.read_text(), end='', flush=True)
     borrowed = run / 'sources'; borrowed.mkdir()
-    (borrowed / 'QuestFigureMeshContent.cs').write_text(original)
+    (borrowed / (stem + '.cs')).write_text(original)
     evidence = {'sourcePath': str(args.runtime_source), 'sourceSha256': hashlib.sha256(args.runtime_source.read_bytes()).hexdigest(),
                 'scope': 'Portable .NET8 exact runtime helper; actual File/ZipArchive/SHA256/File.Replace; Unity JsonUtility field boundary stubbed.', 'headsetVerified': False, 'cases': []}
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
-    fixture = root / 'tests/QuestFigureContent.Tests'
+    fixture = root / 'tests' / fixture_name
     environment = dict(os.environ, MSBUILDDISABLENODEREUSE='1')
     process = None; exit_code = 1; children = []
     linux = sys.platform.startswith('linux')
@@ -85,14 +90,14 @@ def main():
             if before:
                 if original.count(before) != 1: raise RuntimeError('Causal binding drift: ' + name)
                 modified = original.replace(before, after, 1)
-            (source / 'QuestFigureMeshContent.cs').write_text(modified)
-            command = [dotnet, 'build', str(project / 'QuestFigureContent.Tests.csproj'), '-c', 'Release', '--nologo', '--verbosity', 'quiet', '--disable-build-servers', '-p:RuntimeSource=' + str(source)]
+            (source / (stem + '.cs')).write_text(modified)
+            command = [dotnet, 'build', str(project / (fixture_name + '.csproj')), '-c', 'Release', '--nologo', '--verbosity', 'quiet', '--disable-build-servers', '-p:RuntimeSource=' + str(source)]
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=environment, start_new_session=True)
             output, _ = process.communicate(timeout=120)
             (case / 'build.log').write_text(output)
             if process.returncode: raise RuntimeError('Fixture compilation failed: ' + str(case / 'build.log'))
             if linux: children.append(reap_owned(process.pid))
-            command = [dotnet, str(project / 'bin/Release/net8.0/QuestFigureContent.Tests.dll'), str(case / 'files')]
+            command = [dotnet, str(project / 'bin/Release/net8.0' / (fixture_name + '.dll')), str(case / 'files')]
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=environment, start_new_session=True)
             output, _ = process.communicate(timeout=30)
             (case / 'console.log').write_text(output)
@@ -110,7 +115,7 @@ def main():
             process.wait()
         if linux: children.append(reap_owned(process.pid if process is not None else None))
         (run / 'process-cleanup.json').write_text(json.dumps(children, indent=2) + '\n')
-        cleanup = cleanup_completed_run('quest-figure-content', exit_code, runner, root, process_reaped=True)
+        cleanup = cleanup_completed_run(suite, exit_code, runner, root, process_reaped=True)
         (run / 'cleanup.json').write_text(json.dumps(cleanup, indent=2) + '\n')
 
 
