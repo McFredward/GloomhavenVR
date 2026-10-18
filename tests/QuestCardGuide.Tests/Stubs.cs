@@ -9,8 +9,8 @@ class LevelMessagesUIHandler { internal static LevelMessagesUIHandler? s_Instanc
 class Message { internal string MessageName="TB_select"; }
 namespace GloomhavenVR.Cards
 {
- enum NativeMode { CardsSelection,DiscardCard }
- static class CardsGameApi { internal static int NativeReads;internal static NativeMode CurrentMode=NativeMode.CardsSelection;internal static NativeMode Mode(CardsHandUI h){NativeReads++;return CurrentMode;}internal static int SelectionCardsStillWanted(CardsHandUI h){NativeReads++;return h.PlayerActor==null?0:Math.Max(0,2-h.PlayerActor.CharacterClass!.RoundAbilityCards.Count);} }
+ enum CardHandMode { CardsSelection,DiscardCard }
+ static class CardsGameApi { internal static int NativeReads;internal static int PickWanted=2;internal static bool IsPickMode(CardHandMode mode)=>mode==CardHandMode.DiscardCard;internal static int PickCardsWanted()=>PickWanted;internal static CardHandMode CurrentMode=CardHandMode.CardsSelection;internal static CardHandMode Mode(CardsHandUI h){NativeReads++;return CurrentMode;}internal static int SelectionCardsStillWanted(CardsHandUI h){NativeReads++;return h.PlayerActor==null?0:Math.Max(0,2-h.PlayerActor.CharacterClass!.RoundAbilityCards.Count);} }
  class VRCard { internal bool IsHeld;internal int Id=2; internal int GetInstanceID()=>Id; }
  class PlayTray
  {
