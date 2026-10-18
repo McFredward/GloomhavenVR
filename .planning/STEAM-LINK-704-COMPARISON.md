@@ -103,3 +103,33 @@ read-only Frame logs, `quality-lifecycle/`, independent architecture and native
 reviews. All current image-quality, full first-frame edge behavior and native
 dashboard outcomes remain hardware-unverified. No new headset test is requested
 for a purported full-quality repair in this source-only correction.
+
+## Dashboard diagnostic attachment on2026-10-18
+
+The isolated diagnostic was explicitly authorized and actually loaded on the
+Frame. Native SteamVR2.18.2 startup succeeded. Its cold queue-profile admission
+refused before recording (`ready:false`, reason3, zero submissions/draws); no
+stream action or menu comparison followed, and no sparse record/image capture
+was taken. This is diagnostic failure evidence, not a dashboard repair result.
+The remaining rejected predicate was not recorded: queue flags, queue extension
+chain or missing observed graphics capability. In particular, family0 is the
+old unassigned field default on this branch. Do not treat it as a measured
+family, or earlier count1/family0 receipts as proof of null extension chains.
+
+The maintainer approved manual rollback, all original public activation hashes
+and links were restored, the public receiver was mapped without the diagnostic,
+and the maintainer confirmed a normal visible/usable Frame surface. A transient
+owned user runtime mask serialized the swap against the Frame's competing
+restart; it was removed before starting, with no timer or system-unit change.
+No GloomhavenVR production source, renderer, PC sender or public receiver binary
+changed in this attachment. Native source review found the isolated probe's
+blanket queue-extension rejection diverged from the earlier successful typed
+global-priority scheduling contract; that is a correction target, not yet the
+proved cause of this device's refusal.
+
+Exact private receipts: `native/dashboard704-20261018-083233-950bad/` beside the
+existing Build704 evidence, including `manual-rollback-result.json`,
+`rollback-verification.json` and `completion-cleanup.json`. All small metadata is
+saved locally. Under1MiB of inactive Frame staging is retained because six
+same-user maps were inaccessible, preventing a complete unmapped-library proof;
+no diagnostic manifest, drop-in or runtime mask remains active.

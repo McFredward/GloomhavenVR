@@ -16,6 +16,16 @@ remains open native work. Focused114/138/47 evidence with ten affected causal
 controls is composed with unchanged earlier evidence, not a complete gate.
 See [the current comparison record](STEAM-LINK-704-COMPARISON.md).
 
+The first explicitly authorized isolated dashboard diagnostic actually loaded,
+but its cold QueueProfile guard refused before recording. No stream/menu test
+or capture followed; the public installation was exactly restored and the user
+confirmed normal UI. Counts1/1 do not prove the missing queue flags/extension
+and graphics-query predicates, and family0 on that refusal was only a default.
+The old successful transaction already supported a typed global-priority
+scheduling node; that narrow contract and precise cold evidence must be reused
+before another attachment. This is diagnostic repair work, not a menu/quality
+fix or a new hardware-success claim.
+
 **Live PCVR eye resolution and native dashboard assessment, 2026-10-18: Build703.**
 
 Actual Frame702 video is3264x6400 despite an acknowledged4096 request; the v3
