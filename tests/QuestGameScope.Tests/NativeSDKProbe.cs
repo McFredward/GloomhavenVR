@@ -32,7 +32,11 @@ static class NativeSDKProbe
                 return File.Exists(path) ? AssemblyLoadContext.Default.LoadFromAssemblyPath(path) : null;
             };
             var original = AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.Combine(game, "GH.Runtime.dll"));
-            var names = new[] { "GLOOM.MainMenu.UIMainOptionsMenu", "VoiceChat.VoceChatOptions", "UIBuyDLCSlot", "UIPromotionDLCSlot", "GLOOM.MainMenu.UILoadGameSlot", "UIDLCSelectorOption", "GLOOM.MainMenu.UIMainMenuSuboption" };
+            var names = new[] {
+#if !GHVR_QUEST_GAME
+                "GLOOM.MainMenu.UIMainOptionsMenu", "VoiceChat.VoceChatOptions",
+#endif
+                "UIBuyDLCSlot", "UIPromotionDLCSlot", "GLOOM.MainMenu.UILoadGameSlot", "UIDLCSelectorOption", "GLOOM.MainMenu.UIMainMenuSuboption" };
             foreach (string name in names)
             {
                 var owner = Type.GetType(name + ", GH.Runtime", true)!;

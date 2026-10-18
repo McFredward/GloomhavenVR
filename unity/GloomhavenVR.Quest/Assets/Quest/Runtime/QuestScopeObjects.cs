@@ -11,7 +11,13 @@ namespace GloomhavenVR.Quest
     {
         static readonly string[] NativeNames =
         {
+#if !GHVR_QUEST_GAME
+            // The legacy diagnostic target excludes these two features. The
+            // full game retains both and compiles their Scan branches out;
+            // querying their owners there did no work but still searched all
+            // loaded native objects twice each second (B688 hardware).
             "GLOOM.MainMenu.UIMainOptionsMenu", "VoiceChat.VoceChatOptions",
+#endif
             "UIBuyDLCSlot", "UIPromotionDLCSlot", "GLOOM.MainMenu.UILoadGameSlot",
             "UIDLCSelectorOption", "GLOOM.MainMenu.UIMainMenuSuboption"
         };
@@ -59,7 +65,7 @@ namespace GloomhavenVR.Quest
         {
             // Bind already-present UI immediately once, preserving B621 startup.
             // Ordinary ticks query one named family; a stalled/backward clock may
-            // require a bounded catch-up of at most these seven known families.
+            // require a bounded catch-up of at most these known families.
             if (!scheduled)
             {
                 Collect(result);

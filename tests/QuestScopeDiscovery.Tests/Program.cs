@@ -210,6 +210,46 @@ public static class InteractionProgram
         // neither a forced desktop ratio nor a fabricated headset gain is proof.
         Check(targeted.MatchedOwnerCount == matched && targeted.LastNativeObjectCount == returned,
             "priced repeated targeted discovery retains its exact bounded candidate population");
+        // The full player has five live exclusion families; its two legacy
+        // diagnostic-only families must not add routine native searches. Test
+        // the same collector with five real types among this same 14k population.
+        var fullFamilies = new QuestScopeObjects(Types.Skip(2).ToArray());
+        fullFamilies.CollectDue(0d, actual);
+        Check(fullFamilies.LastQueryTypeCount == 5, "full-game family count performs exactly five initial native queries");
+        previous.Collect(old, scratch);
+        var fiveExpected = new HashSet<int>(old.Where(value => value != null && Types.Skip(2).Contains(value.GetType())).Select(value => value.GetInstanceID()));
+        Check(fiveExpected.SetEquals(actual.Select(value => value.GetInstanceID())),
+            "full-game family set retains exact B621 live owners and excludes assets, subclasses and unloaded owners");
+        Check(actual.Contains(persistent) && actual.Contains(hidden),
+            "full-game native family discovery retains DDOL and DontSave owners");
+        long fiveStarted = Stopwatch.GetTimestamp();
+        long fiveAllocated = GC.GetAllocatedBytesForCurrentThread();
+        int fiveCollections = GC.CollectionCount(0), fiveQueries = 0;
+        var fiveCounts = new int[5];
+        for (int tick = 1; tick <= 100; tick++)
+        {
+            fullFamilies.CollectDue(tick / 5d + .000001d, actual);
+            Check(fullFamilies.LastQueryTypeCount == 1, "five-family native schedule retains one ordinary query per due tick");
+            fiveCounts[fullFamilies.LastQueryFamilyIndex]++; fiveQueries += fullFamilies.LastQueryTypeCount;
+        }
+        double fiveMs = (Stopwatch.GetTimestamp() - fiveStarted) * 1000d / Stopwatch.Frequency;
+        fiveAllocated = GC.GetAllocatedBytesForCurrentThread() - fiveAllocated;
+        fiveCollections = GC.CollectionCount(0) - fiveCollections;
+        Check(fiveQueries == 100 && fiveCounts.All(count => count == 20),
+            "every remaining full-game family retains its original one-second maximum interval");
+        var fiveLate = inactive.gameObject.AddComponent<ScopeOwnerD>(); bool fiveFound = false;
+        for (int tick = 101; tick <= 105; tick++)
+        {
+            fullFamilies.CollectDue(tick / 5d + .000001d, actual);
+            fiveFound |= actual.Contains(fiveLate);
+        }
+        Check(fiveFound, "five-family native schedule retains late AddComponent on an existing inactive owner");
+        string fiveFacts = "fullGameFiveFamilyQueriesAcross20Seconds=" + fiveQueries
+            + "\nfullGameFiveFamilyTotalMs=" + fiveMs.ToString("R", CultureInfo.InvariantCulture)
+            + "\nfullGameFiveFamilyGen0Collections=" + fiveCollections
+            + "\nfullGameFiveFamilyAllocatedBytesPerQuery=" + (allocationCounterReliable ? (fiveAllocated / 100d).ToString(CultureInfo.InvariantCulture) : "unsupported") + "\n";
+        if (!string.IsNullOrEmpty(report)) File.AppendAllText(report, fiveFacts);
+        Console.WriteLine(fiveFacts);
         Object.DestroyImmediate(root); Object.DestroyImmediate(persistent.gameObject); AssetDatabase.DeleteAsset(prefabPath);
         yield break;
     }

@@ -7,12 +7,16 @@ DDOL owners, imported prefabs, additive unload and future subclasses. Desktop CP
 and negative controls do not establish Android timing or headset hitch removal.
 """
 import argparse
+import atexit
+import ctypes
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,8 +51,18 @@ def main():
     output = ROOT / ".planning/debug/quest-scope-discovery"
     output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
+    log = run / "runner.log"; log.write_text("Quest scope evidence: " + str(run) + "\n")
+    def cleanup_unlaunched_run():
+        # Compilation/project-setup failures precede the Unity process boundary.
+        # subprocess.run has already reaped its own child before this callback.
+        if (run / "cleanup.json").is_file(): return
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from town_run_retention import cleanup_completed_run
+        (run / "cleanup.json").write_text(json.dumps(cleanup_completed_run("quest-scope-discovery", 1, log, ROOT, process_reaped=True), indent=2) + "\n")
+    atexit.register(cleanup_unlaunched_run)
     print("Quest real Unity targeted scope evidence: " + str(run), flush=True)
-    fixture = ROOT / "tests/QuestScopeDiscovery.Tests"
+    fixture = run / "fixture"
+    shutil.copytree(ROOT / "tests/QuestScopeDiscovery.Tests", fixture, ignore=shutil.ignore_patterns("bin", "obj"))
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     unity = Path("/home/claw/unity-2021.3.5/Editor/Unity")
     game = ROOT / "ressources/GH_Data/Managed"
@@ -67,7 +81,8 @@ def main():
         assembly = "QuestScopeDiscovery_" + name.replace("-", "_")
         result = subprocess.run([dotnet, "build", str(project), "-c", "Release", "--nologo", "--verbosity", "quiet",
             "-p:CaseName=" + assembly, "-p:FixtureDir=" + str(fixture), "-p:ProductionDir=" + str(production),
-            "-p:UnityManaged=" + str(unity.parent / "Data/Managed"), "-p:GameManaged=" + str(game)], capture_output=True, text=True)
+            "-p:UnityManaged=" + str(unity.parent / "Data/Managed"), "-p:GameManaged=" + str(game),
+            "-p:UseSharedCompilation=false", "-nodeReuse:false"], capture_output=True, text=True)
         (case / "build.log").write_text(result.stdout + result.stderr)
         if result.returncode: raise SystemExit(result.stdout + result.stderr + "Compilation cannot pass a negative control.")
         manifest["cases"].append({"name": name, "dll": str(case / "bin/Release/netstandard2.1" / (assembly + ".dll")), "expected": expected})
@@ -89,12 +104,27 @@ def main():
         "-interactionManifest", str(manifest_path), "-logFile", str(run / "unity.log")]
     if not os.environ.get("DISPLAY"): command = ["xvfb-run", "-a"] + command
     environment = os.environ.copy(); environment["QUEST_DISCOVERY_CPU_REPORT"] = str(run / "cpu.txt")
-    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=300, env=environment)
+    if sys.platform.startswith("linux"):
+        if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0): raise OSError("Could not own scope fixture descendants")
+    process = None; code = 1
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, env=environment, start_new_session=True)
+        code = process.wait(timeout=300)
+    finally:
+        reaped = process is None
+        if process is not None:
+            if process.poll() is None: process.kill(); process.wait()
+            spec = importlib.util.spec_from_file_location("scope_process_cleanup", ROOT / "scripts/quest-menu-sampling-tests.py")
+            helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+            (run / "process-cleanup.json").write_text(json.dumps(helper.reap_fixture_group(process.pid), indent=2) + "\n")
+            reaped = True
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from town_run_retention import cleanup_completed_run
+        (run / "cleanup.json").write_text(json.dumps(cleanup_completed_run("quest-scope-discovery", code, log, ROOT, process_reaped=reaped), indent=2) + "\n")
     report = Path(manifest["result"])
     if report.is_file(): print(report.read_text(), end="", flush=True)
-    if result.returncode or not report.is_file(): raise SystemExit("FAIL real Unity targeted scope fixture: " + str(run / "unity.log"))
+    if code or not report.is_file(): raise SystemExit("FAIL real Unity targeted scope fixture: " + str(run / "unity.log"))
     if (run / "cpu.txt").is_file(): print((run / "cpu.txt").read_text(), end="", flush=True)
-    for cache in ("Library", "Temp"): shutil.rmtree(project / cache, ignore_errors=True)
     print("PASS production targeted scope and " + str(len(controls)) + " defect controls")
 
 

@@ -202,13 +202,20 @@ static class Program
         object futureCallback = new object(); future.Callback = futureCallback;
         Tick(scope);
         Check(Resources.GlobalEnumerations == 0, "scope never enumerates broad imported asset population");
+#if GHVR_QUEST_GAME
+        Check(Resources.TargetedQueries.Count == 5 && !Resources.TargetedQueries.Contains(typeof(MonoBehaviour))
+            && !Resources.TargetedQueries.Contains(typeof(GLOOM.MainMenu.UIMainOptionsMenu))
+            && !Resources.TargetedQueries.Contains(typeof(VoiceChat.VoceChatOptions)),
+            "full game queries only its five used exact original owner types");
+#else
         Check(Resources.TargetedQueries.Count == 7 && !Resources.TargetedQueries.Contains(typeof(MonoBehaviour)), "scope queries only seven exact original owner types");
+#endif
         Check(Resources.TargetedObjects <= 2, "scope transfers only native target candidates to managed code");
         Check(asset.NativeButton.interactable, "non-scene prefab purchase content remains untouched");
         Check(!inactive.NativeButton.interactable, "inactive original purchase widget discovered");
         Check(!future.NativeButton.interactable && ReferenceEquals(future.Callback, futureCallback), "future native option stays under original ownership");
 
-        var late = new UIPromotionDLCSlot(); Tick(scope, .5f);
+        var late = new UIPromotionDLCSlot(); Tick(scope, .01f);
         Check(late.NativeButton.interactable, "discovery cadence remains one second");
         Tick(scope, 1.01f);
         Check(!late.NativeButton.interactable, "delayed native widget discovered on next ordinary scan");
@@ -263,7 +270,7 @@ static class Program
         targeted.Collect(actual);
         Check(!actual.Contains(additive), "targeted discovery drops unloaded scene owners");
         Check(actual.Count == 3 && targeted.LastNativeObjectCount == 5, "targeted result filters exact identities without broad scene census");
-        var delayed = new UIPromotionDLCSlot(); delayed.gameObject.SetActive(false); Tick(scope, .5f);
+        var delayed = new UIPromotionDLCSlot(); delayed.gameObject.SetActive(false); Tick(scope, .01f);
         Check(delayed.NativeButton.interactable, "targeted discovery retains ordinary delayed-spawn cadence");
         Tick(scope, 1.01f); Check(!delayed.NativeButton.interactable, "targeted discovery finds new inactive owners without lifecycle hooks");
         UnityEngine.Object.Destroy(delayed);
