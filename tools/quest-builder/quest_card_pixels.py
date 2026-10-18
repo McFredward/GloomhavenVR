@@ -27,6 +27,7 @@ MAX_PIXELS = 4096 * 4096
 MAX_TOTAL = 384 * 1024 * 1024  # pixels on disk; never decoded together
 MAX_ENTRIES = 4096
 MAX_SOURCE = 128 * 1024 * 1024
+COMPRESSION_LEVEL = 6
 _BUNDLE = re.compile(r"(?:character_gui_assets_ac_[a-z0-9_]+|itemconfigs_backgrounds_assets_[a-z0-9_-]+|actor_portrats_assets_[a-z0-9_]+)[.]bundle\Z", re.IGNORECASE)
 _COMMON = re.compile(r"(?:dlc_dlc[0-9]+_)?misc_(?:gui|characterportraits)_assets_all[.]bundle\Z", re.IGNORECASE)
 _UNSAFE_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -121,6 +122,28 @@ def write_entries(entries, target):
     target.parent.mkdir(parents=True, exist_ok=True)
     records, ambiguous, seen = {}, set(), 0
     with tempfile.TemporaryFile(dir=target.parent) as spool:
+        dead_bytes = 0
+        def compact():
+            # Ambiguous names have no runtime entry. Reclaim their old bytes
+            # before applying the wire-file budget, without decoding any source
+            # twice or retaining a second full spool. Moving left in source
+            # offset order cannot overwrite a later unread payload.
+            end = 0
+            for row in sorted(records.values(), key=lambda row: row["offset"]):
+                offset, remaining = row["offset"], row["size"]
+                row["offset"] = end
+                while remaining:
+                    spool.seek(offset)
+                    block = spool.read(min(remaining, 1024 * 1024))
+                    if not block:
+                        raise PixelError("Owned card pixel spool is truncated.")
+                    spool.seek(end)
+                    spool.write(block)
+                    offset += len(block)
+                    end += len(block)
+                    remaining -= len(block)
+            spool.truncate(end)
+            spool.seek(end)
         for name, width, height, srgb, pixels in entries:
             if (not isinstance(name, str) or "\0" in name or not 0 < len(name.encode("utf-8")) <= 1024
                     or not 1 <= width <= 4096 or not 1 <= height <= 4096
@@ -130,22 +153,32 @@ def write_entries(entries, target):
             if seen > MAX_ENTRIES * 4:
                 raise PixelError("Owned UI source texture inventory exceeds its bound.")
             name = canonical_name(name)
+            if name in ambiguous:
+                continue
             digest = hashlib.sha256(pixels).digest()
             identity = width, height, srgb, digest
             if name in records:
                 if records[name]["identity"] != identity:
                     ambiguous.add(name)
+                    dead_bytes += records.pop(name)["size"]
                 continue
             if len(records) >= MAX_ENTRIES:
                 raise PixelError("Owned card pixel inventory exceeds its entry bound.")
-            compressor = zlib.compressobj(1, zlib.DEFLATED, -15)
+            # Level1's fast search has materially different ratios across
+            # standard zlib (Windows CPython) and zlib-ng (our Linux toolchain).
+            # Use the normal lossless search on every host. GHVP1/DeflateStream
+            # and every decoded texel stay unchanged; no Unity rebuild is needed.
+            compressor = zlib.compressobj(COMPRESSION_LEVEL, zlib.DEFLATED, -15)
             payload = compressor.compress(pixels) + compressor.flush()
+            if spool.tell() + len(payload) > MAX_FILE and dead_bytes:
+                compact()
+                dead_bytes = 0
             if spool.tell() + len(payload) > MAX_FILE:
-                raise PixelError("Owned card pixel spool exceeds its compressed byte bound.")
+                raise PixelError("Owned card pixel spool exceeds its compressed byte bound "
+                                 f"({spool.tell() + len(payload)} > {MAX_FILE} bytes; "
+                                 f"zlib {zlib.ZLIB_RUNTIME_VERSION}, level {COMPRESSION_LEVEL}).")
             records[name] = {"identity": identity, "offset": spool.tell(), "size": len(payload)}
             spool.write(payload)
-        for name in ambiguous:
-            records.pop(name, None)
         if not records or sum(r["identity"][0] * r["identity"][1] for r in records.values()) > MAX_TOTAL:
             raise PixelError("Owned card pixel inventory is empty or exceeds its decoded bound.")
         result = []
@@ -209,6 +242,7 @@ def build(game, cache, game_key, *, progress=None, decoder=None):
         _replace(temporary, target)
         _publish(receipt, (json.dumps({"sources": before, "manifest": metadata, "textures": records,
                                      "outputMtimeNs": target.stat().st_mtime_ns,
+                                     "compression": {"level": COMPRESSION_LEVEL, "zlib": zlib.ZLIB_RUNTIME_VERSION},
                                      "ambiguousNamesRejected": ambiguous}, sort_keys=True, indent=2) + "\n").encode())
         return {"path": str(target), "manifest": metadata, "reused": False}
     finally:

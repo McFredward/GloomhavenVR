@@ -2,6 +2,7 @@
 import hashlib
 import importlib.util
 import json
+import random
 from pathlib import Path
 import struct
 import tempfile
@@ -34,6 +35,47 @@ def unpack(path):
 
 
 class CardPixelTests(unittest.TestCase):
+    def test_normal_lossless_search_fits_artwork_that_fast_search_cannot_fit(self):
+        # Card-like repeated motifs at varied offsets exercise DEFLATE's search
+        # distance, rather than a zero-filled texture that every preset handles.
+        rng = random.Random(177)
+        motifs = [rng.randbytes(64) for _ in range(100)]
+        rgba = b"".join(rng.choice(motifs) for _ in range(4096))
+        def length(level):
+            c = zlib.compressobj(level, zlib.DEFLATED, -15)
+            return len(c.compress(rgba) + c.flush())
+        self.assertLess(length(6), length(1))
+        bound = length(6) + 9 + 4 + len("Ability") + 16 + 32
+        self.assertGreater(length(1), bound)
+        with tempfile.TemporaryDirectory() as directory, patch.object(pixels, "MAX_FILE", bound):
+            path = Path(directory) / "pixels.bin"
+            pixels.write_entries([("Ability", 256, 256, 1, rgba)], path)
+            self.assertEqual(path.stat().st_size, bound)
+            self.assertEqual(unpack(path)["Ability"][3], rgba)
+            with patch.object(pixels, "COMPRESSION_LEVEL", 1), self.assertRaises(pixels.PixelError):
+                pixels.write_entries([("Ability", 256, 256, 1, rgba)], path)
+
+    def test_ambiguous_dead_spool_is_reclaimed_without_redecoding_or_losing_later_payload(self):
+        rng = random.Random(984)
+        dead, body, tail = rng.randbytes(256), rng.randbytes(2 * 1024 * 1024), rng.randbytes(16)
+        def length(data):
+            c = zlib.compressobj(6, zlib.DEFLATED, -15)
+            return len(c.compress(data) + c.flush())
+        bound = length(dead) + length(body)
+        self.assertGreater(bound, length(body) + length(tail) + 121)
+        entries = [("ambiguous", 8, 8, 1, dead), ("body", 512, 1024, 1, body),
+                   ("ambiguous", 8, 8, 1, bytes(reversed(dead))), ("tail", 2, 2, 1, tail),
+                   ("ambiguous", 8, 8, 1, dead)]
+        with tempfile.TemporaryDirectory() as directory, patch.object(pixels, "MAX_FILE", bound):
+            path = Path(directory) / "pixels.bin"
+            records, rejected = pixels.write_entries(iter(entries), path)
+            actual = unpack(path)
+            self.assertEqual(set(actual), {"body", "tail"})
+            self.assertEqual(actual["body"][3], body)
+            self.assertEqual(actual["tail"][3], tail)
+            self.assertEqual(rejected, ["ambiguous"])
+            self.assertEqual(len(records), 2)
+
     def test_unrelated_empty_and_oversized_native_font_textures_are_not_decoded(self):
         class Font:
             m_Name = "Font Texture"
