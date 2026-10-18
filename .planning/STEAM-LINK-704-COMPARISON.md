@@ -1,5 +1,39 @@
 # Build704 — direct MR comparison and source admission
 
+## Completed menu observation after diagnostic correction
+
+The third attachment completed all6 phase/selector records and manual fenced
+collection, with no refusal. Actual logged closed/open/closed contexts were
+checked before each command, and31 transferred files matched remote SHA256.
+Open samples use companion6 and exact original994 after first guard0.05083088949;
+closed samples use companion5 and v3 after0.1251221895. The ratio0.40625 alone is
+not evidence for a global fade/gamma law. R1, flags and tint stay unchanged.
+
+Both companions are used in every context (5:1345/913/352;6:1344/914/352 submitted
+recorded-command uses). A single first winner cannot prove a whole route switch
+or final visible composition. Preserve that distinction when interpreting the
+otherwise successful capture. The bounded next preparation separates observations
+per admitted companion and records already read source samples without new image
+reads. No guard relaxation, image-quality fix or future device permission follows.
+
+The maintainer approved manual removal; original public hashes, manifest target,
+active compositor mapping and normal SteamVR state were verified. They confirmed
+normal visible/usable UI afterward. Small capture and restoration receipts are
+retained under `native/dashboard-census-v3-20261018-092222-47ccaf/`. The game code
+and ModBuild remain unchanged.
+
+The new per-companion diagnostic is prepared locally and hash-verified.307
+generator/parser checks,303 actual lifecycle checks also under ASan/UBSan,
+strict host/ARM builds, and3330 owned GPU assertions pass. A shared-slot mutant
+fails the intended second-route check, rather than an unrelated error. Both
+original sample-alpha fields are covered; original output matches. The raw
+GPU-only report retained an older hardcoded whole-suite control list, explicitly
+scoped by `integrator-review.json`; the runner now records only executed controls.
+No passed render checks were repeated for that reporting-only correction.
+All12544 record bytes and existing decoder/resource/queue limits stay bounded;
+shipping preprocessing and75 verified ARM import identities are inherited.
+No new game build, native installation or production menu fix is implied.
+
 ## Current hardware evidence
 
 The supplied PC run is Build703, clean source d86736508, SteamVR/OpenXR2.17.10,

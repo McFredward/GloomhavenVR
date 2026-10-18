@@ -1,5 +1,34 @@
 # State — where the project stands
 
+**Completed native menu capture, 2026-10-18; game remains Build704.**
+
+The corrected isolated diagnostic completed all three manual UI contexts and
+both consumed selectors, with0 refusal and fenced collection. The open first
+winner is an exact-original fallback with first guard0.05083088949; closed
+winners decode v3 with0.1251221895. R1/flags/tint remain unchanged in these
+samples. Both accepted companions continue to be submitted in every context:
+the shared first-winner slots do not prove which entire pass changed or the
+final layer order. Do not loosen/normalize the guard from one value. The next
+bounded observation is per-companion and copies only already executed original
+sample values; no further Frame action is authorized by its preparation.
+All31 files were checksum-verified locally, the public activation/library were
+exactly restored, and the maintainer confirmed normal UI and may use standby.
+Private evidence is `native/dashboard-census-v3-20261018-092222-47ccaf/` beneath
+the Build704 debug record. No production quality/menu repair is claimed.
+
+That per-companion follow-up is now locally prepared, not installed:307 focused
+generator/parser assertions,303 actual fake-native lifecycle assertions also
+under ASan/UBSan, strict host/ARM builds and3330 real owned GPU assertions pass.
+The GPU shared-slot negative control fails the exact second-route assertion;
+the distinct color-output control fails its raster comparison. No source image
+reads, original color stores or shipping-preprocessed bytes change. All75 ARM
+imports inherit verified actual providers. Native output stays below64KiB with
+a12544byte record buffer. The GPU-only raw report's inherited hardcoded control
+list is explicitly corrected by `integrator-review.json`; unchanged core/session
+evidence is inherited. The reporting-only runner repair was AST/diff checked.
+No full gate or product sharpness/menu repair is claimed; another device
+attachment still requires the maintainer's explicit readiness and permission.
+
 **Direct native-MR comparison and host preparation, 2026-10-18: Build704.**
 
 The maintainer directly confirms sharp Off / soft On in703. Actual PC targets
