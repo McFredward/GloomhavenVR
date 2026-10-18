@@ -137,8 +137,13 @@ internal sealed partial class VRRigDriver
                 if (renderer.forceRenderingOff) masked++;
                 bool layer = (head.cullingMask & (1 << renderer.gameObject.layer)) != 0;
                 if (!layer) culled++;
-                bool shown = fullRoom && on && layer && !renderer.forceRenderingOff;
-                if (shown) roomShown++;
+                bool admitted = on && layer && !renderer.forceRenderingOff;
+                bool shown = fullRoom && admitted;
+                // A Preview room can have perfectly visible native unseen-floor
+                // content. The previous full-room gate incorrectly reported
+                // zero and could attribute its visible floor to the missing All
+                // room. Keep actual draw admission distinct from native mode.
+                if (admitted) roomShown++;
                 // B682 generated both native rooms. Its 76 unsupported/never-started
                 // entries can include inactive native preview placeholders: the
                 // aggregate must not convict the materials actually being drawn.
@@ -155,14 +160,16 @@ internal sealed partial class VRRigDriver
                 // The old census skipped their details and incorrectly made enabled=0
                 // look like proof that Renderer.enabled itself was false. Observe the
                 // actual closest candidate without changing any native visibility.
-                int score = (renderer.gameObject.activeInHierarchy ? 4 : 0) + (renderer.enabled ? 2 : 0)
+                int score = (fullRoom ? 8 : 0) + (renderer.gameObject.activeInHierarchy ? 4 : 0) + (renderer.enabled ? 2 : 0)
                     + (renderer.name.IndexOf("floor", StringComparison.OrdinalIgnoreCase) >= 0 ? 1 : 0);
                 if (renderer is MeshRenderer && score > fallbackScore) { fallback = renderer; fallbackScore = score; }
                 if (!mesh.HasVertexAttribute(VertexAttribute.Color)) missingColor++;
                 Material material = renderer.sharedMaterial;
                 if (material == null || material.shader == null || !material.shader.isSupported)
                 { unsupported++; if (shown) unsupportedShown++; }
-                if (renderer is not MeshRenderer || !on) continue;
+                // Diagnose the actual requested visible room, never a healthy
+                // native preview floor from a different room beside it.
+                if (renderer is not MeshRenderer || !admitted || !fullRoom) continue;
                 if (other == null) other = renderer;
                 Bounds bounds = renderer.bounds;
                 float area = Mathf.Abs(bounds.size.x * bounds.size.z);
@@ -232,13 +239,15 @@ internal sealed partial class VRRigDriver
     {
         if (renderer == null) { QuestScenarioRecord("sample=" + sample + " role=" + role + " renderer=none"); return; }
         Mesh? mesh = renderer.GetComponent<MeshFilter>()?.sharedMesh;
+        ProceduralMapTile room = renderer.GetComponentInParent<ProceduralMapTile>();
         Material material = renderer.sharedMaterial;
         Texture? texture = material != null && material.HasProperty("_MainTex") ? material.GetTexture("_MainTex") : null;
         string attributes = "";
         if (mesh != null)
             foreach (VertexAttribute attribute in new[] { VertexAttribute.Position, VertexAttribute.Normal, VertexAttribute.Tangent, VertexAttribute.Color, VertexAttribute.TexCoord0, VertexAttribute.TexCoord1 })
                 if (mesh.HasVertexAttribute(attribute)) attributes += attribute + ":" + mesh.GetVertexAttributeFormat(attribute) + ":" + mesh.GetVertexAttributeDimension(attribute) + ",";
-        QuestScenarioRecord("sample=" + sample + " role=" + role + " renderer=" + Short(renderer.name) + " layer=" + renderer.gameObject.layer
+        QuestScenarioRecord("sample=" + sample + " role=" + role + " renderer=" + Short(renderer.name)
+            + " room=" + (room != null ? Short(room.name) + ":" + room.visibility : "none") + " layer=" + renderer.gameObject.layer
             + " enabled=" + renderer.enabled + " active=" + renderer.gameObject.activeInHierarchy + " masked=" + renderer.forceRenderingOff
             + " inactiveRoot=" + QuestScenarioInactiveRoot(renderer.transform)
             + " ml=" + Short(MaterialLoaderHeal.DescribeForRenderer(renderer))
@@ -248,7 +257,21 @@ internal sealed partial class VRRigDriver
             + " supported=" + (material != null && material.shader != null && material.shader.isSupported) + " instancing=" + (material != null && material.enableInstancing)
             + " mpb=" + renderer.HasPropertyBlock() + " texture=" + (texture != null ? Short(texture.name) + "," + texture.width + "x" + texture.height : "none")
             + " tint=" + (material != null && material.HasProperty("_Tint") ? ColorText(material.GetColor("_Tint")) : "none")
-            + " color=" + (material != null && material.HasProperty("_Color") ? ColorText(material.GetColor("_Color")) : "none"));
+            + " slots=" + QuestScenarioSlots(renderer, mesh) + " probes=" + renderer.lightProbeUsage
+            + " staticBatch=" + renderer.isPartOfStaticBatch);
+    }
+
+    private static string QuestScenarioSlots(Renderer renderer, Mesh? mesh)
+    {
+        Material[] slots = renderer.sharedMaterials;
+        string text = slots.Length + "/" + (mesh != null ? mesh.subMeshCount : 0) + ":";
+        for (int slot = 0; slot < Math.Min(slots.Length, 3); slot++)
+        {
+            Material material = slots[slot];
+            string name = material != null && material.shader != null ? material.shader.name : "null";
+            text += (name.Length > 20 ? name.Substring(0, 20) : name) + ";";
+        }
+        return text;
     }
 
     private static void QuestScenarioRecord(string text)

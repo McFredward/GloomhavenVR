@@ -54,7 +54,7 @@ def reap_fixture_group(group):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "renderer-state", "material-admission", "entity-parameter-property",
+    parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "gpu-native-light", "gpu-private-cleanup", "renderer-state", "material-admission", "entity-parameter-property",
         "lifecycle-desktop", "lifecycle-inactive", "lifecycle-native-handle", "lifecycle-unrelated-handle", "lifecycle-preview-content", "lifecycle-native-loading", "lifecycle-repeat", "lifecycle-native-content",
         "loading-boundary", "loading-visible-scope", "loading-busy", "loading-material-assignment", "loading-occlusion-object", "loading-occlusion-tile", "loading-material-room", "lifecycle-playerloop-focus", "lifecycle-playerloop-window", "lifecycle-playerloop-pause", "lifecycle-playerloop-install", "lifecycle-playerloop-failure"))
     parser.add_argument("--gpu", action="store_true")
@@ -90,6 +90,14 @@ def main():
     gpu_source = (ROOT / "src/GloomhavenVR/Rig/VRRigDriver.QuestScenarioGpu.cs").read_text()
     if args.control == "gpu-transform":
         gpu_source = gpu_source.replace("renderer.localToWorldMatrix, material", "Matrix4x4.Translate(Vector3.one * 1000f) * renderer.localToWorldMatrix, material", 1)
+    elif args.control == "gpu-native-light":
+        before = "light.intensity = original.intensity;"
+        if gpu_source.count(before) != 1: raise AssertionError("Native copied-light binding drift")
+        gpu_source = gpu_source.replace(before, "light.intensity = 0;", 1)
+    elif args.control == "gpu-private-cleanup":
+        before = "if (copy != null) copy.enabled = false;"
+        if gpu_source.count(before) != 1: raise AssertionError("Private native renderer cleanup binding drift")
+        gpu_source = gpu_source.replace(before, "/* injected private renderer cleanup omission */", 1)
     (editor / "ScenarioGpu.cs").write_text("#nullable enable\n" + gpu_source.replace("namespace GloomhavenVR.Rig;", "namespace GloomhavenVR.Rig {") + "\n}\n")
     lifecycle_source = (ROOT / "src/GloomhavenVR/Core/QuestProceduralLifecycle.cs").read_text()
     lifecycle_controls = {
@@ -215,6 +223,8 @@ def main():
         if args.control:
             expected = {"desktop-gate": "Desktop does not observe native scene", "launch-cap": "Recreated rig cannot reset launch cap",
                         "gpu-transform": "Actual unreadable native mesh produces visible GPU pixels",
+                        "gpu-native-light": "Private native renderer receives original zero-pixel-cap room lighting",
+                        "gpu-private-cleanup": "Private copied geometry is disabled before ordinary rendering resumes",
                         "renderer-state": "Inactive and component-disabled native renderers are counted independently",
                         "material-admission": "Excluded native placeholder materials cannot be diagnosed as shown shader failures",
                         "entity-parameter-property": "Native hierarchy and generation admission distinguish a dormant entity from a completed world"}.get(args.control)

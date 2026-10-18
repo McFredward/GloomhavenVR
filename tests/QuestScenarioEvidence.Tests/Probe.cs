@@ -162,6 +162,10 @@ namespace GloomhavenVR.Rig
         }
         internal static bool SelectPart(Renderer renderer, out int part, out Material material)
             => TryQuestScenarioPart(renderer, renderer.GetComponent<MeshFilter>().sharedMesh, out part, out material);
+        internal static RenderTexture DrawLitProbe(Renderer renderer, Material control = null)
+            => RenderQuestScenarioObserved(renderer, renderer.GetComponent<MeshFilter>().sharedMesh, control,
+                QuestScenarioLights(renderer.gameObject.layer, out _));
+        internal static int ActualLightCount(Renderer renderer) => QuestScenarioLights(renderer.gameObject.layer, out _).Count;
     }
 }
 public static class QuestScenarioEvidenceProbe
@@ -196,6 +200,13 @@ public static class QuestScenarioEvidenceProbe
             wall.layer = 11; wall.transform.parent = generated.transform;
             wall.GetComponent<MeshFilter>().sharedMesh = second;
             wall.GetComponent<MeshRenderer>().sharedMaterial = null;
+            var previewTile = new GameObject("Preview tile").AddComponent<ProceduralMapTile>();
+            previewTile.visibility = ProceduralMapTile.Visibility.Preview;
+            previewTile.gameObject.AddComponent<ApparanceEntity>();
+            var previewRoot = new GameObject("Generated Content"); previewRoot.transform.parent = previewTile.transform;
+            var previewFloor = GameObject.CreatePrimitive(PrimitiveType.Cube); previewFloor.name = "Healthy preview floor";
+            previewFloor.layer = 10; previewFloor.transform.parent = previewRoot.transform;
+            previewFloor.transform.localScale = new Vector3(8, .1f, 8);
             GloomhavenVR.Core.MaterialLoaderHeal.States[floorRenderer.GetInstanceID()] = "never-started loader='active native source'";
             GloomhavenVR.Core.MaterialLoaderHeal.States[wall.GetComponent<Renderer>().GetInstanceID()] = "never-started loader='excluded preview'";
             var instances = generated.AddComponent<ApparanceMeshInstances>(); instances.instanceCount = 7;
@@ -215,22 +226,27 @@ public static class QuestScenarioEvidenceProbe
             Check(Records[0].Contains("rig=Menu") && Records[0].Contains("board=True"), "Stuck menu rig still emits actual scenario evidence");
             Check(Records[0].Contains("loading=True"), "Stuck native loading cannot hide evidence beyond the bounded grace");
             Check(Records[0].Contains("headMask=00000400") && Records[0].Contains("scenarioMask=00000400"), "Actual camera masks are reported");
-            Check(Records[1].Contains("tiles=1 active=1 all=1 complete=1 busy=0 generatedRoots=1"), "Actual generation and placement state is reported");
-            Check(Records[1].Contains("renderers=2") && Records[1].Contains("layerExcluded=1"), "Actual renderer layer refusal is counted");
+            Check(Records[1].Contains("tiles=2 active=2 all=1 complete=1 busy=0 generatedRoots=2"), "Actual generation and placement state is reported");
+            Check(Records[1].Contains("renderers=3") && Records[1].Contains("layerExcluded=1"), "Actual renderer layer refusal is counted");
             Check(Records[1].Contains("unsupported=1 unsupportedShown=0 unloadedShown=1"),
                 "Excluded native placeholder materials cannot be diagnosed as shown shader failures");
-            Check(Records[1].Contains("rooms=name:visibility:complete:handle:shown/scanned(cap3):Native tile:All:1:1:1/2;"),
+            Check(Records[1].Contains("rooms=name:visibility:complete:handle:shown/scanned(cap3):")
+                && Records[1].Contains("Native tile:All:1:1:1/2;"),
                 "Room visibility, placement and actual admitted renderer counts remain distinct");
+            Check(Records[1].Contains("Preview tile:Preview:0:1:1/1;"),
+                "Visible native preview content is not incorrectly counted as zero by full-room admission");
             Check(Records[0].Contains("headForward=0,-0.707,0.707") && Records[1].Contains("frustum=mono"),
                 "Camera direction and mono frustum are not claimed as actual XR eye culling");
             Check(Records[1].Contains("activeInstancers=1 instances=7"), "Native non-renderer instancing is counted independently");
             Check(Records[2].Contains("role=floor") && Records[2].Contains("renderer=Floor main"), "Floor representative is a real native renderer");
+            Check(!Records[2].Contains("Healthy preview floor"), "A larger healthy preview floor cannot mask the requested All-room failure");
             Check(Records[2].Contains("Normal:Float32:3") && Records[2].Contains("TexCoord0:Float32:2"), "Native vertex format and UV inputs are observed");
             Check(!Records[2].Contains("Color:Float32"), "Absent color stays absent, not rewritten");
             Check(floor.GetComponent<MeshFilter>().sharedMesh == original && floorRenderer.sharedMaterial == originalMaterial, "Diagnostic preserves actual native mesh and material identity");
             Check(original.vertexCount == 24 && !original.HasVertexAttribute(VertexAttribute.Color), "Diagnostic preserves actual native vertex attributes");
             SceneController.Instance.ScenarioIsLoading = false;
             floorRenderer.enabled = false;
+            previewFloor.SetActive(false);
             wall.SetActive(false); // Component still enabled: distinguish the native hide owners.
             tile.IsPlacementCompleted = false;
             ApparanceEngine.Instance.enabled = false;
@@ -238,15 +254,13 @@ public static class QuestScenarioEvidenceProbe
             GloomhavenVR.Core.MaterialLoaderHeal.States[floorRenderer.GetInstanceID()] = "loading 1/2";
             GloomhavenVR.Core.MaterialLoaderHeal.States[wall.GetComponent<Renderer>().GetInstanceID()] = "never-started loader='inactive preview'";
             driver.RunNow(); Check(Records.Count == 8, "Second observation uses the complete eight-record launch budget");
-            Check(Records[5].Contains("enabled=0 ") && Records[5].Contains("componentEnabled=1 hierarchyActive=1"),
+            Check(Records[5].Contains("enabled=0 ") && Records[5].Contains("componentEnabled=2 hierarchyActive=1"),
                 "Inactive and component-disabled native renderers are counted independently");
-            Check(Records[5].Contains("rootActive=1 rootChildren=2") && Records[5].Contains("entityEnabled=1 populated=1 handles=0 frozen=0 noProcedure=0 parameterized=1"),
+            Check(Records[5].Contains("rootActive=2 rootChildren=3") && Records[5].Contains("entityEnabled=2 populated=2 handles=1 frozen=0 noProcedure=0 parameterized=2"),
                 "Native hierarchy and generation admission distinguish a dormant entity from a completed world");
-            Check(Records[5].Contains("tileEnabled=1 observers=1/1"), "Actual tile and inherited observer callbacks are counted independently of their entities");
-            Check(Records[7].Contains("nativeEngine instance=") && Records[7].Contains("component=False self=True hierarchy=True")
-                && Records[7].Contains("loaded=1 active=0") && Records[7].Contains("codeStarted=False"),
-                "A dormant world uses its existing GPU slot for exact native engine ownership and startup state");
-            Check(Records[5].Contains("ml=no/empty/never/loading/failed/unassigned/foreign/done:0,0,1,1,0,0,0,0"),
+            Check(Records[5].Contains("tileEnabled=2 observers=2/2"), "Actual tile and inherited observer callbacks are counted independently of their entities");
+            Check(Records[5].Contains("engineActive=False"), "Actual original engine state remains distinct from a registered preview handle");
+            Check(Records[5].Contains("ml=no/empty/never/loading/failed/unassigned/foreign/done:1,0,1,1,0,0,0,0"),
                 "Material-loader diagnosis remains independent of renderer enabled and hierarchy flags");
             Check(Records[5].Contains("unsupported=1 unsupportedShown=0 unloadedShown=0"),
                 "Inactive native preview loaders do not imply a missing visible room material");
@@ -445,6 +459,40 @@ public static class QuestScenarioEvidenceProbe
             Check(!mesh.isReadable && !mesh.HasVertexAttribute(VertexAttribute.Color), "GPU probe neither decodes nor adds native vertex data");
             ordinary.Render(); Color32[] after = Read(ordinary.targetTexture);
             Check(before.SequenceEqual(after), "The following ordinary camera's complete RGBA image is unchanged");
+            Shader standard = Shader.Find("Standard");
+            Check(standard != null && standard.isSupported, "Lighting fixture uses an actual light-consuming native Unity shader");
+            var lit = new Material(standard) { color = Color.white, mainTexture = Texture2D.whiteTexture };
+            renderer.sharedMaterials = new[] { lit, lit };
+            RenderSettings.ambientMode = AmbientMode.Flat; RenderSettings.ambientLight = Color.black;
+            RenderSettings.ambientProbe = new SphericalHarmonicsL2(); QualitySettings.pixelLightCount = 0;
+            var lightObject = new GameObject("Native DontSave room light"); lightObject.hideFlags = HideFlags.DontSave;
+            Light nativeLight = lightObject.AddComponent<Light>(); nativeLight.type = LightType.Point;
+            nativeLight.transform.position = new Vector3(.2f, 2, -.2f); nativeLight.range = 20;
+            nativeLight.intensity = 5; nativeLight.renderMode = LightRenderMode.Auto; nativeLight.cullingMask = 1 << 10;
+            var excludedObject = new GameObject("Native light for another layer");
+            Light excludedLight = excludedObject.AddComponent<Light>(); excludedLight.type = LightType.Directional;
+            excludedLight.intensity = 100; excludedLight.cullingMask = 1 << 11;
+            Check(GloomhavenVR.Rig.VRRigDriver.ActualLightCount(renderer) == 1,
+                "Only actual source-layer native lights are admitted, including DontSave clones");
+            Vector3 lightPosition = nativeLight.transform.position;
+            RenderTexture observed = GloomhavenVR.Rig.VRRigDriver.DrawLitProbe(renderer);
+            Color32[] litPixels = Read(observed); observed.Release();
+            Check(litPixels.Count(pixel => pixel.r > 2 || pixel.g > 2 || pixel.b > 2) > 50,
+                "Private native renderer receives original zero-pixel-cap room lighting");
+            nativeLight.enabled = false;
+            RenderTexture darkObserved = GloomhavenVR.Rig.VRRigDriver.DrawLitProbe(renderer);
+            Color32[] darkPixels = Read(darkObserved); darkObserved.Release();
+            Check(darkPixels.All(pixel => pixel.r <= 2 && pixel.g <= 2 && pixel.b <= 2),
+                "Removing the actual native light extinguishes the lit probe, without borrowing an excluded light");
+            Check(nativeLight.transform.position == lightPosition && !nativeLight.enabled && nativeLight.cullingMask == 1 << 10
+                && excludedLight.enabled && excludedLight.cullingMask == 1 << 11,
+                "Observation leaves actual native light pose, mode, mask and enabled state untouched");
+            Check(Resources.FindObjectsOfTypeAll<Light>().Where(light => light.name == "Observed native light").All(light => !light.enabled),
+                "Private copied lights cannot affect the following head render");
+            Check(Resources.FindObjectsOfTypeAll<Renderer>().Where(item => item.name == "Observed native mesh").All(item => !item.enabled),
+                "Private copied geometry is disabled before ordinary rendering resumes");
+            Check(renderer.sharedMaterials[0] == lit && renderer.sharedMaterials[1] == lit && source.GetComponent<MeshFilter>().sharedMesh == mesh,
+                "All native material slots and unreadable geometry remain unchanged");
             Directory.CreateDirectory("ProbeOutput");
             File.WriteAllText("ProbeOutput/result.json", "{\"assertions\":" + _assertions + ",\"hardwareVerified\":false,\"backend\":\"" + SystemInfo.graphicsDeviceType + "\"}\n");
             native.Release(); control.Release(); sentinel.Release(); ordinary.targetTexture.Release();

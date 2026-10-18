@@ -92,6 +92,22 @@ public static class QuestWorldMaterialProbe
             Check(Colored(Draw(camera, target, "captured-maintex-binding")) > 100, "The hardware-named main texture still draws native floor pixels");
             renderer.sharedMaterials = new[] { source0, source1 };
 
+            // Match the actual retained Quest/Frame default, rather than only
+            // exercising a forced per-pixel ForwardAdd program. A zero cap
+            // chooses the reconstructed vertex-light / spherical-harmonic path.
+            QualitySettings.pixelLightCount = 0;
+            light.renderMode = LightRenderMode.Auto;
+            Color32[] vertexWeak = Draw(camera, target, "native-zero-pixel-light-default");
+            light.intensity = 5;
+            Check(Colored(Draw(camera, target, "native-zero-pixel-light-strong")) > 100,
+                "Native floor stays lit under the actual zero pixel-light default");
+            light.renderMode = LightRenderMode.ForceVertex;
+            Check(Colored(Draw(camera, target, "native-force-vertex-light")) > 100,
+                "Native floor stays lit with an explicitly vertex-only light");
+            light.renderMode = LightRenderMode.ForcePixel;
+            QualitySettings.pixelLightCount = 4;
+            light.intensity = .35f;
+
             light.enabled = false;
             Color32[] unlit = Draw(camera, target, "native-no-lighting");
             Check(Colored(unlit) < Colored(original) / 10, "Actual scene lighting is a causal GPU input, not inferred from a shader support flag");
@@ -106,6 +122,7 @@ public static class QuestWorldMaterialProbe
             Check(Original(renderer, mesh, source0, source1) && source0.GetColor("_Tint").a == 0,
                 "Qualification leaves actual native floor slots, topology and material alpha untouched");
             Check(!ShaderUtil.ShaderHasError(source0.shader), "The actually exercised original native shader has no compiler error");
+            Instancing(mesh, source0, source1, renderer, camera, target, light);
             Directory.CreateDirectory("ProbeOutput");
             File.WriteAllText("ProbeOutput/results.json", "{\"assertions\":" + _assertions + ",\"hardwareVerified\":false,\"actualPerObjectLighting\":true,\"originalNativeEngineExecuted\":false,\"graphics\":\"" + SystemInfo.graphicsDeviceType + "\"}\n");
             File.WriteAllText("ProbeOutput/pixels.json", "[\n" + string.Join(",\n", Pixels) + "\n]\n");
@@ -114,6 +131,50 @@ public static class QuestWorldMaterialProbe
         }
         catch (Exception error) { UnityEngine.Debug.LogException(error); exit = 1; }
         finally { EditorApplication.Exit(exit); }
+    }
+
+    private static void Instancing(Mesh mesh, Material source0, Material source1, Renderer original,
+        Camera camera, RenderTexture target, Light light)
+    {
+        original.enabled = false;
+        var singles0 = new Material(source0) { enableInstancing = false };
+        var singles1 = new Material(source1) { enableInstancing = false };
+        var instances0 = new Material(source0) { enableInstancing = true };
+        var instances1 = new Material(source1) { enableInstancing = true };
+        // Emission makes the geometry comparison independent of the legitimate
+        // per-renderer/group light ranking difference. It is the SAME native
+        // fragment program/property in both arms, only on private materials.
+        foreach (Material material in new[] { singles0, singles1, instances0, instances1 })
+            material.SetFloat("_EmissionMap", 1);
+        Matrix4x4[] poses = { Matrix4x4.TRS(new Vector3(-1.65f, .1f, .1f), Quaternion.Euler(0, 23, 0), Vector3.one),
+            Matrix4x4.TRS(new Vector3(1.65f, .1f, .1f), Quaternion.Euler(0, -31, 0), Vector3.one) };
+        var singles = new List<GameObject>();
+        foreach (Matrix4x4 pose in poses)
+        {
+            var go = new GameObject("Ordinary retained floor instance", typeof(MeshFilter), typeof(MeshRenderer));
+            go.layer = 29; go.transform.SetPositionAndRotation(pose.GetColumn(3), pose.rotation);
+            go.GetComponent<MeshFilter>().sharedMesh = mesh;
+            go.GetComponent<MeshRenderer>().sharedMaterials = new[] { singles0, singles1 };
+            go.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
+            singles.Add(go);
+        }
+        camera.orthographicSize = 3.5f; camera.transform.position = new Vector3(0, 5.5f, -3.5f);
+        camera.transform.LookAt(new Vector3(0, .1f, .1f)); camera.backgroundColor = Color.clear;
+        QualitySettings.pixelLightCount = 0; light.renderMode = LightRenderMode.Auto; light.intensity = 5;
+        Color32[] baseline = Draw(camera, target, "two-native-renderers-instancing-off");
+        foreach (GameObject go in singles) go.GetComponent<Renderer>().enabled = false;
+        var properties = new MaterialPropertyBlock();
+        properties.CopySHCoefficientArraysFrom(new[] { new SphericalHarmonicsL2(), new SphericalHarmonicsL2() });
+        Graphics.DrawMeshInstanced(mesh, 0, instances0, poses, 2, properties, ShadowCastingMode.Off, false, 29, camera, LightProbeUsage.CustomProvided);
+        Graphics.DrawMeshInstanced(mesh, 1, instances1, poses, 2, properties, ShadowCastingMode.Off, false, 29, camera, LightProbeUsage.CustomProvided);
+        Color32[] instanced = Draw(camera, target, "two-native-renderers-forced-instancing");
+        int ordinaryCovered = baseline.Count(pixel => pixel.a > 127), instancedCovered = instanced.Count(pixel => pixel.a > 127);
+        Check(ordinaryCovered > 400, "Two transformed native references provide a real geometry mask");
+        Check(baseline.Zip(instanced, (left, right) => (left.a > 127) == (right.a > 127)).All(same => same),
+            "Forced two-instance native shader preserves both transformed geometry masks (ordinary=" + ordinaryCovered + ", instanced=" + instancedCovered + ")");
+        foreach (GameObject go in singles) UnityEngine.Object.DestroyImmediate(go);
+        foreach (Material material in new[] { singles0, singles1, instances0, instances1 }) UnityEngine.Object.DestroyImmediate(material);
+        original.enabled = true;
     }
 
     private static bool Original(MeshRenderer renderer, Mesh mesh, Material first, Material second)
