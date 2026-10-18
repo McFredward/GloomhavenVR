@@ -792,7 +792,8 @@ internal static class CardFaceMipBake
                     wrapMode = TextureWrapMode.Clamp,
                 };
                 regionTex.SetPixels32(slice);
-                regionTex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+                if (!ApplyQuestLinearMips(regionTex, slice, atlas))
+                    regionTex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
                 s_spriteBakeCount++;
                 s_bakedVramBytes += spriteCost;
                 s_regionTextureByKey[regionKey] = regionTex;
@@ -1123,7 +1124,8 @@ internal static class CardFaceMipBake
                 s_atlasPixelsByIdentity[identity] = pixels;
                 s_atlasPixelCacheBytes += bytes;
             }
-            copy.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+            if (!ApplyQuestLinearMips(copy, pixels, src))
+                copy.Apply(updateMipmaps: true, makeNoLongerReadable: true);
             return copy;
         }
         RenderTexture rt = RenderTexture.GetTemporary(
@@ -1169,5 +1171,56 @@ internal static class CardFaceMipBake
             RenderTexture.active = prev;
             RenderTexture.ReleaseTemporary(rt);
         }
+    }
+
+    private static float[]? s_srgbToLinear;
+    private static byte[]? s_linearToSrgb;
+
+    /// <summary>Keep mip zero exact; average Quest's sRGB lower levels in linear light.</summary>
+    private static bool ApplyQuestLinearMips(Texture2D target, Color32[] pixels, Texture2D source)
+    {
+        if (!QuestStandalonePlatform.Enabled || QualitySettings.activeColorSpace != ColorSpace.Linear
+            || !GraphicsFormatUtility.IsSRGBFormat(source.graphicsFormat))
+            return false;
+        // Unity's runtime RGBA32 Apply generated the owned sRGB lower levels in
+        // encoded-byte space on the actual Vulkan fixture: near art was exact,
+        // while minified cards darkened relative to the native supersampled
+        // picture. Import-time textures do not have this runtime defect. Keep
+        // desktop/Gamma/linear-source behavior; do not change any native texture.
+        // The LUTs avoid Pow/native colour-conversion calls inside pixel loops.
+        if (s_srgbToLinear == null)
+        {
+            s_srgbToLinear = new float[256];
+            for (int i = 0; i < s_srgbToLinear.Length; i++) s_srgbToLinear[i] = Mathf.GammaToLinearSpace(i / 255f);
+        }
+        if (s_linearToSrgb == null)
+        {
+            s_linearToSrgb = new byte[65536];
+            for (int i = 0; i < s_linearToSrgb.Length; i++)
+                s_linearToSrgb[i] = (byte)Mathf.Clamp(Mathf.RoundToInt(Mathf.LinearToGammaSpace(i / 65535f) * 255f), 0, 255);
+        }
+        float[] decode = s_srgbToLinear;
+        byte[] encode = s_linearToSrgb;
+        int width = target.width, height = target.height;
+        Color32[] parent = pixels;
+        for (int level = 1; level < target.mipmapCount; level++)
+        {
+            int nextWidth = Mathf.Max(1, width / 2), nextHeight = Mathf.Max(1, height / 2);
+            var next = new Color32[nextWidth * nextHeight];
+            for (int y = 0; y < nextHeight; y++) for (int x = 0; x < nextWidth; x++)
+            {
+                int x0 = x * 2, x1 = Mathf.Min(x0 + 1, width - 1), y0 = y * 2, y1 = Mathf.Min(y0 + 1, height - 1);
+                Color32 a = parent[y0 * width + x0], b = parent[y0 * width + x1],
+                    c = parent[y1 * width + x0], d = parent[y1 * width + x1];
+                next[y * nextWidth + x] = new Color32(
+                    encode[Mathf.Clamp(Mathf.RoundToInt((decode[a.r] + decode[b.r] + decode[c.r] + decode[d.r]) * (65535f / 4f)), 0, 65535)],
+                    encode[Mathf.Clamp(Mathf.RoundToInt((decode[a.g] + decode[b.g] + decode[c.g] + decode[d.g]) * (65535f / 4f)), 0, 65535)],
+                    encode[Mathf.Clamp(Mathf.RoundToInt((decode[a.b] + decode[b.b] + decode[c.b] + decode[d.b]) * (65535f / 4f)), 0, 65535)],
+                    (byte)((a.a + b.a + c.a + d.a + 2) / 4));
+            }
+            target.SetPixels32(next, level); parent = next; width = nextWidth; height = nextHeight;
+        }
+        target.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+        return true;
     }
 }

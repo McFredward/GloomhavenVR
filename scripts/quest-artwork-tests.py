@@ -3,6 +3,7 @@
 import argparse
 import ctypes
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -72,6 +73,7 @@ def main():
     parser.add_argument('--color-space', choices=('gamma', 'linear'), default='linear')
     parser.add_argument('--drop-guides-only', action='store_true', help='Run only the actual card drop-guide geometry, material and evidence graph.')
     parser.add_argument('--stat-portraits-only', action='store_true', help='Run only the native dual held-panel portrait snapshot graph.')
+    parser.add_argument('--owned-card-pixels-only', action='store_true', help='Qualify exact owned GPU-only card RGBA, native mesh and minification; requires retained native inputs.')
     parser.add_argument('--native-board-probe', action='store_true', help='Measure both guide depth/geometry against the actual authored Steel board.')
     args = parser.parse_args()
     base = ROOT / '.planning/debug/quest-artwork'
@@ -86,7 +88,7 @@ def main():
     scale = re.search(r'internal const float SlotScale = ([^;]+);', board_core).group(1)
     wanted = {style: re.search(r'internal const float SlotOverlayScale_' + style + r' = ([^;]+);', board_defaults).group(1) for style in ('Oak', 'Steel', 'Bronze')}
     sources['NativeBoardContract.cs'] = 'internal static class NativeBoardContract { internal const float SlotScale = ' + scale + '; internal static float Wanted(string style) => style switch { ' + ', '.join('"' + style + '" => ' + value for style, value in wanted.items()) + ', _ => throw new System.ArgumentException(style) }; }\n'
-    for relative in ('Cards/Art/CardFaceMipBake.cs', 'Core/QuestTextureCopy.cs', 'Core/QuestPrimitiveMesh.cs', 'Cards/Art/CardGlow.cs', 'Cards/Art/QuestCardGuideWitness.cs', 'Cards/Art/QuestArtworkEvidence.cs', 'Cards/Art/QuestArtworkRegion.cs', 'Cards/Art/QuestCardAlpha.cs', 'Cards/Art/CardContour.cs'):
+    for relative in ('Cards/Art/CardFaceMipBake.cs', 'Cards/Art/QuestCardPixels.cs', 'Core/QuestTextureCopy.cs', 'Core/QuestPrimitiveMesh.cs', 'Cards/Art/CardGlow.cs', 'Cards/Art/QuestCardGuideWitness.cs', 'Cards/Art/QuestArtworkEvidence.cs', 'Cards/Art/QuestArtworkRegion.cs', 'Cards/Art/QuestCardAlpha.cs', 'Cards/Art/CardContour.cs'):
         path = ROOT / 'src/GloomhavenVR' / relative
         sources[path.name] = path.read_text()
     stat = (ROOT / 'src/GloomhavenVR/WorldUI/Surfaces/StatPanelSurface.cs').read_text()
@@ -170,7 +172,7 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         ('readable-linear-encoding-lost', 'CardFaceMipBake.cs', 'linear: !GraphicsFormatUtility.IsSRGBFormat(src.graphicsFormat)', 'linear: false', 'readable whole-texture filtering retains original linear encoding'),
         ('readable-region-encoding-lost', 'CardFaceMipBake.cs', 'linear: QuestStandalonePlatform.Enabled && !GraphicsFormatUtility.IsSRGBFormat(atlas.graphicsFormat)', 'linear: false', 'readable region filtering retains original linear encoding'),
         ('readable-cpu-corrupted', 'CardFaceMipBake.cs', 'Color32[] pixels = src.GetPixels32(0);', 'Color32[] pixels = new Color32[src.width * src.height];', 'readable filtering preserves the exact current CPU source rather than stale GPU pixels'),
-        ('gpu-only-filtered', 'CardFaceMipBake.cs', 'if (QuestStandalonePlatform.Enabled)\n        {\n            if (!src.isReadable) return null;', 'if (QuestStandalonePlatform.Enabled && src.isReadable)\n        {\n            if (!src.isReadable) return null;', 'Quest GPU-only original is never replaced by an unqualified readback'),
+        ('gpu-only-filtered', 'CardFaceMipBake.cs', 'if (QuestStandalonePlatform.Enabled)\n        {\n            if (!src.isReadable) return QuestCardPixels.Read(src);', 'if (QuestStandalonePlatform.Enabled && src.isReadable)\n        {\n            if (!src.isReadable) return QuestCardPixels.Read(src);', 'Quest GPU-only original is never replaced by an unqualified readback'),
         ('label-is-content', 'CardFaceMipBake.cs', 'return QuestStandalonePlatform.Enabled ? $"{label}|instance={tex.GetInstanceID()}|update={tex.updateCount}" : label;', 'return label;', 'same-name atlas regions do not alias unrelated content'),
         ('raw-update-stale', 'RawPortrait.cs', 'if (!QuestStandalonePlatform.Enabled || original is not Texture2D live || live == null) return false;', 'if (QuestStandalonePlatform.Enabled || original is not Texture2D live || live == null) return false;', 'already baked raw portrait refreshes changed original contents'),
         ('raw-source-current-copy', 'RawPortrait.cs', 'source = live;', 'source = displayed;', 'already baked raw portrait refreshes changed original contents'),
@@ -201,6 +203,9 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         ('stat-copy-cpu-stale', 'ActualStat.cs', 'if (QuestStandalonePlatform.Enabled && !tex.isReadable)', 'if (QuestStandalonePlatform.Enabled && tex.isReadable)', 'actual panel mip rescan preserves native frozen portrait GPU pixels'),
         ('stat-shared-texture', 'ActualStat.cs', 'img!.sprite = rebuilt;', 'img!.sprite = sprite;', 'frozen portrait owns its source texture independently of the native loader'),
         ('guide-submission-silent', 'QuestCardGuideWitness.cs', 'Submitted = true;', 'Submitted = false;', 'actual head-camera submission updates guide evidence after culling'),
+        ('owned-pixels-missing', 'CardFaceMipBake.cs', 'if (!src.isReadable) return QuestCardPixels.Read(src);', 'if (!src.isReadable) return null;', 'owned GPU-only card receives exact mip filtering without XR readback'),
+        ('owned-pixels-rgb-swapped', 'QuestCardPixels.cs', 'new Color32(rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3])', 'new Color32(rgba[at + 2], rgba[at + 1], rgba[at], rgba[at + 3])', 'owned GPU-only card receives exact original RGBA before mip generation'),
+        ('owned-pixels-mips-missing', 'CardFaceMipBake.cs', 'if (!ApplyQuestLinearMips(copy, pixels, src))', 'if (true)', 'owned filtering reduces actual distance and oblique minification error'),
     ]
     if args.case:
         variants = [row for row in variants if row[0] in args.case]
@@ -295,6 +300,22 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
                 payload += struct.pack('<i', len(name)) + name + struct.pack('<iii', width, height, len(compressed)) + compressed
             (project / 'Assets/Resources/NativeCardAlpha.bytes').write_bytes(payload)
             (run / 'owned-inputs.json').write_text(json.dumps(owned_inputs, indent=2) + '\n')
+            if args.owned_card_pixels_only:
+                spec = importlib.util.spec_from_file_location('owned_pixels_fixture', ROOT / 'tools/quest-builder/quest_card_pixels.py')
+                pixels = importlib.util.module_from_spec(spec); spec.loader.exec_module(pixels)
+                def entries():
+                    for label, relative in alpha_sources:
+                        with Image.open(retained / relative) as image:
+                            rgba = image.convert('RGBA').transpose(Image.Transpose.FLIP_TOP_BOTTOM).tobytes()
+                            yield label, image.width, image.height, 1, rgba
+                    image = Image.new('RGBA', (512, 512))
+                    image.putdata([(255 if (x + y) % 2 else 0, (x * 17 + y * 3) % 256, 41, 255) for y in range(512) for x in range(512)])
+                    image.save(project / 'Assets/Resources/OwnedSamplingPattern.png')
+                    (project / 'Assets/Resources/OwnedSamplingPattern.png.meta').write_text('fileFormatVersion: 2\nguid: 7282a34680364f069f84602675666755\nTextureImporter:\n  serializedVersion: 12\n  mipmaps:\n    enableMipMap: 0\n    sRGBTexture: 1\n  isReadable: 0\n  textureFormat: 1\n  maxTextureSize: 4096\n  textureSettings:\n    serializedVersion: 2\n    filterMode: 1\n    aniso: 1\n    mipBias: 0\n    wrapU: 1\n    wrapV: 1\n    wrapW: 1\n  nPOTScale: 0\n  textureType: 0\n  textureShape: 1\n  compressionQuality: 100\n  textureCompression: 0\n')
+                    rgba = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM).tobytes()
+                    (project / 'Assets/Resources/OwnedPatternExpected.bytes').write_bytes(rgba)
+                    yield 'OwnedSamplingPattern', 512, 512, 1, rgba
+                pixels.write_entries(entries(), project / 'Assets/Resources/NativeCardPixels.bytes')
         (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project / 'ProjectSettings/ProjectSettings.asset').write_text('%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n  m_ObjectHideFlags: 0\n  serializedVersion: 23\n  m_ActiveColorSpace: ' + ('1' if args.color_space == 'linear' else '0') + '\n')
@@ -307,6 +328,9 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         environment = dict(os.environ)
         if args.drop_guides_only: environment['GHVRQ_TEST_DROP_GUIDES_ONLY'] = '1'
         if args.stat_portraits_only: environment['GHVRQ_TEST_STAT_PORTRAITS_ONLY'] = '1'
+        if args.owned_card_pixels_only:
+            if not args.native_header_project: parser.error('Owned card pixels proof requires retained native inputs')
+            environment['GHVRQ_TEST_OWNED_CARD_PIXELS_ONLY'] = '1'
         if args.native_board_probe: environment['GHVRQ_TEST_NATIVE_BOARD_PROBE'] = '1'
         process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=environment)
         code = process.wait(timeout=240)

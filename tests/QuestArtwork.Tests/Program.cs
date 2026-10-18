@@ -64,6 +64,12 @@ public static partial class DiagnosticProgram
     public static IEnumerator Run()
     {
         QuestStandalonePlatform.Enabled = true;
+        if (Environment.GetEnvironmentVariable("GHVRQ_TEST_OWNED_CARD_PIXELS_ONLY") == "1")
+        {
+            IEnumerator pixels = QualifyOwnedPixels();
+            while (pixels.MoveNext()) yield return null;
+            yield break;
+        }
         if (Environment.GetEnvironmentVariable("GHVRQ_TEST_NATIVE_BOARD_PROBE") == "1")
         {
             IEnumerator board = QualifyNativeBoardGuides();
