@@ -112,7 +112,8 @@ internal static class NativeVideoMovies
     {
         url = string.Empty;
         if (!IsPlaybackKey(key) || GloomhavenVR.Net.VideoMovieKeys.IsReview(key) || key == NativeIntroKey || Application.platform == RuntimePlatform.Switch) return false;
-        string directory = Path.GetDirectoryName(typeof(NativeVideoMovies).Assembly.Location)!;
+        string directory = QuestStandalonePlatform.Enabled ? QuestStandalonePlatform.ResourceDirectory
+            : Path.GetDirectoryName(typeof(NativeVideoMovies).Assembly.Location)!;
         string candidate = Path.Combine(directory, "Movies", key.Replace('/', Path.DirectorySeparatorChar));
         if (!File.Exists(candidate)) return false;
         url = candidate;

@@ -234,6 +234,8 @@ internal sealed partial class FlatScreenStereo
     {
         ReleaseAlbedo();
         ReleaseMirrors();
+        if (_questMovieEye != null) Object.Destroy(_questMovieEye);
+        _questMovieEye = null;
         if (_hooked)
         {
             Camera.onPreCull -= _preCullHook;

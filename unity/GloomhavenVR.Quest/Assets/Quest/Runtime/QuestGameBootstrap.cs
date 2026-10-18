@@ -159,6 +159,17 @@ namespace GloomhavenVR.Quest
                     StoreContentProgress(new QuestGameContentProgress(progress.Phase, progress.File, progress.ProcessedBytes, progress.TotalBytes,
                         (long)installedModWeight + progress.OverallProcessedBytes, (long)modContentWeight, progress.FileIndex, progress.FileCount), false);
                 }, UpdateStartupPresentation);
+            // New stereo films are independent of the original Campaign bank.
+            // Only missing/changed files are read; ordinary mod updates retain them.
+            installedModWeight = modContentWeight;
+            yield return QuestMovieContent.InstallRoutine(Application.platform == RuntimePlatform.Android && !Application.isEditor
+                ? Application.dataPath : null, Application.streamingAssetsPath, Path.Combine(modRoot, "StreamingAssets/Movies"),
+                progress => {
+                    State = "extracting-mod-content";
+                    modContentWeight = installedModWeight + progress.OverallTotalBytes;
+                    StoreContentProgress(new QuestGameContentProgress(progress.Phase, progress.File, progress.ProcessedBytes, progress.TotalBytes,
+                        (long)installedModWeight + progress.OverallProcessedBytes, (long)modContentWeight, progress.FileIndex, progress.FileCount), false);
+                }, UpdateStartupPresentation);
             // Exact card contours travel as a tiny independent APK asset. Never
             // reopen/reinstall the Campaign or mod bank for an alpha-only update.
             // Activate publishes modRoot/StreamingAssets as ResourceDirectory.

@@ -126,7 +126,10 @@ internal sealed partial class FlatScreenStereo
         // than the head, so their completed capture is already available here.
         if (QuestStandalonePlatform.Enabled && cam == Rig.VRRigDriver.HeadCamera
             && _quadMaterial != null)
-            PrepareVideoEyes();
+        {
+            if (_stereoMovie != null) PrepareStereoMovieEyes();
+            else PrepareVideoEyes();
+        }
         // Drive the real game map camera to our computed pose right before it culls/renders, so the game's
         // on-map marker projection and click raycasts (both via CameraController.m_Camera) align with our
         // render. Safe: the VR rig uses m_Camera only as a build-time anchor and never follows its transform.

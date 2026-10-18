@@ -85,7 +85,7 @@ namespace GloomhavenVR.Quest
                 Material consumer = GloomhavenVR.Core.QuestStandalonePlatform.FlatScreenVideoConsumer(camera);
                 if (consumer != null && consumer.mainTexture == captured) QueueConsumerEvidence();
             }
-            if (player == null) { Detach(); return; }
+            if (player == null || GloomhavenVR.Core.QuestMovieAssets.UsesStereoPlane(player)) { Detach(); return; }
             // The head/other camera passes are irrelevant. Gate them before
             // sampling decoder state; this callback performs no scene sweeps.
             if (rendering != player.targetCamera)
@@ -250,6 +250,7 @@ namespace GloomhavenVR.Quest
 
         void CompleteCaptureCore()
         {
+            if (player != null && GloomhavenVR.Core.QuestMovieAssets.UsesStereoPlane(player)) { Detach(); return; }
             if (disposed || camera == null || !CapturedTarget(camera)
                 || captured != camera.targetTexture || completion == null || texture == null)
                 return;
