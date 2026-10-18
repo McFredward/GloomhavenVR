@@ -94,6 +94,10 @@ Concrete findings fixed during the review:
 - Reusable film/audio/figure/environment/art caches were absent from fast-update
   accounting. Storage totals and explicit deletion warnings now include them;
   deleting run history retains shared useful results.
+- Nonzero child exits reached the UI correctly but their resource phase could
+  report success. The exact child error now crosses the timing scope; only that
+  error may enter the existing OOM retry. Failed-first/successful-retry outcomes
+  and both unchanged original producer digests are explicitly checked.
 - Release admission did not close recipe references. Every referenced numeric
   chunk must match an already verified inventory row before publication, without
   another large-file pass. The release requires all new runtime/helpers/resources.
