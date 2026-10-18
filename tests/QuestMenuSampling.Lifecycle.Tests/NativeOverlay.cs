@@ -128,9 +128,13 @@ internal static class NativeOverlayComposition
                 "Actual unified native loading overlay covers the admitted spinner until its exact widget hands off graphics");
             typeof(SceneController).GetField("<IsLoading>k__BackingField", Fields)!.SetValue(controller, false);
             float release = Time.unscaledTime + .5f; while (Time.unscaledTime < release) yield return null;
+            check(canvas.enabled && !loading.GetComponent<Image>().enabled && !hidden.GetComponent<Image>().enabled
+                && sibling.GetComponent<Image>().enabled && !LoadingIndicator.FlatScreenSuppressed && Visual(indicator).activeInHierarchy,
+                "Quest menu handoff retains spinner ownership while native flags retire and leaves sibling UI available");
+            indicator.Shutdown(); setTick(null);
             check(canvas.enabled && loading.GetComponent<Image>().enabled && !hidden.GetComponent<Image>().enabled
-                && sibling.GetComponent<Image>().enabled && !LoadingIndicator.FlatScreenSuppressed,
-                "Native loading completion restores exact prior graphic bits and leaves native sibling presentation intact");
+                && sibling.GetComponent<Image>().enabled,
+                "Quest presentation retirement restores exact native loading graphic bits");
             SceneController.Instance = null;
             UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(actor); owner = actor = null;
             indicator.Shutdown(); setTick(null); indicator = null;

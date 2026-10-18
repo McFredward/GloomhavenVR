@@ -25,6 +25,26 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera; } }
 namespace GloomhavenVR.WorldUI
 {
+    internal sealed partial class FlatScreen
+    {
+        internal static bool ScreenVisible;
+        private bool _visible;
+        private sealed class CapturedCamera { internal bool IsUi; internal RenderTexture? Target; }
+        private static readonly System.Collections.Generic.Dictionary<Camera, CapturedCamera> CapturedSet = new();
+        private RenderTexture? TargetFor(CapturedCamera camera) => camera.Target;
+        internal void Setup(Camera camera, RenderTexture target, GameObject consumer)
+        {
+            _visible = ScreenVisible = true;
+            CapturedSet[camera] = new CapturedCamera { IsUi = true, Target = target };
+            consumer.AddComponent<QuestMenuDrawWitness>().Owner = this;
+            Camera.onPostRender += ObserveQuestMenuProducer;
+        }
+        internal void Stop()
+        {
+            Camera.onPostRender -= ObserveQuestMenuProducer;
+            CapturedSet.Clear(); _visible = ScreenVisible = false;
+        }
+    }
     internal sealed class Entry { internal bool Value; internal Entry(bool value) { Value = value; } }
     internal static class WorldUIConfig
     {

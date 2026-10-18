@@ -22,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--owned-project", type=Path, required=True)
     parser.add_argument("--final-composition", action="store_true", help="Also qualify the native overlay in a real automatically rendered GameView (GL/Xvfb).")
-    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept", "intro-mode-assumption", "unified-mode-assumption", "intro-actor-assumption"))
+    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept", "intro-mode-assumption", "unified-mode-assumption", "intro-actor-assumption", "early-menu-hide", "menu-state-only", "menu-no-submission"))
     args = parser.parse_args()
     if args.control in ("native-overlay-kept", "native-loading-overlay-kept") and not args.final_composition:
         parser.error("The native overlay control requires --final-composition.")
@@ -59,11 +59,22 @@ def main():
             "if (canvas == null || !canvas.isRootCanvas || !owner.transform.IsChildOf(canvas.transform)) return;",
             "if (canvas == null || !canvas.isRootCanvas || canvas.renderMode != RenderMode.ScreenSpaceOverlay || !owner.transform.IsChildOf(canvas.transform)) return;",
             "Exact native loading widget hands off after a native camera rebind")
-        if args.control:
+        if args.control in controls:
             before, after, expected = controls[args.control]
             assert loading.count(before) == 1, "Control binding drift: " + args.control
             loading = loading.replace(before, after, 1)
-        rows = {"LoadingIndicator.cs": loading}
+        readiness = (ROOT / "src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.7.QuestMenuReadiness.cs").read_text()
+        if args.control in ("early-menu-hide", "menu-state-only", "menu-no-submission"):
+            expected = {"early-menu-hide": "Actual Quest spinner covers native menu preparation after loading flags retire",
+                "menu-state-only": "A menu state without original Show remains covered",
+                "menu-no-submission": "A produced menu without actual head submission remains covered"}[args.control]
+            if args.control == "early-menu-hide":
+                loading = loading.replace("bool menuHandoff = indicatorEnabled && TickQuestMenuHandoff();", "bool menuHandoff = false;")
+            elif args.control == "menu-state-only":
+                readiness = readiness.replace("!menu.Initialised || !VisibleNativeMenuWindow(menu)", "false")
+            else:
+                readiness = readiness.replace("_questProducedMenu = menu;", "_questPresentedMenu = menu;\n        _questProducedMenu = menu;")
+        rows = {"LoadingIndicator.cs": loading, "QuestMenuReadiness.cs": readiness}
         for path in ("Core/QuestTextureCopy.cs", "Core/QuestPrimitiveMesh.cs", "WorldUI/Sharpness/LoadingIconGeometry.cs"):
             rows[Path(path).name] = (ROOT / "src/GloomhavenVR" / path).read_text()
         for name, text in rows.items(): (production / name).write_text(text)
@@ -143,6 +154,12 @@ def main():
         assert not wanted, "Native spinner texture closure incomplete"
         dependencies = run / "dependencies"; dependencies.mkdir()
         shutil.copyfile(harmony, dependencies / harmony.name)
+        for folder, name in (("monomod.runtimedetour/21.12.13.1/lib/net452", "MonoMod.RuntimeDetour.dll"),
+                             ("monomod.utils/21.12.13.1/lib/net452", "MonoMod.Utils.dll"),
+                             ("mono.cecil/0.11.4/lib/net40", "Mono.Cecil.dll")):
+            shutil.copyfile(Path.home() / ".nuget/packages" / folder / name, dependencies / name)
+        for binary in (Path.home() / ".nuget/packages/mono.cecil/0.11.4/lib/net40").glob("Mono.Cecil.*.dll"):
+            shutil.copyfile(binary, dependencies / binary.name)
         manifest = {"dll": str(dll), "result": str(run / "result.json"), "managed": str(managed.resolve()), "dependencies": str(dependencies), "expected": expected}
         (run / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         (run / "owned-inputs.json").write_text(json.dumps(owned, indent=2) + "\n")

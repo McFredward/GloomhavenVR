@@ -435,6 +435,8 @@ internal sealed partial class FlatScreen
             Object.DontDestroyOnLoad(_quad);
             Object.Destroy(_quad.GetComponent<Collider>());
             _quadRenderer = _quad.GetComponent<Renderer>();
+            if (QuestStandalonePlatform.Enabled)
+                _quad.AddComponent<QuestMenuDrawWitness>().Owner = this;
             // Shader choice (P3b, hardware test #4): the quad must render its texture
             // ALPHA-IGNORING — the RT's alpha channel is whatever the UI left behind.
             //

@@ -119,6 +119,7 @@ internal sealed partial class FlatScreen
 
     private void OnCapturePostRender(Camera camera)
     {
+        ObserveQuestMenuProducer(camera);
         if (_captureMaskedCamera != null && camera == _captureMaskedCamera)
             RestoreCaptureMask();
     }

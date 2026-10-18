@@ -326,6 +326,15 @@ internal sealed class LoadingIndicator
     private bool _nativeLoadingObserved;
     private float _nativeLoadingStartedAt;
 
+    // IsMainMenu becomes true before the native menu opens/draws its widgets.
+    // B692 hid the spinner at that state edge, exposing a long empty interval.
+    // Observe the existing capture's actual menu submission instead. During this
+    // handoff only the spinner stays up: suppressing the capture would deadlock
+    // the presentation witness. Native loading state and desktop are unchanged.
+    private bool _questMenuHandoff;
+    private bool _questMenuHandoffRetired;
+    private float _questMenuHandoffStartedAt;
+
     // Appear/disappear ramp: 0 = fully gone (root deactivated), 1 = fully shown.
     private float _fade;
 
@@ -372,7 +381,8 @@ internal sealed class LoadingIndicator
         bool townReload = indicatorEnabled && TickTownReload();
         bool nativeGameLoading = indicatorEnabled && IsGameLoading();
         bool gameLoading = indicatorEnabled && (nativeGameLoading || ScenarioInteractionPreparation.ShowsLoadingIndicator);
-        bool want = townReload || gameLoading;
+        bool menuHandoff = indicatorEnabled && TickQuestMenuHandoff();
+        bool want = townReload || gameLoading || menuHandoff;
         if (townReload && !gameLoading) _townReloadVisual = true;
         else if (gameLoading) _townReloadVisual = false;
 
@@ -490,6 +500,8 @@ internal sealed class LoadingIndicator
         _questIntroCanvasEnabled = false;
         _nativeLoadingObserved = false;
         _nativeLoadingStartedAt = 0f;
+        _questMenuHandoff = false;
+        _questMenuHandoffRetired = true;
         FlatScreenSuppressed = false;
         if (_root != null)
         {
@@ -584,6 +596,34 @@ internal sealed class LoadingIndicator
         // ordinary poll goes true, which is the tick it retires on.
         bool boot = TickBootCoverage(sc, ordinary);
         return ordinary || boot;
+    }
+
+    private bool TickQuestMenuHandoff()
+    {
+        if (!QuestStandalonePlatform.Enabled || _questMenuHandoffRetired) return false;
+        if (!_questMenuHandoff && _boot == BootCoverage.Covering)
+        {
+            _questMenuHandoff = true;
+            _questMenuHandoffStartedAt = Time.unscaledTime;
+        }
+        if (!_questMenuHandoff) return false;
+        if (FlatScreen.QuestMenuPresented)
+        {
+            _questMenuHandoff = false;
+            _questMenuHandoffRetired = true;
+            VRLog.Info("WorldUI", "Quest initial menu has submitted visible native UI to the head; loading spinner handoff released.");
+            return false;
+        }
+        // Same failure-only bound as boot coverage; never schedule the normal
+        // exit by time or hold native input/loading while waiting for a picture.
+        if (Time.unscaledTime - _questMenuHandoffStartedAt > BootCoverCapSeconds)
+        {
+            _questMenuHandoff = false;
+            _questMenuHandoffRetired = true;
+            VRLog.Warn("WorldUI", "Quest initial menu presentation was not observed before the boot safety bound; releasing only the spinner.");
+            return false;
+        }
+        return true;
     }
 
     private bool TickTownReload()

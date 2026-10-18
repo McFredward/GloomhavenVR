@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI;
+using HarmonyLib;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -287,11 +288,9 @@ public static class LoadingLifecycleProgram
         AsyncOperation menu = SceneManager.LoadSceneAsync("MainMenu", LoadSceneMode.Additive); yield return menu; yield return null;
         AssertShown("actual additive MainMenu scene activation");
         ObservedBoundary = 5;
-        Loading(controller, false);
-        float until = Time.unscaledTime + .5f;
-        while (Time.unscaledTime < until) yield return null;
-        Check(!LoadingIndicator.FlatScreenSuppressed && (Visual == null || !Visual.activeSelf),
-            "Actual native completion releases suppression and fades the spinner away");
+        IEnumerator handoff = NativeMenuHandoff(controller);
+        while (handoff.MoveNext()) yield return handoff.Current;
+        float until;
         ObservedBoundary = 6;
         Loading(controller, true);
         for (int i = 0; i < 12; i++) { yield return new WaitForSecondsRealtime(.01f); AssertShown("later native scenario loading"); }
@@ -339,6 +338,77 @@ public static class LoadingLifecycleProgram
         }
         ObservedBoundary = 8;
     }
+    private static bool SkipNativeLifecycle() => false;
+    private static IEnumerator NativeMenuHandoff(SceneController controller)
+    {
+        Loading(controller, false);
+        float until = Time.unscaledTime + .5f;
+        while (Time.unscaledTime < until) yield return null;
+        Check(!LoadingIndicator.FlatScreenSuppressed && Visual != null && Visual.activeSelf,
+            "Actual Quest spinner covers native menu preparation after loading flags retire");
+        // Native platform/GUIAnimator callbacks are outside this render-readiness
+        // fixture. Keep the real component, original Initialised/IsOpen getters,
+        // CanvasGroup and camera callbacks; seed only their authored state.
+        var harmony = new Harmony("fixture.quest.menu.readiness");
+        foreach (Type type in new[] { typeof(GLOOM.MainMenu.MainMenuUIManager), typeof(GLOOM.MainMenu.UIMainOptionsMenu), typeof(UIWindow) })
+            foreach (string method in new[] { "Awake", "Start", "OnEnable", "OnDisable", "OnDestroy" })
+            {
+                MethodInfo? callback = type.GetMethod(method, Fields | BindingFlags.DeclaredOnly);
+                if (callback != null) harmony.Patch(callback, prefix: new HarmonyMethod(typeof(LoadingLifecycleProgram), nameof(SkipNativeLifecycle)));
+            }
+        var root = new GameObject("native-readiness-menu"); root.SetActive(false);
+        var manager = root.AddComponent<GLOOM.MainMenu.MainMenuUIManager>(); manager.enabled = false;
+        var optionsOwner = new GameObject("native-options", typeof(RectTransform)); optionsOwner.SetActive(false);
+        optionsOwner.transform.SetParent(root.transform, false);
+        var options = optionsOwner.AddComponent<GLOOM.MainMenu.UIMainOptionsMenu>(); options.enabled = false;
+        UIWindow window = optionsOwner.AddComponent<UIWindow>(); window.enabled = false;
+        CanvasGroup group = optionsOwner.GetComponent<CanvasGroup>() ?? optionsOwner.AddComponent<CanvasGroup>(); group.alpha = 1;
+        manager.mainMenu = options;
+        GLOOM.MainMenu.MainMenuUIManager.Instance = manager;
+        root.SetActive(true); optionsOwner.SetActive(true);
+        var cameraOwner = new GameObject("native-readiness-ui-camera");
+        Camera ui = cameraOwner.AddComponent<Camera>(); ui.enabled = false;
+        var capture = new RenderTexture(64, 64, 0); capture.Create(); ui.targetTexture = capture;
+        var consumer = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        consumer.name = "native-readiness-capture-consumer"; consumer.layer = 29;
+        consumer.transform.position = head.transform.TransformPoint(Vector3.forward);
+        consumer.transform.rotation = head.transform.rotation;
+        var material = new Material(Shader.Find("Unlit/Texture")) { mainTexture = capture };
+        consumer.GetComponent<Renderer>().sharedMaterial = material;
+        var screen = new FlatScreen(); screen.Setup(ui, capture, consumer);
+        try
+        {
+            ui.Render(); head.Render(); yield return null;
+            Check(!FlatScreen.QuestMenuPresented && Visual != null && Visual.activeSelf,
+                "A menu state without original Show remains covered");
+            NativeField(manager, "m_Initialised", true);
+            NativeField(window, "m_CurrentVisualState", UIWindow.VisualState.Shown);
+            group.alpha = 0; ui.Render(); head.Render(); yield return null;
+            Check(!FlatScreen.QuestMenuPresented, "An original opened menu with zero alpha remains covered");
+            group.alpha = 1; ui.Render(); yield return null;
+            Check(!FlatScreen.QuestMenuPresented && Visual != null && Visual.activeSelf,
+                "A produced menu without actual head submission remains covered");
+            ui.Render(); head.Render(); yield return null;
+            Check(FlatScreen.QuestMenuPresented, "Actual produced visible native UI reaches the real head consumer");
+            until = Time.unscaledTime + .5f;
+            while (Time.unscaledTime < until) yield return null;
+            Check(!LoadingIndicator.FlatScreenSuppressed && (Visual == null || !Visual.activeSelf),
+                "Actual menu presentation releases only the Quest spinner through its original fade");
+            var other = new GameObject("other-native-menu"); other.SetActive(false);
+            var replacement = other.AddComponent<GLOOM.MainMenu.MainMenuUIManager>();
+            GLOOM.MainMenu.MainMenuUIManager.Instance = replacement;
+            Check(!FlatScreen.QuestMenuPresented, "A new native menu cannot inherit an old presentation receipt");
+            UnityEngine.Object.DestroyImmediate(other);
+        }
+        finally
+        {
+            screen.Stop(); GLOOM.MainMenu.MainMenuUIManager.Instance = null;
+            UnityEngine.Object.DestroyImmediate(root); UnityEngine.Object.DestroyImmediate(consumer);
+            UnityEngine.Object.DestroyImmediate(cameraOwner); UnityEngine.Object.DestroyImmediate(material);
+            capture.Release(); UnityEngine.Object.DestroyImmediate(capture); harmony.UnpatchSelf();
+        }
+    }
+
     private static GameObject IntroArtForComposition() => IntroArt();
     public static void Start(Action<int, Exception?> completion)
     {
