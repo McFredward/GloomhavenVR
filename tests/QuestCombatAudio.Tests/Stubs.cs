@@ -17,15 +17,24 @@ namespace UnityEngine
         public AudioClip clip = new();
         public float pitch = 1.125f, volume = .75f, spatialBlend = 1, dopplerLevel = 1;
         public bool isPlaying = true, isVirtual = false, loop;
+        public int timeSamples = 1234;
         public Mixer? outputAudioMixerGroup = new();
     }
     public class Mixer { public string name = "SFX"; }
     public static class AudioSettings
     {
         public static int outputSampleRate = 48000, Reads;
+        public static double dspTime = 20;
         public static void GetDSPBufferSize(out int length, out int buffers) { Reads++; length = 1024; buffers = 4; }
     }
     public static class Time { public static int frameCount = 42; public static float unscaledDeltaTime = .05f; }
+}
+public static class AudioController
+{
+    public static int Reads;
+    public static ClockStone.AudioObject? Music, Ambient;
+    public static ClockStone.AudioObject? GetCurrentMusic() { Reads++; return Music; }
+    public static ClockStone.AudioObject? GetCurrentAmbienceSound() { Reads++; return Ambient; }
 }
 namespace ClockStone
 {

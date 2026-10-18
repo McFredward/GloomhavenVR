@@ -18,13 +18,14 @@ controls = (
     ('total-budget', 'Reports.Count >= 8', 'Reports.Count >= 80', 'total-bound'),
     ('clip-budget', 'if (count >= 2) return;', 'if (count >= 20) return;', 'per-clip'),
     ('playback-write', 'Reports.Add(facts);', 'source.pitch = 1; Reports.Add(facts);', 'read-only'),
+    ('background-budget', 'if (Background.Count > 4)', 'if (Background.Count > 40)', 'background-bound'),
 )
 results = []
 for name, before, after, expected in controls:
     folder = run / name
     shutil.copytree(ROOT / 'tests/QuestCombatAudio.Tests', folder, ignore=shutil.ignore_patterns('bin', 'obj'))
     if before:
-        assert source.count(before) == 1, name
+        assert source.count(before) == (2 if name == 'debug-gate' else 1), name
     (folder / 'Evidence.cs').write_text(source.replace(before, after) if before else source)
     result = subprocess.run([str(Path.home() / '.dotnet/dotnet'), 'run', '--project', str(folder), '-c', 'Release',
         '-p:EvidenceSource=' + str(folder / 'Evidence.cs')], capture_output=True, text=True, timeout=90)
@@ -34,4 +35,4 @@ for name, before, after, expected in controls:
     (run / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
     if not passed:
         raise SystemExit('FAIL ' + name + ': ' + str(folder / 'console.log'))
-    print(('PASS production24 assertions' if not expected else 'PASS rejected ' + name + ' at ' + expected), flush=True)
+    print((result.stdout.strip() if not expected else 'PASS rejected ' + name + ' at ' + expected), flush=True)

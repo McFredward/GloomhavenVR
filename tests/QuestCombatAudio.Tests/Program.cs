@@ -12,7 +12,7 @@ static class Program
     static void Check(bool value, string why) { if (!value) throw new Exception(why); checks++; }
     static void Reset()
     {
-        foreach (string name in new[] { "Reports", "PerClip" })
+        foreach (string name in new[] { "Reports", "PerClip", "Background" })
         {
             object value = typeof(QuestCombatAudioEvidence).GetField(name, BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
             value.GetType().GetMethod("Clear")!.Invoke(value, null);
@@ -20,6 +20,7 @@ static class Program
         typeof(QuestCombatAudioEvidence).GetField("_otherEffects", BindingFlags.NonPublic | BindingFlags.Static)!.SetValue(null, 0);
         QuestStandalonePlatform.Enabled = VRSession.IsRunning = VRLog.Debug = true;
         SceneController.Instance = new(); RoomVisibilityManager.s_Instance = new(); AudioSettings.Reads = 0;
+        AudioController.Reads = 0; AudioController.Music = AudioController.Ambient = null;
     }
     static int Main()
     {
@@ -60,6 +61,22 @@ static class Program
         Check(QuestCombatAudioEvidence.Snapshot.Length == 8, "attack-reserve: six attack starts were not retained after other effects");
         Reset(); owner.Throw = true; QuestCombatAudioEvidence.Observe(owner);
         Check(QuestCombatAudioEvidence.Snapshot.Single() == "observation-unavailable=InvalidOperationException", "native-continuation: observation failure escaped into playback");
+        Reset(); VRLog.Debug = false;
+        Check(QuestCombatAudioEvidence.ObserveBackground().Length == 0 && AudioController.Reads == 0, "background-cost: normal logging queried native audio");
+        Reset(); RoomVisibilityManager.s_Instance!.Maps!.activeInHierarchy = false;
+        Check(QuestCombatAudioEvidence.ObserveBackground().Length == 0 && AudioController.Reads == 0, "background-cost: menu queried scenario audio");
+        Reset(); AudioController.Music = new(); AudioController.Ambient = new();
+        AudioController.Ambient.Source!.loop = true;
+        AudioController.Ambient.Source.clip.name = new string('漢', 1000);
+        string[] background = Array.Empty<string>();
+        for (int i = 0; i < 12; i++) { Time.frameCount = i; AudioSettings.dspTime = i; background = QuestCombatAudioEvidence.ObserveBackground(); }
+        Check(background.Length == 4 && background[0].StartsWith("frame=8 ") && background[3].StartsWith("frame=11 "), "background-bound: retain only four recent observations");
+        Check(AudioController.Reads == 24, "background-cost: exactly two original owner references per snapshot");
+        Check(background[3].Contains("dsp=11.000") && background[3].Contains("position=1234") && background[3].Contains("loop=True"), "background-facts: original mixer timeline missing");
+        Check(background.Sum(s => System.Text.Encoding.UTF8.GetByteCount(s)) < 4096, "background-byte-bound: clip names exceeded bounded snapshot");
+        Check(AudioController.Music.Source!.pitch == 1.125f && AudioController.Ambient.Source.pitch == 1.125f, "read-only: background observation changed playback");
+        Reset(); AudioController.Music = new() { Throw = true };
+        Check(QuestCombatAudioEvidence.ObserveBackground().Single() == "background-observation-unavailable=InvalidOperationException", "background-continuation: optional sample escaped");
         Console.WriteLine("PASS combat audio evidence: " + checks + " assertions; playback output is not certified");
         return 0;
     }

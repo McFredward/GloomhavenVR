@@ -13,7 +13,50 @@ internal static class QuestCombatAudioEvidence
     private static readonly List<string> Reports = new();
     private static readonly Dictionary<int, int> PerClip = new();
     private static int _otherEffects;
+    private static readonly List<string> Background = new(4);
     internal static string[] Snapshot => Reports.ToArray();
+
+    internal static string[] ObserveBackground()
+    {
+        // Called only by the existing five-second startup-state snapshot. The
+        // scenario-only idle click cannot be diagnosed from attack starts alone.
+        if (!QuestStandalonePlatform.Enabled || !VRSession.IsRunning || !VRLog.Wants(VRLogLevel.Debug))
+            return Array.Empty<string>();
+        SceneController? scene = SceneController.Instance;
+        RoomVisibilityManager? room = RoomVisibilityManager.s_Instance;
+        if (scene == null || scene.IsLoading || scene.ScenarioIsLoading
+            || room == null || room.Maps == null || !room.Maps.activeInHierarchy) return Background.ToArray();
+        try
+        {
+            // Original direct references, not an audio-source or scene sweep.
+            string facts = "frame=" + Time.frameCount + " dsp=" + AudioSettings.dspTime.ToString("F3", CultureInfo.InvariantCulture)
+                + " music={" + BackgroundSource(AudioController.GetCurrentMusic())
+                + "} ambience={" + BackgroundSource(AudioController.GetCurrentAmbienceSound()) + "}";
+            Background.Add(facts);
+            if (Background.Count > 4) Background.RemoveAt(0);
+        }
+        catch (Exception error)
+        {
+            if (Background.Count == 4) Background.RemoveAt(0);
+            Background.Add("background-observation-unavailable=" + error.GetType().Name);
+        }
+        return Background.ToArray();
+    }
+
+    private static string BackgroundSource(AudioObject? owner)
+    {
+        if (owner == null) return "none";
+        AudioSource source = owner.primaryAudioSource;
+        if (source == null || source.clip == null) return "no-clip";
+        AudioClip clip = source.clip;
+        string name = clip.name ?? string.Empty;
+        return "clip=" + name.Substring(0, Math.Min(64, name.Length)) + " channels=" + clip.channels
+            + " rate=" + clip.frequency + " samples=" + clip.samples + " position=" + source.timeSamples
+            + " loop=" + source.loop + " load=" + clip.loadType + "/" + clip.loadState
+            + " playing=" + source.isPlaying + " virtual=" + source.isVirtual
+            + " pitch=" + source.pitch.ToString("F4", CultureInfo.InvariantCulture)
+            + " gain=" + source.volume.ToString("F3", CultureInfo.InvariantCulture);
+    }
 
     internal static void Observe(AudioObject owner)
     {
