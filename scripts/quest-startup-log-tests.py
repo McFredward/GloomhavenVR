@@ -36,6 +36,8 @@ def main():
         ("consumer-spends-general-detail-reserve", "logger", '\n                || message.StartsWith("[Quest startup] presentation menu-consumer-draw ", StringComparison.Ordinal)', "", 1, "menu-partition"),
         ("tutorial-spends-filled-detail-reserve", "logger", 'return message.StartsWith("[Quest startup] original movie state ", StringComparison.Ordinal)', 'return message.StartsWith("[Quest startup] scenario ", StringComparison.Ordinal) || message.StartsWith("[Quest startup] original movie state ", StringComparison.Ordinal)', 1, "tutorial-reserve"),
         ("spinner-spends-filled-detail-reserve", "logger", 'if (message.StartsWith("[Quest startup] presentation spinner ", StringComparison.Ordinal)) return false;', '', 1, "spinner-reserve"),
+        ("menu-producer-spends-filled-detail", "logger", '\n                || message.StartsWith("[Quest startup] presentation menu-producer ", StringComparison.Ordinal)', '', 1, "menu-chain"),
+        ("ambient-movie-spends-filled-detail", "logger", 'bool nativeMenuMovie = message.IndexOf(" Gloomhaven_unified/MainMenuVideo ", StringComparison.Ordinal) >= 0;', 'bool nativeMenuMovie = false;', 1, "menu-chain"),
         ("early-spikes-only", "frames", "int index = Snapshot.spikeCursor;", "if (Snapshot.spikeCount == Snapshot.spikeTimes.Length) return null; int index = Snapshot.spikeCursor;", 1, "frame-window"),
     )
     for name, kind, before, after, count, expected in mutations:

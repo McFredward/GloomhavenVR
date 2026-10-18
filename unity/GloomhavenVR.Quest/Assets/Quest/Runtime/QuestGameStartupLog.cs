@@ -168,14 +168,23 @@ namespace GloomhavenVR.Quest
         }
         static bool IsMenuPresentationDetail(string message)
         {
-            // Exclude verbose canvas/widget censuses: the final consumer,
-            // actual pixels and draw state are the irreplaceable evidence.
+            // Intro fills ordinary movie detail before the real menu renders.
+            // Retain its bounded producer/consumer chain and spinner retirement
+            // within this existing share, without expanding startup/global caps.
+            bool nativeMenuMovie = message.IndexOf(" Gloomhaven_unified/MainMenuVideo ", StringComparison.Ordinal) >= 0;
             return message.StartsWith("[Quest startup] presentation menu-handover ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation menu-producer ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation spinner-edge ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation menu-pixels ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation menu-thumbnail ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation menu-draw ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation menu-consumer-draw ", StringComparison.Ordinal)
-                || message.StartsWith("[Quest startup] presentation primitive-upload ", StringComparison.Ordinal);
+                || message.StartsWith("[Quest startup] presentation primitive-upload ", StringComparison.Ordinal)
+                || (nativeMenuMovie && message.StartsWith("[Quest startup] original movie consumer ", StringComparison.Ordinal)
+                    && message.IndexOf(" bindingObservation=previous-head-pass ", StringComparison.Ordinal) >= 0)
+                || (nativeMenuMovie && message.StartsWith("[Quest startup] original movie pixels ", StringComparison.Ordinal)
+                    && (message.IndexOf(" stage=decoded ", StringComparison.Ordinal) >= 0
+                        || message.IndexOf(" stage=native-far-composed-snapshot ", StringComparison.Ordinal) >= 0));
         }
         static bool IsPresentationDetail(string message)
         {

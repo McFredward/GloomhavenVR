@@ -1167,7 +1167,7 @@ def run(builder, args, repo, output):
                     detail="Signed managed runtime retained; no IL2CPP compilation." if plan.get("nativeHelperChanged")
                     else "Signed runtime code and metadata retained; no Unity or native compilation.")
             if plan.get("nativeHelperChanged"):
-                builder.build_progress.operation("update-art", detail="Compiling two small Proton helpers; existing game and Wine data are retained.")
+                builder.build_progress.operation("update-art", detail="Compiling the small procedural bridge and embedded worker; existing game and Wine data are retained.")
                 replacements, native_helpers = _proton_helpers().produce(
                     builder, source, output, tools, base_apk, root, core, replacements)
             if changed_art:

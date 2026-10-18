@@ -203,6 +203,31 @@ internal static class Program
         Check(File.ReadAllText(Path.Combine(root, "presentation-reserve.log")).Contains("after Intro saturation")
             && LogCounter(details, "menuDetailRecords") == 1,
             "menu-reserve: Intro saturation swallowed the final menu handover");
+        // Exercise the actual post-Intro evidence order, not just one invented
+        // prefix: Intro has already filled ordinary detail before menu samples.
+        const string menuMovie = " Gloomhaven_unified/MainMenuVideo source=Ambient delivery=local";
+        details.Append("[Quest startup] presentation menu-producer camera=Background depth=4");
+        details.Append("[Quest startup] presentation spinner-edge reason=boot-retire frame=42");
+        details.Append("[Quest startup] original movie consumer" + menuMovie + " bindingObservation=previous-head-pass shader=overlay");
+        for (int sample = 0; sample < 2; sample++)
+            foreach (string stage in new[] { "decoded", "native-far-composed-snapshot" })
+                details.Append("[Quest startup] original movie pixels" + menuMovie + " stage=" + stage + " sample=" + sample);
+        details.Append("[Quest startup] original movie state" + menuMovie + " reason=observed-after-native-start playing=True");
+        text = File.ReadAllText(Path.Combine(root, "presentation-reserve.log"));
+        Check(text.Contains("camera=Background depth=4") && text.Contains("reason=boot-retire frame=42"),
+            "menu-chain: Intro saturation swallowed actual producer or spinner retirement");
+        Check(Count(text, "original movie pixels" + menuMovie) == 4
+            && text.Contains("bindingObservation=previous-head-pass shader=overlay") && LogCounter(details, "menuDetailRecords") == 8,
+            "menu-chain: Intro saturation swallowed the bounded ambient movie producer/consumer chain");
+        details.Append("[Quest startup] original movie pixels Intro/Video source=Intro stage=consumer-texture sample=late");
+        details.Append("[Quest startup] original movie pixels" + menuMovie + " stage=native-capture-before-composition sample=late");
+        details.Append("[Quest startup] original movie state" + menuMovie + " reason=native-started playing=True");
+        details.Append("[Quest startup] presentation menu-canvas verbose-widget-census");
+        Check(LogCounter(details, "menuDetailRecords") == 8,
+            "menu-scope: Intro, redundant snapshots or verbose canvas observations spent the reserved menu share");
+        details.Append("[Quest startup] original movie consumer" + menuMovie + " bindingObservation=previous-head-pass shader=overlay");
+        Check(LogCounter(details, "menuDetailRecords") == 8,
+            "menu-chain: repeated ambient evidence spent the bounded menu share twice");
         for (int i = 0; i < 1000; i++)
             priority.Append("[Quest startup] presentation menu-pixels sample=" + i);
         text = File.ReadAllText(path); size = new FileInfo(path).Length;

@@ -612,7 +612,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 687;
+    public const ushort ModBuild = 688;
+
+    // ModBuild688 — preserve native engine ownership across original reconnect.
+    // Capture125422 verifies installed/current687, previous686 and queued=False
+    // on the incomplete busy Wall1; task-submission starvation is not this cause.
+    // Original startup initializes twice. Reuse the same bridge worker/channel
+    // and forward both initializations to the same original DLL, which retains
+    // live entity handles. Never replace their owner during native reconnect.
+    // Compile/embed the small source-owned worker into the Android bridge;
+    // compact Mod Update retains all original banks and Wine payload bytes.
+    // Qualify actual original managed/native callbacks with nonempty tasks,
+    // healthy shutdown/restart and the historical respawn failure control.
+    // The pre-menu spinner gap and black ambient-depth movie remain hardware
+    // observations; retain bounded retirement/producer/snapshot evidence within
+    // existing file caps. No guessed duration, visibility or codec workaround.
+    // Preserve qualified card cuts/art, hit point, density and native blit.
+    // Windows execution and complete headset world/load closure need testing.
 
     // ModBuild687 — Quest boot sprite lifetime and queued native submissions.
     // Capture114020 verifies installed/current686, previous685. The maintainer

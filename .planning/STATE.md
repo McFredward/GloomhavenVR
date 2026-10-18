@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest original native reconnect, 2026-10-18: feature / B688.**
+
+Capture125422 verifies current687/previous686 and incomplete busy Wall1 with
+queued=False. Original startup initializes twice; the bridge incorrectly replaced
+its native process and lost existing entity owners. Preserve one channel/DLL
+across repeated original Initialise until original Shutdown. Actual original
+managed/native task pipeline completes18/18 requests (709 object callbacks,
+87 exact resource replies,32 assertions); historical respawn reproduces18 busy,
+0 queued,0 complete. Embed the small source-owned worker in the updated native
+bridge, permitting compact Mod Update without original/Wine bank conversion.
+Spinner-gap and native ambient-depth menu video remain hardware gates; bounded
+retirement/camera/generation facts now survive Intro diagnostic saturation.
+Preserve hardware-qualified card cuts/art, pointer, viewport/density and blit.
+See [QUEST-HARDWARE-125422-20261018.md](QUEST-HARDWARE-125422-20261018.md).
+
 **Quest boot/native request follow-up, 2026-10-18: feature / B687.**
 
 Preserve B686's hardware-confirmed complete cards and physical cuts. Quest boot

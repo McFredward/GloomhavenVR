@@ -55,7 +55,7 @@ class ProtonHelperPublicationTests(unittest.TestCase):
         self.contract = {"schema": 1, "backend": helper.BACKEND, "files": self.old_rows}
         self.f.values[core.PROTON_CONTRACT] = storage.canonical(self.contract)
         self.f.write_zip(self.f.base, self.f.values)
-        self.evidence = {"schema": 1, "scope": "proton-nls-helper-update-v1", "backend": helper.BACKEND,
+        self.evidence = {"schema": 1, "scope": helper.SCOPE, "backend": helper.BACKEND,
             "sourceFiles": self.current, "nativeFiles": self.new_rows, "previousNativeFiles": self.old_rows,
             "androidDeviceExecutionVerified": False, "wineBinaryChanged": False, "winePayloadChanged": False,
             "originalGameAssetsRebuilt": False}

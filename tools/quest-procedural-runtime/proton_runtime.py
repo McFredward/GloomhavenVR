@@ -37,6 +37,17 @@ def _native_header(layout):
                     for name, target in sorted(layout.NATIVE_MAP.items())) + "};\n")
 
 
+def worker_header(worker: Path):
+    """Embed only the bounded source-built PE, never the owner's engine/data."""
+    body = worker.read_bytes()
+    if not 64 <= len(body) <= 1024 * 1024 or body[:2] != b"MZ":
+        raise RuntimeError("Source-built procedural worker is not a bounded PE image.")
+    return ("/* Generated from the exact source-built worker PE. */\n"
+            "static const unsigned char ghpr_worker_payload[] = {\n" +
+            "".join("    " + ",".join(str(value) for value in body[index:index + 24]) + ",\n"
+                    for index in range(0, len(body), 24)) + "};\n")
+
+
 def qualify_cache(output: Path, receipt: dict, key: str, sources: dict, ndk_hash: str, *, digest):
     layout = local("proton_layout")
     if receipt.get("inputKey") != key or receipt.get("backend") != BACKEND or receipt.get("sources") != sources or \
@@ -120,19 +131,10 @@ def build(output_cache: Path, ndk: Path, *, helpers: dict) -> tuple[Path, dict]:
     root = ndk_bin(ndk)
     clang, linker = tool(root, "clang"), tool(root, "ld.lld")
     target = ["--target=aarch64-linux-android29", "--sysroot=" + str(root.parent / "sysroot")]
-    print("[Quest procedural] Compiling the small native launcher, ABI bridge and unchanged x64 worker.", flush=True)
+    print("[Quest procedural] Compiling the small native launcher, ABI bridge and source-owned x64 worker.", flush=True)
     with (output / "native-build.log").open("w") as log:
         def run(command):
             subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
-        run([clang, *target, "-std=c11", "-O2", "-fPIC", "-shared", "-fvisibility=hidden",
-             "-Wall", "-Wextra", "-Werror", "-DGHPR_PROTON_BACKEND=1",
-             '-DGHPR_NATIVE_INPUT_KEY="' + key + '"', str(snapshot / "bridge.c"),
-             "-Wl,--no-undefined", "-Wl,-soname,libQuestApparance.so", "-ldl", "-pthread",
-             "-o", str(native / "libQuestApparance.so")])
-        run([clang, *target, "-std=c11", "-O2", "-fPIE", "-pie", "-fvisibility=hidden",
-             "-Wall", "-Wextra", "-Werror", str(snapshot / "proton_launcher.c"),
-             "-Wl,--no-undefined", "-Wl,--export-dynamic", "-ldl", "-pthread",
-             "-o", str(native / "libquest_proton.so")])
         definition = output / "kernel32.def"
         definition.write_text("LIBRARY kernel32.dll\nEXPORTS\n" + "\n".join(helpers["KERNEL_IMPORTS"]) + "\n")
         run([linker, "-m", "i386pep", "--shared", "--out-implib=" + str(output / "kernel32.lib"),
@@ -141,6 +143,16 @@ def build(output_cache: Path, ndk: Path, *, helpers: dict) -> tuple[Path, dict]:
              "-O2", "-Wall", "-Wextra", "-Werror", "-c", str(snapshot / "worker.c"), "-o", str(output / "worker.obj")])
         run([linker, "-flavor", "link", "/entry:Main", "/subsystem:console", "/nodefaultlib",
              "/out:" + str(payload / "ApparanceWorker.exe"), str(output / "worker.obj"), str(output / "kernel32.lib")])
+        (snapshot / "quest_worker_payload.h").write_text(worker_header(payload / "ApparanceWorker.exe"), encoding="utf-8")
+        run([clang, *target, "-std=c11", "-O2", "-fPIC", "-shared", "-fvisibility=hidden",
+             "-Wall", "-Wextra", "-Werror", "-DGHPR_PROTON_BACKEND=1", "-DGHPR_EMBEDDED_WORKER=1",
+             '-DGHPR_NATIVE_INPUT_KEY="' + key + '"', str(snapshot / "bridge.c"),
+             "-Wl,--no-undefined", "-Wl,-soname,libQuestApparance.so", "-ldl", "-pthread",
+             "-o", str(native / "libQuestApparance.so")])
+        run([clang, *target, "-std=c11", "-O2", "-fPIE", "-pie", "-fvisibility=hidden",
+             "-Wall", "-Wextra", "-Werror", str(snapshot / "proton_launcher.c"),
+             "-Wl,--no-undefined", "-Wl,--export-dynamic", "-ldl", "-pthread",
+             "-o", str(native / "libquest_proton.so")])
         for name in ("libQuestApparance.so", "libquest_proton.so"):
             run([tool(root, "llvm-strip"), "--strip-debug", str(native / name)])
             helpers["_elf"](native / name, executable=name != "libQuestApparance.so")

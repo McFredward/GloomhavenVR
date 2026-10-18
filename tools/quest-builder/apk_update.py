@@ -739,7 +739,7 @@ def _qualify_proton_helpers(base, info, replacements, update_manifest, evidence)
     if touched != PROTON_HELPERS | {PROTON_CONTRACT}:
         raise BuildError("Proton helper replacements require the complete pair and native contract.")
     if (not isinstance(evidence, dict) or evidence.get("schema") != 1
-            or evidence.get("scope") != "proton-nls-helper-update-v1"
+            or evidence.get("scope") != "proton-reentry-helper-update-v2"
             or evidence.get("backend") != "proton-arm64ec-fex"
             or evidence.get("androidDeviceExecutionVerified") is not False
             or any(evidence.get(key) is not False for key in

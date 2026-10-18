@@ -49,8 +49,11 @@ class NativeHelperContracts(unittest.TestCase):
 
     def test_only_the_complete_exact_reviewed_backend_transition_is_admitted(self):
         current, previous = copy.deepcopy(list(helper.CURRENT_SOURCE_ROWS)), copy.deepcopy(list(helper.PREVIOUS_SOURCE_ROWS))
-        expected = {row["path"] for row in current}
+        expected = {row["path"] for row in current if row not in previous}
         self.assertEqual(helper.changed_rows(current, previous, helper.BACKEND), expected)
+        legacy = copy.deepcopy(list(helper.LEGACY_SOURCE_ROWS))
+        self.assertEqual(helper.changed_rows(current, legacy, helper.BACKEND),
+                         {row["path"] for row in current if row not in legacy})
         self.assertEqual(helper.changed_rows(current, current, helper.BACKEND), set())
         for backend in (None, "box64-wine9", "proton-similar"):
             self.assertEqual(helper.changed_rows(current, previous, backend), set())
@@ -94,7 +97,7 @@ class NativeHelperContracts(unittest.TestCase):
             path = compiled / name
             path.write_bytes(b"new inert helper fixture " + name.encode() * 4)
             rows.append(storage.record_file(path, native_plugins.PREFIX + name))
-        evidence = {"schema": 1, "scope": "proton-nls-helper-update-v1", "backend": helper.BACKEND,
+        evidence = {"schema": 1, "scope": helper.SCOPE, "backend": helper.BACKEND,
                     "nativeFiles": rows, "androidDeviceExecutionVerified": False}
         def patch_resource(base, updates, *, replacements):
             self.assertEqual(base, self.apk)
@@ -139,10 +142,6 @@ class NativeHelperContracts(unittest.TestCase):
             destination = source / helper.PREFIX / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             body = (ROOT / helper.PREFIX / name).read_bytes()
-            # Root owns this one corresponding full-build linker change.
-            if name == "proton_runtime.py" and hashlib.sha256(body).hexdigest() == helper.PREVIOUS_SOURCE_ROWS[2]["sha256"]:
-                body = body.replace(b'"-Wl,-soname,libQuestApparance.so", "-pthread",',
-                                    b'"-Wl,-soname,libQuestApparance.so", "-ldl", "-pthread",')
             destination.write_bytes(body)
         commands = []
         def command(arguments, log):
@@ -154,9 +153,16 @@ class NativeHelperContracts(unittest.TestCase):
             return result.stdout
         self.builder.command = command
         cache, evidence = helper._compile(self.builder, source, self.root, {"androidNdk": selected})
-        self.assertEqual(len(commands), 6)
-        self.assertEqual(sum(Path(args[0]).name in ("clang", "clang.exe") for args in commands), 2)
+        self.assertEqual(len(commands), 9)
+        self.assertEqual(sum(Path(args[0]).name in ("clang", "clang.exe") for args in commands), 3)
         self.assertEqual([Path(row["path"]).name for row in evidence["nativeFiles"]], list(helper.NATIVE_NAMES))
+        self.assertGreater(evidence["embeddedWorker"]["size"], 64)
+        worker = (cache / "ApparanceWorker.exe").read_bytes()
+        bridge = (cache / "libQuestApparance.so").read_bytes()
+        self.assertEqual(evidence["embeddedWorker"]["sha256"], hashlib.sha256(worker).hexdigest())
+        self.assertTrue(worker.startswith(b"MZ"))
+        self.assertIn(worker, bridge)
+        self.assertTrue(any("-DGHPR_EMBEDDED_WORKER=1" in command for command in commands))
         self.assertFalse(evidence["wineBinaryChanged"])
         self.assertFalse(evidence["winePayloadChanged"])
         self.assertFalse(evidence["originalGameAssetsRebuilt"])
