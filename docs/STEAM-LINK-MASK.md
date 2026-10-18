@@ -19,7 +19,7 @@ existing opaque depth, and known owned transparent materials temporarily borrow
 alpha-correct derivatives only while that head renders. Other cameras and the
 game's material objects retain their original rendering. The final image effect
 packs scene contribution RGB and coverage from the same source into one image.
-The unmodified Steam Link sender transports it; the Frame decoder retains native
+The unmodified Steam Link sender binary transports it; the Frame decoder retains native
 reprojection/foveation and combines the contribution with camera passthrough.
 Emission at coverage zero is preserved. No CPU pixel readback or second scene
 camera is introduced.
@@ -64,10 +64,47 @@ The new receiver recognizes v3 first, then the frozen legacy v1; historical v2
 tools remain quarantined. A v3 producer with an older receiver can display the
 packed image. Building/enabling the mod does not update the headset patch.
 At a fixed stream resolution the larger mask consumes more video area, reducing
-RGB's allocation; no SteamVR resolution or bitrate is changed automatically.
+RGB's allocation. The source profile itself does not change SteamVR resolution
+or bitrate. The separate optional Build700 quality lease below requests uniform
+encoding and an explicit width through public SteamVR settings.
 Owned source/codec/native tests are separate from the still-required headset
 picture and streaming-cost checks. See [the bounded v3 record](../.planning/STEAM-LINK-699-ROBUST-COVERAGE.md)
 and the [failed v2 review](../.planning/STEAM-LINK-698-EYE-DIVERGENCE.md).
+
+## Streamed edge quality (Build700)
+
+The maintainer confirmed correct stereo in Build699, but still sees shimmering
+outlines. Equal virtual RGB/coverage resolution does not guarantee equal video
+quality. Retained native metadata demonstrates central high-detail colour and
+peripheral low-detail coverage reconstruction; source raster phases and lossy
+video also impose separate limits absent in direct standalone RGBA composition.
+The current hardware stream's exact reconstruction weights are not measured.
+
+**World → Scenery → Steam Link edge quality** defaults on for eligible native
+Frame/Steam Link MR. It temporarily disables foveated encoding and pre-encode
+sharpening. **Steam Link encoding width (px)** requests 3072 by default, adjustable
+from 1024 to 4096 in steps of 64. A higher existing manual uniform width is kept.
+This costs network/decoder capacity; reduce the width if streaming stutters.
+Readback confirms a driver setting, not actual negotiated video dimensions.
+No supported client maximum or standalone-identical picture is claimed.
+
+One isolated public Background OpenVR client snapshots all four typed settings
+before any write, enables the complete policy, and holds it only while requested
+native MR remains eligible. It survives camera, loading and options-menu changes;
+Off, disconnection or game exit requests cooperative restoration. There is no
+active timeout. Restoration compares each still-owned value, preserving observed
+manual edits. Startup is bounded to five seconds; a pending Off can wait for that
+window. Unknown restoration blocks reacquisition in this game process. Killing
+or crashing the helper itself can prevent restoration; concurrent same-value
+manual edits cannot be identified by public IVRSettings. Previous effective
+values, rather than the absence of user overrides, are restored.
+
+The helper is embedded in the mod, hash-verified before execution and uses the
+same Windows/Proton public SDK bridge as connection detection. There is no Steam
+binary patch or Frame update for Build700. The accepted v3 shaders, atlas, mask,
+receiver, both-eye admission and fractional opacity are unchanged. Standalone,
+Virtual Desktop and other connections do not acquire this lease. See the
+[scoped evidence and limits](../.planning/STEAM-LINK-700-EDGE-QUALITY.md).
 
 ## Host identity lookup: Windows and Proton
 

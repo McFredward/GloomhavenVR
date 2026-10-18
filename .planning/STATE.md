@@ -1,5 +1,35 @@
 # State — where the project stands
 
+**Native Steam Link edge-quality correction, 2026-10-18: Build700.**
+
+The maintainer accepts Build699 stereo but rejects its remaining shimmering
+passthrough silhouettes. Four current screenshots and both current PC logs are
+pinned. Direct standalone submits RGBA without a video atlas/codec. Actual 699
+carrier rasters show subpixel colour/coverage phase differences; retained native
+foveation metadata additionally reconstructs central colour at 3.507 times the
+peripheral mask's linear density. This is a demonstrated mechanism, not a new
+measurement of the current hardware weights. No unjustified opacity cutoff,
+window tag, limited-range correction or source/receiver rewrite is introduced.
+
+Build700 adds an optional, default-on stream-quality lease for genuine native
+Frame/Steam Link MR: uniform encoding, no sharpening, configurable requested
+width (3072 default). An isolated pinned public OpenVR child snapshots all values
+before writing and cooperatively restores still-owned values on Off/game exit.
+Observed manual edits survive; unconfirmed restoration blocks reacquisition.
+No active expiry, Frame action or binary sender patch. Higher video cost is an
+explicit compromise; settings readback is not negotiated video-resolution proof.
+
+Focused worker evidence: 76 managed lifecycle/protocol checks with strict net472
+0W/0E, 3747 native API/rollback/EOF controls under ASan/UBSan and byte-identical PE
+rebuild, plus 69 availability assertions and six semantic mutants. Independent
+review resolved ownership, readback, post-start cleanup and abandoned-mutex
+faults. All 699 image/bank/receiver files remain identical, inheriting their GPU,
+codec and wire evidence rather than repeating those tests. Inventory now has
+234 local / 103 CI / 16 source suites. Final integrated builds and produced DLL
+checks are recorded in the scoped evidence directory; this is not a new complete
+gate or a claim that headset edge quality has been verified. See
+[the correction record](STEAM-LINK-700-EDGE-QUALITY.md).
+
 **Robust full-resolution native Steam Link follow-up, 2026-10-18: Build699.**
 
 V3 restores equal2048-square contribution RGB and independent coverage, retaining

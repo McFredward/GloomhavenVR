@@ -479,7 +479,7 @@ internal static partial class MixedReality
             "Changes apply immediately, including while VR Options is open. " +
             "Disable this choice or mixed reality to stop it; no automatic timer is used. " +
             "Currently requires MultiPass stereo, SDR and Gamma colour space. " +
-            "Does not change Steam Frame standalone passthrough or the Steam PC sender.");
+            "Does not change Steam Frame standalone passthrough or Steam PC sender binaries.");
         SteamLinkEdgeQuality = _file.Bind("MixedReality", "SteamLinkEdgeQuality", Defaults.SteamLinkEdgeQuality,
             "Use uniform Steam Link video quality and disable pre-encode sharpening while native " +
             "Steam Frame streaming mixed reality is active. This reduces different colour/opacity " +
