@@ -34,12 +34,28 @@ class ReleaseTests(unittest.TestCase):
             self.assertFalse(release.selected(name), name)
         self.assertTrue(release.selected('tools/quest-movies/depth/chunk-000.zst'))
 
+    def test_movie_recipe_admission_checks_existing_records_without_rehashing_chunks(self):
+        name = 'tools/quest-movies/depth/owned-numeric.zst'
+        path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'numeric-depth-fixture')
+        row = record_file(path, name)
+        write_json(self.root / 'tools/quest-movies/recipe.json', {
+            'schema': 1, 'movies': [{'shots': [{'depth': {'chunks': [{
+                'path': 'depth/owned-numeric.zst', 'size': row['size'], 'sha256': row['sha256']} ]}}]}]})
+        with mock.patch.object(release, 'digest', side_effect=AssertionError('no second hash')):
+            release.movie_recipe_closure(self.root, [row])
+        with self.assertRaisesRegex(BuildError, 'chunk is missing or differs'):
+            release.movie_recipe_closure(self.root, [])
+        with self.assertRaisesRegex(BuildError, 'chunk is missing or differs'):
+            release.movie_recipe_closure(self.root, [{**row, 'sha256': 'f' * 64}])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name) / 'repo'; self.root.mkdir()
         for name in release.REQUIRED | release.LINUX_REQUIRED | {'src/GloomhavenVR/Net/NetProtocol.cs', 'tools/quest-wizard/tools.lock.json'}:
             path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True)
             if name in release.PUBLIC_PACKAGES: shutil.copyfile(ROOT / name, path); continue
             path.write_text('public const ushort ModBuild = 625;' if name.endswith('NetProtocol.cs') else 'public fixture source')
+        write_json(self.root / 'tools/quest-movies/recipe.json', {'schema': 1, 'movies': []})
         self.manifest()
     def tearDown(self): self.temp.cleanup()
     def manifest(self):

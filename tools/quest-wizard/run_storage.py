@@ -7,10 +7,12 @@ remains visible as unassigned storage instead of inventing a deletable owner.
 from __future__ import annotations
 
 from state import Cancelled, WizardError
+from update_storage import FAST_AREAS
 
 PROJECT_AREAS = ("project-lifecycle", "prepare-resume", "project-content-transactions", "preparation-repair")
 INTERMEDIATE_CATEGORIES = frozenset(("inputs", "converted-assets", "unity-projects", "unity-caches"))
 STOPPED = frozenset(("ready", "failed", "blocked", "cancelled", "interrupted", "complete"))
+FAST_PREFIXES = frozenset(tuple(area.split('/')) for area in FAST_AREAS)
 
 
 class Ownership:
@@ -219,7 +221,7 @@ class Ownership:
         intermediate = category in INTERMEDIATE_CATEGORIES or any(claim["intermediate"] for _, claim in matches)
         if intermediate: self.reusable_bytes += size
         parts = path.relative_to(self.build).parts if self.build in path.parents else ()
-        fast_update = (parts[:2] in (("updates", "code-projects"), ("updates", "source-inputs"), ("updates", "game-inputs"))
+        fast_update = (parts[:2] in FAST_PREFIXES
                        or len(parts) > 2 and parts[0] == "updates" and parts[2] in ("code-player.apk", "code-player.apk.code-build.json"))
         if fast_update: self.fast_update_bytes += size
         if category == "apk-content": self.deliverable_bytes += size
@@ -258,6 +260,6 @@ class Ownership:
                 "diagnosticBytes": self.diagnostic_bytes, "ownershipComplete": self.complete,
                 "fastUpdateBytes": self.fast_update_bytes,
                 "fastUpdatePolicy": {"schema": 1, "retainedOnRunRemoval": True,
-                    "messages": {"en": "Fast-update compiler data is shared between runs and retained when old runs are removed.",
+                    "messages": {"en": "Reusable update data is shared between runs and retained when old runs are removed.",
                                  "de": "Daten für schnelle Updates werden von mehreren Läufen genutzt und beim Entfernen alter Läufe behalten."}},
                 "ownershipWarnings": self.warnings}

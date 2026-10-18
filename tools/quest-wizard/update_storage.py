@@ -13,7 +13,10 @@ import stat
 
 from state import Cancelled, WizardError, atomic_json
 
-FAST_AREAS = ("updates/code-projects", "updates/source-inputs", "updates/game-inputs")
+FAST_AREAS = ("updates/code-projects", "updates/source-inputs", "updates/game-inputs",
+              "cache/quest-figure-meshes", "cache/quest-native-audio", "cache/quest-movies",
+              "cache/environment-meshes", "cache/environment-native", "cache/environment-geometry",
+              "cache/update-art-delivery")
 
 
 def _overlaps(path, other):
@@ -130,7 +133,7 @@ def impact(root, paths, *, mode, protected=()):
     messages = ({"en": "Reusable build data will be removed. A later mod update may need to prepare or compile affected components again. The current APK and original content bank remain available.",
                  "de": "Wiederverwendbare Build-Daten werden gelöscht. Eine spätere Mod-Aktualisierung muss betroffene Komponenten möglicherweise erneut vorbereiten oder kompilieren. Die aktuelle APK und das originale Inhaltspaket bleiben erhalten."}
                 if slower else
-                {"en": "Fast-update compiler data, the current APK and original content bank are retained. Removing run history does not remove them.",
+                {"en": "Reusable update data, the current APK and original content bank are retained. Removing run history does not remove them.",
                  "de": "Daten für schnelle Updates, die aktuelle APK und das originale Inhaltspaket bleiben erhalten. Das Entfernen alter Läufe löscht diese Daten nicht."})
     kept = sorted({(path.relative_to(root).as_posix() if isinstance(path, Path) else str(path)) for path in protected})
     kept.extend("build/" + area for area in FAST_AREAS if (root / "build" / area).exists())

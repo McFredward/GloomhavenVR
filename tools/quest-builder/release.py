@@ -86,6 +86,7 @@ REQUIRED = set(PUBLIC_PACKAGES) | {"tools/quest-builder/staging_copy.py", "tools
             'tools/quest-installer/native_rename.py', 'tools/quest-wizard/device_tools.py',
             'tools/quest-builder/builder.py', 'tools/quest-builder/release.py',
             'tools/quest-builder/preparation_metadata.py', 'tools/quest-builder/editor_overlay.py',
+            'tools/quest-builder/runtime_overlay.py',
             'tools/quest-builder/script_remap_resume.py',
             'tools/quest-recovery/full_recovery.py', 'tools/QuestWeaver/Program.cs',
             'tools/quest-procedural-runtime/worker.c', 'tools/quest-procedural-runtime/runtime.py',
@@ -95,7 +96,14 @@ REQUIRED = set(PUBLIC_PACKAGES) | {"tools/quest-builder/staging_copy.py", "tools
             'src/GloomhavenVR/GloomhavenVR.csproj',
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs',
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestNativePluginContract.cs'}
-REQUIRED |= AUTHORED_RESOURCES | PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
+REQUIRED |= AUTHORED_RESOURCES | AUTHORED_MOVIES | PROMOTIONAL_ASSETS | {
+    'tools/quest-builder/movie_banks.py', 'tools/quest-builder/movie_render.py',
+    'tools/quest-builder/requirements-movies.txt', 'tools/quest-movies/recipe.json',
+    'tools/quest-movies/MovieBankBuild.cs', 'tools/quest-movies/QuestMovieEye.shader',
+    'tools/quest-movies/StereoVideoUI.shader', 'tools/quest-movies/Unity-LICENSE.txt',
+    'src/GloomhavenVR/Core/QuestMovieAssets.cs',
+    'unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestMovieContent.cs',
+    'tools/quest-wizard-ui/promo-artwork.json',
     'tools/quest-wizard-ui/assets/meta-quest-logo.svg',
     'tools/quest-wizard-ui/assets/github-mark.svg',
     'tools/quest-wizard-ui/assets/buymeacoffee-cup.svg',
@@ -178,6 +186,33 @@ def authored_input(repo, name):
     return ordinary(path)
 
 
+def movie_recipe_closure(repo, rows):
+    """Check recipe references against byte records already read for the release.
+
+    Never hash the large numeric payload a second time for this closure check.
+    Missing chunks must fail packaging, before a player starts conversion.
+    """
+    path = ordinary(repo / 'tools/quest-movies/recipe.json')
+    try:
+        if not path.is_file() or path.stat().st_size > 4 * 1048576:
+            raise ValueError('missing or oversized recipe')
+        recipe = json.loads(path.read_text(encoding='utf-8'))
+        if recipe.get('schema') != 1 or not isinstance(recipe.get('movies'), list) or len(recipe['movies']) > 64:
+            raise ValueError('invalid recipe header')
+        records = {row['path']: row for row in rows}
+        for movie in recipe['movies']:
+            for shot in movie['shots']:
+                for chunk in shot.get('depth', {}).get('chunks', []):
+                    name = chunk['path']; safe_name(name)
+                    if not name.startswith('depth/') or not name.endswith('.zst'):
+                        raise ValueError('invalid depth chunk path')
+                    row = records.get('tools/quest-movies/' + name)
+                    if row is None or (row['size'], row['sha256']) != (chunk['size'], chunk['sha256']):
+                        raise BuildError('Movie recipe chunk is missing or differs: ' + name)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise BuildError('Builder movie recipe is incomplete or invalid.') from exc
+
+
 def verified_source_inventory(repo):
     """Validate all delivered bytes, reject unlisted source; never infer Git state."""
     repo = ordinary(repo); path = ordinary(repo / MANIFEST)
@@ -205,6 +240,7 @@ def verified_source_inventory(repo):
         if not item.is_file() or item.stat().st_size != row['size'] or (pinned_hashes.digest(item) if name in PUBLIC_PACKAGES else digest(item)) != row['sha256']:
             raise BuildError('Builder release file changed: ' + name)
     if not REQUIRED <= names: raise BuildError('Builder release is incomplete.')
+    movie_recipe_closure(repo, rows)
     if value['kind'] == RELEASE_KIND and not LINUX_REQUIRED <= names:
         raise BuildError('Cross-platform builder release is missing its Linux launcher.')
     # Traverse without following junctions; ignore only declared per-user generated
@@ -240,6 +276,7 @@ def assemble(repo, destination):
     if any(AUTHORED_LINKS[name] not in names for name in names if name in AUTHORED_LINKS):
         raise BuildError('Authored link target is missing from the release source inventory.')
     records = [record_file(originals[name], name) for name in names]
+    movie_recipe_closure(repo, records)
     protocol = (repo / 'src/GloomhavenVR/Net/NetProtocol.cs').read_text(encoding='utf-8')
     match = re.search(r'const (?:int|ushort) ModBuild\s*=\s*(\d+)', protocol)
     if not match: raise BuildError('Cannot identify the released mod build.')

@@ -138,6 +138,22 @@ class UpdateStorageTests(unittest.TestCase):
         self.assertEqual(inventory["fastUpdateBytes"], 1536)
         self.assertTrue(inventory["fastUpdatePolicy"]["retainedOnRunRemoval"])
 
+    def test_independent_asset_caches_are_counted_and_warn_before_removal(self):
+        self.update(1, latest=True)
+        areas = ('cache/quest-movies', 'cache/quest-figure-meshes', 'cache/quest-native-audio')
+        for area in areas:
+            self.file(area + '/' + 'b' * 64 + '/owned-result.bin', b'x' * 1024)
+        inventory = cleanup.inventory(self.root)
+        self.assertEqual(inventory['fastUpdateBytes'], 3 * 1024)
+        for area in areas:
+            impact = update_storage.impact(self.root, [self.build / area], mode='session')
+            self.assertEqual(impact['fastUpdateImpact']['status'], 'slower')
+            self.assertEqual(impact['warnings'][0]['code'], 'fast_update_cache_removed')
+        run = self.store.create({'mode': 'update-mod'})
+        run['status'] = 'complete'; self.store.save(run)
+        cleanup.execute(self.root, cleanup.plan_session(self.root, run['session']))
+        self.assertTrue(all((self.build / area / ('b' * 64) / 'owned-result.bin').is_file() for area in areas))
+
     def test_retained_compiler_owner_attributes_one_shared_project_to_matching_runs(self):
         _, plan = self.update(1, latest=True)
         project = self.build / "updates/code-projects" / ("b" * 64)
