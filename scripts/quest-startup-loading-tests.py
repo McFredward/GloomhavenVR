@@ -20,7 +20,7 @@ def main():
     parser.add_argument("--case", action="append", help="Run only the selected production/control case.")
     parser.add_argument("--alpha-only", action="store_true", help="Exercise the actual alpha-install/plugin boundary without unrelated startup cases.")
     args = parser.parse_args()
-    names = ("QuestGameBootstrap.cs", "QuestCardAlphaContent.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs", "QuestFrameEvidence.cs")
+    names = ("QuestGameBootstrap.cs", "QuestCardAlphaContent.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs", "QuestFrameEvidence.cs", "QuestSnapshotWriter.cs")
     sources = {name: (args.runtime_source / name).read_text() for name in names}
     bootstrap = sources["QuestGameBootstrap.cs"]
     mutations = (

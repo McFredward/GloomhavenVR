@@ -60,6 +60,7 @@ def main():
         (case / "QuestGameStartupLog.cs").write_text(logger_source)
         (case / "QuestGameBootstrap.cs").write_text(bootstrap_source)
         (case / "QuestFrameEvidence.cs").write_text(frame_source)
+        shutil.copy2(runtime / "QuestSnapshotWriter.cs", case / "QuestSnapshotWriter.cs")
         result = subprocess.run([dotnet, "run", "--project", str(case_harness / "QuestStartupLog.Tests.csproj"),
                                  "--configuration", "Release", "--property:RuntimeSource=" + str(case),
                                  "--", str(case / "files")], text=True, stdout=subprocess.PIPE,

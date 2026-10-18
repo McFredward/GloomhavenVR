@@ -30,6 +30,7 @@ internal static class Program
         Check(Count(text, "Pointer::get_delta missing") == 1 && text.Contains("Rulebase initial loading failed"), "distinct-budget: duplicate input errors consumed the loader cause budget");
         Check(text.Contains("loader first cause\n at worker.LoadRules()"), "first-stack: original loader stack was not persisted");
         Invoke(bootstrap, "SaveState");
+        Invoke(bootstrap, "FlushState");
         using (var state = JsonDocument.Parse(File.ReadAllText(Path.Combine(Application.persistentDataPath, "quest-startup-state.json"))))
             Check(state.RootElement.GetProperty("originalErrors").GetInt32() == 2, "distinct-budget: startup state counts duplicate errors instead of retained distinct causes");
         // The main thread deliberately waits rather than running Update. A worker

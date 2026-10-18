@@ -157,14 +157,16 @@ internal static class Program
             Check(Complete, "yield-main-pump", "startup coroutine did not complete within fixture deadline");
         }
     }
+    static QuestGameBootstrap? latestOwner;
     static QuestGameBootstrap Owner()
     {
-        var owner = new QuestGameBootstrap(); Call(owner, "Awake");
+        var owner = new QuestGameBootstrap(); latestOwner = owner; Call(owner, "Awake");
         Check(Fixture.ViewPrepared && !Fixture.ViewVisible && Fixture.ViewCreations == 0, "early-anchor", "Awake submits neutral XR frames without a loading canvas");
         return owner;
     }
     static JsonElement State()
     {
+        if (latestOwner != null) Call(latestOwner, "FlushState");
         using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(Fixture.Root, "quest-startup-state.json")));
         return document.RootElement.Clone();
     }

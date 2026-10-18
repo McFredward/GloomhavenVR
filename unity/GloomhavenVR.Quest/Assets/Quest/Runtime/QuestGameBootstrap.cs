@@ -33,6 +33,7 @@ namespace GloomhavenVR.Quest
             public int mainThreadFrames, startupOverallPercent;
             public QuestFrameSnapshot frameTiming;
             public string[] combatAudio, cardGuides;
+            public bool snapshotWriteOffThread;
             public bool loadingViewAvailable, contentLogWriteFailed, campaignPackageBuilt, proceduralBridgeConfigured;
             public bool contentReady, modContentReady, addressablesReady, originalBootstrapStarted, modInitializationComplete, rigReady, modLifecycleAvailable, fullGameReady, eosAuthorised, proceduralRuntimeAvailable, voiceNativeAvailable, passthroughActive, inviteKeyboardBound, inviteKeyboardVisible, realKeyboardVisible, focused, paused;
         }
@@ -45,6 +46,7 @@ namespace GloomhavenVR.Quest
         public string FailureDetail { get; private set; }
         string logPath;
         QuestGameStartupLog log;
+        QuestSnapshotWriter stateWriter;
         QuestGameAddressables addressables;
         QuestGameVideos videos;
         readonly QuestGamePresentationEvidence presentation = new QuestGamePresentationEvidence();
@@ -445,6 +447,7 @@ namespace GloomhavenVR.Quest
         internal void SaveState()
         {
             if (logPath == null) return;
+            CollectSnapshotCompletion();
             bool proceduralConfigured = false, nativeVoiceAvailable = false;
             string proceduralBackend = null;
 #if GHVR_QUEST_GAME
@@ -455,6 +458,7 @@ namespace GloomhavenVR.Quest
             QuestGameContentProgress progress; double progressTime;
             lock (contentSync) { progress = contentProgress; progressTime = lastContentProgress; }
             var state = new StartupState { scope = RuntimeScope, campaignPackageBuilt = CampaignPackageBuilt, proceduralBridgeConfigured = proceduralConfigured,
+                snapshotWriteOffThread = true,
                 proceduralBackend = proceduralBackend,
                 combatAudio = GloomhavenVR.Core.QuestStandalonePlatform.AudioPlaybackDiagnostics,
                 cardGuides = GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging
@@ -482,19 +486,36 @@ namespace GloomhavenVR.Quest
                 realKeyboardVisible = modLifecycle != null && modLifecycle.InviteKeyboardVisible,
                 inviteKeyboardBound = false, inviteKeyboardVisible = false, inviteKeyboardFailure = null, proceduralRuntimeAvailable = proceduralConfigured, voiceNativeAvailable = nativeVoiceAvailable,
                 loadedScenes = loadedScenes, lastScene = lastScene, focused = focused, paused = paused };
-            string path = Path.Combine(Application.persistentDataPath, "quest-startup-state.json"), temp = path + ".tmp";
+            string path = Path.Combine(Application.persistentDataPath, "quest-startup-state.json");
             try
             {
-                long writeStarted = Stopwatch.GetTimestamp();
-                File.WriteAllText(temp, JsonUtility.ToJson(state, true));
-                if (File.Exists(path)) File.Replace(temp, path, null); else File.Move(temp, path);
-                frames.RecordSnapshotWrite((Stopwatch.GetTimestamp() - writeStarted) * 1000d / Stopwatch.Frequency);
+                if (stateWriter == null) stateWriter = new QuestSnapshotWriter(path);
+                // B689 measured up to80ms writing this8KiB diagnostic file on
+                // the playing main thread every5s. Keep the same evidence and
+                // cadence, but let one coalescing managed worker publish it.
+                stateWriter.Enqueue(JsonUtility.ToJson(state, true));
+                // Startup milestones and suspension remain durable before their
+                // native continuation. Ordinary gameplay never waits for file IO.
+                if (!nativeStartupComplete || paused || !focused) FlushState();
             }
             catch (Exception e)
             {
                 if (!stateWriteWarning) { stateWriteWarning = true; UnityEngine.Debug.LogWarning("[Quest startup] state persistence failed: " + e.Message); }
             }
         }
+        void CollectSnapshotCompletion()
+        {
+            if (stateWriter == null) return;
+            double maximumMs; string error;
+            stateWriter.TakeCompleted(out maximumMs, out error);
+            frames.RecordSnapshotWrite(maximumMs);
+            if (error != null && !stateWriteWarning)
+            {
+                stateWriteWarning = true;
+                UnityEngine.Debug.LogWarning("[Quest startup] state persistence failed: " + error);
+            }
+        }
+        void FlushState() { if (stateWriter != null) stateWriter.Flush(); CollectSnapshotCompletion(); }
         void CaptureLog(string message, string stack, LogType type)
         {
             try
@@ -537,7 +558,7 @@ namespace GloomhavenVR.Quest
                 || message.StartsWith("[DIAGNOSTICS]: Init DLCs elapsed ", StringComparison.Ordinal)
                 || message.StartsWith("[DIAGNOSTICS]: Init Cards elapsed ", StringComparison.Ordinal);
         }
-        void OnDestroy() { destroyed = true; Application.logMessageReceivedThreaded -= CaptureLog; SceneManager.sceneLoaded -= SceneLoaded; if (videos != null) videos.Dispose(); if (addressables != null) addressables.Dispose(); }
+        void OnDestroy() { destroyed = true; if (stateWriter != null) stateWriter.Dispose(); CollectSnapshotCompletion(); Application.logMessageReceivedThreaded -= CaptureLog; SceneManager.sceneLoaded -= SceneLoaded; if (videos != null) videos.Dispose(); if (addressables != null) addressables.Dispose(); }
     }
 }
 #endif
