@@ -1,5 +1,12 @@
 # Equal-resolution Steam Link scene coverage
 
+**Hardware rejection, 2026-10-18:** the maintainer's first697 stream reports
+split eye scale and one-sided passthrough. The original local proofs below did
+not test lossy transport and asymmetric stereo format recognition. Build698
+quarantines this production format and restores retained v1. See the
+[failure review](STEAM-LINK-698-EYE-DIVERGENCE.md); do not treat the earlier
+GPU/ideal-mask results as an accepted headset outcome.
+
 ## Maintainer request and scope
 
 After successful native Frame/Steam Link MR, the maintainer still reports soft

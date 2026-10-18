@@ -1,5 +1,25 @@
 # State — where the project stands
 
+**Native Steam Link stereo regression containment, 2026-10-18: Build698.**
+
+The maintainer rejects697 in hardware: eye scale/depth differs and passthrough
+can be present in only one eye. Fresh PC logs show five v2 preparations with
+both4040-square8xMSAA eyes; the Frame runs the exact correct dual receiver with
+six replacements, no source/history failure or service restart. Neither log
+records the GPU's per-eye format verdict. A controlled lossy-codec reproduction
+demonstrates asymmetric v2 guard acceptance; the actual shipping native fragment
+then reproduces different scale and an opaque eye in40 checks/four cases.
+Same-codec v1 controls remain matched. Actual hardware guard samples/encoder
+parameters remain unknown; this is a reproduced mechanism, not a claimed exact
+measurement of the failing streamed frame.
+
+Restore the retained v1 production shader. Keep v2 assets/profile and its earlier
+software evidence quarantined, with the original soft-edge issue still open.
+The installed dual receiver supports v1 without a new Frame change/restart.
+Frame investigation here only reads existing logs. Focused containment checks
+and the real codec/native reproduction replace repeating unrelated passed gates.
+See [the bounded review](STEAM-LINK-698-EYE-DIVERGENCE.md).
+
 **Native Steam Link equal-resolution coverage, 2026-10-18: Build697.**
 
 The maintainer rejects a window-classification channel and authorizes a general

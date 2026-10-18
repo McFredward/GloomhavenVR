@@ -1,5 +1,26 @@
 # Steam Link availability repair coordination, 2026-10-17
 
+## Eye-divergence regression698; v2 quarantined
+
+The maintainer rejects697 in real streaming: different eye scale/depth and
+one-sided MR. Root owns698 NetProtocol/STATE/review/coordination. Worker
+`worker/eye-divergence-698` from currentdev468eaa481 restores only the retained v1
+ScenePayloadAssets selection and its focused source control/docs. Keep all v2
+assets/profile/software evidence, independent696 runtime/media/Cheats and694
+lifecycle unchanged. The installed public dual receiver supports v1; this
+containment needs no Frame write or restart. Frame inspection here only reads
+existing logs; do not use the completed prior deployment permission for a new
+device change/capture.
+
+Fresh697 PC logs show both4040-square8xMSAA eyes in five v2 epochs. Exact new
+receiver, six replaced pipelines and healthy service are confirmed, but GPU guard
+verdicts are absent. A24-case controlled lossy codec surrogate and four actual
+shipping-fragment GPU cases/40checks reproduce asymmetric v2 guard acceptance,
+different scale/opaque output; corresponding v1 controls match. Actual failed
+hardware codes/encoder parameters remain unmeasured. Native review docs record
+this bound. The hard-edge request is still open; do not re-enable v2 from its old
+ideal/lossless proofs or claim the containment finishes that feature.
+
 ## Integrated equal-resolution coverage697; independent696 retained
 
 The maintainer rejects a window-classification channel and explicitly authorizes

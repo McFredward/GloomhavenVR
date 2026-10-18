@@ -612,7 +612,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 697;
+    public const ushort ModBuild = 698;
+
+    // ModBuild698 — contain the observed v2 native Steam Link stereo regression.
+    // The maintainer reports different eye scale and one-sided passthrough after
+    // 697. Both first-draw PC eye receipts show equal4040-square v2 sources and
+    // the Frame has the correct dual receiver. Its per-fragment format verdict
+    // was not logged. A refused v2 guard presents the unchanged packed image,
+    // directly explaining a scale/MR split when only one eye accepts the format.
+    // Controlled lossy-codec reproduction establishes v2 guard fragility; it
+    // does not establish the actual hardware guard samples or codec settings.
+    // Restore the retained v1 production packer, keeping v2 assets and focused
+    // evidence quarantined for investigation. The installed dual receiver keeps
+    // v1 support, so this source containment needs no Frame write or restart.
+    // Genuine transparency, existing694 lifecycle and independent696 movies/UI
+    // remain unchanged. This is regression containment, not a claim that the
+    // original soft-edge request is complete. See STEAM-LINK-698-EYE-DIVERGENCE.md.
 
     // ModBuild697 — equal-resolution native Steam Link scene coverage.
     // The maintainer rejects window-classification tags and authorizes fixing the
