@@ -21,8 +21,11 @@ from town_run_retention import cleanup_completed_run
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--owned-project", type=Path, required=True)
-    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness"))
+    parser.add_argument("--final-composition", action="store_true", help="Also qualify the native overlay in a real automatically rendered GameView (GL/Xvfb).")
+    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept"))
     args = parser.parse_args()
+    if args.control == "native-overlay-kept" and not args.final_composition:
+        parser.error("The native overlay control requires --final-composition.")
     base = ROOT / ".planning/debug/quest-menu-lifecycle"; base.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=base.resolve()))
     log = run / "runner.log"; log.write_text("Full production loading Tick evidence: " + str(run) + "\n")
@@ -40,6 +43,7 @@ def main():
             "missing-native-seam": ("return _bootLoadSceneField!.GetValue(_bootstrap) != null;", "return false;", "through original Bootstrap/Intro callback and immediate activation"),
             "skip-head-reparent": ("bool attach = _root.transform.parent != head.transform;", "bool attach = _root.transform.parent == null && _root.transform.parent != head.transform;", "through actual same-frame head-rig replacement"),
             "stale-draw-witness": ("LastHeadId = camera.GetInstanceID();", "LastHeadId = 0;", "Actual native camera submission updates the owned loading draw witness"),
+            "native-overlay-kept": ("_questIntroCanvas.enabled = false;", "_questIntroCanvas.enabled = true;", "Actual final native overlay draw hides the admitted spinner and Quest Tick reveals the same pixels"),
         }
         expected = ""
         if args.control:
@@ -78,6 +82,26 @@ def main():
         def copy(path, target):
             target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(path, target)
             owned[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+        if args.final_composition:
+            # Retain and validate the actual producer graph without importing
+            # any canonical scene or native-script graph into this fixture.
+            scene = source / "Assets/Scenes/Intro.unity"
+            text = scene.read_text()
+            records = [(int(kind), int(key), body) for kind, key, body in re.findall(r"^--- !u!(\d+) &(\d+)\n(.*?)(?=^--- !u!|\Z)", text, re.M | re.S)]
+            intro = [body for kind, key, body in records if kind == 114 and "  _loading: {fileID:" in body]
+            assert len(intro) == 1, "Original Intro loading producer is ambiguous"
+            loading = int(re.search(r"_loading: \{fileID: (\d+)\}", intro[0])[1])
+            canvases = [body for kind, key, body in records if kind == 223 and f"  m_GameObject: {{fileID: {loading}}}\n" in body]
+            assert len(canvases) == 1 and "  m_RenderMode: 0\n" in canvases[0] and "  m_SortingOrder: 1000\n" in canvases[0], "Original Intro loading overlay contract changed"
+            root_rect = [key for kind, key, body in records if kind == 224 and f"  m_GameObject: {{fileID: {loading}}}\n" in body]
+            assert len(root_rect) == 1
+            panels = [body for kind, key, body in records if kind == 224 and f"  m_Father: {{fileID: {root_rect[0]}}}\n" in body and "  m_AnchorMin: {x: 0, y: 0}\n" in body and "  m_AnchorMax: {x: 1, y: 1}\n" in body]
+            black = False
+            for panel in panels:
+                panel_id = int(re.search(r"m_GameObject: \{fileID: (\d+)\}", panel)[1])
+                black |= any(kind == 114 and f"  m_GameObject: {{fileID: {panel_id}}}\n" in body and "  m_Color: {r: 0, g: 0, b: 0, a: 1}\n" in body for kind, key, body in records)
+            assert black, "Original Intro loading overlay has no qualified opaque full-screen backdrop"
+            copy(scene, run / "native-source/Intro.unity")
         for name in ("LoadingBase.asset", "LoadingOverlay.asset"):
             path = source / "Assets/Sprite" / name
             wanted.update(re.findall(r"texture: \{fileID: 2800000, guid: ([a-f0-9]{32}),", path.read_text()))
@@ -137,10 +161,13 @@ public static class LoadingLifecycleRunner {
         (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
         if sys.platform.startswith("linux"):
             if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0): raise OSError("Could not own fixture descendants")
-        command = [str(unity), "-batchmode", "-force-vulkan", "-projectPath", str(project), "-executeMethod", "LoadingLifecycleRunner.Start", "-lifecycleManifest", str(run / "manifest.json"), "-logFile", str(run / "unity.log")]
+        graphics = ["-force-glcore"] if args.final_composition else ["-batchmode", "-force-vulkan"]
+        command = [str(unity)] + graphics + ["-projectPath", str(project), "-executeMethod", "LoadingLifecycleRunner.Start", "-lifecycleManifest", str(run / "manifest.json"), "-logFile", str(run / "unity.log")]
         if not os.environ.get("DISPLAY"): command = ["xvfb-run", "-a"] + command
         print("Full loading Tick evidence: " + str(run), flush=True)
-        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True); reaped=False
+        environment = os.environ.copy()
+        if args.final_composition: environment["QUEST_LOADING_COMPOSITION_REPORT"] = str(run)
+        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=environment); reaped=False
         code = process.wait(timeout=240)
     finally:
         if process is not None:

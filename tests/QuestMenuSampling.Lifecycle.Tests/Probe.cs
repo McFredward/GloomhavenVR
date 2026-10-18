@@ -129,7 +129,7 @@ public static class LoadingLifecycleProgram
         Image baseImage = Icon("native-intro-base", clone(basis));
         Image overlayImage = Icon("native-intro-overlay", clone(overlay!));
         baseImage.color = new Color(.953f, .867f, .671f, 1);
-        var owner = new GameObject("native-intro-spinner"); owner.SetActive(false);
+        var owner = new GameObject("native-intro-spinner", typeof(RectTransform)); owner.SetActive(false);
         baseImage.transform.SetParent(owner.transform, false); overlayImage.transform.SetParent(owner.transform, false);
         var animation = owner.AddComponent<AnimateLoadingIcon>();
         NativeField(animation, "m_LoadingIconBase", baseImage.gameObject);
@@ -313,7 +313,7 @@ public static class LoadingLifecycleProgram
         // A fresh desktop indicator receives the same completed native Intro
         // seam, but must retain the historical mod-owned RT and tuning policy.
         indicator.Shutdown(); QuestStandalonePlatform.Enabled = false;
-        indicator = new LoadingIndicator(); IntroArt();
+        indicator = new LoadingIndicator(); GameObject desktopArt = IntroArt();
         for (int i = 0; i < 8; i++)
         {
             yield return new WaitForSecondsRealtime(.01f); AssertShown("unchanged desktop native boot");
@@ -330,8 +330,16 @@ public static class LoadingLifecycleProgram
             && lifecycleEdges[1].Contains("view=") && lifecycleEdges[1].Contains("lastHead=")
             && lifecycleEdges[1].Contains("flip=") && lifecycleEdges[1].Contains("tint="),
             "The existing native takeover record includes drawable pose, material state and head submission evidence");
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("QUEST_LOADING_COMPOSITION_REPORT")))
+        {
+            indicator.Shutdown(); driver.Tick = null; UnityEngine.Object.DestroyImmediate(desktopArt);
+            QuestStandalonePlatform.Enabled = true;
+            IEnumerator nativeOverlay = NativeOverlayComposition.Probe(head, IntroArtForComposition, action => driver.Tick = action, Check);
+            while (nativeOverlay.MoveNext()) yield return nativeOverlay.Current;
+        }
         ObservedBoundary = 8;
     }
+    private static GameObject IntroArtForComposition() => IntroArt();
     public static void Start(Action<int, Exception?> completion)
     {
         checks = shownFrames = 0; ObservedBoundary = 0; OriginalBootCallbacks = false; failed = false; finish = completion;

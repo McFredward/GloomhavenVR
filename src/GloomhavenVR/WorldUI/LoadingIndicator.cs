@@ -178,6 +178,11 @@ namespace GloomhavenVR.WorldUI;
 /// texture before the Intro unloads, so native asset collection reaches it through the live
 /// hierarchy. Do not replace this with another unqualified RenderTexture sample or mutate
 /// the borrowed asset's flags. Desktop retains its established owned-copy path.</para>
+/// <para>QUEST INTRO OVERLAY (B690): the exact <c>IntroPlayer._loading</c> root is a
+/// ScreenSpaceOverlay Canvas with an opaque native backdrop. That final draw is later than
+/// the head camera's admitted spinner. While our native-art consumer is live, reversibly
+/// disable only that flat Canvas component, preserving its original animator and completion
+/// callbacks. Camera-only render tests cannot observe this screen-space covering draw.</para>
 ///
 /// <para>THE DESKTOP BOOT COPY IS MOD-OWNED: the historical desktop path observed the Intro textures die when
 /// <c>Gloomhaven_unified</c> activates (Unity unloads the now-unused serialized files), which is
@@ -346,6 +351,9 @@ internal sealed class LoadingIndicator
     // retained log has acquisition pictures but loses the ordinary WorldUI log
     // before the native boot handover, so it cannot identify what hid the copy.
     private static int _questLifecycleSamples;
+    private Canvas? _questIntroCanvas;
+    private bool _questIntroCanvasEnabled;
+    private bool _questIntroCanvasSuppressed;
 
     public void Tick()
     {
@@ -429,6 +437,7 @@ internal sealed class LoadingIndicator
         }
         if (!_root.activeSelf)
             _root.SetActive(true);
+        SuppressQuestIntroCanvas();
         if (!_shownLogged)
         {
             _shownLogged = true;
@@ -455,6 +464,7 @@ internal sealed class LoadingIndicator
     private void HideNow()
     {
         if (_shownLogged) ReportQuestLifecycle("fully-faded-hide");
+        RestoreQuestIntroCanvas();
         _townReloadVisual = false;
         if (_root != null && _root.activeSelf)
         {
@@ -469,6 +479,9 @@ internal sealed class LoadingIndicator
     public void Shutdown()
     {
         if (_shownLogged || _boot == BootCoverage.Covering) ReportQuestLifecycle("driver-shutdown");
+        RestoreQuestIntroCanvas();
+        _questIntroCanvas = null;
+        _questIntroCanvasEnabled = false;
         _nativeLoadingObserved = false;
         _nativeLoadingStartedAt = 0f;
         FlatScreenSuppressed = false;
@@ -505,6 +518,8 @@ internal sealed class LoadingIndicator
     /// </summary>
     private void DropProvisionalArt()
     {
+        RestoreQuestIntroCanvas();
+        _questIntroCanvas = null;
         _artIsProvisional = false;
         _baseArt = null;
         _overlayArt = null;
@@ -707,6 +722,9 @@ internal sealed class LoadingIndicator
             + " root=" + (_root == null ? "none" : _root.GetInstanceID() + ",active=" + _root.activeInHierarchy
                 + ",parent=" + (_root.transform.parent == null ? 0 : _root.transform.parent.GetInstanceID()))
             + " provisional=" + _artIsProvisional
+            + " introCanvas=" + (_questIntroCanvas == null ? "none" : _questIntroCanvas.GetInstanceID()
+                + ",mode=" + _questIntroCanvas.renderMode + ",enabled=" + _questIntroCanvas.enabled
+                + ",active=" + _questIntroCanvas.gameObject.activeInHierarchy + ",scene=" + _questIntroCanvas.gameObject.scene.name)
             + " baseTexture=" + (_baseArt?.Tex == null ? 0 : _baseArt.Tex.GetInstanceID())
             + " overlayTexture=" + (_overlayArt?.Tex == null ? 0 : _overlayArt.Tex.GetInstanceID())
             + " baseAlpha=" + (_baseMaterial == null ? -1f : _baseMaterial.color.a)
@@ -1062,6 +1080,10 @@ internal sealed class LoadingIndicator
         {
             GameObject? baseGo = null;
             GameObject? overlayGo = null;
+            IntroPlayer? intro = QuestStandalonePlatform.Enabled ? FindLiveInstance<IntroPlayer>() : null;
+            GameObject? loading = intro != null
+                ? AccessTools.Field(typeof(IntroPlayer), "_loading")?.GetValue(intro) as GameObject
+                : null;
             AnimateLoadingIcon? anim = FindLiveInstance<AnimateLoadingIcon>();
             if (anim != null)
             {
@@ -1073,10 +1095,13 @@ internal sealed class LoadingIndicator
             {
                 // Second shape: whatever the game switches on, read as plain uGUI. Hierarchy
                 // order decides base/overlay — that is how both known animators declare them.
-                IntroPlayer? intro = FindLiveInstance<IntroPlayer>();
-                var loading = intro != null
-                    ? AccessTools.Field(typeof(IntroPlayer), "_loading")?.GetValue(intro) as GameObject
-                    : null;
+                if (!QuestStandalonePlatform.Enabled)
+                {
+                    intro = FindLiveInstance<IntroPlayer>();
+                    loading = intro != null
+                        ? AccessTools.Field(typeof(IntroPlayer), "_loading")?.GetValue(intro) as GameObject
+                        : null;
+                }
                 if (loading == null)
                     return false;
                 Image[] images = loading.GetComponentsInChildren<Image>(includeInactive: true);
@@ -1125,6 +1150,17 @@ internal sealed class LoadingIndicator
             _baseArt = baseArt;
             _overlayArt = overlayArt;
             _artIsProvisional = true;
+            if (QuestStandalonePlatform.Enabled && loading != null)
+            {
+                Canvas? canvas = loading.GetComponent<Canvas>();
+                if (canvas != null && canvas.isRootCanvas && canvas.renderMode == RenderMode.ScreenSpaceOverlay
+                    && baseGo != null && overlayGo != null && baseGo.transform.IsChildOf(canvas.transform)
+                    && overlayGo.transform.IsChildOf(canvas.transform))
+                {
+                    _questIntroCanvas = canvas;
+                    _questIntroCanvasEnabled = canvas.enabled;
+                }
+            }
             if (anim != null)
             {
                 _spinDegrees = ReadSpinDegrees(ReadFloatField(anim, typeof(AnimateLoadingIcon), "m_IconSpinSpeed"));
@@ -1141,6 +1177,30 @@ internal sealed class LoadingIndicator
                                   $"({ex.GetType().Name}: {ex.Message}) — falling through to the next source.");
             return false;
         }
+    }
+
+    // IntroPlayer.ShowLogos enables its serialized _loading root at completion.
+    // The owned Intro scene makes that exact root a ScreenSpaceOverlay Canvas
+    // (order 1000) with an opaque black Image behind the native icons. Its final
+    // screen draw can cover the admitted head-camera spinner; changing render
+    // queues or retaining textures does not move a MeshRenderer above it.
+    // Hand only this obsolete flat loading presentation to our live native-art
+    // consumer. Keep its GameObject, animator, callbacks and load completion
+    // untouched. The initial video/logos, other canvases, desktop and later
+    // native LoadingScreen canvases never enter this narrow ownership path.
+    private void SuppressQuestIntroCanvas()
+    {
+        if (!QuestStandalonePlatform.Enabled || !_artIsProvisional || _questIntroCanvas == null
+            || !_questIntroCanvasEnabled || _root == null || !_root.activeInHierarchy) return;
+        _questIntroCanvas.enabled = false;
+        _questIntroCanvasSuppressed = true;
+    }
+
+    private void RestoreQuestIntroCanvas()
+    {
+        if (!_questIntroCanvasSuppressed) return;
+        if (_questIntroCanvas != null) _questIntroCanvas.enabled = _questIntroCanvasEnabled;
+        _questIntroCanvasSuppressed = false;
     }
 
     /// <summary>First live (scene-resident) instance of a game component, inactive ones included.
