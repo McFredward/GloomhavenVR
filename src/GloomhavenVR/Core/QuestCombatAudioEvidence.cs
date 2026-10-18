@@ -12,6 +12,7 @@ internal static class QuestCombatAudioEvidence
 {
     private static readonly List<string> Reports = new();
     private static readonly Dictionary<int, int> PerClip = new();
+    private static int _otherEffects;
     internal static string[] Snapshot => Reports.ToArray();
 
     internal static void Observe(AudioObject owner)
@@ -37,7 +38,7 @@ internal static class QuestCombatAudioEvidence
                 || name.IndexOf("onhit", StringComparison.OrdinalIgnoreCase) >= 0
                 || name.IndexOf("melee", StringComparison.OrdinalIgnoreCase) >= 0
                 || name.IndexOf("ranged", StringComparison.OrdinalIgnoreCase) >= 0;
-            if (source.loop || (!nativeEffects && !namedAttack)) return;
+            if (source.loop || (!nativeEffects && !namedAttack) || (!namedAttack && _otherEffects >= 2)) return;
             int id = clip.GetInstanceID();
             PerClip.TryGetValue(id, out int count);
             if (count >= 2) return;
@@ -60,6 +61,7 @@ internal static class QuestCombatAudioEvidence
                 + " headScale=" + (head == null ? 0 : head.transform.lossyScale.x).ToString("F2", CultureInfo.InvariantCulture);
             Reports.Add(facts);
             PerClip[id] = count + 1;
+            if (!namedAttack) _otherEffects++;
         }
         catch (Exception error)
         {

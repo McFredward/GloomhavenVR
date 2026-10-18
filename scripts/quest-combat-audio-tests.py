@@ -34,4 +34,4 @@ for name, before, after, expected in controls:
     (run / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
     if not passed:
         raise SystemExit('FAIL ' + name + ': ' + str(folder / 'console.log'))
-    print(('PASS production22 assertions' if not expected else 'PASS rejected ' + name + ' at ' + expected), flush=True)
+    print(('PASS production24 assertions' if not expected else 'PASS rejected ' + name + ' at ' + expected), flush=True)

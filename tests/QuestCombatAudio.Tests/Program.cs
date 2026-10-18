@@ -17,6 +17,7 @@ static class Program
             object value = typeof(QuestCombatAudioEvidence).GetField(name, BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
             value.GetType().GetMethod("Clear")!.Invoke(value, null);
         }
+        typeof(QuestCombatAudioEvidence).GetField("_otherEffects", BindingFlags.NonPublic | BindingFlags.Static)!.SetValue(null, 0);
         QuestStandalonePlatform.Enabled = VRSession.IsRunning = VRLog.Debug = true;
         SceneController.Instance = new(); RoomVisibilityManager.s_Instance = new(); AudioSettings.Reads = 0;
     }
@@ -51,6 +52,12 @@ static class Program
         Check(owner.Reads == 0, "spent-cost: saturated evidence kept reading audio");
         var copy = QuestCombatAudioEvidence.Snapshot; copy[0] = "external mutation";
         Check(QuestCombatAudioEvidence.Snapshot[0] != copy[0], "snapshot: support consumer mutated retained evidence");
+        Reset(); owner = new AudioObject(); owner.Source!.clip.name = "Brute_Overwhelming_Assault";
+        for (int id = 0; id < 20; id++) { owner.Source.clip.Id = id; QuestCombatAudioEvidence.Observe(owner); }
+        Check(QuestCombatAudioEvidence.Snapshot.Length == 2, "attack-reserve: generic effects exhausted the named attack share");
+        owner.Source.clip.name = "SFX_MeleeAttack";
+        for (int id = 20; id < 26; id++) { owner.Source.clip.Id = id; QuestCombatAudioEvidence.Observe(owner); }
+        Check(QuestCombatAudioEvidence.Snapshot.Length == 8, "attack-reserve: six attack starts were not retained after other effects");
         Reset(); owner.Throw = true; QuestCombatAudioEvidence.Observe(owner);
         Check(QuestCombatAudioEvidence.Snapshot.Single() == "observation-unavailable=InvalidOperationException", "native-continuation: observation failure escaped into playback");
         Console.WriteLine("PASS combat audio evidence: " + checks + " assertions; playback output is not certified");
