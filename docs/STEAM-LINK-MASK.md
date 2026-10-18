@@ -96,8 +96,10 @@ active timeout. Restoration compares each still-owned value, preserving observed
 manual edits. Startup is bounded to five seconds; a pending Off can wait for that
 window. Unknown restoration blocks reacquisition in this game process. Killing
 or crashing the helper itself can prevent restoration; concurrent same-value
-manual edits cannot be identified by public IVRSettings. Previous effective
-values, rather than the absence of user overrides, are restored.
+manual edits cannot be identified by public IVRSettings. Build701 also preserves an originally missing value when OpenVR specifically
+reports UnsetSettingHasNoDefault, removing that temporary key again on release.
+An effective default cannot be distinguished from an explicit override, so
+restoration of its value does not reconstruct that override's original absence.
 
 The helper is embedded in the mod, hash-verified before execution and uses the
 same Windows/Proton public SDK bridge as connection detection. There is no Steam
@@ -105,6 +107,18 @@ binary patch or Frame update for Build700. The accepted v3 shaders, atlas, mask,
 receiver, both-eye admission and fractional opacity are unchanged. Standalone,
 Virtual Desktop and other connections do not acquire this lease. See the
 [scoped evidence and limits](../.planning/STEAM-LINK-700-EDGE-QUALITY.md).
+
+Build700's first hardware review did not exercise this policy: all three leases
+were refused at snapshot. Build701 admits explicitly absent settings without
+inventing defaults. Successful application produces `Steam Link stream quality:
+active`; a refusal now reports the exact bounded key/API code. The original
+hardware failure did not record that code, and visible edge improvement is not
+inferred from the automated checks.
+
+New source epochs also wait for a complete explicitly observed stereo frame
+before starting atlas output at a new frame boundary. Temporary non-stereo
+camera attachments close normally and can resume; genuine rendering faults
+remain refusals. This stores eye/frame metadata only, not previous-eye images.
 
 ## Host identity lookup: Windows and Proton
 

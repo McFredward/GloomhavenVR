@@ -612,7 +612,28 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 700;
+    public const ushort ModBuild = 701;
+
+    // ModBuild701 — actually admit the stream-quality policy and gate XR startup.
+    // Fresh700 hardware logs show all three leases refused at generic snapshot:
+    // no requested quality setting was applied, so unchanged edges do not test
+    // that policy. The old helper falsely treated a legitimate missing setting
+    // (public error5, UnsetSettingHasNoDefault) as an API failure. Snapshot exact
+    // absence separately from effective false/zero, explicitly write the requested
+    // policy and restore an absent key with public RemoveKeyInSection + readback.
+    // Never fabricate old values; all other API errors remain refusals and now
+    // name the bounded key/error code. The old log lacks that exact key/code,
+    // so the repaired absence mechanism is not claimed as measured old error5.
+    // Native and managed negative controls restore the old defect and reject it.
+    // Startup only arms on a real Both-eye XR attachment; transient mono closes
+    // without permanently poisoning the head. Observe an explicit Left+Right
+    // frame before publishing a new atlas at the next frame boundary. Metadata
+    // only: no stale eye/source texture, prior mask, extra camera or timer.
+    // This prevents source admission mid-pair, not all possible codec transitions.
+    // Keep the accepted v3 bank, masks, receiver and all partial opacity unchanged.
+    // Distant contours expose the same video-edge footprint more strongly; do
+    // not conceal it with opacity thresholds, semantic tags or added source blur.
+    // Standalone, non-Link transport, movie content and wire layout stay intact.
 
     // ModBuild700 — common transmission quality for native Steam Link MR edges.
     // Build699's stereo picture is accepted, but the maintainer still sees a

@@ -1,5 +1,29 @@
 # State — where the project stands
 
+**Native Steam Link admission and stereo startup, 2026-10-18: Build701.**
+
+Fresh Build700 hardware logs show all three quality leases refused at snapshot;
+the proposed uniform/no-sharpening policy never ran. This explains why its image
+change was not observed. The exact old failing key/API code was not recorded.
+The helper now supports the public, legitimate no-value/no-default state without
+inventing an effective baseline, restores original absence through typed
+RemoveKeyInSection, preserves manual edits and reports other failures precisely.
+
+Source startup requires the current Both-eye stereo attachment and observes a
+complete explicitly-labelled Left+Right frame before starting atlas output on
+a new frame boundary. Temporary Mono closes without a permanent fault latch;
+real rendering faults remain refusals. No previous-eye image, timer, new format,
+source prefilter, bank, receiver or Frame action. Native encoder transition
+atomicity remains separate from this source-proven boundary.
+
+Focused proof:18271native ASan/UBSan/rollback/absence/negative controls with
+identical PE rebuild;85managed checks and real Ctranscripts/net4720W/0E;
+100callback/cohort checks/six mutants/net4720W/0E;499actual GPU loading checks,
+27renders,6resumes,96headercells and the rejected old-owner control. CI fixture
+ports and suite census are corrected without weakened production predicates.
+The inventory is235local/104CI/16source. No whole-gate repeat or headset success
+is inferred. See [the scoped record](STEAM-LINK-701-ADMISSION-AND-STARTUP.md).
+
 **Native Steam Link edge-quality correction, 2026-10-18: Build700.**
 
 The maintainer accepts Build699 stereo but rejects its remaining shimmering

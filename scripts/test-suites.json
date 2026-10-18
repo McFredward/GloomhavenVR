@@ -2883,6 +2883,21 @@
       "weight": 8
     },
     {
+      "id": "steamlink-scene-startup",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-scene-startup/run.py",
+        "--output",
+        ".planning/debug/steamlink-scene-startup"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
+    },
+    {
       "id": "steamlink-loading-source",
       "command": [
         "python3",

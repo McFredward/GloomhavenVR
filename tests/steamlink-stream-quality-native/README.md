@@ -24,3 +24,12 @@ restore and must remain an explicit unknown-outcome warning in the parent.
 Restoration preserves the previous effective typed values; public IVRSettings
 does not expose whether those values originally came from defaults or explicit
 overrides, so absence of a user override is not reconstructed.
+
+Build701 also covers all16 setting-presence combinations, explicit false/zero,
+120 partial-apply rollback cases with absent keys, exact RemoveKeyInSection
+restoration/readback, user removal while active and all non5 API errors. A second
+negative control restores Build700's original missing-setting refusal. Error5
+means neither explicit value nor default; it is not permission to fabricate an
+old effective value. Receipts carry an absence mask, and remaining snapshot
+failures name the key plus public API error number. The old hardware log only
+said snapshot, so it cannot identify the original failing key/error retroactively.

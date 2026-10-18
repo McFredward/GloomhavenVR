@@ -35,3 +35,9 @@ by these monitor tests. The isolated helper's own typed API/rollback/EOF control
 are separate evidence. Each child is bounded/reaped before the central cleanup
 API and exact owned compiler-cache removal. Failed runs, sources, transcripts,
 logs and results remain retained; no full presentation suite is repeated.
+
+The Build701 acquired receipt optionally includes a bounded four-bit
+`previous_absent_mask`. It distinguishes an absent original key from an effective
+false/zero baseline, validates matching placeholders and cannot authorize a
+larger inherited manual width from absent policy fields. Actual missing-setting
+and detailed API-error C transcripts are included in the focused integration.
