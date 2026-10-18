@@ -40,7 +40,7 @@ internal static partial class WorldMaterialBudget
     {
         if (_driver != null) return;
         _driver = host.AddComponent<Driver>();
-        try { ScenarioCameraCullBoundary.Install(); ScenarioCameraCullBoundary.Subscribe(_driver.PreCull); }
+        try { ScenarioCameraCullBoundary.Install(); ScenarioCameraCullBoundary.Subscribe(_driver.PreCull); ScenarioCameraCullBoundary.SubscribeUnavailable(_driver.UnavailableCamera); }
         catch (Exception error) { _driver.Fail(error); }
         foreach (string counter in new[] { "WorldMaterial.Candidates", "WorldMaterial.VariantSlots",
             "WorldMaterial.NativeSlots", "WorldMaterial.MaterialRefreshes", "WorldMaterial.ScopeRefusals",
@@ -52,6 +52,7 @@ internal static partial class WorldMaterialBudget
     {
         if (_driver == null) return;
         ScenarioCameraCullBoundary.Unsubscribe(_driver.PreCull);
+        ScenarioCameraCullBoundary.UnsubscribeUnavailable(_driver.UnavailableCamera);
         _driver.RestoreAll(true);
         UnityEngine.Object.Destroy(_driver); _driver = null;
     }
@@ -131,6 +132,7 @@ internal static partial class WorldMaterialBudget
         private void OnDestroy()
         {
             ScenarioCameraCullBoundary.Unsubscribe(PreCull);
+            ScenarioCameraCullBoundary.UnsubscribeUnavailable(UnavailableCamera);
             SceneManager.sceneLoaded -= SceneLoaded;
             SceneManager.sceneUnloaded -= SceneUnloaded;
             RestoreAll(true);
@@ -231,6 +233,11 @@ internal static partial class WorldMaterialBudget
             MeshFilter filter = renderer.GetComponent<MeshFilter>();
             if (filter != null && filter.sharedMesh != null && InWorld(renderer) && !_surfaces.ContainsKey(renderer.GetInstanceID()))
                 _surfaces[renderer.GetInstanceID()] = new Surface(renderer, filter);
+        }
+        internal void UnavailableCamera(Camera camera)
+        {
+            try { RestoreBindings(); }
+            catch (Exception error) { Fail(error); }
         }
         internal void PreCull(Camera camera)
         {

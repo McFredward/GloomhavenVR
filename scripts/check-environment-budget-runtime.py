@@ -79,6 +79,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT/'.planning/debug/environment-budget-runtime')
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH','/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--production-only', action='store_true', help='Partial development run, omits negative controls')
+    parser.add_argument('--quest-callbacks', action='store_true', help='Run focused actual camera/geometry lease checks through the Quest owner')
     parser.add_argument('--case', action='append', help='Partial development run; repeat to select named variants')
     args = parser.parse_args()
     source_path = args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.cs'
@@ -98,6 +99,10 @@ def main():
     attachment_binder = args.source_root/'scripts/check-world-material-runtime.py'
     spec = importlib.util.spec_from_file_location('wall_attachment_source_bindings', attachment_binder)
     attachment_module = importlib.util.module_from_spec(spec); spec.loader.exec_module(attachment_module)
+    if args.quest_callbacks:
+        before = attachment_module.pure_method(boundary, 'internal static void Install()')
+        boundary = boundary.replace(before, 'internal static void Install() { InstallQuest(); }', 1)
+        boundary = boundary.replace('private static Harmony? _installedOwner;', '', 1)
     attachment_paths, attachment_source = attachment_module.wall_attachment_source(args.source_root)
     attachment_source = attachment_source.replace('internal static partial class WallSegmentFade', 'internal static partial class WallDormantFixture', 1)
     source, shader, repair, floor = source_path.read_text(), shader_path.read_text(), repair_path.read_text(), floor_path.read_text()
@@ -387,7 +392,7 @@ def main():
         result = subprocess.run(command,capture_output=True,text=True)
         (build/'build.log').write_text(result.stdout+result.stderr)
         if result.returncode: raise SystemExit(result.stdout+result.stderr+'\nA compilation failure cannot pass as a negative control')
-        manifest['cases'].append({'name':name,'dll':str(build/'bin/Release/netstandard2.1'/(assembly+'.dll')),'expected':expected})
+        manifest['cases'].append({'name':name,'dll':str(build/'bin/Release/netstandard2.1'/(assembly+'.dll')),'expected':expected,'questCallbacks':args.quest_callbacks})
     manifest_path = run/'manifest.json'; manifest_path.write_text(json.dumps(manifest,indent=2)+'\n')
     unity_project = run/'unity'; (unity_project/'Assets/Editor').mkdir(parents=True); (unity_project/'Packages').mkdir(); (unity_project/'ProjectSettings').mkdir()
     shutil.copyfile(fixture/'Editor/EnvironmentRunner.cs',unity_project/'Assets/Editor/EnvironmentRunner.cs')

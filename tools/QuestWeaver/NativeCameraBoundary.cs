@@ -5,10 +5,10 @@ namespace QuestWeaver;
 
 /// <summary>The Player owns Unity's native engine modules, including CoreModule.
 /// Current desktop builds detour after the entire native pre-cull delegate list.
-/// A recovered DLL export cannot replace that Player module. Its established
-/// callers already fail open: restore native material/renderer leases and retain
-/// the public paired camera callbacks for capture. Do not approximate this final
-/// seam with an early delegate or omit the hook while claiming installation.
+/// A recovered DLL export cannot replace that Player module. The Quest camera
+/// owner rearms one shared public tail before Unity captures its delegate list,
+/// and revokes optional leases whenever that exact list changes or is unavailable.
+/// Actual camera fixtures qualify native late writers, nesting and original fallback.
 /// This adaptation touches only the locally generated Quest mod, never PC source.
 /// </summary>
 internal static class NativeCameraBoundary
@@ -61,17 +61,19 @@ internal static class NativeCameraBoundary
 
         ValidateConsumers(module, boundary);
 
-        // Throw rather than return: EnvironmentBudget, WorldMaterialBudget and
-        // FlatScreen must execute their existing restoration/fallback handlers.
+        // The reviewed Quest owner uses a camera component before the public
+        // delegate snapshot, then validates the exact snapshot at its tail.
+        // Engine CoreModule remains Player-owned; desktop source stays intact.
+        MethodDefinition quest = boundary.Methods.Single(m => m.Name == "InstallQuest");
+        if (!quest.IsStatic || quest.ReturnType.FullName != "System.Void" || quest.Parameters.Count != 0
+            || quest.Body.Instructions.Any(i => i.Operand is MethodReference call
+                && call.DeclaringType.FullName == "HarmonyLib.Harmony" && call.Name.StartsWith("Patch", StringComparison.Ordinal)))
+            throw new InvalidDataException("Quest public camera owner has an unsupported installation contract.");
         install.Body = new MethodBody(install);
-        TypeReference exception = new("System", "NotSupportedException", module, module.TypeSystem.CoreLibrary);
-        MethodReference constructor = new(".ctor", module.TypeSystem.Void, exception) { HasThis = true };
-        constructor.Parameters.Add(new ParameterDefinition(module.TypeSystem.String));
         ILProcessor il = install.Body.GetILProcessor();
-        il.Emit(OpCodes.Ldstr, "Quest Player retains native rendering: the final Unity engine pre-cull detour is unavailable.");
-        il.Emit(OpCodes.Newobj, constructor); il.Emit(OpCodes.Throw);
+        il.Emit(OpCodes.Call, quest); il.Emit(OpCodes.Ret);
         patch.CustomAttributes.Remove(attributes[0]);
-        report.StaticSubstitutions.Add("Native final pre-cull engine detour: existing native renderer/material/capture fail-open paths retained; Player CoreModule is not replaced.");
+        report.StaticSubstitutions.Add("Native final pre-cull engine detour replaced by scoped Quest camera-owned public callback validation; unavailable invocations retain original renderer/material/capture paths. Player CoreModule is not replaced.");
     }
 
     static void ValidateConsumers(ModuleDefinition module, TypeDefinition boundary)

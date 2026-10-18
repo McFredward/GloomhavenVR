@@ -33,6 +33,7 @@ internal sealed partial class FlatScreen
             {
                 ScenarioCameraCullBoundary.Install();
                 ScenarioCameraCullBoundary.Subscribe(OnCapturePreCull);
+                ScenarioCameraCullBoundary.SubscribeUnavailable(OnCapturePreCull);
                 _captureBoundaryHooked = true;
             }
             catch (System.Exception error)
@@ -54,7 +55,10 @@ internal sealed partial class FlatScreen
         else
         {
             if (_captureBoundaryHooked)
+            {
                 ScenarioCameraCullBoundary.Unsubscribe(OnCapturePreCull);
+                ScenarioCameraCullBoundary.UnsubscribeUnavailable(OnCapturePreCull);
+            }
             else
                 Camera.onPreCull -= OnCapturePreCull;
             _captureBoundaryHooked = false;

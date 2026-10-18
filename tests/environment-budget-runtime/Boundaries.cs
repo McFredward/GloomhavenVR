@@ -42,6 +42,15 @@ public sealed class SceneController
 
 namespace GloomhavenVR.Core
 {
+    // This graphics fixture uses the original PC source bank. Standalone owned-
+    // receipt validation is qualified in its separate package fixtures; the
+    // Quest camera test selects the actual public boundary independently.
+    internal static class QuestStandalonePlatform
+    {
+        internal static bool Enabled => false;
+        internal static HashSet<string> OwnedEnvironmentSources(byte[] index, byte[] origins)
+            => throw new NotSupportedException("Standalone receipt parsing is outside the PC source-bank fixture.");
+    }
     // Documentation references only; runtime floor arithmetic comes from the full
     // production WallFloorTile copied by the runner, never a semantic substitute.
     internal static class WallStandingProp

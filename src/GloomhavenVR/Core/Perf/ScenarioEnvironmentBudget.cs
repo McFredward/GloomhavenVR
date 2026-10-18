@@ -121,6 +121,7 @@ internal static class ScenarioEnvironmentBudget
         {
             ScenarioCameraCullBoundary.Install();
             ScenarioCameraCullBoundary.Subscribe(AfterNativePreCull);
+            ScenarioCameraCullBoundary.SubscribeUnavailable(UnavailableCamera);
             VRSession.Harmony?.PatchAll(typeof(ProceduralBase_Placed_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(ProceduralMapTile_Show_EnvironmentBudgetPatch));
             VRSession.Harmony?.PatchAll(typeof(MaterialLoaderData_Load_EnvironmentBudgetPatch));
@@ -135,6 +136,7 @@ internal static class ScenarioEnvironmentBudget
     {
         if (_driver == null) return;
         ScenarioCameraCullBoundary.Unsubscribe(AfterNativePreCull);
+        ScenarioCameraCullBoundary.UnsubscribeUnavailable(UnavailableCamera);
         _driver.RestoreAll();
         UnityEngine.Object.Destroy(_driver);
         _driver = null;
@@ -156,6 +158,11 @@ internal static class ScenarioEnvironmentBudget
         catch (Exception error) { StopAfterFailure(error); }
     }
     internal static void BeforeLoadingComplete() { if (!_failed) _driver?.FinishLoading(); }
+    private static void UnavailableCamera(Camera camera)
+    {
+        try { _driver?.RecoverRenderLeases(); }
+        catch (Exception error) { StopAfterFailure(error); }
+    }
     private static void AfterNativePreCull(Camera camera)
     {
         try { if (!_failed) _driver?.FinishCameraPreCull(camera); }
@@ -1338,6 +1345,7 @@ internal static class ScenarioEnvironmentBudget
         }
         private void HandlePreCull(Camera camera)
         {
+            if (!ScenarioCameraCullBoundary.CanFinalize(camera)) { RecoverRenderLeases(); return; }
             if (!isActiveAndEnabled || !_active || (_surfaces.Count == 0 && _batches.Count == 0 && _ambient.Count == 0)) return;
             // A native visibility callback can run after LateUpdate. Validation is idempotent
             // and precedes each camera's culling, including both eyes in MultiPass.

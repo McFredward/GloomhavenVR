@@ -22,6 +22,10 @@ public static partial class WorldMaterialProgram
         var generated = new GameObject("Generated Content"); generated.transform.SetParent(room.transform, false);
         var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
         Mesh mesh = cube.GetComponent<MeshFilter>().sharedMesh; Object.DestroyImmediate(cube);
+        Check(mesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Normal)
+            && mesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord0)
+            && !mesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Color),
+            "actual production world shader fixture binds native position normal UV geometry without a COLOR stream");
         var material = new Material(Shader.Find("Amp_Basic_WallFade"));
         material.SetColor("_Tint", new Color(.8f, .4f, .2f, 1f)); material.SetFloat("_Cutoff", .5f);
         // A valid native simplex sample exposes several clip areas for this surrogate;

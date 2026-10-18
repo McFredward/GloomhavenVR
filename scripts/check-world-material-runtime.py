@@ -3,7 +3,7 @@
 
 Native scene/controller, shader-resolver and config APIs are explicit boundaries.
 Actual Unity renderers, material copying, MPBs, cloning, Camera.Render and the
-unchanged production FireOnPreCull Harmony postfix execute. The shader lane
+production desktop postfix or Quest public camera owner execute. The shader lane
 separately proves its production fragment against original native bytecode.
 """
 import argparse
@@ -68,12 +68,21 @@ def main():
     parser.add_argument('--output-dir',type=Path,default=ROOT/'.planning/debug/world-material-runtime')
     parser.add_argument('--unity',type=Path,default=Path(os.environ.get('UNITY_PATH','/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--production-only',action='store_true')
+    parser.add_argument('--quest-callbacks',action='store_true',help='Exercise the qualified Quest public camera owner instead of the desktop CoreModule detour')
+    parser.add_argument('--graphics',choices=('glcore','vulkan'),default='glcore')
     parser.add_argument('--integration-root',type=Path,help='Read-only integrated source bindings; defaults to source-root')
     parser.add_argument('--case',action='append')
     args=parser.parse_args();root=args.source_root.resolve();fixture=ROOT/'tests/world-material-runtime'
     paths=sorted((root/'src/GloomhavenVR/Core/Perf').glob('WorldMaterialBudget*.cs'))
     paths.append(root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs')
     sources={p.name:p.read_text() for p in paths}
+    if args.quest_callbacks:
+        before = pure_method(sources['ScenarioEnvironmentBudget.CameraBoundary.cs'], 'internal static void Install()')
+        sources['ScenarioEnvironmentBudget.CameraBoundary.cs'] = sources['ScenarioEnvironmentBudget.CameraBoundary.cs'].replace(before, 'internal static void Install() { InstallQuest(); }', 1)
+        # The real weaver replaces compiled IL. This source fixture removes the
+        # now unreferenced desktop-only field solely to keep warnings strict.
+        sources['ScenarioEnvironmentBudget.CameraBoundary.cs'] = sources['ScenarioEnvironmentBudget.CameraBoundary.cs'].replace('private static Harmony? _installedOwner;', '', 1)
+
     prop_path=root/'src/GloomhavenVR/Board/FigureGrab/PropGrab.cs'
     prop_source=prop_path.read_text()
     prop_methods=[pure_method(prop_source,signature) for signature in (
@@ -86,7 +95,7 @@ def main():
     assert 'StaticBatchingUtility' not in combined and 'SetStaticBatchInfo' not in combined
     world_combined='\n'.join(value for name,value in sources.items() if name!='WallAttachmentDelivery.cs')
     assert 'new Mesh' not in world_combined and 'SetPropertyBlock(' not in world_combined and 'forceRenderingOff =' not in world_combined
-    assert 'Camera.onPreCull +=' not in combined,'commit must use the final native boundary'
+    assert all('Camera.onPreCull +=' not in source for name, source in sources.items() if name != 'ScenarioEnvironmentBudget.CameraBoundary.cs'), 'world consumers must use the shared final native boundary'
     # Exact component owners may be stored once; their mutable layer stays live.
     current_layer='surface.Object.layer' if 'surface.Object.layer' in sources['WorldMaterialBudget.cs'] else 'renderer.gameObject.layer'
     video_guard=('if (!rendererBlockEmpty && _block.HasTexture(MainTextureId) && _block.GetTexture(MainTextureId) is RenderTexture\n                || !slotBlockEmpty && _slotBlock.HasTexture(MainTextureId) && _slotBlock.GetTexture(MainTextureId) is RenderTexture) return true;'
@@ -185,6 +194,10 @@ def main():
             ('WorldMaterialBudget.Scope.cs','string name = node.name;',
                 'string name = _cachedNames.TryGetValue(node, out string cached) ? cached : _cachedNames[node] = node.name;',1)],
             'same native Transform renamed to Preview immediately restores original material ownership'))
+    if args.quest_callbacks:
+        changes.append(('quest-public-list-identity-ignored',[
+            ('ScenarioEnvironmentBudget.CameraBoundary.cs','&& ReferenceEquals(snapshot, Camera.onPreCull);','&& snapshot != null;',1)],
+            'mutation during actual public dispatch revokes private slots before native culling'))
     variants=[('production',sources,'')]
     if not args.production_only:
         for name,edits,expected in changes:
@@ -248,14 +261,14 @@ def main():
     shutil.copyfile(fixture/'AttachmentNative.shader',unity/'Assets/Amp_Basic_WallFade.shader')
     for dependency in deps:shutil.copyfile(dependency,unity/'Assets'/dependency.name)
     (unity/'Packages/manifest.json').write_text('{"dependencies":{}}\n');(unity/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
-    (run/'source-hashes.json').write_text(json.dumps({'sha256':hashes,'coverage':'partial' if args.production_only or args.case else 'production-and-negative-controls',
+    (run/'source-hashes.json').write_text(json.dumps({'sha256':hashes,'graphics':args.graphics,'cameraBoundary':'quest-public-owner' if args.quest_callbacks else 'desktop-engine-postfix','coverage':'partial' if args.production_only or args.case else 'production-and-negative-controls',
         'cases':[v[0] for v in variants],'limits':['Native scene/controllers/config are explicit surrogate boundaries.',
         'Fixture bridge shader proves ownership/delivery pixels, not production world shading; separate shader lane proves native fragment routes.',
-        'Actual Unity material/MPB/cloning/renderer camera calls and production final Harmony postfix execute.',
+        'Actual Unity material/MPB/cloning/renderer camera calls and the selected complete shared final boundary execute.',
         'Complete production attachment classification, channel establishment, native drive, textures and swap restoration execute; scene membership/held/floor decisions are explicit boundaries.',
         'Attachment pixels use the actual production world shader and a GL native HIGH clip surrogate; native simplex sample/art/lighting and Windows bytecode remain outside this lane.',
         'No headset FPS, full original scene, Windows shader execution or multiplayer acceptance.']},indent=2)+'\n')
-    command=[str(args.unity),'-batchmode','-force-glcore','-projectPath',str(unity),'-executeMethod','WorldRunner.Start',
+    command=[str(args.unity),'-batchmode','-force-'+args.graphics,'-projectPath',str(unity),'-executeMethod','WorldRunner.Start',
         '-worldManifest',str(run/'manifest.json'),'-logFile',str(run/'unity.log')]
     if not os.environ.get('DISPLAY'):command=['xvfb-run','-a']+command
     try:result=subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=240)

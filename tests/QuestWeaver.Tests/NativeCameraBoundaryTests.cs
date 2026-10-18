@@ -5,7 +5,7 @@ using Mono.Cecil;
 using Mono.Cecil.Cil;
 using QuestWeaver;
 
-internal static class NativeCameraBoundaryTests
+public static class NativeCameraBoundaryTests
 {
     const string BoundaryName = "GloomhavenVR.Core.ScenarioCameraCullBoundary";
     const string PatchName = "GloomhavenVR.Core.Camera_FinalPreCull_BudgetPatch";
@@ -32,25 +32,23 @@ internal static class NativeCameraBoundaryTests
                 "The Player-owned CoreModule patch remains discoverable.");
             check(untouched.All(pair => pair.Value.SequenceEqual(Body(originalMethods[pair.Key]))),
                 "Engine fallback changed another original mod method.");
-            check(install.Body.Instructions.Select(i => i.OpCode).SequenceEqual(new[] { OpCodes.Ldstr, OpCodes.Newobj, OpCodes.Throw }),
-                "Unavailable engine installation returned success or retained a desktop detour.");
-            check(install.Body.Instructions[1].Operand is MethodReference ctor
-                && ctor.DeclaringType.FullName == "System.NotSupportedException"
-                && ctor.DeclaringType.Scope.Name == module.TypeSystem.CoreLibrary.Name,
-                "Unavailable engine installation imported a host framework exception.");
-            Exception? unavailable = ExecuteInstall(install, Path.Combine(output, "unavailable.dll"));
-            RequireUnavailable(unavailable);
-            check(unavailable is NotSupportedException && unavailable.Message.Contains("native rendering", StringComparison.Ordinal),
-                "Executing the actual adapted body did not enter consumers' failure handlers.");
+            check(install.Body.Instructions.Select(i => i.OpCode).SequenceEqual(new[] { OpCodes.Call, OpCodes.Ret })
+                && install.Body.Instructions[0].Operand is MethodReference quest && quest.Name == "InstallQuest"
+                && quest.DeclaringType.FullName == BoundaryName,
+                "Quest installation must invoke its camera owner rather than claim an unavailable engine detour.");
+            Exception? unavailable = ExecuteInstall(install, Path.Combine(output, "quest-owner.dll"));
+            RequireQuestOwner(unavailable);
+            check(unavailable is QuestOwnerInvokedException,
+                "Executing the actual adapted call did not reach the qualified Quest camera-owner entry.");
 
             // A no-op would claim a working final seam and let renderer/material
             // leases run without their required callback. This causal negative
-            // distinguishes explicit unavailability from silently removing a hook.
+            // distinguishes the camera-owned path from silently removing a hook.
             install.Body = new Mono.Cecil.Cil.MethodBody(install);
             install.Body.GetILProcessor().Emit(OpCodes.Ret);
             try
             {
-                RequireUnavailable(ExecuteInstall(install, Path.Combine(output, "silent-success.dll")));
+                RequireQuestOwner(ExecuteInstall(install, Path.Combine(output, "silent-success.dll")));
                 check(false, "A silent-success engine installation passed the executable failure contract.");
             }
             catch (InvalidDataException)
@@ -210,6 +208,9 @@ internal static class NativeCameraBoundaryTests
             else if (instruction.OpCode == OpCodes.Newobj && instruction.Operand is MethodReference ctor
                 && ctor.DeclaringType.FullName == "System.NotSupportedException")
                 il.Emit(OpCodes.Newobj, module.ImportReference(typeof(NotSupportedException).GetConstructor(new[] { typeof(string) })!));
+            else if (instruction.OpCode == OpCodes.Call && instruction.Operand is MethodReference quest
+                && quest.DeclaringType.FullName == BoundaryName && quest.Name == "InstallQuest")
+                il.Emit(OpCodes.Call, module.ImportReference(typeof(NativeCameraBoundaryTests).GetMethod(nameof(QuestOwnerCalled))!));
             else if (instruction.OpCode == OpCodes.Throw || instruction.OpCode == OpCodes.Ret) il.Emit(instruction.OpCode);
             else throw new InvalidDataException("Executable adaptation proof encountered an unreviewed operation: " + instruction);
         }
@@ -226,10 +227,12 @@ internal static class NativeCameraBoundaryTests
     static bool WritesCallback(MethodDefinition method, string name) => method.Body.Instructions.Any(i => i.OpCode == OpCodes.Stsfld
         && i.Operand is FieldReference field && field.DeclaringType.FullName == "UnityEngine.Camera" && field.Name == name);
 
-    static void RequireUnavailable(Exception? result)
+    public sealed class QuestOwnerInvokedException : Exception { }
+    public static void QuestOwnerCalled() => throw new QuestOwnerInvokedException();
+    static void RequireQuestOwner(Exception? result)
     {
-        if (result is not NotSupportedException)
-            throw new InvalidDataException("Engine installation must explicitly enter the native-rendering failure handlers.");
+        if (result is not QuestOwnerInvokedException)
+            throw new InvalidDataException("Installation must invoke the qualified Quest camera-owner entry.");
     }
 
     static bool Calls(MethodDefinition method, string name, string? type = null) => method.Body.Instructions.Any(i => i.Operand is MethodReference call
