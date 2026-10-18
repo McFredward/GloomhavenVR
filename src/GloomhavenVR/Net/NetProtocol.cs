@@ -612,7 +612,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 706;
+    public const ushort ModBuild = 707;
+
+    // ModBuild707 — start the projection preview on the click; never blank the game.
+    // The real706 helper reports successful local API setup, but the maintainer
+    // sees only passthrough. Local READY never proved remote delivery; selecting
+    // a constant-zero scene at that point hid the game without a visible test.
+    // Remove diagnostic source substitution/RT/latch altogether. Start the owned
+    // child directly, close options automatically, and stop on later reopening;
+    // retain explicit Stop if the initial programmatic close fails. No timer.
+    // Native preview geometry uses one common forward square surface instead of
+    // asymmetric UV-centred per-eye charts, whose visible interiors missed both
+    // forward rays in the actual706 log. Flush owned texture uploads before
+    // sleeping and retain bounded local visibility/extent observations without
+    // treating them as remote pixel proof. The actual game source, XR/FOV,
+    // ordinary MR carrier and public Frame installation remain unchanged.
+    // This is delivery-preview containment, not a production sharpness/menu fix.
+    // Port the unrelated new Cheats action in the movie-only CI fixture rather
+    // than weakening its spoiler, permission or lifecycle assertions.
 
     // ModBuild706 — explicit independent-alpha transport witness, not a quality fix.
     // The accepted v3 carrier spends RGB area on coverage and the actual uniform

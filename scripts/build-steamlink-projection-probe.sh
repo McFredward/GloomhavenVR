@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rebuild our explicit projection witness child from the public companion project; no Valve binaries.
+# Rebuild our explicit overlay-delivery preview from the public companion project; no Valve binaries.
 set -euo pipefail
 if [[ $# -lt 2 || $# -gt 3 ]]; then
     echo "Usage: $0 <steam-link-native-passthrough-checkout> <reviewed-openvr-header-directory> [output-exe]" >&2
@@ -40,7 +40,7 @@ record={'schema':'ghvr-steamlink-projection-probe-build-v1',
         'compiler_version':subprocess.check_output([str(compiler),'--version'],text=True).splitlines()[0],
         'output_bytes':len(data),'output_sha256':hashlib.sha256(data).hexdigest(),
         'windows_or_proton_executed':False,'hardware_verified':False,
-        'behavior':'Explicit temporary static public projection overlay witness; not a production quality fix'}
+        'behavior':'Explicit temporary mono world-quad delivery preview; game source preserved; not independent-alpha or quality proof'}
 output.with_name('projection-overlay-probe-provenance.json').write_text(json.dumps(record,indent=2)+'\n')
 print(output,len(data),record['output_sha256'])
 PY

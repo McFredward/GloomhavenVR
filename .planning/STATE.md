@@ -1,5 +1,29 @@
 # State — where the project stands
 
+**Immediate non-destructive delivery preview, 2026-10-18: Build707.**
+
+The actual706 test reports local API readiness for both charts, but the
+maintainer sees only camera passthrough and kills the game. The automatic
+constant-zero source substitution wrongly trusted local readiness as remote
+delivery. Remove that path entirely. The test starts directly on its button,
+closes options automatically and ends on reopening, with the real game source
+always preserved and no timer. A common forward test surface replaces the
+UV-centred asymmetric charts; their forward rays missed both visible interiors
+in the actual log. This is a delivery preview, not a claimed quality/menu fix.
+
+The same run's ordinary dashboard transitions retain zero foreground fade and
+grid alpha; scene dimming is explicitly unavailable. No public fade-reset fix
+is justified by these records. Build706 CI also exposes a missing unrelated
+action port in the movie-only fixture; repair that boundary and inherit the
+unchanged passing shards. See [the correction record](STEAM-LINK-707-PROJECTION-DELIVERY.md).
+
+Final focused evidence:65 managed owner/UI and44 actual callback checks, nine
+causal controls,156 native checks/four controls, and the repaired movie fixture's
+915 assertions/25 controls. Strict Release is0 warnings/errors; the actual
+Mono-loaded707 DLL matches the rebuilt210432byte helper and contains no zero
+image/substitution/latch path. Both independent source reviews report no
+blocker. Own worktrees/caches are cleaned; no Frame action or full-gate claim.
+
 **Combined quality-route witness and menu observation, 2026-10-18: Build706.**
 
 The maintainer prioritizes image quality and requests both remaining issues in
