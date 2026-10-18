@@ -23,7 +23,8 @@ def stage_sources(root, project):
     stage = project / 'Assets/SteamLink'
     stage.mkdir(parents=True)
     pins = {}
-    for name in ('SteamLinkSceneAtlas.shader', 'SteamLinkSceneFullAtlas.shader', 'SteamLinkSceneCoverage.shader'):
+    for name in ('SteamLinkSceneAtlas.shader', 'SteamLinkSceneFullAtlas.shader',
+                 'SteamLinkSceneRobustAtlas.shader', 'SteamLinkSceneCoverage.shader'):
         path = root / 'unity/Assets/Shaders' / name
         data = path.read_bytes()
         pins[str(path.relative_to(root))] = digest(data)

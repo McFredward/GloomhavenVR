@@ -21,7 +21,8 @@ def verify(bank, manifest):
     env = UnityPy.load(data)
     types = [obj.type.name for obj in env.objects]
     entries = json.loads(manifest.read_text())['variants']
-    names = {'GloomhavenVR/SteamLinkSceneAtlas', 'GloomhavenVR/SteamLinkSceneFullAtlas', 'Hidden/GloomhavenVR/SteamLinkSceneCoverage'}
+    names = {'GloomhavenVR/SteamLinkSceneAtlas', 'GloomhavenVR/SteamLinkSceneFullAtlas',
+             'GloomhavenVR/SteamLinkSceneRobustAtlas', 'Hidden/GloomhavenVR/SteamLinkSceneCoverage'}
     names.update(entry['variant_shader'] for entry in entries)
     require(types.count('AssetBundle') == 1, 'Actual loadable AssetBundle object is required, not shader objects alone')
     require(types.count('Shader') == len(names) and len(types) == len(names) + 1, 'Only the exact owned shader inventory')

@@ -10,8 +10,8 @@ ROOT=Path(__file__).resolve().parents[2]
 
 def active_production_profile(source):
     matches=re.findall(r'_pack\s*=\s*_bank\.LoadAsset<Shader>\("([^"]+)"\);',source)
-    assert matches==['assets/steamlink/steamlinksceneatlas.shader'],'Only the contained legacy v1 source is currently admitted'
-    return 'scene-contribution-atlas-v1'
+    assert matches==['assets/steamlink/steamlinkscenerobustatlas.shader'],'Only the frozen robust v3 production source is admitted'
+    return 'scene-contribution-atlas-v3'
 
 
 def main():
@@ -57,16 +57,31 @@ def main():
     assert 'float a=saturate(scene(q).a)' in full_shader
     assert 'coverageCell' not in full_shader and '3-2*f' not in full_shader
     assert 'return float4(scene((p-560)/2048).rgb,1)' in full_shader
+    robust_raw=(ROOT/'tests/steamlink-scene-payload/profile-v3.json').read_bytes();robust=json.loads(robust_raw)
+    assert hashlib.sha256(robust_raw).hexdigest()=='cf5f71fb00877573a9d2aa8b69405ec7af03523563e216b4e07738605a11863a'
+    assert strings['RobustProfile']==robust['profile'] and strings['RobustJsonSha256']==hashlib.sha256(robust_raw).hexdigest()
+    assert robust['canvas']==full['canvas'] and robust['scene']==full['scene'] and robust['coverage']==full['coverage']
+    signature=hashlib.sha256(robust['guard']['signature_preimage'].encode()).digest()
+    assert signature.hex()==robust['guard']['signature_sha256']
+    assert robust['guard']['codes']==[robust['guard']['code_levels'][v&3] for v in signature[:12]]
+    robust_shader=(ROOT/'unity/Assets/Shaders/SteamLinkSceneRobustAtlas.shader').read_text()
+    robust_codes=[int(v) for v in re.findall(r'if\(i==\d+\)return (\d+);',robust_shader)]+[int(re.search(r';return (\d+);\n',robust_shader).group(1))]
+    assert robust_codes==robust['guard']['codes']
+    assert robust_shader[robust_shader.index('                float2 global;'):]==full_shader[full_shader.index('                float2 global;'):]
+    assert 'float2 origin=upper?float2(48,64):float2(2672,2704);' in robust_shader
+    assert '/160' in robust_shader and 'all(offset<128)' in robust_shader
     production=(ROOT/'src/GloomhavenVR/Core/SteamLink/ScenePayloadAssets.cs').read_text()
     active=active_production_profile(production)
-    # A real source mutation must fail; retained v2 constants/assets are not
-    # themselves permission to select its unproven real-stream transport.
-    mutant=production.replace('assets/steamlink/steamlinksceneatlas.shader','assets/steamlink/steamlinkscenefullatlas.shader')
-    try:active_production_profile(mutant)
-    except AssertionError:pass
-    else:raise AssertionError('Quarantined v2 selection mutation was not refused')
+    # Actual loader mutations to either historical profile must fail, even
+    # though their frozen assets and direct-helper tests remain supported.
+    for alternative in ['steamlinksceneatlas.shader','steamlinkscenefullatlas.shader']:
+        mutant=production.replace('steamlinkscenerobustatlas.shader',alternative)
+        try:active_production_profile(mutant)
+        except AssertionError:pass
+        else:raise AssertionError('Historical source selection mutation was not refused: '+alternative)
     print(json.dumps({'passed':True,'profile':p['profile'],'profile_sha256':hashlib.sha256(raw).hexdigest(),'full_profile':full['profile'],
-        'active_production_profile':active,'quarantined_v2_selection_mutant_rejected':True,
+        'active_production_profile':active,'historical_selection_mutants_rejected':2,
+        'robust_profile_sha256':hashlib.sha256(robust_raw).hexdigest(),
         'full_profile_sha256':hashlib.sha256(full_raw).hexdigest(),
         'signature_sha256':strings['SignatureSha256'],'guard_y':values['GuardY'],
         'native_frame_association_proven':False,'passthrough_authorized':False}))

@@ -68,7 +68,8 @@ internal static class SteamLinkSceneRuntime
             }
             _reportedReason = null;
             VRLog.Info("Core", "Steam Link native MR source prepared: "
-                + (pack.name == SceneAtlasProfile.FullShaderName ? SceneAtlasProfile.FullProfile : SceneAtlasProfile.Profile) + "; "
+                + (pack.name == SceneAtlasProfile.RobustShaderName ? SceneAtlasProfile.RobustProfile
+                    : pack.name == SceneAtlasProfile.FullShaderName ? SceneAtlasProfile.FullProfile : SceneAtlasProfile.Profile) + "; "
                 + "same-eye image and coverage, MultiPass SDR. The matching Frame receiver is required.");
             return true;
         }

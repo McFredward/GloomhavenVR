@@ -29,12 +29,13 @@ namespace GloomhavenVR.Core.SteamLink
         public SceneEyeOutput(Shader shader)
         {
             if (shader == null || (shader.name != SceneAtlasProfile.ShaderName
-                && shader.name != SceneAtlasProfile.FullShaderName) || !shader.isSupported)
+                && shader.name != SceneAtlasProfile.FullShaderName
+                && shader.name != SceneAtlasProfile.RobustShaderName) || !shader.isSupported)
                 throw new NotSupportedException("The frozen scene-atlas shader is unavailable.");
             _material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
             _maximumSize = SystemInfo.maxTextureSize;
-            Profile = shader.name == SceneAtlasProfile.FullShaderName
-                ? SceneAtlasProfile.FullProfile : SceneAtlasProfile.Profile;
+            Profile = shader.name == SceneAtlasProfile.RobustShaderName ? SceneAtlasProfile.RobustProfile
+                : shader.name == SceneAtlasProfile.FullShaderName ? SceneAtlasProfile.FullProfile : SceneAtlasProfile.Profile;
             if (_material.passCount != 1)
             {
                 UnityEngine.Object.Destroy(_material);

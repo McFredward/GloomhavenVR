@@ -31,12 +31,11 @@ internal static class ScenePayloadAssets
                 resource.CopyTo(bytes);
                 _bank = AssetBundle.LoadFromMemory(bytes.ToArray());
                 if (_bank == null) throw new InvalidDataException("Steam Link scene shader bank could not be loaded.");
-                // Build697's equal-resolution v2 transport produced divergent
-                // eye images in the headset. Its source/GPU controls did not
-                // cover the real lossy stereo stream; keep that format retained
-                // for investigation, but publish the proven legacy v1 layout.
-                // The installed dual receiver still accepts this exact profile.
-                _pack = _bank.LoadAsset<Shader>("assets/steamlink/steamlinksceneatlas.shader");
+                // Build697 exposed a lossy-stream blind spot in v2's tiny,
+                // closely spaced format cells. V3 retains its full scene/mask
+                // geometry with a separately frozen robust format header. The
+                // updated receiver is required; v1/v2 remain untouched assets.
+                _pack = _bank.LoadAsset<Shader>("assets/steamlink/steamlinkscenerobustatlas.shader");
                 _coverage = _bank.LoadAsset<Shader>("assets/steamlink/steamlinkscenecoverage.shader");
                 if (_pack == null || _coverage == null || !_pack.isSupported || !_coverage.isSupported)
                     throw new NotSupportedException("Steam Link scene shaders are unavailable on this graphics API.");

@@ -9,12 +9,15 @@ namespace GloomhavenVR.Core.SteamLink
         public const string JsonSha256 = "04b47a78192aa883c264b1e04b88d0e17e7d373ab8ed1f1f6b15ee1a20601904";
         public const string SignatureSha256 = "6fd08068e3fbffc166a80f5a1044d4c8135b37087441aac85f6223c121fccc5e";
         public const string ShaderName = "GloomhavenVR/SteamLinkSceneAtlas";
-        // V1 remains frozen and is the contained production selection after the
-        // Build697 stereo-stream regression. Retained v2 has equal-size source
-        // RGB/coverage and no object tags, but is quarantined pending stream proof.
+        // Frozen v1 is the compatibility decoder. V2 is retained as quarantined
+        // history after the Build697 stereo-stream regression. Production v3
+        // keeps its equal RGB/coverage grid with a separate robust format header.
         public const string FullShaderName = "GloomhavenVR/SteamLinkSceneFullAtlas";
         public const string FullProfile = "scene-contribution-atlas-v2";
         public const string FullJsonSha256 = "9ea2c9cd304a296d088659e3bc8e9a316365c8b10e3dfddb459bad08ff11ce9f";
+        public const string RobustShaderName = "GloomhavenVR/SteamLinkSceneRobustAtlas";
+        public const string RobustProfile = "scene-contribution-atlas-v3";
+        public const string RobustJsonSha256 = "cf5f71fb00877573a9d2aa8b69405ec7af03523563e216b4e07738605a11863a";
         public const int Width = 2112, Height = 2752;
         public const int SceneX = 32, SceneY = 352, SceneSize = 2048;
         public const int CoverageSize = 1024, TileRows = 256, Halo = 16;
