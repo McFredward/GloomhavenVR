@@ -31,7 +31,9 @@ internal static class StartupTests
             check(File.ReadAllText(logPath).Contains("run fixture build/input", StringComparison.Ordinal) && new FileInfo(logPath).Length < 256, "Per-run startup log was not truncated/stamped.");
             startupLog.Append("first gate", "actual exception stack"); startupLog.Append("first gate", "duplicate stack");
             check(File.ReadAllText(logPath).Split("first gate").Length == 2 && File.ReadAllText(logPath).Contains("actual exception stack", StringComparison.Ordinal), "Startup gate deduplication lost the first exception or repeated records.");
-            startupLog.Append(new string('漢', 20000), new string('界', 20000));
+            // Large exception stacks use the reserved first-cause lane. Ordinary
+            // lifecycle records may not spend that independently bounded share.
+            startupLog.AppendOriginalError(new string('漢', 20000), new string('界', 20000));
             check(new FileInfo(logPath).Length < QuestGameStartupLog.MaxBytes && File.ReadAllText(logPath).Contains("[truncated]", StringComparison.Ordinal), "Unicode exception diagnostics were not clipped/bounded.");
             for (int i = 0; i < QuestGameStartupLog.MaxRecords * 2; i++) startupLog.Append("transition " + i);
             long cappedSize = new FileInfo(logPath).Length;
