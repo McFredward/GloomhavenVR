@@ -27,7 +27,11 @@ internal static class NativeOverlayComposition
             EditorWindow.GetWindow(typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView"), false, "Game").Show();
             head.targetTexture = null; head.enabled = true; head.rect = new Rect(0, 0, 1, 1);
             owner = Graph(art(), out Canvas canvas);
+            Scene introScene = SceneManager.GetSceneByName("Intro");
+            if (!introScene.IsValid() || !introScene.isLoaded) introScene = SceneManager.CreateScene("Intro");
+            SceneManager.MoveGameObjectToScene(owner, introScene);
             actor = new GameObject("native-original-IntroPlayer"); actor.SetActive(false);
+            SceneManager.MoveGameObjectToScene(actor, introScene);
             IntroPlayer intro = actor.AddComponent<IntroPlayer>(); intro.enabled = false;
             typeof(IntroPlayer).GetField("_loading", Fields)!.SetValue(intro, owner);
             typeof(IntroPlayer).GetField("_logos", Fields)!.SetValue(intro, new System.Collections.Generic.List<Sprite>());
@@ -40,6 +44,16 @@ internal static class NativeOverlayComposition
                 "Actual original IntroPlayer callback enables its serialized native overlay before Quest admission");
             unrelated = new GameObject("unrelated-overlay-must-stay-native", typeof(RectTransform), typeof(Canvas));
             Canvas other = unrelated.GetComponent<Canvas>(); other.renderMode = RenderMode.ScreenSpaceOverlay; other.sortingOrder = 1001;
+            // B691's exact capture has a live native loading animator but no
+            // admitted Intro canvas. Model the original actor having departed
+            // after delivering its one completion, with the loading root live.
+            UnityEngine.Object.DestroyImmediate(actor); actor = null;
+            // The existing modal/native camera binding can legitimately change
+            // this exact root's mode before loading art is acquired. Ownership
+            // and the black backdrop stay the same; an Overlay-only predicate
+            // would silently leave that later draw covering the VR consumer.
+            canvas.renderMode = RenderMode.ScreenSpaceCamera; canvas.worldCamera = head;
+            canvas.planeDistance = 1f;
             indicator = new LoadingIndicator(); setTick(indicator.Tick);
             for (int i = 0; i < 24; i++) yield return null;
             Renderer spinner = Visual(indicator).GetComponentInChildren<Renderer>();
@@ -47,6 +61,8 @@ internal static class NativeOverlayComposition
             check(Visual(indicator).activeInHierarchy && owner.activeInHierarchy
                 && owner.GetComponentInChildren<AnimateLoadingIcon>().isActiveAndEnabled && callbacks == 1 && other.enabled,
                 "Quest admission retains native animator, callback, active owner and unrelated canvas");
+            check(suppressed, "Exact Intro loading owner hands off after a native camera rebind");
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             // Causal old-graph observation: leave the same spinner/texture/pose
             // live, but temporarily reintroduce the authored flat overlay.
             setTick(null); canvas.enabled = true;
@@ -87,6 +103,7 @@ internal static class NativeOverlayComposition
             SceneController controller = actor.AddComponent<SceneController>();
             SceneController.Instance = controller;
             controller.GlobalCanvas = owner; controller.LoadingScreenGO = loading;
+            canvas.renderMode = RenderMode.ScreenSpaceCamera; canvas.worldCamera = head; canvas.planeDistance = 1f;
             typeof(SceneController).GetField("<IsLoading>k__BackingField", Fields)!.SetValue(controller, true);
             var hidden = new GameObject("native-already-disabled-image", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             hidden.transform.SetParent(loading.transform, false); hidden.GetComponent<Image>().enabled = false;
@@ -96,6 +113,9 @@ internal static class NativeOverlayComposition
             check(canvas.enabled && loading.activeInHierarchy && loading.GetComponentInChildren<AnimateLoadingIcon>().isActiveAndEnabled
                 && sibling.GetComponent<Image>().enabled && !hidden.GetComponent<Image>().enabled,
                 "Native loading handoff preserves GlobalCanvas siblings, original animation and pre-disabled graphics");
+            check(!loading.GetComponent<Image>().enabled,
+                "Exact native loading widget hands off after a native camera rebind");
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             setTick(null);
             foreach (Graphic graphic in loading.GetComponentsInChildren<Graphic>(true))
                 if (graphic.gameObject != hidden) graphic.enabled = true;

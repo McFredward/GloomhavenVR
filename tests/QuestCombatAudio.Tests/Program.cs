@@ -53,7 +53,12 @@ static class Program
         Check(owner.Reads == 0, "spent-cost: saturated evidence kept reading audio");
         var copy = QuestCombatAudioEvidence.Snapshot; copy[0] = "external mutation";
         Check(QuestCombatAudioEvidence.Snapshot[0] != copy[0], "snapshot: support consumer mutated retained evidence");
-        Reset(); owner = new AudioObject(); owner.Source!.clip.name = "Brute_Overwhelming_Assault";
+        Reset(); owner = new AudioObject(); owner.Source!.clip.name = "SFX_UITutorialFlowOpen";
+        for (int id = 0; id < 10; id++) { owner.Source.clip.Id = id; QuestCombatAudioEvidence.Observe(owner); }
+        Check(QuestCombatAudioEvidence.Snapshot.Length == 0 && AudioSettings.Reads == 0,
+            "tutorial-ui-reserve: tutorial UI consumed the actual spatial-effect allowance");
+        owner.Source.clip.name = "Brute_Overwhelming_Assault";
+        owner.Source.outputAudioMixerGroup!.name = "3DSoundsReverb";
         for (int id = 0; id < 20; id++) { owner.Source.clip.Id = id; QuestCombatAudioEvidence.Observe(owner); }
         Check(QuestCombatAudioEvidence.Snapshot.Length == 2, "attack-reserve: generic effects exhausted the named attack share");
         owner.Source.clip.name = "SFX_MeleeAttack";

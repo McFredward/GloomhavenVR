@@ -76,11 +76,17 @@ internal static class QuestCombatAudioEvidence
             if (clip == null) return;
             string name = clip.name ?? string.Empty;
             string mixer = source.outputAudioMixerGroup == null ? "none" : source.outputAudioMixerGroup.name;
-            bool nativeEffects = mixer == "SFX" || mixer == "3DSounds" || mixer == "3DSoundsReverb";
+            // Tutorial UI uses the generic SFX mixer. B691 spent both unnamed
+            // allowances on TutorialFlowOpen and retained no actual hit cue.
+            // Reserve that share for native spatial effects; named attacks keep
+            // their existing allowance regardless of their output mixer.
+            bool nativeEffects = mixer == "3DSounds" || mixer == "3DSoundsReverb";
             bool namedAttack = name.IndexOf("attack", StringComparison.OrdinalIgnoreCase) >= 0
                 || name.IndexOf("onhit", StringComparison.OrdinalIgnoreCase) >= 0
                 || name.IndexOf("melee", StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("ranged", StringComparison.OrdinalIgnoreCase) >= 0;
+                || name.IndexOf("ranged", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("damage", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("hurt", StringComparison.OrdinalIgnoreCase) >= 0;
             if (source.loop || (!nativeEffects && !namedAttack) || (!namedAttack && _otherEffects >= 2)) return;
             int id = clip.GetInstanceID();
             PerClip.TryGetValue(id, out int count);
@@ -98,7 +104,10 @@ internal static class QuestCombatAudioEvidence
                 + " load=" + clip.loadType + "/" + clip.loadState + " playing=" + source.isPlaying
                 + " virtual=" + source.isVirtual + " spatial=" + source.spatialBlend.ToString("F2", CultureInfo.InvariantCulture)
                 + " doppler=" + source.dopplerLevel.ToString("F2", CultureInfo.InvariantCulture)
+                + " scaledDopplerPrepared=" + QuestCombatAudio.HasPrepared(source)
                 + " gain=" + source.volume.ToString("F3", CultureInfo.InvariantCulture)
+                + " velocityMode=" + source.velocityUpdateMode
+                + " sourcePosition=" + source.transform.position
                 + " outputRate=" + AudioSettings.outputSampleRate + " dsp=" + length + "x" + buffers
                 + " mixer=" + mixer
                 + " headScale=" + (head == null ? 0 : head.transform.lossyScale.x).ToString("F2", CultureInfo.InvariantCulture);

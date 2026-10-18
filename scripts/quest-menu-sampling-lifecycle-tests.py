@@ -22,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--owned-project", type=Path, required=True)
     parser.add_argument("--final-composition", action="store_true", help="Also qualify the native overlay in a real automatically rendered GameView (GL/Xvfb).")
-    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept"))
+    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept", "intro-mode-assumption", "unified-mode-assumption", "intro-actor-assumption"))
     args = parser.parse_args()
     if args.control in ("native-overlay-kept", "native-loading-overlay-kept") and not args.final_composition:
         parser.error("The native overlay control requires --final-composition.")
@@ -47,6 +47,18 @@ def main():
             "native-loading-overlay-kept": ("if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = false;", "if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = true;", "Actual unified native loading overlay covers the admitted spinner until its exact widget hands off graphics"),
         }
         expected = ""
+        controls["intro-mode-assumption"] = (
+            "if (canvas != null && canvas.isRootCanvas\n                    && baseGo != null",
+            "if (canvas != null && canvas.isRootCanvas && canvas.renderMode == RenderMode.ScreenSpaceOverlay\n                    && baseGo != null",
+            "Exact Intro loading owner hands off after a native camera rebind")
+        controls["intro-actor-assumption"] = (
+            ': anim != null && anim.gameObject.scene.name == "Intro"',
+            ': false && anim != null && anim.gameObject.scene.name == "Intro"',
+            "Exact Intro loading owner hands off after a native camera rebind")
+        controls["unified-mode-assumption"] = (
+            "if (canvas == null || !canvas.isRootCanvas || !owner.transform.IsChildOf(canvas.transform)) return;",
+            "if (canvas == null || !canvas.isRootCanvas || canvas.renderMode != RenderMode.ScreenSpaceOverlay || !owner.transform.IsChildOf(canvas.transform)) return;",
+            "Exact native loading widget hands off after a native camera rebind")
         if args.control:
             before, after, expected = controls[args.control]
             assert loading.count(before) == 1, "Control binding drift: " + args.control

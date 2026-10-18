@@ -351,6 +351,7 @@ internal sealed class LoadingIndicator
     // retained log has acquisition pictures but loses the ordinary WorldUI log
     // before the native boot handover, so it cannot identify what hid the copy.
     private static int _questLifecycleSamples;
+    private static int _questNativeOwnerSamples;
     private Canvas? _questIntroCanvas;
     private bool _questIntroCanvasEnabled;
     private bool _questIntroCanvasSuppressed;
@@ -735,8 +736,28 @@ internal sealed class LoadingIndicator
             + " overlayTexture=" + (_overlayArt?.Tex == null ? 0 : _overlayArt.Tex.GetInstanceID())
             + " baseAlpha=" + (_baseMaterial == null ? -1f : _baseMaterial.color.a)
             + " overlayAlpha=" + (_overlayMaterial == null ? -1f : _overlayMaterial.color.a)
+            + " cameras=" + QuestCameraOrderFacts()
             + " baseDraw=" + QuestDrawFacts(_baseQuad, head)
             + " overlayDraw=" + QuestDrawFacts(_overlayQuad, head));
+    }
+
+    // Four Debug-only lifecycle edges, not a scene/object sweep every frame.
+    // Renderer admission alone did not explain B691's black boot interval:
+    // retain the final native camera ordering/clear/target at those same edges.
+    private static string QuestCameraOrderFacts()
+    {
+        Camera[] cameras = Camera.allCameras;
+        string facts = "";
+        for (int i = 0; i < Math.Min(cameras.Length, 8); i++)
+        {
+            Camera camera = cameras[i];
+            if (camera == null) continue;
+            if (facts.Length != 0) facts += ";";
+            facts += camera.name + ",depth=" + camera.depth + ",clear=" + camera.clearFlags
+                + ",mask=" + camera.cullingMask + ",target="
+                + (camera.targetTexture == null ? "backbuffer" : camera.targetTexture.name);
+        }
+        return "(" + facts + ")";
     }
 
     private static string QuestDrawFacts(Transform? quad, Camera? head)
@@ -1090,7 +1111,11 @@ internal sealed class LoadingIndicator
             GameObject? loading = intro != null
                 ? AccessTools.Field(typeof(IntroPlayer), "_loading")?.GetValue(intro) as GameObject
                 : null;
-            AnimateLoadingIcon? anim = FindLiveInstance<AnimateLoadingIcon>();
+            // Resolve the original animator under its exact serialized owner first.
+            // A scene transition can already expose another live animator.
+            AnimateLoadingIcon? anim = loading != null
+                ? loading.GetComponentInChildren<AnimateLoadingIcon>(true)
+                : FindLiveInstance<AnimateLoadingIcon>();
             if (anim != null)
             {
                 baseGo = AccessTools.Field(typeof(AnimateLoadingIcon), "m_LoadingIconBase")?.GetValue(anim) as GameObject;
@@ -1156,16 +1181,32 @@ internal sealed class LoadingIndicator
             _baseArt = baseArt;
             _overlayArt = overlayArt;
             _artIsProvisional = true;
-            if (QuestStandalonePlatform.Enabled && loading != null)
+            if (QuestStandalonePlatform.Enabled)
             {
-                Canvas? canvas = loading.GetComponent<Canvas>();
-                if (canvas != null && canvas.isRootCanvas && canvas.renderMode == RenderMode.ScreenSpaceOverlay
+                // B691's capture reports introCanvas=none even though the selected
+                // original animator/art remains live. That observation alone does
+                // not establish actor or mode state. Qualify both legitimate owner
+                // lifetimes through the exact native Intro animator; never take an arbitrary
+                // canvas or a later menu/error canvas. Canvas ownership is stable
+                // across native/modal camera rebinding; renderMode is not.
+                Canvas? canvas = loading != null ? loading.GetComponent<Canvas>()
+                    : anim != null && anim.gameObject.scene.name == "Intro"
+                        ? anim.GetComponentInParent<Canvas>() : null;
+                if (canvas != null && canvas.isRootCanvas
                     && baseGo != null && overlayGo != null && baseGo.transform.IsChildOf(canvas.transform)
                     && overlayGo.transform.IsChildOf(canvas.transform))
                 {
                     _questIntroCanvas = canvas;
                     _questIntroCanvasEnabled = canvas.enabled;
                 }
+                if (VRLog.Wants(VRLogLevel.Debug) && _questNativeOwnerSamples++ < 4)
+                    UnityEngine.Debug.Log("[Quest startup] presentation spinner-intro-owner frame=" + Time.frameCount
+                        + " actor=" + (intro == null ? "none" : intro.gameObject.scene.name)
+                        + " loading=" + (loading == null ? "none" : loading.name)
+                        + " animator=" + (anim == null ? "none" : anim.gameObject.scene.name)
+                        + " canvas=" + (canvas == null ? "none" : canvas.name + "," + canvas.renderMode
+                            + ",root=" + canvas.isRootCanvas + ",enabled=" + canvas.enabled)
+                        + " admitted=" + (_questIntroCanvas != null));
             }
             if (anim != null)
             {
@@ -1224,12 +1265,20 @@ internal sealed class LoadingIndicator
         if (_questNativeLoadingOwner != owner)
         {
             RestoreQuestNativeLoadingGraphics();
-            Canvas? canvas = owner.GetComponentInParent<Canvas>();
-            if (canvas == null || !canvas.isRootCanvas || canvas.renderMode != RenderMode.ScreenSpaceOverlay
-                || scene == null || scene.GlobalCanvas != canvas.gameObject) return;
+            // Qualify the original serialized ownership edge, independently of
+            // whether another presentation owner has rebound its Canvas to a
+            // captured camera. The B691 mode predicate silently refuses that
+            // exact native loading widget after a legitimate mode change.
+            Canvas? canvas = scene!.GlobalCanvas == null ? null : scene.GlobalCanvas.GetComponent<Canvas>();
+            if (canvas == null || !canvas.isRootCanvas || !owner.transform.IsChildOf(canvas.transform)) return;
             _questNativeLoadingOwner = owner;
             foreach (Graphic graphic in owner.GetComponentsInChildren<Graphic>(true))
                 if (graphic != null) _questNativeLoadingGraphics.Add((graphic, graphic.enabled));
+            if (VRLog.Wants(VRLogLevel.Debug) && _questNativeOwnerSamples++ < 4)
+                UnityEngine.Debug.Log("[Quest startup] presentation spinner-native-owner frame=" + Time.frameCount
+                    + " owner=" + owner.name + " canvas=" + canvas.name + " mode=" + canvas.renderMode
+                    + " enabled=" + canvas.enabled + " graphics=" + _questNativeLoadingGraphics.Count
+                    + " camera=" + (canvas.worldCamera == null ? "none" : canvas.worldCamera.name));
         }
         foreach (var state in _questNativeLoadingGraphics)
             if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = false;

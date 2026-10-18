@@ -41,6 +41,9 @@ internal static class QuestCombatAudio
         source.dopplerLevel = 0f;
     }
 
+    internal static bool HasPrepared(AudioSource source) => source != null
+        && source.dopplerLevel == 0f && Originals.TryGetValue(source, out _);
+
     internal static void InheritSecondary(AudioObject owner)
     {
         // Original _CreateSecondAudioSource copies the primary Doppler bit.

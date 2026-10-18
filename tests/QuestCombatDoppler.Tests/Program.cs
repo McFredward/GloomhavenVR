@@ -23,9 +23,11 @@ internal static class Program
             Type hook = scheduled ? typeof(AudioObject_QuestCombatScheduled) : typeof(AudioObject_QuestCombatDelayed);
             Hook(hook, "Prefix", owner); source.PlayDelayed(0);
             Check(source.AtStartDoppler == 0 && source.Starts == 1, "before-first-buffer: original native start saw artificial Doppler");
+            Check(QuestCombatAudio.HasPrepared(source), "prepared-evidence: corrected source cannot be distinguished from an authored zero");
             Check(source.pitch == 1.125f && source.volume == .49f && source.spatialBlend == 1 && source.minDistance == 2 && source.maxDistance == 80
                 && !source.loop && !source.muted && ReferenceEquals(source.clip, clip) && ReferenceEquals(source.outputAudioMixerGroup, mixer), "authored-playback: changed original samples, pitch, gain, spatial or mixer");
             Hook(typeof(AudioObject_QuestCombatStopped), "Postfix", owner);
+            Check(!QuestCombatAudio.HasPrepared(source), "restored-evidence: retired source retains a false correction claim");
             Check(source.dopplerLevel == 1 && source.Starts == 1, "pool-stop: original Doppler was not restored or sound was replayed");
         }
         for (int gate = 0; gate < 11; gate++)

@@ -2,7 +2,7 @@ namespace UnityEngine
 {
     public class GameObject { public bool activeInHierarchy = true; }
     public struct Vector3 { public float x; }
-    public class Transform { public Vector3 lossyScale = new() { x = 22 }; }
+    public class Transform { public Vector3 lossyScale = new() { x = 22 }; public Vector3 position; }
     public class Camera { public Transform transform = new(); }
     public class AudioClip
     {
@@ -15,6 +15,7 @@ namespace UnityEngine
     public class AudioSource
     {
         public AudioClip clip = new();
+        public Transform transform = new(); public string velocityUpdateMode = "Dynamic";
         public float pitch = 1.125f, volume = .75f, spatialBlend = 1, dopplerLevel = 1;
         public bool isPlaying = true, isVirtual = false, loop;
         public int timeSamples = 1234;
@@ -51,6 +52,7 @@ namespace HarmonyLib { [System.AttributeUsage(System.AttributeTargets.Class)] pu
 namespace GloomhavenVR.Core
 {
     public static class QuestStandalonePlatform { public static bool Enabled = true; }
+    internal static class QuestCombatAudio { internal static bool HasPrepared(UnityEngine.AudioSource source) => false; }
     public static class VRSession { public static bool IsRunning = true; }
     public enum VRLogLevel { Debug }
     public static class VRLog { public static bool Debug = true; public static bool Wants(VRLogLevel level) => Debug; }
