@@ -122,7 +122,7 @@ internal static class Program
             var protocol=new M.Protocol();int lines=0;
             foreach(string line in File.ReadAllLines(path))
             {Check(protocol.Accept(line,out _,out _),"Actual native host-fake transcript matches production parser");lines++;}
-            Check(lines>1&&lines<=35,"Bounded actual native host-fake transcript");
+            Check(lines>0&&lines<=35,"Bounded actual native host-fake transcript, including one-line terminal refusal");
         }
         Console.WriteLine("checks="+checks+"; actual_monitor_worker=true; native_process_or_OpenVR_executed=false");
     }
