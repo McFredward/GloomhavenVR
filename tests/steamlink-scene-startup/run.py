@@ -36,8 +36,11 @@ def main():
     assert text.count('            || !StereoReady(head)') == 1
     assert text.count(old_mono) == 1
     late_guard = '''            if (!SteamLinkSceneRuntime.StereoReady(Head)
-                || eye == Camera.MonoOrStereoscopicEye.Mono)'''
+                || (eye != Camera.MonoOrStereoscopicEye.Left
+                    && eye != Camera.MonoOrStereoscopicEye.Right))'''
     assert text.count(late_guard) == 1
+    cohort_guard = '            if (!StereoCohortReady(eye, Time.frameCount))'
+    assert text.count(cohort_guard) == 1
     variants = {
         'production': text,
         'unready-admission': text.replace('            || !StereoReady(head)', ''),
@@ -46,12 +49,19 @@ def main():
                 if (eye == Camera.MonoOrStereoscopicEye.Mono) SteamLinkSceneRuntime.Failed(Head, Failure);
                 Graphics.Blit(source, destination);
                 return;'''),
-        'late-attachment': text.replace(late_guard, '            if (eye == Camera.MonoOrStereoscopicEye.Mono)'),
+        'late-attachment': text.replace(late_guard, '''            if (eye != Camera.MonoOrStereoscopicEye.Left
+                && eye != Camera.MonoOrStereoscopicEye.Right)'''),
+        'no-cohort': text.replace(cohort_guard, '            if (!StereoCohortReady(eye, Time.frameCount) && Time.frameCount == int.MinValue)'),
+        'same-frame-activation': text.replace('        return _cohortReady;', '        return _cohortReady || _cohortEyes == 3;'),
+        'cross-frame-cohort': text.replace('            _cohortEyes = 0;', '            // Mutant retains eye labels across unrelated frames.'),
     }
     expected = {
         'unready-admission': 'startup non-stereo head must not arm',
         'latched-mono': 'temporary Mono metadata must close without a permanent failure',
         'late-attachment': 'XR attachment loss after pre-cull closes normally',
+        'no-cohort': 'mid-pair Right must stay ordinary',
+        'same-frame-activation': 'following complete pair must also stay ordinary',
+        'cross-frame-cohort': 'duplicate Left then Right on another frame never forms a complete cohort',
     }
     production = source.parent
     names = ['SteamLinkSceneRuntime.cs', 'SceneEyeCoverage.cs', 'SceneEyeOutput.cs',

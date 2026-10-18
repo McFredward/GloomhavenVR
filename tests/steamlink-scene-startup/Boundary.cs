@@ -39,7 +39,7 @@ namespace UnityEngine
     internal sealed class Shader : Object { internal string name="fixture"; }
     internal sealed class Renderer : Object { }
     internal static class QualitySettings { internal static ColorSpace activeColorSpace=ColorSpace.Gamma; }
-    internal static class Time { internal static float unscaledTime=0; }
+    internal static class Time { internal static float unscaledTime=0;internal static int frameCount=100; }
     internal static class Graphics
     {
         internal static int Ordinary;

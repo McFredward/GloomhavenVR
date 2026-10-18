@@ -23,16 +23,51 @@ internal static class Program
         MixedReality.Enabled.Value=true;MixedReality.SteamLinkNative.Value=true;
         SteamLinkConnection.Available=true;VRSession.IsRunning=true;
         QualitySettings.activeColorSpace=ColorSpace.Gamma;
+        Time.frameCount=100;
         var head=new Camera();VRCameraPolicy.AllowedHead=head;return head;
     }
-    private static SceneHeadOutput Enter(Camera head)
-    { Check(SteamLinkSceneRuntime.TryEnter(head),"ready stereo head enters");Check(Current!=null&&Current.Ready,"one ready source");return Current!; }
+    private static SceneHeadOutput Enter(Camera head,bool prime=true)
+    {
+        Check(SteamLinkSceneRuntime.TryEnter(head),"ready stereo head enters");Check(Current!=null&&Current.Ready,"one ready source");
+        var output=Current!;
+        if(prime)
+        {
+            var saved=head.stereoActiveEye;
+            head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Left;Render(output,head);
+            head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(output,head);
+            Check(SceneEyeOutput.Packed==0,"first complete startup cohort must stay ordinary in both eyes");
+            Time.frameCount++;head.stereoActiveEye=saved;Graphics.Ordinary=0;
+        }
+        return output;
+    }
     private static void Image(SceneHeadOutput output)
         =>Invoke(output,"OnRenderImage",new RenderTexture(),new RenderTexture());
     private static void Render(SceneHeadOutput output,Camera head)
     { Invoke(output,"OnPreCull");Camera.Begin(head);Image(output);Camera.End(head); }
     public static void Main()
     {
+        var cohortHead=Fresh();var cohort=Enter(cohortHead,false);
+        // A component introduced after Left already finished sees only Right.
+        cohortHead.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(cohort,cohortHead);
+        Check(SceneEyeOutput.Packed==0&&Graphics.Ordinary==1,"mid-pair Right must stay ordinary");
+        Time.frameCount++;
+        cohortHead.stereoActiveEye=Camera.MonoOrStereoscopicEye.Left;Render(cohort,cohortHead);
+        cohortHead.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(cohort,cohortHead);
+        Check(SceneEyeOutput.Packed==0&&Graphics.Ordinary==3,"following complete pair must also stay ordinary");
+        Time.frameCount++;
+        cohortHead.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(cohort,cohortHead);
+        cohortHead.stereoActiveEye=Camera.MonoOrStereoscopicEye.Left;Render(cohort,cohortHead);
+        Check(SceneEyeOutput.Packed==2&&Graphics.Ordinary==3,"next frame publishes both eyes regardless of order");
+        cohortHead=Fresh();cohort=Enter(cohortHead,false);
+        Render(cohort,cohortHead);Render(cohort,cohortHead);Time.frameCount++;
+        cohortHead.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(cohort,cohortHead);Time.frameCount++;
+        Render(cohort,cohortHead);
+        Check(SceneEyeOutput.Packed==0,"duplicate Left then Right on another frame never forms a complete cohort");
+        cohortHead.stereoActiveEye=Camera.MonoOrStereoscopicEye.Left;Render(cohort,cohortHead);
+        Check(SceneEyeOutput.Packed==0,"completing the cohort cannot activate the final eye of that same frame");
+        Time.frameCount++;Render(cohort,cohortHead);
+        Check(SceneEyeOutput.Packed==1,"only the next frame can activate after reordered complete cohort");
+
         var head=Fresh();head.stereoEnabled=false;
         Check(!SteamLinkSceneRuntime.TryEnter(head),"startup non-stereo head must not arm a packed source");
         Check(head.gameObject.Components==0&&!SteamLinkSceneRuntime.Active,"non-stereo creates no source component");
@@ -65,6 +100,9 @@ internal static class Program
         head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(output,head);
         Check(SceneEyeOutput.Packed==2,"fresh current left and right render after Mono without explicit reset");
         Check(head.gameObject.Components==2,"Mono recovery replaces the closed epoch exactly once");
+
+        head=Fresh();output=Enter(head,false);head.stereoActiveEye=(Camera.MonoOrStereoscopicEye)42;Render(output,head);
+        Check(!output.Ready&&SceneEyeOutput.Packed==0,"unknown metadata is never counted as Right for cohort readiness");
 
         foreach(string stop in new[]{"master-off","preference-off","connection-loss","head-replaced","VR-stop"})
         {

@@ -60,6 +60,8 @@ def freeze_runtime(text, mutant):
     text = text.replace('Head.stereoActiveEye', 'LoadingSourceBoundary.EyeMetadata(Head)')
     assert text.count('head.stereoEnabled') == 1
     text = text.replace('head.stereoEnabled', 'LoadingSourceBoundary.StereoEnabled(head)')
+    assert text.count('Time.frameCount') == 1
+    text = text.replace('Time.frameCount', 'LoadingSourceBoundary.FrameCount')
     text = text.replace('using UnityEngine.XR;',
                         'using UnityEngine.XR;\nusing XRSettings = LoadingSourceBoundary.XrSettings;')
     marker = '[RequireComponent(typeof(Camera))]'
@@ -70,6 +72,7 @@ def freeze_runtime(text, mutant):
         'xr_settings_alias': 'explicit owned MultiPass metadata, no XR session',
         'active_eye_metadata_reads': 1,
         'stereo_attachment_metadata': 'explicit ready XR attachment; actual Editor camera has no XR device',
+        'frame_metadata': 'explicit XR frame grouping; real Camera.Render callbacks and GPU remain unchanged',
         'editor_callback_activation': 'ExecuteInEditMode on otherwise real SceneHeadOutput',
         'old_owner_mutant': mutant,
         'old_owner_original_block': OLD_OWNER if mutant else None,

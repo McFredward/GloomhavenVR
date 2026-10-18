@@ -9,6 +9,7 @@ internal static class LoadingSourceBoundary
 {
     internal static Camera.MonoOrStereoscopicEye CurrentEye = Camera.MonoOrStereoscopicEye.Left;
     internal static int Warnings, Prepared, EyeReads;
+    internal static int FrameCount;
     internal static Camera.MonoOrStereoscopicEye EyeMetadata(Camera camera)
     { EyeReads++; return CurrentEye; }
     internal static bool StereoEnabled(Camera camera) => true;

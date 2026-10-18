@@ -152,6 +152,8 @@ internal sealed class SceneHeadOutput : MonoBehaviour
     private ulong _epoch;
     private bool _closed;
     private int _reportedEyes;
+    private int _cohortFrame = -1, _cohortEyes;
+    private bool _cohortReady;
 
     internal bool Prepare(Camera head, ulong epoch, Shader pack, Shader coverage)
     {
@@ -233,9 +235,15 @@ internal sealed class SceneHeadOutput : MonoBehaviour
             // a later admitted stereo render prepares a fresh coverage epoch.
             Camera.MonoOrStereoscopicEye eye = Head.stereoActiveEye;
             if (!SteamLinkSceneRuntime.StereoReady(Head)
-                || eye == Camera.MonoOrStereoscopicEye.Mono)
+                || (eye != Camera.MonoOrStereoscopicEye.Left
+                    && eye != Camera.MonoOrStereoscopicEye.Right))
             {
                 Close();
+                Graphics.Blit(source, destination);
+                return;
+            }
+            if (!StereoCohortReady(eye, Time.frameCount))
+            {
                 Graphics.Blit(source, destination);
                 return;
             }
@@ -266,6 +274,30 @@ internal sealed class SceneHeadOutput : MonoBehaviour
             }
         }
         if (!packed) Graphics.Blit(source, destination);
+    }
+
+    private bool StereoCohortReady(Camera.MonoOrStereoscopicEye eye, int frame)
+    {
+        // AddComponent may happen after the first eye of an already-running XR
+        // frame. Seeing only its remaining Right must not switch that one eye
+        // to an atlas while Left was ordinary. Observe an explicitly labelled
+        // complete Left+Right frame first, keeping BOTH images ordinary, then
+        // begin packing at the following frame boundary. Store no image, infer
+        // no eye from callback order, and never carry admission to a new epoch.
+        if (_cohortFrame != frame)
+        {
+            if (!_cohortReady && _cohortEyes == 3)
+            {
+                _cohortReady = true;
+                if (VRLog.WantsDebug)
+                    VRLog.Debug("Core", "Steam Link native MR stereo cohort ready: frame=" + frame
+                        + "; previous current-head frame observed Left+Right; atlas starts at this boundary.");
+            }
+            _cohortFrame = frame;
+            _cohortEyes = 0;
+        }
+        _cohortEyes |= eye == Camera.MonoOrStereoscopicEye.Left ? 1 : 2;
+        return _cohortReady;
     }
 
     internal void Close()

@@ -28,8 +28,9 @@ when the old output was normally closed with an empty Failure. Actual
 command buffer and real material pre/post-render callbacks.
 
 Additional bounded cases cover a zero-camera gap, master-MR ownership loss and
-return, camera replacement/destruction, a real HDR attachment fault and unknown
-eye metadata. Nonempty faults must remain refused until explicit reset. Each
+return, camera replacement/destruction, a real HDR attachment fault and temporary
+Mono metadata. A real attachment fault remains refused until explicit reset;
+temporary Mono closes normally and permits a fresh stereo epoch. Each
 accepted resume checks all twelve atlas guard cells, opaque depth coverage,
 fractional overlay coverage, contributed RGB and positive RGB at zero opacity.
 The real material scope must restore the original renderer material after each
@@ -41,14 +42,25 @@ still passes the initial raster, then fails the exact semantic assertion
 `Normal camera re-enable must prepare a fresh scene output` after58 checks.
 This is an expected negative result, not a successful old implementation.
 
+Build701 additionally warms each fresh output with one complete explicitly
+labelled Left+Right frame. Both actual raster images remain ordinary until the
+following frame boundary, so creating the effect mid-pair cannot pack only its
+remaining eye. The updated focused run passes499 checks,27 camera renders,
+six resumes and96 guard cells. The unchanged old-owner semantic negative still
+passes its first raster before failing the exact recovery assertion after66
+checks. The separate `steamlink-scene-startup` suite supplies the wider admission
+and metadata-cohort semantic negative controls.
+
 ## Explicit boundaries
 
 - The test adds only `ExecuteInEditMode` to the real `SceneHeadOutput` type so
   its unchanged callback bodies execute in the editor. It does not substitute
   any lifecycle or rendering method. This is not a PlayMode/XR lifecycle proof.
-- MultiPass and current-eye metadata are controlled test inputs. Three reads of
-  `Head.stereoActiveEye` use the named metadata adapter; no alternating-eye
-  heuristic or physical headset is involved. Both left and right labels run.
+- MultiPass, current-eye, stereo-enabled and XR frame-group metadata are
+  controlled test inputs. The one `Head.stereoActiveEye` read uses the named
+  metadata adapter; no alternating-eye heuristic or physical headset is involved.
+  Both left and right labels run. Actual Editor `Camera.Render` has no XR device
+  or XR frame cadence; only that metadata is supplied, with real callbacks and GPU.
 - Session, connection, configuration, allowed-head policy and native-camera
   admission are explicit host boundaries. The actual MixedReality owner,
   identity helper, standalone backend and real settings transitions are not

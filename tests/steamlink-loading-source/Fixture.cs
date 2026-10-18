@@ -104,10 +104,10 @@ public static class LoadingSourceFixture
         Check(materials.CachedMaterials==1&&materials.Ready,label+": real material scope has the known overlay");
         result.actual_camera_raster=result.actual_production_callbacks=true;
     }
-    private static void Ordinary(Camera camera,string label)
+    private static void Ordinary(Camera camera,string label,bool warming=false)
     {
         int before=LoadingSourceBoundary.EyeReads;camera.Render();result.renders++;
-        Check(LoadingSourceBoundary.EyeReads==before,label+": no packed output callback admitted");
+        Check(LoadingSourceBoundary.EyeReads==before+(warming?1:0),label+": ordinary image has expected current-eye admission read");
         Color clear=At(camera.targetTexture,.95f,.1f),left=At(camera.targetTexture,.25f,.5f);
         Near(clear.r,Background.r,label+": ordinary background RGB");Near(clear.a,0,label+": original ordinary alpha");
         Near(left.r,Opaque.r,label+": ordinary surface visible");
@@ -118,6 +118,14 @@ public static class LoadingSourceFixture
         Check(SteamLinkSceneRuntime.TryEnter(camera),why);
         Check(Current!=null&&Current.Ready&&string.IsNullOrEmpty(Current.Failure),why+": ready without failure");
         Check(camera.GetCommandBuffers(CameraEvent.AfterForwardOpaque).Length==1,why+": one exact owned coverage command buffer");
+        // Edit-mode Camera.Render has no XR frame cadence. Supply explicit frame
+        // grouping, then execute two actual production callbacks/raster draws.
+        LoadingSourceBoundary.FrameCount++;
+        var savedEye=LoadingSourceBoundary.CurrentEye;
+        LoadingSourceBoundary.CurrentEye=Camera.MonoOrStereoscopicEye.Left;Ordinary(camera,why+": warmup left",true);
+        LoadingSourceBoundary.CurrentEye=Camera.MonoOrStereoscopicEye.Right;Ordinary(camera,why+": warmup right",true);
+        LoadingSourceBoundary.CurrentEye=savedEye;
+        LoadingSourceBoundary.FrameCount++;
         return Current!;
     }
     public static IEnumerator Run(string evidence,string bank)
