@@ -342,6 +342,10 @@ internal sealed class LoadingIndicator
     private System.Reflection.FieldInfo? _bootLoadSceneField;
     private float _bootSearchCooldown;
     private float _bootCoverSeconds;
+    // Share one small diagnostic allowance across driver replacements. B687's
+    // retained log has acquisition pictures but loses the ordinary WorldUI log
+    // before the native boot handover, so it cannot identify what hid the copy.
+    private static int _questLifecycleSamples;
 
     public void Tick()
     {
@@ -450,6 +454,7 @@ internal sealed class LoadingIndicator
     /// provisional ring, drop that too so the next show re-reads the game's own sprites.</summary>
     private void HideNow()
     {
+        if (_shownLogged) ReportQuestLifecycle("fully-faded-hide");
         _townReloadVisual = false;
         if (_root != null && _root.activeSelf)
         {
@@ -463,6 +468,7 @@ internal sealed class LoadingIndicator
 
     public void Shutdown()
     {
+        if (_shownLogged || _boot == BootCoverage.Covering) ReportQuestLifecycle("driver-shutdown");
         _nativeLoadingObserved = false;
         _nativeLoadingStartedAt = 0f;
         FlatScreenSuppressed = false;
@@ -631,6 +637,7 @@ internal sealed class LoadingIndicator
                     // mid-session. The clause retires WITHOUT ever arming — this is the one
                     // check that keeps a hot reload from arming on a boot seam that has been
                     // sitting non-null since startup.
+                    ReportQuestLifecycle("boot-retired", "SceneController observed before the Intro seam");
                     _boot = BootCoverage.Done;
                     return false;
                 }
@@ -638,6 +645,7 @@ internal sealed class LoadingIndicator
                     return false;
                 _boot = BootCoverage.Covering;
                 _bootCoverSeconds = 0f;
+                ReportQuestLifecycle("boot-armed");
                 VRLog.Info("WorldUI", "Loading indicator ARMED for the boot window: the intro has ended and " +
                                       "'Gloomhaven_unified' is loading (Bootstrap._loadScene assigned). The game puts " +
                                       "nothing on screen until its own loading screen, ~11 s later; the main thread " +
@@ -673,11 +681,35 @@ internal sealed class LoadingIndicator
     /// <summary>Terminal, by construction: nothing ever assigns anything but Done again.</summary>
     private void RetireBootCoverage(string why)
     {
+        ReportQuestLifecycle("boot-retired", why);
         _boot = BootCoverage.Done;
         _bootstrap = null;
         _bootLoadSceneField = null;
         VRLog.Info("WorldUI", $"Loading indicator boot window closed after {_bootCoverSeconds:0.0}s — {why}. " +
                               "The clause cannot re-arm for the rest of the session.");
+    }
+
+    private void ReportQuestLifecycle(string edge, string reason = "")
+    {
+        if (!QuestStandalonePlatform.Enabled || !VRLog.Wants(VRLogLevel.Debug)
+            || _questLifecycleSamples >= 4) return;
+        _questLifecycleSamples++;
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        SceneController? sc = SceneController.Instance;
+        UnityEngine.Debug.Log("[Quest startup] presentation spinner-edge edge=" + edge + " reason=" + reason
+            + " instance=" + GetHashCode() + " frame=" + Time.frameCount + " time=" + Time.realtimeSinceStartup
+            + " boot=" + _boot + " covered=" + _bootCoverSeconds + " fade=" + _fade
+            + " session=" + VRSession.IsRunning + " option=" + WorldUIConfig.LoadingIndicator.Value
+            + " sc=" + (sc == null ? "none" : sc.GetInstanceID() + ",loading=" + sc.IsLoading + ",scenario=" + sc.ScenarioIsLoading)
+            + " menu=" + (GLOOM.MainMenu.MainMenuUIManager.Instance != null)
+            + " head=" + (head == null ? "none" : head.GetInstanceID() + ",enabled=" + head.isActiveAndEnabled + ",mask=" + head.cullingMask)
+            + " root=" + (_root == null ? "none" : _root.GetInstanceID() + ",active=" + _root.activeInHierarchy
+                + ",parent=" + (_root.transform.parent == null ? 0 : _root.transform.parent.GetInstanceID()))
+            + " provisional=" + _artIsProvisional
+            + " baseTexture=" + (_baseArt?.Tex == null ? 0 : _baseArt.Tex.GetInstanceID())
+            + " overlayTexture=" + (_overlayArt?.Tex == null ? 0 : _overlayArt.Tex.GetInstanceID())
+            + " baseAlpha=" + (_baseMaterial == null ? -1f : _baseMaterial.color.a)
+            + " overlayAlpha=" + (_overlayMaterial == null ? -1f : _overlayMaterial.color.a));
     }
 
     /// <summary>
@@ -704,6 +736,7 @@ internal sealed class LoadingIndicator
                 _bootLoadSceneField = AccessTools.Field(typeof(Bootstrap), "_loadScene");
                 if (_bootLoadSceneField == null)
                 {
+                    ReportQuestLifecycle("boot-retired", "Bootstrap._loadScene field missing");
                     _boot = BootCoverage.Done;
                     VRLog.Warn("WorldUI", "Loading indicator: Bootstrap._loadScene not found — the boot window " +
                                           "cannot be recognised and stays uncovered (everything else is unaffected).");
@@ -714,6 +747,7 @@ internal sealed class LoadingIndicator
         }
         catch (Exception ex)
         {
+            ReportQuestLifecycle("boot-retired", "Bootstrap seam read failed");
             _boot = BootCoverage.Done;
             VRLog.Warn("WorldUI", $"Loading indicator: reading the game's boot seam failed ({ex.GetType().Name}: " +
                                   $"{ex.Message}) — the boot window stays uncovered.");

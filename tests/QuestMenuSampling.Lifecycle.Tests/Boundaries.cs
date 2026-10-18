@@ -10,7 +10,7 @@ namespace GloomhavenVR.Core
     internal enum VRLogLevel { Debug }
     internal static class VRLog
     {
-        internal static bool Wants(VRLogLevel level) => false;
+        internal static bool Wants(VRLogLevel level) => true;
         internal static void Info(string category, string text) => UnityEngine.Debug.Log("[Lifecycle] " + text);
         internal static void Warn(string category, string text) => UnityEngine.Debug.LogWarning("[Lifecycle] " + text);
     }

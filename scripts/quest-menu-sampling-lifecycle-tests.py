@@ -21,7 +21,7 @@ from town_run_retention import cleanup_completed_run
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--owned-project", type=Path, required=True)
-    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin"))
+    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam"))
     args = parser.parse_args()
     base = ROOT / ".planning/debug/quest-menu-lifecycle"; base.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=base.resolve()))
@@ -37,6 +37,7 @@ def main():
             "copy-boot-rt": ("!QuestStandalonePlatform.Enabled && (!AdoptOwnedCopy(baseArt)", "(!AdoptOwnedCopy(baseArt)", "Quest boot uses the hardware-qualified native Sprite consumer without a copied RT"),
             "skip-rig-rebuild": ("if (_root == null)\n            BuildVisual();", "if (_baseArt == null)\n            BuildVisual();", "Actual Tick keeps the spinner attached and visible through native head-rig reconstruction"),
             "signed-spin": ("QuestStandalonePlatform.Enabled && value != 0f", "false && value != 0f", "Actual Tick preserves the original signed native spinner tuning"),
+            "missing-native-seam": ("return _bootLoadSceneField!.GetValue(_bootstrap) != null;", "return false;", "through original Bootstrap/Intro callback and immediate activation"),
         }
         expected = ""
         if args.control:
@@ -121,7 +122,8 @@ public static class LoadingLifecycleRunner {
         EditorApplication.update-=Observe;
         bool control=!String.IsNullOrEmpty(input.expected), passed=control?error!=null&&error.Message.Contains(input.expected):error==null;
         Type program=fixture==null?null:fixture.GetType("LoadingLifecycleProgram"); int boundary=program==null?0:(int)program.GetProperty("ObservedBoundary").GetValue(null); int samples=program==null?0:(int)program.GetProperty("RenderedSamples").GetValue(null);
-        string value="{\"passed\":"+passed.ToString().ToLowerInvariant()+",\"assertions\":"+checks+",\"actualPlayerLoop\":true,\"observedBoundary\":"+boundary+",\"renderedSamples\":"+samples+",\"actualSingleSceneLoad\":"+(boundary>=2).ToString().ToLowerInvariant()+",\"actualAssetCollection\":"+(boundary>=3).ToString().ToLowerInvariant()+",\"fullProductionTick\":true,\"hardwareVerified\":false,\"control\":"+control.ToString().ToLowerInvariant()+"}";
+        bool originalBoot=program!=null&&(bool)program.GetProperty("OriginalBootCallbacks").GetValue(null);
+        string value="{\"passed\":"+passed.ToString().ToLowerInvariant()+",\"assertions\":"+checks+",\"actualPlayerLoop\":true,\"observedBoundary\":"+boundary+",\"renderedSamples\":"+samples+",\"actualOriginalBootCallbacks\":"+originalBoot.ToString().ToLowerInvariant()+",\"actualSingleSceneLoad\":"+(originalBoot||boundary>=2).ToString().ToLowerInvariant()+",\"actualAssetCollection\":"+(boundary>=3).ToString().ToLowerInvariant()+",\"fullProductionTick\":true,\"hardwareVerified\":false,\"control\":"+control.ToString().ToLowerInvariant()+"}";
         File.WriteAllText(input.result,value+"\n"); if(error!=null) Debug.LogException(error); EditorApplication.Exit(passed?0:1);
     }
 }''')

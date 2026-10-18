@@ -22,6 +22,7 @@ public static class LoadingLifecycleProgram
 {
     public static int ObservedBoundary { get; private set; }
     public static int RenderedSamples => shownFrames;
+    public static bool OriginalBootCallbacks { get; private set; }
     private static int checks, shownFrames;
     private static LoadingIndicator indicator = null!;
     private static LoadingLifecycleDriver driver = null!;
@@ -33,6 +34,11 @@ public static class LoadingLifecycleProgram
     private static int nativeTextureId;
     private static int nativeHideFlags;
     private static readonly BindingFlags Fields = BindingFlags.Instance | BindingFlags.NonPublic;
+    private static readonly System.Collections.Generic.List<string> lifecycleEdges = new();
+    private static void ObserveLog(string message, string stack, LogType type)
+    {
+        if (message.StartsWith("[Quest startup] presentation spinner-edge ", StringComparison.Ordinal)) lifecycleEdges.Add(message);
+    }
     private static void Check(bool value, string message)
     {
         checks++;
@@ -96,7 +102,7 @@ public static class LoadingLifecycleProgram
         image.rectTransform.sizeDelta = Vector2.one * 64; image.color = Color.white;
         return image;
     }
-    private static void IntroArt()
+    private static GameObject IntroArt(bool active = true)
     {
         Sprite basis = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprite/LoadingBase.asset");
         Sprite overlay = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprite/LoadingOverlay.asset");
@@ -112,12 +118,56 @@ public static class LoadingLifecycleProgram
         Image overlayImage = Icon("native-intro-overlay", clone(overlay!));
         baseImage.color = new Color(.953f, .867f, .671f, 1);
         var owner = new GameObject("native-intro-spinner"); owner.SetActive(false);
+        baseImage.transform.SetParent(owner.transform, false); overlayImage.transform.SetParent(owner.transform, false);
         var animation = owner.AddComponent<AnimateLoadingIcon>();
         NativeField(animation, "m_LoadingIconBase", baseImage.gameObject);
         NativeField(animation, "m_LoadingIconOverlay", overlayImage.gameObject);
         NativeField(animation, "m_IconSpinSpeed", -6f); NativeField(animation, "m_IconGlowSpeed", .07f);
         NativeField(animation, "m_IconUpdateSpeed", .07f); NativeField(animation, "m_IconOverlayMinAlpha", 0f);
-        owner.SetActive(true);
+        owner.SetActive(active);
+        return owner;
+    }
+
+    private static IEnumerator OriginalBootstrap(Bootstrap bootstrap)
+    {
+        IntroPlayer? intro = null;
+        void SeedIntro(Scene scene, LoadSceneMode mode)
+        {
+            if (scene.name != "Intro") return;
+            // Run the real Bootstrap.ShowSplash and IntroPlayer.ShowLogos
+            // callback chain. Skip video/platform services and the logo list:
+            // the empty-list case reaches the exact original loading edge.
+            GameObject loading = IntroArt(false);
+            var owner = new GameObject("original-native-intro-player"); owner.SetActive(false);
+            intro = owner.AddComponent<IntroPlayer>(); intro.enabled = false;
+            NativeField(intro, "_loading", loading);
+            NativeField(intro, "_logos", new System.Collections.Generic.List<Sprite>());
+            owner.SetActive(true);
+        }
+        SceneManager.sceneLoaded += SeedIntro;
+        try
+        {
+            var splash = (IEnumerator)typeof(Bootstrap).GetMethod("ShowSplash", Fields)!.Invoke(bootstrap, null)!;
+            bootstrap.StartCoroutine(splash);
+            FieldInfo complete = typeof(IntroPlayer).GetField("EventCompleted", Fields)!;
+            while (intro == null || complete.GetValue(intro) == null) yield return null;
+            Check(Visual == null && !LoadingIndicator.FlatScreenSuppressed,
+                "Actual native Bootstrap leaves the Intro uncovered before EventCompleted");
+            Action callback = () => ((Action)complete.GetValue(intro)!).Invoke();
+            intro.StartCoroutine((IEnumerator)typeof(IntroPlayer).GetMethod("ShowLogos", Fields)!.Invoke(intro, new object[] { callback })!);
+            while (typeof(Bootstrap).GetField("_loadScene", Fields)!.GetValue(bootstrap) == null) yield return null;
+            AsyncOperation load = (AsyncOperation)typeof(Bootstrap).GetField("_loadScene", Fields)!.GetValue(bootstrap)!;
+            // Unlike the old fixture, never pause scene activation before
+            // allowing production Tick to observe the real producer's field.
+            yield return load; yield return null;
+            Check(SceneManager.GetActiveScene().name == "Gloomhaven_unified",
+                "Actual Bootstrap callback chain activates the native Single scene");
+            OriginalBootCallbacks = true;
+            AssertShown("original Bootstrap/Intro callback and immediate activation", false);
+            while (Field<float>("_fade") < .5f) yield return null;
+            AssertShown("original Bootstrap/Intro callback and immediate activation");
+        }
+        finally { SceneManager.sceneLoaded -= SeedIntro; }
     }
     private static SceneController NativeController()
     {
@@ -152,7 +202,8 @@ public static class LoadingLifecycleProgram
             yield return null;
             Check(Visual == null && !LoadingIndicator.FlatScreenSuppressed, "Actual Tick leaves the Intro uncovered before the native seam");
         }
-        IntroArt();
+        IEnumerator originalBoot = OriginalBootstrap(bootstrap);
+        while (originalBoot.MoveNext()) yield return originalBoot.Current;
         AsyncOperation unified = SceneManager.LoadSceneAsync("Gloomhaven_unified", LoadSceneMode.Single);
         unified.allowSceneActivation = false; NativeField(bootstrap, "_loadScene", unified);
         for (int i = 0; i < 24; i++)
@@ -235,11 +286,16 @@ public static class LoadingLifecycleProgram
             "Actual desktop boot retains its established owned GPU copy");
         Check(Field<float>("_spinDegrees") == 6f,
             "Actual desktop boot retains its established fallback tuning policy");
+        Check(lifecycleEdges.Count == 4 && lifecycleEdges[0].Contains("edge=boot-armed")
+            && lifecycleEdges[1].Contains("edge=boot-retired") && lifecycleEdges[1].Contains("seamless handover")
+            && lifecycleEdges[2].Contains("edge=fully-faded-hide") && lifecycleEdges[3].Contains("edge=fully-faded-hide"),
+            "Actual lifecycle evidence preserves the native retirement reason under the four-record process budget");
         ObservedBoundary = 8;
     }
     public static void Start(Action<int, Exception?> completion)
     {
-        checks = shownFrames = 0; ObservedBoundary = 0; failed = false; finish = completion;
+        checks = shownFrames = 0; ObservedBoundary = 0; OriginalBootCallbacks = false; failed = false; finish = completion;
+        lifecycleEdges.Clear(); Application.logMessageReceived += ObserveLog;
         var owner = new GameObject("full-production-loading-tick-driver"); UnityEngine.Object.DontDestroyOnLoad(owner);
         driver = owner.AddComponent<LoadingLifecycleDriver>();
         driver.StartCoroutine(Guarded(Sequence()));
@@ -264,6 +320,7 @@ public static class LoadingLifecycleProgram
         if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
         if (bootstrapOwner != null) UnityEngine.Object.Destroy(bootstrapOwner);
         UnityEngine.Object.Destroy(driver.gameObject);
+        Application.logMessageReceived -= ObserveLog;
         finish(checks, error);
     }
 }
