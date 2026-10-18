@@ -19,14 +19,18 @@ def main():
     parser.add_argument("--runtime-source", type=Path, default=root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime")
     args = parser.parse_args()
     sources = {name: (args.runtime_source / name).read_text() for name in ("QuestGameVideos.cs", "QuestGameContent.cs", "QuestContentHash.cs")}
+    owned_assignment = ('selected.url = GloomhavenVR.Core.QuestMovieAssets.TryEmbeddedCompanion(clip.name, out string companion)\n'
+                        '                    ? companion : paths[clip.guid];')
+    bound_context = 'Context = scene.name + "/" + binding.playerPath + " source=" + clip.name + " delivery=" + (clip.delivery ?? "original-legacy") };'
     mutations = (
-        ("wrong-owned-url", "QuestGameVideos.cs", "selected.url = paths[clip.guid];", 'selected.url = "/unowned/wrong.mp4";', "exact-owned-url"),
-        ("file-uri-route-restored", "QuestGameVideos.cs", "selected.url = paths[clip.guid];", "selected.url = new Uri(paths[clip.guid]).AbsoluteUri;", "exact-owned-url"),
+        ("wrong-owned-url", "QuestGameVideos.cs", owned_assignment, 'selected.url = paths[clip.guid] + ".wrong"; File.WriteAllBytes(selected.url, new byte[17]);', "exact-owned-url"),
+        ("file-uri-route-restored", "QuestGameVideos.cs", bound_context, bound_context + "\n                selected.url = new Uri(paths[clip.guid]).AbsoluteUri;", "exact-owned-url"),
         ("skip-inactive-player", "QuestGameVideos.cs", "GetComponentsInChildren<VideoPlayer>(true)", "GetComponentsInChildren<VideoPlayer>(false)", "Required original movie player is missing"),
         ("ignore-hierarchy", "QuestGameVideos.cs", " || HierarchyPath(player.transform) != binding.playerPath", "", "exact-hierarchy"),
         ("ignore-source-hash-membership", "QuestGameVideos.cs", " || file.sha256 != clip.sha256", "", "invalid-manifest"),
         ("conflicting-mapping-allowed", "QuestGameVideos.cs", "if (!bindings.Add(binding.scene + \"/\" + binding.playerPath))", "if (!bindings.Add(binding.scene + \"/\" + binding.playerPath) && binding.scene.Length == 0)", "duplicate-player-mapping"),
-        ("native-play-replaced", "QuestGameVideos.cs", "selected.url = paths[clip.guid];", "selected.url = paths[clip.guid];\n                selected.Play();", "native-lifecycle-no-play"),
+        ("native-play-replaced", "QuestGameVideos.cs", owned_assignment, owned_assignment + "\n                selected.Play();", "native-lifecycle-no-play"),
+        ("companion-attributed-to-old-source", "QuestGameVideos.cs", "Path = selected.url, ExpectedSize = new FileInfo(selected.url).Length", "Path = paths[clip.guid], ExpectedSize = clip.size", "companion-bound-file-facts"),
         ("native-flag-changed", "QuestGameVideos.cs", "selected.clip = null;", "selected.clip = null;\n                selected.playOnAwake = true;", "native-video-flags"),
         ("unbounded-prepared", "QuestGameVideos.cs", "bound == null || bound.Prepared", "bound == null", "bounded-prepared"),
         ("unbounded-errors", "QuestGameVideos.cs", "bound.Errors++ >= 2", "bound.Errors++ >= 200", "bounded-errors"),

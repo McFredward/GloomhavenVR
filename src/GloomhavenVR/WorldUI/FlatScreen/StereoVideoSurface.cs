@@ -74,7 +74,11 @@ internal sealed class StereoVideoSurface : IDisposable
         {
             if (QuestStandalonePlatform.Enabled)
             {
-                _shader = QuestMovieAssets.Shader("GloomhavenVR/StereoVideoUI");
+                Shader quest = QuestMovieAssets.Shader("GloomhavenVR/StereoVideoUI");
+                // Camera-plane playback needs its ordinary2D split shader as
+                // well. Refuse packed media before native Play if either fails.
+                QuestMovieAssets.Shader("Hidden/GloomhavenVR/QuestMovieEye");
+                _shader = quest;
                 reason = string.Empty;
                 return true;
             }

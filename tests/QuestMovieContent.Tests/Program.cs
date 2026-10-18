@@ -26,8 +26,13 @@ internal static class Program
         Check(events.Zip(events.Skip(1)).All(p=>p.First.OverallProcessedBytes<=p.Second.OverallProcessedBytes),"monotonic actual byte progress");
         // No original source entries remain: a global producer revision must not
         // reread unchanged files from the APK or the already installed movies.
+        string stale=Path.Combine(root,"Heroes/Fixture4.sbs-v1.mov."+Guid.NewGuid().ToString("N")+".tmp");File.WriteAllBytes(stale,new byte[123]);
+        string foreign=Path.Combine(root,"Heroes/Fixture4.sbs-v1.mov.unrelated.tmp");File.WriteAllBytes(foreign,new byte[12]);
+        string interruptedProof=Path.Combine(root,"Heroes/Fixture4.sbs-v1.mov.quest-receipt.tmp");File.WriteAllText(interruptedProof,"interrupted proof");
         metadata=Manifest(parts,'b');Apk(apk,metadata,new());events.Clear();
         Check(QuestMovieContent.Install(apk,"",root,events.Add),"new producer with unchanged files");Check(events.Count==0,"unchanged files never reopened");
+        Check(!File.Exists(stale)&&File.Exists(foreign),"only stale owned movie temporary removed");
+        Check(!File.Exists(interruptedProof),"interrupted atomic proof temporary removed on warm path");
         string selected="Heroes/Fixture4.sbs-v1.mov";parts[selected]=Enumerable.Repeat((byte)101,9000).ToArray();metadata=Manifest(parts,'c');
         Apk(apk,metadata,new(){[selected]=parts[selected]});events.Clear();
         Check(QuestMovieContent.Install(apk,"",root,events.Add),"one changed film");Check(events.All(e=>e.File==selected),"only changed film copied");

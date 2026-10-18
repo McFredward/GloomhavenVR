@@ -159,7 +159,12 @@ namespace GloomhavenVR.Core
     internal static class QuestStandalonePlatform { internal static bool DebugLogging = true; }
     internal static class QuestMovieAssets
     {
-        internal static bool TryEmbeddedCompanion(string name, out string path) { path=string.Empty; return false; }
+        internal static string Companion;
+        internal static bool TryEmbeddedCompanion(string name, out string path)
+        {
+            path = Companion ?? string.Empty;
+            return Companion != null && name == "TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best";
+        }
     }
 }
 namespace GloomhavenVR.Quest

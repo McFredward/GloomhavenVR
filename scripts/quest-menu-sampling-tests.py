@@ -89,6 +89,8 @@ def main():
     sharp = ROOT / "src/GloomhavenVR/WorldUI/Sharpness"
     loading = (ROOT / "src/GloomhavenVR/WorldUI/LoadingIndicator.cs").read_text()
     layer = loading[loading.index("    private sealed class LayerArt\n"):loading.index("    /// <summary>\n    /// True only during an actual", loading.index("    private sealed class LayerArt\n"))]
+    witness_start = loading.index("    private sealed class LoadingDrawWitness : MonoBehaviour")
+    witness = loading[witness_start:loading.index("\n    /// <summary>", witness_start)]
     sources = {"Sampling.cs": (sharp / "QuestScreenSampling.cs").read_text(),
                "PrimitiveMesh.cs": (ROOT / "src/GloomhavenVR/Core/QuestPrimitiveMesh.cs").read_text(),
                "TextureCopy.cs": (ROOT / "src/GloomhavenVR/Core/QuestTextureCopy.cs").read_text(),
@@ -102,7 +104,7 @@ def main():
         "private const int MaxStepsPerFrame=8;\n"
         "private Transform? _baseQuad, _overlayQuad; private Material? _baseMaterial, _overlayMaterial;\n"
         "private LayerArt? _baseArt, _overlayArt; private float _accum, _overlayAlpha, _fade, _spinDegrees, _stepSeconds, _glowStep, _minAlpha; private bool _increaseAlpha;\n"
-        "private GameObject? _root = new GameObject(\"fixture-loading-root\");\n" + layer
+        "private GameObject? _root = new GameObject(\"fixture-loading-root\");\n" + layer + witness
         + method(loading, "    private static void DestroyObj<")
         + method(loading, "    private static LayerArt? ReadLayer(")
         + method(loading, "    private Transform CreateQuad(")

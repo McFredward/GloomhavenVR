@@ -16,16 +16,34 @@ public static class QuestMovieAssets
         if (_bank == null)
         {
             string path = Path.Combine(QuestStandalonePlatform.ResourceDirectory, "Movies", "ghvr-quest-movies.bundle");
-            _bank = AssetBundle.LoadFromFile(path);
-            if (_bank == null) throw new InvalidDataException("Android stereo movie shader bank is unavailable.");
+            try { _bank = AssetBundle.LoadFromFile(path); }
+            catch (Exception error) { throw Unavailable("Android movie shader bank load failed: " + error.GetType().Name); }
+            if (_bank == null) throw Unavailable("Android stereo movie shader bank is unavailable.");
         }
         string asset = name == "GloomhavenVR/StereoVideoUI" ? "assets/stereovideoui.shader"
             : name == "Hidden/GloomhavenVR/QuestMovieEye" ? "assets/questmovieeye.shader"
             : throw new ArgumentException("Unknown Android movie shader.", nameof(name));
-        Shader shader = _bank.LoadAsset<Shader>(asset);
+        Shader shader;
+        try { shader = _bank.LoadAsset<Shader>(asset); }
+        catch (Exception error) { throw Unavailable("Android movie shader load failed: " + error.GetType().Name); }
         if (shader == null || shader.name != name || !shader.isSupported)
-            throw new InvalidDataException("Android movie shader is unavailable: " + name);
+            throw Unavailable("Android movie shader is unavailable: " + name);
         return shader;
+    }
+
+    private static InvalidDataException Unavailable(string reason)
+    {
+        // A same-size damaged local bank cannot be detected by the warm size
+        // witness. Retire only its tiny receipt: the next launch repairs that
+        // 24KB bank while all movie files remain retained. Current playback
+        // follows the native mono fallback selected before Play.
+        try
+        {
+            File.Delete(Path.Combine(QuestStandalonePlatform.ResourceDirectory, "Movies", "ghvr-quest-movies.bundle.quest-receipt"));
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        return new InvalidDataException(reason);
     }
 
     /// <summary>The startup adapter clears embedded clip references, but preserves their canonical URL identity.</summary>

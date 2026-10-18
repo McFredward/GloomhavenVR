@@ -98,7 +98,10 @@ def startup_sources(source_root, movie, lease, surface):
     keys = keys[:keys.index('/// <summary>Presentation only.')]
     defaults = (ROOT / 'src/GloomhavenVR/Defaults/Defaults.WorldUI.cs').read_text()
     defaults = '\n'.join(line for line in defaults.splitlines() if re.search(r'internal const .* (StereoScreen|ScreenDepthStrength|VideoDepthLayer|VideoDepth|ScreenParallaxScale) =', line))
-    result = {'CaptureStack.cs': flat + '}\n', 'CaptureRender.cs': (source_root / 'FlatScreen.7.CaptureRender.cs').read_text(),
+    result = {'QuestMaterial.cs': (source_root / 'FlatScreen.7.QuestMaterial.cs').read_text(),
+        'QuestMesh.cs': (source_root / 'FlatScreen.7.QuestMesh.cs').read_text(),
+        'QuestSampling.cs': (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/QuestScreenSampling.cs').read_text(),
+        'CaptureStack.cs': flat + '}\n', 'CaptureRender.cs': (source_root / 'FlatScreen.7.CaptureRender.cs').read_text(),
         'Compositor.cs': stereo + '}\n', 'Movie.cs': movie, 'NativeMovieCameraPlane.cs': lease, 'StereoVideoSurface.cs': surface,
         'Movies.cs': movies, 'Keys.cs': keys, 'StartupPatch.cs': (source_root / 'NativeEmbeddedMoviePatches.cs').read_text(),
         'Defaults.cs': 'namespace GloomhavenVR;\ninternal static class Defaults\n{\n' + defaults + '\n}\n'}
@@ -126,6 +129,7 @@ def main():
         for directory in ('Assets/Editor', 'Packages', 'ProjectSettings'):
             (project / directory).mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / 'scripts/stereo-movie-render/Editor/StereoVideoRunner.cs', project / 'Assets/Editor/StereoVideoRunner.cs')
+        shutil.copyfile(ROOT / 'tools/quest-movies/QuestMovieEye.shader', project / 'Assets/QuestMovieEye.shader')
         (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.ugui': '1.0.0',
             'com.unity.modules.assetbundle': '1.0.0', 'com.unity.modules.video': '1.0.0'}}) + '\n')
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')

@@ -26,6 +26,7 @@ def main():
     source_root = root / "unity/GloomhavenVR.Quest"
     paths = [
         "Assets/Quest/Resources/QuestWorldScreen.shader",
+        "Assets/Quest/Resources/QuestWorldScreenGlass.shader",
         "Assets/Quest/Editor/QuestWorldScreenValidation.cs",
         "Assets/Quest/Editor/QuestUiAssetValidation.cs",
         "Assets/Quest/Editor/QuestBlurValidation.cs",

@@ -17,6 +17,10 @@ namespace GloomhavenVR.Core
     internal static class VRLog { internal static bool Wants(VRLogLevel level) => false; }
 }
 
+// Actual loading witness is debug-only; this isolated geometry fixture has no
+// tracked head. Its visibility lifecycle is exercised by the separate suite.
+namespace Rig { internal static class VRRigDriver { internal static Camera? HeadCamera => null; } }
+
 namespace GloomhavenVR.Quest.Editor
 {
     // Only product progress reporting is outside this native geometry fixture.

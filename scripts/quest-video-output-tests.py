@@ -188,7 +188,9 @@ def main():
                 raise RuntimeError("Quest pre-render mutation binding drift.")
             pre_render = pre_render.replace(before, "        PrepareVideoEyes();")
             # The historical late path also performed its first copy here.
-            pre_cull = pre_cull.replace("            PrepareVideoEyes();", "            return;")
+            if pre_cull.count("else PrepareVideoEyes();") != 1:
+                raise RuntimeError("Quest pre-cull ordinary movie mutation binding drift.")
+            pre_cull = pre_cull.replace("else PrepareVideoEyes();", "else return;")
         bind_start = per_eye.index("        RenderTexture? target;", pre_render_end)
         bind_end = per_eye.index("        QuestStandalonePlatform.ObserveFlatScreenVideoSample();", bind_start)
         eye_binding = per_eye[bind_start:bind_end]
@@ -205,6 +207,9 @@ def main():
         (production / "StereoSampling.cs").write_text("using UnityEngine; using GloomhavenVR.Core;\ninternal static class SharedStereoFixture {\n"
             + overscan + "\nstatic int _shiftBlitFrame=-1; static bool _videoShift=true; static RenderTexture _leftRt=null!,_rtRight=null!,_rtLeftShifted=null!; static float _videoShiftUv;\n"
             + "static bool _active=true; static Material? _quadMaterial;\n"
+            # This fixture exercises ordinary native camera movies. Explicit SBS
+            # presentation is source-bound in stereo-movie-render-tests instead.
+            + "static UnityEngine.Video.VideoPlayer? _stereoMovie=null; static void PrepareStereoMovieEyes() => throw new System.InvalidOperationException(\"Unexpected explicit SBS path in mono fixture\"); static bool ShowStereoMovie(Camera cam,Material mat) => throw new System.InvalidOperationException(\"Unexpected explicit SBS route in mono fixture\");\n"
             + "internal static void Setup(RenderTexture source, RenderTexture left, RenderTexture right, float requestedShift, Material? material=null) { _leftRt=source; _rtLeftShifted=left; _rtRight=right; _videoShiftUv=requestedShift; _shiftBlitFrame=-1; _quadMaterial=material; }\n"
             + "internal static void BeforeCull(Camera cam) {\n" + pre_cull + "}\n"
             + "internal static void BeforeRender(Camera cam) {\n" + pre_render + "}\n"

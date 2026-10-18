@@ -26,9 +26,9 @@ CP = 'src/GloomhavenVR/Assets/Movies/CP_Intro/'
 PYPI_MIRRORS = ('https://pypi.org/simple', 'https://pypi.python.org/simple', 'https://mirrors.aliyun.com/pypi/simple')
 SOURCE_HELPERS = {'tools/quest-builder/movie_banks.py', 'tools/quest-builder/movie_render.py',
                   'tools/quest-builder/requirements-movies.txt'}
-_HASHES = ImmutableFileHashes()
 _CHILDREN = set()
 _CHILDREN_LOCK = threading.Lock()
+_CANCEL_CHILDREN = threading.Event()
 
 
 def source_rows(files):
@@ -39,7 +39,7 @@ def source_rows(files):
 
 def _record(path, relative):
     path = _ordinary_owned(Path(path)); st = path.stat()
-    return {'path': relative, 'size': st.st_size, 'sha256': _HASHES.digest(path)}
+    return {'path': relative, 'size': st.st_size, 'sha256': digest(path)}
 
 
 def _stamp(path):
@@ -197,15 +197,34 @@ def _shader_bank(builder,args,source,output,*,previous=None,base_apk=None):
     return target
 
 
+def _stop_child(process):
+    """Let the converter reap its decoder/encoder before escalating its own tree."""
+    if process.poll() is not None:return True
+    try:
+        if os.name=='nt':
+            subprocess.run(['taskkill','/PID',str(process.pid),'/T','/F'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
+        else:
+            import signal
+            os.killpg(process.pid,signal.SIGINT)
+        process.wait(timeout=10)
+    except (OSError,subprocess.TimeoutExpired):
+        try:process.kill();process.wait(timeout=5)
+        except (OSError,subprocess.TimeoutExpired):return False
+    return process.poll() is not None
+
+
 def _child(builder,python,source,job,folder,on_progress,output):
     folder.mkdir(parents=True,exist_ok=True);job_path=folder/'job.json';write_json(job_path,job)
     env=dict(os.environ);env['NUMBA_CACHE_DIR']=str(output/'tool-cache/movie-numba')
     process=None
     with (folder/'render.log').open('w',encoding='utf-8') as log:
         try:
+            if _CANCEL_CHILDREN.is_set():raise BuildError('Movie conversion was cancelled before launch; retained films are unchanged.')
             process=subprocess.Popen([str(python),'-I','-B',str(source/'tools/quest-builder/movie_render.py'),'--job',str(job_path)],
                 stdout=subprocess.PIPE,stderr=log,text=True,env=env,start_new_session=os.name!='nt')
             with _CHILDREN_LOCK:_CHILDREN.add(process)
+            if _CANCEL_CHILDREN.is_set():
+                _stop_child(process);raise BuildError('Movie conversion was cancelled during launch; retained films are unchanged.')
             for line in process.stdout:
                 log.write(line);log.flush()
                 try:
@@ -225,16 +244,11 @@ def _child(builder,python,source,job,folder,on_progress,output):
                 raise failure('Owned stereo movie conversion failed; completed films are retained. See '+str(folder/'render.log'))
         finally:
             if process is not None:
-                with _CHILDREN_LOCK:_CHILDREN.discard(process)
-            if process is not None and process.poll() is None:
-                if os.name=='nt':
-                    try:subprocess.run(['taskkill','/PID',str(process.pid),'/T','/F'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                    except OSError:process.kill()
-                else:
-                    import signal
-                    try:os.killpg(process.pid,signal.SIGKILL)
-                    except ProcessLookupError:pass
-                process.wait()
+                stopped=_stop_child(process)
+                if process.stdout is not None:process.stdout.close()
+                if stopped:
+                    with _CHILDREN_LOCK:_CHILDREN.discard(process)
+                else:log.write("Movie converter cleanup remains pending pid="+str(process.pid)+"\n");log.flush()
 
 
 class MovieMemoryError(BuildError):
@@ -253,6 +267,8 @@ def worker_count(host,count,requested=None):
 
 
 def produce(builder,args,source,inputs,output,game,*,previous=None,base_apk=None):
+    _CANCEL_CHILDREN.clear()
+    original_hashes=ImmutableFileHashes()
     source,output,game=map(Path,(source,output,game));expected=plan(source,inputs['game']);recipe=_recipe(source)
     # No large source snapshot: consume only bytes qualified by the selected
     # mod inventory. Unchanged movie caches do not reread numeric depth chunks.
@@ -307,7 +323,7 @@ def produce(builder,args,source,inputs,output,game,*,previous=None,base_apk=None
                     stream.seek(movie['resource_offset']);raw=stream.read(movie['resource_size'])
                 if hashlib.sha256(raw).hexdigest()!=job['sourceHash']:raise BuildError('Owned embedded movie span changed.')
                 original.write_bytes(raw)
-            if _HASHES.digest(original)!=job['sourceHash']:raise BuildError('Owned movie changed before reconstruction: '+job['key'])
+            if original_hashes.digest(original)!=job['sourceHash']:raise BuildError('Owned movie changed before reconstruction: '+job['key'])
             try:
                 _child(builder,python,source,{'kind':job['kind'],'source':str(original),'target':str(part),
                     'movie':movie,'recipeRoot':str(source/'tools/quest-movies'),'frames':job['frames'],'threads':threads},folder,
@@ -333,19 +349,10 @@ def produce(builder,args,source,inputs,output,game,*,previous=None,base_apk=None
                 try:files.append(future.result())
                 except MovieMemoryError:memory_retries.append(futures[future])
         except BaseException:
+            _CANCEL_CHILDREN.set()
             for future in futures:future.cancel()
             with _CHILDREN_LOCK:children=list(_CHILDREN)
-            for child in children:
-                if child.poll() is not None:continue
-                try:
-                    if os.name=='nt':subprocess.run(['taskkill','/PID',str(child.pid),'/T','/F'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                    else:
-                        import signal
-                        os.killpg(child.pid,signal.SIGINT)
-                    child.wait(timeout=10)
-                except (OSError,subprocess.TimeoutExpired):
-                    try:child.kill();child.wait(timeout=5)
-                    except (OSError,subprocess.TimeoutExpired):pass
+            for child in children:_stop_child(child)
             raise
         finally:executor.shutdown(wait=True,cancel_futures=True)
         # A witnessed allocation failure retries only its incomplete film, after
@@ -358,6 +365,11 @@ def produce(builder,args,source,inputs,output,game,*,previous=None,base_apk=None
     bank=_shader_bank(builder,args,source,output,previous=previous,base_apk=base_apk);files.append((PREFIX+BANK,bank))
     file_rows[BANK]=_record(bank,BANK)
     rows=[file_rows[name] for name in sorted(file_rows)]
+    # The selected repository may be updated while a long conversion runs.
+    # Unchanged witnesses make this cheap; never publish a mixed recipe/helper
+    # revision under the key selected before conversion.
+    if plan(source,inputs['game']) != expected:
+        raise BuildError('Stereo movie producer source changed during conversion. Completed films remain reusable; select the current mod and continue.')
     manifest={'schema':1,'target':'Android','producerKey':expected['producerKey'],'shaderKey':expected['shaderKey'],
         'movieKeys':movie_keys,'files':rows}
     if len(rows)!=23:raise BuildError('Stereo movie delivery omitted a native film or shader.')

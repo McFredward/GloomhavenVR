@@ -212,6 +212,24 @@ internal static class Program
             mutation(clip); Reject(c.Install, "inconsistent-original-provenance");
         }
     }
+    static void EmbeddedCompanion()
+    {
+        using var c = new Case();
+        c.Movies.clips[0].name = "TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best";
+        string companion = Path.Combine(c.Root, "owned-canonical-studio.mov");
+        File.WriteAllBytes(companion, new byte[137]);
+        GloomhavenVR.Core.QuestMovieAssets.Companion = companion;
+        try
+        {
+            c.Install(); c.Router.BindScene(c.Scene);
+            Check(c.Player.url == companion, "companion-selected-before-native-play");
+            Check(c.Player.PlayCalls == 0 && c.Player.PrepareCalls == 0, "companion-native-lifecycle-preserved");
+            c.Player.EmitError("companion bounded file fixture");
+            Check(Fixture.Logs.Any(log => log.Contains("companion bounded file fixture") && log.Contains("expectedBytes=137")
+                && log.Contains("exists=true bytes=137") && log.Contains("matchesBoundSource=True")), "companion-bound-file-facts");
+        }
+        finally { GloomhavenVR.Core.QuestMovieAssets.Companion = null; }
+    }
     static void MissingAndAmbiguousPlayers()
     {
         using (var c = new Case())
@@ -385,7 +403,7 @@ internal static class Program
         try
         {
             files = Path.GetFullPath(args[0]); Directory.CreateDirectory(files);
-            InvalidManifests(); Fixture.Logs.Clear(); BindingAndNativeLifecycle(); MissingAndAmbiguousPlayers(); DeliveryProvenance(); ActualSourcesAndBoundedDiagnostics(); CampaignDynamicPlayers();
+            InvalidManifests(); Fixture.Logs.Clear(); BindingAndNativeLifecycle(); MissingAndAmbiguousPlayers(); DeliveryProvenance(); ActualSourcesAndBoundedDiagnostics(); CampaignDynamicPlayers(); EmbeddedCompanion();
             Check(Fixture.WorkerApiCalls == 0, "worker-api");
             Console.WriteLine($"PASS Quest startup videos: {assertions} assertions; actual movie/content source, Unity video/scene seams; no codec/stereo proof");
             return 0;

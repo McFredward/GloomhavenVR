@@ -115,6 +115,16 @@ namespace GloomhavenVR.Quest
             {
                 string target = Path.Combine(root, item.path.Replace('/', Path.DirectorySeparatorChar)), receipt = target + ".quest-receipt";
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
+                if (File.Exists(receipt + ".tmp")) File.Delete(receipt + ".tmp");
+                // A killed Android process cannot run finally. Retire only this
+                // producer's exact UUID temporary names before a targeted retry.
+                foreach (string stale in Directory.EnumerateFiles(Path.GetDirectoryName(target), Path.GetFileName(target) + ".*.tmp"))
+                {
+                    string suffix = Path.GetFileName(stale).Substring(Path.GetFileName(target).Length + 1);
+                    Guid id;
+                    if (suffix.Length == 36 && suffix.EndsWith(".tmp", StringComparison.Ordinal)
+                        && Guid.TryParseExact(suffix.Substring(0, 32), "N", out id)) File.Delete(stale);
+                }
                 // File identity is independent of another film or orchestration revision.
                 string proof = "quest-movie-file-v1:" + item.sha256 + ":" + item.size;
                 if (File.Exists(target) && new FileInfo(target).Length == item.size && File.Exists(receipt)
@@ -142,7 +152,13 @@ namespace GloomhavenVR.Quest
                             throw new InvalidDataException("Owned movie digest mismatch: " + item.path);
                     }
                     if (File.Exists(target)) File.Replace(temporary, target, null); else File.Move(temporary, target);
-                    File.WriteAllText(receipt, proof);
+                    string proofTemporary = receipt + ".tmp";
+                    try
+                    {
+                        File.WriteAllText(proofTemporary, proof);
+                        if (File.Exists(receipt)) File.Replace(proofTemporary, receipt, null); else File.Move(proofTemporary, receipt);
+                    }
+                    finally { if (File.Exists(proofTemporary)) File.Delete(proofTemporary); }
                 }
                 finally { if (File.Exists(temporary)) File.Delete(temporary); }
                 completed += item.size; count++;

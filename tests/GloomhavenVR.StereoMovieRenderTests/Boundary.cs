@@ -13,7 +13,7 @@ namespace GloomhavenVR.Core
     }
     internal static class QuestMovieAssets
     {
-        internal static Shader Shader(string name) => throw new System.InvalidOperationException("Android shader loading is exercised separately.");
+        internal static Shader Shader(string name) => UnityEngine.Shader.Find(name) ?? throw new System.InvalidOperationException("Movie shader source was not imported.");
     }
 
     internal static class StereoModeConfig
@@ -62,6 +62,12 @@ namespace GloomhavenVR.WorldUI
         internal void Initialize(RenderTexture left, RenderTexture right, RenderTexture? background = null) { _rtLeftShifted = left; _rtRight = right; _leftRt = background; }
         internal void Draw(Camera camera, Material material) => ShowStereoMovie(camera, material);
         internal static void Pixels(Texture texture, RenderTexture target, int eye) => DrawMovieEye(texture, target, eye);
+        internal static void QuestPixels(Texture texture, RenderTexture target, int eye)
+        {
+            var owner=new FlatScreenStereo();
+            try { owner.DrawQuestMovieEye(texture,target,eye,1f,null); }
+            finally { if(owner._questMovieEye!=null) Object.DestroyImmediate(owner._questMovieEye); }
+        }
         internal void SourceChanged() => SyncStereoMovie();
     }
 }
