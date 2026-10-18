@@ -104,8 +104,6 @@ internal static partial class VROptionsTab
         ["MixedReality/KeyColor"] = new("MixedReality", "SteamLinkNative",
             static v => !Core.SteamLink.SteamLinkConnection.Available || Off(v)),
         ["MixedReality/SteamLinkEdgeQuality"] = new("MixedReality", "SteamLinkNative", On),
-        ["MixedReality/SteamLinkEncodeWidth"] = new("MixedReality", "SteamLinkEdgeQuality",
-            static v => On(v) && MixedReality.SteamLinkNative.Value),
         // ---- Komfort ▸ Drehen: the two speed dials belong to their mode, the hand to any ------
         ["Comfort/SnapTurnDegrees"] = new("Comfort", "TurnMode", Named("Snap")),
         ["Comfort/SmoothTurnSpeed"] = new("Comfort", "TurnMode", Named("Smooth")),
@@ -453,13 +451,17 @@ internal static partial class VROptionsTab
     /// </summary>
     private static bool IsRowVisible(ConfigCatalog.ConfigItem item) =>
         !HasItsOwnPage(item)
+        // Build702: MR must follow the actual eye resolution, never a separate
+        // quality dial. Preserve the old config key as inert storage and hide it
+        // in both the curated and catalog-generated Advanced paths.
+        && !(item.Section == "MixedReality" && item.Key == "SteamLinkEncodeWidth")
         // Native alpha passthrough uses no chroma-key color. Keep its saved value
         // for PC streaming without offering an ineffective Frame-only control.
         && !(FrameNativePassthrough.Required && item.Section == "MixedReality"
             && (item.Key == "KeyColor" || item.Key == "SteamLinkNative"
-                || item.Key == "SteamLinkEdgeQuality" || item.Key == "SteamLinkEncodeWidth"))
+                || item.Key == "SteamLinkEdgeQuality"))
         && !(item.Section == "MixedReality"
-            && (item.Key == "SteamLinkNative" || item.Key == "SteamLinkEdgeQuality" || item.Key == "SteamLinkEncodeWidth")
+            && (item.Key == "SteamLinkNative" || item.Key == "SteamLinkEdgeQuality")
             && !Core.SteamLink.SteamLinkConnection.Available)
         && IsShownForCurrentVariant(item) && DependencyMet(item);
 }

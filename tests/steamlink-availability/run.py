@@ -37,7 +37,8 @@ def main():
         ROOT / 'src/GloomhavenVR/WorldUI/Options/VROptionsTab.8.Dependencies.cs',
         ROOT / 'src/GloomhavenVR/WorldUI/Options/VROptionsTab.MixedReality.cs',
         ROOT / 'src/GloomhavenVR/Defaults/Defaults.Core.cs', HERE / 'Program.cs',
-        HERE / 'Fixture.csproj', Path(__file__)]
+        HERE / 'Fixture.csproj', Path(__file__),
+        ROOT / 'src/GloomhavenVR/WorldUI/Options/VROptionsTab.4.Curated.cs']
     pins = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
     copies = run / 'sources'; copies.mkdir()
@@ -47,10 +48,10 @@ def main():
     visible = re.search(r'private static bool IsRowVisible\(.*?;', dependencies, re.S)[0]
     predicate = re.search(r'\["MixedReality/KeyColor"\] = new\("MixedReality", "SteamLinkNative",\s*(.*?)\),', dependencies, re.S)[1]
     edge_predicate = re.search(r'\["MixedReality/SteamLinkEdgeQuality"\] = new\("MixedReality", "SteamLinkNative",\s*(.*?)\),', dependencies, re.S)[1]
-    width_predicate = re.search(r'\["MixedReality/SteamLinkEncodeWidth"\] = new\("MixedReality", "SteamLinkEdgeQuality",\s*(.*?)\),', dependencies, re.S)[1]
     refresh = method(menu, 'private static void RefreshMixedRealityAvailability()')
     clear = method(menu, 'private static void ClearMixedRealityAvailabilityRefreshers()')
     assert re.search(r'internal const bool SteamLinkNative = true;', defaults)
+    assert not re.search(r'new\("MixedReality", "SteamLinkEncodeWidth",', inputs[-1].read_text())
     # A counterexample that restores each actual defect must be rejected at its
     # semantic assertion; compilation failure alone is never counted as proof.
     variants = {
@@ -60,10 +61,11 @@ def main():
         'fallback': (requested, visible, 'static v => Off(v)', refresh),
         'live-refresh': (requested, visible, predicate, refresh.replace('if (changed)', 'if (changed && false)')),
     }
-    variants = {name: (*values, edge_predicate, width_predicate) for name, values in variants.items()}
-    variants['quality-parent'] = (requested, visible, predicate, refresh, 'static v => true', width_predicate)
-    variants['width-parent'] = (requested, visible, predicate, refresh, edge_predicate,
-        'static v => MixedReality.SteamLinkNative.Value')
+    variants = {name: (*values, edge_predicate) for name, values in variants.items()}
+    variants['quality-parent'] = (requested, visible, predicate, refresh, 'static v => true')
+    variants['retired-width'] = (requested, visible.replace(
+        '&& !(item.Section == "MixedReality" && item.Key == "SteamLinkEncodeWidth")', '&& true'),
+        predicate, refresh, edge_predicate)
     project = run / 'owned-project'; project.mkdir()
     shutil.copyfile(HERE / 'Fixture.csproj', project / 'Fixture.csproj')
     shutil.copyfile(HERE / 'Program.cs', project / 'Program.cs')
@@ -75,15 +77,14 @@ def main():
         'fallback': 'unsupported persisted-on preference must retain chromakey controls',
         'live-refresh': 'resolved capability refreshes an already open pane',
         'quality-parent': 'edge quality requires proven streaming plus native preference',
-        'width-parent': 'encoding width requires proven native streaming plus edge quality'}
+        'retired-width': 'retired encoding width is hidden in every hardware and preference state'}
     try:
-        for name, (request, row, pred, update, edge_pred, width_pred) in variants.items():
+        for name, (request, row, pred, update, edge_pred) in variants.items():
             fixture = ('using System; using System.Collections.Generic; using GloomhavenVR.Core;\n'
                 + 'namespace GloomhavenVR.Core.SteamLink { internal static partial class SteamLinkSceneRuntime {' + request + '} }\n'
                 + 'namespace GloomhavenVR.WorldUI { internal static partial class VROptionsTab {'
                 + 'private static Func<object?, bool> KeyPredicate = ' + pred + ';\n'
                 + 'private static Func<object?, bool> EdgeQualityPredicate = ' + edge_pred + ';\n'
-                + 'private static Func<object?, bool> EncodeWidthPredicate = ' + width_pred + ';\n'
                 + row + '\n' + update + '\n' + clear + '} }')
             (project / 'Source.cs').write_text(fixture)
             (copies / (name + '.cs')).write_text(fixture)

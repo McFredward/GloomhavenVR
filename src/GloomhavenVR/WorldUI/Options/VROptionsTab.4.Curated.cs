@@ -694,7 +694,6 @@ internal static partial class VROptionsTab
                         new("MixedReality", "SteamLinkNative", "vr_o_steamlinknative"),
                         new("MixedReality", "KeyColor", "key_color"),
                         new("MixedReality", "SteamLinkEdgeQuality", "vr_o_steamlinkedgequality"),
-                        new("MixedReality", "SteamLinkEncodeWidth", "vr_o_steamlinkencodewidth"),
                         // ELEMENT MOOD — the environment's answer to the element infusions. The
                         // strength dial folds under the toggle (VROptionsTab.8.Dependencies.cs).
                         new("Elements", "EnvironmentResponse", "vr_o_elemmood"),

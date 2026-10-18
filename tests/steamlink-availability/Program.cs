@@ -32,8 +32,7 @@ namespace GloomhavenVR.WorldUI
         private static bool IsShownForCurrentVariant(ConfigCatalog.ConfigItem item) => true;
         private static bool DependencyMet(ConfigCatalog.ConfigItem item) => item.Section != "MixedReality"
             || (item.Key != "KeyColor" || KeyPredicate(Core.MixedReality.SteamLinkNative.Value))
-                && (item.Key != "SteamLinkEdgeQuality" || EdgeQualityPredicate(Core.MixedReality.SteamLinkNative.Value))
-                && (item.Key != "SteamLinkEncodeWidth" || EncodeWidthPredicate(Core.MixedReality.SteamLinkEdgeQuality.Value));
+                && (item.Key != "SteamLinkEdgeQuality" || EdgeQualityPredicate(Core.MixedReality.SteamLinkNative.Value));
         private static void Rebuild() { _rebuilds++; ClearMixedRealityAvailabilityRefreshers(); }
         internal static int CheckAll()
         {
@@ -84,8 +83,8 @@ namespace GloomhavenVR.WorldUI
                 Core.MixedReality.SteamLinkEdgeQuality.Value = qualityOn;
                 Check(IsRowVisible(quality) == (!required && available && nativeOn),
                     "edge quality requires proven streaming plus native preference");
-                Check(IsRowVisible(width) == (!required && available && nativeOn && qualityOn),
-                    "encoding width requires proven native streaming plus edge quality");
+                Check(!IsRowVisible(width),
+                    "retired encoding width is hidden in every hardware and preference state");
             }
             return assertions;
         }

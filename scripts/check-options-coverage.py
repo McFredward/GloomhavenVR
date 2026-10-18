@@ -614,6 +614,11 @@ NAME_DIFFERS_ON_PURPOSE = {
 # joining a curated family with no row and no line here. Added by hand rather than by --bless, so
 # that every addition had to be argued instead of blessed in a batch.
 KNOWN_ORPHANS = {
+    # Build702, maintainer's explicit rejection of an independent MR resolution
+    # limit: keep the persisted key only as INERT compatibility storage. The
+    # production filter hides it in curated and Advanced views; actual eye
+    # resolution now owns sizing. This is one retired key, not a family exemption.
+    ("MixedReality", "SteamLinkEncodeWidth"),
     # Build652: the new everyday wall-policy keys share only the "Wall" prefix with
     # this pre-existing expert sampling cadence. Its regular-fade alias remains
     # [WallFade] EvalIntervalSeconds; the legacy fallback stays reachable in Advanced.
