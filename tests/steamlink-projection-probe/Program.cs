@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Reflection;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using GloomhavenVR.Core;
@@ -36,8 +37,29 @@ internal static class Program
     }
     private static async Task Ready(Probe.Owner owner,Child child)
     { Check(owner.Start(true,true),"explicit action arms");await Until(()=>owner.Current==Probe.Phase.Starting);child.Pipe.Put(Probe.ReadyLine+"\n");await Until(()=>owner.Current==Probe.Phase.Active); }
-    private static async Task Main()
+    private static Probe.Owner StaticOwner => (Probe.Owner)typeof(Probe).GetField("State",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!;
+    private static Task StaticWorkerSettled() => StaticOwner.Settled;
+    private static async Task CompletionWindow()
     {
+        var owner=StaticOwner;ProjectionProbeFixtureCompletion.Hold(owner);
+        try
+        {
+            VROptionsTab.IsOpen=true;
+            Check(Probe.Start(),"completion-window preview starts");
+            await ProjectionProbeFixtureCompletion.Published.WaitAsync(TimeSpan.FromSeconds(10));
+            Check(owner.Current==Probe.Phase.Failed,"actual worker published its terminal phase");
+            Task settled=StaticWorkerSettled();
+            Check(!settled.IsCompleted,"terminal phase publication is not actual worker completion");
+            Check(!owner.Start(true,true),"actual owner correctly refuses a still-retiring worker");
+            ProjectionProbeFixtureCompletion.Resume();await settled;
+            Check(owner.Start(true,true),"actual owner accepts retry only after worker completion");await owner.Settled;
+            Console.WriteLine("projection deterministic completion boundary: "+_checks+" assertions; actual worker suspended after terminal phase publication");
+        }
+        finally { ProjectionProbeFixtureCompletion.Resume(); }
+    }
+    private static async Task Main(string[] args)
+    {
+        if(args.Length==1 && args[0]=="--completion-window") { await CompletionWindow();return; }
         Check(Probe.Eligible,"baseline full eligibility");
         VRLog.WantsDebug=false;Check(!Probe.Eligible,"Debug logging is mandatory");VRLog.WantsDebug=true;
         VRSession.IsRunning=false;Check(!Probe.Eligible,"session is mandatory");VRSession.IsRunning=true;
@@ -101,14 +123,14 @@ internal static class Program
         VROptionsTab.IsOpen=true;VROptionsTab.TestAction!();
         Check(VROptionsTab.CloseCalls==closes+1 && !VROptionsTab.IsOpen,"accepted direct action automatically closes options");
         Check(GL.Clears==0 && UnityEngine.Object.Destroyed==0,"preview never allocates or clears an image");
-        await Until(()=>Probe.Status!=Probe.Phase.Starting && Probe.Status!=Probe.Phase.Stopping);
+        await StaticWorkerSettled();
         VROptionsTab.IsOpen=true;VROptionsTab.SetCheats(false);closes=VROptionsTab.CloseCalls;VROptionsTab.TestAction!();
         Check(VROptionsTab.CloseCalls==closes && Probe.Status==Probe.Phase.Idle,"stale disabled action cannot start or close options");VROptionsTab.SetCheats(true);
         SteamLinkSceneRuntime.ProjectionProbeSourceReady=false;VROptionsTab.TestAction!();
         Check(VROptionsTab.CloseCalls==closes,"unadmitted source cannot hide options");SteamLinkSceneRuntime.ProjectionProbeSourceReady=true;
         VROptionsTab.ThrowClose=true;VROptionsTab.IsOpen=true;VROptionsTab.TestAction!();
         Check(VROptionsTab.IsOpen && VROptionsTab.CloseCalls==closes+1,"failed auto-close leaves controls available");VROptionsTab.TestStopAction!();
-        await Until(()=>Probe.Status!=Probe.Phase.Stopping);Check(Probe.Status==Probe.Phase.Idle,"explicit Stop survives a failed auto-close");VROptionsTab.ThrowClose=false;
+        await StaticWorkerSettled();Check(Probe.Status==Probe.Phase.Idle,"explicit Stop survives a failed auto-close");VROptionsTab.ThrowClose=false;
         Check(Loc.SteamLinkProjectionProbeHint.IndexOf("keep your head still",StringComparison.OrdinalIgnoreCase)>=0,"English test explains frozen pose");Loc.CurrentLanguage="German";
         Check(Loc.SteamLinkProjectionProbeHint.Contains("Kopf ruhig"),"German test explains frozen pose");
         Console.WriteLine("projection owner/lifecycle: "+_checks+" assertions; no helper/OpenVR/device execution");

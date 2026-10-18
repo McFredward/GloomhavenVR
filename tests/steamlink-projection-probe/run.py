@@ -21,11 +21,19 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def bounded_failure(name,status,run,output):
+    # The suite runner forwards our output, not the private child artifact.
+    # Keep the actionable exception/compiler tail in CI without dumping logs.
+    return (f"{name} failed (exit={status}); evidence: {run}\n"
+            f"--- child output tail (last 6144 characters) ---\n{output[-6144:]}")
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,default=ROOT/'.planning/debug/steamlink-projection-probe')
     parser.add_argument('--skip-typecheck',action='store_true',help='Run affected behavioral checks only; inherit an unchanged prior real-Unity typecheck explicitly.')
     parser.add_argument('--only-mutants',help='Comma-separated affected semantic controls; inherit already passing positives and other controls.')
+    parser.add_argument('--fixture-only',action='store_true',help='Repair the actual owner/UI fixture and completion-window controls only; inherit unchanged typecheck/callback/mutants.')
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output.resolve()))
     log=run/'completion.log';log.write_text('Projection probe evidence: '+str(run)+'\n')
@@ -53,7 +61,8 @@ def main():
                 if child.poll() is None:os.killpg(child.pid,signal.SIGKILL)
                 child.wait();raise
         output=(run/(name+'.log')).read_text()
-        assert (status==0) if expected is None else (status!=0 and expected in output and 'error CS' not in output),name+' failed: '+str(run)
+        passed=(status==0) if expected is None else (status!=0 and expected in output and 'error CS' not in output)
+        if not passed:raise AssertionError(bounded_failure(name,status,run,output))
         steps.append({'name':name,'returncode':status,'expected_semantic_failure':expected})
     projects={}
     def command(kind,mutant=None,property_name="SourceFile"):
@@ -63,11 +72,32 @@ def main():
         if mutant:result+=['-p:'+property_name+'='+str(mutant)]
         return result
     try:
-        for kind in (['Fixture','Callback'] if args.skip_typecheck else ['Typecheck','Fixture','Callback']):
+        for kind in (['Fixture'] if args.fixture_only else ['Fixture','Callback'] if args.skip_typecheck else ['Typecheck','Fixture','Callback']):
             folder=run/('owned-'+kind);folder.mkdir();project=folder/(kind+'.csproj');shutil.copyfile(HERE/(kind+'.csproj'),project);projects[kind]=project
             if not args.only_mutants:execute(command(kind),kind)
         original=source.read_text();runtime_text=runtime.read_text()
         ui_text=ui.read_text()
+        if not args.only_mutants:
+            # Preserve original instructions and pause solely at the legal
+            # terminal-phase/task-completion scheduler boundary in a private copy.
+            boundary="""                    else _phase = _unsafe ? Phase.Unsafe : Phase.Idle;
+                }
+            }
+        }
+        private async Task ReadAsync"""
+            assert original.count(boundary)==1
+            instrumented=copies/'completion-window-source.cs'
+            instrumented.write_text(original.replace(boundary,boundary.replace("\n            }\n        }\n        private async", "\n                await ProjectionProbeFixtureCompletion.PauseAfterPhaseAsync(this).ConfigureAwait(false);\n            }\n        }\n        private async")))
+            positive=command('Fixture',instrumented)+['--','--completion-window']
+            execute(positive,'CompletionWindow')
+            program=(HERE/'Program.cs').read_text()
+            before='private static Task StaticWorkerSettled() => StaticOwner.Settled;'
+            after='private static Task StaticWorkerSettled() => Until(()=>Probe.Status!=Probe.Phase.Starting && Probe.Status!=Probe.Phase.Stopping);'
+            assert program.count(before)==1
+            old_wait=copies/'phase-only-wait.cs';old_wait.write_text(program.replace(before,after))
+            negative=command('Fixture',instrumented)+['-p:ProgramFile='+str(old_wait),'--','--completion-window']
+            execute(negative,'PhaseOnlyWait','terminal phase publication is not actual worker completion')
+            (run/'completion-window-transform.json').write_text(json.dumps({'production_sha256':sha(source),'private_instrumented_sha256':sha(instrumented),'insertion':'after actual terminal phase lock, before actual RunAsync task return','product_modified':False},indent=2)+'\n')
         mutations={
             'DebugGate':('Fixture',original,'VRLog.WantsDebug && VRSession.IsRunning','VRSession.IsRunning','Debug logging is mandatory','SourceFile'),
             'SourceGate':('Fixture',original,' && SteamLinkSceneRuntime.ProjectionProbeSourceReady;',';','actual admitted robust v3 source is mandatory','SourceFile'),
@@ -79,6 +109,7 @@ def main():
             'LocalNotReady':('Fixture',original,'if (line == ReadyLine)','if (line == ReadyLine || line.StartsWith("SFNP_PROJECTION_LOCAL_V2 ", StringComparison.Ordinal))','local visibility metadata never grants Ready','SourceFile'),
             'KeepGame':('Callback',runtime_text,'_pack!.TryRender(source, destination, eye)','_pack!.TryRender(SteamLinkProjectionProbe.ApiReady ? new RenderTexture() : source, destination, eye)','READY never substitutes the actual scene source: ready/Left','SourceFile'),
         }
+        if args.fixture_only:mutations={}
         if args.only_mutants:
             selected=set(args.only_mutants.split(','))
             assert selected and selected<=mutations.keys(),'Unknown semantic controls requested'
@@ -109,7 +140,7 @@ def main():
                     folder=path.parent/cache
                     if folder.is_dir() and not folder.is_symlink():shutil.rmtree(folder);removed.append(str(folder))
         (run/'cleanup.json').write_text(json.dumps({'api':retained,'all_children_reaped':reaped,'owned_caches_removed':removed},indent=2)+'\n')
-        (run/'result.json').write_text(json.dumps({'exit_code':code,'steps':steps,'scope':'ACTUAL_DIRECT_START_OWNER_PROTOCOL_UI_AND_UNCHANGED_SCENE_CALLBACK_PORTS_REAL_UNITY_NET472','helper_or_OpenVR_executed':False,'headset_picture_proven':False,'typecheck_reused_not_rerun':args.skip_typecheck or bool(args.only_mutants),'mutation_subset':args.only_mutants},indent=2)+'\n')
+        (run/'result.json').write_text(json.dumps({'exit_code':code,'steps':steps,'scope':('ACTUAL_OWNER_UI_COMPLETION_REPAIR_NO_CALLBACK_OR_TYPECHECK' if args.fixture_only else 'SEMANTIC_CONTROL_SUBSET_WITH_INHERITED_POSITIVES' if args.only_mutants else 'ACTUAL_DIRECT_START_OWNER_PROTOCOL_UI_AND_UNCHANGED_SCENE_CALLBACK_PORTS_REAL_UNITY_NET472'),'helper_or_OpenVR_executed':False,'headset_picture_proven':False,'typecheck_reused_not_rerun':args.skip_typecheck or bool(args.only_mutants) or args.fixture_only,'mutation_subset':args.only_mutants,'fixture_repair_subset':args.fixture_only},indent=2)+'\n')
         print(json.dumps({'run':str(run),'exit_code':code}))
     return code
 
