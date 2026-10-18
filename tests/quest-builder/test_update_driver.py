@@ -28,6 +28,7 @@ import portable_package as portable
 import preparation_identity
 import release
 import update_driver as driver
+import quest_card_alpha as card_alpha
 
 
 class UpdateDriverTests(unittest.TestCase):
@@ -89,6 +90,113 @@ class UpdateDriverTests(unittest.TestCase):
         self.assertEqual(apk_update.inspect_base(self.apk)["manifest"]["mod"]["modBuild"], 625)
         self.assertEqual(json.loads((self.output / "latest-update-input.json").read_text())["plan"],
                          "updates/" + plan["updateKey"] + "/plan.json")
+
+    def card_alpha_pair(self):
+        payload, entries, _ = card_alpha.encode([("AC_Brute_Background", 3, 2, bytes([0, 255, 0, 255, 255, 255]))])
+        metadata = {"schema": 1, "recipe": card_alpha.RECIPE, "gameKey": self.manifest["game"]["key"],
+                    "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(), "entries": len(entries)}
+        return {card_alpha.MEMBER: payload, card_alpha.MANIFEST: storage.canonical(metadata)}
+
+    def test_old_runtime_inventory_skips_alpha_module_and_extraction(self):
+        with patch.object(driver.importlib.util, "spec_from_file_location", side_effect=AssertionError("Old runtime cannot request the new content contract")):
+            self.assertEqual(driver.card_alpha_delivery(self.builder, self.manifest, self.output, self.game), {})
+
+    def test_alpha_delivery_publishes_exact_small_pair_and_reports_owned_source_progress(self):
+        expected = self.card_alpha_pair()
+        payload = self.root / "closed-alpha.bin"; payload.write_bytes(expected[card_alpha.MEMBER])
+        metadata = json.loads(expected[card_alpha.MANIFEST])
+        def produce(game, cache, key, *, progress):
+            self.assertEqual((game, cache, key), (self.game, self.output / "cache", self.manifest["game"]["key"]))
+            progress(1, 1, "character_gui_assets_ac_brute_background.bundle")
+            return {"path": str(payload), "manifest": metadata}
+        module = SimpleNamespace(build=Mock(side_effect=produce), MEMBER=card_alpha.MEMBER,
+                                 MANIFEST=card_alpha.MANIFEST, AlphaError=card_alpha.AlphaError)
+        spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda ignored: None))
+        inputs = copy.deepcopy(self.manifest)
+        inputs["mod"]["files"] = [{"path": card_alpha.RUNTIME_SOURCE, "size": 1, "sha256": "1" * 64}]
+        with patch.object(driver.importlib.util, "spec_from_file_location", return_value=spec), \
+             patch.object(driver.importlib.util, "module_from_spec", return_value=module):
+            self.assertEqual(driver.card_alpha_delivery(self.builder, inputs, self.output, self.game), expected)
+        module.build.assert_called_once()
+        self.builder.build_progress.event.assert_called_once_with("update-card-alpha", 1, 1, "files",
+            "character_gui_assets_ac_brute_background.bundle", operation="update-art")
+
+    def test_exact_alpha_source_and_runtime_producers_select_only_compact_code(self):
+        paths = ("tools/quest-builder/quest_card_alpha.py", card_alpha.RUNTIME_SOURCE,
+                 "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestCardAlphaContent.cs")
+        for path in paths:
+            with self.subTest(path=path):
+                previous = [{"path": path, "size": 10, "sha256": "1" * 64}]
+                current = [{"path": path, "size": 11, "sha256": "2" * 64}]
+                self.current_mod["files"] = previous; self.write_apk()
+                base = apk_update.inspect_base(self.apk)
+                with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]):
+                    requirements = driver.update_requirements(self.builder, ROOT, base, current, self.current_mod["modBuild"])
+                self.assertEqual(requirements["rebuildReasons"], [])
+                self.assertEqual(requirements["updateStrategy"], "compact-code")
+                self.assertTrue(requirements["codeChanged"])
+                self.assertFalse(requirements["artChanged"])
+                self.assertFalse(requirements["nativeHelperChanged"])
+
+    def test_profile_only_run_retains_exact_alpha_without_extraction_snapshot_or_unity(self):
+        alpha = self.card_alpha_pair(); self.write_apk(extra=alpha)
+        self.builder.snapshot = Mock(side_effect=AssertionError("Profile edits do not snapshot mod or game files"))
+        with patch.object(driver, "signing_tools", return_value={}), \
+             patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
+             patch.object(driver, "card_alpha_delivery", side_effect=AssertionError("Keep the current alpha; no extraction")), \
+             patch.object(driver, "_compile_code", side_effect=AssertionError("Profile edits do not invoke Unity")), \
+             patch.object(driver, "_game_subset", side_effect=AssertionError("Profile edits do not snapshot owned bundles")), \
+             patch.object(apk_update, "patch_resource_json", return_value={}), \
+             patch.object(apk_update, "update_android_versions", return_value=b"AXML tested separately"):
+            updated = driver.run(self.builder, self.args, ROOT, self.output)
+        with zipfile.ZipFile(updated) as archive:
+            for name, body in alpha.items(): self.assertEqual(archive.read(name), body)
+            self.assertEqual(json.loads(archive.read(apk_update.PROFILE))["displayName"], self.profile["displayName"])
+        self.builder.snapshot.assert_not_called()
+
+    def test_capability_adopts_only_the_exact_requested_card_alpha_pair(self):
+        self.apk = self.output / "builds/player/GloomhavenVR-Quest.apk"
+        self.apk.parent.mkdir(parents=True); self.write_apk()
+        alpha = self.card_alpha_pair()
+        signed, verified = Mock(), Mock(return_value=None)
+        def signing(*args, **kwargs):
+            for name, body in {"quest.keystore": b"fixture signing key", "local-key.json": b'{}',
+                               "certificate.json": b'{}'}.items():
+                path = self.output / "signing" / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
+            return signed, verified
+        def forget_receipt():
+            for receipt in (self.output / "receipts/player-update-capability").glob("*.json"): receipt.unlink()
+        def capability():
+            return driver.add_update_capability(self.builder, self.apk, self.manifest, self.output, self.root, {})
+        with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]), \
+             patch.object(driver, "card_alpha_delivery", return_value=alpha), \
+             patch.object(driver, "_signers", side_effect=signing) as signer_factory, \
+             patch.object(apk_update, "make_capsule", return_value=self.capsule):
+            result = capability(); self.assertEqual(signed.call_count, 1)
+            forget_receipt(); signer_factory.reset_mock()
+            with patch.object(apk_update, "repack", side_effect=AssertionError("Exact sidecars adopt the existing signed Player")), \
+                 patch.object(apk_update, "make_capsule", side_effect=AssertionError("Exact sidecars need no roster extraction")):
+                self.assertEqual(capability(), result)
+            self.assertEqual(signer_factory.call_args.kwargs, {"base_apk": self.apk})
+            for mode in ("missing", "payload-mismatch", "manifest-mismatch"):
+                with self.subTest(mode=mode):
+                    forget_receipt()
+                    with zipfile.ZipFile(self.apk) as source:
+                        entries = {name: source.read(name) for name in source.namelist()}
+                    original_game = entries["assets/fixture.resource"]
+                    if mode == "missing": entries.pop(card_alpha.MEMBER)
+                    elif mode == "payload-mismatch": entries[card_alpha.MEMBER] += b"wrong retained alpha"
+                    else: entries[card_alpha.MANIFEST] = b'{"schema":1,"sha256":"wrong"}'
+                    with zipfile.ZipFile(self.apk, "w", compression=zipfile.ZIP_DEFLATED) as changed:
+                        for name, body in entries.items(): changed.writestr(name, body)
+                    signer_factory.reset_mock()
+                    with patch.object(apk_update, "repack", wraps=apk_update.repack) as repack:
+                        self.assertEqual(capability(), result)
+                    self.assertEqual(repack.call_count, 1)
+                    self.assertEqual(signer_factory.call_args.kwargs, {})
+                    with zipfile.ZipFile(self.apk) as repaired:
+                        for name, body in alpha.items(): self.assertEqual(repaired.read(name), body)
+                        self.assertEqual(repaired.read("assets/fixture.resource"), original_game)
 
     def test_repeated_inspection_reuses_unchanged_apk_proof_but_still_requires_owned_game(self):
         first = driver.inspect(self.builder, self.args, ROOT, self.output)
@@ -245,7 +353,7 @@ class UpdateDriverTests(unittest.TestCase):
             path = source / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
         rows = [storage.record_file(source / name, name) for name in
                 ("tools/quest-builder/builder.py", "tools/quest-builder/preparation_identity.py")]
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py"):
             (source / "tools/quest-builder" / name).write_bytes((ROOT / "tools/quest-builder" / name).read_bytes())
         self.manifest["mod"]["files"] = copy.deepcopy(rows)
         self.current_mod["files"] = copy.deepcopy(rows)
@@ -389,7 +497,7 @@ class UpdateDriverTests(unittest.TestCase):
         self.current_mod.update(files=previous, modBuild=671); self.write_apk()
         self.args.command = "update-mod"; self.builder.mod_build = lambda repo: 671
         self.builder.source_inventory = lambda repo: (current, commit, dirty)
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py"):
             path = source / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / "tools/quest-builder" / name, path)
         with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]), \
@@ -424,7 +532,7 @@ class UpdateDriverTests(unittest.TestCase):
                   "unity/GloomhavenVR.Assets/Assets/unchanged.asset": b"unchanged authored asset" * 4096}
         for name, body in values.items():
             path = repo / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py"):
             path = repo / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / "tools/quest-builder" / name, path)
         rows = [storage.record_file(repo / name, name) for name in values]

@@ -12,6 +12,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/quest-builder"))
 import apk_update as update
+import quest_card_alpha as card_alpha
 import storage
 
 
@@ -70,6 +71,25 @@ class ApkUpdateTests(unittest.TestCase):
         for name in ("assets/bin/Data/level0", "assets/game-textures.resource"):
             self.assertEqual(self.compressed(self.base, name), self.compressed(self.output, name))
         self.assertGreater(result["preservedCompressedBytes"], 0); self.assertEqual(seen[-1][0], seen[-1][1])
+
+    def test_small_exact_card_alpha_pair_reuses_original_compressed_game_records(self):
+        alpha, records, ambiguous = card_alpha.encode([("AC_Brute_Background", 3, 2, bytes([0, 255, 0, 255, 255, 255]))])
+        self.assertEqual(ambiguous, [])
+        manifest = {"schema": 1, "recipe": card_alpha.RECIPE, "gameKey": self.input["inputKey"],
+                    "bytes": len(alpha), "sha256": hashlib.sha256(alpha).hexdigest(), "entries": len(records)}
+        sidecars = {card_alpha.MEMBER: alpha, card_alpha.MANIFEST: storage.canonical(manifest)}
+        self.publish(sidecars)
+        with zipfile.ZipFile(self.base) as original, zipfile.ZipFile(self.output) as result:
+            self.assertEqual(set(result.namelist()) - set(original.namelist()), {*sidecars, update.UPDATE})
+            for name, payload in sidecars.items():
+                self.assertEqual(result.read(name), payload)
+            self.assertEqual(json.loads(result.read(card_alpha.MANIFEST))["sha256"], hashlib.sha256(result.read(card_alpha.MEMBER)).hexdigest())
+            self.assertEqual(result.read(update.LIBRARY), bytes(self.library))
+            self.assertEqual(result.read(update.METADATA), self.metadata)
+        for name in ("assets/bin/Data/level0", "assets/game-textures.resource"):
+            self.assertEqual(self.compressed(self.base, name), self.compressed(self.output, name))
+        with self.assertRaisesRegex(storage.BuildError, "scope"):
+            self.publish({"assets/quest-card-alpha-unrelated.bin": alpha})
 
     def test_signature_failure_keeps_previous_output_and_input(self):
         self.output.write_bytes(b"previous published result"); before = self.base.read_bytes()
