@@ -15,6 +15,7 @@ const api = preview ? new PreviewApi() : new LocalApi(location.origin,token);
 let language = (preview ? new URLSearchParams(location.search).get('lang') : null) ?? readStorage('quest-wizard-language') ?? (navigator.language.startsWith('de') ? 'de' : 'en');
 if (!['de','en'].includes(language)) language='de';
 let page=-1,selected=null,discovery=null,state=null,busy=false,after=0,log=[],loadedLog=null,pollTimer=null,canConnect=preview||Boolean(token),artworkKey='',artworkGeneration=0;
+let completedDiscoveryKey='',completedDiscoveryRequest=null;
 let storageInfo=null,storageBusy=false,storagePollTimer=null,storageCompletedShown=false,storageFailure=null,storageGeneration=0;
 let storageOperationId=null,storageFailureOperationId=null;
 let stoppedRuns=null,runsBusy=false,runsFailure=null,runsGeneration=0,pendingRunSelection=null;
@@ -259,7 +260,35 @@ function navigatePage(next,focusId){
   // mutation. Utility controls enforce the shared active-work lock separately.
   if(typeof page==='number'&&page>=0)workflowPage=page;
   page=next;clearError();updateView();
+  if(next===-1)void refreshCompletedDiscovery();
   const heading=$(focusId);heading?.setAttribute('tabindex','-1');heading?.focus();
+}
+function completedOutputKey(){
+  const build=state?.stages?.find(row=>row.id==='build'&&row.status==='complete');
+  if(!build)return '';
+  return [state.session,build.key??'',build.details?.apkSha256??state.result?.apkSha256??'',state.result?.apk??''].join(':');
+}
+async function refreshCompletedDiscovery(){
+  const key=completedOutputKey();
+  if(!key||key===completedDiscoveryKey||completedDiscoveryRequest)return;
+  // Successful publication changes the owned APK pointer. The initial browser
+  // discovery cannot remain the authority for its old version afterwards.
+  // Read only the existing bounded metadata API, once per observed output;
+  // navigation and status polling never scan or validate APK payloads here.
+  const request=api.discover();completedDiscoveryRequest=request;renderHome();
+  try{
+    const result=await request;
+    if(result?.event!=='discovery')throw {code:'invalidReply'};
+    // A completed run's base is its old input, not a manual override for the
+    // next workflow. Preserve that durable choice in state, but suggest the
+    // newly published result when the user starts another update.
+    if(completedOutputKey()===key&&$('base-apk').value===state?.choices?.baseApk)
+      automaticBaseApk=$('base-apk').value;
+    discovery=result;completedDiscoveryKey=key;preselectUpdateApk();renderGames();
+  }catch{
+    // A failed advisory read does not turn a successful build into a failure.
+    // Returning Home retries it without starting or changing any build job.
+  }finally{completedDiscoveryRequest=null;updateView();}
 }
 function focusPackage(){if(discovery?.capabilities?.portablePackages===true)navigatePage('export','package-title');}
 
@@ -331,11 +360,12 @@ function renderHome(){
   $('home-page').hidden=page!==-1;$('home').hidden=false;$('home').disabled=busy;
   if(page===-1)$('home').setAttribute('aria-current','page');else $('home').removeAttribute('aria-current');
   const recommendation=discovery?.updateRecommendation;
-  const recommended=recommendation?.available===true&&recommendation?.inputsReady===true;
+  const output=completedOutputKey(),stale=Boolean(output)&&output!==completedDiscoveryKey;
+  const recommended=!stale&&!completedDiscoveryRequest&&recommendation?.available===true&&recommendation?.inputsReady===true;
   $('home-mod').classList.toggle('recommended',recommended);
   $('home-mod-badge').hidden=!recommended;$('home-mod-recommendation').hidden=!recommended;
   $('home-mod-recommendation').textContent=recommended?t('homeUpdateReady',{installed:recommendation.installedBuild,bundled:recommendation.bundledBuild}):'';
-  $('home-update-status').hidden=Boolean(discovery)||!busy;
+  $('home-update-status').hidden=!completedDiscoveryRequest&&(Boolean(discovery)||!busy);
   renderHomeActivity();
   document.querySelector('.steps').hidden=typeof page!=='number'||page<0;
   $('home-device').hidden=discovery?.capabilities?.deviceTools!==true;
@@ -1220,7 +1250,7 @@ async function poll() {
     if(!result.state||result.state.session!==session)throw {code:'invalidReply'};
     // Status is authoritative. A failed/slow log endpoint used to discard a
     // successful status response and leave the screen claiming RUNNING.
-    state=result.state;clearError();updateView();
+    state=result.state;clearError();updateView();void refreshCompletedDiscovery();
     // Optional log connections may never finish. They own one cancellable
     // request each and cannot postpone the next authoritative status poll or
     // keep a primary action busy. No timeout is imposed on Unity/user actions.

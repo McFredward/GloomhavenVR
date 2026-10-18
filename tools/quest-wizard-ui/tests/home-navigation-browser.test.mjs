@@ -56,6 +56,12 @@ async function fixture({recommendation=readyUpdate,discoveryOverride={},held=fal
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   return {url:'http://127.0.0.1:'+server.address().port+'/#home-ui-fixture',requests,state,releaseDiscovery,
+    publishCurrent(){
+      const path=readyUpdate.apkPath.replace('Quest.apk','Updated-Quest.apk');
+      state.status='complete';state.stages.forEach(row=>row.status='complete');state.result={apk:path};
+      recommendation={...readyUpdate,status:'current',available:false,installedBuild:676,apkPath:path,reason:'already-current'};
+      discoveryOverride.defaultApk={path,modBuild:676};
+    },
     advance(percent){stages[5].progress.stagePercent=percent;},
     deviceProgress(percent){deviceState={...deviceState,progress:{...deviceState.progress,percent}};},
     close:()=>new Promise(resolve=>{releaseDiscovery();server.close(resolve);server.closeAllConnections();})};
@@ -150,6 +156,7 @@ test('home checks the bundled update on arrival, highlights only ready local inp
     await noOverflow(client);await client.picture('home-update-mobile-en');
     await client.chooseHome('mod');await noOverflow(client);
     await client.evaluate("document.querySelector('#game-page h2').scrollIntoView({block:'start'})");
+    await client.wait("document.querySelector('#game-page h2').getBoundingClientRect().top>=document.querySelector('.topbar').getBoundingClientRect().bottom");
     assert.equal(await client.evaluate("document.querySelector('#game-page h2').getBoundingClientRect().top>=document.querySelector('.topbar').getBoundingClientRect().bottom"),true,'a focused workflow heading clears wrapped navigation');
     await client.picture('update-workflow-mobile-en');
     await client.evaluate('window.scrollTo(0,document.documentElement.scrollHeight)');
@@ -235,5 +242,29 @@ test('active device capture is visible on home, keeps polling and returns to the
     assert.equal(await client.evaluate("document.getElementById('device-progress').value"),60);
     noMutations(server);assert.equal(server.requests.some(row=>row.path==='/api/device/cancel'),false);
     assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+  }finally{try{await client?.close();}finally{await server.close();}}
+ });
+
+test('a completed update refreshes the published APK recommendation once without restarting work',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await fixture({active:true});let client;
+  try{
+    client=await browser();await client.command('Page.navigate',{url:server.url});
+    await client.wait("document.getElementById('home-active')&&!document.getElementById('home-active').hidden&&!document.getElementById('home-active-open').disabled");
+    assert.equal(await client.evaluate("document.getElementById('home-mod').classList.contains('recommended')"),true);
+    await client.evaluate("document.getElementById('home-active-open').click()");
+    await client.wait("!document.getElementById('progress-page').hidden");
+    server.publishCurrent();
+    await client.wait("document.getElementById('progress-title').textContent.includes('complete')||document.getElementById('progress-title').textContent.includes('abgeschlossen')");
+    await client.evaluate("document.getElementById('home').click()");
+    await client.wait("document.getElementById('home-active').hidden&&!document.getElementById('home-mod').disabled&&document.getElementById('home-update-status').hidden");
+    assert.equal(await client.evaluate("document.getElementById('home-mod').classList.contains('recommended')"),false);
+    assert.equal(await client.evaluate("document.getElementById('home-mod-badge').hidden"),true);
+    assert.equal(server.requests.filter(row=>row.path==='/api/discover').length,2,'one initial and one closed-output metadata read');
+    await client.chooseHome('mod');
+    assert.match(await client.evaluate("document.getElementById('base-apk').value"),/Updated-Quest\.apk$/);
+    await client.evaluate("document.getElementById('home').click();document.getElementById('home-mod').click();document.getElementById('home').click()");
+    assert.equal(server.requests.filter(row=>row.path==='/api/discover').length,2,'unchanged navigation reuses refreshed metadata');
+    noMutations(server);assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
   }finally{try{await client?.close();}finally{await server.close();}}
  });
