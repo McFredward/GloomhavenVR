@@ -43,6 +43,11 @@ internal static class QuestProceduralLifecycle
         VRSession.Harmony?.PatchAll(typeof(UnityGameEditorRuntime_QuestPlacementLoading));
         VRSession.Harmony?.PatchAll(typeof(ApparanceEngine_QuestPendingRequests));
         VRSession.Harmony?.PatchAll(typeof(AudioObject_QuestCombatEvidence));
+        VRSession.Harmony?.PatchAll(typeof(AudioObject_QuestCombatDelayed));
+        VRSession.Harmony?.PatchAll(typeof(AudioObject_QuestCombatScheduled));
+        VRSession.Harmony?.PatchAll(typeof(AudioObject_QuestCombatStopped));
+        VRSession.Harmony?.PatchAll(typeof(AudioObject_QuestCombatReset));
+        VRSession.Harmony?.PatchAll(typeof(AudioObject_QuestCombatSecondary));
         var owner = new GameObject("GloomhavenVR.QuestProceduralLifecycle");
         UnityEngine.Object.DontDestroyOnLoad(owner);
         _driver = owner.AddComponent<Driver>();

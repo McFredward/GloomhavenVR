@@ -728,6 +728,7 @@ def _replaceable(name):
     return name in {LIBRARY, METADATA, INITIALIZERS, ASSEMBLIES, CAPSULE, UPDATE, PROFILE,
                     "AndroidManifest.xml", INSTALLATION, "assets/quest-mod-content.zip", PROTON_CONTRACT,
                     "assets/bin/Data/unity_app_guid", "assets/quest-card-alpha.bin", "assets/Quest/card-alpha.json",
+                    "assets/quest-card-pixels.bin", "assets/Quest/card-pixels.json",
                     "assets/Quest/figure-meshes.json"} or _figure_member(name) or name in PROTON_HELPERS or _resource_member(name) or (name.startswith(MANAGED_RESOURCES) and name.endswith("-resources.dat"))
 
 

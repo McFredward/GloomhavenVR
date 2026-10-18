@@ -582,6 +582,7 @@ internal static class HexHighlightFix
 
                 if (SwapStableShader && TrySwapStable(mat, __instance))
                 {
+                    QuestHexPresentationEvidence.Observe(__instance, mat);
                     // Stable shader active: the layers no longer swim, so the kill
                     // knobs are bypassed and the full vanilla look returns.
                     if (!_knobsBypassLogged)
@@ -598,6 +599,7 @@ internal static class HexHighlightFix
                     mat.SetFloat(BorderFlameIntensity, 0f);
                 if (KillCrosshair)
                     mat.SetFloat(CrossHair, 0f);
+                QuestHexPresentationEvidence.Observe(__instance, mat);
                 // The border ring (_BorderLineIntensity) and the fill (_HexIntensity) are
                 // never touched: they ARE the "which hex" readout (user ruling 2026-08-13).
             }

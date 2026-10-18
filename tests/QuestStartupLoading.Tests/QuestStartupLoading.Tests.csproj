@@ -10,6 +10,7 @@
     <Compile Include="Program.cs" /><Compile Include="UnityStubs.cs" />
     <Compile Include="$(RuntimeSource)/QuestGameBootstrap.cs" Link="QuestGameBootstrap.cs" />
     <Compile Include="$(RuntimeSource)/QuestCardAlphaContent.cs" Link="QuestCardAlphaContent.cs" />
+    <Compile Include="$(RuntimeSource)/QuestCardPixelContent.cs" Link="QuestCardPixelContent.cs" />
     <Compile Include="$(RuntimeSource)/QuestFigureMeshContent.cs" Link="QuestFigureMeshContent.cs" />
     <Compile Include="$(RuntimeSource)/QuestFrameEvidence.cs" Link="QuestFrameEvidence.cs" />
     <Compile Include="$(RuntimeSource)/QuestSnapshotWriter.cs" Link="QuestSnapshotWriter.cs" />

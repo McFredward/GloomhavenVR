@@ -69,6 +69,27 @@ def card_alpha_delivery(builder, inputs, output, game):
     return {module.MEMBER: Path(result["path"]).read_bytes(), module.MANIFEST: builder.canonical(result["manifest"])}
 
 
+def card_pixels_delivery(builder, inputs, output, game):
+    """Deliver exact mip-zero card/UI pixels without rebuilding original banks."""
+    if not any(row.get("path") == "src/GloomhavenVR/Cards/Art/QuestCardPixels.cs"
+               for row in inputs["mod"]["files"]):
+        return {}
+    spec = importlib.util.spec_from_file_location("quest_card_pixels", Path(__file__).with_name("quest_card_pixels.py"))
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    try:
+        result = module.build(game, Path(output) / "cache", inputs["game"]["key"],
+            progress=lambda done, total, name: builder.build_progress.event(
+                "update-card-pixels", done, total, "files", name, operation="update-art"))
+    except (module.PixelError, OSError, ValueError) as error:
+        raise builder.BuildError("Exact card/UI pixel extraction failed; keep the existing APK and retry: " + str(error)) from error
+    return {module.MEMBER: Path(result["path"]).read_bytes(), module.MANIFEST: builder.canonical(result["manifest"])}
+
+
+def card_art_delivery(builder, inputs, output, game):
+    return {**card_alpha_delivery(builder, inputs, output, game),
+            **card_pixels_delivery(builder, inputs, output, game)}
+
+
 def preflight(builder, game_root, base_apk, mode=None, *, output=None, progress=None, cancel=None):
     """Always read the selected owned installation before downloads/build reuse."""
     if not base_apk:
@@ -154,7 +175,7 @@ def inspect(builder, args, repo, output, data=None):
             "figureBanksChanged": figure_banks_changed,
             "nativeCompilerRecipe": _native_resume().compiler_recipe(builder, __file__),
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
-                ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "figure_banks.py")}}
+                ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py")}}
     plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name not in ("baseApk", "sourcePackage")})
     root = output / "updates" / plan["updateKey"]
     builder.write_json(root / "plan.json", plan)
@@ -445,7 +466,7 @@ def _code_rows(files, *, normalizer=None):
     only improve reporting, rather than guessing whether new code is equivalent.
     """
     prefixes = ("src/", "tools/QuestWeaver/", "libs/RefAsm/")
-    producers = {"tools/quest-builder/apk_update.py", "tools/quest-builder/update_driver.py", "tools/quest-builder/quest_card_alpha.py",
+    producers = {"tools/quest-builder/apk_update.py", "tools/quest-builder/update_driver.py", "tools/quest-builder/quest_card_alpha.py", "tools/quest-builder/quest_card_pixels.py",
                  "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs"}
     def selected(name):
         # Every release records its commit and complete host-file inventory.
@@ -982,7 +1003,7 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
     apk, output = Path(apk), Path(output)
     package_abi = package_fingerprint(builder, source, inputs)
     producer = payload_producer(builder, source, inputs["mod"].get("files", []))
-    alpha = card_alpha_delivery(builder, inputs, output, Path(output) / "inputs/game" / inputs["game"]["key"])
+    alpha = card_art_delivery(builder, inputs, output, Path(output) / "inputs/game" / inputs["game"]["key"])
     receipt_key = builder.value_hash({"scope": "full-build-update-capability-receipt-v1", "inputKey": inputs["inputKey"],
         "profile": inputs["profile"], "modBuild": inputs["mod"]["modBuild"], "packageAbi": package_abi,
         "payloadProducer": producer, "cardAlpha": {name: hashlib.sha256(body).hexdigest() for name, body in alpha.items()}})
@@ -1206,7 +1227,7 @@ def run(builder, args, repo, output):
                     installation = json.loads(original.read("assets/Quest/installation-manifest.json"))
                 installation["mod"] = manifest
                 replacements["assets/Quest/installation-manifest.json"] = json.dumps(installation, sort_keys=True).encode()
-            replacements.update(card_alpha_delivery(builder, inputs, output, builder.game_data(args.game_root)))
+            replacements.update(card_art_delivery(builder, inputs, output, builder.game_data(args.game_root)))
             if plan.get("figureBanksChanged"):
                 figures = _figures(builder)
                 figure_root, figure_manifest = figures.produce(builder, args, source, builder.game_data(args.game_root),

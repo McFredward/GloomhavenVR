@@ -111,6 +111,13 @@ namespace GloomhavenVR.Quest
         public static IEnumerator InstallRoutine(string apk, string streamingAssets, string root,
             Action<QuestGameContentProgress> progress, Action present) { yield break; }
     }
+    // Actual pixel publication and worker lifetime run at the independent
+    // Bootstrap boundary; this logger fixture substitutes downstream delivery.
+    public static class QuestCardPixelContent
+    {
+        public static System.Collections.IEnumerator InstallRoutine(string apk, string streamingAssets, string root,
+            Action<QuestGameContentProgress> progress, Action present) { yield break; }
+    }
     public class QuestGameMenu { }
     public class QuestGameKeyboard { public bool Bound, Visible; public string Failure; }
     // These are lifecycle seams for the logging fixture, not a real mod execution proof.

@@ -612,7 +612,35 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 690;
+    public const ushort ModBuild = 691;
+
+    // ModBuild691 — Quest native loading mask, actual LOD containers and UI pixels.
+    // Capture165952 verifies current690/previous689. Preserve hardware-confirmed
+    // complete rooms, improved performance and removal of the idle audio click.
+    // The native Single scene has a second opaque PersistentOverlay loading
+    // screen, distinct from Intro's overlay. Hand off only its exact loading
+    // Graphics while the existing VR spinner owns presentation; restore them
+    // at native retirement. Do not hide other global/error UI or fake timing.
+    // Enable the missing AssetBundle engine module in the independent figure
+    // producer: old files contained Meshes but no loadable bundle container.
+    // Reuse exact derivative geometry; recook only Android containers, retaining
+    // original Campaign/mod/Wine data. Expose actual terrain/pillar consumers.
+    // Restore rectangular Options clipping and the original filled-slider text
+    // mask on Quest; desktop labels, layout and native values remain unchanged.
+    // Deliver exact owned UI pixels as a separately cached sidecar, streaming
+    // only changed bytes before activation. Feed the shared mip baker without
+    // XR readbacks. Reuse the established trimmed-Sprite path without changing
+    // physical cuts; average lower sRGB mips in linear light on Quest/Linear
+    // only. Native near-picture and distance/oblique comparisons qualify this
+    // filtering route; headset aliasing improvement still requires testing.
+    // Scaled native combat sources use pitch1 but Doppler1. Disable Doppler only
+    // for Quest nonlooping native 3D combat playback, restoring pooled sources;
+    // actual audio outcome still requires hardware testing. Add bounded Debug
+    // native reach/material/draw and guide-tint facts, without rendering or
+    // gameplay writes. Left guide, movement-range visibility and pillar LOD
+    // still need headset evidence; no speculative shader/state forcing.
+    // Compact Mod Update, no original-bank regeneration or local full APK.
+    // See .planning/QUEST-HARDWARE-165952-20261018.md and handoff validation.
 
     // ModBuild690 — deliver missing Quest figure LOD banks and reduce steady CPU work.
     // Capture150639 verifies current689/previous688; preserve complete native rooms,

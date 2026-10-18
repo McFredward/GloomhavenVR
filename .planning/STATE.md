@@ -1,5 +1,24 @@
 # State — where the project stands
 
+**Quest native loading, figure containers and filtering, 2026-10-18: feature / B691.**
+
+Capture165952 verifies current690/previous689. Preserve confirmed complete rooms,
+much better performance and removal of the idle click. Correct the figure
+producer's missing AssetBundle engine module: old files contain Meshes without
+loadable native containers. Reuse their exact derivative geometry; recook only
+Android containers. Actual native loader accepts all four repaired tiers and
+rejects the retained legacy part. Hand off the second native PersistentOverlay
+loading widget, restore exact Options viewport/filled-slider clipping and supply
+owned CPU UI pixels independently of original banks. Reuse existing card trim
+geometry with Quest/Linear linear-light mips; near/native and minified GPU tests
+qualify the picture route. Scoped reversible combat Doppler handling requires
+hardware audio testing. Left guide, movement reach visibility and actual pillar
+LOD remain open; add bounded final binding/terrain facts without forcing native
+state. Strict Release/actual original Weaver:487 hooks,300 targets;433 startup
+assertions and focused worker/update/render controls. Use compact Mod Update
+with `.ghvrq` retained; no original conversion or local full APK. See
+[QUEST-HARDWARE-165952-20261018.md](QUEST-HARDWARE-165952-20261018.md).
+
 **Quest Builder update import repair, 2026-10-18: feature / runtime B690 unchanged.**
 
 Support161102 fails in actual Wizard requirements planning: its isolated Builder

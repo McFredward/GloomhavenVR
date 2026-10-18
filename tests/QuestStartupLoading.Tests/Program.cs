@@ -247,24 +247,54 @@ internal static class Program
             Inputs inputs = Setup("alpha-boundary-" + editor + "-" + warm, editor: editor, warm: warm, keepSource: true);
             byte[] alpha = Enumerable.Range(0, 173).Select(i => (byte)i).ToArray();
             string metadata = JsonSerializer.Serialize(new { schema = 1, bytes = alpha.Length, sha256 = Hash(alpha) });
+            byte[] pixels = Enumerable.Range(0, 641).Select(i => (byte)(i * 17)).ToArray();
+            string pixelMetadata = JsonSerializer.Serialize(new { schema = 1, bytes = pixels.Length, sha256 = Hash(pixels) });
             using (var apk = new ZipArchive(File.Open(Application.Data, FileMode.Open, FileAccess.ReadWrite), ZipArchiveMode.Update))
             {
                 WriteEntry(apk, "assets/quest-card-alpha.bin", alpha);
                 WriteEntry(apk, "assets/Quest/card-alpha.json", System.Text.Encoding.UTF8.GetBytes(metadata));
+                WriteEntry(apk, "assets/quest-card-pixels.bin", pixels);
+                WriteEntry(apk, "assets/Quest/card-pixels.json", System.Text.Encoding.UTF8.GetBytes(pixelMetadata));
             }
             System.IO.Directory.CreateDirectory(Path.Combine(Application.Streaming, "Quest"));
             File.WriteAllText(Path.Combine(Application.Streaming, "Quest/card-alpha.json"), metadata);
             File.WriteAllBytes(Path.Combine(Application.Streaming, "quest-card-alpha.bin"), alpha);
+            File.WriteAllText(Path.Combine(Application.Streaming, "Quest/card-pixels.json"), pixelMetadata);
+            File.WriteAllBytes(Path.Combine(Application.Streaming, "quest-card-pixels.bin"), pixels);
+            // A genuinely warm installation includes these independent assets,
+            // not just the old original/mod bank. A newly added sidecar is real
+            // cold work and correctly requests the single preparation view.
+            string installed = Path.Combine(Fixture.Root, "quest-mod-resources", "StreamingAssets");
+            if (warm)
+            {
+                System.IO.Directory.CreateDirectory(installed);
+                File.WriteAllBytes(Path.Combine(installed, "quest-card-alpha.bin"), alpha);
+                File.WriteAllText(Path.Combine(installed, "quest-card-alpha.bin.receipt.json"), metadata);
+                File.WriteAllBytes(Path.Combine(installed, "quest-card-pixels.bin"), pixels);
+                File.WriteAllText(Path.Combine(installed, "quest-card-pixels.bin.receipt.json"), pixelMetadata);
+            }
+            using var heldPixels = warm ? new FileStream(Path.Combine(installed, "quest-card-pixels.bin"),
+                FileMode.Open, FileAccess.ReadWrite, FileShare.None) : null;
             int observed = 0;
             Fixture.BeforePlugin = resources =>
             {
                 observed++;
+                // Reaching this point while the private payload is exclusively
+                // held proves the warm installer did not reopen/rehash it.
+                heldPixels?.Dispose();
                 string target = Path.Combine(resources, "quest-card-alpha.bin");
                 Check(File.Exists(target), "alpha-before-plugin", "exact alpha was not installed at the actual resource directory before card consumers start");
                 Check(File.ReadAllBytes(target).SequenceEqual(alpha), "alpha-before-plugin", "installed alpha differs from this APK's payload");
                 Check(File.ReadAllText(target + ".receipt.json") == metadata, "alpha-before-plugin", "exact alpha receipt is absent at the consumer boundary");
                 Check(!File.Exists(Path.Combine(Fixture.Root, "quest-mod-resources", "quest-card-alpha.bin")),
                     "alpha-wrong-parent", "the unused B685 parent location must not receive a new sidecar");
+                string pixelTarget = Path.Combine(resources, "quest-card-pixels.bin");
+                Check(File.Exists(pixelTarget), "pixels-before-plugin", "exact pixels must reach the actual resource directory before card consumers start");
+                Check(File.ReadAllBytes(pixelTarget).SequenceEqual(pixels), "pixels-before-plugin", "installed pixels differ from the APK's payload");
+                Check(File.ReadAllText(pixelTarget + ".receipt.json") == pixelMetadata,
+                    "pixels-before-plugin", "pixel receipt must accompany the payload at the consumer boundary");
+                Check(!File.Exists(Path.Combine(Fixture.Root, "quest-mod-resources", "quest-card-pixels.bin")),
+                    "pixels-wrong-parent", "the unused parent must not receive a pixel sidecar");
             };
             var owner = Owner(); new Pump(owner).Finish();
             Check(observed == 1, "alpha-before-plugin", "plugin boundary was not observed exactly once");

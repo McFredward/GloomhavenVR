@@ -135,6 +135,38 @@ class UpdateDriverTests(unittest.TestCase):
         with patch.object(driver.importlib.util, "spec_from_file_location", side_effect=AssertionError("Old runtime cannot request the new content contract")):
             self.assertEqual(driver.card_alpha_delivery(self.builder, self.manifest, self.output, self.game), {})
 
+    def test_old_runtime_inventory_skips_pixel_module_and_extraction(self):
+        with patch.object(driver.importlib.util, "spec_from_file_location", side_effect=AssertionError("No pixel consumer exists in this runtime")):
+            self.assertEqual(driver.card_pixels_delivery(self.builder, self.manifest, self.output, self.game), {})
+
+    def test_real_inspect_to_run_delivers_card_pixels_without_original_bank_or_native_pair_changes(self):
+        self.args.command = "update-mod"
+        files = [{"path": "src/GloomhavenVR/Cards/Art/QuestCardPixels.cs", "size": 1, "sha256": "d" * 64}]
+        self.builder.source_inventory = lambda repo: (files, "8" * 40, False)
+        self.builder.mod_build = lambda repo: self.current_mod["modBuild"]
+        self.builder.snapshot = Mock()
+        requirements = {"rebuildReasons": [], "codeChanged": False, "artChanged": False,
+                        "nativeHelperChanged": False, "figureBanksChanged": False, "requiresUnity": False}
+        payload = {"assets/quest-card-pixels.bin": b"closed fixture pixels", "assets/Quest/card-pixels.json": b'{"schema":1}'}
+        with patch.object(driver, "update_requirements", return_value=requirements), \
+             patch.object(driver, "card_pixels_delivery", return_value=payload) as delivery, \
+             patch.object(driver, "signing_tools", return_value={}), \
+             patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
+             patch.object(driver, "_compile_code", side_effect=AssertionError("Fixture native pair is already current")), \
+             patch.object(driver, "_game_subset", side_effect=AssertionError("Never reconvert the original Campaign")), \
+             patch.object(apk_update, "patch_resource_json", return_value={}), \
+             patch.object(apk_update, "update_android_versions", return_value=b"AXML tested separately"):
+            plan = driver.inspect(self.builder, self.args, ROOT, self.output)
+            self.assertEqual(plan["rebuildReasons"], [])
+            updated = driver.run(self.builder, self.args, ROOT, self.output)
+        delivery.assert_called_once()
+        self.assertEqual(delivery.call_args.args[3], self.game)
+        self.builder.snapshot.assert_not_called()
+        with zipfile.ZipFile(self.apk) as before, zipfile.ZipFile(updated) as after:
+            for name, body in payload.items(): self.assertEqual(after.read(name), body)
+            for name in (apk_update.LIBRARY, apk_update.METADATA, "assets/fixture.resource"):
+                self.assertEqual(before.read(name), after.read(name))
+
     def test_alpha_delivery_publishes_exact_small_pair_and_reports_owned_source_progress(self):
         expected = self.card_alpha_pair()
         payload = self.root / "closed-alpha.bin"; payload.write_bytes(expected[card_alpha.MEMBER])
@@ -387,7 +419,7 @@ class UpdateDriverTests(unittest.TestCase):
             path = source / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
         rows = [storage.record_file(source / name, name) for name in
                 ("tools/quest-builder/builder.py", "tools/quest-builder/preparation_identity.py")]
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "figure_banks.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py"):
             (source / "tools/quest-builder" / name).write_bytes((ROOT / "tools/quest-builder" / name).read_bytes())
         self.manifest["mod"]["files"] = copy.deepcopy(rows)
         self.current_mod["files"] = copy.deepcopy(rows)
@@ -531,7 +563,7 @@ class UpdateDriverTests(unittest.TestCase):
         self.current_mod.update(files=previous, modBuild=671); self.write_apk()
         self.args.command = "update-mod"; self.builder.mod_build = lambda repo: 671
         self.builder.source_inventory = lambda repo: (current, commit, dirty)
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "figure_banks.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py"):
             path = source / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / "tools/quest-builder" / name, path)
         with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]), \
@@ -566,7 +598,7 @@ class UpdateDriverTests(unittest.TestCase):
                   "unity/GloomhavenVR.Assets/Assets/unchanged.asset": b"unchanged authored asset" * 4096}
         for name, body in values.items():
             path = repo / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
-        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "figure_banks.py"):
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py"):
             path = repo / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / "tools/quest-builder" / name, path)
         rows = [storage.record_file(repo / name, name) for name in values]

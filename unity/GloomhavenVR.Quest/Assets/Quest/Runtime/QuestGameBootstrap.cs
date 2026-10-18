@@ -145,8 +145,8 @@ namespace GloomhavenVR.Quest
                 progress => {
                     State = "extracting-mod-content";
                     modContentWeight = installedModWeight + progress.OverallTotalBytes;
-                    ReportContentProgress(new QuestGameContentProgress(progress.Phase, progress.File, progress.ProcessedBytes, progress.TotalBytes,
-                        (long)installedModWeight + progress.OverallProcessedBytes, (long)modContentWeight, progress.FileIndex, progress.FileCount));
+                    StoreContentProgress(new QuestGameContentProgress(progress.Phase, progress.File, progress.ProcessedBytes, progress.TotalBytes,
+                        (long)installedModWeight + progress.OverallProcessedBytes, (long)modContentWeight, progress.FileIndex, progress.FileCount), false);
                 }, UpdateStartupPresentation);
             // Exact card contours travel as a tiny independent APK asset. Never
             // reopen/reinstall the Campaign or mod bank for an alpha-only update.
@@ -165,6 +165,18 @@ namespace GloomhavenVR.Quest
                 // one useful failure is retained in an ordinary support log.
                 UnityEngine.Debug.LogWarning("[GloomhavenVR] [QuestCardAlpha] Exact card contours unavailable: " + error.Message);
             }
+            // Independent original pixel bytes feed the shared mip baker.
+            // Stream only a changed sidecar on its worker, keeping XR frames
+            // and aggregate progress alive. Warm receipts avoid rereading it.
+            decimal installedFigureWeight = modContentWeight;
+            yield return QuestCardPixelContent.InstallRoutine(Application.platform == RuntimePlatform.Android && !Application.isEditor
+                ? Application.dataPath : null, Application.streamingAssetsPath, Path.Combine(modRoot, "StreamingAssets"),
+                progress => {
+                    State = "extracting-mod-content";
+                    modContentWeight = installedFigureWeight + progress.OverallTotalBytes;
+                    StoreContentProgress(new QuestGameContentProgress(progress.Phase, progress.File, progress.ProcessedBytes, progress.TotalBytes,
+                        (long)installedFigureWeight + progress.OverallProcessedBytes, (long)modContentWeight, progress.FileIndex, progress.FileCount), false);
+                }, UpdateStartupPresentation);
             // Install accepted a private installation receipt or verified new
             // bytes on its worker. A warm launch does not repeat content hashes.
             ModContentReady = true;
@@ -336,7 +348,7 @@ namespace GloomhavenVR.Quest
             SaveState();
         }
 
-        void ReportContentProgress(QuestGameContentProgress progress)
+        bool StoreContentProgress(QuestGameContentProgress progress, bool recordPhase)
         {
             if (destroyed) throw new OperationCanceledException("Startup owner was destroyed.");
             if (progress.Phase == "copying-archive" || progress.Phase == "extracting-file" || progress.Phase == "verifying-archive") contentWorkRequested = true;
@@ -347,11 +359,17 @@ namespace GloomhavenVR.Quest
                 lastContentProgress = startupClock.Elapsed.TotalSeconds;
                 // File-level detail stays in the overwritten state snapshot.
                 // Bound normal lifecycle records independently of file count.
-                if (lastContentLogPhase != progress.Phase && contentLogRecords < 32)
+                if (recordPhase && lastContentLogPhase != progress.Phase && contentLogRecords < 32)
                 {
                     lastContentLogPhase = progress.Phase; contentLogRecords++; record = true;
                 }
             }
+            return record;
+        }
+
+        void ReportContentProgress(QuestGameContentProgress progress)
+        {
+            bool record = StoreContentProgress(progress, true);
             // Managed-only sink: a worker never invokes Unity logging or APIs.
             if (record && log != null)
             {

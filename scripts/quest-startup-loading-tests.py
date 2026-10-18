@@ -20,12 +20,14 @@ def main():
     parser.add_argument("--case", action="append", help="Run only the selected production/control case.")
     parser.add_argument("--alpha-only", action="store_true", help="Exercise the actual alpha-install/plugin boundary without unrelated startup cases.")
     args = parser.parse_args()
-    names = ("QuestGameBootstrap.cs", "QuestCardAlphaContent.cs", "QuestFigureMeshContent.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs", "QuestFrameEvidence.cs", "QuestSnapshotWriter.cs")
+    names = ("QuestGameBootstrap.cs", "QuestCardAlphaContent.cs", "QuestCardPixelContent.cs", "QuestFigureMeshContent.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs", "QuestFrameEvidence.cs", "QuestSnapshotWriter.cs")
     sources = {name: (args.runtime_source / name).read_text() for name in names}
     bootstrap = sources["QuestGameBootstrap.cs"]
     mutations = (
-        ("alpha-wrong-resource-root", 'Application.streamingAssetsPath, Path.Combine(modRoot, "StreamingAssets"));',
-         "Application.streamingAssetsPath, modRoot);", "alpha-before-plugin"),
+        ("alpha-wrong-resource-root", 'QuestCardAlphaContent.Install(Application.platform == RuntimePlatform.Android && !Application.isEditor\n                    ? Application.dataPath : null, Application.streamingAssetsPath, Path.Combine(modRoot, "StreamingAssets"));',
+         'QuestCardAlphaContent.Install(Application.platform == RuntimePlatform.Android && !Application.isEditor\n                    ? Application.dataPath : null, Application.streamingAssetsPath, modRoot);', "alpha-before-plugin"),
+        ("pixels-wrong-resource-root", 'QuestCardPixelContent.InstallRoutine(Application.platform == RuntimePlatform.Android && !Application.isEditor\n                ? Application.dataPath : null, Application.streamingAssetsPath, Path.Combine(modRoot, "StreamingAssets"),',
+         'QuestCardPixelContent.InstallRoutine(Application.platform == RuntimePlatform.Android && !Application.isEditor\n                ? Application.dataPath : null, Application.streamingAssetsPath, modRoot,', "pixels-before-plugin"),
         ("missing-original-path-cache", "QuestGame.Compatibility.Paths.Initialize(Application.persistentDataPath);",
          "/* Missing original path initialization */", "cached-original-paths"),
         ("late-loading-view", "modLifecycle.PrepareStartupView();", "/* Missing early loading view */", "early-anchor"),

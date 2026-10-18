@@ -49,6 +49,22 @@ internal sealed class QuestCardGuideWitness : MonoBehaviour
         Material? material = board != null ? board.GetComponent<Renderer>()?.sharedMaterial : null;
         string shader = material != null && material.shader != null ? material.shader.name : "none";
         if (shader.Length > 24) shader = shader.Substring(0, 24);
+        // Submission alone did not explain B690's missing left guide. Observe
+        // its final per-renderer bindings, not just the material shared by the
+        // pulse. An MPB can override that material without changing its values.
+        Renderer? cue = GetComponent<Renderer>();
+        Material? cueMaterial = cue != null ? cue.sharedMaterial : null;
+        string tint(Color color) => f(color.r) + "/" + f(color.g) + "/" + f(color.b) + "/" + f(color.a);
+        Texture? texture = cueMaterial != null ? cueMaterial.mainTexture : null;
+        string textureName = texture != null ? texture.name : "default";
+        if (textureName.Length > 24) textureName = textureName.Substring(0, 24);
+        string propertyTint = "none";
+        if (cue != null && cue.HasPropertyBlock())
+        {
+            var block = new MaterialPropertyBlock(); cue.GetPropertyBlock(block);
+            int colorId = Shader.PropertyToID("_Color");
+            propertyTint = block.HasColor(colorId) ? tint(block.GetColor(colorId)) : "other";
+        }
         MeshCollider? collider = _visual != null ? _visual.GetComponentInChildren<MeshCollider>() : null;
         int blocked = 0;
         bool colliderReady = collider != null && collider.enabled && collider.gameObject.activeInHierarchy;
@@ -65,6 +81,9 @@ internal sealed class QuestCardGuideWitness : MonoBehaviour
             + ",xy=" + f(low.x) + "/" + f(low.y) + "/" + f(high.x) + "/" + f(high.y)
             + ",near=" + f(camera.nearClipPlane)
             + ",board=" + CardsConfig.CurrentBoard + "/" + mesh + "/" + shader
-            + ",colliderHits=" + (colliderReady ? blocked + "/5" : collider != null ? "inactive" : "none");
+            + ",colliderHits=" + (colliderReady ? blocked + "/5" : collider != null ? "inactive" : "none")
+            + ",tint=" + (cueMaterial != null ? tint(cueMaterial.color) : "none")
+            + ",blockTint=" + propertyTint + ",texture=" + textureName
+            + ",supported=" + (cueMaterial != null && cueMaterial.shader != null && cueMaterial.shader.isSupported);
     }
 }

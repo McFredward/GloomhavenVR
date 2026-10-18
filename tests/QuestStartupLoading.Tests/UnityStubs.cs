@@ -132,7 +132,11 @@ namespace UnityEngine
     public static class JsonUtility
     {
         static readonly JsonSerializerOptions Options = new() { IncludeFields = true };
-        public static T FromJson<T>(string text) { Fixture.RequireMain("JsonUtility.FromJson"); return JsonSerializer.Deserialize<T>(text, Options); }
+        // Unity2021.3 explicitly permits string FromJson on background threads
+        // for plain serializable objects. Keep the other engine/thread guards;
+        // this metadata parser does not create or access a UnityEngine.Object.
+        // https://docs.unity3d.com/2021.3/Documentation/ScriptReference/JsonUtility.FromJson.html
+        public static T FromJson<T>(string text) { return JsonSerializer.Deserialize<T>(text, Options); }
         public static string ToJson(object value, bool pretty)
         {
             Fixture.RequireMain("JsonUtility.ToJson");
