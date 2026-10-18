@@ -14,7 +14,10 @@ witness, but the actual Android binding remains open. Retain bounded passive fla
 material/timeline/texture facts outside saturated logs. Actual hit squeak also
 remains unresolved: checked native imported samples are exact, while B691 retained
 no real hit observations. Reserve the next audio lane for true spatial/hit starts
-and applied-source facts. Muted hardware testing still collects this metadata.
+and applied-source facts. A small Android-target test retains the five inspected
+original PCM clips and complete native mixer graph without drift. A finite Debug
+tap observes actual decoded/output amplitudes and checksums for up to four hits;
+use Quest system volume zero, because game volume zero can suppress native Play.
 Compact Mod Update, no original-bank regeneration or local full APK. Focused worker
 checks plus final strict build/actual owned-assembly Weaver/source classification
 are recorded in `.planning/QUEST-HARDWARE-191141-20261018.md` and handoff validation;

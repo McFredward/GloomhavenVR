@@ -26,8 +26,16 @@ internal static class QuestCardFireEvidence
         Material? source = flame != null ? flame.material : null;
         // Idle hand cards reach the existing sample pump too. Do not consume the
         // entire bounded lane before the player actually burns their first card.
-        if (!fx.HasEffect(CardEffects.FXTask.BurnCard) && !fx.HasEffect(CardEffects.FXTask.LostMode)
-            && (source == null || !(Read(source, "_FXAnim") > 0f))) return;
+        if (!fx.HasEffect(CardEffects.FXTask.BurnCard) && !fx.HasEffect(CardEffects.FXTask.LostMode))
+        {
+            // DiscardMode also animates this same Image, with a blue ghost tint.
+            // Do not spend the burn lane on ordinary discarded cards. A direct
+            // native settled burn can lack toggled effect flags, so retain its
+            // positive animation and warm tint without writing either value.
+            if (source == null || !(Read(source, "_FXAnim") > 0f) || !source.HasProperty("_TintColor")) return;
+            Color tint = source.GetColor("_TintColor");
+            if (!(tint.r > tint.g && tint.r > tint.b && tint.a > 0f)) return;
+        }
         if (!Rows.ContainsKey(key))
         {
             if (Order.Count >= Capacity)
