@@ -88,7 +88,7 @@ internal static class Program
         m.Tick(false);await m.Settled;Check(child.Stops==1,"Off requests cooperative EOF exactly once");
         for(int i=0;i<10;i++)m.Tick(false);Check(starts==1,"Off remains idle");
         var failure=new M.Monitor(()=>{Interlocked.Increment(ref starts);throw new IOException();},_=>{});failure.Tick(true);await failure.Settled;
-        int afterFailure=starts;for(int i=0;i<50;i++)failure.Tick(true);Check(starts==afterFailure,"Start failure is not retried every Tick");
+        int afterFailure=starts;for(int i=0;i<50;i++){failure.Tick(true);await Task.Delay(2);}Check(starts==afterFailure,"Start failure is not retried every Tick");
         var pending=new TaskCompletionSource<M.IChild>(TaskCreationOptions.RunContinuationsAsynchronously);var late=new Child{AutoStop=false};int launches=0;var lateLogs=new List<string>();
         var slow=new M.Monitor(()=>{Interlocked.Increment(ref launches);return pending.Task;},s=>lateLogs.Add(s));
         slow.Tick(true);await Until(()=>launches==1,"Pending old generation started");slow.Reset();slow.Tick(true);Check(launches==1,"Reset cannot overlap pending helper acquisition");
@@ -100,8 +100,30 @@ internal static class Program
         var invalid=new Child();var logs=new List<string>();var bad=new M.Monitor(()=>Task.FromResult<M.IChild>(invalid),s=>logs.Add(s));bad.Tick(true);await Until(()=>bad.Current==M.Phase.Observing,"Malformed reader active");invalid.Reader.Push(new string('x',1025)+"\n");await bad.Settled;
         Check(invalid.Stops==1&&logs.Count==1&&!logs[0].Contains(new string('x',20)),"Overlong child data is stopped without logging arbitrary content");
         var unsafeChild=new Child();var unsafeOwner=new M.Monitor(()=>Task.FromResult<M.IChild>(unsafeChild),_=>{});unsafeOwner.Tick(true);await Until(()=>unsafeOwner.Current==M.Phase.Observing,"Unsafe teardown fixture active");unsafeChild.AutoStop=false;unsafeOwner.Reset();unsafeChild.Finish(false);await unsafeOwner.Settled;
-        unsafeOwner.Tick(true);Check(unsafeOwner.Current==M.Phase.Unsafe,"Unconfirmed teardown prevents overlap even after Reset");
+        unsafeOwner.Reset();unsafeOwner.Tick(true);Check(unsafeOwner.Current==M.Phase.Unsafe,"Unconfirmed teardown prevents overlap even after Reset");
         slow.Reset(); // No orphan worker remains from the pending-acquisition fixture.
     }
-    private static async Task Main(){Protocol();await Lifecycle();Console.WriteLine("checks="+checks+"; actual_monitor_worker=true; native_process_or_OpenVR_executed=false");}
+    private static async Task Repairs()
+    {
+        var refused=new M.Protocol();
+        Check(refused.Accept("{\"schema\":\"sfnp-pc-compositor-state-v1\",\"event\":\"refused\",\"stage\":1,\"code\":3}",out _,out _)
+              && !refused.Accept(Event("stopped").Replace(",\"bytes\":1000",""),out _,out _),"Initial native refusal is terminal without an extra stopped event");
+        var uncertain=new M.Monitor(()=>throw new M.OwnershipUnknownException(),_=>{});
+        uncertain.Tick(true);await uncertain.Settled;uncertain.Reset();uncertain.Tick(true);
+        Check(uncertain.Current==M.Phase.Unsafe,"Unknown post-start ownership stays blocked across Reset");
+    }
+    private static async Task Main(string[] args)
+    {
+        bool repair=args.Length>0&&args[0]=="--repair-only";
+        if(!repair){Protocol();await Lifecycle();}
+        await Repairs();
+        foreach(string path in args.Skip(repair?1:0))
+        {
+            var protocol=new M.Protocol();int lines=0;
+            foreach(string line in File.ReadAllLines(path))
+            {Check(protocol.Accept(line,out _,out _),"Actual native host-fake transcript matches production parser");lines++;}
+            Check(lines>1&&lines<=35,"Bounded actual native host-fake transcript");
+        }
+        Console.WriteLine("checks="+checks+"; actual_monitor_worker=true; native_process_or_OpenVR_executed=false");
+    }
 }

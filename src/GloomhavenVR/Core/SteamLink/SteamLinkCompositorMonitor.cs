@@ -35,6 +35,7 @@ internal static class SteamLinkCompositorMonitor
         Task Exited { get; }
         Task<bool> StopAsync(); // Cooperative stdin EOF first; bounded teardown only.
     }
+    internal sealed class OwnershipUnknownException : IOException { }
     internal enum Phase { Idle, Starting, Observing, Spent, Stopping, Unsafe }
     internal sealed class Monitor
     {
@@ -96,7 +97,11 @@ internal static class SteamLinkCompositorMonitor
                 await Task.WhenAny(stop.Task, reader, child.Exited).ConfigureAwait(false);
                 if (reader.IsCompleted) await reader.ConfigureAwait(false);
             }
-            catch (Exception ex) { Log(epoch, "observer unavailable; stage=" + ex.GetType().Name + "; no rendering or setting changed."); }
+            catch (Exception ex)
+            {
+                if (ex is OwnershipUnknownException) { lock (_gate) _unsafe = true; }
+                Log(epoch, "observer unavailable; stage=" + ex.GetType().Name + "; no rendering or setting changed.");
+            }
             finally
             {
                 if (child != null)
@@ -259,8 +264,17 @@ internal static class SteamLinkCompositorMonitor
         try { return Task.FromResult<IChild>(new ProcessChild(process)); }
         catch
         {
-            try { process.StandardInput.Close(); if (!process.WaitForExit(StopGraceMs)) { process.Kill(); process.WaitForExit(1000); } } catch { }
-            process.Dispose(); throw;
+            bool exited = false;
+            try
+            {
+                try { process.StandardInput.Close(); } catch (IOException) { } catch (InvalidOperationException) { }
+                exited = process.WaitForExit(StopGraceMs);
+                if (!exited) { process.Kill(); exited = process.WaitForExit(1000); }
+            }
+            catch { /* Preserve unknown ownership; do not start another helper. */ }
+            if (exited) process.Dispose();
+            else throw new OwnershipUnknownException();
+            throw;
         }
     }
     private sealed class ProcessChild : IChild
