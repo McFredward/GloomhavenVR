@@ -1,5 +1,6 @@
 using System;
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.SteamLink;
 using UnityEngine;
 
 public static class FrameMrPresentationProgram
@@ -138,6 +139,41 @@ public static class FrameMrPresentationProgram
             Check(head.backgroundColor == Color.clear && !head.allowHDR && !sky.enabled,
                 "open settings uses transparent native-stream background");
             Check(MixedReality.BackingsWanted, "live settings retain MR readability backings");
+
+            foreach (bool? focus in new bool?[] { false, null })
+            {
+                int observerTicks = SteamLinkCoverageBridge.Ticks;
+                VRSession.InputFocus = focus; MixedReality.Tick();
+                Check(!offered.Ready && !SteamLinkSceneRuntime.Active,
+                    "legacy Steam menu or unknown focus temporarily closes the real source owner");
+                Check(head.backgroundColor == original && head.allowHDR && sky.enabled,
+                    "legacy Steam menu restores the ordinary camera and sky instead of chromakey");
+                clear = Pixel(head, 2, 2);
+                Check(Mathf.Abs(clear.r - original.r) < .02f && clear.a > .99f,
+                    "actual legacy menu fallback pixels are the original opaque background");
+                Check(MixedReality.Enabled.Value && MixedReality.SteamLinkNative.Value
+                    && SteamLinkSceneRuntime.Requested && SteamLinkStreamQuality.Prepared,
+                    "legacy menu fallback preserves user intent and the independent quality lease");
+                Check(SteamLinkCoverageBridge.Ticks == observerTicks + 1 && SteamLinkCoverageBridge.Wanted,
+                    "legacy menu fallback keeps the native coverage observer ticking");
+                VRSession.InputFocus = true; MixedReality.Tick();
+                var restored = SceneHeadOutput.Last!;
+                Check(!ReferenceEquals(offered, restored) && restored.IsOwned && head.backgroundColor == Color.clear,
+                    "legacy menu close immediately prepares a fresh source owner without a fault latch");
+                offered = restored;
+            }
+            SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = true;
+            MixedReality.Tick(); MixedReality.Tick(); offered = SceneHeadOutput.Last!;
+            foreach (bool? focus in new bool?[] { false, null })
+            {
+                VRSession.InputFocus = focus; MixedReality.Tick();
+                Check(offered.Ready && offered.OrdinaryRgba && offered.IsOwned,
+                    "native independent-coverage source remains active beside the Steam menu");
+                Check(head.backgroundColor == Color.clear && !head.allowHDR && !sky.enabled,
+                    "native independent-coverage Steam menu does not restore an opaque environment");
+            }
+            VRSession.InputFocus = true; SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = false;
+            MixedReality.Tick(); MixedReality.Tick(); offered = SceneHeadOutput.Last!;
 
             GloomhavenVR.Core.SteamLink.SteamLinkStreamQuality.Prepared = false;
             MixedReality.Tick();

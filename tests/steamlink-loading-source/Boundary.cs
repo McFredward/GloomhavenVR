@@ -31,7 +31,7 @@ namespace GloomhavenVR.Core
         internal static FixtureChoice SteamLinkNative = new FixtureChoice { Value = true };
         internal static FixtureChoice SteamLinkEdgeQuality = new FixtureChoice { Value = true };
     }
-    internal static class VRSession { internal static bool IsRunning = true; }
+    internal static class VRSession { internal static bool IsRunning = true; internal static bool? InputFocus = true; }
     internal static class FrameNativePassthrough { internal static bool Required = false; }
     internal static class VRCameraPolicy { internal static Camera? AllowedHead; }
     internal static class StereoModeConfig

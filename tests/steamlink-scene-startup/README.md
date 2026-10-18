@@ -2,6 +2,17 @@
 
 Run `python3 tests/steamlink-scene-startup/run.py`.
 
+Use `--menu-only` for the native XR-focus admission and actual both-eye callback
+subset. Known false or unknown focus temporarily refuses legacy atlas output;
+the user's native preference and independent quality lease remain unchanged.
+Focus restoration must establish a fresh complete stereo epoch, including when
+focus is lost after pre-cull and returns before another cold tick. The negotiated
+ordinary-RGBA/independent-coverage route is explicitly exempt from this gate.
+Four semantic controls remove the legacy focus gate, wrongly block native
+coverage, bypass render ownership, or retain an obsolete stereo epoch. These
+controls do not certify the Frame's menu/quick-access focus event coverage or
+the visible game/menu/camera composition.
+
 The entire production `SteamLinkSceneRuntime.cs`, including its actual
 `SceneHeadOutput` callbacks, compiles into the portable fixture. External
 Unity/XR/GPU interfaces supply controlled metadata and count ordinary/packed

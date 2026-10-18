@@ -21,7 +21,7 @@ internal static class Program
         SteamLinkSceneRuntime.Reset();VRLog.Warnings.Clear();SceneEyeOutput.Packed=0;
         SceneEyeOutput.Next=SceneEyeResult.Rendered;SceneEyeOutput.Ordinary=0;Graphics.Ordinary=0;
         MixedReality.Enabled.Value=true;MixedReality.SteamLinkNative.Value=true;
-        SteamLinkConnection.Available=true;VRSession.IsRunning=true;
+        SteamLinkConnection.Available=true;VRSession.IsRunning=true;VRSession.InputFocus=true;
         MixedReality.SteamLinkEdgeQuality.Value=true;SteamLinkStreamQuality.Prepared=true;SteamLinkStreamQuality.LegacyReleased=true;
         SteamLinkStreamQuality.Width=SteamLinkStreamQuality.Height=4040;
         UnityEngine.XR.XRSettings.eyeTextureWidth=UnityEngine.XR.XRSettings.eyeTextureHeight=4040;
@@ -82,11 +82,80 @@ internal static class Program
         Check(output.OrdinaryRgba&&SceneEyeOutput.Ordinary==1,"next complete stereo epoch switches to full RGBA");
         SteamLinkSceneRuntime.Reset();Check(!SteamLinkCoverageBridge.CanAcceptOrdinaryRgba,"session reset revokes live source permission");
     }
+    private static void MenuAdmission()
+    {
+        foreach(bool? focus in new bool?[]{null,false})
+        {
+            var head=Fresh();VRSession.InputFocus=focus;
+            Check(SteamLinkSceneRuntime.Requested,"Menu wait retains the native preference rather than selecting chroma key");
+            Check(!SteamLinkSceneRuntime.TransportPrepared(),"Legacy menu admission requires explicitly known XR input focus");
+            Check(!SteamLinkSceneRuntime.TryEnter(head),"Menu or unknown focus cannot prepare a legacy atlas source");
+            Check(Current==null&&head.gameObject.Components==0,"Menu admission creates no legacy source resources");
+            Check(SteamLinkStreamQuality.Prepared&&SteamLinkStreamQuality.LegacyReleased,"Menu wait leaves the independent quality lease unchanged");
+            Check(VRLog.Warnings.Count==0,"Menu wait is not a permanent source error");
+            VRSession.InputFocus=true;
+            var output=Prime(head);
+            Check(SceneEyeOutput.Packed==0&&Graphics.Ordinary==2,"Focus regain first observes an ordinary complete stereo cohort");
+            Render(output,head);head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(output,head);
+            Check(SceneEyeOutput.Packed==2,"Focus regain resumes both legacy eyes without resetting the preference");
+        }
+        foreach(bool afterPreCull in new[]{false,true})
+        {
+            var head=Fresh();var output=Enter(head);
+            Render(output,head);
+            Check(SceneEyeOutput.Packed==1,"Focused left eye is packed before the menu opens");
+            head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;
+            if(afterPreCull)Invoke(output,"OnPreCull");
+            VRSession.InputFocus=false;
+            if(!afterPreCull)
+            {
+                Invoke(output,"OnPreCull");
+                Check(!output.Ready,"Menu focus loss before pre-cull immediately revokes source ownership");
+            }
+            Image(output);
+            Check(SceneEyeOutput.Packed==1&&Graphics.Ordinary==1,"Late menu opening cannot pack the other eye from a revoked source");
+            Check(!output.Ready&&output.Failure=="","Late menu loss retires the epoch without a permanent failure");
+            Check(SteamLinkSceneRuntime.Requested&&SteamLinkStreamQuality.Prepared,"Late menu loss keeps requested and host quality permission");
+            Check(!SteamLinkSceneRuntime.TryEnter(head)&&Current==null,"Cold menu tick keeps the source temporarily exited");
+            VRSession.InputFocus=true;
+            var restored=Prime(head);
+            Check(!ReferenceEquals(restored,output)&&SceneEyeOutput.Packed==1,"Restored focus cannot reuse an old eye or ready stereo epoch");
+            Render(restored,head);head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(restored,head);
+            Check(SceneEyeOutput.Packed==3&&VRLog.Warnings.Count==0,"After a fresh complete cohort both restored eyes render normally");
+        }
+        // No cold tick between loss and regain: the actual rendering callback
+        // must close the old owner, rather than keeping its cohort ready.
+        {
+            var head=Fresh();var output=Enter(head);Invoke(output,"OnPreCull");
+            VRSession.InputFocus=false;Image(output);
+            Check(!output.Ready,"Render-time menu loss closes before focus can return between cold ticks");
+            VRSession.InputFocus=true;
+            var restored=Prime(head);
+            Check(!ReferenceEquals(restored,output)&&SceneEyeOutput.Packed==0,"Callback-only loss also requires a fresh complete stereo epoch");
+            Render(restored,head);Check(SceneEyeOutput.Packed==1,"Callback-only menu close recovers without a reset or fault latch");
+        }
+        foreach(bool? focus in new bool?[]{null,false})
+        {
+            var head=Fresh();VRSession.InputFocus=focus;SteamLinkCoverageBridge.CanAcceptOrdinaryRgba=true;
+            Check(SteamLinkSceneRuntime.TransportPrepared(),"Independent ordinary RGBA is explicitly exempt from the legacy menu gate");
+            var output=Prime(head);Render(output,head);
+            VRSession.InputFocus=focus==null?false:null;
+            head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(output,head);
+            Check(output.Ready&&output.OrdinaryRgba&&SceneEyeOutput.Ordinary==2&&SceneEyeOutput.Packed==0,"Both full-RGBA eyes keep their source while the native menu has input focus");
+            Check(SteamLinkSceneRuntime.Active&&SteamLinkSceneRuntime.Requested,"Native coverage route stays active beside the Steam menu");
+        }
+        SteamLinkSceneRuntime.Reset();VRSession.InputFocus=true;
+    }
     public static void Main(string[] args)
     {
         if(Array.IndexOf(args,"--ordinary-only")>=0)
         {
             OrdinaryBridge();Console.WriteLine(checks+" ordinary source assertions passed");return;
+        }
+        if(Array.IndexOf(args,"--menu-only")>=0)
+        {
+            MenuAdmission();
+            Console.WriteLine(checks+" menu/callback assertions passed");return;
         }
 
         var pendingHead=Fresh();SteamLinkStreamQuality.Prepared=false;
@@ -203,6 +272,7 @@ internal static class Program
         head=Fresh();output=Enter(head);SceneEyeOutput.Next=SceneEyeResult.SourceFormat;Render(output,head);
         Check(!output.Ready&&output.Failure=="SourceFormat","real pack failure remains permanent");
         Check(Graphics.Ordinary==1&&!SteamLinkSceneRuntime.TryEnter(head),"real pack failure has one fallback and stays latched");
+        MenuAdmission();
         SteamLinkSceneRuntime.Reset();Console.WriteLine(checks+" startup/callback assertions passed");
     }
 }

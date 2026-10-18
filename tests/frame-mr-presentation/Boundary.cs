@@ -5,7 +5,7 @@ using UnityEngine;
 // camera restoration and HDR owner are compiled verbatim and run in real Unity.
 namespace GloomhavenVR.Core;
 internal sealed class Entry<T> { internal T Value; internal Entry(T value) => Value = value; }
-internal static class VRSession { internal static bool IsRunning = true; }
+internal static class VRSession { internal static bool IsRunning = true; internal static bool? InputFocus = true; }
 internal static class VRCameraPolicy
 {
     internal static Camera? AllowedHead;

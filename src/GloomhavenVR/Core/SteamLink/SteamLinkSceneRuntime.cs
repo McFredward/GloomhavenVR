@@ -153,7 +153,15 @@ internal static class SteamLinkSceneRuntime
         // immediately leaves ordinary RGB, never a stale remote mask.
         bool ordinary = _output != null ? _output.OrdinaryRgba : SteamLinkCoverageBridge.CanAcceptOrdinaryRgba;
         return ordinary ? SteamLinkCoverageBridge.CanAcceptOrdinaryRgba && SteamLinkStreamQuality.LegacyReleased
-            : SteamLinkStreamQuality.HostPrepared(
+            // Opening the Steam dashboard damages the legacy image header in
+            // the measured native video path. Wait for explicit current XR
+            // focus before packing an atlas; unknown startup focus also waits.
+            // TryEnter, Owns and the late actual-source check all use this same
+            // temporary admission. Keep Requested and the quality lease alive
+            // so the ordinary image cannot select chroma key or renegotiate.
+            // Independent certified coverage does not depend on that header
+            // and deliberately remains active beside the native Steam menu.
+            : VRSession.InputFocus == true && SteamLinkStreamQuality.HostPrepared(
                 MixedReality.SteamLinkEdgeQuality != null && MixedReality.SteamLinkEdgeQuality.Value, width, height);
     }
 
@@ -260,6 +268,11 @@ internal sealed class SceneHeadOutput : MonoBehaviour
             Close();
             SteamLinkSceneRuntime.Failed(Head, Failure);
         }
+        // Focus/permission may change after OnPreCull. Retire this epoch even
+        // when the next callback is the other eye, so returning focus needs a
+        // fresh complete stereo cohort instead of reviving old pair readiness.
+        if (Ready && !SteamLinkSceneRuntime.Owns(this, Head, _epoch))
+            Close();
         if (Ready && SteamLinkSceneRuntime.Owns(this, Head, _epoch)
             && _coverage!.IsArmedFor(Head, _epoch))
         {

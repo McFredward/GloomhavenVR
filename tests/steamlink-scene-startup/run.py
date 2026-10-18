@@ -28,6 +28,8 @@ def main():
                         help='Compile the real Unity/net472 sources without repeating state/mutant cases.')
     parser.add_argument('--admission-only', action='store_true',
                         help='Run production and host-admission controls; inherit unchanged stereo mutation evidence.')
+    parser.add_argument('--menu-only', action='store_true',
+                        help='Run current native-focus admission and actual both-eye callback controls only.')
     parser.add_argument('--metadata', choices=('auto', 'unity', 'nuget'), default='auto',
                         help='Use installed Unity metadata, the pinned NuGet modules, or automatic fallback.')
     parser.add_argument('--unity-managed', type=Path,
@@ -50,6 +52,9 @@ def main():
     assert text.count(late_guard) == 1
     cohort_guard = '            if (!StereoCohortReady(eye, Time.frameCount))'
     assert text.count(cohort_guard) == 1
+    late_owner_close = '''        if (Ready && !SteamLinkSceneRuntime.Owns(this, Head, _epoch))
+            Close();'''
+    assert text.count(late_owner_close) == 1
     variants = {
         'production': text,
         'unready-admission': text.replace('            || !StereoReady(head)', ''),
@@ -67,6 +72,12 @@ def main():
         'pending-host-admission': text.replace(' || !TransportPrepared())', ')'),
         'stale-host-owner': text.replace('        && TransportPrepared();', '        ;'),
         'stale-source-width': text.replace('                || !SteamLinkSceneRuntime.TransportPrepared(source.width, source.height)\n', ''),
+        'menu-unfocused-legacy': text.replace(': VRSession.InputFocus == true && SteamLinkStreamQuality.HostPrepared(',
+                                              ': SteamLinkStreamQuality.HostPrepared('),
+        'menu-blocks-native-coverage': text.replace('return ordinary ? SteamLinkCoverageBridge.CanAcceptOrdinaryRgba',
+                                                   'return ordinary ? VRSession.InputFocus == true && SteamLinkCoverageBridge.CanAcceptOrdinaryRgba'),
+        'menu-stale-owner': text.replace('        && TransportPrepared();', '        ;'),
+        'menu-keeps-stereo-epoch': text.replace(late_owner_close, ''),
     }
     expected = {
         'unready-admission': 'startup non-stereo head must not arm',
@@ -81,10 +92,17 @@ def main():
         'pending-host-admission': 'Pending host lease must not prepare a source',
         'stale-host-owner': 'Host lease loss before pre-cull revokes source ownership immediately',
         'stale-source-width': 'Late actual source extent cannot use a host lease for another carrier',
+        'menu-unfocused-legacy': 'Legacy menu admission requires explicitly known XR input focus',
+        'menu-blocks-native-coverage': 'Independent ordinary RGBA is explicitly exempt from the legacy menu gate',
+        'menu-stale-owner': 'Menu focus loss before pre-cull immediately revokes source ownership',
+        'menu-keeps-stereo-epoch': 'Late menu loss retires the epoch without a permanent failure',
     }
     if args.admission_only:
         variants = {name: variants[name] for name in ['production', 'pending-host-admission',
                     'stale-host-owner', 'stale-source-width']}
+    if args.menu_only:
+        variants = {name: variants[name] for name in ['production', 'menu-unfocused-legacy',
+                    'menu-blocks-native-coverage', 'menu-stale-owner', 'menu-keeps-stereo-epoch']}
     production = source.parent
     names = ['SteamLinkSceneRuntime.cs', 'SceneEyeCoverage.cs', 'SceneEyeOutput.cs',
              'SceneTransparentMaterials.cs', 'SceneAtlasProfile.cs']
@@ -112,13 +130,16 @@ def main():
             shutil.copyfile(HERE/'Fixture.csproj', fixture/'Fixture.csproj')
         for name,content in ({} if args.typecheck_only else variants).items():
             candidate = saved/(name+'.cs'); candidate.write_text(content)
-            status = execute([dotnet, 'run', '--project', str(fixture/'Fixture.csproj'), '-c', 'Release',
+            command = [dotnet, 'run', '--project', str(fixture/'Fixture.csproj'), '-c', 'Release',
                               '-p:SourceFile='+str(candidate), '-p:FixtureDir='+str(HERE),
-                              '-p:UseSharedCompilation=false'], run/(name+'.log'))
+                              '-p:UseSharedCompilation=false']
+            if args.menu_only or name.startswith('menu-'): command += ['--', '--menu-only']
+            status = execute(command, run/(name+'.log'))
             output = (run/(name+'.log')).read_text()
             if name == 'production':
-                assert status == 0 and 'startup/callback assertions passed' in output, output
-                assertions = int(output.split(' startup/callback assertions passed')[0].splitlines()[-1])
+                marker = ' menu/callback assertions passed' if args.menu_only else ' startup/callback assertions passed'
+                assert status == 0 and marker in output, output
+                assertions = int(output.split(marker)[0].splitlines()[-1])
             else:
                 assert status != 0 and expected[name] in output and 'error CS' not in output, name + ': ' + output
             results.append({'variant': name, 'status': status, 'expected_semantic_result': True})

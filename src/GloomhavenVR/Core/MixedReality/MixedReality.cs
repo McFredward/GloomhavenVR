@@ -663,6 +663,9 @@ internal static partial class MixedReality
         // matching current-width lease exists; do not emit old-policy atlas
         // frames and then switch their sampling quality underneath the user.
         // This host boundary is not proof of native encoder acknowledgement.
+        // Legacy atlas also waits for explicit XR input focus while a Steam
+        // menu is open. Keep stream requested: this existing not-ready branch
+        // restores the ordinary environment without selecting a green key.
         bool streamHostPrepared = SteamLink.SteamLinkSceneRuntime.TransportPrepared();
         if (!native && stream && requested && streamHostPrepared)
         {
