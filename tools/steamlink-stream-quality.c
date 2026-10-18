@@ -42,7 +42,8 @@ struct Settings003 {
     void *setFloat,*setString;
     bool (TABLE_CALL *getBool)(const char *,const char *,int32_t *);
     int32_t (TABLE_CALL *getInt)(const char *,const char *,int32_t *);
-    void *getFloat,*getString,*removeSection,*removeKey;
+    void *getFloat,*getString,*removeSection;
+    void (TABLE_CALL *removeKey)(const char *,const char *,int32_t *);
 };
 _Static_assert(offsetof(struct System022,deviceClass)==19*sizeof(void*),"public022 class slot");
 _Static_assert(offsetof(struct System022,connected)==20*sizeof(void*),"public022 connection slot");
@@ -51,9 +52,10 @@ _Static_assert(offsetof(struct Settings003,setBool)==1*sizeof(void*),"public003 
 _Static_assert(offsetof(struct Settings003,setInt)==2*sizeof(void*),"public003 SetInt32 slot");
 _Static_assert(offsetof(struct Settings003,getBool)==5*sizeof(void*),"public003 GetBool slot");
 _Static_assert(offsetof(struct Settings003,getInt)==6*sizeof(void*),"public003 GetInt32 slot");
+_Static_assert(offsetof(struct Settings003,removeKey)==10*sizeof(void*),"public003 RemoveKeyInSection slot");
 struct Identity { char tracking[STRING_CAP],model[STRING_CAP],registered[STRING_CAP]; };
-struct Lease { int32_t before[KEY_COUNT],applied[KEY_COUNT];bool attempted[KEY_COUNT];int32_t requested; };
-struct Outcome { const char *error;bool acquired,restored;unsigned conflicts,errors; };
+struct Lease { int32_t before[KEY_COUNT],applied[KEY_COUNT];bool attempted[KEY_COUNT],absent[KEY_COUNT];int32_t requested; };
+struct Outcome { const char *error;bool acquired,restored;unsigned conflicts,errors;int key;int32_t api_error; };
 typedef uint32_t (EXPORT_CALL *Init)(int32_t *,int32_t,const char *);
 typedef void *(EXPORT_CALL *Get)(const char *,int32_t *);
 typedef void (EXPORT_CALL *Shutdown)(void);
@@ -95,11 +97,12 @@ static bool same_identity(struct System022 *api,const struct Identity *before){
         &&!strcmp(before->model,current.model)&&!strcmp(before->registered,current.registered);
 }
 static bool valid_width(int32_t width){return width>=1024&&width<=4096&&width%64==0;}
-static bool setting_read(struct Settings003 *api,int key,int32_t *out){
+static int32_t setting_read_status(struct Settings003 *api,int key,int32_t *out){
     int32_t error=0;
     *out=(key==AUTOMATIC||key==SHARPENING)?(int32_t)api->getBool(section,keys[key],&error):api->getInt(section,keys[key],&error);
-    return error==0;
+    return error;
 }
+static bool setting_read(struct Settings003 *api,int key,int32_t *out){return setting_read_status(api,key,out)==0;}
 static bool setting_write(struct Settings003 *api,int key,int32_t value){
     int32_t error=0;
     if(key==AUTOMATIC||key==SHARPENING)api->setBool(section,keys[key],value!=0,&error);
@@ -113,12 +116,16 @@ static void restore(struct Settings003 *api,const struct Lease *lease,struct Out
     for(int step=KEY_COUNT-1;step>=0;--step){
         int key=apply_order[step];
         if(!lease->attempted[key])continue;
-        int32_t current=0;if(!setting_read(api,key,&current)){out->errors++;continue;}
-        if(current==lease->before[key])continue;
+        int32_t current=0,error=setting_read_status(api,key,&current);
+        if(error==5){if(!lease->absent[key])out->conflicts++;continue;}
+        if(error){out->errors++;continue;}
+        if(!lease->absent[key]&&current==lease->before[key])continue;
         if(current!=lease->applied[key]){out->conflicts++;continue;}
-        bool written=setting_write(api,key,lease->before[key]);
-        int32_t after=0;bool read=setting_read(api,key,&after);
-        if(!written||!read||after!=lease->before[key])out->errors++;
+        bool written;
+        if(lease->absent[key]){api->removeKey(section,keys[key],&error);written=error==0;}
+        else written=setting_write(api,key,lease->before[key]);
+        int32_t after=0;error=setting_read_status(api,key,&after);
+        if(!written||(lease->absent[key]?error!=5:error!=0||after!=lease->before[key]))out->errors++;
     }
     out->restored=out->errors==0;
 }
@@ -133,28 +140,34 @@ static struct Outcome quality_session(Init init,Get get,Shutdown shutdown,int32_
     struct Identity original;
     if(!identity(system,&original)||!same_identity(system,&original)){out.error="identity";goto done;}
     struct Settings003 *api=get("FnTable:IVRSettings_003",&error);
-    if(error||!api||!api->getBool||!api->getInt||!api->setBool||!api->setInt){out.error="settings_interface";goto done;}
-    /* ALL four typed reads precede ANY write. A failed/unset key is not a
-     * fabricated default; decline before touching global stream settings. */
+    if(error||!api||!api->getBool||!api->getInt||!api->setBool||!api->setInt||!api->removeKey){out.error="settings_interface";goto done;}
+    /* ALL four typed snapshots precede ANY write. Error5 explicitly means
+     * no setting and no default, common for the unused nonfoveated width.
+     * Preserve that absence and later RemoveKeyInSection; never invent an
+     * effective default. All other errors still refuse without any write. */
     for(int key=0;key<KEY_COUNT;++key){
-        if(!setting_read(api,key,&lease.before[key])){out.error="snapshot";goto done;}
+        int32_t status=setting_read_status(api,key,&lease.before[key]);
+        if(status==5){lease.absent[key]=true;lease.before[key]=0;}
+        else if(status){out.error="snapshot";out.key=key;out.api_error=status;goto done;}
         lease.applied[key]=lease.before[key];
     }
     if(lease.before[FOVEATION]<0||lease.before[FOVEATION]>3){out.error="mode";goto done;}
     if(lease.before[WIDTH]<0||lease.before[WIDTH]>16384){out.error="snapshot_width";goto done;}
     if(!same_identity(system,&original)){out.error="identity_changed";goto done;}
     int32_t wanted[KEY_COUNT]={requested,0,0,1};
-    if(!lease.before[AUTOMATIC]&&lease.before[FOVEATION]!=0&&lease.before[FOVEATION]!=2
+    if(!lease.absent[AUTOMATIC]&&!lease.absent[FOVEATION]&&!lease.absent[WIDTH]
+        &&!lease.before[AUTOMATIC]&&lease.before[FOVEATION]!=0&&lease.before[FOVEATION]!=2
         &&lease.before[WIDTH]>requested)wanted[WIDTH]=lease.before[WIDTH];
     /* Disable automatic sizing before supplying a manual width; otherwise a
      * live driver settings event could immediately replace the requested width.
      * Enable nonfoveated encoding last, after its complete policy is ready. */
     for(int step=0;step<KEY_COUNT;++step){
         int key=apply_order[step];
-        if(wanted[key]==lease.before[key])continue;
+        if(!lease.absent[key]&&wanted[key]==lease.before[key])continue;
         int32_t current=0;
         if(!same_identity(system,&original)){out.error="identity_changed";goto rollback;}
-        if(!setting_read(api,key,&current)||current!=lease.before[key]){out.error="changed_during_apply";goto rollback;}
+        int32_t status=setting_read_status(api,key,&current);
+        if(lease.absent[key]?status!=5:status!=0||current!=lease.before[key]){out.error="changed_during_apply";goto rollback;}
         lease.attempted[key]=true;lease.applied[key]=wanted[key];
         bool written=setting_write(api,key,wanted[key]);
         int32_t after=0;bool read=setting_read(api,key,&after);
@@ -179,11 +192,17 @@ done:
     shutdown();return out;
 }
 static const char *print_acquired(const struct Lease *lease){
-    printf("{\"schema\":\"" QUALITY_SCHEMA "\",\"event\":\"acquired\",\"applied\":true,\"requested_width\":%d,\"applied_width\":%d,\"previous_foveation_mode\":%d,\"previous_sharpening\":%s,\"previous_automatic_width\":%s,\"previous_uniform_width\":%d}\n",(int)lease->requested,(int)lease->applied[WIDTH],(int)lease->before[FOVEATION],lease->before[SHARPENING]?"true":"false",lease->before[AUTOMATIC]?"true":"false",(int)lease->before[WIDTH]);
+    unsigned absent=0;for(int key=0;key<KEY_COUNT;++key)if(lease->absent[key])absent|=1u<<key;
+    printf("{\"schema\":\"" QUALITY_SCHEMA "\",\"event\":\"acquired\",\"applied\":true,\"requested_width\":%d,\"applied_width\":%d,\"previous_foveation_mode\":%d,\"previous_sharpening\":%s,\"previous_automatic_width\":%s,\"previous_uniform_width\":%d,\"previous_absent_mask\":%u}\n",(int)lease->requested,(int)lease->applied[WIDTH],(int)lease->before[FOVEATION],lease->before[SHARPENING]?"true":"false",lease->before[AUTOMATIC]?"true":"false",(int)lease->before[WIDTH],absent);
     return fflush(stdout)?"stdout":NULL;
 }
 static void print_outcome(const struct Outcome *out){
-    if(out->error)printf("{\"schema\":\"" QUALITY_SCHEMA "\",\"event\":\"error\",\"error\":\"%s\",\"restored\":%s,\"conflicts\":%u,\"errors\":%u}\n",out->error,(out->restored||(!out->acquired&&out->errors==0))?"true":"false",out->conflicts,out->errors);
+    char stage[48];const char *reason=out->error;
+    if(reason&&!strcmp(reason,"snapshot")){
+        static const char *const names[KEY_COUNT]={"width","automatic","sharpening","foveation"};
+        snprintf(stage,sizeof(stage),"snapshot_%s_e%d",names[out->key],(int)out->api_error);reason=stage;
+    }
+    if(reason)printf("{\"schema\":\"" QUALITY_SCHEMA "\",\"event\":\"error\",\"error\":\"%s\",\"restored\":%s,\"conflicts\":%u,\"errors\":%u}\n",reason,(out->restored||(!out->acquired&&out->errors==0))?"true":"false",out->conflicts,out->errors);
     else printf("{\"schema\":\"" QUALITY_SCHEMA "\",\"event\":\"restored\",\"ok\":%s,\"conflicts\":%u,\"errors\":%u}\n",out->restored?"true":"false",out->conflicts,out->errors);
 }
 static const char *await_stdin(const struct Lease *lease,void *unused){

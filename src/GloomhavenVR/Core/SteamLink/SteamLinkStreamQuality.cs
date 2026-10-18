@@ -17,8 +17,8 @@ namespace GloomhavenVR.Core.SteamLink;
 internal static class SteamLinkStreamQuality
 {
     internal const string Resource = "GloomhavenVR.SteamLink.stream-quality.exe";
-    internal static readonly int HelperBytes = 45568;
-    internal static readonly string HelperSha256 = "e54894b92d98c72bfed45079c70b2771aa63d348a4fcb88d111c7dd4aeb68d2f";
+    internal static readonly int HelperBytes = 46080;
+    internal static readonly string HelperSha256 = "4dae192d836d989e78a878e97abd6976b8ee3db03718b17122704e7745db99d4";
     internal const int RestoreGraceMs = 5000;
     private static readonly Monitor State = new(AcquireAsync, (warning, message) =>
     {
@@ -362,15 +362,21 @@ internal static class SteamLinkStreamQuality
     {
         Dictionary<string, string>? f = Fields(raw);
         string[] keys = { "schema", "event", "applied", "requested_width", "applied_width", "previous_foveation_mode", "previous_sharpening", "previous_automatic_width", "previous_uniform_width" };
-        return f != null && f.Count == keys.Length && keys.All(f.ContainsKey) && f["event"] == "acquired" && f["applied"] == "true"
+        int absent = 0;
+        return f != null && (f.Count == keys.Length || f.Count == keys.Length + 1 && f.ContainsKey("previous_absent_mask"))
+            && (!f.ContainsKey("previous_absent_mask") || int.TryParse(f["previous_absent_mask"], out absent) && absent >= 0 && absent <= 15)
+            && keys.All(f.ContainsKey) && f["event"] == "acquired" && f["applied"] == "true"
             && int.TryParse(f["requested_width"], out int width) && width == requested
             && int.TryParse(f["applied_width"], out int applied)
             && int.TryParse(f["previous_foveation_mode"], out int previousMode)
             && int.TryParse(f["previous_uniform_width"], out int previousWidth)
-            && applied <= 16384 && previousWidth >= 0 && previousWidth <= 16384
+            && applied <= 16384 && previousWidth >= 0 && previousWidth <= 16384 && previousMode >= 0 && previousMode <= 3
+            && ((absent & 1) == 0 || previousWidth == 0) && ((absent & 8) == 0 || previousMode == 0)
+            && ((absent & 2) == 0 || f["previous_automatic_width"] == "false")
+            && ((absent & 4) == 0 || f["previous_sharpening"] == "false")
             && (f["previous_sharpening"] == "true" || f["previous_sharpening"] == "false")
             && (f["previous_automatic_width"] == "true" || f["previous_automatic_width"] == "false")
-            && (ValidWidth(applied) || applied > requested && applied == previousWidth
+            && (ValidWidth(applied) || applied > requested && applied == previousWidth && (absent & 11) == 0
                 && f["previous_automatic_width"] == "false" && (previousMode == 1 || previousMode == 3));
     }
     internal static bool DecodeRestored(string raw, out bool restored, out int conflicts)

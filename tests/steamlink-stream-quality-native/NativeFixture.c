@@ -5,6 +5,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 static bool transcript;
+static bool absent[KEY_COUNT],baseline_absent[KEY_COUNT];
+static int setting_error,setting_error_key,manual_absence,remove_fail,remove_ignored;
+static unsigned removals;
 static unsigned checks,reads,writes,identities,ready_calls,shutdowns,inits,gets;
 static int32_t values[KEY_COUNT],baseline[KEY_COUNT];static int write_keys[64];
 static int read_fail,write_fail,write_fail_applies,identity_change,clamp_width,manual_key,manual_value,close_error;
@@ -24,11 +27,13 @@ static uint32_t property_read(uint32_t i,int32_t key,char *out,uint32_t cap,int3
 }
 static int32_t read_setting(const char *s,const char *k,int32_t *e,bool boolean){
     check(!strcmp(s,section));int key=key_id(k);check(boolean==(key==AUTOMATIC||key==SHARPENING));reads++;*e=0;
-    if(change_at_read&&reads==(unsigned)change_at_read)values[key]=key==WIDTH?2816:key==FOVEATION?2:!values[key];
+    if(change_at_read&&reads==(unsigned)change_at_read){values[key]=key==WIDTH?2816:key==FOVEATION?2:!values[key];absent[key]=false;}
     if((read_fail&&reads==(unsigned)read_fail)||(readback_fail&&writes==1&&!ready_calls)){
         readback_fail=0;*e=3;return 0;
     }
     if(fail_after_ready&&ready_calls){fail_after_ready=0;*e=3;return 0;}
+    if(key==setting_error_key){*e=setting_error;return 0;}
+    if(absent[key]){*e=5;return 0;}
     return values[key];
 }
 static int32_t get_int(const char *s,const char *k,int32_t *e){return read_setting(s,k,e,false);}
@@ -39,10 +44,16 @@ static void write_setting(const char *s,const char *k,int32_t v,int32_t *e,bool 
     if((write_fail&&writes==(unsigned)write_fail)||(restore_fail&&ready_calls)){
         restore_fail=0;*e=3;if(!write_fail_applies)return;
     }
-    values[key]=(key==WIDTH&&clamp_width&&v==3072)?clamp_width:v;
+    absent[key]=false;values[key]=(key==WIDTH&&clamp_width&&v==3072)?clamp_width:v;
 }
 static void set_int(const char *s,const char *k,int32_t v,int32_t *e){write_setting(s,k,v,e,false);}
 static void set_bool(const char *s,const char *k,bool v,int32_t *e){write_setting(s,k,(int32_t)v,e,true);}
+static void remove_key(const char *s,const char *k,int32_t *error){
+    check(!strcmp(s,section));int key=key_id(k);removals++;*error=0;
+    if(remove_fail){remove_fail=0;*error=6;return;}
+    if(remove_ignored){remove_ignored=0;return;}
+    absent[key]=true;values[key]=0;
+}
 static uint32_t fake_init(int32_t *e,int32_t app,const char *startup){check(stage==0&&app==3&&startup==NULL);stage=1;inits++;*e=init_error;return init_error?0:41;}
 static void *fake_get(const char *name,int32_t *e){
     check(stage==1&&init_error==0);gets++;*e=get_error;
@@ -55,19 +66,22 @@ static const char *await_close(const struct Lease *lease,void *context){
     if(transcript){const char *error=print_acquired(lease);if(error)return error;}check(values[FOVEATION]==1&&values[SHARPENING]==0&&values[AUTOMATIC]==0);
     check(lease->applied[WIDTH]==values[WIDTH]);
     if(manual_key>=0)values[manual_key]=manual_value;
+    if(manual_absence>=0)absent[manual_absence]=true;
     return close_error?"stdin_error":NULL;
 }
 static void reset(void){
-    reads=writes=identities=ready_calls=shutdowns=inits=gets=0;
+    reads=writes=identities=ready_calls=shutdowns=inits=gets=removals=0;
+    memset(absent,0,sizeof(absent));memset(baseline_absent,0,sizeof(baseline_absent));
+    setting_error=remove_fail=remove_ignored=0;setting_error_key=manual_absence=-1;
     read_fail=write_fail=write_fail_applies=identity_change=clamp_width=manual_value=close_error=0;
     stage=init_error=get_error=readback_fail=fail_after_ready=restore_fail=change_at_read=0;manual_key=-1;
     values[WIDTH]=1920;values[AUTOMATIC]=1;values[SHARPENING]=1;values[FOVEATION]=0;
     memcpy(baseline,values,sizeof(values));is_connected=true;class_value=1;tracking="vrlink";model="Steam Frame";registered="vrlink/frame";
     memset(&sysapi,0,sizeof(sysapi));sysapi.deviceClass=device_class;sysapi.connected=connected;sysapi.stringProperty=property_read;
-    memset(&settings,0,sizeof(settings));settings.getInt=get_int;settings.getBool=get_bool;settings.setInt=set_int;settings.setBool=set_bool;
+    memset(&settings,0,sizeof(settings));settings.getInt=get_int;settings.getBool=get_bool;settings.setInt=set_int;settings.setBool=set_bool;settings.removeKey=remove_key;
 }
 static struct Outcome run(void){return quality_session(fake_init,fake_get,fake_shutdown,3072,await_close,NULL);}
-static void restored_state(struct Outcome out){check(out.restored&&out.errors==0&&out.conflicts==0);check(!memcmp(values,baseline,sizeof(values)));check(shutdowns==1&&stage==2);}
+static void restored_state(struct Outcome out){check(out.restored&&out.errors==0&&out.conflicts==0);check(!memcmp(absent,baseline_absent,sizeof(absent)));for(int key=0;key<KEY_COUNT;key++)if(!absent[key])check(values[key]==baseline[key]);check(shutdowns==1&&stage==2);}
 static void validation(void){
     reset();struct Outcome out=run();check(!out.error&&out.acquired&&ready_calls==1&&writes==8);restored_state(out);
     const int expected[]={AUTOMATIC,WIDTH,SHARPENING,FOVEATION,FOVEATION,SHARPENING,WIDTH,AUTOMATIC};
@@ -131,6 +145,39 @@ static void release_controls(void){
     reset();values[WIDTH]=4096;values[AUTOMATIC]=0;values[FOVEATION]=0;memcpy(baseline,values,sizeof(values));
     out=run();check(!out.error&&writes==6);restored_state(out); /* Different foveated width is not actual uniform quality. */
 }
+static void absence_controls(void){
+    struct Outcome out;
+    /* Every presence combination, including explicit false/zero and absent
+     * false/zero destinations, executes the actual public API lifecycle. */
+    for(unsigned mask=0;mask<16;mask++)for(int false_values=0;false_values<2;false_values++){
+        reset();if(false_values){values[AUTOMATIC]=0;values[SHARPENING]=0;values[FOVEATION]=1;}
+        unsigned expected=0;
+        for(int key=0;key<KEY_COUNT;key++)if(mask&(1u<<key)){absent[key]=true;expected++;}
+        memcpy(baseline,values,sizeof(values));memcpy(baseline_absent,absent,sizeof(absent));
+        out=run();check(!out.error&&out.acquired&&ready_calls==1&&removals==expected);restored_state(out);
+    }
+    for(unsigned mask=1;mask<16;mask++)for(int fail=1;fail<=4;fail++)for(int applied=0;applied<2;applied++){
+        reset();for(int key=0;key<KEY_COUNT;key++)if(mask&(1u<<key))absent[key]=true;
+        memcpy(baseline_absent,absent,sizeof(absent));write_fail=fail;write_fail_applies=applied;
+        out=run();check(!strcmp(out.error,"write")&&!out.acquired&&!ready_calls);restored_state(out);
+    }
+    reset();settings.removeKey=NULL;out=run();check(!strcmp(out.error,"settings_interface")&&!writes);
+    for(int key=0;key<KEY_COUNT;key++)for(int error=1;error<=6;error++)if(error!=5){
+        reset();setting_error_key=key;setting_error=error;out=run();
+        check(!strcmp(out.error,"snapshot")&&!writes&&out.key==key&&out.api_error==error);
+    }
+    reset();absent[WIDTH]=baseline_absent[WIDTH]=true;remove_fail=1;out=run();
+    check(out.acquired&&!out.restored&&out.errors==1&&!absent[WIDTH]);
+    reset();absent[WIDTH]=baseline_absent[WIDTH]=true;remove_ignored=1;out=run();
+    check(out.acquired&&!out.restored&&out.errors==1&&!absent[WIDTH]);
+    for(int key=0;key<KEY_COUNT;key++){
+        reset();manual_absence=key;out=run();
+        check(out.acquired&&out.restored&&out.conflicts==1&&absent[key]);
+        for(int other=0;other<KEY_COUNT;other++)if(other!=key)check(!absent[other]&&values[other]==baseline[other]);
+    }
+    reset();absent[AUTOMATIC]=true;change_at_read=5;out=run();
+    check(!strcmp(out.error,"changed_during_apply")&&!writes&&!absent[AUTOMATIC]);
+}
 static int pipe_read_end;
 static const char *await_real_parent(const struct Lease *lease,void *unused){
     (void)unused;ready_calls++;check(lease->applied[WIDTH]==3072);FILE *input=fdopen(pipe_read_end,"r");check(input!=NULL);
@@ -145,8 +192,10 @@ int main(int argc,char **argv){
  if(argc==2){reset();transcript=true;
   if(!strcmp(argv[1],"--transcript-error")){write_fail=2;}
   else if(!strcmp(argv[1],"--transcript-conflict")){manual_key=FOVEATION;manual_value=2;}
+  else if(!strcmp(argv[1],"--transcript-absent")){absent[WIDTH]=true;}
+  else if(!strcmp(argv[1],"--transcript-snapshot-error")){setting_error_key=WIDTH;setting_error=6;}
   else check(!strcmp(argv[1],"--transcript"));
   struct Outcome out=run();print_outcome(&out);return 0;
  }
- validation();unsigned v=checks;apply_errors();unsigned a=checks-v;identity_controls();unsigned i=checks-v-a;release_controls();unsigned r=checks-v-a-i;parent_eof_control();
- printf("{\"validation\":%u,\"apply_errors\":%u,\"identity\":%u,\"release\":%u,\"parent_eof\":%u,\"checks\":%u,\"windows_or_proton_execution\":false,\"hardware_outcome\":false}\n",v,a,i,r,checks-v-a-i-r,checks);return 0;}
+ validation();unsigned v=checks;apply_errors();unsigned a=checks-v;identity_controls();unsigned i=checks-v-a;release_controls();unsigned r=checks-v-a-i;absence_controls();unsigned n=checks-v-a-i-r;parent_eof_control();
+ printf("{\"validation\":%u,\"apply_errors\":%u,\"identity\":%u,\"release\":%u,\"absence\":%u,\"parent_eof\":%u,\"checks\":%u,\"windows_or_proton_execution\":false,\"hardware_outcome\":false}\n",v,a,i,r,n,checks-v-a-i-r-n,checks);return 0;}

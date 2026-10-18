@@ -31,6 +31,17 @@ internal static class Program
     private static void Protocol()
     {
         Check(Q.DecodeAcquired(Acquired(),3072),"Exact acquired protocol");
+        string Absent(string line,int mask)=>line.Substring(0,line.Length-1)+",\"previous_absent_mask\":"+mask+"}";
+        Check(Q.DecodeAcquired(Absent(Acquired(previous:0),1),3072),"Explicit missing unused uniform width is admitted");
+        Check(Q.DecodeAcquired(Absent(Acquired(),0),3072),"Explicit full snapshot presence admitted");
+        Check(!Q.DecodeAcquired(Absent(Acquired(),16),3072),"Only four absence bits exist");
+        Check(!Q.DecodeAcquired(Absent(Acquired(),-1),3072),"Negative absence mask refused");
+        Check(!Q.DecodeAcquired(Absent(Acquired(),1),3072),"Absent width cannot masquerade as an effective value");
+        Check(!Q.DecodeAcquired(Absent(Acquired(),2),3072),"Absent auto cannot masquerade as an effective value");
+        Check(!Q.DecodeAcquired(Absent(Acquired(),4),3072),"Absent sharpening cannot masquerade as an effective value");
+        Check(!Q.DecodeAcquired(Absent(Acquired(applied:4608,previous:4608,mode:1,auto:false),1),3072),"Absent manual width cannot justify a larger inherited request");
+        Check(!Q.DecodeAcquired(Acquired(mode:4),3072),"Original foveation mode is bounded");
+
         Check(Q.DecodeAcquired(Acquired(applied:2048),3072),"Actual bounded clamp is a readback, not rejection");
         Check(Q.DecodeAcquired(Acquired(applied:4608,previous:4608,mode:1,auto:false),3072),"Preserve existing higher manual no-foveation value");
         Check(Q.DecodeAcquired(Acquired(applied:3408,previous:3408,mode:3,auto:false),3072),"Preserve existing nonstep manual value");
