@@ -612,7 +612,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 689;
+    public const ushort ModBuild = 690;
+
+    // ModBuild690 — deliver missing Quest figure LOD banks and reduce steady CPU work.
+    // Capture150639 verifies current689/previous688; preserve complete native rooms,
+    // load closure, menu depth video, cuts/art, hit point and full viewport/density.
+    // Scope all five native guard families to loaded/persistent scene hierarchies;
+    // publish bounded state files on one managed writer without gameplay I/O waits.
+    // Add separately cached owned Android figure derivative index/parts to both
+    // build and compact update, before plugin activation. Original Campaign/mod/
+    // Wine banks stay reusable. No other omitted custom runtime asset group found.
+    // Suppress only Intro's exact black ScreenSpaceOverlay canvas while the Quest
+    // native-art spinner owns output; native callbacks/timing/art remain unchanged.
+    // Quest held portraits avoid fresh readable CPU shadows after GPU-only copies.
+    // Linux old path also passes; Android dual-panel outcome still requires testing.
+    // Refresh completed-APK update hints. Retain bounded Debug actual-budget,
+    // guide-submission and idle-audio facts; left cue/click/FPS remain hardware gates.
 
     // ModBuild689 — qualify Quest Standalone budgets and tutorial clipping.
     // Capture140053 verifies current688/previous687; complete rooms, native load

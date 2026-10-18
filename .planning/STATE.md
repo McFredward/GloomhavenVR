@@ -1,5 +1,21 @@
 # State — where the project stands
 
+**Quest assets and steady-frame work, 2026-10-18: feature / B690.**
+
+Capture150639 verifies current689/previous688. Preserve hardware-confirmed rooms,
+loading closure, menu video, artwork/cuts, hit point and full viewport/density.
+Replace periodic global native discovery with scene-scoped exact-family queries;
+publish bounded state snapshots off the playing main thread. Restore the missing
+owned Android figure LOD index/parts through a separately cached producer and
+compact-update sidecar, retaining the original Campaign bank. The independent
+custom-asset audit found no other omitted runtime group. Hand the exact native
+Intro overlay canvas to the VR spinner; keep callbacks/art/timing. Quest dual
+held-panel copies avoid unqualified CPU shadows while preserving desktop output.
+Refresh successful-update Home hints. Debug state retains actual budget consumers,
+submitted guide facts and idle music/ambience timelines. Device FPS, left guide,
+idle click and dual-panel appearance remain hardware gates. See
+[QUEST-HARDWARE-150639-20261018.md](QUEST-HARDWARE-150639-20261018.md).
+
 **Quest Standalone budgets and tutorial clipping, 2026-10-18: feature / B689.**
 
 Capture140053 verifies current688/previous687. Complete rooms, native scenario
