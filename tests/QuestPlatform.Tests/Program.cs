@@ -225,8 +225,9 @@ internal static class Program
         Check(!QuestStandalonePlatform.SetPassthrough(true) && nativeCalls == 7, "configured-desktop-gate: desktop called the Android native bridge");
         RenderQualityAllocationFixture.Reset(); RenderQualityAllocationFixture.Tick();
         Check(XRSettings.AllocationWrites == 0 && XRDisplaySubsystem.MsaaWrites == 1
-            && QualitySettings.antiAliasing == 8 && XRSettings.eyeTextureResolutionScale == 1f,
-            "desktop-render-controller: current desktop MSAA and stable-allocation viewport controller must remain reachable");
+            && QualitySettings.antiAliasing == 8 && XRSettings.eyeTextureResolutionScale == 1.5f
+            && display.LiveAllocationWrites == 1 && XRSettings.renderViewportScale == 1f,
+            "desktop-render-controller: current desktop MSAA and live allocation controller must remain reachable without applying viewport twice");
         Console.WriteLine("PASS Quest platform/core lifecycle: " + assertions + " assertions (XR/environment seams; not native rendering/AOT proof)");
     }
 

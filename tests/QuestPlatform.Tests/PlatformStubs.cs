@@ -6,7 +6,7 @@ using System.Collections;
 // classes are compiled unchanged; this does not simulate rendering/native OpenXR.
 namespace UnityEngine
 {
-    public class Transform { }
+    public class Transform { internal TMPro.TMP_Text NoteCaption; }
     public class Texture { }
     public class Shader { public string name; public bool isSupported = true; }
     public class Material
@@ -57,6 +57,7 @@ namespace UnityEngine
     public class GameObject : Object
     {
         public string name;
+        public Transform transform = new();
         public HideFlags hideFlags;
         public bool activeInHierarchy = true;
         public static List<Type> AddedComponents = new();
@@ -323,6 +324,7 @@ namespace GloomhavenVR.Core
         internal static int WorldMaterialQualityMode => 0;
     }
     internal static class ScenarioInteractionPreparation { internal static void Install(UnityEngine.GameObject host) { } internal static void Reset() { } }
+    internal static class WaterTerrainVR { internal static void MaterialReady(UnityEngine.Renderer renderer) { } }
     internal static class NativeCameraRenderBudget { internal static void Prepare() { } internal static void Shutdown() { } }
     internal static class ScenarioIdleAnimationBudget { internal static void Install(UnityEngine.GameObject host, Func<bool> enabled) { } internal static void Shutdown() { } }
     internal static class ScenarioStructuralInstancing { internal static void Install(UnityEngine.GameObject host, Func<bool> enabled) { } internal static void Shutdown() { } }
@@ -429,8 +431,15 @@ namespace GloomhavenVR.WorldUI
             string caption, string hintKey) { Bars++; ReceivedItem = item; Caption = caption; return BarAvailable; }
         private static void BuildStepperRow(UnityEngine.Transform parent, ConfigCatalog.ConfigItem item,
             int component, string caption, string hintKey) { Steppers++; ReceivedItem = item; Caption = caption; }
-        private static TMPro.TMP_Text BuildNote(UnityEngine.Transform parent, string text, bool multiline = false)
-        { note = new TMPro.TMP_Text { text = text }; Multiline = multiline; return note; }
+        private static UnityEngine.GameObject BuildNote(UnityEngine.Transform parent, string text, bool multiline = false)
+        {
+            note = new TMPro.TMP_Text { text = text }; Multiline = multiline;
+            var row = new UnityEngine.GameObject("note"); row.transform.NoteCaption = note; return row;
+        }
+        // Caption location is a UI port here; production selector/donor order is
+        // exercised separately by the VideoReview and resolution binding proofs.
+        private static T FindPart<T>(UnityEngine.Transform row, string name) where T : class =>
+            name == "Title" ? row.NoteCaption as T : throw new InvalidOperationException("Unexpected caption part");
     }
     internal static class FlatScreen
     {
@@ -445,3 +454,12 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR { internal static class MyPluginInfo { internal const string PLUGIN_GUID = "dev.gloomhavenvr"; } }
 
 namespace TMPro { internal class TMP_Text { internal string text; } }
+
+namespace GloomhavenVR.Core.SteamLink
+{
+    // Existing Core/OpenXR teardown may reset these unrelated desktop helpers;
+    // this platform fixture launches no receiver, native child or transport.
+    internal static class SteamLinkConnectionLifecycle { internal static void Reset() { } }
+    internal static class SteamLinkStreamQuality { internal static void Reset() { } }
+    internal static class SteamLinkSceneRuntime { internal static void Reset() { } }
+}

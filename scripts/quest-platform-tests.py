@@ -32,7 +32,9 @@ def main():
     original = {name: path.read_text() for name, path in sources.items()}
     render_quality = (root / "src/GloomhavenVR/Rig/RenderQuality.cs").read_text()
     methods = []
-    for signature in ("private static void ApplyMsaa(bool canWriteRenderResources)", "private static void ApplyEyeScale(bool canWriteRenderResources)"):
+    for signature in ("private static void ApplyMsaa(bool canWriteRenderResources)",
+                      "private static void ApplyEyeScale(bool canWriteRenderResources)",
+                      "private static void ApplyPcEyeScale(float wanted)"):
         start = render_quality.index("    " + signature)
         end = render_quality.index("\n    }", start) + len("\n    }")
         methods.append(render_quality[start:end])
@@ -56,15 +58,20 @@ internal static class RenderQualityAllocationFixture {
     private const float SliderQuietSeconds = .35f, MsaaResourceQuietSeconds = 1f, ViewportRepairIntervalSeconds = 1f;
     private const int MaxViewportResetRepairs = 3;
     private static bool _eyeScaleAnnounced;
-    private static bool _sessionPrepared = true, _viewportScaleAccepted;
+    private static bool _sessionPrepared, _viewportScaleAccepted, _standaloneSession;
+    private static float _lastPcEyeScaleAttempt = -1f, _lastPcEyeScaleWaiting = -1f;
     private static readonly List<XRDisplaySubsystem> Displays = new();
     private static int Sanitize(int value) => value;
     private static float WantedEyeScale() => Mathf.Clamp(EyeResolutionScale.Value, MinEyeScale, MaxEyeScale);
-    private static void AdoptRunningSession() { _sessionPrepared = true; }
+    // Cold session classification is an explicit lifecycle port. The actual
+    // controller methods below retain their Quest/Frame/desktop branches.
+    private static void AdoptRunningSession() { _standaloneSession = FrameDefaults.Active; _sessionPrepared = true; }
+    private static bool ValidScale(float value) => !float.IsNaN(value) && !float.IsInfinity(value) && value > 0f;
     private static void RequestEyeTargetDiagnostics(string reason) { }
     private static void ReleaseViewportScale() { XRSettings.renderViewportScale = 1f; _viewportScaleApplied = 1f; }
     private static bool ApplyViewportScale(float wanted, string reason) { XRSettings.renderViewportScale = wanted; _viewportScaleApplied = wanted; return true; }
-    internal static void Reset() { _pendingMsaa = _committedMsaa = _lastPushedDisplayMsaa = -1; }
+    internal static void Reset() { _pendingMsaa = _committedMsaa = _lastPushedDisplayMsaa = -1; _sessionPrepared = false;
+        _lastPcEyeScaleAttempt = _lastPcEyeScaleWaiting = -1f; }
     internal static void Tick() { Time.unscaledTime += 1f; ApplyMsaa(true); ApplyEyeScale(true); }
 """ + "\n".join(methods) + "\n}\n"
     output = root / ".planning/debug/quest-platform"
@@ -122,6 +129,7 @@ internal static class RenderQualityAllocationFixture {
     if "if (component == 0 && TryBuildQuestEyeResolutionRow(parent, item, hintKey))" not in row_source:
         raise SystemExit("FAIL shared curated/advanced row no longer reaches the tested Quest resolution helper")
     evidence = {"sources": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in sources.items()},
+                "renderQualitySource": hashlib.sha256(render_quality.encode()).hexdigest(),
                 "mixedRealitySource": hashlib.sha256(mixed_reality.read_bytes()).hexdigest(), "cases": []}
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     print("Quest platform lifecycle evidence: " + str(run), flush=True)
