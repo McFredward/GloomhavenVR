@@ -1,5 +1,40 @@
 # State — where the project stands
 
+**Friendly setup inspection v2 published, 2026-10-18; runtime remains707.**
+
+The maintainer's actual v1 report reaches the AArch64 Frame, finds its enabled
+legacy public patch and matching runtime, and matches the PC Steam Link driver.
+The new sender is correctly absent. `vrpathreg.exe` was reported unreadable.
+The actual Windows portable-runtime fixture reproduced a separate concrete EXE
+identity defect: CPython path stat invents executable bits from `.exe`, but
+fstat does not (33279 versus33206). Only those synthetic cross-API Windows bits
+are normalized; same-API mutation checks remain. Public reference inspection
+also supports stable hardlinks, retains strict private-file rules, and reports
+fixed reason codes rather than swallowing failures.
+
+Native `dev` at56cfde6 publishes `setup-inspection-v2` behind the same
+`get-preview.ps1` / `.sh` entry points. It adds automatic bounded local Frame
+discovery, successful-host reuse in the existing PC report, EN/DE guidance,
+ASCII header and terminal-only progress that pauses for input. No subnet prompt.
+Windows packages private Python and an official pinned OpenSSH fallback, tested
+by actual execution without OS-feature changes. Linux automatically prepares a
+pinned private Python if needed (normal OS SSH is still used). The real x64
+fallback executes with SSL; a corrupted archive is refused before execution and
+both cases clean their temporary runtime. Windows/Linux setup CI39136455056
+passes; native gate39136099820 passes at001ca10, with subsequent setup-only
+repairs covered by their affected checks. No Frame action or new MR result.
+
+The native branch also now contains the uninstalled, exact-process-pinned V4L2
+coded-input ownership provider: actual QUERYBUF/mmap/QBUF/DQBUF lifecycle and
+an AArch64 tail-forward preserving unknown ioctl calls.260 checks pass on host,
+under sanitizers and AArch64 emulation, plus8 actual assembly checks and four
+causal controls. Current native payload reassembly up to QBUF is traced; exact
+HEVC AU, source/selected-picture/eye/UV identity and coverage remain unproved.
+This component is not shipped or activated by the inspection package. See the
+native `docs/research/receiver-coded-provider-20261018.md`. Own four integrated
+worker worktrees and completed build/review caches are removed; current archive,
+source pins, compact evidence and hardware inputs are retained.
+
 **Published read-only setup preview, 2026-10-18; runtime remains707.**
 
 Native `dev` now publishes the separate `setup-inspection-v1` prerelease and
