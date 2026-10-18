@@ -1167,6 +1167,8 @@ function renderProgress() {
   $('failure-retry').disabled=locked;
   $('failure-edit-inputs').hidden=!updateFailure?.editInputs&&!launcher;
   $('failure-edit-inputs').disabled=locked;
+  if(launcher){$('progress-copy').textContent=t('launcherRequiredCopy');}
+  $('failure-edit-inputs').textContent=t(launcher?'launcherEditInputs':'updateFailureEditInputs');
   $('failure-launcher-open').hidden=!launcher;
   if(!launcher)$('failure-launcher-status').hidden=true;
   $('failure-launcher-open').disabled=actionBusy||!canConnect||discovery?.capabilities?.storeLaunchers!==true;

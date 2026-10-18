@@ -1364,12 +1364,12 @@ export const strings = {
 };
 
 Object.assign(strings.de,{
-  runsLoading:'Gespeicherte Runs werden geladen …',runsEmpty:'Keine bereinigbaren Runs vorhanden.',storageFastUpdateSize:'Für schnelle Updates behaltene Daten: {size}',storagePlanUpdates:'Alte Update-APKs prüfen',launcherOpen:'{launcher} öffnen',launcherOpening:'{launcher} wird geöffnet …',launcherUnavailable:'Der Launcher konnte nicht geöffnet werden. Die Meldung enthält die nächsten Schritte.',
+  launcherRequiredCopy:'Die Kontoprüfung wartet auf die unten genannte Aktion. Fertige Arbeitsschritte bleiben gespeichert.',launcherEditInputs:'Konto und Eingaben prüfen',runsLoading:'Gespeicherte Runs werden geladen …',runsEmpty:'Keine bereinigbaren Runs vorhanden.',storageFastUpdateSize:'Für schnelle Updates behaltene Daten: {size}',storagePlanUpdates:'Alte Update-APKs prüfen',launcherOpen:'{launcher} öffnen',launcherOpening:'{launcher} wird geöffnet …',launcherUnavailable:'Der Launcher konnte nicht geöffnet werden. Die Meldung enthält die nächsten Schritte.',
   stage_profile:'Spielerkonto erfassen',stage_inspect:'Spielbesitz und DLCs prüfen',
   'phase_store-steam-launch':'Steam für die Spiel-/Kontoprüfung starten','phase_store-steam-ready':'Auf das Steam-Konto warten',
 });
 Object.assign(strings.en,{
-  runsLoading:'Loading saved runs …',runsEmpty:'No runs available for cleanup.',storageFastUpdateSize:'Data retained for fast updates: {size}',storagePlanUpdates:'Review old update APKs',launcherOpen:'Open {launcher}',launcherOpening:'Opening {launcher} …',launcherUnavailable:'The launcher could not open. Follow the instructions in the message.',
+  launcherRequiredCopy:'Account verification is waiting for the action below. Completed work remains saved.',launcherEditInputs:'Check account and inputs',runsLoading:'Loading saved runs …',runsEmpty:'No runs available for cleanup.',storageFastUpdateSize:'Data retained for fast updates: {size}',storagePlanUpdates:'Review old update APKs',launcherOpen:'Open {launcher}',launcherOpening:'Opening {launcher} …',launcherUnavailable:'The launcher could not open. Follow the instructions in the message.',
   stage_profile:'Read player account',stage_inspect:'Check game ownership and DLCs',
   'phase_store-steam-launch':'Start Steam for game/account verification','phase_store-steam-ready':'Wait for the Steam account',
 });
