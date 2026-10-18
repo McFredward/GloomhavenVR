@@ -69,6 +69,38 @@ checks are inherited; this is not a repeated complete local gate. Raw evidence,
 source snapshots and current binaries are under
 `.planning/debug/steamlink-sender721/{monitor-review,menu-review,game}/`.
 
-The native sender dispatch repair and its real Windows rendering tests are a
-separate delivery requirement. Do not infer sharpness or a correct headset/menu
-picture from the game lifecycle tests or a successful paired handshake.
+## Native dispatch repair and published preview
+
+The repeated Windows investigation demonstrated why cold Draw/Flush warmups did
+not suffice: ordinary CopyResource and blocking READ Map can replace selective
+native dispatch entries later. The previous helper-only tests did not exercise
+that boundary. The final native implementation leaves the runtime's table
+untouched and publishes a complete writable object-local facade through one
+aligned8-byte vptr CAS. Its115/134/144/147/149 public entries follow the live
+native targets; the four observation callbacks retain original caller and TLS
+proof. Later foreign pointers/entries are preserved, and published storage lives
+through process exit. No Valve instructions or shader permissions are patched.
+
+Native dev a3db3c1 passes119753 actual Windows production checks, plus3665 in the
+independent ABI experiment. Tests include cold first Draw, repeated real WARP
+shader/Copy/READ Map/Unmap/getter/Flush work, unchanged RGBA bytes, native threading
+transitions and owned/foreign restore. A deliberately stale original-target
+control fails at its intended first cold Draw. The native full integration gate
+passes168 tests; the complete strict Win64 provider also builds. Independent
+source review finds no blocking ABI/lifetime issue in the pinned same-pointer,
+native-MT-TRUE scope. Unchanged source/AU/coverage/shader/receiver and installer
+proof is inherited separately, not presented as new headset evidence.
+
+The installable preview archive is updated on the existing
+`stream-bridge-preview-v1` release, source a3db3c1,18196669 bytes, SHA256
+`a04602e3c264a02b62899a84bfbcedaa01b0d2d7a931a4a217dc3eb812189835`.
+Actual bootstrap extraction and the packaged `--check` entry pass; public
+unauthenticated download and both preview one-command wrappers match the reviewed
+bytes. Public asset654701835 is recorded under `delivery/public-delivery-check.json`.
+The receiver/selector bytes are unchanged; PC coverage dispatch is the new artifact.
+All own completed worker worktrees were removed, retaining source/result evidence.
+
+Use game709 and Update in the preview assistant for the combined sharpness/live
+resolution/both-eye/Steam-menu check. No device writes or restarts were performed
+for this delivery. WARP dispatch/RGBA checks and exact protocol fixtures do not
+establish the real NVIDIA/Steam Link scene or a correct headset/menu picture.

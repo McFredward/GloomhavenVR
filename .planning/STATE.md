@@ -1,14 +1,19 @@
 # State — where the project stands
 
-**Steam Link observer/menu containment, Build709, 2026-10-19.**
+**Steam Link dispatch repair and menu containment, Build709, 2026-10-19.**
 
 The fresh paired logs confirm that the orphan UNIX endpoint is repaired and the
 real PC/Frame handshake plus coded-AU roundtrip succeeds. Native D3D draw hooks
 are still absent, so ordinary-RGBA admission never happens and the legacy atlas
 continues to explain the sharpness loss. A real Windows/WARP production-boundary
 fixture now reproduces runtime replacement of all four hooked dispatch slots.
-The native fix is being validated against repeated real render/state transitions;
-no new headset-success claim or device change is made.
+The native fix now uses a complete writable object-local forwarding table that
+follows the runtime's current entries without modifying its original table or
+picture geometry. Actual Windows production checks pass119753 assertions,
+including cold first Draw, repeated real rendering/readback and safe restoration;
+the stale-target control fails exactly as intended. The independent ABI
+experiment passes3665 checks and native integration CI passes168 tests. This
+establishes the demonstrated dispatch repair, not a new headset-success claim.
 
 The separate game SafeHandle cancellation exception is fixed by off-thread
 observer retirement with immediate authority revocation and owned callback
@@ -20,8 +25,14 @@ hardware evidence proves full-dashboard focus loss, not every quick-menu variant
 Focused lifecycle, real Unity rendering/callback checks and strict Release build
 pass; all669 config keys,241 Harmony bindings and4806 log tokens remain. There
 is no repeated complete gate. See [the scoped review](STEAM-LINK-709-OBSERVER-MENU.md)
-and `.planning/debug/steamlink-sender721/`. Native delivery remains separately
-pending the dispatch fix and its real Windows regression checks.
+and `.planning/debug/steamlink-sender721/`. Native dev a3db3c1 and the updated
+`stream-bridge-preview-v1` archive are published; actual bootstrap extraction,
+packaged-engine checking and unauthenticated public-download verification pass.
+Archive SHA256 starts a04602e3c264. Use game709 and choose Update in the existing
+preview assistant. Both-eye sharpness, live resolution changes and combined
+game/Steam-menu/camera remain the next visual hardware checks. No Frame writes
+or restarts were performed; own worker checkouts/caches were cleaned. Native
+and game EN/DE READMEs now present both routes and link their current instructions.
 
 **Paired full-resolution Steam Link preview, Build708, 2026-10-18.**
 
