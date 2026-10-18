@@ -28,6 +28,7 @@ INPUT = "assets/Quest/input-manifest.json"
 INSTALLATION = "assets/Quest/installation-manifest.json"
 MOVIES = "assets/Quest/movies.json"
 MOVIE_PREFIX = "assets/QuestMovies/"
+MOD_ARCHIVE = "assets/quest-mod-content.zip"
 LIBRARY = "lib/arm64-v8a/libil2cpp.so"
 METADATA = "assets/bin/Data/Managed/Metadata/global-metadata.dat"
 INITIALIZERS = "assets/bin/Data/RuntimeInitializeOnLoads.json"
@@ -134,7 +135,8 @@ def inspect_base(path, *, validate_update_contracts=True):
             if update is not None and (update.get("schema") != 1 or update.get("gameInputKey") != key
                     or not _SHA.fullmatch(update.get("updateKey", "")) or type(update.get("modBuild")) is not int):
                 raise BuildError("Signed APK update provenance is invalid.")
-            return {"inputKey": key, "modBuild": update["modBuild"] if update else manifest.get("mod", {}).get("modBuild"),
+            return {"resolvedApk": str(Path(path).absolute()),
+                    "inputKey": key, "modBuild": update["modBuild"] if update else manifest.get("mod", {}).get("modBuild"),
                     "unityVersion": capsule.get("unityVersion") if capsule else None,
                     "manifest": manifest, "installation": installation,
                     "capsule": capsule, "update": update, "legacy": capsule is None,
@@ -767,6 +769,14 @@ def _movie_rows(manifest):
                 or (MOVIE_PREFIX + row["path"]).casefold() in {name.casefold() for name in result}):
             raise BuildError("Owned movie replacement manifest has an invalid file.")
         result[MOVIE_PREFIX + row["path"]] = row
+    if "shaderKey" in manifest and (not isinstance(manifest["shaderKey"], str) or not _SHA.fullmatch(manifest["shaderKey"])):
+        raise BuildError("Owned movie replacement manifest has an invalid shader key.")
+    if "movieKeys" in manifest:
+        keys = manifest["movieKeys"]
+        names = {name[len(MOVIE_PREFIX):] for name in result if name.endswith(".mov")}
+        if (not isinstance(keys, dict) or set(keys) != names
+                or any(not isinstance(value, str) or not _SHA.fullmatch(value) for value in keys.values())):
+            raise BuildError("Owned movie replacement manifest has invalid per-film keys.")
     return result
 
 
@@ -791,6 +801,32 @@ def _qualify_movie_replacements(base, info, replacements):
                 if (rows[name] != prior.get(name) or name not in entries or entries[name].file_size != rows[name]["size"]):
                     raise BuildError("Movie manifest needs a missing or changed replacement: " + name)
     return rows
+
+
+def _mod_archive_replacement(base, info, replacements):
+    """Bind a streamed authored bank to its already-proven mod-only manifest."""
+    if not isinstance(replacements.get(MOD_ARCHIVE), Path): return None
+    raw = replacements.get(INSTALLATION)
+    if not isinstance(raw, (bytes, bytearray)) or not 0 < len(raw) <= MAX_JSON:
+        raise BuildError("Streamed mod archive requires its bounded installation manifest.")
+    try: installation = json.loads(raw)
+    except (ValueError, UnicodeError, TypeError) as error:
+        raise BuildError("Streamed mod archive installation manifest is invalid.") from error
+    mod = installation.get("mod") if isinstance(installation, dict) else None
+    if (not isinstance(installation, dict) or installation.get("schema") != 1
+            or installation.get("inputKey") != info["inputKey"]
+            or not isinstance(info["installation"].get("game"), dict)
+            or installation.get("game") != info["installation"]["game"]
+            or not isinstance(mod, dict) or mod.get("schema") != 1 or mod.get("inputKey") != info["inputKey"]
+            or mod.get("archive") != "quest-mod-content.zip" or not isinstance(mod.get("archiveSha256"), str)
+            or not _SHA.fullmatch(mod["archiveSha256"])):
+        raise BuildError("Streamed mod archive changed the original game or lacks its exact authored-bank identity.")
+    expected = hashlib.sha256(_json_bytes(mod)).hexdigest()
+    if not any(_resource_value_proofs.get((_base_stamp(base), name, hashlib.sha256(body).hexdigest()), {}).get(
+            "quest-mod-content") == expected for name, body in replacements.items()
+            if _resource_member(name) and isinstance(body, (bytes, bytearray))):
+        raise BuildError("Streamed mod archive lacks its composed Resources TextAsset proof.")
+    return mod["archiveSha256"]
 
 
 def _qualify_proton_helpers(base, info, replacements, update_manifest, evidence):
@@ -1125,6 +1161,7 @@ Neither callback is optional: unsigned output is never an installable result.
         raise BuildError("APK update provenance must preserve the original game identity.")
     replacements[UPDATE] = _json_bytes(update_manifest)
     movie_hashes = _qualify_movie_replacements(base, info, replacements)
+    mod_archive_hash = _mod_archive_replacement(base, info, replacements)
     figure_hashes = {}
     if "assets/Quest/audio-clips.json" in replacements:
         try:
@@ -1150,14 +1187,15 @@ Neither callback is optional: unsigned output is never an installable result.
     for name, value in replacements.items():
         _safe_name(name)
         if isinstance(value, Path):
-            if not (_figure_member(name) or _audio_member(name) or _movie_member(name)): raise BuildError("Only owned figure/audio/movie parts accept streamed file replacements: " + name)
+            if not (_figure_member(name) or _audio_member(name) or _movie_member(name) or name == MOD_ARCHIVE): raise BuildError("Only owned figure/audio/movie parts and mod archives accept streamed file replacements: " + name)
             path = _ordinary_owned(value)
-            kind = "Movie" if _movie_member(name) else "Figure"
+            kind = "Mod archive" if name == MOD_ARCHIVE else "Movie" if _movie_member(name) else "Figure"
             if not path.is_file() or path.stat().st_size > MAX_MEMBER: raise BuildError("Invalid streamed " + kind.lower() + " replacement: " + name)
             # Production banks already have a producer hash in their signed
             # manifest. Bind it to the current file witness and prove bytes
             # during the actual copy instead of a redundant pre-read.
             expected = movie_hashes.get(name) if _movie_member(name) else figure_hashes.get(name)
+            if name == MOD_ARCHIVE: expected = {"sha256": mod_archive_hash, "size": path.stat().st_size}
             if expected and expected["size"] != path.stat().st_size: raise BuildError("Owned " + kind.lower() + " source length changed: " + name)
             file_replacements[name] = {"stamp": _base_stamp(path), "sha256": expected["sha256"] if expected else digest(path), "size": path.stat().st_size}
             if _base_stamp(path) != file_replacements[name]["stamp"]: raise BuildError(kind + " replacement changed while qualifying: " + name)
@@ -1195,7 +1233,7 @@ Neither callback is optional: unsigned output is never an installable result.
                 try:
                     if name in file_replacements:
                         expected = file_replacements[name]
-                        kind = "Movie" if _movie_member(name) else "Figure"
+                        kind = "Mod archive" if name == MOD_ARCHIVE else "Movie" if _movie_member(name) else "Figure"
                         if _base_stamp(value) != expected["stamp"]: raise BuildError(kind + " replacement changed before publication: " + name)
                         entry.file_size = expected["size"]
                         hashed = hashlib.sha256(); copied = 0
@@ -1226,7 +1264,7 @@ Neither callback is optional: unsigned output is never an installable result.
             for name, value in replacements.items():
                 if name in file_replacements:
                     expected = file_replacements[name]
-                    kind = "Movie" if _movie_member(name) else "Figure"
+                    kind = "Mod archive" if name == MOD_ARCHIVE else "Movie" if _movie_member(name) else "Figure"
                     if name not in actual or actual[name].file_size != expected["size"] or _base_stamp(value) != expected["stamp"]:
                         raise BuildError("Signed " + kind.lower() + " replacement identity changed: " + name)
                     hashed = hashlib.sha256()

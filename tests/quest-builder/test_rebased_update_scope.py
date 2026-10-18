@@ -246,6 +246,60 @@ class RebasedUpdateScopeTests(unittest.TestCase):
         self.assertNotEqual(driver._code_rows(previous, normalizer=preparation_identity),
                             driver._code_rows(current, normalizer=preparation_identity))
 
+    def shader_fixture(self, *, bank=b"UnityFS\0current Android shader", include_bank=True, shader_key="3" * 64):
+        fixture = fixtures.UpdateDriverTests("runTest")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        current = rows("src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs")
+        fixture.current_mod["files"] = current
+        member = apk_update.MOVIE_PREFIX + "ghvr-quest-movies.bundle"
+        import hashlib
+        metadata = {"schema": 1, "target": "Android", "producerKey": "4" * 64, "shaderKey": shader_key,
+                    "files": [{"path": "ghvr-quest-movies.bundle", "size": len(bank), "sha256": hashlib.sha256(bank).hexdigest()}]}
+        extra = {apk_update.MOVIES: storage.canonical(metadata)}
+        if include_bank: extra[member] = bank
+        fixture.write_apk(extra=extra)
+        return fixture, apk_update.inspect_base(fixture.apk), current
+
+    def test_movie_only_update_uses_verified_small_apk_shader_without_unity(self):
+        fixture, base, current = self.shader_fixture()
+        helper = SimpleNamespace(plan=lambda *_: {"producerKey": "5" * 64, "shaderKey": "3" * 64})
+        with patch.object(driver, "_movies", return_value=helper), \
+             patch.object(driver, "package_fingerprint", return_value=fixture.capsule["packageAbi"]):
+            plan = driver.update_requirements(fixture.builder, ROOT, base, current, fixture.current_mod["modBuild"])
+            self.assertTrue(plan["movieBanksChanged"])
+            self.assertFalse(plan["codeChanged"])
+            self.assertFalse(plan["requiresUnity"])
+            # A repeated requirements probe uses the exact APK/bank witness.
+            with patch.object(zipfile.ZipFile, "open", side_effect=AssertionError("Never rehash unchanged bank/films")):
+                self.assertFalse(driver.update_requirements(fixture.builder, ROOT, base, current,
+                                                           fixture.current_mod["modBuild"])["requiresUnity"])
+
+    def test_missing_damaged_or_changed_shader_requires_only_its_own_compiler(self):
+        variants = ({"include_bank": False}, {"bank": b"broken native bank"}, {"shader_key": "0" * 64})
+        for variant in variants:
+            fixture, base, current = self.shader_fixture(**variant)
+            helper = SimpleNamespace(plan=lambda *_: {"producerKey": "5" * 64, "shaderKey": "3" * 64})
+            with self.subTest(variant=variant), patch.object(driver, "_movies", return_value=helper), \
+                 patch.object(driver, "package_fingerprint", return_value=fixture.capsule["packageAbi"]):
+                plan = driver.update_requirements(fixture.builder, ROOT, base, current, fixture.current_mod["modBuild"])
+            self.assertEqual(plan["rebuildReasons"], [])
+            self.assertTrue(plan["movieBanksChanged"])
+            self.assertTrue(plan["requiresUnity"])
+            self.assertFalse(plan["codeChanged"])
+
+    def test_closed_shader_cache_skips_unity_when_apk_lacks_bank(self):
+        fixture, base, current = self.shader_fixture(include_bank=False)
+        helper = SimpleNamespace(plan=lambda *_: {"producerKey": "5" * 64, "shaderKey": "3" * 64},
+                                 shader_cached=Mock(return_value=True))
+        with patch.object(driver, "_movies", return_value=helper), \
+             patch.object(driver, "package_fingerprint", return_value=fixture.capsule["packageAbi"]):
+            plan = driver.update_requirements(fixture.builder, ROOT, base, current, fixture.current_mod["modBuild"],
+                                              output=fixture.output)
+        self.assertFalse(plan["requiresUnity"])
+        self.assertFalse(plan["codeChanged"])
+        helper.shader_cached.assert_called_once_with(fixture.output, "3" * 64)
+
 
 if __name__ == "__main__":
     unittest.main()

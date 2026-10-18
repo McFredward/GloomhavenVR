@@ -17,6 +17,8 @@ import shutil
 import stat
 import zipfile
 
+_MOVIE_SHADER_PROOFS = set()
+
 
 def _core(builder):
     # Captured while the installer's isolated local dependency aliases exist.
@@ -77,7 +79,8 @@ def movie_delivery(builder, args, source, inputs, output, game, base):
     output separately; its file-backed publisher avoids buffering whole films.
     """
     helper = _movies(builder)
-    replacements = helper.delivery(builder, source, inputs, output, game, args=args, previous=base.get("movieBanks"))
+    replacements = helper.delivery(builder, source, inputs, output, game, args=args, previous=base.get("movieBanks"),
+                                   base_apk=base["resolvedApk"])
     core = _core(builder)
     if core.MOVIES not in replacements:
         raise builder.BuildError("The current movie producer omitted its signed delivery manifest.")
@@ -193,15 +196,18 @@ def inspect(builder, args, repo, output, data=None):
         files, commit, dirty = builder.source_inventory(repo)
         inputs["mod"] = {"files": files, "key": builder.value_hash({"files": files}),
                          "commit": commit, "dirty": dirty, "modBuild": builder.mod_build(repo)}
-        requirements = update_requirements(builder, repo, base, files, inputs["mod"]["modBuild"])
+        requirements = update_requirements(builder, repo, base, files, inputs["mod"]["modBuild"], output=output)
         reasons, code_changed, art_changed = (requirements[name] for name in ("rebuildReasons", "codeChanged", "artChanged"))
         native_helper_changed = requirements["nativeHelperChanged"]
         figure_banks_changed = requirements["figureBanksChanged"]
         audio_banks_changed = requirements.get("audioBanksChanged", False)
         movie_banks_changed = requirements.get("movieBanksChanged", False)
+        requires_unity = requirements.get("requiresUnity", bool(reasons or code_changed or art_changed
+            or native_helper_changed or figure_banks_changed or audio_banks_changed or movie_banks_changed))
     else:
         reasons = []
         code_changed = art_changed = native_helper_changed = figure_banks_changed = audio_banks_changed = movie_banks_changed = False
+        requires_unity = False
     # Owned game and DLC qualification above must precede any local key creation.
     source_stamp = _core(builder)._base_stamp(base_apk)
     source_change_stamp = _selection_stamp(builder, [base_apk])
@@ -218,7 +224,7 @@ def inspect(builder, args, repo, output, data=None):
             "signing": identity, "sourcePackage": base.get("sourcePackage"),
             "ownedGame": proof, "inputs": inputs,
             "updateStrategy": "cached-full-build" if reasons else "compact-code" if mode == "update-mod" else "profile-only",
-            "rebuildReasons": reasons, "requiresUnity": bool(reasons or code_changed or art_changed or native_helper_changed or figure_banks_changed or audio_banks_changed or movie_banks_changed),
+            "rebuildReasons": reasons, "requiresUnity": requires_unity,
             "codeChanged": code_changed, "artChanged": art_changed, "nativeHelperChanged": native_helper_changed,
             "figureBanksChanged": figure_banks_changed,
             "audioBanksChanged": audio_banks_changed,
@@ -792,7 +798,40 @@ def payload_producer(builder, source, files):
             "normalizer": copy.deepcopy(selected[names[1]][0]), "sha256": normalizer.builder_producer_digest(raw)}
 
 
-def update_requirements(builder, source, base, files, mod_build):
+def _retained_movie_shader(builder, expected, base):
+    """Qualify one small shader bank; never open an original/movie payload."""
+    key = expected.get("shaderKey")
+    metadata = base.get("movieBanks")
+    path = base.get("resolvedApk")
+    if (not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key)
+            or not isinstance(metadata, dict) or metadata.get("shaderKey") != key or not path):
+        return False
+    core = _core(builder)
+    try:
+        member = core.MOVIE_PREFIX + "ghvr-quest-movies.bundle"
+        record = core._movie_rows(metadata).get(member)
+        if record is None or not 0 < record["size"] <= 4 * 1024 * 1024: return False
+        stamp = core._base_stamp(path)
+        proof = (stamp, key, record["size"], record["sha256"])
+        if proof in _MOVIE_SHADER_PROOFS: return True
+        with zipfile.ZipFile(path) as archive:
+            entries = core._entries(archive)
+            if member not in entries or entries[member].file_size != record["size"]: return False
+            hashed = hashlib.sha256()
+            with archive.open(member) as stream:
+                header = stream.read(8)
+                if header != b"UnityFS\0": return False
+                hashed.update(header)
+                while chunk := stream.read(65536): hashed.update(chunk)
+        if core._base_stamp(path) != stamp or hashed.hexdigest() != record["sha256"]: return False
+        if len(_MOVIE_SHADER_PROOFS) >= 8: _MOVIE_SHADER_PROOFS.clear()
+        _MOVIE_SHADER_PROOFS.add(proof)
+        return True
+    except (builder.BuildError, OSError, ValueError, KeyError, zipfile.BadZipFile):
+        return False
+
+
+def update_requirements(builder, source, base, files, mod_build, *, output=None):
     """Classify actual captured sources before provisioning the Unity compiler.
 
     This is a requirements estimate, never APK/signature/ownership admission.
@@ -830,14 +869,21 @@ def update_requirements(builder, source, base, files, mod_build):
         expected_audio = _audio_banks(builder).plan(source, original["game"])
         audio_changed = (base.get("audioBanks") or {}).get("producerKey") != expected_audio["producerKey"]
     movie_changed = False
+    movie_unity = False
     if any(row.get("path") == "src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs" for row in files):
-        expected_movies = _movies(builder).plan(source, original["game"])
+        movies = _movies(builder)
+        expected_movies = movies.plan(source, original["game"])
         movie_changed = (base.get("movieBanks") or {}).get("producerKey") != expected_movies["producerKey"]
+        if movie_changed:
+            shader_key = expected_movies.get("shaderKey")
+            cached = getattr(movies, "shader_cached", None)
+            movie_unity = not (_retained_movie_shader(builder, expected_movies, base)
+                or output is not None and callable(cached) and shader_key is not None and cached(output, shader_key))
     return {"rebuildReasons": reasons, "codeChanged": code_changed, "artChanged": art_changed,
             "nativeHelperChanged": native_changed, "figureBanksChanged": figure_changed,
             "audioBanksChanged": audio_changed,
             "movieBanksChanged": movie_changed,
-            "requiresUnity": bool(reasons or code_changed or art_changed or native_changed or figure_changed or audio_changed or movie_changed),
+            "requiresUnity": bool(reasons or code_changed or art_changed or native_changed or figure_changed or audio_changed or movie_unity),
             "updateStrategy": "cached-full-build" if reasons else "compact-code"}
 
 
@@ -970,6 +1016,45 @@ def _native_producer_rows(files):
         for row in selector(files):
             if row["path"] not in host_parsers: selected[row["path"]] = row
     return [selected[name] for name in sorted(selected)]
+
+
+def authored_art_delivery(builder, inputs, output, source, game, tools):
+    """Close authored bank publication before later APK/signing work can fail.
+
+    The inner bank producer already owns expensive Unity outputs. Its caller
+    used to revalidate/repack them on every failed update attempt. Keep the
+    resulting archive and its two small native manifests on an independent
+    producer key, so a later host/signing repair retains those exact bytes too.
+    This neither changes the full-build producer nor touches Campaign content.
+    """
+    editor = Path(tools["editor"])
+    identity = {"scope": "quest-compact-authored-art-v1", "inputKey": inputs["inputKey"],
+                "gameKey": inputs["game"]["key"], "files": _art_rows(inputs["mod"]["files"]),
+                "producer": builder.mod_bank_recipe(source, inputs["mod"]["files"], full_game=True),
+                "editorSha256": tools.get("editorSha256") or builder.digest(editor)}
+    key = builder.value_hash(identity)
+    project = Path(output) / "cache/update-art-delivery" / key
+    archive = project / "Assets/StreamingAssets/quest-mod-content.zip"
+    content = project / "Assets/Quest/Resources/quest-mod-content.json"
+    bundles = project / "Assets/Quest/Resources/quest-mod-bundles.json"
+    def produce():
+        builder.package_mod_content(project, copy.deepcopy(inputs), output, source, editor, owned_game_source=game)
+        return [archive, content, bundles], {"scope": identity["scope"], "inputKey": inputs["inputKey"]}
+    builder.Stages(output).run("update-art-delivery", key, produce)
+    values = []
+    for raw in (content, bundles):
+        path = builder._ordinary_owned(raw)
+        if not 0 < path.stat().st_size <= 8 * 1048576:
+            raise builder.BuildError("Retained authored-art metadata is missing or excessive; keep its archive for targeted repair.")
+        try:
+            with path.open("rb") as stream: value = json.loads(stream.read(8 * 1048576 + 1))
+            if not isinstance(value, dict): raise ValueError("Expected a metadata object")
+        except (ValueError, UnicodeError) as error:
+            raise builder.BuildError("Retained authored-art metadata is invalid; keep its archive for targeted repair.") from error
+        values.append(value)
+    if values[0].get("inputKey") != inputs["inputKey"] or values[0].get("archive") != archive.name:
+        raise builder.BuildError("Retained authored-art metadata differs from its closed producer input.")
+    return archive, values[0], values[1]
 
 
 def _compile_code(builder, args, inputs, output, source, game, project, base, tools, root):
@@ -1309,13 +1394,8 @@ def run(builder, args, repo, output):
                 builder.build_progress.operation("update-art", detail="Building changed authored mod banks; original game assets are retained.")
                 # Only authored VR banks and their original-derived environment
                 # inputs are rebuilt; the original Campaign bank is never opened.
-                art_inputs = copy.deepcopy(inputs)
-                bank_project = root / "mod-bank-delivery"
-                # package_mod_content is extended with an explicit partial-game
-                # root; its standard full-build caller continues using its snapshot.
-                manifest = builder.package_mod_content(bank_project, art_inputs, output, source, Path(tools["editor"]), owned_game_source=game)
-                replacements["assets/quest-mod-content.zip"] = (bank_project / "Assets/StreamingAssets/quest-mod-content.zip").read_bytes()
-                bank_receipt = json.loads((bank_project / "Assets/Quest/Resources/quest-mod-bundles.json").read_text())
+                archive, manifest, bank_receipt = authored_art_delivery(builder, inputs, output, source, game, tools)
+                replacements["assets/quest-mod-content.zip"] = archive
                 replacements.update(core.patch_resource_json(base_apk, {
                     "quest-mod-content": manifest, "quest-mod-bundles": bank_receipt}, replacements=replacements))
                 with zipfile.ZipFile(plan["baseApk"]) as original:

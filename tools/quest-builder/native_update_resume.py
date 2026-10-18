@@ -34,7 +34,7 @@ _PIXEL_SCOPE_CURRENT = '1507d267a9957ccc9b813a60e2f490badac20ac926f24b9c78cbae9c
 # publisher. Stage/build/weave/package compiler calls retain their old meaning.
 # Bind the entire current compiler recipe, including the new selector body;
 # unknown production edits cannot cross this finite compatibility bridge.
-_MEDIA_SCOPE_CURRENT = 'bc16df07b0539cc6f3428b733787122166a7363bfb326b3fdf8fd2124a5855de'
+_MEDIA_SCOPE_CURRENT = '627631b89b964c7a7a00767d5fb3ef42b19566a37f1116879dbcb963776cc92f'
 _MEDIA_SCOPE_PREVIOUS = 'e59c521e2299a9f7a03691bdf1b7d577c1bffeaf2e01f9a734bcb44094784f34'
 _HEX = re.compile(r"[0-9a-f]{64}")
 

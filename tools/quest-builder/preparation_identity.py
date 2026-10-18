@@ -145,13 +145,13 @@ UPDATE_PIXEL_DELIVERY_PREVIOUS = {'path': 'tools/quest-builder/update_driver.py'
 # an arbitrary future update host from the original or compiler source census.
 REBASE_MEDIA_DELIVERY_ROWS = {
     "tools/quest-builder/update_driver.py": (
-        {"path": "tools/quest-builder/update_driver.py", "size": 95525,
-         "sha256": "75fe1e36f9facd2626c7f9e004bb7537adcdbefa1130a2e181c3644e8a30c24f"},
+        {"path": "tools/quest-builder/update_driver.py", "size": 99846,
+         "sha256": "907a0fe7d02e85707948fc122ee334d6e57a8b9f2041447ad99f9105ae06136e"},
         {"path": "tools/quest-builder/update_driver.py", "size": 90630,
          "sha256": "20e6752a3b8200824a7046617409edb7658e5925cb81c96599d11272fcb8010d"}),
     "tools/quest-builder/apk_update.py": (
-        {"path": "tools/quest-builder/apk_update.py", "size": 85110,
-         "sha256": "9cc5911a65c4830c0ff0a23a4b0928a8e25b229fed850859288acf23bbfea84f"},
+        {"path": "tools/quest-builder/apk_update.py", "size": 88035,
+         "sha256": "47dc58ea70429452f5bc3de737e5e3a152433a11a1c2afcbed7e9766f32b21e4"},
         {"path": "tools/quest-builder/apk_update.py", "size": 80990,
          "sha256": "533d0eb5917c103ee67cbbafd924dbd4040b299e16e374fb9bffb3860f04b7af"}),
 }
