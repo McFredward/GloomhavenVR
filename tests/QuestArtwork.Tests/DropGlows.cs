@@ -79,6 +79,7 @@ public static partial class DiagnosticProgram
         camera.orthographicSize = .08f; camera.clearFlags = CameraClearFlags.SolidColor;
         camera.backgroundColor = new Color(.1f, .08f, .06f, 1); camera.transform.position = new Vector3(0, 0, -2);
         camera.cullingMask = 1 << 30;
+        GloomhavenVR.WorldUI.CanvasConversion.WorldCamera = camera;
         gold.layer = 30; gold.SetActive(true);
         bool stereo = Shader.IsKeywordEnabled("STEREO_INSTANCING_ON");
         Shader.DisableKeyword("STEREO_INSTANCING_ON");
@@ -113,10 +114,13 @@ public static partial class DiagnosticProgram
             else Check(actualMaterial != firstWantedMaterial, "left and right pulses retain independent material ownership");
             string facts = wanted.QuestGuideDrawState(i);
             Check(facts.Contains("active=True/True") && facts.Contains("mesh=4/1") && facts.Contains("color=True")
-                && facts.Contains("state=0/4/0/1/1") && facts.Contains("det=") && facts.Contains(",p=") && facts.Contains(",s=")
+                && facts.Contains("state=0/4/0/1/1") && facts.Contains("det=") && facts.Contains(",z=") && facts.Contains(",draw=")
                 && (i == 0 ? facts.Contains("det=-") : !facts.Contains("det=-")),
                 "actual left/right guide facts retain transform determinant and independent material state");
             wantedPixels[i] = Capture();
+            var witness = item.GetComponent<QuestCardGuideWitness>();
+            Check(witness != null && witness.Submitted && witness.Facts.Contains("vp=") && witness.Facts.Contains("board=Oak"),
+                "actual head-camera submission updates guide evidence after culling");
             item.SetActive(false);
         }
         Check(wantedPixels[0].g > background.g + 10 && wantedPixels[1].g > background.g + 10

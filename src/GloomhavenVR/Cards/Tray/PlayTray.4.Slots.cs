@@ -400,6 +400,7 @@ internal sealed partial class PlayTray
                 new Vector3(ov.x + xSpread, ov.y, WantedGlowBaseZ + ov.z), baseColor);
             var renderer = quad.GetComponent<MeshRenderer>();
             quad.AddComponent<SlotPulse>().Init(renderer, baseColor);
+            QuestCardGuideWitness.Attach(quad, _visual);
             // 2026-08-04 (status-placard defect family): additive glow, depth-less — ride the
             // board's furniture order group like the placard/labels.
             AdoptFurniture(quad);
@@ -850,6 +851,9 @@ internal sealed partial class PlayTray
     internal int WantedSlotMask => _wantedMask > 0 ? _wantedMask & 0x3 : 0;
 
     internal int QuestGuideOwnerId => _root != null ? _root.GetInstanceID() : 0;
+    internal int QuestGuideRenderVersion =>
+        (_wantedHighlights[0] != null && _wantedHighlights[0]!.GetComponent<QuestCardGuideWitness>()?.Submitted == true ? 1 : 0)
+        | (_wantedHighlights[1] != null && _wantedHighlights[1]!.GetComponent<QuestCardGuideWitness>()?.Submitted == true ? 2 : 0);
 
     // Only read on a bounded Debug guide-state transition, never as a frame scan.
     // Active/renderable inputs are evidence, not proof that the headset sees it.
@@ -865,7 +869,6 @@ internal sealed partial class PlayTray
         if (shader.Length > 32) shader = shader.Substring(0, 32);
         string number(float value) => value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
         int state(string property) => material != null && material.HasProperty(property) ? material.GetInt(property) : -1;
-        Color tint = material != null ? material.color : Color.clear;
         return "active=" + go.activeSelf + "/" + go.activeInHierarchy
             + ",renderer=" + (renderer != null && renderer.enabled)
             + ",visible=" + (renderer != null && renderer.isVisible)
@@ -873,14 +876,11 @@ internal sealed partial class PlayTray
             + ",color=" + (mesh != null && mesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Color))
             + ",material=" + (material != null ? material.GetInstanceID() : 0) + ",shader=" + shader
             + ",queue=" + (material != null ? material.renderQueue : 0) + "/" + (renderer != null ? renderer.sortingOrder : 0)
-            + ",kw=" + (material != null ? material.shaderKeywords.Length : 0)
             + ",state=" + state("_Cull") + "/" + state("_ZTest") + "/" + state("_ZWrite")
                 + "/" + state("_SrcBlend") + "/" + state("_DstBlend")
-            + ",tint=" + number(tint.r) + "/" + number(tint.g) + "/" + number(tint.b) + "/" + number(tint.a)
             + ",det=" + number(go.transform.localToWorldMatrix.determinant)
-            + ",p=" + number(go.transform.position.x) + "/" + number(go.transform.position.y) + "/" + number(go.transform.position.z)
-            + ",s=" + number(go.transform.lossyScale.x) + "/" + number(go.transform.lossyScale.y) + "/" + number(go.transform.lossyScale.z)
-            + ",z=" + go.transform.localPosition.z.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
+            + ",z=" + go.transform.localPosition.z.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)
+            + ",draw=" + (go.GetComponent<QuestCardGuideWitness>()?.Facts ?? "none");
     }
 
     /// <summary>

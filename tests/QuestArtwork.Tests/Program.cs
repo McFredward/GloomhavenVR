@@ -64,6 +64,19 @@ public static partial class DiagnosticProgram
     public static IEnumerator Run()
     {
         QuestStandalonePlatform.Enabled = true;
+        if (Environment.GetEnvironmentVariable("GHVRQ_TEST_NATIVE_BOARD_PROBE") == "1")
+        {
+            IEnumerator board = QualifyNativeBoardGuides();
+            while (board.MoveNext()) yield return null;
+            yield break;
+        }
+        if (Environment.GetEnvironmentVariable("GHVRQ_TEST_STAT_PORTRAITS_ONLY") == "1")
+        {
+            IEnumerator portraits = QualifyStatSnapshots();
+            while (portraits.MoveNext()) yield return null;
+            Metrics = "focused actual native dual-portrait mesh and texture ownership";
+            yield break;
+        }
         if (Environment.GetEnvironmentVariable("GHVRQ_TEST_DROP_GUIDES_ONLY") == "1")
         {
             IEnumerator guides = QualifyDropGlows();

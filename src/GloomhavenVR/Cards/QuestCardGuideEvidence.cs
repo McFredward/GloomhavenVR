@@ -13,7 +13,7 @@ internal static class QuestCardGuideEvidence
     private static readonly List<string> Reports = new(8);
     private static (int owner, int hand, int mask, int first, int second, int held,
         int mode, int remaining, int handCards, int roundCards, int fields, int locked,
-        bool blocked, string box, string help, int pickWanted) _prior;
+        bool blocked, string box, string help, int pickWanted, int renderVersion) _prior;
     private static bool _havePrior;
 
     internal static void Observe(CardsHandUI? hand, PlayTray tray, int fields, int locked, bool blocked)
@@ -37,7 +37,8 @@ internal static class QuestCardGuideEvidence
                 hand != null ? (int)mode : -1,
                 hand != null && mode == CardHandMode.CardsSelection ? CardsGameApi.SelectionCardsStillWanted(hand) : -1,
                 character != null ? character.HandAbilityCards.Count : -1,
-                character != null ? character.RoundAbilityCards.Count : -1, fields, locked, blocked, box, help, pickWanted);
+                character != null ? character.RoundAbilityCards.Count : -1, fields, locked, blocked, box, help, pickWanted,
+                tray.QuestGuideRenderVersion);
             if (_havePrior && current.Equals(_prior)) return;
             _havePrior = true;
             _prior = current;

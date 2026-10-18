@@ -16,7 +16,7 @@ namespace GloomhavenVR.Cards
  {
   internal int NativeReads,DrawReads;internal bool Throw;internal int Mask=3,Owner=9; internal string? LongFacts;
   internal VRCard?[] Occupants=new VRCard?[2];internal VRCard? Occupant(int slot){NativeReads++;return Occupants[slot];}
-  internal int QuestGuideOwnerId=>Owner;internal int WantedSlotMask=>Mask;
+  internal int QuestGuideOwnerId=>Owner;internal int WantedSlotMask=>Mask;internal int QuestGuideRenderVersion {get;set;}
   internal string QuestGuideDrawState(int slot){DrawReads++;if(Throw)throw new InvalidOperationException();return LongFacts??("active="+((Mask&(1<<slot))!=0)+",renderer=True,mesh=4/1,color=True,material="+(slot+10)+",shader=GloomhavenVR/Overlay,state=0/4/0/1/1,det=1.00");}
  }
 }

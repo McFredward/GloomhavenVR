@@ -33,6 +33,8 @@ static class Program
         foreach(string expected in new[]{"mode=CardsSelection","wanted=3","occupied=00","selectionRemaining=2","handCards=2","roundCards=0","help=TB_select","left={active=True","right={active=True"})Check(first.Contains(expected),"actual guide facts missing "+expected);
         for(int n=0;n<100;n++)QuestCardGuideEvidence.Observe(native,board,0,0,false);
         Check(board.DrawReads==2&&QuestStandalonePlatform.CardGuideDiagnostics.Length==1,"unchanged selection repeatedly formats renderer facts");
+        board.QuestGuideRenderVersion=3;QuestCardGuideEvidence.Observe(native,board,0,0,false);
+        Check(board.DrawReads==4&&QuestStandalonePlatform.CardGuideDiagnostics.Length==2,"observed head submission is lost behind the earlier inactive-culling snapshot");
         board.Occupants[0]=new();board.Mask=2;native.PlayerActor!.CharacterClass!.RoundAbilityCards.Add(1);
         QuestCardGuideEvidence.Observe(native,board,0,0,false);
         string remaining=QuestStandalonePlatform.CardGuideDiagnostics.Last();

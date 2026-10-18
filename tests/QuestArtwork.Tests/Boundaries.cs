@@ -19,7 +19,7 @@ public static class Debug
 public sealed class FullAbilityCard : MonoBehaviour { public Image headerImage = null!; }
 public sealed class InitiativeTrack : MonoBehaviour { public static InitiativeTrack? Instance; }
 public sealed class InitiativeTrackActorAvatar : MonoBehaviour { public Image selectionImage = null!; }
-public sealed class ActorStatPanel : MonoBehaviour { public Image characterPortrait = null!; }
+public sealed class ActorStatPanel : MonoBehaviour { public Image characterPortrait = null!; public Image enemyPortrait = null!; }
 public static class Singleton<T> where T : class
 {
     public static T Instance = null!;
@@ -27,7 +27,7 @@ public static class Singleton<T> where T : class
 }
 namespace GloomhavenVR.Core
 {
-    internal static class QuestStandalonePlatform { internal static bool Enabled; internal static string ResourceDirectory = ""; }
+    internal static class QuestStandalonePlatform { internal static bool Enabled; internal static bool DebugLogging = true; internal static string ResourceDirectory = ""; }
     internal static class VRLog
     {
         internal static bool WantsDebug;
@@ -46,12 +46,12 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.Cards
 {
     internal sealed class Setting<T> { internal T Value; internal Setting(T value) { Value = value; } }
-    internal enum ControlBoard { Oak }
+    internal enum ControlBoard { Oak, Steel, Bronze }
     internal static class CardsConfig {
         internal static readonly Setting<bool> FaceMipBake = new(true);
         internal static readonly Setting<float> CardWidth = new(.0635f);
         internal static float CardHeight => .088f;
-        internal static ControlBoard CurrentBoard => ControlBoard.Oak;
+        internal static ControlBoard CurrentBoard = ControlBoard.Oak;
         internal static Setting<Vector3> SlotOverlayOffset(ControlBoard board) => new(new Vector3(.002f, -.003f, .001f));
         internal static Setting<float> SlotOverlaySpacing(ControlBoard board) => new(-.008f);
     }
@@ -62,8 +62,9 @@ namespace GloomhavenVR.Cards
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class WorldUIConfig { internal static readonly GloomhavenVR.Cards.Setting<bool> PanelMipBake = new(true); }
     internal static class CanvasConversion {
-        internal static Camera? WorldCamera => null;
+        internal static Camera? WorldCamera;
         internal static int OrderAboveDistance(float distance, int lift) => lift;
     }
 }

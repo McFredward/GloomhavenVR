@@ -71,6 +71,8 @@ def main():
     parser.add_argument('--native-header-project', type=Path, help='Optional retained owned game project; copies only the native Brute header Sprite/texture and exact shader inputs.')
     parser.add_argument('--color-space', choices=('gamma', 'linear'), default='linear')
     parser.add_argument('--drop-guides-only', action='store_true', help='Run only the actual card drop-guide geometry, material and evidence graph.')
+    parser.add_argument('--stat-portraits-only', action='store_true', help='Run only the native dual held-panel portrait snapshot graph.')
+    parser.add_argument('--native-board-probe', action='store_true', help='Measure both guide depth/geometry against the actual authored Steel board.')
     args = parser.parse_args()
     base = ROOT / '.planning/debug/quest-artwork'
     base.mkdir(parents=True, exist_ok=True)
@@ -79,15 +81,32 @@ def main():
     log.write_text('Quest artwork evidence: ' + str(run) + '\n')
     print(log.read_text(), end='', flush=True)
     sources = {}
-    for relative in ('Cards/Art/CardFaceMipBake.cs', 'Core/QuestTextureCopy.cs', 'Core/QuestPrimitiveMesh.cs', 'Cards/Art/CardGlow.cs', 'Cards/Art/QuestArtworkEvidence.cs', 'Cards/Art/QuestArtworkRegion.cs', 'Cards/Art/QuestCardAlpha.cs', 'Cards/Art/CardContour.cs'):
+    board_core = (ROOT / 'src/GloomhavenVR/Cards/Tray/PlayTray.1.Core.cs').read_text()
+    board_defaults = (ROOT / 'src/GloomhavenVR/Defaults/Defaults.Cards.cs').read_text()
+    scale = re.search(r'internal const float SlotScale = ([^;]+);', board_core).group(1)
+    wanted = {style: re.search(r'internal const float SlotOverlayScale_' + style + r' = ([^;]+);', board_defaults).group(1) for style in ('Oak', 'Steel', 'Bronze')}
+    sources['NativeBoardContract.cs'] = 'internal static class NativeBoardContract { internal const float SlotScale = ' + scale + '; internal static float Wanted(string style) => style switch { ' + ', '.join('"' + style + '" => ' + value for style, value in wanted.items()) + ', _ => throw new System.ArgumentException(style) }; }\n'
+    for relative in ('Cards/Art/CardFaceMipBake.cs', 'Core/QuestTextureCopy.cs', 'Core/QuestPrimitiveMesh.cs', 'Cards/Art/CardGlow.cs', 'Cards/Art/QuestCardGuideWitness.cs', 'Cards/Art/QuestArtworkEvidence.cs', 'Cards/Art/QuestArtworkRegion.cs', 'Cards/Art/QuestCardAlpha.cs', 'Cards/Art/CardContour.cs'):
         path = ROOT / 'src/GloomhavenVR' / relative
         sources[path.name] = path.read_text()
+    stat = (ROOT / 'src/GloomhavenVR/WorldUI/Surfaces/StatPanelSurface.cs').read_text()
+    sources['ActualStat.cs'] = '''using System.Collections.Generic; using UnityEngine; using UnityEngine.UI; using GloomhavenVR.Core;
+namespace GloomhavenVR.WorldUI; internal static class ActualStat {
+internal static readonly List<Texture2D> _copyOwnedTextures = new();
+internal static readonly List<Sprite> _copyOwnedSprites = new();
+internal static int Detach(ActorStatPanel original, GameObject copy) => DetachSharedImagery(original, copy);
+''' + method(stat, '    private static int DetachSharedImagery(') + method(stat, '    private static string? PathUnder(') + method(stat, '    private static Vector2 NormalizedPivot(') + '\n}\n'
     panel = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelMipBake.cs').read_text()
     sources['RawPortrait.cs'] = '''using System.Collections.Generic; using GloomhavenVR.Cards; using GloomhavenVR.Core; using UnityEngine; using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI; internal static class PanelMipBake {
 private static readonly Dictionary<int, Texture> s_rawOriginalByBaked = new(16);
+private static readonly List<Image> ImageScratch = new();
+private static readonly List<RawImage> RawScratch = new();
+private static readonly HashSet<string> s_swapLogged = new();
+private static bool s_errorLogged;
+private static void EnsureArrivalWatch() {} // The frame pump is outside this focused static rescan graph.
 internal static Texture OriginalFor(Texture texture) => s_rawOriginalByBaked.TryGetValue(texture.GetInstanceID(), out Texture original) && original != null ? original : texture;
-''' + method(panel, '    internal static bool RefreshRawTexture(') + '\n}\n'
+''' + method(panel, '    internal static bool RefreshRawTexture(') + method(panel, '    internal static void Rescan(') + '\n}\n'
     capture = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs').read_text()
     sources['ActualPanelCopies.cs'] = '''using GloomhavenVR.Core; using UnityEngine;
 namespace GloomhavenVR.WorldUI; internal static class ActualPanelCopies {
@@ -104,6 +123,7 @@ internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, 
     nested = (ROOT / 'src/GloomhavenVR/Cards/Tray/PlayTray.7.Nested.cs').read_text()
     sources['ActualWanted.cs'] = '''using GloomhavenVR.Core; using UnityEngine;
 namespace GloomhavenVR.Cards; internal sealed class ActualWanted : MonoBehaviour {
+private Transform? _visual = null;
 internal readonly Transform?[] _slots = new Transform?[2];
 internal readonly GameObject?[] _wantedHighlights = new GameObject?[2];
 private const float WantedGlowBaseZ = -.004f;
@@ -178,6 +198,9 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         ('alpha-provenance-missing', 'QuestArtworkEvidence.cs', '+ " contour=" + _abilityContour', '+ ""', 'existing bounded native artwork record names alpha delivery and actual contour outcome'),
         ('remote-drop-glow-owned-upload-missing', 'ActualRemoteGlow.cs', 'Cards.CardGlow.CreateGlowQuad(name, _root,', 'UnqualifiedGlow(name, _root,', 'actual mirrored slot guide owns the same explicit Quest vertex inputs'),
         ('guide-determinant-evidence-missing', 'ActualWanted.cs', '+ ",det=" + number(go.transform.localToWorldMatrix.determinant)', '+ ",missingDet=" + number(go.transform.localToWorldMatrix.determinant)', 'actual left/right guide facts retain transform determinant and independent material state'),
+        ('stat-copy-cpu-stale', 'ActualStat.cs', 'if (QuestStandalonePlatform.Enabled && !tex.isReadable)', 'if (QuestStandalonePlatform.Enabled && tex.isReadable)', 'actual panel mip rescan preserves native frozen portrait GPU pixels'),
+        ('stat-shared-texture', 'ActualStat.cs', 'img!.sprite = rebuilt;', 'img!.sprite = sprite;', 'frozen portrait owns its source texture independently of the native loader'),
+        ('guide-submission-silent', 'QuestCardGuideWitness.cs', 'Submitted = true;', 'Submitted = false;', 'actual head-camera submission updates guide evidence after culling'),
     ]
     if args.case:
         variants = [row for row in variants if row[0] in args.case]
@@ -218,6 +241,18 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         shutil.copyfile(ROOT / 'scripts/card-diagnostic-runtime/Editor/DiagnosticRunner.cs', project / 'Assets/Editor/DiagnosticRunner.cs')
         shutil.copyfile(ROOT / 'unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader', project / 'Assets/Resources/QuestTextureCopy.shader')
         shutil.copyfile(ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader', project / 'Assets/Resources/PrimitiveOverlay.shader')
+        if args.native_board_probe:
+            source_folder = ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table'
+            boards = [('PlayTray_9capjqp6', 'Steel'), ('PlayTray', 'Oak'), ('PlayTray_16vm268h', 'Bronze')]
+            files = [(model + '.prefab', 'NativeBoard' + style + '.prefab') for model, style in boards]
+            files += [(model + '.fbx', 'NativeBoardModel' + style + '.fbx') for model, style in [('PlayTray_9capjqp6', 'Steel'), ('PlayTray_prepped', 'Oak'), ('PlayTray_16vm268h', 'Bronze')]]
+            board_inputs = []
+            for source, destination in files:
+                for suffix in ('', '.meta'):
+                    shutil.copyfile(source_folder / (source + suffix), project / 'Assets/Resources' / (destination + suffix))
+                    original = source_folder / (source + suffix)
+                    board_inputs.append({'source': str(original), 'sha256': hashlib.sha256(original.read_bytes()).hexdigest(), 'fixturePath': 'Assets/Resources/' + destination + suffix})
+            (run / 'board-inputs.json').write_text(json.dumps({'inputs': board_inputs, 'core': hashlib.sha256(board_core.encode()).hexdigest(), 'defaults': hashlib.sha256(board_defaults.encode()).hexdigest(), 'slotScale': scale, 'wantedScale': wanted}, indent=2) + '\n')
         if args.native_header_project:
             retained = args.native_header_project.resolve()
             paths = {
@@ -271,6 +306,8 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a'] + command
         environment = dict(os.environ)
         if args.drop_guides_only: environment['GHVRQ_TEST_DROP_GUIDES_ONLY'] = '1'
+        if args.stat_portraits_only: environment['GHVRQ_TEST_STAT_PORTRAITS_ONLY'] = '1'
+        if args.native_board_probe: environment['GHVRQ_TEST_NATIVE_BOARD_PROBE'] = '1'
         process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=environment)
         code = process.wait(timeout=240)
         result = Path(manifest['result'])
