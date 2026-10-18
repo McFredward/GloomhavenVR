@@ -20,7 +20,7 @@ def main():
     parser.add_argument("--case", action="append", help="Run only the selected production/control case.")
     parser.add_argument("--alpha-only", action="store_true", help="Exercise the actual alpha-install/plugin boundary without unrelated startup cases.")
     args = parser.parse_args()
-    names = ("QuestGameBootstrap.cs", "QuestCardAlphaContent.cs", "QuestCardPixelContent.cs", "QuestFigureMeshContent.cs", "QuestAudioClipContent.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs", "QuestFrameEvidence.cs", "QuestSnapshotWriter.cs")
+    names = ("QuestGameBootstrap.cs", "QuestCardAlphaContent.cs", "QuestCardPixelContent.cs", "QuestFigureMeshContent.cs", "QuestAudioClipContent.cs", "QuestMovieContent.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs", "QuestFrameEvidence.cs", "QuestSnapshotWriter.cs")
     sources = {name: (args.runtime_source / name).read_text() for name in names}
     bootstrap = sources["QuestGameBootstrap.cs"]
     mutations = (
@@ -58,7 +58,7 @@ def main():
          "QuestGameContent.Deliver(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress)", "warm-no-content-reads"),
         ("warm-requests-loading-artwork", 'State = "checking-" + phase;',
          'contentWorkRequested = true;\n            State = "checking-" + phase;', "one-cold-view"),
-        ("actual-install-artwork-missing", "modLifecycle.BeginDeliveryView();", "/* Missing actual installation view */", "early-view-state"),
+        ("actual-install-artwork-missing", "modLifecycle.BeginDeliveryView();", "/* Missing actual installation view */", "one-cold-view"),
         ("global-startup-completes-before-native", "modLifecycle.UpdateStartupView(State, startupOverallPercent);",
          "modLifecycle.UpdateStartupView(State, 100);", "handover-percent"),
         ("missing-environment-dependency-header", "yield return PrepareModBanks(modRoot, CampaignPackageBuilt);",

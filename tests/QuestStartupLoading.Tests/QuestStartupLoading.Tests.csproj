@@ -13,6 +13,7 @@
     <Compile Include="$(RuntimeSource)/QuestCardPixelContent.cs" Link="QuestCardPixelContent.cs" />
     <Compile Include="$(RuntimeSource)/QuestFigureMeshContent.cs" Link="QuestFigureMeshContent.cs" />
     <Compile Include="$(RuntimeSource)/QuestAudioClipContent.cs" Link="QuestAudioClipContent.cs" />
+    <Compile Include="$(RuntimeSource)/QuestMovieContent.cs" Link="QuestMovieContent.cs" />
     <Compile Include="$(RuntimeSource)/QuestFrameEvidence.cs" Link="QuestFrameEvidence.cs" />
     <Compile Include="$(RuntimeSource)/QuestSnapshotWriter.cs" Link="QuestSnapshotWriter.cs" />
     <Compile Include="$(RuntimeSource)/QuestGameContent.cs" Link="QuestGameContent.cs" />

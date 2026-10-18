@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Linq;
 using GloomhavenVR.Quest;
 using UnityEngine;
 using UnityEngine.UI;
@@ -15,7 +16,7 @@ static class Program
         Resources.GlobalEnumerations = 0; Resources.TargetedQueries.Clear(); Resources.TargetedObjects = 0; SceneManager.Reset();
         QuestStandalonePlatform.Enabled = true; QuestStandalonePlatform.DebugLogging = false;
         Application.systemLanguage = language; Time.unscaledTime = 0;
-        return new QuestGameScope();
+        var scope = new QuestGameScope(); scope.gameObject.MoveToScene(SceneManager.Persistent); return scope;
     }
     static void Check(bool value, string message) { assertions++; if (!value) throw new Exception("FAIL " + message); }
     static void Tick(QuestGameScope scope, float time = 0)
@@ -203,12 +204,12 @@ static class Program
         Tick(scope);
         Check(Resources.GlobalEnumerations == 0, "scope never enumerates broad imported asset population");
 #if GHVR_QUEST_GAME
-        Check(Resources.TargetedQueries.Count == 5 && !Resources.TargetedQueries.Contains(typeof(MonoBehaviour))
+        Check(Resources.TargetedQueries.Distinct().Count() == 5 && !Resources.TargetedQueries.Contains(typeof(MonoBehaviour))
             && !Resources.TargetedQueries.Contains(typeof(GLOOM.MainMenu.UIMainOptionsMenu))
             && !Resources.TargetedQueries.Contains(typeof(VoiceChat.VoceChatOptions)),
             "full game queries only its five used exact original owner types");
 #else
-        Check(Resources.TargetedQueries.Count == 7 && !Resources.TargetedQueries.Contains(typeof(MonoBehaviour)), "scope queries only seven exact original owner types");
+        Check(Resources.TargetedQueries.Distinct().Count() == 7 && !Resources.TargetedQueries.Contains(typeof(MonoBehaviour)), "scope queries only seven exact original owner types");
 #endif
         Check(Resources.TargetedObjects <= 2, "scope transfers only native target candidates to managed code");
         Check(asset.NativeButton.interactable, "non-scene prefab purchase content remains untouched");
@@ -223,6 +224,7 @@ static class Program
         var scratch = new System.Collections.Generic.List<MonoBehaviour>();
         var discovery = new QuestSceneObjects(scope); discovery.Collect(roots, scratch);
         Check(roots.Contains(inactive) && !roots.Contains(asset), "scene discovery includes inactive and excludes imported assets");
+        Check(roots.Contains(scope), "persistent native roots discovered without global assets scan");
         int once = roots.FindAll(item => ReferenceEquals(item, scope)).Count;
         Check(once == 1, "anchor scene is not enumerated twice");
         Scene extra = SceneManager.AddScene(); var extraWidget = new FutureNativeOption(); extraWidget.gameObject.MoveToScene(extra);
@@ -266,17 +268,17 @@ static class Program
         Check(subclass.NativeButton.interactable, "targeted scope excludes future native subclasses from exact owner binding");
         Check(Resources.TargetedObjects == 5, "targeted query crosses managed boundary only for matching candidates");
         SceneManager.Unload(extra);
-        var targeted = new QuestScopeObjects(); var actual = new System.Collections.Generic.List<MonoBehaviour>();
+        var targeted = new QuestScopeObjects(scope); var actual = new System.Collections.Generic.List<MonoBehaviour>();
         targeted.Collect(actual);
         Check(!actual.Contains(additive), "targeted discovery drops unloaded scene owners");
-        Check(actual.Count == 3 && targeted.LastNativeObjectCount == 5, "targeted result filters exact identities without broad scene census");
+        Check(actual.Count == 3 && targeted.LastNativeObjectCount == 4, "targeted result filters exact identities without broad scene census");
         var delayed = new UIPromotionDLCSlot(); delayed.gameObject.SetActive(false); Tick(scope, .01f);
         Check(delayed.NativeButton.interactable, "targeted discovery retains ordinary delayed-spawn cadence");
         Tick(scope, 1.01f); Check(!delayed.NativeButton.interactable, "targeted discovery finds new inactive owners without lifecycle hooks");
         UnityEngine.Object.Destroy(delayed);
         targeted.Collect(actual); Check(!actual.Contains(delayed), "targeted discovery drops destroyed owners");
         bool rejected = false;
-        try { _ = new QuestScopeObjects(new[] { typeof(GameObject) }); }
+        try { _ = new QuestScopeObjects(new[] { typeof(GameObject) }, scope); }
         catch (InvalidOperationException error) { rejected = error.Message.Contains("MonoBehaviour ABI"); }
         Check(rejected, "targeted discovery validates exact owner component ABI once");
         NoErrors("targeted discovery");

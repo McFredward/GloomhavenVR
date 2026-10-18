@@ -116,6 +116,13 @@ namespace GloomhavenVR.Quest
         public static IEnumerator InstallRoutine(string apk, string streamingAssets, string root,
             Action<QuestGameContentProgress> progress, Action present) { yield break; }
     }
+    // Actual movie publication/resume is tested by QuestMovieContent.Tests;
+    // this logger boundary does not execute the startup delivery coroutine.
+    public static class QuestMovieContent
+    {
+        public static IEnumerator InstallRoutine(string apk, string streamingAssets, string root,
+            Action<QuestGameContentProgress> progress, Action present) { yield break; }
+    }
     // Actual pixel publication and worker lifetime run at the independent
     // Bootstrap boundary; this logger fixture substitutes downstream delivery.
     public static class QuestCardPixelContent

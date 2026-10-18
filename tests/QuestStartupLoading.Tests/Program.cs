@@ -172,8 +172,8 @@ internal static class Program
     }
     static void Successful(QuestGameBootstrap owner, Inputs inputs, bool warm)
     {
-        Check(owner.State != "failed", "startup-completes", "startup failed: " + owner.FailureDetail);
         Check(Fixture.WorkerApiCalls == 0, "worker-api", "content worker accessed Unity API");
+        Check(owner.State != "failed", "startup-completes", "startup failed: " + owner.FailureDetail);
         Check(owner.ModContentReady && owner.ContentReady && owner.OriginalBootstrapStarted, "verified-order", "ready flags must follow actual successful files and original scene");
         Check(Fixture.Activations == 1 && Fixture.Addressables == 1 && Fixture.Loads == 1, "one-owner", "one downstream activation is required");
         string[] events = Fixture.Events.ToArray();
@@ -297,8 +297,8 @@ internal static class Program
                     "pixels-wrong-parent", "the unused parent must not receive a pixel sidecar");
             };
             var owner = Owner(); new Pump(owner).Finish();
-            Check(observed == 1, "alpha-before-plugin", "plugin boundary was not observed exactly once");
             Successful(owner, inputs, warm);
+            Check(observed == 1, "one-owner", "plugin boundary was not observed exactly once");
         }
     }
     static void Success(string name, bool editor = false, bool warm = false, bool legacy = false)

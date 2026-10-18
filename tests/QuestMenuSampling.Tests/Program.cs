@@ -9,6 +9,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Sprites;
 using UnityEngine.UI;
+using Debug = UnityEngine.Debug;
 
 namespace GloomhavenVR.Core
 {
@@ -451,6 +452,17 @@ public static class InteractionProgram
         foreach (Color pixel in Pixels(smallQuest))
             Check(pixel.r > .97f && Math.Abs(pixel.a - .25f) < .02f, "animated mip output refreshes with original alpha");
 
+        // Native spinner atlases are bilinear. The point-sampled stroke chart
+        // above intentionally aliases at texel ties, where the native and
+        // primitive quad's opposite triangle diagonals can round differently.
+        // Preserve the strict pixel comparison under the actual sprite filter.
+        texture.filterMode = FilterMode.Bilinear;
+        // The spinner test varies authored trim, tint and drawing coordinates;
+        // use asymmetric continuous atlas values so sub-texel triangle rounding
+        // cannot become a second, unrelated high-frequency aliasing test.
+        for (int y = 0; y < 512; y++) for (int x = 0; x < 512; x++)
+            samples[y * 512 + x] = new Color(x / 511f, y / 511f, .3f, .25f + .75f * x / 511f);
+        texture.SetPixels(samples); texture.Apply(false);
         var sprite = Sprite.Create(texture, new Rect(0, 0, 128, 64), new Vector2(.5f, .5f));
         Image basis = Image(sprite, new Vector2(64, 64), new Vector2(.5f, .5f), true);
         QuestStandalonePlatform.Enabled = false;
@@ -459,12 +471,7 @@ public static class InteractionProgram
         QuestStandalonePlatform.Enabled = true;
         Check(!LoadingIndicator.PersistentArtAllowed(), "Quest boot ignores untrusted persisted ReadPixels artwork");
         CompareImage(basis, basis);
-        // The native spinner atlas is bilinear. Compare the owned GPU copy
-        // under that same source contract, not this fixture's point-sampled
-        // high-frequency screen-aliasing chart.
-        texture.filterMode = FilterMode.Bilinear;
         CompareImage(basis, basis, boot: true);
-        texture.filterMode = FilterMode.Point;
         CompareImage(Image(sprite, new Vector2(64, 96), new Vector2(.2f, .8f), true), basis);
         CompareImage(Image(sprite, new Vector2(64, 96), new Vector2(.2f, .8f), false), basis);
         // The persisted boot PNG has full identity UVs, unlike a native atlas

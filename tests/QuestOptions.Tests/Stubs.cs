@@ -5,6 +5,10 @@ namespace GloomhavenVR.Core
     internal static class QuestStandalonePlatform { internal static bool Enabled; }
     internal static class FrameNativePassthrough { internal static bool Required; }
 }
+namespace GloomhavenVR.Core.SteamLink
+{
+    internal static class SteamLinkConnection { internal static bool Available = true; }
+}
 namespace GloomhavenVR.WorldUI
 {
     internal static class ConfigCatalog

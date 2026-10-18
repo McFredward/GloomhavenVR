@@ -42,9 +42,9 @@ static class NativeSDKProbe
                 var owner = Type.GetType(name + ", GH.Runtime", true)!;
                 Check(owner.Assembly == original && typeof(MonoBehaviour).IsAssignableFrom(owner) && !owner.IsAbstract, "exact scope owner " + name);
             }
-            var find = typeof(Resources).GetMethod("FindObjectsOfTypeAll", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(Type) }, null);
-            Check(find != null && find.ReturnType == typeof(UnityEngine.Object[]), "native exact-type discovery API");
-            var discovery = new GloomhavenVR.Quest.QuestScopeObjects();
+            var find = typeof(GameObject).GetMethod("GetComponentsInChildren", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(Type), typeof(bool) }, null);
+            Check(find != null && find.ReturnType == typeof(Component[]), "native exact-type scene hierarchy discovery API");
+            var discovery = new GloomhavenVR.Quest.QuestScopeObjects((Component)null!);
             var targets = (Type[])typeof(GloomhavenVR.Quest.QuestScopeObjects).GetField("targets", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(discovery)!;
             Check(targets.Select(t => t.FullName).SequenceEqual(names), "production exact original type bindings validated once without an assembly census");
             var tooltip = Type.GetType("UITextTooltipTarget, GH.Runtime", true)!;

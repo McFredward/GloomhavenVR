@@ -23,7 +23,8 @@ internal static class Program
                     object value = item.PersistedValue;
                     bool excluded = row == "MixedReality\tKeyColor" || row == "WorldUI\tDesktopMirrorLeftEye"
                         || row == "Compat\tDisableComponents";
-                    Check(VROptionsTab.Visible(item) == (!quest || !excluded), quest ? "Quest exact exclusions match live keys" : "desktop all live options remain visible");
+                    bool retired = row == "MixedReality\tSteamLinkEncodeWidth";
+                    Check(VROptionsTab.Visible(item) == (!retired && (!quest || !excluded)), quest ? "Quest exact exclusions match live keys" : "desktop all live options remain visible");
                     Check(ReferenceEquals(item.PersistedValue, value), "visibility leaves persisted value untouched");
                 }
                 foreach (string[] key in new[]
@@ -47,6 +48,9 @@ internal static class Program
             Check(VROptionsTab.Visible(new ConfigCatalog.ConfigItem("Compat", "DisableComponents")),
                 "Quest inert component suppression does not alter the desktop catalog");
             FrameNativePassthrough.Required = false;
+            GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = false;
+            foreach (string key in new[] { "SteamLinkNative", "SteamLinkEdgeQuality" })
+                Check(!VROptionsTab.Visible(new ConfigCatalog.ConfigItem("MixedReality", key)), "unavailable SteamLink controls remain hidden");
             Console.WriteLine("PASS Quest option visibility: " + assertions + " behavioral assertions over " + rows.Length + " live default keys");
             return 0;
         }

@@ -82,6 +82,14 @@ namespace UnityEngine
         {
             result.Clear(); AppendComponents(includeInactive, result);
         }
+        public Component[] GetComponentsInChildren(Type type, bool includeInactive)
+        {
+            Resources.TargetedQueries.Add(type);
+            var values = new List<Component>(); AppendComponents(includeInactive, values);
+            var found = values.Where(value => type.IsAssignableFrom(value.GetType())).ToArray();
+            Resources.TargetedObjects += found.Length;
+            return found;
+        }
         void AppendComponents<T>(bool includeInactive, List<T> result) where T : Component
         {
             if (Destroyed || (!includeInactive && !activeSelf)) return;
@@ -141,7 +149,7 @@ namespace UnityEngine.SceneManagement
         {
             result.Clear(); if (Data == null) return;
             foreach (UnityEngine.GameObject root in Data.Roots)
-                if (!root.Destroyed && root.Parent == null) result.Add(root);
+                if (!root.Destroyed && root.Parent == null && root.scene.handle == handle) result.Add(root);
         }
     }
     public static class SceneManager
