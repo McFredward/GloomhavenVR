@@ -73,6 +73,8 @@ internal static class CardGlow
         Material? mat = material ?? MakeGlowMaterial(color);
         if (mat != null)
             quad.GetComponent<MeshRenderer>().sharedMaterial = mat;
+        if (owned != null)
+            quad.AddComponent<QuestGlowUniforms>();
         quad.SetActive(false);
         return quad;
     }
@@ -99,6 +101,41 @@ internal static class CardGlow
     // rejected that whole flat-quad look — the card is now framed by WorldUI.SoftCueArt's outline
     // (breathing via SoftFramePulse) and the stack drifts embers, so nothing wanted a pulsing quad any
     // more. The board play slots keep their own PlayTray.SlotPulse, which is where that math came from.
+}
+
+/// <summary>Explicit per-draw tint for Quest's private additive overlay quads.</summary>
+internal sealed class QuestGlowUniforms : MonoBehaviour
+{
+    private static readonly int ColorId = Shader.PropertyToID("_Color");
+    private Renderer? _renderer;
+    private Material? _lastMaterial;
+    private MaterialPropertyBlock? _block;
+    private Color _lastColor;
+    private bool _bound;
+
+    private void OnEnable() => _bound = false;
+
+    private void LateUpdate()
+    {
+        if (!QuestStandalonePlatform.Enabled) return;
+        if (_renderer == null) _renderer = GetComponent<Renderer>();
+        Material? material = _renderer != null ? _renderer.sharedMaterial : null;
+        if (material == null || !material.HasProperty(ColorId)) return;
+        Color color = material.GetColor(ColorId);
+        if (_bound && material == _lastMaterial && color == _lastColor) return;
+        // B692 proves both wanted-slot overlays are active, inside the head
+        // frustum and submitted together, with independent positive material
+        // tints. It does not prove the Android draw received those uniforms.
+        // Isolate that remaining input on the existing private renderer. Keep
+        // the same material, additive blend, pulse, geometry and LEqual test;
+        // never light a slot the native game did not request. This controlled
+        // upload is an Android hypothesis, not a diagnosed driver defect.
+        _block ??= new MaterialPropertyBlock();
+        _renderer!.GetPropertyBlock(_block);
+        _block.SetColor(ColorId, color);
+        _renderer.SetPropertyBlock(_block);
+        _lastMaterial = material; _lastColor = color; _bound = true;
+    }
 }
 
 /// <summary>Release only the optional Quest cue upload, never Unity's shared Quad.</summary>

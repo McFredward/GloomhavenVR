@@ -34,6 +34,8 @@ public static partial class DiagnosticProgram
                 "actual wanted-slot consumer owns explicit white COLOR on Quest");
             Check(item.GetComponent<QuestGlowMeshOwner>() != null,
                 "wanted-slot upload is owned by the visual lifetime");
+            Check(item.GetComponent<QuestGlowUniforms>() != null,
+                "Quest overlays own their explicit per-renderer tint binding");
             Check(item.GetComponent<Renderer>().sharedMaterial.mainTexture == Texture2D.whiteTexture,
                 "actual Quest guide explicitly binds its authored white sampler independently of previous native draws");
             for (int vertex = 0; vertex < native.vertexCount; vertex++)
@@ -55,6 +57,14 @@ public static partial class DiagnosticProgram
         Material material = cue.GetComponent<MeshRenderer>().sharedMaterial;
         Check(material.color == new Color(.25f * amount, .85f * amount, .6f * amount, amount),
             "actual original wanted pulse retains its waveform and brightness");
+        var inherited = new MaterialPropertyBlock();
+        inherited.SetFloat("_VertexColor", 1f);
+        cue.GetComponent<Renderer>().SetPropertyBlock(inherited);
+        FlushTint(cue);
+        var bound = new MaterialPropertyBlock(); cue.GetComponent<Renderer>().GetPropertyBlock(bound);
+        Check(bound.HasColor(Shader.PropertyToID("_Color")) && bound.GetColor("_Color") == material.color
+            && bound.GetFloat("_VertexColor") == 1f,
+            "Quest per-draw tint is exact and retains unrelated renderer overrides");
         Check(material.GetInt("_SrcBlend") == (int)BlendMode.One
             && material.GetInt("_DstBlend") == (int)BlendMode.One
             && material.GetInt("_ZWrite") == 0 && material.GetInt("_ZTest") == (int)CompareFunction.LessEqual,
@@ -69,7 +79,8 @@ public static partial class DiagnosticProgram
         var desktop = Keep(CardGlow.CreateGlowQuad("desktop-unchanged", host.transform, Vector3.one,
             Vector3.zero, Color.white));
         Check(desktop.GetComponent<MeshFilter>().sharedMesh == native
-            && desktop.GetComponent<QuestGlowMeshOwner>() == null, "desktop cue retains native mesh by identity");
+            && desktop.GetComponent<QuestGlowMeshOwner>() == null && desktop.GetComponent<QuestGlowUniforms>() == null,
+            "desktop cue retains native mesh by identity");
         Material desktopMaterial = desktop.GetComponent<Renderer>().sharedMaterial;
         Texture? desktopTexture = desktopMaterial.mainTexture;
         QuestCardGuideWitness.Attach(desktop, null);
@@ -106,11 +117,17 @@ public static partial class DiagnosticProgram
             finally { RenderTexture.active = prior; }
         }
         gold.SetActive(false); Color32 background = Capture(); gold.SetActive(true);
+        FlushTint(gold);
         Color32 lit = Capture();
         UnityEngine.Debug.Log("Owned additive cue pixels: background=" + background + " cue=" + lit
             + " shader=" + gold.GetComponent<Renderer>().sharedMaterial.shader.name);
         Check(lit.r > background.r + 10 && lit.g > background.g + 10 && lit.b > background.b,
             "actual additive cue draws nonzero native GPU pixels");
+        Color authoredTint = gold.GetComponent<Renderer>().sharedMaterial.color;
+        gold.GetComponent<Renderer>().sharedMaterial.color = Color.black;
+        Color32 isolated = Capture();
+        Check(isolated.Equals(lit), "explicit Quest tint survives a stale shared-material uniform at actual draw");
+        gold.GetComponent<Renderer>().sharedMaterial.color = authoredTint;
         // Test BOTH actual wanted consumers, including a mirrored first anchor.
         // Cull-Off and explicit primitive colors must retain the same pulse.
         gold.SetActive(false);
@@ -124,6 +141,7 @@ public static partial class DiagnosticProgram
             item.layer = 30; item.SetActive(true);
             MonoBehaviour actualPulse = Array.Find(item.GetComponents<MonoBehaviour>(), p => p.GetType().Name == "SlotPulse")!;
             actualPulse.GetType().GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(actualPulse, null);
+            FlushTint(item);
             Material actualMaterial = item.GetComponent<MeshRenderer>().sharedMaterial;
             if (i == 0) firstWantedMaterial = actualMaterial;
             else Check(actualMaterial != firstWantedMaterial, "left and right pulses retain independent material ownership");
@@ -167,6 +185,12 @@ public static partial class DiagnosticProgram
         host.SetActive(false); blocker.SetActive(false);
         if (stereo) Shader.EnableKeyword("STEREO_INSTANCING_ON");
         Camera.SetupCurrent(priorCamera); RenderTexture.active = priorTarget; GL.sRGBWrite = priorColor;
+    }
+
+    private static void FlushTint(GameObject cue)
+    {
+        var upload = cue.GetComponent<QuestGlowUniforms>();
+        upload?.GetType().GetMethod("LateUpdate", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(upload, null);
     }
 
     private static Mesh[] QualifyRemoteDropGlows()
