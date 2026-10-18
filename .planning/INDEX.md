@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-19: Quest Build709 current-dev rebase, stereo movie delivery and minimal-update review.
+Updated 2026-10-19: Quest Build710 current-dev rebase, stereo movie delivery and minimal-update review.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current

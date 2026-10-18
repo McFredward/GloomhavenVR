@@ -125,7 +125,7 @@ class UpdateMigrationTests(unittest.TestCase):
             self.assertLess(result["stagePercent"], 100)
         saved = self.store.load(self.session); saved["stages"][5]["status"] = "complete"; self.store.save(saved)
         self.assertEqual(self.row()["progress"]["stagePercent"], 100)
-        self.assertEqual(self.row()["progress"]["buildOverview"]["done"], 23)
+        self.assertEqual(self.row()["progress"]["buildOverview"]["done"], len(stage_plan.PLANS['build']))
 
     def stage_context(self):
         saved = self.store.load(self.session)

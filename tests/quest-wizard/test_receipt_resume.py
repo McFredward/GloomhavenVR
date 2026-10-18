@@ -109,7 +109,7 @@ class ReceiptResumeTests(unittest.TestCase):
         state.atomic_json(self.store.receipt(self.session, "build"), receipt)
         self.path.unlink(); self.assertIsNone(self.store.valid(self.session, "build", "same-input"))
 
-    def test_tampered_persistent_hash_and_copied_namespace_require_actual_requalification(self):
+    def test_tampered_hash_is_requalified_and_new_owner_reuses_exact_unchanged_bytes(self):
         receipt = self.publish()
         with closing(sqlite3.connect(self.database())) as db:
             db.execute("UPDATE validated_file_witnesses SET sha=?", ("0" * 64,))
@@ -118,13 +118,14 @@ class ReceiptResumeTests(unittest.TestCase):
         with mock.patch.object(state, "digest", wraps=state.digest) as reader:
             self.assertEqual(self.store.valid(self.session, "build", "same-input"), receipt)
             self.assertEqual(reader.call_count, 1)
-        # Another stage/key cannot inherit a row merely by relabelling JSON.
+        # Another owner may adopt the exact strong-stamped bytes just proved
+        # above. Relabelling never substitutes a different hash or file stamp.
         copied = {**receipt, "stage": "tools", "key": "another-input"}
         state.atomic_json(self.store.receipt(self.session, "tools"), copied)
         self.helper._invocation_file_proofs.clear()
         with mock.patch.object(state, "digest", wraps=state.digest) as reader:
             self.assertEqual(self.store.valid(self.session, "tools", "another-input"), copied)
-            self.assertEqual(reader.call_count, 1)
+            self.assertEqual(reader.call_count, 0)
 
     def test_links_reparse_paths_and_receipt_escape_are_rejected(self):
         receipt = self.publish()

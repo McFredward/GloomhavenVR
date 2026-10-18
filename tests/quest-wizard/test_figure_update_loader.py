@@ -77,7 +77,8 @@ def probe(source, mode):
         base['figureBanks'] = {'producerKey': helper.figure_banks.plan(source, game)['producerKey']}
     observed = []
     actual_requirements = updates.update_requirements
-    def requirements(*args):
+    def requirements(*args, output=None):
+        assert output == store.root / 'build'
         result = actual_requirements(*args); observed.append(result); return result
 
     with tempfile.TemporaryDirectory(prefix='quest wizard figure context ') as folder:

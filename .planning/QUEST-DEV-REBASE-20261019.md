@@ -5,15 +5,15 @@
 The maintainer requested current dev features, including 3D movies, before the
 next Quest hardware test, followed by a comprehensive Builder/runtime review.
 The integration rebases the consolidated published Quest delta from B693
-(`79a53d673`) onto dev B708 (`8f25f7925`). Published feature history remains
+(`79a53d673`) onto dev B709 (`0eb8e6a81`), including its observer-retirement and focus fixes. Published feature history remains
 reachable through an ancestry-only merge, permitting a normal fast-forward
 feature push. The Quest exception remains in effect: no Quest integration into
 dev and no force push. Commit attribution remains McFredward.
 
-Build709 retains the B693 environment JSON reader, scoped fire-mask leases,
+Build710 retains the B693 environment JSON reader, scoped fire-mask leases,
 corrected original-channel audio bank, per-renderer slot-pulse binding and native
 menu spinner handoff. These remain hardware candidates; the latest input capture
-proved B692/previous B691, not successful headset behavior of B709. Desktop dev
+proved B692/previous B691, not successful headset behavior of B710. Desktop dev
 features remain current, while native Windows Steam Link helpers remain excluded
 by actual platform/session/connection admission on Android.
 
@@ -55,6 +55,10 @@ and receipt-backed. A producer revision alone never invalidates unchanged files.
   The original-prefix digest remains
   `cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f`.
   Exact late-delivery normalization does not omit unknown earlier consumers.
+- Exact complete B692/B693 runtime profiles use a replayable bounded transaction
+  for the five reviewed startup/video/audio scripts. Preserve `.meta`, existing
+  script GUIDs, the 27 completed producers and Unity Library, including a cut
+  after a new script was copied. Unknown profiles still require qualification.
 - Current dev changes require a matched native-code/metadata update. Existing
   original game conversion, completed preparation and compatible native object
   caches remain reusable; an old DLL alone cannot replace an IL2CPP native pair.

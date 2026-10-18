@@ -96,6 +96,7 @@ class SupportIntegrationTests(unittest.TestCase):
             path = source / name; path.parent.mkdir(parents=True, exist_ok=True)
             if name in release.PUBLIC_PACKAGES: shutil.copyfile(ROOT / name, path)
             else: path.write_text('public source fixture')
+        release.write_json(source / 'tools/quest-movies/recipe.json', {'schema': 1, 'movies': []})
         def manifest():
             records = [release.record_file(path, path.relative_to(source).as_posix()) for path in source.rglob('*') if path.is_file() and path.name != release.MANIFEST]
             release.write_json(source / release.MANIFEST, {'schema': 1, 'kind': 'GloomhavenVR game-free Windows builder',

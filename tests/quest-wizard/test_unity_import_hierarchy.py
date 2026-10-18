@@ -34,9 +34,10 @@ class UnityImportHierarchyTests(unittest.TestCase):
     def test_import_is_before_api_with_unchanged_shares_and_one_owner_group(self):
         operations = stage_plan.PLANS["build"]
         self.assertLess(operations.index("unity-import"), operations.index("package-api"))
-        self.assertEqual(stage_plan.BUILD_SHARES["unity-import"], 18)
+        self.assertEqual(stage_plan.BUILD_SHARES["unity-import"], 8)
+        self.assertEqual(stage_plan.BUILD_SHARES["stereo-movies"], 10)
         self.assertEqual(stage_plan.BUILD_SHARES["package-api"], 1)
-        self.assertEqual(stage_plan.BUILD_GROUPS["code"], ("weave",))
+        self.assertEqual(stage_plan.BUILD_GROUPS["code"], ("figure-banks", "native-audio", "stereo-movies", "weave"))
         self.assertEqual(stage_plan.BUILD_GROUPS["import"], ("unity-import", "package-api", "unity-validation"))
         self.assertEqual(len(operations), len(set(operations)))
 
@@ -123,7 +124,7 @@ class UnityImportHierarchyTests(unittest.TestCase):
         self.store.save(saved)
         migrated = self.row()
         self.assertEqual(migrated["progress"]["stageOperation"], "unity-import")
-        self.assertEqual(migrated["progress"]["stagePercent"], 74.8)
+        self.assertEqual(migrated["progress"]["stagePercent"], max(74.8, sum(stage_plan.BUILD_SHARES[op] for op in before_import)))
         self.assertNotIn("unity-import", migrated["progressPlan"]["completed"])
         self.assertNotIn("package-api", migrated["progressPlan"]["completed"])
         self.store.progress(self.session, "build", "starting")

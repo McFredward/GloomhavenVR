@@ -1,6 +1,6 @@
-**Quest current-dev integration and review, 2026-10-19: feature / B709.**
+**Quest current-dev integration and review, 2026-10-19: feature / B710.**
 
-Rebase the published Quest adaptations onto dev708 while preserving existing
+Rebase the published Quest adaptations onto dev709 while preserving existing
 hardware fixes. Deliver current stereo movies through owned local reconstruction
 and independently cached Android shaders, with static AOT URL substitutions and
 native clock/continuation ownership. Keep the original Campaign preparation

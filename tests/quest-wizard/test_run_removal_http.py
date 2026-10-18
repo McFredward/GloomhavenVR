@@ -208,11 +208,11 @@ class RunRemovalHttpTests(unittest.TestCase):
         self.assertEqual(self.request("/api/storage/runs")[1]["runs"], [])
         self.assertTrue(apk.is_file() and bank.is_file() and key.is_file())
 
-    def test_completed_run_and_actual_active_build_cannot_be_discarded(self):
+    def test_completed_run_can_be_previewed_but_actual_active_build_cannot_be_discarded(self):
         complete = self.create("complete")
         self.assertEqual(self.request("/api/storage/plan", {
             "mode": "session", "session": complete, "removeData": True})[0], 200)
-        self.assertEqual(self.wait_status("failed")["status"], "failed")
+        self.assertEqual(self.wait_status("preview")["status"], "preview")
         self.assertTrue(self.store.session_dir(complete).is_dir())
         stopped = threading.Event()
         job = threading.Thread(target=stopped.wait)
