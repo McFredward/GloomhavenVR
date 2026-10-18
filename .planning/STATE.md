@@ -1,5 +1,16 @@
 # State — where the project stands
 
+**Quest B686 hardware review, 2026-10-18: confirmed card cuts; loading open.**
+
+Capture114020 verifies installed/current686, previous685. The maintainer confirms
+physical card cuts and complete artwork. Preserve the now-qualified CPU contour
+consumer. Pre-menu spinner still flashes only briefly; partial world and endless
+scenario loading remain. Actual readiness identifies busy, incomplete Wall1 in
+requested roomB despite complete parent-room counters. Original engine Update
+continues. Investigate native child request/task/EndContentUpdate, without fake
+completion or renderer forcing. See
+[QUEST-HARDWARE-114020-20261018.md](QUEST-HARDWARE-114020-20261018.md).
+
 **Quest consumer and loading follow-up, 2026-10-18: feature / B686.**
 
 Capture103822 verifies installed/current685, previous684. No new screenshot was
