@@ -48,7 +48,7 @@ public static class InteractionProgram
         var hidden = Owner<ScopeOwnerF>("Original DontSave owner", root.transform); hidden.hideFlags = HideFlags.HideAndDontSave;
         var future = Owner<FutureScopeOwner>("Future subclass stays native", root.transform);
         var last = Owner<ScopeOwnerG>("Original final owner", root.transform);
-        var targeted = new QuestScopeObjects(Types); var previous = new QuestSceneObjects(persistent);
+        var targeted = new QuestScopeObjects(Types, persistent); var previous = new QuestSceneObjects(persistent);
         var actual = new List<MonoBehaviour>(); var old = new List<MonoBehaviour>(); var scratch = new List<MonoBehaviour>();
         var beforeScope = persistent.gameObject.AddComponent<QuestGameScopeB621>(); beforeScope.enabled = false;
         var afterScope = persistent.gameObject.AddComponent<QuestGameScope>(); afterScope.enabled = false;
@@ -67,6 +67,8 @@ public static class InteractionProgram
         Check(actual.Contains(persistent), "actual DDOL scope owner retained");
         Check(!actual.Contains(imported!.GetComponent<ScopeOwnerA>()), "actual imported scope prefab remains untouched");
         Check(!actual.Contains(future), "actual future native subclass remains outside exact scope");
+        Check(actual.Select(value => value.GetInstanceID()).Distinct().Count() == actual.Count,
+            "loaded scene traversal visits each native owner once");
         Check(targeted.LastNativeObjectCount < 32, "native exact-type queries transfer only rare candidates among 14k behaviours");
         Equivalent(previous, targeted, old, scratch, actual);
         var delayed = Owner<ScopeOwnerD>("Late owner under inactive parent", inactive.transform);
@@ -121,7 +123,7 @@ public static class InteractionProgram
         var perTypeWorst = new double[Types.Length];
         var previousQuery = new double[Types.Length];
         var familyCounts = new int[Types.Length];
-        var phased = new QuestScopeObjects(Types);
+        var phased = new QuestScopeObjects(Types, persistent);
         typeof(QuestGameScope).GetField("scopeObjects", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(afterScope, phased);
         started = Stopwatch.GetTimestamp(); afterScan(0d);
         initialMs = (Stopwatch.GetTimestamp() - started) * 1000d / Stopwatch.Frequency;
@@ -178,7 +180,26 @@ public static class InteractionProgram
         }
         Check(phased.NeedsScan(1.01d) == false, "low-FPS scheduling misses no deadline after a complete known-family cycle");
         Object.DestroyImmediate(existing);
+        var global = new B689ScopeObjects(Types);
+        var assets = new List<ScriptableObject>();
+        double assetGlobalMs, assetSceneMs;
+        try
+        {
+            for (int i = 0; i < 24000; i++) assets.Add(ScriptableObject.CreateInstance<UnrelatedScopeAsset>());
+            global.Collect(old); targeted.Collect(actual);
+            Check(new HashSet<int>(old.Select(value => value.GetInstanceID())).SetEquals(actual.Select(value => value.GetInstanceID())),
+                "scene-scoped native queries retain exact B689 membership with 24k unrelated native asset objects");
+            started = Stopwatch.GetTimestamp();
+            for (int i = 0; i < 40; i++) global.Collect(old);
+            assetGlobalMs = (Stopwatch.GetTimestamp() - started) * 1000d / Stopwatch.Frequency / 40;
+            started = Stopwatch.GetTimestamp();
+            for (int i = 0; i < 40; i++) targeted.Collect(actual);
+            assetSceneMs = (Stopwatch.GetTimestamp() - started) * 1000d / Stopwatch.Frequency / 40;
+        }
+        finally { foreach (ScriptableObject asset in assets) Object.DestroyImmediate(asset); }
         string facts = "oldSceneMs=" + oldMs.ToString("R", CultureInfo.InvariantCulture)
+            + "\nassetPoolNativeObjects=24000\nassetPoolB689GlobalCycleMs=" + assetGlobalMs.ToString("R", CultureInfo.InvariantCulture)
+            + "\nassetPoolSceneTypedCycleMs=" + assetSceneMs.ToString("R", CultureInfo.InvariantCulture)
             + "\ntargetedMs=" + targetedMs.ToString("R", CultureInfo.InvariantCulture)
             + "\ncoldTargetedMs=" + coldTargetedMs.ToString("R", CultureInfo.InvariantCulture)
             + "\nallocationCounterReliable=" + allocationCounterReliable + "\nknown8192ByteAllocationCounterDelta=" + probeAllocated
@@ -213,7 +234,7 @@ public static class InteractionProgram
         // The full player has five live exclusion families; its two legacy
         // diagnostic-only families must not add routine native searches. Test
         // the same collector with five real types among this same 14k population.
-        var fullFamilies = new QuestScopeObjects(Types.Skip(2).ToArray());
+        var fullFamilies = new QuestScopeObjects(Types.Skip(2).ToArray(), persistent);
         fullFamilies.CollectDue(0d, actual);
         Check(fullFamilies.LastQueryTypeCount == 5, "full-game family count performs exactly five initial native queries");
         previous.Collect(old, scratch);
@@ -254,3 +275,5 @@ public static class InteractionProgram
         yield break;
     }
 }
+
+public sealed class UnrelatedScopeAsset : ScriptableObject { }

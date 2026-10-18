@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace GloomhavenVR.Quest
 {
@@ -24,6 +25,9 @@ namespace GloomhavenVR.Quest
         readonly Type[] targets;
         readonly double[] deadlines;
         readonly int[] matchedCounts, nativeCounts;
+        readonly Component anchor;
+        readonly List<Scene> scenes = new List<Scene>();
+        readonly List<GameObject> roots = new List<GameObject>();
         bool scheduled;
         double lastQueryTime;
         internal int LastNativeObjectCount { get; private set; }
@@ -31,12 +35,13 @@ namespace GloomhavenVR.Quest
         internal int LastQueryTypeCount { get; private set; }
         internal int LastQueryFamilyIndex { get; private set; }
 
-        internal QuestScopeObjects() : this(ResolveTypes()) { }
+        internal QuestScopeObjects(Component anchor) : this(ResolveTypes(), anchor) { }
 
         // The real Unity fixture supplies its own native MonoBehaviour types;
         // the standalone path always resolves the exact owned GH.Runtime ABI.
-        internal QuestScopeObjects(Type[] targets)
+        internal QuestScopeObjects(Type[] targets, Component anchor)
         {
+            this.anchor = anchor;
             this.targets = (Type[])targets.Clone();
             deadlines = new double[targets.Length];
             matchedCounts = new int[targets.Length];
@@ -82,6 +87,7 @@ namespace GloomhavenVR.Quest
             }
             result.Clear();
             LastQueryTypeCount = 0;
+            CollectScenes();
             for (int pending = 0; pending < targets.Length; pending++)
             {
                 int due = -1;
@@ -96,6 +102,7 @@ namespace GloomhavenVR.Quest
                     deadlines[due] += Math.Floor(now - deadlines[due]) + 1d;
             }
             if (LastQueryTypeCount > 0) lastQueryTime = now;
+            roots.Clear(); scenes.Clear();
             return LastQueryTypeCount > 0;
         }
 
@@ -103,31 +110,61 @@ namespace GloomhavenVR.Quest
         {
             result.Clear();
             LastQueryTypeCount = 0;
+            CollectScenes();
             for (int index = 0; index < targets.Length; index++) CollectType(index, result);
+            roots.Clear(); scenes.Clear();
+        }
+
+        void CollectScenes()
+        {
+            scenes.Clear();
+            for (int index = 0; index < SceneManager.sceneCount; index++)
+            {
+                Scene scene = SceneManager.GetSceneAt(index);
+                if (scene.IsValid() && scene.isLoaded) scenes.Add(scene);
+            }
+            // DDOL is omitted by SceneManager's ordinary list. This adapter's
+            // persistent host supplies that exact scene, including inactive and
+            // DontSave roots; never infer it from one already-matched UI owner.
+            if (anchor == null) return;
+            Scene persistent = anchor.gameObject.scene;
+            foreach (Scene scene in scenes) if (scene.handle == persistent.handle) return;
+            if (persistent.IsValid() && persistent.isLoaded) scenes.Add(persistent);
         }
 
         void CollectType(int index, List<MonoBehaviour> result)
         {
-            // B621 hardware prices its 14,338 managed component checks at 94ms.
-            // Native exact-type queries transfer only rare matching candidates;
-            // their whole-cycle desktop cost is retained in the test receipt.
-            // Scheduling bounds ordinary frame cost without lowering any known
-            // family's discovery cadence. Resources retains live DontSave owners
-            // that Object.FindObjectsOfType(Type, true) would silently omit.
+            // B689 still spends55ms (worst289ms) on one native Resources query:
+            // exact type limits the returned array, not the global asset search.
+            // Query that same type inside actual loaded scene hierarchies instead.
+            // This keeps periodic late AddComponent discovery on inactive objects
+            // without traversing unrelated managed components or imported assets.
             Type target = targets[index];
-            UnityEngine.Object[] found = Resources.FindObjectsOfTypeAll(target);
-            LastNativeObjectCount += found.Length - nativeCounts[index];
-            nativeCounts[index] = found.Length;
-            int matched = 0;
-            foreach (UnityEngine.Object value in found)
+            int matched = 0, foundCount = 0;
+            foreach (Scene scene in scenes)
             {
-                var component = value as MonoBehaviour;
-                // Keep B621's exact identity and loaded-scene boundary, including
-                // inactive, DDOL, late component additions and pooled owners.
-                if (component == null || component.GetType() != target
-                    || !component.gameObject.scene.IsValid() || !component.gameObject.scene.isLoaded) continue;
-                result.Add(component); matched++;
+                if (!scene.IsValid() || !scene.isLoaded) continue;
+                roots.Clear();
+                if (roots.Capacity <= scene.rootCount) roots.Capacity = scene.rootCount + 1;
+                scene.GetRootGameObjects(roots);
+                foreach (GameObject root in roots)
+                {
+                    if (root == null) continue;
+                    Component[] found = root.GetComponentsInChildren(target, true);
+                    foundCount += found.Length;
+                    foreach (Component value in found)
+                    {
+                        var component = value as MonoBehaviour;
+                        // Keep B621's exact identity and loaded-scene boundary,
+                        // including inactive, DDOL and pooled owners.
+                        if (component == null || component.GetType() != target
+                            || !component.gameObject.scene.IsValid() || !component.gameObject.scene.isLoaded) continue;
+                        result.Add(component); matched++;
+                    }
+                }
             }
+            LastNativeObjectCount += foundCount - nativeCounts[index];
+            nativeCounts[index] = foundCount;
             MatchedOwnerCount += matched - matchedCounts[index];
             matchedCounts[index] = matched;
             LastQueryTypeCount++;

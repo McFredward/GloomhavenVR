@@ -82,7 +82,7 @@ namespace GloomhavenVR.Quest
             if (!discoveryAttempted)
             {
                 discoveryAttempted = true;
-                try { scopeObjects = new QuestScopeObjects(); }
+                try { scopeObjects = new QuestScopeObjects(this); }
                 catch (Exception error) { Report("scope-discovery", error); }
             }
             if (scopeObjects == null) { sceneBehaviours.Clear(); return; }
