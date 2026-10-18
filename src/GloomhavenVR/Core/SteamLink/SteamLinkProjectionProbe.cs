@@ -3,15 +3,13 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
-using UnityEngine;
-using UnityEngine.Experimental.Rendering;
-using UnityEngine.Rendering;
 
 namespace GloomhavenVR.Core.SteamLink;
 
-// Explicit, temporary transport diagnostic, NOT a production quality fix. Public
-// projection overlays have frozen poses: the player must keep their head still.
-// Normal MR never starts this helper or allocates this diagnostic's zero input.
+// Explicit, temporary projection-delivery preview, NOT a production quality fix.
+// Public overlays have frozen poses: the player must keep their head still.
+// API readiness is NOT proof of remote visibility. The preview never owns,
+// clears, replaces or otherwise changes a camera, source image or MR carrier.
 internal static class SteamLinkProjectionProbe
 {
     internal const string Resource = "GloomhavenVR.SteamLink.projection-overlay-probe.exe";
@@ -23,87 +21,28 @@ internal static class SteamLinkProjectionProbe
     {
         if (VRLog.WantsDebug) VRLog.Debug("Core", "Steam Link projection test: " + text);
     });
-    private static RenderTexture? _zero;
-    private static readonly FrameLatch Frames = new();
     internal static Phase Status => State.Current;
     internal static bool Eligible => VRLog.WantsDebug && VRSession.IsRunning
         && WorldUI.VROptionsTab.ProjectionProbeCheatsEnabled && MixedReality.Enabled.Value
         && SteamLinkSceneRuntime.Requested && SteamLinkSceneRuntime.ProjectionProbeSourceReady;
 
-    internal static bool Arm()
+    internal static bool Start()
     {
-        // Recheck the actual gate on stale UI callbacks, not only while building
-        // the page. No persisted setting is created by this temporary action.
-        if (!Eligible || !WorldUI.VROptionsTab.IsOpen) { Stop(); return false; }
-        try
-        {
-            if (_zero == null)
-            {
-                var descriptor = new RenderTextureDescriptor(1, 1, GraphicsFormat.R8G8B8A8_UNorm, 0)
-                {
-                    dimension = TextureDimension.Tex2D, volumeDepth = 1, msaaSamples = 1,
-                    useMipMap = false, autoGenerateMips = false, useDynamicScale = false
-                };
-                _zero = new RenderTexture(descriptor) { hideFlags = HideFlags.HideAndDontSave };
-                if (!_zero.Create()) throw new InvalidOperationException("Zero input unavailable.");
-                RenderTexture? active = RenderTexture.active;
-                bool srgb = GL.sRGBWrite;
-                try { RenderTexture.active = _zero; GL.sRGBWrite = false; GL.Clear(false, true, Color.clear); }
-                finally { GL.sRGBWrite = srgb; RenderTexture.active = active; }
-            }
-            return State.Arm(true, true);
-        }
-        catch (Exception ex) { Stop(); if (VRLog.WantsDebug) VRLog.Debug("Core", "Steam Link projection test unavailable: " + ex.GetType().Name); return false; }
+        // Recheck the actual gate on stale UI callbacks. Starting schedules the
+        // owned helper immediately: no future Tick/menu close is a launch gate.
+        if (!Eligible) { Stop(); return false; }
+        if (!WorldUI.VROptionsTab.IsOpen) return false;
+        return State.Start(true, true);
     }
 
     internal static void Tick()
     {
-        // Ordinary users do not even poll the options window for this test.
+        // Ordinary users do not even poll the options window for this preview.
         if (State.OwnsTest) State.Tick(Eligible, WorldUI.VROptionsTab.IsOpen);
-        RetireZero();
     }
-    internal static void Stop() { State.Stop(); RetireZero(); }
-    internal static void PackFailed()
-    {
-        // This eye retries its untouched real source; the remaining eye of this
-        // failed diagnostic frame must use that real source too.
-        Frames.Reject();
-        Stop();
-    }
-    private static void RetireZero()
-    {
-        // Never release the input between the two explicitly identified eyes.
-        // Destroy is deferred by Unity; no borrowed source is retained/cleared.
-        if (_zero != null && !State.OwnsTest && !Frames.IsCurrent(Time.frameCount))
-        { UnityEngine.Object.Destroy(_zero); _zero = null; }
-    }
-    internal static RenderTexture InputForFrame(RenderTexture original, int frame)
-    {
-        Tick();
-        if (State.Current == Phase.Active && (_zero == null || !_zero.IsCreated())) PackFailed();
-        return Frames.Select(original, _zero, frame, State.Current == Phase.Active);
-    }
+    internal static void Stop() => State.Stop();
 
-    internal sealed class FrameLatch
-    {
-        private int _frame = -1;
-        private bool _zeroFrame;
-        internal bool IsCurrent(int frame) => _frame == frame;
-        internal void Reject() => _zeroFrame = false;
-        internal RenderTexture Select(RenderTexture original, RenderTexture? zero, int frame, bool active)
-        {
-            // Worker readiness/permission/menu changes can happen between eyes.
-            // Commit one decision per current XR frame; begin/end at its boundary.
-            if (_frame != frame)
-            {
-                _frame = frame;
-                _zeroFrame = active && zero != null && zero.IsCreated();
-            }
-            return _zeroFrame && zero != null && zero.IsCreated() ? zero : original;
-        }
-    }
-
-    internal enum Phase { Idle, PendingClose, Starting, Active, Stopping, Failed, Unsafe }
+    internal enum Phase { Idle, Starting, Active, Stopping, Failed, Unsafe }
     internal sealed class Owner
     {
         private readonly object _gate = new();
@@ -111,20 +50,25 @@ internal static class SteamLinkProjectionProbe
         private readonly Action<string> _log;
         private Task? _worker;
         private TaskCompletionSource<bool>? _stop;
-        private bool _wanted, _unsafe;
+        private bool _wanted, _unsafe, _menuHasClosed;
         private ulong _epoch;
         private Phase _phase;
         internal Owner(Func<Task<SteamLinkCompositorMonitor.IChild>> launch, Action<string> log) { _launch = launch; _log = log; }
         internal Phase Current { get { lock (_gate) return _phase; } }
         internal bool OwnsTest { get { lock (_gate) return _wanted; } }
         internal Task Settled { get { lock (_gate) return _worker ?? Task.CompletedTask; } }
-        internal bool Arm(bool eligible, bool menuOpen)
+        internal bool Start(bool eligible, bool menuOpen)
         {
             lock (_gate)
             {
                 if (!eligible || !menuOpen || _unsafe || _wanted || (_worker != null && !_worker.IsCompleted)) return false;
                 if (_worker != null && _worker.IsFaulted) { _ = _worker.Exception; _unsafe = true; _phase = Phase.Unsafe; return false; }
-                _wanted = true; _epoch++; _phase = Phase.PendingClose;
+                _wanted = true; _epoch++; _phase = Phase.Starting;
+                _menuHasClosed = false;
+                var stop = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _stop = stop;
+                ulong epoch = _epoch;
+                _worker = Task.Run(() => RunAsync(epoch, stop));
                 return true;
             }
         }
@@ -141,14 +85,11 @@ internal static class SteamLinkProjectionProbe
             lock (_gate)
             {
                 if (!_wanted) return;
-                if (!eligible || (menuOpen && _phase != Phase.PendingClose)) { Stop(); return; }
-                // The initiating options window must close ONCE before launch.
-                // Its original open state is not a cancellation of the request.
-                if (_phase != Phase.PendingClose || menuOpen) return;
-                var stop = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _stop = stop; _phase = Phase.Starting;
-                ulong epoch = _epoch;
-                _worker = Task.Run(() => RunAsync(epoch, stop));
+                // The initiating menu is tolerated only until its first actual
+                // close. Closing is automatic in the UI, but even a failed close
+                // never delays launch; its explicit Stop action remains usable.
+                if (!menuOpen) _menuHasClosed = true;
+                if (!eligible || (menuOpen && _menuHasClosed)) Stop();
             }
         }
         private bool CurrentEpoch(ulong epoch) { lock (_gate) return _wanted && _epoch == epoch; }
@@ -173,9 +114,8 @@ internal static class SteamLinkProjectionProbe
             }
             finally
             {
-                // EOF, process exit and parser failure revoke zero-base authority
-                // BEFORE any cooperative teardown wait. Keep only this frame's
-                // already-latched eye decision, never seconds of a missing game.
+                // Revoke preview ownership before any cooperative teardown wait.
+                // Regardless of readiness or failure, the game image is untouched.
                 lock (_gate) if (_epoch == epoch) { _wanted = false; _phase = Phase.Stopping; }
                 if (child != null)
                 {
@@ -222,7 +162,7 @@ internal static class SteamLinkProjectionProbe
                             throw new IOException("Projection helper refused.");
                         if (input == StoppedLine) lock (_gate) if (_epoch == epoch)
                         { _wanted = false; _phase = Phase.Stopping; _stop?.TrySetResult(true); }
-                        if (ready) lock (_gate) if (_wanted && _epoch == epoch) { _phase = Phase.Active; _log("both public projections ready; zero base begins at the next complete-eye frame boundary."); }
+                        if (ready) lock (_gate) if (_wanted && _epoch == epoch) { _phase = Phase.Active; _log("public preview locally ready; original game retained; remote visibility unverified."); }
                     }
                     else
                     {

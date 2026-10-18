@@ -265,23 +265,7 @@ internal sealed class SceneHeadOutput : MonoBehaviour
             }
             try
             {
-                // The explicit diagnostic never clears the borrowed source. All
-                // authority/HostPrepared checks above still use that actual eye.
-                RenderTexture input = SteamLinkProjectionProbe.InputForFrame(source, Time.frameCount);
-                SceneEyeResult result;
-                if (!ReferenceEquals(input, source))
-                {
-                    bool testRendered = false;
-                    result = default;
-                    try { result = _pack!.TryRender(input, destination, eye); testRendered = result == SceneEyeResult.Rendered; }
-                    catch (Exception) { /* A diagnostic failure cannot poison ordinary MR. */ }
-                    if (!testRendered)
-                    {
-                        SteamLinkProjectionProbe.PackFailed();
-                        result = _pack!.TryRender(source, destination, eye);
-                    }
-                }
-                else result = _pack!.TryRender(source, destination, eye);
+                SceneEyeResult result = _pack!.TryRender(source, destination, eye);
                 packed = result == SceneEyeResult.Rendered;
                 if (!packed) Failure = result.ToString();
                 else if (VRLog.WantsDebug)
