@@ -1,5 +1,22 @@
 # State — where the project stands
 
+**Combined quality-route witness and menu observation, 2026-10-18: Build706.**
+
+The maintainer prioritizes image quality and requests both remaining issues in
+the next single run. The new explicit Advanced > Cheats projection test uses
+an actually prepared v3 stereo source, a constant zero contribution/coverage
+base and central public per-eye RGBA overlays. Inner opaque-black versus
+transparent lanes distinguish independent alpha from simple RGB flattening.
+It changes no XR size, FOV, Steam settings, sender binary or Frame installation.
+Opening options restores the game; no automatic expiry/restart is introduced.
+This is a transport witness, not a claimed quality/menu fix or full4K proof.
+
+Real Unity source packing passes257 focused checks; the native helper passes204
+core checks with scoped causal controls and a strict identical Win64 rebuild.
+Software evidence cannot establish independent Steam Link alpha carriage.
+After the witness ends, the same normal Debug run can record menu state through
+the read-only705 observer. See [the combined record](STEAM-LINK-706-COMBINED-TRANSPORT-WITNESS.md).
+
 **Per-route Frame result and Debug-only host observation, 2026-10-18: Build705.**
 
 The fresh separately authorized capture has12 populated central records across

@@ -612,7 +612,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 705;
+    public const ushort ModBuild = 706;
+
+    // ModBuild706 — explicit independent-alpha transport witness, not a quality fix.
+    // The accepted v3 carrier spends RGB area on coverage and the actual uniform
+    // video stays3264x6400 despite larger real XR targets. Another width increase
+    // cannot repair that loss. Only through Advanced > Cheats, at Debug during
+    // genuine native Frame/Steam Link MR, explicitly test public projection RGBA.
+    // After closing options and both helper overlays becoming ready, pack only
+    // an owned constant-zero input through the unchanged v3 shader. A central
+    // high-resolution static overlay includes opaque black and interior alpha
+    // lanes: ordinary flattening inside RGB cannot make its unchanged zero
+    // coverage occlude the camera. A positive headset witness is still required.
+    // Latch zero-input choice per frame, preserve actual-source admission and
+    // fallback, restore the game on reopening options or ending eligibility.
+    // No automatic expiry, Frame install/restart, sender patch, XR resize or
+    // ordinary MR behavior change. Public overlay publication is not atomic;
+    // the temporary witness is not full-scene stereo/quality/transport proof.
 
     // ModBuild705 — bounded, read-only PC compositor context for native MR.
     // Real route-separated Frame observations show both active companions

@@ -2868,6 +2868,35 @@
       "weight": 8
     },
     {
+      "id": "steamlink-projection-probe",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-projection-probe/run.py",
+        "--output",
+        ".planning/debug/steamlink-projection-probe"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
+    },
+    {
+      "id": "steamlink-projection-witness",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-projection-witness/run.py",
+        "--output",
+        ".planning/debug/steamlink-projection-witness"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 25
+    },
+    {
       "id": "steamlink-stream-quality",
       "command": [
         "python3",

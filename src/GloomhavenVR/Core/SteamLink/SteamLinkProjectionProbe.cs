@@ -16,7 +16,7 @@ internal static class SteamLinkProjectionProbe
 {
     internal const string Resource = "GloomhavenVR.SteamLink.projection-overlay-probe.exe";
     internal static readonly int HelperBytes = 210944;
-    internal static readonly string HelperSha256 = "e4adb0671abffddf73761a93d5f5dd864c7be1973262be43c82b1204c66ab1cb";
+    internal static readonly string HelperSha256 = "a70d83192d272ac63a3713b4f319a6e55b29b22e3b8a22cfce3533b845ba7feb";
     internal const string ReadyLine = "SFNP_PROJECTION_READY_V2", StoppedLine = "SFNP_PROJECTION_STOPPED_V2";
     internal const int MaximumBytes = 8192, MaximumLine = 1024;
     private static readonly Owner State = new(LaunchAsync, text =>

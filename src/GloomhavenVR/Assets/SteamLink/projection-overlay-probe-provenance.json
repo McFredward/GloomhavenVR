@@ -1,0 +1,21 @@
+{
+  "schema": "ghvr-steamlink-projection-probe-build-v1",
+  "source_repository": "https://github.com/McFredward/steam-link-native-passthrough",
+  "source_commit": "7989d89d28db08dfb0099aa3b45d55ec03c11d95",
+  "source_sha256": {
+    "pc/projection-overlay-probe.cpp": "b1040a1b847ae398b7f31ddc2715b6aee87cb904718e5e67327936b5fed55501",
+    "pc/projection-overlay-probe-core.h": "6c2811161f00a7186042574baf8ddbba1b3e6445bd75649473d95ffbbde54f82",
+    "pc/projection-overlay-probe-test.cpp": "98d2d41af000b2371d9f1a3c2b6e58e1445374762e7a14625881a744ced4d1ba",
+    "pc/projection-overlay-probe-build.sh": "d2563025bc8f3f2c4b0dbbaadfad59320e039848629cd0fdbe32f9964ebd44ff"
+  },
+  "openvr_header_sha256": "3d32d8eb5bcbe2e250610123aee8142c68f0e7d4da823f87513b6a2a333078d7",
+  "script_sha256": "2cfb769867d4796cb2ce4677e0dc3f80d11ce55a1c1457e3bed7689e9c6c9a14",
+  "compiler": "x86_64-w64-mingw32-g++-win32",
+  "compiler_sha256": "700d63d40cdf85fd3b3e6c54eb75ea8ee0aa707cfaa7a5bf03e5d1306f69da07",
+  "compiler_version": "x86_64-w64-mingw32-g++-win32 (GCC) 13-win32",
+  "output_bytes": 210944,
+  "output_sha256": "a70d83192d272ac63a3713b4f319a6e55b29b22e3b8a22cfce3533b845ba7feb",
+  "windows_or_proton_executed": false,
+  "hardware_verified": false,
+  "behavior": "Explicit temporary static public projection overlay witness; not a production quality fix"
+}
