@@ -5,21 +5,31 @@ The fixture supplies decoded asymmetric pixels, without replacing or emulating a
 codec. Native VideoPlayer property/callback preservation is separately covered by
 quest-startup-video-tests.py. Desktop GL pixels do not prove a Quest GPU outcome.
 """
+import ctypes
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from town_run_retention import cleanup_completed_run
+_pending_run = None
+_unity_process = None
 
 
 def main():
+    global _pending_run, _unity_process
     output = ROOT / ".planning/debug/quest-video-output"
     output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
+    _pending_run = run
+    (run / "runner.log").write_text("Quest camera video output evidence: " + str(run) + "\n")
     runtime = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestCameraVideoOutput.cs"
     original = runtime.read_text()
     camera_callback = original[original.index("        void BeforeCamera(Camera rendering)"):
@@ -48,6 +58,7 @@ def main():
     variants = [
         ("production", "", "", ""),
         ("game-debug-shadows-output", "    using Debug = UnityEngine.Debug;", "", "movie pixel evidence survives the original game's conditional global Debug"),
+        ("snapshot-provenance-stale", '+ " snapshotGeneration=" + snapshotGeneration', '+ " snapshotGeneration=" + -1', "completed native snapshot reports matching producer and snapshot generations"),
         ("head-capture-view-leak", "            RenderTexture previous = RenderTexture.active;\n            try\n            {\n                if (farOutput)", "            RenderTexture previous = RenderTexture.active;\n            if (GloomhavenVR.Core.QuestStandalonePlatform.HeadCamera != null) GloomhavenVR.Core.QuestStandalonePlatform.HeadCamera.worldToCameraMatrix = camera.worldToCameraMatrix;\n            try\n            {\n                if (farOutput)", "unequal native capture and eye targets preserve actual head projection viewport and tracked geometry"),
         ("quest-eye-copy-in-pre-render", "", "", "Quest head pre-render preserves the prepared partial viewport"),
         ("consumer-readback-in-pre-render", "            if (consumerEvidencePending) consumerEvidenceReady = true;", "            if (consumerEvidencePending) SampleConsumer();", "queued consumer evidence performs no target-changing draw in head pre-render"),
@@ -93,15 +104,15 @@ def main():
     boundary = run / "assembly-boundary"
     boundary.mkdir()
     mod_project = ROOT / "src/GloomhavenVR/GloomhavenVR.csproj"
-    mod_build = subprocess.run([dotnet, "build", str(mod_project), "-c", "Release", "--no-restore",
-        "--nologo", "--verbosity", "quiet"], capture_output=True, text=True)
+    mod_build = subprocess.run([dotnet, "build", str(mod_project), "-c", "Release",
+        "--nologo", "--verbosity", "quiet", "--disable-build-servers", "-p:UseSharedCompilation=false"], capture_output=True, text=True)
     (boundary / "mod-build.log").write_text(mod_build.stdout + mod_build.stderr)
     if mod_build.returncode:
         raise SystemExit("Current mod compilation failed: " + str(boundary / "mod-build.log"))
     boundary_project = boundary / "Boundary.csproj"
     shutil.copyfile(fixture / "AssemblyBoundary.csproj", boundary_project)
     boundary_build = subprocess.run([dotnet, "build", str(boundary_project), "-c", "Release", "--nologo",
-        "--verbosity", "quiet", "-p:QuestRuntime=" + str(runtime.parent),
+        "--verbosity", "quiet", "--disable-build-servers", "-p:UseSharedCompilation=false", "-p:QuestRuntime=" + str(runtime.parent),
         "-p:ModAssembly=" + str(mod_project.parent / "bin/Release/net472/GloomhavenVR.dll"),
         "-p:UnityManaged=" + str(unity.parent / "Data/Managed")], capture_output=True, text=True)
     (boundary / "build.log").write_text(boundary_build.stdout + boundary_build.stderr)
@@ -120,7 +131,7 @@ def main():
             baseline = fixture / "B620CameraEventOutput.cs.txt"
             if hashlib.sha256(baseline.read_bytes()).hexdigest() != "36ed0fcfbb904c3b9ede3d0788da5d21baf1efe2d51ee07ca9bb7c172dae783b":
                 raise RuntimeError("Historical hardware source baseline drift.")
-            source = baseline.read_text() + "\nnamespace GloomhavenVR.Quest { static class BaselineConsumer { internal static void CompleteCapture(this QuestCameraVideoOutput output) { } internal static void Probe(this QuestCameraVideoOutput output, Texture source, string stage, bool asynchronous) { } } }\n"
+            source = baseline.read_text() + "\nnamespace GloomhavenVR.Quest { static class BaselineConsumer { internal static void CompleteCapture(this QuestCameraVideoOutput output) { } internal static void Probe(this QuestCameraVideoOutput output, Texture source, string stage, bool asynchronous) { } internal static string CaptureStateFacts(this QuestCameraVideoOutput output) => \"\"; } }\n"
         if before:
             if source.count(before) != 1:
                 raise RuntimeError("Mutation binding drift: " + name)
@@ -204,6 +215,7 @@ def main():
         shutil.copyfile(fixture / "Runtime.csproj", project)
         assembly = "QuestVideoOutput_" + name.replace("-", "_")
         result = subprocess.run([dotnet, "build", str(project), "-c", "Release", "--nologo", "--verbosity", "quiet",
+            "--disable-build-servers", "-p:UseSharedCompilation=false",
             "-p:CaseName=" + assembly, "-p:FixtureDir=" + str(fixture), "-p:ProductionDir=" + str(production),
             "-p:UnityManaged=" + str(unity.parent / "Data/Managed")], capture_output=True, text=True)
         (case / "build.log").write_text(result.stdout + result.stderr)
@@ -250,16 +262,33 @@ def main():
         "-executeMethod", "InteractionRunner.Start", "-interactionManifest", str(manifest_path), "-logFile", str(run / "unity.log")]
     if not os.environ.get("DISPLAY"):
         command = ["xvfb-run", "-a"] + command
-    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=300)
+    _unity_process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True)
+    exit_code = _unity_process.wait(timeout=300)
     report = Path(manifest["result"])
     if report.is_file():
         print(report.read_text(), end="", flush=True)
-    if result.returncode or not report.is_file():
+    if exit_code or not report.is_file():
         raise SystemExit("FAIL real Unity camera video output fixture: " + str(run / "unity.log"))
-    for cache in ("Library", "Temp"):
-        shutil.rmtree(project / cache, ignore_errors=True)
     print("PASS production camera video output and " + str(len(variants) - 1) + " defect controls")
 
 
 if __name__ == "__main__":
-    main()
+    code = 1
+    try:
+        if sys.platform.startswith("linux"):
+            if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0):
+                raise OSError("Could not own Unity fixture descendants")
+        main()
+        code = 0
+    finally:
+        if _unity_process is not None and _unity_process.poll() is None:
+            _unity_process.kill(); _unity_process.wait()
+        if _pending_run is not None:
+            # The established fixture helper only signals this subreaper's
+            # owned descendants, including orphaned editor compiler processes.
+            spec = importlib.util.spec_from_file_location("movie_fixture_cleanup", ROOT / "scripts/quest-menu-sampling-tests.py")
+            helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+            children = helper.reap_fixture_group(_unity_process.pid if _unity_process is not None else None)
+            (_pending_run / "process-cleanup.json").write_text(json.dumps(children, indent=2) + "\n")
+            receipt = cleanup_completed_run("quest-video-output", code, _pending_run / "runner.log", ROOT, process_reaped=True)
+            (_pending_run / "cleanup.json").write_text(json.dumps(receipt, indent=2) + "\n")

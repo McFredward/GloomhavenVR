@@ -114,6 +114,7 @@ namespace GloomhavenVR.Quest
                         + " target=" + rendering.targetTexture.name + " " + rendering.targetTexture.width
                         + "x" + rendering.targetTexture.height + " frame=" + player.frame
                         + " actualUrl=" + player.url
+                        + CaptureStateFacts()
                         + " nativePlaybackPreserved=true stereoCapturePreserved=true");
                 }
             }
@@ -329,6 +330,22 @@ namespace GloomhavenVR.Quest
 
         void Probe(Texture source, string stage) => Probe(source, stage, !probeFailed && SystemInfo.supportsAsyncGPUReadback);
 
+        // Reuse the initial binding record and the existing two evidence sets.
+        // A decoded frame alone cannot prove that the final native camera has
+        // rendered its snapshot before the stereo consumer samples that target.
+        internal string CaptureStateFacts()
+        {
+            return " producerCamera=" + (camera == null ? "none" : camera.name)
+                + " producerDepth=" + (camera == null ? "none" : camera.depth.ToString())
+                + " snapshotCamera=" + (snapshotCamera == null ? "none" : snapshotCamera.name)
+                + " snapshotDepth=" + (snapshotCamera == null ? "none" : snapshotCamera.depth.ToString())
+                + " snapshotTarget=" + (snapshotCamera == null || snapshotCamera.targetTexture == null
+                    ? "none" : snapshotCamera.targetTexture.name)
+                + " producerGeneration=" + captureGeneration + " snapshotGeneration=" + snapshotGeneration
+                + " completedGeneration=" + completedGeneration
+                + " snapshotReady=" + (farOutput && snapshotGeneration >= 0);
+        }
+
         // The explicit device decision permits the real GPU fixture to exercise
         // GLES devices without asynchronous readback. The caller bounds both
         // paths to two Debug evidence sets per movie; this is never a frame loop.
@@ -339,6 +356,12 @@ namespace GloomhavenVR.Quest
             string facts = context + " stage=" + stage + " frame=" + (player == null ? -1 : player.frame)
                 + " mediaTime=" + (player == null ? -1 : player.time)
                 + " actualUrl=" + (player == null ? "none" : player.url)
+                + " prepared=" + (player != null && player.isPrepared)
+                + " playing=" + (player != null && player.isPlaying)
+                + " paused=" + (player != null && player.isPaused)
+                + " mode=" + (player == null ? "none" : player.renderMode.ToString())
+                + " speed=" + (player == null ? 0 : player.playbackSpeed)
+                + CaptureStateFacts()
                 + " source=" + source.name + " dimensions=" + source.width + "x" + source.height
                 + " dimension=" + source.dimension + " format=" + source.graphicsFormat
                 + " readbackMode=" + (asynchronous ? "async" : "bounded-sync");

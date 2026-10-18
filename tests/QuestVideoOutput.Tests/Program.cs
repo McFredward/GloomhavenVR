@@ -651,6 +651,10 @@ public static class InteractionProgram
                 && evidence.Contains("samples=128") && evidence.Contains("rgbMin=0")
                 && evidence.Contains("rgbMax=255") && evidence.Contains("readbackElapsedMs="),
                 "unsupported async GPU path still records real bounded pixels and timing");
+            Check(evidence != null && evidence.Contains("prepared=False playing=False paused=False mode=none speed=0")
+                && evidence.Contains("producerGeneration=") && evidence.Contains("snapshotGeneration=")
+                && evidence.Contains("completedGeneration=") && evidence.Contains("snapshotReady=False"),
+                "existing movie pixel evidence includes actual playback and render completion state");
             UnityEngine.Object.DestroyImmediate(displayMaterial); UnityEngine.Object.DestroyImmediate(screen);
             UnityEngine.Object.DestroyImmediate(view.targetTexture); UnityEngine.Object.DestroyImmediate(view.gameObject);
             Check(camera.GetCommandBuffers(CameraEvent.AfterEverything).Length == 0, "camera event never duplicates completed movie draw");
@@ -691,12 +695,26 @@ public static class InteractionProgram
             output.Apply(camera, texture, VideoRenderMode.CameraFarPlane, VideoAspectRatio.Stretch, 1, 1, 1);
             Check(QuestStandalonePlatform.FlatScreenVideoFinalCamera(camera) == finalCamera,
                 "snapshot follows last actual camera sharing the current owned target");
+            string waitingSnapshot = output.CaptureStateFacts();
+            Check(waitingSnapshot.Contains(" snapshotCamera=" + finalCamera.name)
+                && waitingSnapshot.Contains(" snapshotDepth=" + finalCamera.depth)
+                && waitingSnapshot.Contains(" snapshotTarget=" + target.name)
+                && waitingSnapshot.Contains(" snapshotGeneration=-1")
+                && waitingSnapshot.Contains(" snapshotReady=False"),
+                "movie binding evidence distinguishes a selected final camera from its unrendered snapshot");
             Graphics.Blit(Texture2D.grayTexture, target);
             output.CompleteCapture();
             Close(Pixel(target, 4, 4).b, .5f, "head before producer never samples an unrendered retained target");
             camera.Render(); finalCamera.Render();
+            string renderedSnapshot = output.CaptureStateFacts();
+            int producerGeneration = int.Parse(renderedSnapshot.Split(' ').Single(p => p.StartsWith("producerGeneration=")).Split('=')[1]);
+            Check(renderedSnapshot.Contains(" snapshotReady=True")
+                && renderedSnapshot.Contains(" snapshotGeneration=" + producerGeneration + " "),
+                "completed native snapshot reports matching producer and snapshot generations");
             Graphics.Blit(Texture2D.grayTexture, target);
             output.CompleteCapture();
+            Check(output.CaptureStateFacts().Contains(" completedGeneration=" + producerGeneration + " "),
+                "movie completion evidence advances only after the retained native snapshot is consumed");
             Close(Pixel(target, 53, 32).g, 1, "completed snapshot retains later native foreground camera contribution");
             Close(Pixel(target, 53, 32).b, 0, "completed snapshot retains later native foreground camera color");
             Close(Pixel(target, 32, 32).b, 1, "completed snapshot retains earlier native foreground too");
