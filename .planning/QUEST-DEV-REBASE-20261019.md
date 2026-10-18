@@ -5,7 +5,8 @@
 The maintainer requested current dev features, including 3D movies, before the
 next Quest hardware test, followed by a comprehensive Builder/runtime review.
 The integration rebases the consolidated published Quest delta from B693
-(`79a53d673`) onto dev B709 (`0eb8e6a81`), including its observer-retirement and focus fixes. Published feature history remains
+(`79a53d673`) onto dev B709 (`0eb8e6a81`), including its observer-retirement and focus fixes. The later dev documentation
+update `09bbef45e` is included as well. Published feature history remains
 reachable through an ancestry-only merge, permitting a normal fast-forward
 feature push. The Quest exception remains in effect: no Quest integration into
 dev and no force push. Commit attribution remains McFredward.
@@ -74,6 +75,28 @@ and receipt-backed. A producer revision alone never invalidates unchanged files.
   A genuine full-rebuild requirement still asks the user before proceeding.
 
 ## Review and validation
+
+Concrete findings fixed during the review:
+
+- Complete preparation scopes differed only because of newly added runtime
+  scripts. Exact whole-profile transactions now retain B692/B693 completed
+  results, including interrupted new-script publication.
+- A process-wide immutable hash cache also covered mutable movie outputs.
+  Per-action source qualification and mutable cache checks allow a later action
+  in the same Wizard to repair only the damaged film.
+- Mod archives could become large in-memory values during APK publication.
+  Path-backed streaming and an independent closed art-delivery receipt retain
+  successful archives across late signing/install retries.
+- Movie-only updates could provision Unity for an already present shader bank.
+  Qualified APK hydration or the small independent shader cache avoids this.
+- Resolution and video-review status captions could select an earlier hidden
+  TMP child. Both bind the authored Title part explicitly.
+- Reusable film/audio/figure/environment/art caches were absent from fast-update
+  accounting. Storage totals and explicit deletion warnings now include them;
+  deleting run history retains shared useful results.
+- Release admission did not close recipe references. Every referenced numeric
+  chunk must match an already verified inventory row before publication, without
+  another large-file pass. The release requires all new runtime/helpers/resources.
 
 Review covers AOT specialization, platform defaults/MR, native rendering/capture,
 new media delivery, Builder loader isolation, progress, cache adoption, storage
