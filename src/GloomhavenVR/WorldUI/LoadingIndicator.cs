@@ -702,14 +702,51 @@ internal sealed class LoadingIndicator
             + " session=" + VRSession.IsRunning + " option=" + WorldUIConfig.LoadingIndicator.Value
             + " sc=" + (sc == null ? "none" : sc.GetInstanceID() + ",loading=" + sc.IsLoading + ",scenario=" + sc.ScenarioIsLoading)
             + " menu=" + (GLOOM.MainMenu.MainMenuUIManager.Instance != null)
-            + " head=" + (head == null ? "none" : head.GetInstanceID() + ",enabled=" + head.isActiveAndEnabled + ",mask=" + head.cullingMask)
+            + " head=" + (head == null ? "none" : head.GetInstanceID() + ",enabled=" + head.isActiveAndEnabled
+                + ",mask=" + head.cullingMask + ",clips=" + head.nearClipPlane + ":" + head.farClipPlane)
             + " root=" + (_root == null ? "none" : _root.GetInstanceID() + ",active=" + _root.activeInHierarchy
                 + ",parent=" + (_root.transform.parent == null ? 0 : _root.transform.parent.GetInstanceID()))
             + " provisional=" + _artIsProvisional
             + " baseTexture=" + (_baseArt?.Tex == null ? 0 : _baseArt.Tex.GetInstanceID())
             + " overlayTexture=" + (_overlayArt?.Tex == null ? 0 : _overlayArt.Tex.GetInstanceID())
             + " baseAlpha=" + (_baseMaterial == null ? -1f : _baseMaterial.color.a)
-            + " overlayAlpha=" + (_overlayMaterial == null ? -1f : _overlayMaterial.color.a));
+            + " overlayAlpha=" + (_overlayMaterial == null ? -1f : _overlayMaterial.color.a)
+            + " baseDraw=" + QuestDrawFacts(_baseQuad, head)
+            + " overlayDraw=" + QuestDrawFacts(_overlayQuad, head));
+    }
+
+    private static string QuestDrawFacts(Transform? quad, Camera? head)
+    {
+        if (quad == null) return "none";
+        Renderer? renderer = quad.GetComponent<Renderer>();
+        if (renderer == null) return "no-renderer";
+        Material? material = renderer.sharedMaterial;
+        Mesh? mesh = quad.GetComponent<MeshFilter>()?.sharedMesh;
+        LoadingDrawWitness? witness = quad.GetComponent<LoadingDrawWitness>();
+        return "(enabled=" + renderer.enabled + ",forceOff=" + renderer.forceRenderingOff
+            + ",layer=" + quad.gameObject.layer + ",queue=" + (material == null ? -1 : material.renderQueue)
+            + ",shader=" + (material == null ? 0 : material.shader.GetInstanceID())
+            + ",vertices=" + (mesh == null ? 0 : mesh.vertexCount) + ",block=" + renderer.HasPropertyBlock()
+            + ",view=" + (head == null ? Vector3.zero : head.worldToCameraMatrix.MultiplyPoint3x4(renderer.bounds.center))
+            + ",scale=" + quad.lossyScale
+            + ",flip=" + (material != null && material.HasProperty("_Flip") ? material.GetVector("_Flip").ToString() : "absent")
+            + ",tint=" + (material != null && material.HasProperty("_RendererColor") ? material.GetColor("_RendererColor").ToString() : "absent")
+            + ",lastHead=" + (witness == null ? "none" : witness.LastHeadId + ":" + witness.LastHeadFrame) + ")";
+    }
+
+    // Debug-only, two tiny owned witnesses: distinguish an active loading root
+    // from a renderer admitted to the actual head camera. OnWillRenderObject
+    // is not a fragment/pixel proof and never changes visibility or materials.
+    private sealed class LoadingDrawWitness : MonoBehaviour
+    {
+        internal int LastHeadId, LastHeadFrame = -1;
+        private void OnWillRenderObject()
+        {
+            if (!VRLog.Wants(VRLogLevel.Debug)) return;
+            Camera? camera = Camera.current;
+            if (camera == null || camera != Rig.VRRigDriver.HeadCamera) return;
+            LastHeadId = camera.GetInstanceID(); LastHeadFrame = Time.frameCount;
+        }
     }
 
     /// <summary>
@@ -839,6 +876,8 @@ internal sealed class LoadingIndicator
     {
         GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.name = "GloomhavenVR.LoadingIndicator." + name;
+        if (QuestStandalonePlatform.Enabled && VRLog.Wants(VRLogLevel.Debug))
+            quad.AddComponent<LoadingDrawWitness>();
         UnityEngine.Object.Destroy(quad.GetComponent<Collider>()); // visual only — never a ray/poke target
         quad.GetComponent<Renderer>().sharedMaterial = material;
         // Atlas sub-rect via mesh UVs (shader-independent). Identity rect (procedural

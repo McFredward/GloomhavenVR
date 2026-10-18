@@ -67,6 +67,17 @@ public static class LoadingLifecycleProgram
         if (pixels && Field<float>("_fade") >= .05f)
         {
             head.Render();
+            if (QuestStandalonePlatform.Enabled)
+            {
+                Type witnessType = typeof(LoadingIndicator).GetNestedType("LoadingDrawWitness", BindingFlags.NonPublic)!;
+                foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>())
+                {
+                    Component? witness = renderer.GetComponent(witnessType);
+                    Check(witness != null && (int)witnessType.GetField("LastHeadId", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(witness)! == head.GetInstanceID()
+                        && (int)witnessType.GetField("LastHeadFrame", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(witness)! == Time.frameCount,
+                        "Actual native camera submission updates the owned loading draw witness through " + boundary);
+                }
+            }
             RenderTexture previous = RenderTexture.active;
             var copy = new Texture2D(96, 96, TextureFormat.RGBA32, false, false);
             try
@@ -88,7 +99,8 @@ public static class LoadingLifecycleProgram
     }
     private static Camera NewHead()
     {
-        var owner = new GameObject("fixture-head-rig"); UnityEngine.Object.DontDestroyOnLoad(owner);
+        var rig = new GameObject("fixture-head-rig"); UnityEngine.Object.DontDestroyOnLoad(rig);
+        var owner = new GameObject("fixture-head-camera"); owner.transform.SetParent(rig.transform, false);
         Camera camera = owner.AddComponent<Camera>(); camera.enabled = false;
         camera.cullingMask = 1 << 29; camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = Color.clear;
         camera.fieldOfView = 35; camera.aspect = 1; camera.nearClipPlane = .05f; camera.farClipPlane = 10;
@@ -230,9 +242,33 @@ public static class LoadingLifecycleProgram
         {
             yield return new WaitForSecondsRealtime(.01f); AssertShown("SceneController construction before native loading begins");
         }
+        // Real Rig.Update tears down and immediately creates the next head;
+        // WorldUI.Update reparents the still-live spinner before the deferred
+        // Destroy of both old camera and rig. This differs from a headless gap.
+        GameObject beforeSwap = Visual!;
+        bool swapped = false;
+        driver.Tick = () =>
+        {
+            if (!swapped)
+            {
+                swapped = true;
+                GameObject oldRig = head.transform.parent.gameObject;
+                UnityEngine.Object.Destroy(head.gameObject); UnityEngine.Object.Destroy(oldRig);
+                head = NewHead();
+                head.transform.parent.SetPositionAndRotation(new Vector3(3, 1, -5), Quaternion.Euler(0, 120, 0));
+            }
+            if (!failed) indicator.Tick();
+        };
+        yield return null;
+        AssertShown("actual same-frame head-rig replacement");
+        Check(Visual == beforeSwap, "The same persistent native spinner survives deferred head replacement");
+        yield return null;
+        AssertShown("deferred old head and rig destruction");
+        Check(Visual == beforeSwap, "Deferred old-rig destruction leaves the reparented spinner intact");
+        driver.Tick = () => { if (!failed) indicator.Tick(); };
         // Actual rig teardown destroys the old head and its child spinner.
         // Skip one frame without a head, then require Tick to rebuild naturally.
-        UnityEngine.Object.Destroy(head.gameObject); GloomhavenVR.Rig.VRRigDriver.HeadCamera = null;
+        UnityEngine.Object.Destroy(head.transform.parent.gameObject); GloomhavenVR.Rig.VRRigDriver.HeadCamera = null;
         yield return null;
         yield return Resources.UnloadUnusedAssets();
         head = NewHead(); yield return null;
@@ -290,6 +326,10 @@ public static class LoadingLifecycleProgram
             && lifecycleEdges[1].Contains("edge=boot-retired") && lifecycleEdges[1].Contains("seamless handover")
             && lifecycleEdges[2].Contains("edge=fully-faded-hide") && lifecycleEdges[3].Contains("edge=fully-faded-hide"),
             "Actual lifecycle evidence preserves the native retirement reason under the four-record process budget");
+        Check(lifecycleEdges[1].Contains("baseDraw=(enabled=True,forceOff=False")
+            && lifecycleEdges[1].Contains("view=") && lifecycleEdges[1].Contains("lastHead=")
+            && lifecycleEdges[1].Contains("flip=") && lifecycleEdges[1].Contains("tint="),
+            "The existing native takeover record includes drawable pose, material state and head submission evidence");
         ObservedBoundary = 8;
     }
     public static void Start(Action<int, Exception?> completion)
@@ -316,7 +356,7 @@ public static class LoadingLifecycleProgram
         failed = true; driver.Tick = null;
         indicator?.Shutdown(); GloomhavenVR.Rig.VRRigDriver.HeadCamera = null;
         SceneController.Instance = null; GLOOM.MainMenu.MainMenuUIManager.Instance = null;
-        if (head != null) { head.targetTexture = null; UnityEngine.Object.Destroy(head.gameObject); }
+        if (head != null) { head.targetTexture = null; UnityEngine.Object.Destroy(head.transform.parent.gameObject); }
         if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
         if (bootstrapOwner != null) UnityEngine.Object.Destroy(bootstrapOwner);
         UnityEngine.Object.Destroy(driver.gameObject);

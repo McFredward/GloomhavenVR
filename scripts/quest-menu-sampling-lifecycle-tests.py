@@ -21,7 +21,7 @@ from town_run_retention import cleanup_completed_run
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--owned-project", type=Path, required=True)
-    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam"))
+    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness"))
     args = parser.parse_args()
     base = ROOT / ".planning/debug/quest-menu-lifecycle"; base.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=base.resolve()))
@@ -38,6 +38,8 @@ def main():
             "skip-rig-rebuild": ("if (_root == null)\n            BuildVisual();", "if (_baseArt == null)\n            BuildVisual();", "Actual Tick keeps the spinner attached and visible through native head-rig reconstruction"),
             "signed-spin": ("QuestStandalonePlatform.Enabled && value != 0f", "false && value != 0f", "Actual Tick preserves the original signed native spinner tuning"),
             "missing-native-seam": ("return _bootLoadSceneField!.GetValue(_bootstrap) != null;", "return false;", "through original Bootstrap/Intro callback and immediate activation"),
+            "skip-head-reparent": ("bool attach = _root.transform.parent != head.transform;", "bool attach = _root.transform.parent == null && _root.transform.parent != head.transform;", "through actual same-frame head-rig replacement"),
+            "stale-draw-witness": ("LastHeadId = camera.GetInstanceID();", "LastHeadId = 0;", "Actual native camera submission updates the owned loading draw witness"),
         }
         expected = ""
         if args.control:
@@ -51,6 +53,9 @@ def main():
         source_hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in rows.items()}
         source_hashes.update({str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in fixture.glob("*") if path.is_file()})
         (run / "source-hashes.json").write_text(json.dumps(source_hashes, indent=2) + "\n")
+        # Retain the exact test source before later development can change it.
+        # Compile from this snapshot and preserve it with the run's receipts.
+        snapshot = run / "fixture"; shutil.copytree(fixture, snapshot); fixture = snapshot
         unity = Path("/home/claw/unity-2021.3.5/Editor/Unity")
         managed = ROOT / "ressources/GH_Data/Managed"
         harmony = Path.home() / ".nuget/packages/harmonyx/2.7.0/lib/net45/0Harmony.dll"
