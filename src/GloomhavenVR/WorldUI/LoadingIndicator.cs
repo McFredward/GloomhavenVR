@@ -168,8 +168,23 @@ namespace GloomhavenVR.WorldUI;
 /// source wins, the art is marked PROVISIONAL and dropped on the next hide, so every later load
 /// re-reads the live <c>LoadingScreen</c> exactly as it did before — the swap never happens
 /// while the spinner is on screen.</para>
+/// <para>QUEST EXCEPTION (B685): persisted ReadPixels PNGs are skipped for reads and writes.
+/// The B684 headset used an invisible cached boot copy while its live native spinner was
+/// correct. Quest uses the live Intro widget, or the fallback if that native source is
+/// unavailable. Desktop keeps the persistent copy order.</para>
+/// <para>QUEST BOOT CONSUMER (B687): the B686 headset still sees only a flash before the menu,
+/// while the later native sprite spinner works. Retain that same direct Texture2D/UV consumer
+/// for the Intro art, too. Its mod-owned persistent renderer/material binds the borrowed
+/// texture before the Intro unloads, so native asset collection reaches it through the live
+/// hierarchy. Do not replace this with another unqualified RenderTexture sample or mutate
+/// the borrowed asset's flags. Desktop retains its established owned-copy path.</para>
+/// <para>QUEST INTRO OVERLAY (B690): the exact <c>IntroPlayer._loading</c> root is a
+/// ScreenSpaceOverlay Canvas with an opaque native backdrop. That final draw is later than
+/// the head camera's admitted spinner. While our native-art consumer is live, reversibly
+/// disable only that flat Canvas component, preserving its original animator and completion
+/// callbacks. Camera-only render tests cannot observe this screen-space covering draw.</para>
 ///
-/// <para>THE BOOT COPY IS MOD-OWNED, and has to be: the Intro scene's textures die when
+/// <para>THE DESKTOP BOOT COPY IS MOD-OWNED: the historical desktop path observed the Intro textures die when
 /// <c>Gloomhaven_unified</c> activates (Unity unloads the now-unused serialized files), which is
 /// ~2.7 s BEFORE the game's own loading screen takes over — holding the raw sprite reference
 /// would put blank white quads on screen for exactly that stretch. Both layers are therefore
@@ -260,6 +275,7 @@ internal sealed class LoadingIndicator
         public float Width = 1f;          // authored aspect (uGUI rect), normalized below
         public float Height = 1f;
         public float SizeRatio = 1f;      // this layer's size relative to the BASE layer
+        public Vector2 CenterRatio;      // trimmed drawing centre in authored base-rect units
     }
 
     /// <summary>
@@ -299,6 +315,7 @@ internal sealed class LoadingIndicator
     /// <summary>One cache-write attempt per session — success or failure, we never retry in the
     /// same run (a read-only config directory would otherwise cost a readback on every load).</summary>
     private bool _cacheWriteAttempted;
+    private int _questPresentationSamples;
 
     // AnimateIcon replica state.
     private float _accum;
@@ -308,6 +325,15 @@ internal sealed class LoadingIndicator
     // Observe native loading edges; this display never writes async loading priority.
     private bool _nativeLoadingObserved;
     private float _nativeLoadingStartedAt;
+
+    // IsMainMenu becomes true before the native menu opens/draws its widgets.
+    // B692 hid the spinner at that state edge, exposing a long empty interval.
+    // Observe the existing capture's actual menu submission instead. During this
+    // handoff only the spinner stays up: suppressing the capture would deadlock
+    // the presentation witness. Native loading state and desktop are unchanged.
+    private bool _questMenuHandoff;
+    private bool _questMenuHandoffRetired;
+    private float _questMenuHandoffStartedAt;
 
     // Appear/disappear ramp: 0 = fully gone (root deactivated), 1 = fully shown.
     private float _fade;
@@ -330,6 +356,16 @@ internal sealed class LoadingIndicator
     private System.Reflection.FieldInfo? _bootLoadSceneField;
     private float _bootSearchCooldown;
     private float _bootCoverSeconds;
+    // Share one small diagnostic allowance across driver replacements. B687's
+    // retained log has acquisition pictures but loses the ordinary WorldUI log
+    // before the native boot handover, so it cannot identify what hid the copy.
+    private static int _questLifecycleSamples;
+    private static int _questNativeOwnerSamples;
+    private Canvas? _questIntroCanvas;
+    private bool _questIntroCanvasEnabled;
+    private bool _questIntroCanvasSuppressed;
+    private GameObject? _questNativeLoadingOwner;
+    private readonly List<(Graphic graphic, bool enabled)> _questNativeLoadingGraphics = new();
 
     public void Tick()
     {
@@ -345,7 +381,8 @@ internal sealed class LoadingIndicator
         bool townReload = indicatorEnabled && TickTownReload();
         bool nativeGameLoading = indicatorEnabled && IsGameLoading();
         bool gameLoading = indicatorEnabled && (nativeGameLoading || ScenarioInteractionPreparation.ShowsLoadingIndicator);
-        bool want = townReload || gameLoading;
+        bool menuHandoff = indicatorEnabled && TickQuestMenuHandoff();
+        bool want = townReload || gameLoading || menuHandoff;
         if (townReload && !gameLoading) _townReloadVisual = true;
         else if (gameLoading) _townReloadVisual = false;
 
@@ -413,9 +450,17 @@ internal sealed class LoadingIndicator
         }
         if (!_root.activeSelf)
             _root.SetActive(true);
+        SuppressQuestIntroCanvas();
+        SuppressQuestNativeLoadingGraphics();
         if (!_shownLogged)
         {
             _shownLogged = true;
+            if (QuestStandalonePlatform.Enabled && _questPresentationSamples++ < 2)
+                UnityEngine.Debug.Log("[Quest startup] presentation spinner source="
+                    + (_artIsProvisional ? "boot-copy" : "native-loading-screen") + " copyRecipe=" + QuestTextureCopy.Recipe
+                    + " head=" + head.name + " localPosition=" + _root.transform.localPosition
+                    + " scale=" + _root.transform.lossyScale + " base=" + QuestSpinnerFacts(_baseQuad, _baseArt, _baseMaterial)
+                    + " overlay=" + QuestSpinnerFacts(_overlayQuad, _overlayArt, _overlayMaterial));
             VRLog.Info("WorldUI", $"Loading indicator shown: {(_boot == BootCoverage.Covering ? "BOOT window (intro over, " +
                                       "Gloomhaven_unified loading — the game shows nothing here)" :
                                       townReload && !gameLoading ? "immersive town services reloading" : "game spinner")} " +
@@ -432,6 +477,9 @@ internal sealed class LoadingIndicator
     /// provisional ring, drop that too so the next show re-reads the game's own sprites.</summary>
     private void HideNow()
     {
+        if (_shownLogged) ReportQuestLifecycle("fully-faded-hide");
+        RestoreQuestIntroCanvas();
+        RestoreQuestNativeLoadingGraphics();
         _townReloadVisual = false;
         if (_root != null && _root.activeSelf)
         {
@@ -445,8 +493,15 @@ internal sealed class LoadingIndicator
 
     public void Shutdown()
     {
+        if (_shownLogged || _boot == BootCoverage.Covering) ReportQuestLifecycle("driver-shutdown");
+        RestoreQuestIntroCanvas();
+        RestoreQuestNativeLoadingGraphics();
+        _questIntroCanvas = null;
+        _questIntroCanvasEnabled = false;
         _nativeLoadingObserved = false;
         _nativeLoadingStartedAt = 0f;
+        _questMenuHandoff = false;
+        _questMenuHandoffRetired = true;
         FlatScreenSuppressed = false;
         if (_root != null)
         {
@@ -481,6 +536,9 @@ internal sealed class LoadingIndicator
     /// </summary>
     private void DropProvisionalArt()
     {
+        RestoreQuestIntroCanvas();
+        RestoreQuestNativeLoadingGraphics();
+        _questIntroCanvas = null;
         _artIsProvisional = false;
         _baseArt = null;
         _overlayArt = null;
@@ -538,6 +596,34 @@ internal sealed class LoadingIndicator
         // ordinary poll goes true, which is the tick it retires on.
         bool boot = TickBootCoverage(sc, ordinary);
         return ordinary || boot;
+    }
+
+    private bool TickQuestMenuHandoff()
+    {
+        if (!QuestStandalonePlatform.Enabled || _questMenuHandoffRetired) return false;
+        if (!_questMenuHandoff && _boot == BootCoverage.Covering)
+        {
+            _questMenuHandoff = true;
+            _questMenuHandoffStartedAt = Time.unscaledTime;
+        }
+        if (!_questMenuHandoff) return false;
+        if (FlatScreen.QuestMenuPresented)
+        {
+            _questMenuHandoff = false;
+            _questMenuHandoffRetired = true;
+            VRLog.Info("WorldUI", "Quest initial menu has submitted visible native UI to the head; loading spinner handoff released.");
+            return false;
+        }
+        // Same failure-only bound as boot coverage; never schedule the normal
+        // exit by time or hold native input/loading while waiting for a picture.
+        if (Time.unscaledTime - _questMenuHandoffStartedAt > BootCoverCapSeconds)
+        {
+            _questMenuHandoff = false;
+            _questMenuHandoffRetired = true;
+            VRLog.Warn("WorldUI", "Quest initial menu presentation was not observed before the boot safety bound; releasing only the spinner.");
+            return false;
+        }
+        return true;
     }
 
     private bool TickTownReload()
@@ -613,6 +699,7 @@ internal sealed class LoadingIndicator
                     // mid-session. The clause retires WITHOUT ever arming — this is the one
                     // check that keeps a hot reload from arming on a boot seam that has been
                     // sitting non-null since startup.
+                    ReportQuestLifecycle("boot-retired", "SceneController observed before the Intro seam");
                     _boot = BootCoverage.Done;
                     return false;
                 }
@@ -620,6 +707,7 @@ internal sealed class LoadingIndicator
                     return false;
                 _boot = BootCoverage.Covering;
                 _bootCoverSeconds = 0f;
+                ReportQuestLifecycle("boot-armed");
                 VRLog.Info("WorldUI", "Loading indicator ARMED for the boot window: the intro has ended and " +
                                       "'Gloomhaven_unified' is loading (Bootstrap._loadScene assigned). The game puts " +
                                       "nothing on screen until its own loading screen, ~11 s later; the main thread " +
@@ -655,11 +743,95 @@ internal sealed class LoadingIndicator
     /// <summary>Terminal, by construction: nothing ever assigns anything but Done again.</summary>
     private void RetireBootCoverage(string why)
     {
+        ReportQuestLifecycle("boot-retired", why);
         _boot = BootCoverage.Done;
         _bootstrap = null;
         _bootLoadSceneField = null;
         VRLog.Info("WorldUI", $"Loading indicator boot window closed after {_bootCoverSeconds:0.0}s — {why}. " +
                               "The clause cannot re-arm for the rest of the session.");
+    }
+
+    private void ReportQuestLifecycle(string edge, string reason = "")
+    {
+        if (!QuestStandalonePlatform.Enabled || !VRLog.Wants(VRLogLevel.Debug)
+            || _questLifecycleSamples >= 4) return;
+        _questLifecycleSamples++;
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        SceneController? sc = SceneController.Instance;
+        UnityEngine.Debug.Log("[Quest startup] presentation spinner-edge edge=" + edge + " reason=" + reason
+            + " instance=" + GetHashCode() + " frame=" + Time.frameCount + " time=" + Time.realtimeSinceStartup
+            + " boot=" + _boot + " covered=" + _bootCoverSeconds + " fade=" + _fade
+            + " session=" + VRSession.IsRunning + " option=" + WorldUIConfig.LoadingIndicator.Value
+            + " sc=" + (sc == null ? "none" : sc.GetInstanceID() + ",loading=" + sc.IsLoading + ",scenario=" + sc.ScenarioIsLoading)
+            + " menu=" + (GLOOM.MainMenu.MainMenuUIManager.Instance != null)
+            + " head=" + (head == null ? "none" : head.GetInstanceID() + ",enabled=" + head.isActiveAndEnabled
+                + ",mask=" + head.cullingMask + ",clips=" + head.nearClipPlane + ":" + head.farClipPlane)
+            + " root=" + (_root == null ? "none" : _root.GetInstanceID() + ",active=" + _root.activeInHierarchy
+                + ",parent=" + (_root.transform.parent == null ? 0 : _root.transform.parent.GetInstanceID()))
+            + " provisional=" + _artIsProvisional
+            + " introCanvas=" + (_questIntroCanvas == null ? "none" : _questIntroCanvas.GetInstanceID()
+                + ",mode=" + _questIntroCanvas.renderMode + ",enabled=" + _questIntroCanvas.enabled
+                + ",active=" + _questIntroCanvas.gameObject.activeInHierarchy + ",scene=" + _questIntroCanvas.gameObject.scene.name)
+            + " baseTexture=" + (_baseArt?.Tex == null ? 0 : _baseArt.Tex.GetInstanceID())
+            + " overlayTexture=" + (_overlayArt?.Tex == null ? 0 : _overlayArt.Tex.GetInstanceID())
+            + " baseAlpha=" + (_baseMaterial == null ? -1f : _baseMaterial.color.a)
+            + " overlayAlpha=" + (_overlayMaterial == null ? -1f : _overlayMaterial.color.a)
+            + " cameras=" + QuestCameraOrderFacts()
+            + " baseDraw=" + QuestDrawFacts(_baseQuad, head)
+            + " overlayDraw=" + QuestDrawFacts(_overlayQuad, head));
+    }
+
+    // Four Debug-only lifecycle edges, not a scene/object sweep every frame.
+    // Renderer admission alone did not explain B691's black boot interval:
+    // retain the final native camera ordering/clear/target at those same edges.
+    private static string QuestCameraOrderFacts()
+    {
+        Camera[] cameras = Camera.allCameras;
+        string facts = "";
+        for (int i = 0; i < Math.Min(cameras.Length, 8); i++)
+        {
+            Camera camera = cameras[i];
+            if (camera == null) continue;
+            if (facts.Length != 0) facts += ";";
+            facts += camera.name + ",depth=" + camera.depth + ",clear=" + camera.clearFlags
+                + ",mask=" + camera.cullingMask + ",target="
+                + (camera.targetTexture == null ? "backbuffer" : camera.targetTexture.name);
+        }
+        return "(" + facts + ")";
+    }
+
+    private static string QuestDrawFacts(Transform? quad, Camera? head)
+    {
+        if (quad == null) return "none";
+        Renderer? renderer = quad.GetComponent<Renderer>();
+        if (renderer == null) return "no-renderer";
+        Material? material = renderer.sharedMaterial;
+        Mesh? mesh = quad.GetComponent<MeshFilter>()?.sharedMesh;
+        LoadingDrawWitness? witness = quad.GetComponent<LoadingDrawWitness>();
+        return "(enabled=" + renderer.enabled + ",forceOff=" + renderer.forceRenderingOff
+            + ",layer=" + quad.gameObject.layer + ",queue=" + (material == null ? -1 : material.renderQueue)
+            + ",shader=" + (material == null ? 0 : material.shader.GetInstanceID())
+            + ",vertices=" + (mesh == null ? 0 : mesh.vertexCount) + ",block=" + renderer.HasPropertyBlock()
+            + ",view=" + (head == null ? Vector3.zero : head.worldToCameraMatrix.MultiplyPoint3x4(renderer.bounds.center))
+            + ",scale=" + quad.lossyScale
+            + ",flip=" + (material != null && material.HasProperty("_Flip") ? material.GetVector("_Flip").ToString() : "absent")
+            + ",tint=" + (material != null && material.HasProperty("_RendererColor") ? material.GetColor("_RendererColor").ToString() : "absent")
+            + ",lastHead=" + (witness == null ? "none" : witness.LastHeadId + ":" + witness.LastHeadFrame) + ")";
+    }
+
+    // Debug-only, two tiny owned witnesses: distinguish an active loading root
+    // from a renderer admitted to the actual head camera. OnWillRenderObject
+    // is not a fragment/pixel proof and never changes visibility or materials.
+    private sealed class LoadingDrawWitness : MonoBehaviour
+    {
+        internal int LastHeadId, LastHeadFrame = -1;
+        private void OnWillRenderObject()
+        {
+            if (!VRLog.Wants(VRLogLevel.Debug)) return;
+            Camera? camera = Camera.current;
+            if (camera == null || camera != Rig.VRRigDriver.HeadCamera) return;
+            LastHeadId = camera.GetInstanceID(); LastHeadFrame = Time.frameCount;
+        }
     }
 
     /// <summary>
@@ -686,6 +858,7 @@ internal sealed class LoadingIndicator
                 _bootLoadSceneField = AccessTools.Field(typeof(Bootstrap), "_loadScene");
                 if (_bootLoadSceneField == null)
                 {
+                    ReportQuestLifecycle("boot-retired", "Bootstrap._loadScene field missing");
                     _boot = BootCoverage.Done;
                     VRLog.Warn("WorldUI", "Loading indicator: Bootstrap._loadScene not found — the boot window " +
                                           "cannot be recognised and stays uncovered (everything else is unaffected).");
@@ -696,6 +869,7 @@ internal sealed class LoadingIndicator
         }
         catch (Exception ex)
         {
+            ReportQuestLifecycle("boot-retired", "Bootstrap seam read failed");
             _boot = BootCoverage.Done;
             VRLog.Warn("WorldUI", $"Loading indicator: reading the game's boot seam failed ({ex.GetType().Name}: " +
                                   $"{ex.Message}) — the boot window stays uncovered.");
@@ -745,8 +919,14 @@ internal sealed class LoadingIndicator
         DestroyObj(ref _overlayMesh);
         _baseMaterial = CreateLayerMaterial(_baseArt, _fallbackBaseTex);
         _overlayMaterial = CreateLayerMaterial(_overlayArt, _fallbackOverlayTex);
+        // These are two authored animation layers of ONE flat widget. Quest puts
+        // them on one stereo plane and uses queue order for alpha composition;
+        // a depth gap invents binocular disparity that the original UI never had.
+        bool quest = QuestStandalonePlatform.Enabled;
+        if (quest)
+            _overlayMaterial.renderQueue = _baseMaterial.renderQueue + 1;
         _baseQuad = CreateQuad("Base", _baseMaterial, _baseArt, 0f, ref _baseMesh);
-        _overlayQuad = CreateQuad("Overlay", _overlayMaterial, _overlayArt, -OverlayLiftMeters, ref _overlayMesh);
+        _overlayQuad = CreateQuad("Overlay", _overlayMaterial, _overlayArt, quest ? 0f : -OverlayLiftMeters, ref _overlayMesh);
 
         // Match LoadingScreen.OnEnable: overlay starts at min alpha, rising.
         _overlayAlpha = _minAlpha;
@@ -781,12 +961,15 @@ internal sealed class LoadingIndicator
     {
         GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.name = "GloomhavenVR.LoadingIndicator." + name;
+        if (QuestStandalonePlatform.Enabled && VRLog.Wants(VRLogLevel.Debug))
+            quad.AddComponent<LoadingDrawWitness>();
         UnityEngine.Object.Destroy(quad.GetComponent<Collider>()); // visual only — never a ray/poke target
         quad.GetComponent<Renderer>().sharedMaterial = material;
         // Atlas sub-rect via mesh UVs (shader-independent). Identity rect (procedural
         // fallback textures) keeps the shared primitive mesh — nothing to remap.
         Rect uv = art.Uv;
-        if (uv.x != 0f || uv.y != 0f || uv.width != 1f || uv.height != 1f)
+        bool offset = art.CenterRatio.sqrMagnitude > 0f;
+        if (uv.x != 0f || uv.y != 0f || uv.width != 1f || uv.height != 1f || offset)
         {
             MeshFilter meshFilter = quad.GetComponent<MeshFilter>();
             // Clone — NEVER mutate the shared primitive mesh (every Quad in the process,
@@ -797,10 +980,38 @@ internal sealed class LoadingIndicator
             for (int i = 0; i < uvs.Length; i++)
                 uvs[i] = new Vector2(uv.x + uvs[i].x * uv.width, uv.y + uvs[i].y * uv.height);
             clone.uv = uvs;
+            if (offset)
+            {
+                // Keep the native rotation pivot: the crop's centre offset lives
+                // in mesh vertices, so it rotates WITH both animation layers.
+                float maxSide = Mathf.Max(art.Width, art.Height);
+                float x = art.CenterRatio.x * maxSide / (art.Width * art.SizeRatio);
+                float y = art.CenterRatio.y * maxSide / (art.Height * art.SizeRatio);
+                Vector3[] vertices = clone.vertices;
+                for (int i = 0; i < vertices.Length; i++)
+                    vertices[i] += new Vector3(x, y, 0f);
+                clone.vertices = vertices;
+                clone.RecalculateBounds();
+            }
             meshFilter.mesh = clone;
             // The quad dies with _root, but the clone is an asset-like orphan — tracked so
             // Shutdown/BuildVisual destroy it explicitly (mirrors the material bookkeeping).
             meshClone = clone;
+        }
+        // B680 still shows the later native spinner but can lose its boot copy.
+        // Cached boot PNGs have identity UVs and keep Unity's shared Quad above;
+        // native trimmed sprites instead allocate a remapped mesh. Neither path
+        // guarantees the explicit COLOR input required by the Sprite program.
+        // Close the same primitive-upload boundary already repaired for Quest's
+        // screen and pointer, after retaining the exact atlas/pivot geometry.
+        // This never mutates the shared original or changes desktop identity.
+        MeshFilter filter = quad.GetComponent<MeshFilter>();
+        Mesh? uploaded = QuestPrimitiveMesh.Rebuild(filter.sharedMesh, "loading-" + name);
+        if (uploaded != null)
+        {
+            filter.sharedMesh = uploaded;
+            DestroyObj(ref meshClone);
+            meshClone = uploaded;
         }
         Transform t = quad.transform;
         t.SetParent(_root!.transform, worldPositionStays: false);
@@ -841,13 +1052,13 @@ internal sealed class LoadingIndicator
                 var baseGo = AccessTools.Field(typeof(LoadingScreen), "m_LoadingIconBase")?.GetValue(ls) as GameObject;
                 var overlayGo = AccessTools.Field(typeof(LoadingScreen), "m_LoadingIconOverlay")?.GetValue(ls) as GameObject;
                 LayerArt? baseArt = ReadLayer(baseGo, baseGo);
-                LayerArt? overlayArt = ReadLayer(overlayGo, baseGo);
+                LayerArt? overlayArt = ReadLayer(overlayGo, baseGo, animatedOpacity: true);
                 if (baseArt != null && overlayArt != null)
                 {
                     _baseArt = baseArt;
                     _overlayArt = overlayArt;
                     _artIsProvisional = false;
-                    _spinDegrees = ReadTuning(ls, "m_IconSpinSpeed", FallbackSpinDegrees);
+                    _spinDegrees = ReadSpinDegrees(ReadTuningRaw(ls, "m_IconSpinSpeed"));
                     _stepSeconds = ReadTuning(ls, "m_IconUpdateSpeed", FallbackStepSeconds);
                     _glowStep = ReadTuning(ls, "m_IconGlowSpeed", FallbackGlowStep);
                     // Min alpha may legitimately be 0 — only NaN/negative/degenerate falls back.
@@ -936,7 +1147,15 @@ internal sealed class LoadingIndicator
         {
             GameObject? baseGo = null;
             GameObject? overlayGo = null;
-            AnimateLoadingIcon? anim = FindLiveInstance<AnimateLoadingIcon>();
+            IntroPlayer? intro = QuestStandalonePlatform.Enabled ? FindLiveInstance<IntroPlayer>() : null;
+            GameObject? loading = intro != null
+                ? AccessTools.Field(typeof(IntroPlayer), "_loading")?.GetValue(intro) as GameObject
+                : null;
+            // Resolve the original animator under its exact serialized owner first.
+            // A scene transition can already expose another live animator.
+            AnimateLoadingIcon? anim = loading != null
+                ? loading.GetComponentInChildren<AnimateLoadingIcon>(true)
+                : FindLiveInstance<AnimateLoadingIcon>();
             if (anim != null)
             {
                 baseGo = AccessTools.Field(typeof(AnimateLoadingIcon), "m_LoadingIconBase")?.GetValue(anim) as GameObject;
@@ -947,10 +1166,13 @@ internal sealed class LoadingIndicator
             {
                 // Second shape: whatever the game switches on, read as plain uGUI. Hierarchy
                 // order decides base/overlay — that is how both known animators declare them.
-                IntroPlayer? intro = FindLiveInstance<IntroPlayer>();
-                var loading = intro != null
-                    ? AccessTools.Field(typeof(IntroPlayer), "_loading")?.GetValue(intro) as GameObject
-                    : null;
+                if (!QuestStandalonePlatform.Enabled)
+                {
+                    intro = FindLiveInstance<IntroPlayer>();
+                    loading = intro != null
+                        ? AccessTools.Field(typeof(IntroPlayer), "_loading")?.GetValue(intro) as GameObject
+                        : null;
+                }
                 if (loading == null)
                     return false;
                 Image[] images = loading.GetComponentsInChildren<Image>(includeInactive: true);
@@ -982,12 +1204,16 @@ internal sealed class LoadingIndicator
             }
 
             LayerArt? baseArt = ReadLayer(baseGo, baseGo);
-            LayerArt? overlayArt = ReadLayer(overlayGo, baseGo);
+            LayerArt? overlayArt = ReadLayer(overlayGo, baseGo, animatedOpacity: anim != null);
             if (baseArt == null || overlayArt == null)
                 return false;
-            // The Intro scene's textures die when Gloomhaven_unified activates — take mod-owned
-            // copies NOW or the last ~2.7 s of the window renders blank white quads.
-            if (!AdoptOwnedCopy(baseArt) || !AdoptOwnedCopy(overlayArt))
+            // Quest's working scenario spinner samples the native sprite atlas
+            // directly. Bind that same consumer to our persistent visual before
+            // the Intro scene unloads; the live native Material->Texture edge
+            // retains the borrowed asset without a copy, readback or flag edit.
+            // B686's boot-only RT consumer remained invisible on the headset,
+            // despite isolated host-copy tests. Keep desktop copies unchanged.
+            if (!QuestStandalonePlatform.Enabled && (!AdoptOwnedCopy(baseArt) || !AdoptOwnedCopy(overlayArt)))
             {
                 DestroyOwnedArtTextures();
                 return false;
@@ -995,9 +1221,36 @@ internal sealed class LoadingIndicator
             _baseArt = baseArt;
             _overlayArt = overlayArt;
             _artIsProvisional = true;
+            if (QuestStandalonePlatform.Enabled)
+            {
+                // B691's capture reports introCanvas=none even though the selected
+                // original animator/art remains live. That observation alone does
+                // not establish actor or mode state. Qualify both legitimate owner
+                // lifetimes through the exact native Intro animator; never take an arbitrary
+                // canvas or a later menu/error canvas. Canvas ownership is stable
+                // across native/modal camera rebinding; renderMode is not.
+                Canvas? canvas = loading != null ? loading.GetComponent<Canvas>()
+                    : anim != null && anim.gameObject.scene.name == "Intro"
+                        ? anim.GetComponentInParent<Canvas>() : null;
+                if (canvas != null && canvas.isRootCanvas
+                    && baseGo != null && overlayGo != null && baseGo.transform.IsChildOf(canvas.transform)
+                    && overlayGo.transform.IsChildOf(canvas.transform))
+                {
+                    _questIntroCanvas = canvas;
+                    _questIntroCanvasEnabled = canvas.enabled;
+                }
+                if (VRLog.Wants(VRLogLevel.Debug) && _questNativeOwnerSamples++ < 4)
+                    UnityEngine.Debug.Log("[Quest startup] presentation spinner-intro-owner frame=" + Time.frameCount
+                        + " actor=" + (intro == null ? "none" : intro.gameObject.scene.name)
+                        + " loading=" + (loading == null ? "none" : loading.name)
+                        + " animator=" + (anim == null ? "none" : anim.gameObject.scene.name)
+                        + " canvas=" + (canvas == null ? "none" : canvas.name + "," + canvas.renderMode
+                            + ",root=" + canvas.isRootCanvas + ",enabled=" + canvas.enabled)
+                        + " admitted=" + (_questIntroCanvas != null));
+            }
             if (anim != null)
             {
-                _spinDegrees = ReadAnimTuning(anim, "m_IconSpinSpeed", FallbackSpinDegrees);
+                _spinDegrees = ReadSpinDegrees(ReadFloatField(anim, typeof(AnimateLoadingIcon), "m_IconSpinSpeed"));
                 _stepSeconds = ReadAnimTuning(anim, "m_IconUpdateSpeed", FallbackStepSeconds);
                 _glowStep = ReadAnimTuning(anim, "m_IconGlowSpeed", FallbackGlowStep);
                 float minAlpha = ReadFloatField(anim, typeof(AnimateLoadingIcon), "m_IconOverlayMinAlpha");
@@ -1011,6 +1264,79 @@ internal sealed class LoadingIndicator
                                   $"({ex.GetType().Name}: {ex.Message}) — falling through to the next source.");
             return false;
         }
+    }
+
+    // IntroPlayer.ShowLogos enables its serialized _loading root at completion.
+    // The owned Intro scene makes that exact root a ScreenSpaceOverlay Canvas
+    // (order 1000) with an opaque black Image behind the native icons. Its final
+    // screen draw can cover the admitted head-camera spinner; changing render
+    // queues or retaining textures does not move a MeshRenderer above it.
+    // Hand only this obsolete flat loading presentation to our live native-art
+    // consumer. Keep its GameObject, animator, callbacks and load completion
+    // untouched. The initial video/logos, other canvases, desktop and later
+    // native LoadingScreen canvases never enter this narrow ownership path.
+    private void SuppressQuestIntroCanvas()
+    {
+        if (!QuestStandalonePlatform.Enabled || !_artIsProvisional || _questIntroCanvas == null
+            || !_questIntroCanvasEnabled || _root == null || !_root.activeInHierarchy) return;
+        _questIntroCanvas.enabled = false;
+        _questIntroCanvasSuppressed = true;
+    }
+
+    // B690's admitted spinner remained live until native completion, yet the
+    // headset lost it after Intro's Single unload. Gloomhaven_unified authors
+    // a second PersistentOverlay (ScreenSpaceOverlay, order1000): its exact
+    // SceneController.LoadingScreenGO owns another opaque full-screen Image.
+    // Hand off only that loading widget's graphics, never its GlobalCanvas:
+    // sibling native error/dialog presentation must remain available. The
+    // native loader, animator, enabled owner, callbacks and progress continue.
+    // Retain each enabled bit and restore on handover, option-off or shutdown;
+    // do not disable a native behaviour or extend the original loading state.
+    private void SuppressQuestNativeLoadingGraphics()
+    {
+        if (!QuestStandalonePlatform.Enabled) return;
+        SceneController? scene = SceneController.Instance;
+        GameObject? owner = scene == null ? null : scene.LoadingScreenGO;
+        if (owner == null || !owner.activeInHierarchy || _root == null || !_root.activeInHierarchy)
+        {
+            RestoreQuestNativeLoadingGraphics();
+            return;
+        }
+        if (_questNativeLoadingOwner != owner)
+        {
+            RestoreQuestNativeLoadingGraphics();
+            // Qualify the original serialized ownership edge, independently of
+            // whether another presentation owner has rebound its Canvas to a
+            // captured camera. The B691 mode predicate silently refuses that
+            // exact native loading widget after a legitimate mode change.
+            Canvas? canvas = scene!.GlobalCanvas == null ? null : scene.GlobalCanvas.GetComponent<Canvas>();
+            if (canvas == null || !canvas.isRootCanvas || !owner.transform.IsChildOf(canvas.transform)) return;
+            _questNativeLoadingOwner = owner;
+            foreach (Graphic graphic in owner.GetComponentsInChildren<Graphic>(true))
+                if (graphic != null) _questNativeLoadingGraphics.Add((graphic, graphic.enabled));
+            if (VRLog.Wants(VRLogLevel.Debug) && _questNativeOwnerSamples++ < 4)
+                UnityEngine.Debug.Log("[Quest startup] presentation spinner-native-owner frame=" + Time.frameCount
+                    + " owner=" + owner.name + " canvas=" + canvas.name + " mode=" + canvas.renderMode
+                    + " enabled=" + canvas.enabled + " graphics=" + _questNativeLoadingGraphics.Count
+                    + " camera=" + (canvas.worldCamera == null ? "none" : canvas.worldCamera.name));
+        }
+        foreach (var state in _questNativeLoadingGraphics)
+            if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = false;
+    }
+
+    private void RestoreQuestNativeLoadingGraphics()
+    {
+        foreach (var state in _questNativeLoadingGraphics)
+            if (state.graphic != null) state.graphic.enabled = state.enabled;
+        _questNativeLoadingGraphics.Clear();
+        _questNativeLoadingOwner = null;
+    }
+
+    private void RestoreQuestIntroCanvas()
+    {
+        if (!_questIntroCanvasSuppressed) return;
+        if (_questIntroCanvas != null) _questIntroCanvas.enabled = _questIntroCanvasEnabled;
+        _questIntroCanvasSuppressed = false;
     }
 
     /// <summary>First live (scene-resident) instance of a game component, inactive ones included.
@@ -1061,7 +1387,7 @@ internal sealed class LoadingIndicator
         {
             // Blit leaves the sub-rect filling the whole target, so the layer's UV rect becomes
             // the identity and CreateQuad keeps the shared primitive mesh.
-            Graphics.Blit(src, rt, new Vector2(uv.width, uv.height), new Vector2(uv.x, uv.y));
+            QuestTextureCopy.Copy(src, rt, new Vector2(uv.width, uv.height), new Vector2(uv.x, uv.y));
         }
         finally
         {
@@ -1079,6 +1405,18 @@ internal sealed class LoadingIndicator
         return (v > 0f && !float.IsNaN(v) && !float.IsInfinity(v)) ? v : fallback;
     }
 
+    private static float ReadSpinDegrees(float value)
+    {
+        // Native Intro/LoadingScreen author -6 degrees. Unlike a duration or
+        // glow increment, the sign is the visible rotation direction. The full
+        // Tick fixture exposed that the shared positive-number guard silently
+        // substituted +6. Preserve signed native tuning on Quest while keeping
+        // the established desktop path and invalid-value fallback unchanged.
+        if (QuestStandalonePlatform.Enabled && value != 0f && !float.IsNaN(value) && !float.IsInfinity(value))
+            return value;
+        return PositiveOr(value, FallbackSpinDegrees);
+    }
+
     private static float ReadFloatField(object target, Type type, string field)
     {
         object? v = AccessTools.Field(type, field)?.GetValue(target);
@@ -1092,6 +1430,19 @@ internal sealed class LoadingIndicator
     /// the game install.</summary>
     private static string IconCachePath(string suffix) =>
         Path.Combine(Paths.ConfigPath, MyPluginInfo.PLUGIN_GUID + ".loadingicon" + suffix);
+
+    private static bool CanUsePersistentArt()
+    {
+        // The B684 headset boot used decoded cached PNGs while its live native
+        // loading-screen sprite remained correct. The PNG path round-trips GPU
+        // pixels through ReadPixels, whose Quest data has already proved unsafe
+        // for optional derived art; a matching name/recipe cannot validate those
+        // saved pixels. The Intro scene already supplies the same native layers.
+        // Retain the direct native atlas through our owned material across scene
+        // teardown, avoiding disk cache reads and writes on Quest. Desktop's
+        // proven cache is retained.
+        return !QuestStandalonePlatform.Enabled;
+    }
 
     /// <summary>What the stored copy is a copy OF. Compared against the live sprites on every
     /// ordinary load so a game update that changes the art re-takes the capture exactly once.</summary>
@@ -1108,6 +1459,7 @@ internal sealed class LoadingIndicator
     /// </summary>
     private bool TryCachedIconArt()
     {
+        if (!CanUsePersistentArt()) return false;
         Texture2D? baseTex = null;
         Texture2D? overlayTex = null;
         try
@@ -1116,8 +1468,10 @@ internal sealed class LoadingIndicator
             if (!File.Exists(manifest) || !File.Exists(IconCachePath(".base.png")) || !File.Exists(IconCachePath(".overlay.png")))
                 return false;
             Dictionary<string, string> kv = ParseManifest(File.ReadAllLines(manifest));
-            if (!kv.TryGetValue("v", out string? version) || version != "1")
+            if (!kv.TryGetValue("v", out string? version) || version != "2")
                 return false;
+            kv.TryGetValue("copyrecipe", out string? copyRecipe);
+            if (!QuestTextureCopy.AcceptCache(copyRecipe)) return false;
             baseTex = LoadPngTexture(IconCachePath(".base.png"), "GloomhavenVR.LoadingIconCached.Base");
             overlayTex = baseTex != null ? LoadPngTexture(IconCachePath(".overlay.png"), "GloomhavenVR.LoadingIconCached.Overlay") : null;
             if (baseTex == null || overlayTex == null)
@@ -1126,22 +1480,25 @@ internal sealed class LoadingIndicator
                 DestroyObj(ref overlayTex);
                 return false;
             }
-            // The PNGs are already cropped to the sprite rect, so the UV rect is the identity and
-            // the pixel dimensions carry the authored aspect.
+            // Pixel crops and drawing geometry differ when the sprite is trimmed.
+            // Version 1 lost that padding and cannot be reused after the layout fix.
             _baseArt = new LayerArt
             {
                 Tex = baseTex,
                 Tint = ParseColor(kv, "basetint", Color.white),
-                Width = baseTex.width,
-                Height = baseTex.height,
+                Width = PositiveOr(ParseFloat(kv, "basewidth", float.NaN), baseTex.width),
+                Height = PositiveOr(ParseFloat(kv, "baseheight", float.NaN), baseTex.height),
+                SizeRatio = Mathf.Clamp(ParseFloat(kv, "baseratio", 1f), 0.01f, 4f),
+                CenterRatio = new Vector2(ParseFloat(kv, "basex", 0f), ParseFloat(kv, "basey", 0f)),
             };
             _overlayArt = new LayerArt
             {
                 Tex = overlayTex,
                 Tint = ParseColor(kv, "overlaytint", Color.white),
-                Width = overlayTex.width,
-                Height = overlayTex.height,
-                SizeRatio = Mathf.Clamp(ParseFloat(kv, "overlayratio", 1f), 0.25f, 4f),
+                Width = PositiveOr(ParseFloat(kv, "overlaywidth", float.NaN), overlayTex.width),
+                Height = PositiveOr(ParseFloat(kv, "overlayheight", float.NaN), overlayTex.height),
+                SizeRatio = Mathf.Clamp(ParseFloat(kv, "overlayratio", 1f), 0.01f, 4f),
+                CenterRatio = new Vector2(ParseFloat(kv, "overlayx", 0f), ParseFloat(kv, "overlayy", 0f)),
             };
             _ownedArtTextures.Add(baseTex);
             _ownedArtTextures.Add(overlayTex);
@@ -1178,7 +1535,7 @@ internal sealed class LoadingIndicator
     /// </summary>
     private void TryWriteIconCache(GameObject? baseGo, GameObject? overlayGo, LayerArt baseArt, LayerArt overlayArt)
     {
-        if (_cacheWriteAttempted || baseGo == null || overlayGo == null)
+        if (!CanUsePersistentArt() || _cacheWriteAttempted || baseGo == null || overlayGo == null)
             return;
         _cacheWriteAttempted = true;
         Texture2D? basePixels = null;
@@ -1196,8 +1553,9 @@ internal sealed class LoadingIndicator
             if (File.Exists(manifest) && File.Exists(IconCachePath(".base.png")) && File.Exists(IconCachePath(".overlay.png")))
             {
                 Dictionary<string, string> existing = ParseManifest(File.ReadAllLines(manifest));
-                if (existing.TryGetValue("v", out string? v) && v == "1" &&
-                    existing.TryGetValue("id", out string? id) && id == identity)
+                if (existing.TryGetValue("v", out string? v) && v == "2" &&
+                    existing.TryGetValue("id", out string? id) && id == identity &&
+                    QuestTextureCopy.AcceptCache(existing.TryGetValue("copyrecipe", out string? recipe) ? recipe : null))
                     return; // already the current art — no readback at all
             }
             basePixels = CaptureSpritePixels(baseSprite);
@@ -1241,7 +1599,7 @@ internal sealed class LoadingIndicator
         RenderTexture prev = RenderTexture.active;
         try
         {
-            Graphics.Blit(src, rt,
+            QuestTextureCopy.Copy(src, rt,
                 new Vector2(tr.width / src.width, tr.height / src.height),
                 new Vector2(tr.x / src.width, tr.y / src.height));
             RenderTexture.active = rt;
@@ -1285,7 +1643,8 @@ internal sealed class LoadingIndicator
         sb.Append("# GloomhavenVR — a copy of the GAME's own loading symbol, taken once so the boot window\n");
         sb.Append("# (intro over, Gloomhaven_unified still loading) can show it. Delete these three files to\n");
         sb.Append("# have the mod re-take them on the next load. Nothing here is user tuning.\n");
-        sb.Append("v=1\n");
+        sb.Append("v=2\n");
+        if (QuestStandalonePlatform.Enabled) sb.Append("copyrecipe=").Append(QuestTextureCopy.Recipe).Append('\n');
         sb.Append("id=").Append(identity).Append('\n');
         Append(sb, "spin", _spinDegrees);
         Append(sb, "step", _stepSeconds);
@@ -1293,8 +1652,18 @@ internal sealed class LoadingIndicator
         Append(sb, "minalpha", _minAlpha);
         sb.Append("basetint=").Append(FormatColor(baseArt.Tint)).Append('\n');
         sb.Append("overlaytint=").Append(FormatColor(overlayArt.Tint)).Append('\n');
-        Append(sb, "overlayratio", overlayArt.SizeRatio);
+        AppendLayer("base", baseArt);
+        AppendLayer("overlay", overlayArt);
         return sb.ToString();
+
+        void AppendLayer(string prefix, LayerArt art)
+        {
+            Append(sb, prefix + "width", art.Width);
+            Append(sb, prefix + "height", art.Height);
+            Append(sb, prefix + "ratio", art.SizeRatio);
+            Append(sb, prefix + "x", art.CenterRatio.x);
+            Append(sb, prefix + "y", art.CenterRatio.y);
+        }
 
         static void Append(System.Text.StringBuilder b, string key, float value) =>
             b.Append(key).Append('=').Append(value.ToString("R", CultureInfo.InvariantCulture)).Append('\n');
@@ -1350,9 +1719,15 @@ internal sealed class LoadingIndicator
     private static string DescribeTex(LayerArt art) =>
         art.Tex != null ? $"{art.Tex.name} {art.Uv}" : "procedural";
 
+    private static string QuestSpinnerFacts(Transform? quad, LayerArt? art, Material? material) =>
+        quad == null || art == null || material == null ? "none"
+            : quad.lossyScale + ",rect=" + art.Uv + ",aspect=" + art.Width + "x" + art.Height
+                + ",texture=" + (art.Tex == null ? "none" : art.Tex.name + "," + art.Tex.width + "x" + art.Tex.height)
+                + ",shader=" + material.shader.name + ",supported=" + material.shader.isSupported + ",color=" + material.color;
+
     /// <summary>One icon layer from its uGUI object: sprite texture + atlas sub-rect + tint +
     /// authored rect size (aspect and size relative to the base icon).</summary>
-    private static LayerArt? ReadLayer(GameObject? iconGo, GameObject? baseGo)
+    private static LayerArt? ReadLayer(GameObject? iconGo, GameObject? baseGo, bool animatedOpacity = false)
     {
         if (iconGo == null || baseGo == null)
             return null;
@@ -1363,19 +1738,41 @@ internal sealed class LoadingIndicator
             return null;
 
         Rect tr = sprite.textureRect; // throws for tight-packed sprites → caller's catch → fallback
+        RectTransform? iconRect = iconGo.GetComponent<RectTransform>();
+        RectTransform? baseRect = baseGo.GetComponent<RectTransform>();
+        if (iconRect == null || baseRect == null)
+            return null;
+        float units = Mathf.Max(baseRect.rect.width, baseRect.rect.height);
+        if (units <= 1f)
+            return null;
+        Rect drawing = LoadingIconGeometry.DrawingRect(image);
+        Vector3 center = baseRect.InverseTransformPoint(iconRect.TransformPoint(drawing.center))
+                         - (Vector3)baseRect.rect.center;
+        float width = drawing.width * baseRect.InverseTransformVector(iconRect.TransformVector(Vector3.right)).magnitude;
+        float height = drawing.height * baseRect.InverseTransformVector(iconRect.TransformVector(Vector3.up)).magnitude;
+        if (width <= 0f || height <= 0f)
+            return null;
         var art = new LayerArt
         {
             Tex = tex,
             Uv = new Rect(tr.x / tex.width, tr.y / tex.height, tr.width / tex.width, tr.height / tex.height),
             Tint = image.color,
-            Width = Mathf.Max(1f, tr.width),
-            Height = Mathf.Max(1f, tr.height),
+            Width = width,
+            Height = height,
+            SizeRatio = Mathf.Max(width, height) / units,
+            CenterRatio = new Vector2(center.x / units, center.y / units),
         };
-        // Relative size from the authored uGUI rects (overlay may be larger/smaller than base).
-        var iconRect = iconGo.GetComponent<RectTransform>();
-        var baseRect = baseGo.GetComponent<RectTransform>();
-        if (iconRect != null && baseRect != null && baseRect.rect.width > 1f)
-            art.SizeRatio = Mathf.Clamp(iconRect.rect.width / baseRect.rect.width, 0.25f, 4f);
+        // The native LoadingScreen/AnimateLoadingIcon owns the overlay alpha:
+        // OnEnable assigns m_IconOverlayMinAlpha (0 in the original scenes),
+        // then AnimateIcon writes a new absolute alpha on every glow step.
+        // B685 sampled that live zero as permanent artwork opacity and multiplied
+        // every future replica step by it. Both headset acquisitions therefore
+        // logged overlay alpha 0; the bright part could never recover. Preserve
+        // RGB, but let our matching animator own that alpha exactly once. This
+        // applies only to the two source-qualified native animator overlays on
+        // Quest, never the authored base, an arbitrary Image or desktop copies.
+        if (animatedOpacity && QuestStandalonePlatform.Enabled)
+            art.Tint = new Color(art.Tint.r, art.Tint.g, art.Tint.b, 1f);
         return art;
     }
 

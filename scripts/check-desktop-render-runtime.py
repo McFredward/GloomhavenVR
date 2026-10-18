@@ -32,6 +32,7 @@ def main():
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
+    print('Desktop render evidence: ' + str(run), flush=True)
     flat = args.source_root / 'src/GloomhavenVR/WorldUI/FlatScreen'
     desktop = (flat/'FlatScreen.3.Desktop.cs').read_text()
     core = (flat/'FlatScreen.1.Core.cs').read_text()
@@ -51,11 +52,12 @@ def main():
         'Budget.cs': (args.source_root/'src/GloomhavenVR/Core/NativeCameraRenderBudget.cs').read_text(),
         'Cadence.cs': (args.source_root/'src/GloomhavenVR/WorldUI/Conversion/PanelMaintenanceCadence.cs').read_text(),
         'Desktop.cs': desktop,
+        'NativeTargets.cs': (flat/'FlatScreen.NativeTargets.cs').read_text(),
         'Policy.cs': (flat/'FrameDesktopPolicy.cs').read_text(),
         'StereoPolicy.cs': (args.source_root/'src/GloomhavenVR/Core/VRCameraPolicy.cs').read_text(),
         'CaptureRender.cs': (flat/'FlatScreen.7.CaptureRender.cs').read_text(),
         'CullBoundary.cs': (args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs').read_text(),
-        'Lifecycle.cs': 'using GloomhavenVR.Core;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class FlatScreen\n{\n'+fields+end+'}\n',
+        'Lifecycle.cs': 'using GloomhavenVR.Core;\nusing UnityEngine;\nusing GL = GloomhavenVR.Core.FixtureGL;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class FlatScreen\n{\n'+fields+end+'}\n',
     }
     # Execute real discovery, classification, base selection, clear policy and
     # release. Only the heavyweight split/stereo construction is a named fixture
@@ -109,6 +111,8 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
         + 'private const int SweepIntervalFrames = 16;\n' + resolver + '\n}\n')
     variants = [
         ('production', '', '', '', ''),
+        ('quest-desktop-provider-owned', 'Desktop.cs', '        if (QuestStandalonePlatform.Enabled)\n            return;', '        if (QuestStandalonePlatform.Enabled && false)\n            return;', 'Quest never captures or reconfigures a desktop mirror provider'),
+        ('quest-null-target-cleared', 'Lifecycle.cs', 'QuestStandalonePlatform.Enabled || !VRSession.IsRunning', '!VRSession.IsRunning', 'Quest spectator-off never requests a default framebuffer clear'),
         ('late-menu-discovery-lost', 'CaptureRender.cs', '            CaptureStack();', '            /* injected: first render bypasses native capture */', 'late native camera is captured before its first actual render'),
         ('late-menu-base-clear-lost', 'CaptureStack.cs', '                if (cam.backgroundColor != OpaqueBlack)\n                    cam.backgroundColor = OpaqueBlack;', '                /* injected: new base retains undefined native background */', 'first native render applies current opaque stack base clear'),
         ('late-menu-release-lost', 'CaptureStack.cs', '                cam.targetTexture = null;', '                { /* injected: first-render camera stays captured after release */ }', 'first-render capture releases exact camera and native clear state'),
@@ -150,7 +154,7 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
     fixture = ROOT/'scripts/desktop-render-runtime'
     source_files = [flat/name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs',
         'FlatScreen.3.Desktop.cs', 'FlatScreen.4.Lifecycle.cs', 'FlatScreen.7.CaptureRender.cs',
-        'FrameDesktopPolicy.cs', 'NativeVideoWindow.cs')]
+        'FrameDesktopPolicy.cs', 'NativeVideoWindow.cs', 'FlatScreen.NativeTargets.cs')]
     source_files += [args.source_root/'src/GloomhavenVR'/name for name in (
         'Core/NativeCameraRenderBudget.cs', 'Core/VRCameraPolicy.cs',
         'Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs', 'Rig/VRRigDriver.HeadCamera.cs',

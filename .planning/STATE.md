@@ -1,3 +1,44 @@
+**Quest hardware follow-up, 2026-10-18: feature / B693.**
+
+Capture202103 verifies current692/previous691. Preserve confirmed complete rooms,
+artwork, menu video, pointer point and working hover/reachable hex overlays. Hold
+startup spinner until the initialized original menu actually reaches UI capture
+and head draw. Correct original ping stream layout without replacement particles.
+Environment/pillar bank admission failed on a missing IL2CPP uint-array serializer;
+explicit Quest readers retain existing index/source identities without that path.
+Native Unity exactly reproduces the corrupt hit samples from an incorrectly mono
+startup Vorbis import. Recover the original four-channel streams into a separately
+cached32-clip PCM bank; retain Campaign data and playback cursor/mixer behavior. Linear mask
+sampling restores the original Gamma flame input; preserve correct red card paint.
+Per-renderer slot pulse isolation is a controlled Android hypothesis, not hardware
+closure. Compact Mod Update; no full-game asset conversion/local APK. Focused checks,
+source/host classification and open gates: `QUEST-HARDWARE-202103-20261018.md`.
+
+**Quest hardware follow-up, 2026-10-18: feature / B692.**
+
+Capture191141 proves current691/previous690 and actual figure derivatives. Preserve
+confirmed complete rooms, card art/cuts, menu video, pointer point and removed idle
+click. Qualify exact native loading owners across camera rebinding/departed Intro
+actor; upload identical Quest hex geometry privately; bind private guide white
+samplers and retain eligible pair evidence. Shared automatic wall FPS sampling now
+waits ten seconds after load/reveal/focus readiness before its unchanged two-second
+window. Manual wall controls and desktop rendering remain intact.
+
+Red burnt-card paint is correct (maintainer clarification); the missing flame is a
+separate native overlay. Exact recovered flame inputs render in a small Vulkan
+witness, but the actual Android binding remains open. Retain bounded passive flame
+material/timeline/texture facts outside saturated logs. Actual hit squeak also
+remains unresolved: checked native imported samples are exact, while B691 retained
+no real hit observations. Reserve the next audio lane for true spatial/hit starts
+and applied-source facts. A small Android-target test retains the five inspected
+original PCM clips and complete native mixer graph without drift. A finite Debug
+tap observes actual decoded/output amplitudes and checksums for up to four hits;
+use Quest system volume zero, because game volume zero can suppress native Play.
+Compact Mod Update, no original-bank regeneration or local full APK. Focused worker
+checks plus final strict build/actual owned-assembly Weaver/source classification
+are recorded in `.planning/QUEST-HARDWARE-191141-20261018.md` and handoff validation;
+no new headset/full-gate success is claimed.
+
 # State — where the project stands
 
 **Steam Link observer/menu containment, Build709, 2026-10-19.**
@@ -2024,6 +2065,319 @@ unchanged; its new review paths require another full hosted run under current po
 
 Owned processes are reaped and caches cleaned after runs. Sources, original
 inputs, failed controls, captures, manifests and current deliverables are retained.
+**Quest cleanup read-only repair and scan cost, 2026-10-12.**
+
+Capture153619 identifies release8865ce1b8 / ModBuild671. Its stopped-run removal
+fails on a copied OpenXR Git pack `.rev` with Windows access-denied5; the retained
+trace points to the plain `Path.unlink()` in cleanup. Read-only attributes can
+cause that exact Windows error even in a Builder-created folder; the report does
+not record the failing file's actual attributes. Check those attributes on the
+exact already-authorized leaf and repair a read-only failure automatically.
+Sharing violations need bounded retries and an actionable retained recovery.
+
+The same report spends100seconds waiting for background inventory cancellation
+and then ends during build-cache preview. The user reports371712files without
+further visible progress. The old scanner repeatedly validates full ancestor
+chains and opens individual Windows metadata handles, then serializes its entire
+node list for a final fingerprint. Reduce that metadata work, stream fingerprint
+construction, and keep aggregate counters and cooperative cancellation visible
+through enumeration, validation and deletion. Source/preview identities, links,
+pins, completed deliverables and kernel/Editor ownership remain protected.
+
+Builder-only repair: retain existing build/run data and ModBuild671, deliver a
+game-free Windows/Linux archive. Focused verification and actual host benchmarks
+must distinguish simulated Windows errors from the maintainer's next Windows
+cleanup result; neither exact final scan duration nor reclaimed bytes are yet
+hardware-verified.
+
+**Quest run list, actual storage attribution and global support export, 2026-10-12.**
+
+The maintainer reports only400MiB reclaimed and ambiguous singleton resume/delete
+tiles after retirement. Source review identifies a missing real ownership source:
+`Engine.qualify` publishes `spaceEstimate.cacheGameKey` in capacity events, not
+in the synthetic per-state qualification field previously read by cleanup.
+Capture130723's retained progress log confirms the new c287a983... game identity.
+Read those exact bounded legacy records, and retain future accepted game IDs
+outside the rotating event ring without changing build/reuse recipe inputs.
+
+Replace singleton resume/delete tiles with the actual list of normal runs and
+appropriate per-row actions. Removed runs stay out of that list; storage alone
+shows their remaining data and permits another explicitly confirmed cleanup.
+The existing metadata walk measures run-exclusive, shared and unassigned bytes
+without rehashing payloads or scanning separately for each run. Shared footprints
+can appear in multiple run rows but count once in workspace totals. Reclaimable
+figures are prospective; retained previews and ownership locks remain authority.
+Show volume usage separately from Builder workspace measurements.
+
+An always-available support control exports workspace diagnostics even without
+an active run or after the last run was retired. Include bounded current cleanup,
+request and storage-analysis records; exclude payloads, accounts and keys. The
+new source-bound focused host/browser and extracted-archive evidence accompanies
+the handoff. No new game APK or runtime/Unity source change; actual reclaimed
+Windows bytes remain unknown until the maintainer returns the next analysis.
+
+**Quest explicit stopped-run removal, 2026-10-12.**
+
+The maintainer's empty cleanup result refers to the duplicate-only selector:
+ordinary resumable work is deliberately not an inferred duplicate. Add an
+explicit stopped-run choice, optional removal of its exclusively owned build
+intermediates, and a retained confirmation preview. Small run diagnostics remain
+archived outside the sessions directory; discovery and restart cannot select a
+removed run. Shared or unproven data, completed APK/content banks, signing keys,
+downloaded tools and original PC files remain protected. No finished APK is
+required to discard an unsuccessful run.
+
+The storage view lists all readable inactive sessions on demand, rather than
+only discovery's eight recent items. The Store's kernel-lock rules reconcile
+abandoned running banners; a saved status never authorizes deleting a live run.
+The completed-build cache option becomes available from bounded delivery
+metadata immediately, without waiting for the large disk-usage scan to finish.
+Focused host/browser and extracted archive checks are recorded beside the
+handoff. Runtime remains671; no new game APK or Windows hardware acceptance is
+implied by this Builder change.
+
+**Quest storage cleanup after stopped runs, 2026-10-12.**
+
+Capture130723 identifies the delivered8692bd51a Builder, completed665 APK and
+blocked update setup:21.8GiB free, but an inherited false full-migration decision
+requests133.5GiB before current inspect can correct the route. Restrict that full
+reserve to qualified build admission. The reported cleanup error is the server's
+generic active-operation rejection; its automatic read-only inventory was
+included there despite stopped build work. Pause that scanner cooperatively and
+serialize the actual cleanup under the existing kernel guards.
+
+Retain/log pre-worker admission failures. Browser cleanup errors survive idle
+inventory and unrelated build polls; operation IDs distinguish a genuine newer
+result from an older reply. Current cleanup/request logs precede historical
+Unity logs in bounded support exports (the original package omitted cleanup.log).
+Actual full-build receipts, blocked/cancelled sessions and compact-update bank
+locators are covered by focused controls; no additional cleanup producer changes
+are needed. Finished APKs, banks, signing and original PC files remain outside
+the deletion scope. No new game APK or runtime change; physical Windows cleanup
+completion remains to be tested. Source-bound handoff checks are recorded beside
+the current game-free Builder archive. Runtime remains671.
+
+**Quest compact-update qualification and measured device progress, 2026-10-12.**
+
+Capture114856 proves B665->B671 takes a false full migration: audit/observer-only
+changes are treated as generated-payload changes and old signed capsules lack the
+newer normalized producer field. Finite exact historical source comparisons now
+retain the original payload; unknown producer/native/ABI changes still migrate.
+The raw export alone took109 minutes. Code-only updates freeze only consumed
+compiler sources and retain a stable Unity/Bee project; unchanged code/art skip
+Unity and original snapshots. A corrected compact retry replaces the previous
+fallback's task list while retaining the visible progress floor.
+
+Warm preparation no longer rewrites its large closed journal. Interrupted undo
+uses accepted closed-copy file witnesses before restoration; missing/changed or
+unsupported proofs retain actual byte qualification. Windows compiler tools can
+reuse closed pinned receipts across sessions without repeated archive extraction.
+The report proves two generated projects with different complete PC inventories,
+not their exact physical disk duplication. Bounded update-route/inventory-delta
+diagnostics and current device-task evidence are now exported without payloads.
+
+Device connect/capture shows actual task counts, current ADB activity and elapsed
+time; known transfers use measured bytes. All29 current capture targets close
+once, including unavailable-log observations. Installed APK attribution remains
+exact. Focused host/browser and extracted delivery evidence are recorded in the
+handoff validation. No local full game APK, new runtime source or physical Quest
+acceptance this round. Runtime remains671; current main/v1.1.0 is included.
+
+**Quest focused Wizard views and actual workspace defaults, 2026-10-12.**
+
+The maintainer found export/device panels on unrelated setup pages and a forced
+APK/ZIP source prompt despite a completed `.ghvrq` build. Each initial tile now
+opens its own operation; export, connection/capture and storage controls no longer
+share build/update/name setup views. Navigation retains operation state and locks.
+The maintainer's follow-up hides resume for a completed latest run, including
+initial discovery, while preserving its completed APK as the editing default.
+
+The existing default locator rejected real full-build metadata twice: its
+64-KiB latest-pointer bound rejected a retained 245,825-byte report, and it
+required top-level inputKey while complete builds store it in buildReport.
+Use bounded closed receipt/report metadata and file sizes without reading APK or
+game-bank payloads. Missing edit-source fields select the completed workspace
+output; explicit APK/ZIP choices still override it and actual owned-PC/signature
+qualification remains mandatory. Focused host/browser controls and the extracted
+delivery launcher are recorded in the handoff validation. Runtime remains671;
+no new game APK or hardware rendering acceptance this round.
+
+**Quest portable installation ZIP and recipient updates, 2026-10-12.**
+
+The maintainer approved a single PC-side ZIP instead of a legacy oversized APK.
+Export in the Wizard and CLI includes the existing signed APK, complete game
+bank and transport manifest; no Unity compilation, recompression or signing keys.
+Both edit modes accept ZIP/APK inputs and suggest the completed `.ghvrq` APK.
+Matching owned PC inputs remain required. Auto signing uses a matching local key
+or the receiving PC's own key; name-only editing preserves the profile ID.
+
+APK import is resumable and copies only APK bytes. The nested STORED bank has a
+bounded seekable reader, so installation and re-export require no materialized
+11-GB duplicate. Closed update receipts retain bank locators through cache cleanup.
+Warm per-file delivery skips complete bank hashing; cold/targeted repair checks
+the actual required files against the signed installation inventory. Export has
+measured aggregate progress, cancellation, free-space qualification and atomic
+publication. Diagnostics retain bounded export logs and redacted summary metadata.
+Focused checks and actual extracted Linux launcher evidence are recorded in the
+new handoff validation. Runtime remains671; no new full game APK is built locally.
+Windows end-to-end and physical Quest acceptance remain unverified. See
+[Quest builder](../tools/quest-builder/README.md).
+
+**Quest APK selection and retained mod-update migration, 2026-10-11.**
+
+Both edit entry points suggest only the last completed workspace APK and retain
+manual choices. Mod updates compile the current captured branch source, runtime
+patches and static weaver. Unsupported scene/shader/native producer changes take
+the ordinary builder path under the existing output lock; independently compatible
+snapshots, conversion owners and Unity Library stay retained. The Wizard exposes
+the actual full-build phases and preserves the measured progress floor. Exact
+reviewed host-only producer aliases avoid repeating original preparation; unknown
+producer edits still invalidate their affected outputs. Selected unchanged APKs
+reuse real byte witnesses; a newly signed update carries its verified hash and
+certificate directly into its closed receipt. Focused tests and archive checks
+are recorded in the current delivery receipt; no runtime source or new game APK
+was built this round. Runtime remains671 and main/v1.1.0 is already included.
+
+The maintainer requested one portable file containing every game asset. Official
+Meta guidance uses an APK plus expansion/required assets. Android14 v2/v3 rejects
+ZIP64 APKs; the host-tested target29/v1 alternative has no Quest installation or
+Unity runtime acceptance. The subsequent 2026-10-12 choice approves the single
+PC-side ZIP installation package described above. No SDK/signature downgrade is
+implemented. Explicit recipient signing now supports cross-PC personalization;
+strict original-key mode remains available.
+Developer contracts and sources: [Quest builder](../tools/quest-builder/README.md).
+
+**Quest startup access repair, 2026-10-11.**
+
+Current capture202658 confirms B665 fails before game/mod activation because the
+app cannot access installed `quest-mod-resources/StreamingAssets`. Older restored
+logs are not current engine evidence. Separate shell capture from replacement-app
+settings restoration; prove warm-bank access from the app and repair only exact
+manifested permissions when denied. The direct repair launcher retains B665 and
+all installed game bytes; existing APKs are now suggested for subsequent wizard
+updates. A merge-preserving rebase confirms main/v1.1.0 already included. No game
+or APK rebuild this round; hardware repair remains unverified. Details:
+[QUEST-STARTUP-ACCESS-202658-20261011.md](QUEST-STARTUP-ACCESS-202658-20261011.md).
+
+**Quest durable installation resume, 2026-10-11.**
+
+Capture193713 proves a local Windows ADB-daemon outage after a verified content
+file, with B665 and six build stages already complete. Missing original game
+assets still require ordinary delivery; the old batch checkpoint already retains
+about7.47GB. Per-file atomic claims, one-call shell-v2 publication and exact
+uncertain-file recovery reduce repeated work. Warm banks and unchanged local
+APK/ZIP inputs reuse small witnessed receipts; live connection waits retain
+progress and resume the same physical Quest automatically. No Unity/game rebuild
+or new APK export. Focused host/browser checks and independent real-process
+controls are source-bound in the delivery validation; hardware completion remains
+unverified. Contracts and limits:
+[QUEST-INSTALLATION-RESUME-193713-20261011.md](QUEST-INSTALLATION-RESUME-193713-20261011.md).
+
+**Quest USB selection and binary EOF completion, 2026-10-11.**
+
+Capture170604 contains an authorized USB Quest, but the prior installer still
+restarts adbd for Wi-Fi. USB now takes precedence without network setup; missing
+connection/authorization shows an actionable USB/debugging prerequisite and retry
+instead of an error. The same capture separately disproves the legacy exec-in
+EOF fallback: Android's raw/no-protocol PTY can terminate before its completion
+marker. Local-server shell-v2 frames now carry binary bytes with explicit stdin
+close and observed remote exit, followed by one exact size/SHA qualification and
+atomic publication. B665 and six completed stages remain retained; no Unity/game
+rebuild. Fresh404 host/UI checks pass, plus18 independent process/selection
+controls. Hardware delivery remains unverified. Contracts and bounded evidence:
+[QUEST-CONNECTION-AND-BINARY-170604-20261011.md](QUEST-CONNECTION-AND-BINARY-170604-20261011.md).
+
+**Quest content-write recovery, 2026-10-11.**
+
+Capture163658 confirms the previous repair: about 560 KiB of saves/settings are
+restored and verified, and replacement B665 is installed. Android then rejects
+sync fchown while writing the 112-byte content receipt. The installer repairs
+that exact error with bounded binary exec-in, unique EOF completion, exact size/
+SHA qualification and atomic publication. No new uninstall, APK backup, Unity
+import or game build is required. Previously accepted normal content delivery
+remains necessary. Content progress spans both banks with measured byte updates;
+warm receipt reuse stays scan-free. Fresh 323 focused host tests and 12 independent
+process controls pass; actual Quest delivery remains unverified. Evidence and
+contracts: [QUEST-INSTALLATION-CONTENT-WRITES-163658-20261011.md](QUEST-INSTALLATION-CONTENT-WRITES-163658-20261011.md).
+
+**Quest Android census boundary repair, 2026-10-11.**
+
+Capture155522 stops before uninstall: Android Toybox evaluates `-mindepth` as an
+expression, so an ungrouped prune/OR chain emits the private root itself. Grouped
+NUL-framed output fixes that source-proven boundary; actual Toybox controls also
+check production ADB decoding. Save-only recovery now prunes the actual
+`files/quest-procedural-state` engine cache, external cache and exact APK-owned
+Unity extraction copies before traversal. Unknown siblings and complete native
+save/history/import roots remain retained. Obsolete archive metadata disproves
+reuse before large local streams are reread. B665 and six completed build stages
+stay reusable; no Unity/game rebuild. Hardware migration remains unverified.
+Fresh239 focused host tests and23 independent Toybox controls pass. Source
+contracts and bounded validation:
+[QUEST-INSTALLATION-CENSUS-155522-20261011.md](QUEST-INSTALLATION-CENSUS-155522-20261011.md).
+
+**Quest small-data installation and Builder homepage tools, 2026-10-11.**
+
+Capture150551 aborted the old FUSE-triggered copy of11.17GB of installed game
+content; an earlier2.87GB original APK backup was also retained. Save-priority
+recovery now archives mutable saves/settings only, prunes regenerable payloads,
+and retains game directories through a renameat-only ARM64 primitive. Unsupported
+rename asks before any uninstall/large retransmission. Pre-removal legacy copies
+can upgrade with bounded identity witnesses; finished665 APK and six closed build
+stages stay retained. The homepage exposes explicit resume, APK mod/name edits,
+independent USB/wireless ADB connection and runtime-log capture, plus cached
+metadata-only storage inventory and confirmed cleanup preserving APK+content.
+New builds remain Runtime671. No Unity/game rebuild this round; actual Quest
+migration remains a hardware outcome. Contracts and validation scope:
+[QUEST-BUILDER-TOOLS-AND-SMALL-DATA-150551-20261011.md](QUEST-BUILDER-TOOLS-AND-SMALL-DATA-150551-20261011.md).
+
+**Quest Windows binary installation recovery, 2026-10-11 (Builder; new builds Runtime671).**
+
+Capture141941 identifies the delivered671 source and completed665 APK, with all
+six preceding stages closed. Save-priority access works, but the next private
+archive differs from its required census. The retained tar sizes are not aligned
+to 512 bytes. ADB primary source and actual Windows CRT/Android12 Toybox controls
+explain text-mode LF expansion and binary-stdin truncation; the official 32-bit
+Windows ADB client cannot run in this 64-bit-only Wine environment. The repair
+uses binary exec-out/exec-in, strict complete archive/census qualification and
+an automatic streamed host-PAX fallback for the affected root. Healthy APK/root/
+bank results stay retained. Exhausted safe methods pause installation with a
+specific retry action, preserving current saves/history and the finished build.
+No Unity work or fresh APK export is required; actual Quest migration remains
+unverified. Latest published dev only changes release-highlight menu paths;
+game sources retain the preceding strict Release evidence. Source contracts and
+exact fresh validation: [QUEST-INSTALLATION-ACCESS-112552-20261011.md](QUEST-INSTALLATION-ACCESS-112552-20261011.md).
+
+**Quest save-priority installation recovery, 2026-10-11 (Builder; new builds Runtime671).**
+
+Capture124423 confirms six closed stages and the finished665 APK. The paused-app
+fallback incorrectly treats an expected empty `pidof` exit1 as failure before
+its first bounded retry. The maintainer now explicitly requires current and
+stored savegames: Wizard recovery retains every readable member, preserves all
+native save/history/import trees and can omit proved inaccessible non-save files.
+Successful archives/APK/banks remain retained; incomplete save access pauses
+without uninstall or reset. A stricter all-file attempt has an explicit scoped
+compromise action; Windows recovery metadata uses the corrected normalized path
+boundary. Fresh453 affected host/UI cases and11 independent filesystem/process
+controls pass; strict composed Release has0 warnings/errors. Delivery integrates
+published dev671/1.1.1; installation retry keeps665 without Unity work or a new APK.
+Actual Quest migration remains unverified. Source/validation and hardware limits:
+[QUEST-INSTALLATION-ACCESS-112552-20261011.md](QUEST-INSTALLATION-ACCESS-112552-20261011.md).
+
+**Quest Android storage namespace recovery, 2026-10-11 (Builder; new builds Runtime671).**
+
+Capture120937 identifies the delivered670 Builder and retained665 APK with all
+six build stages closed. Installation fails before uninstall or data transfer:
+shell cannot read three mutable files and app UID access cannot traverse its
+external-storage root. Repair adds a proved direct alias and, only when needed,
+the installed app's guarded paused-process storage view. Unknown files remain
+preserved, completed archives retained and restoration uses the new app UID.
+Transient debugger selection and interrupted process cleanup are covered. Fresh
+343 affected host cases and seven independent Linux filesystem/process controls
+pass; the composed published dev671 source compiles with0 warnings/errors.
+Earlier unchanged UI/game evidence is inherited. Actual Meta namespace access
+and successful hardware migration remain unverified; no Unity import, Shader
+matrix or fresh APK export is performed. Exact contracts and delivery scope:
+[QUEST-INSTALLATION-ACCESS-112552-20261011.md](QUEST-INSTALLATION-ACCESS-112552-20261011.md).
 
 **Build671 approved 1.1.0 release source, 2026-10-11.**
 
@@ -2049,6 +2403,231 @@ Owned caches are cleaned after reaping; reports and failed-attempt sources remai
 See [RELEASE-671-REVIEW.md](RELEASE-671-REVIEW.md) and
 [RELEASE-671-CI.md](RELEASE-671-CI.md).
 
+
+**Quest automatic installation access repair, 2026-10-11 (Builder; new builds Runtime670).**
+
+Capture112552 retains the completed665 APK and six completed stages, then fails
+external-data backup on three shell-inaccessible tombstones before any uninstall.
+The oldB625 bank contains14 additional old bundle files; treating those as grounds
+to back up the entire bank causes the11.4-GB transfer. The installation repair
+adapts storage access, preserves unknown extras separately, retains successful
+backup roots and exposes a bounded recovery frontier without private app bytes.
+The source delivery integrates published dev670. Installation-only retry retains
+the completed665 Player. Focused503 host cases and seven independent filesystem
+controls pass; strict composed Release has0 warnings/errors. No fresh whole-game
+gate, Unity import or APK export is claimed; Quest access remains unverified.
+Evidence, platform contracts, exact validation scope and hardware limits:
+[QUEST-INSTALLATION-ACCESS-112552-20261011.md](QUEST-INSTALLATION-ACCESS-112552-20261011.md).
+
+**Quest general signing recovery, 2026-10-11 (Builder; new builds Runtime669).**
+
+Capture102641 proves the installation-only retry retains the completed665 APK
+and reaches Android, which rejects a signing-incompatible update. General
+automatic recovery retains the local key and targets installation with verified
+original APK/save/config preservation and durable resumption. No hardcoded test
+key, game rebuild or additional Unity work is needed. The support collector's
+Windows CRLF omission is corrected. Platform contracts, evidence and hardware
+limits: [QUEST-SIGNING-RECOVERY-102641-20261011.md](QUEST-SIGNING-RECOVERY-102641-20261011.md).
+
+**Quest completed APK and guided installation, 2026-10-11 (Builder; new builds Runtime668).**
+
+Capture095538 proves the Windows build, signing and all final gates finish with
+the retained665 Player. Only installation fails because ADB finds no authorized
+Quest. The Wizard now presents a completed APK and ordered headset setup,
+retries installation alone, or explicitly finishes without installing. Already
+authorized Wi-Fi devices are reused when no USB device or explicit selection is
+available. Current ADB command diagnostics join the bounded support export.
+Earlier completed work and the APK's actual665 version remain visible. Evidence:
+[QUEST-INSTALLATION-095538-20261011.md](QUEST-INSTALLATION-095538-20261011.md).
+
+**Quest independent-export Compute ownership, 2026-10-11 (Builder; new builds Runtime668).**
+
+Capture092443 proves Windows alignment/signing and the APK/Shader final gates
+succeed while retaining the completed665 Player. The final Compute gate wrongly
+pins sandbox export GUIDs and host-formatted source hashes. The corrected13-bank
+consumer follows stable original kernel/interface/output and exact native-bank
+contracts plus bounded actual current source/meta links. Every active36-kernel
+Vulkan program remains validated; successful final/preparation receipts remain
+retained. Compact support metadata now includes the actual owner IDs without
+source programs. Focused312-check evidence and remaining Windows/headset limits:
+[QUEST-COMPUTE-OWNER-092443-20261011.md](QUEST-COMPUTE-OWNER-092443-20261011.md).
+
+**Quest Windows large-APK alignment, 2026-10-11 (Builder; new builds Runtime668).**
+
+Capture085642 confirms direct5.2s delivery resume from9aa4 still fails in
+Windows30.0.2 zipalign after the ZIP32 repair. The official Windows executable's
+32-bit file-position reader cannot represent EOF above2 GiB. Alignment now runs
+inside the existing raw packaging pass; bounded actual-header checks and native
+Java signing/verification preserve delivery guarantees without that command or
+another whole-APK copying pass. Completed665 Player/preparation and independent
+final-gate receipts remain retained. Evidence and remaining Windows/hardware
+limits:
+[QUEST-WINDOWS-ALIGNMENT-085642-20261011.md](QUEST-WINDOWS-ALIGNMENT-085642-20261011.md).
+
+**Quest ZIP32 delivery and targeted final repair, 2026-10-11 (Builder; new builds Runtime668).**
+
+Capture075701 proves the e740 Builder reaches direct final delivery in4.8s,
+retaining the previously compiled665 Player. zipalign then rejects a ZIP64
+directory introduced by Python's conservative2-GiB boundary. The corrected
+APK-specific ZIP32 writer passes real alignment/signature checks on a retained
+2.7-GiB Player while preserving its compressed game members. Independent signing,
+APK, Shader and Compute receipts retain successful final work and regenerate
+only damaged/incomplete derived owners. Current native-tool failure logs reach
+the bounded support export and visible Wizard error. Evidence and remaining
+Windows/headset limits:
+[QUEST-ZIP32-DELIVERY-075701-20261011.md](QUEST-ZIP32-DELIVERY-075701-20261011.md).
+No local original-game import, Shader matrix or game APK export is performed.
+
+**Quest completed Player delivery, 2026-10-11 (Builder; new builds Runtime668).**
+
+Capture065619 identifies b1cd/665 and proves Unity/Gradle success before the host
+fails on its missing zipalign tool entry. The corrected Wizard resumes directly
+at final delivery, preserving that completed665 Player and skipping earlier
+source/asset/Unity checks and work. Independent completed-Player checkpoints,
+legacy adoption, exact final bank witnesses and installation retries retain
+finished work. The Builder includes published dev668 for newly requested builds.
+Focused evidence, exact source aliases and remaining final delivery/headset limits:
+[QUEST-COMPLETED-PLAYER-065619-20261011.md](QUEST-COMPLETED-PLAYER-065619-20261011.md).
+No local original-game import, shader matrix or game APK export is performed.
+
+**Quest Player progress ownership, 2026-10-11 (Builder; Runtime665).**
+
+Capture231755 is a running b1cd/665 Player build, with all27 preparation owners
+retained and the native Addressables audit successful. Local Shader-pass maxima
+and preliminary Bee graph counters had incorrectly saturated native compilation,
+while scene-entry callbacks appeared completed and the raw IL2CPP annotation was
+missed. Player progress now follows scenes, explicitly scoped Shader coverage,
+combined code conversion/native dependencies, then packaging. Existing graph
+counts include cache reuse; fresh backend epochs reject stale retained telemetry.
+Authoritative children close100 separately from their unfinished parents. Old
+progress scopes migrate without resetting saved preparation or Unity Library.
+Focused composition, hierarchy, parser, UI and actual delivered-source continuation
+evidence is recorded in
+[QUEST-PLAYER-PROGRESS-231755-20261011.md](QUEST-PLAYER-PROGRESS-231755-20261011.md).
+Runtime665 and published dev665 checks remain inherited unchanged. The running
+Windows capture establishes no whole APK or headset acceptance; no local game
+import, Shader matrix or APK build is performed in this repair.
+
+**Quest native audit and Unity terminal progress, 2026-10-11 (Builder; Runtime665).**
+
+Capture215313 from72c97/664 retains all27 preparation owners and reaches the
+actual native Addressables Shader audit. Its file reader incorrectly compares
+Windows creation/change timestamps across stat APIs. The repaired reader keeps
+separate full pre/post guards and reports exact file/stamp failures. Actual
+bytes, bundles and root-object counters now reach the UI while the child runs;
+completed catalog/Shader/native-build/Gradle parts close100 without closing the
+unfinished parent or reverting when a later audit fails. Completed preparation
+and Unity Library remain retained through exact whole source profiles. Details
+and evidence limits are recorded in
+[QUEST-NATIVE-AUDIT-PROGRESS-215313-20261011.md](QUEST-NATIVE-AUDIT-PROGRESS-215313-20261011.md).
+This delivery integrates published dev665; complete Windows APK acceptance
+remains pending, and no fresh game import/compiler matrix is run locally.
+
+**Quest native compute source/import recovery, 2026-10-10 (Builder; Runtime664).**
+
+Capture090432 confirms dcfaa/664 retains all27 preparation owners and passes both
+previously refused loading Sprites. Compute source validation then misreads native
+Windows CRLF pragma lines as changed kernel order. The downstream original-null
+material Shader pointer parser has the same newline defect. Both late consumers
+are repaired without changing generated source bytes or original producers;
+source-qualified stale ComputeShader imports receive a single-path retry.
+Exact completed source aliases preserve existing preparation and Library. The
+integrated focused Builder147/Wizard19 cases pass; independent pinned Unity
+compute195/material220 inspections pass on the exact final consumers. Shared
+Runtime664 evidence is inherited unchanged. Verification scope and unresolved
+Windows APK acceptance are recorded in
+[QUEST-COMPUTE-SELF-REPAIR-090432-20261010.md](QUEST-COMPUTE-SELF-REPAIR-090432-20261010.md).
+
+**Quest loading proof and targeted import repair, 2026-10-10 (Builder; Runtime664).**
+
+Capture075120 proves eed3/663 still refuses LoadingBase_0 after successful startup
+Sprite validation and retained27-owner preparation. The preceding transport proof
+missed the legal case-path producer changing the complete native manifest. The
+new validator follows its recorded before/after chain and retries only a stale
+imported Sprite once after source/metadata proof. No original conversion, journal
+or Unity Library reset is required. The actual preceding fixture limitation and
+composed proof are recorded in
+[QUEST-SPRITE-SELF-REPAIR-075120-20261010.md](QUEST-SPRITE-SELF-REPAIR-075120-20261010.md).
+This delivery also integrates published dev664 (`c9462f78b`) with approved
+PC/Standalone defaults. The merged profile boundary passes382 assertions,
+including actual shared Quest/Frame choices. Final release verification records
+exact scope; Windows APK acceptance remains pending.
+
+**Quest finite Unity progress and Windows loading transport, 2026-10-10 (Builder; Runtime663).**
+
+Capture065547 confirms the previous13 LightingData repairs and SDK/API work pass,
+then fails Campaign sprite validation on LoadingBase_0. The older Windows loading
+helper unnecessarily changed native CRLF drawing bytes to LF. New native plans
+preserve bytes; retained runs qualify only the exact inverse transport with their
+original object/GUID and successful import receipts. Completed27-owner assets and
+Unity Library remain retained. Every Unity invocation now has a finite logical
+plan supplemented by unique known-asset coverage, scoped native tasks, actual
+Shader/Bee totals and live real Gradle graph counters. Opaque native tasks remain
+honestly identified as indivisible. Final release validation records tested scope;
+whole Windows APK and headset acceptance remain pending. Details:
+[QUEST-UNITY-TOTALS-065547-20261010.md](QUEST-UNITY-TOTALS-065547-20261010.md).
+
+The final source integrates published dev663 (`ca190750a`), including wrist662
+controls and independent pillar LOD. Selected299 Builder and506 Wizard tests pass;
+55 Node/UI cases pass, then the two affected internal-marker UI cases pass again.
+Current-mod Release has0 warnings/errors, AOT23 and actual static weave290 pass;
+the QuestWeaver fixture passes836 assertions. No unrelated complete gate is rerun.
+
+**Quest file-level recovery, 2026-10-10 (Builder; Runtime661).**
+
+Capture055813 identifies 0db/661 and stops before another Unity launch on original
+Bootstrap LightingData under its actual `script-orders` owner. The independent
+imported-project comparison classifies 13 scene LightingData transformations that
+the previous size-only census did not explain. Remaining damaged outputs now
+reconstruct individually from owned sources, preserving closed phases and Unity
+Library; missing original GUID companions and interrupted publications retain
+their bounded file transactions. The UI exposes repair counts and waits for an
+open Editor to close. Source compatibility keeps the completed prior work.
+267 focused Python cases pass; one native Windows lock case is skipped on Linux.
+The independent production proof repairs all 13 real LightingData pairs and
+retains 27 owners, Library, actual SDK bindings and existing Shader upgrades.
+Whole Windows APK completion remains a hardware/build acceptance gate. Details:
+[QUEST-TARGETED-REPAIR-055813-20261010.md](QUEST-TARGETED-REPAIR-055813-20261010.md).
+
+**Quest delivery uses published dev661, 2026-10-10 (Builder).**
+
+The Quest feature integrates the completed published
+`1b6e1e95f2efd1777603a553e18880f540fb3dc6` after the NPC owner released its main/dev
+reservation. The retained-output repair remains unchanged. The merged Runtime661
+passes Release with zero warnings/errors,23 current-mod AOT assertions and the
+actual290-target static weave. The combined232-local/113-CI inventory passes16
+tests/two expected skips. Published NPC661's composed206/source16/golden300419
+evidence is inherited; unchanged190 focused Builder/loader/release cases are
+reused. No new complete232-scope gate, Unity import or local whole APK is claimed.
+The actual source release and retained sessions qualify against preceding Builder
+source inventories; whole Windows build and headset acceptance remain pending.
+
+**Quest actual Editor output ownership, 2026-10-10 (Builder; Runtime660).**
+
+Capture232406 confirms3f/660 still rejects the same imported Bloom Shader before
+another Unity launch. The earlier fixture invented meta owners absent from the
+real producer. Shader metas now qualify through their complete hash in the
+unchanged restoration receipt. Original SDK references qualify under their actual
+final `script-orders` owner through inverse complete original-byte proof. The
+single PlayerSettings file has an explicit later Editor handoff, bound to its
+unchanged Android bootstrap receipt, exact Linear/Vulkan fields and a durable
+accepted-row chain. All27 preparation owners and Unity Library remain retained;
+warm resumes add no payload reads. The later055813 review classifies13 additional
+LightingData changes within the earlier size-only census.190 focused Python cases and native combined/cut/causal
+proof pass; whole Windows APK acceptance remains pending. Details and prior
+fixture correction: [QUEST-EDITOR-CONTRACTS-232406-20261010.md](QUEST-EDITOR-CONTRACTS-232406-20261010.md).
+
+**Quest retained Unity-import mutations, 2026-10-09 (Builder; dev660 integrated).**
+
+Capture205914 identifies the delivered d58d/659 and stops before another Unity
+launch: the first completed import legitimately upgraded three pinned legacy
+Shaders, while the preparation journal still describes their original bytes.
+The earlier final Editor also rebound46352 package-script pointers. Exact Shader
+pins and inverse full-file proof now permit those narrowly scoped changes under
+their retained owners, without repeating conversions or invalidating Library.
+Script evidence survives repeat/cut writers; accepted stamps precede journal
+publication. Unknown edits remain errors. Focused proof and Windows limitations:
+[QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md](QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md).
 **Build670 first tutorial merchant confirmation in window mode, 2026-10-11: 1.1.0 development candidate.**
 
 The inspected screenshot and local669/game1.1.8323.0 logs show the original
@@ -2347,6 +2926,272 @@ private659→660 compiled scope also pass. Exact source/log evidence, prior fail
 assumptions and hardware limits are in [NPC-660-REVIEW.md](NPC-660-REVIEW.md).
 The real headset picture and universal cold-network latency remain unverified.
 
+**Quest completed-import Sprite repair, 2026-10-09 (Builder; dev659 inherited).**
+
+Capture200517 completes its first Unity import (96m44s synchronous refresh),
+compiles17 Android SDK assemblies and passes package ABI qualification. Final
+startup validation then fails on a DLC promotion Sprite's hardcoded GUID from
+our independent export. Promotion identity now follows the current owned meta;
+texture, drawing geometry and native provenance gates remain active. Exact late
+Editor overlays retain all27 completed owners, original archives, GUIDs and
+Unity Library, including consecutive transaction cuts. The current failure card
+shows the actual Unity exception. Unity validation/export loops report existing
+work without another census or fabricated import denominator. Scope and pending
+Windows acceptance: [QUEST-EDITOR-SPRITE-200517-20261009.md](QUEST-EDITOR-SPRITE-200517-20261009.md).
+
+**Quest measured first-import progress, 2026-10-09 (Builder; current dev659 integrated).**
+
+Capture184004 is source8063/657 and still running: all27 preparation owners
+are reused before the first actual Unity asset database import. After60 minutes
+it continues textures; the initial child log was omitted from the Wizard's
+observer and its work incorrectly labelled package API preparation. Actual
+completed imports, last action and elapsed time now remain visible; no unknown
+asset total is fabricated. Import precedes API binding in the Unity block.
+API assemblies and four native content byte passes move their parent/global
+bars, while late closed logs cannot reopen work. Exact observer compatibility
+preserves27-owner qualification and the retained Library across this update.
+Focused integration/browser/C# and actual delivered source/launcher checks are
+recorded in [QUEST-UNITY-IMPORT-184004-20261009.md](QUEST-UNITY-IMPORT-184004-20261009.md).
+Historical cold import95.9min and successful warm SDK41–71s are scoped references,
+not whole-APK ETA or new Windows/headset acceptance. Keep the current run alive.
+
+**Quest measured native memory and automatic recovery, 2026-10-09 (Builder; Runtime657).**
+
+Capture165405 is sourcea1fec/657: all27 preparation owners are closed, but the
+40GiB estimate rejects the64GB Windows host before any compiler runs. That fixed
+gate is superseded. The unchanged pinned `-Os` dispatcher with line-table debug
+metadata now uses446MiB instead of the historical~26GiB and takes26s instead of
+145s; real4GiB/8GiB process limits and four concurrent actions pass. Another unit
+needs1.59GiB, so measured2GiB worker budgets select9 jobs for the captured host.
+Genuine allocation failures retain successful outputs, reduce concurrency and
+resume automatically with visible, cancellable waits. Player exclusion/delivery
+journals recover inside the existing transaction; archived logs cannot replay
+old progress. Exact compatibility profiles preserve all27 preparation owners.
+Focused native/codec/resume/API/browser checks and delivery scope are recorded in
+[QUEST-ADAPTIVE-MEMORY-165405-20261009.md](QUEST-ADAPTIVE-MEMORY-165405-20261009.md).
+No new local whole APK is built; whole Windows completion remains acceptance work.
+
+**Quest XR reuse and early native memory admission, 2026-10-09 (Builder; Runtime657).**
+
+Capture160059 actually repeats preparation because release-specific desktop XR
+references change. Their owned recipe/compiler/game-reference cache now survives
+mod updates, and exact later compile references no longer invalidate original
+asset preparation. Complete27-step fixtures retain original archives/Library.
+The same capture has64GB RAM but only24.5GiB additional commit; corrected native
+admission requires40GiB, preserving the evidenced32GiB worker reserve. Smaller
+hosts may use one paged compiler with sufficient measured commit/swap. A typed
+early prerequisite replaces the late generic stop; finished work stays green.
+Published dev657 is merged, preserving the Quest feature branch. Focused scope,
+real XR cache timing, remaining memory/hardware limits and delivery checks are
+recorded in [QUEST-XR-MEMORY-160059-20261009.md](QUEST-XR-MEMORY-160059-20261009.md).
+
+**Quest large preparation journal, 2026-10-09 (Builder only; Runtime 654).**
+
+Capture134446 identifies dfdb3a43f/654. Recovery reuses 191415 files with zero
+payload rechecks, then the selector rejects 25,864,174 journal bytes against a
+16MiB control-manifest bound. Preparation journals now receive their own 64MiB
+bounded read; generic recovery/input limits and producer identities stay intact.
+Support's separate 1MiB frontier limit is corrected without exporting original
+output paths/data or widening general metadata/archive limits. No completed
+producer needs to rerun because of this helper-only change. See
+[journal size repair](QUEST-JOURNAL-134446-20261009.md). Windows acceptance remains open.
+
+**Quest completed27-step reuse, native engine boundary and shader progress,
+2026-10-09 (Builder; current dev654 integrated).**
+
+Capture123047 is0d675/651: all27 preparation transactions close, weaving291
+targets succeeds, then deploying a genuinely rewritten Player CoreModule fails.
+The generated Quest mod now qualifies the exact engine detour and its native
+restoration/capture guards, uses existing fallback and emits290 non-engine targets.
+Desktop source remains unchanged; the two optional final-pre-cull-dependent
+environment/world-material budgets cannot claim desktop optimization on Quest.
+
+Completed preparation now retains all27 owners, archives and Unity Library across
+qualified runtime/weaver updates. Four small current-input JSON documents refresh
+with durable crash/retry evidence; unknown consumed producers still differ.
+UI counters expose current ordinal, named passes and real Unity variant counts;
+unknown compiler totals stay unknown. Support exports record the bounded journal
+frontier that was missing from this capture. Merged654 retains Quest Meta passthrough
+alongside Frame's separately selected native composition and shared mobile defaults.
+Focused source/compiled/Unity-pixel controls pass; Windows build/headset acceptance
+is still owed. See [completed preparation and engine repair](QUEST-COMPLETED-PREP-123047-20261009.md).
+
+**Quest compute contract and measured graphics progress, 2026-10-09 (Builder only).**
+
+Capture093454 identifies07ebc472d / ModBuild647: all17 preparation steps close,
+then a scalar compute `manifestSha256` is iterated as output paths and fails on
+`e`. The parser now retains scalar provenance and requires every mapped output.
+Measured backup/rollback, reference, compute and Shader counters expose the
+contiguous209s/336s/100s gaps without timer progress or another full asset census.
+Per-step/global progress incorporates these passes; Shader aliases remain
+within their current Shader's share.
+
+Exact previous source-byte and actual Preparation fixtures retain17 closed
+receipts, repeat no closed producer and keep Unity Library; only the pending
+compute transaction is restored/retried. Current dev651 is merged into the
+user-confirmed Quest feature branch, including Frame rendering rollback and
+native local UI repairs. Quest/Frame share standalone graphics defaults.
+Focused checks, unchanged output comparisons, strict651 builds and actual
+static weave pass. No new Windows whole build or headset outcome is claimed.
+See [graphics preparation repair](QUEST-GRAPHICS-093454-20261009.md).
+
+**Quest retained-result hierarchy, fast qualification and download preflight,
+2026-10-09 (Builder only).**
+
+Capture 070011 identifies `07ebc472d` / ModBuild647 and an active Windows run at
+53%, not a new failed build. Opus and bundled audio succeed. The completed recovery
+project's absent inner counters were incorrectly shown as a fresh0/14 plan;
+aggregate closure now keeps its actual parent evidence without fabricated open
+children. Retained/reused/complete statuses share green styling. Actual capture
+replay remains monotone49→53 and browser-rendered snapshots preserve the same
+producer state.
+
+Recovery already reused191415 files/32.55GB with zero payload reads, but repeated
+per-file Windows metadata/path/database calls remain expensive. Guarded directory
+batches preserve true file IDs/change stamps and bound byte fallback to changed,
+legacy or unsupported records. The capture also repeats base/startup preparation;
+its complete manifests/journal are absent, so the exact reset trigger is not
+established. The exact reviewed observer profile retains all14 closed steps and
+Unity Library when migrating actual prior-release helper bytes. No Windows timing
+or headset acceptance is claimed. See [retained-output qualification](QUEST-FAST-RESUME-070011-20261009.md)
+and [progress hierarchy](QUEST-PROGRESS-070011-20261009.md).
+
+Independent outer Wizard stage receipts now retain the same strong witnesses.
+Publication records actual bytes; later unchanged qualification uses directory
+metadata. Legacy schema-1 receipts need one explicit byte qualification to seed
+their missing witnesses, then stay warm without rewriting the receipts. A real
+512MiB sparse output qualifies in a fresh process with payload reads prohibited;
+linked/changed/missing/corrupt evidence never becomes blind reuse. See
+[outer stage receipts](QUEST-WIZARD-RECEIPT-RESUME-20261009.md).
+
+Before conversion the Wizard probes actual missing HTTPS dependencies with tiny
+range reads; local artifacts avoid those requests. Failures name the dependency,
+keep the workspace and distinguish TLS/network failure from unavailable pins.
+Structured reports survive support log rollover. An actual cold-endpoint check
+finds the pinned FEX URL returning404; the current maintainer run already has its
+native runtime. Do not substitute a different native binary. A verified offline
+dependency preparation/store/pack is specified, but no fully offline closure or
+fresh disconnected Unity Personal activation is promised. See [preflight](QUEST-NETWORK-PREFLIGHT-20261009.md)
+and [offline feasibility](QUEST-OFFLINE-BUILDER-20261009.md).
+
+This repair keeps Runtime ModBuild647. Focused Builder/Wizard/browser checks and
+the extracted source release qualify these boundaries; earlier unchanged runtime
+compilation/AOT evidence remains applicable. No new APK, full shader audit or
+complete unrelated repository gate is asserted.
+
+Final integration checks:353 Wizard tests and23 UI/actual-browser tests pass.
+The195 focused Builder checks pass on the unchanged worker scope; the integrator
+also reruns46 witness,55 recovery and13 producer-identity checks, plus the exact
+prior-source14-checkpoint pipeline. Capacity qualification precedes networking
+and runs only once at tools entry. Space fixtures declare their base-game DLC
+selection and isolate download probing rather than depending on Internet state.
+
+**Quest Windows Opus download retry, 2026-10-09 (Builder only).**
+
+Capture 054817 identifies `085e037ce` / ModBuild 647: recovery reused, twelve preparation
+checkpoints closed, Proton static audit passed, then the Opus download's TLS
+certificate check failed. Prefer the exact official GitHub release with one
+verified HTTPS fallback; preserve the original checksum, report real download
+bytes and expose a specific certificate failure. The ordered pre-native journal
+retains all twelve earlier checkpoints across this helper repair. Actual ARM64
+codec compilation, TLS controls, preparation/recovery retries and delivery checks
+cover the boundary; Windows whole-build/HMD acceptance remains unverified.
+See [native download follow-up](QUEST-WINDOWS-OPUS-20261009.md).
+
+**Quest Linux and Windows Builder support, 2026-10-09 (Builder only).**
+
+The game-free source ZIP includes CMD and Bash launchers for Windows x64 and
+Linux x86_64. Linux provisions an isolated Python/venv and native SDK/signing/ADB
+tools, discovers desktop/owned Unity installations and uses a native file picker
+where available. Steam DLC declarations are requested before Linux conversion;
+Windows tool-stage identities stay compatible. Actual Linux executable, native
+plugin, Bee, HTTP and browser evidence is bounded; no new whole-APK or HMD
+acceptance is established. See [Linux host delivery](QUEST-LINUX-BUILDER-20261009.md).
+
+**Quest Windows inventory-order and storage repair, 2026-10-08 (Builder only).**
+
+Capture205407 confirmsd8e805207/Mod646. Windows Path ordering changed the
+same5227original rows fromcc172275 to26d393f5, causing another17.75GBsnapshot
+and fresh raw exports. Exact historical POSIX string order now selects the
+original cache with existing metadata proofs. Additional-space estimates now
+block setup/snapshot/build; a bounded during-run reserve stops owned children
+before the drive fills. The UI names the default `%USERPROFILE%\.ghvrq` workspace.
+
+Explicit storage previews reclaim proven duplicate snapshots and their exports,
+or remove large build caches after a successful APK. Delivery banks/APKs, signing,
+tools, originals and logs survive. Full rebuilds slow down after cache removal;
+eligible APK updates remain available. Actual filesystem, HTTP, capacity and
+browser controls cover the new behavior. Current dev647 and its board-pose
+follow-up are merged into the separately confirmed Quest feature branch; actual
+mod compilation and full original-game weaving complete. No Windows whole-build
+or new headset outcome is established. See [storage follow-up](QUEST-BUILD-REUSE-20261008.md).
+
+**Quest Windows continuation and UI recipe follow-up, 2026-10-08 (Builder only).**
+
+Capture193438 confirms3ab6ff9c4/Mod645. Recovery and original snapshots already
+use metadata with zero payload reads; over20 minutes of repeated base copying
+plus six repeated startup conversions result from overbroad preparation source
+identity. Exact ordered pre-archive producer scopes now preserve those outputs
+across later runtime/release/CLI changes. Mutable original inputs receive a
+persistent per-file change index, eliminating repeated full-game hash reads
+after its initial visit. Changed actual inputs/outputs remain individually
+qualified and unfinished mutations retain bounded rollback.
+
+The pinned original exporter reproduces all three UI failures with changed
+collection locators and identical original Shader data. Selection now pins the
+complete parsed Shader/platform content and retains locator/raw-file provenance;
+exact original UI/blur sources and actual negative controls qualify the repair.
+Current dev646 is merged only into the maintainer-confirmed Quest feature branch;
+actual current mod compilation and full original-game AOT weaving complete.
+See [retained-data follow-up](QUEST-BUILD-REUSE-20261008.md). Focused source and
+extracted-archive evidence do not establish Windows whole-build or HMD success.
+
+**Quest Windows startup preparation repair, 2026-10-08 (Builder only).**
+
+Capture `quest-build-support-20261008T162840Z-51d5aa71.zip` identifies published
+437c198e / ModBuild643, not the subsequently delivered645 Builder. All14 derived
+transactions and16 raw packages closed; preparation then completed six startup
+items before rejecting the exact original UI Shader recipes. The unchanged
+text-mode recipe producer emits Windows CRLF whereas the pinned original recipe
+bytes use LF. The repaired consumer accepts only those exact physical transports,
+retains raw-file provenance and restores all three real original UI/blur recipes.
+
+The movie checkpoint takes420.392s, including414.941s without inner counters;
+audio takes71.210s. These intervals do not isolate undo, scanning or codec costs.
+Measured copy bytes, incremental UTF-8 movie scanning, actual metadata objects,
+Sprite planning and audio blocks now expose that work inside the same globally
+counted checkpoint. No timer creates progress. Exact reviewed profiles preserve
+original recovery identities and compatible closed preparation prefixes; changed
+game/template/profile/runtime inputs retain their own preparation scope. The
+capture's two other apparent long gaps are omitted diagnostic log middles, not
+producer stalls. Full-log qualification and bounded proof are recorded in
+[the retained-build review](QUEST-BUILD-REUSE-20261008.md).
+
+Current dev645 remains integrated. No PC mod runtime code changes in this repair;
+the prior exact645 AOT and compiled-runtime evidence remains applicable. Windows
+end-to-end build duration and the resulting headset picture remain unverified.
+
+---
+
+**Quest retained progress, parallel codecs and APK updates, 2026-10-08.**
+
+The Quest branch retains closed conversion progress while new Builder archives
+refresh prerequisites. The supplied capture replay keeps16 packages,14 staging
+transactions and3/11 startup items, moving48.362727 to48.272727 percent rather
+than zero. Actual producer receipts remain independent. Bounded parallel HDR
+codecs retain byte-identical output and committed per-input results. New wizard
+operations update mod code or the offline profile from an APK, always checking
+the matching PC install. Mod changes compile a matched IL2CPP/metadata pair
+without original-game asset import; later compatible profile edits need no
+Unity. Original signing data is required. APK-only updates retain the game bank
+already completed on the headset. Native ABI, script layout and new DLC content
+require a full build. Current dev6452d77ffb65 is integrated. Focused evidence
+covers source/format/continuation/browser boundaries, actual SDK compilation and
+executable original-game profile getters. Actual merged645 full weaving closes
+475 hooks/289 targets, retains seven protected types, and passes23 current-mod
+and832 existing Weaver assertions. Windows end-to-end builds and updated
+headset behavior remain unverified.
+See [APK update workflow and proof limits](QUEST-APK-UPDATES-20261008.md).
 **Build659 configured pillar viewing radius, 2026-10-09: 1.1.0 development candidate.**
 
 After pushed NPC658, admitted pillars retain original geometry throughout the
@@ -2779,6 +3624,127 @@ shader/mesh bank, gameplay command or wire layout change. VR peers install644.
 
 ---
 
+
+
+**Quest Windows retained-data retry, 2026-10-08 (Builder only).**
+
+Capture `quest-build-support-20261008T142900Z-fa677485.zip` identifies published
+6cfd7cfb5 / ModBuild643. All14 derived staging phases now finish. Four preparation
+steps complete, including the191486-file project copy and startup movies; the
+3369-Sprite producer then fails its consumer's invented original-PC-bundle output
+contract. Source-container provenance is now validated separately from produced
+asset paths; actual output/movie contracts remain required.
+
+Owned journals, stage receipts, copies and retained snapshots persist real byte
+proofs with file identity and change-time metadata. Legacy receipts read once;
+warm unchanged files need no repeated payload read. Source checks remain scoped.
+Exact whole-profile aliases retain the published recipe/raw binding. Full Builder
+AST and immutable input qualification preserve the four completed preparation
+steps across this compatible tool repair. Pending work retries at its boundary;
+real changed inputs still receive their own identity. Warm key migration transfers
+qualified old proofs; actual project regeneration drops old-root proof trust.
+
+Bounded Linux tests distinguish small-file metadata overhead from large-payload
+savings; Windows whole-build duration and headset success remain unverified.
+Current dev64329d4b6dd remains an ancestor and all1060 declared compiled-runtime
+inputs match the prior qualified composition. Publication requires focused
+continuation/error/release checks and actual extracted-ZIP preserved-session
+startup. Keep the existing work/state folders and continue the same session.
+The integrated affected gate passes318/318 cases in20 Builder/Wizard modules;
+the genuine original Sprite producer/consumer regression passes with zero warm
+payload reads and no producer replay. This is not a new complete local gate.
+See [retained-data diagnosis and proof limits](QUEST-BUILD-REUSE-20261008.md).
+
+---
+
+**Quest Windows native overlay retry with ModBuild643, 2026-10-08 (Builder only).**
+
+Capture `quest-build-support-20261008T075121Z-022bc617.zip` identifies Quest2fc28e31
+/ ModBuild642. All16 raw packages and six staging phases reused; the repaired
+reference audit completed128223 files. Native application then rejected material
+bytes because its producer hashed normalized text against physical CRLF input.
+Pointer and packed-Sprite producers now retain exact UTF-8/newline bytes; strict
+all-file application checks stay enabled. Real original CAB/field/target tests
+reproduce the old defect and pass all three newline variants. An exact reviewed
+helper-pair alias retains the existing recipe, raw binding and closed phases.
+
+Native containers emit measured counts without extra scans. The Wizard keeps
+preparatory reference counts inside native instead of falsely closing later
+transforms/final audit. Migration keeps explicit proofs and global high-water.
+Integrated focused gate245/245 in14 affected modules passes. Reviewed merge
+3eb56d766 includes current dev64329d4b6dd; strict Release/Debug0/0, source16/16,
+renderer124/25+two startup controls pass. Unchanged platform/menu/native/bank
+evidence is inherited by exact source inputs.
+
+The actual packaged Builder must pass isolated startup, preserved-session and
+source/staging qualification before publication. Keep existing work and continue
+the same session. No full Windows/Unity/Player/APK/headset result is claimed.
+See [native byte diagnosis and continuation](QUEST-BUILD-NATIVE-BYTES-20261008.md).
+
+---
+
+**Quest Windows CRLF retry with ModBuild 642, 2026-10-08 (Builder only).**
+
+Capture `quest-build-support-20261008T065008Z-a3cf3b9e.zip` is published source
+`24ea5928b` / ModBuild640. It reused all16 original packages and committed six
+staging phases, then failed while auditing `Assets/GameObject/UI Quest Marker.prefab`.
+The byte-backed parser missed CRLF Unity headers. Ten read-only original prefabs
+reproduce the former failure and preserve all131 pointer spans with the repair.
+Native YAML errors now include the asset path and retain the original cause.
+
+An exact reviewed observer-source alias retains the640 staging workspace and
+journal; other transformation/game changes still receive their own keys. Actual
+Builder/raw-binding/Journal regressions retain16 packages and six closed phases,
+retry only native work, and reject corrupted bytes or ownership. The integrated
+repair gate passes180/180 cases in13 affected modules. Current dev642 is an
+ancestor through reviewed merge `1e0d5c780`; published Quest history is intact.
+Runtime source comparisons retain29 new dev paths and41 existing Quest paths.
+Strict Release/Debug0/0, source16/16 and platform3081/17 controls pass on those
+exact runtime sources. CPU, authored banks and camera evidence is inherited by
+source hashes. Suite-inventory tests pass16 with two existing optional skips.
+
+The exact extracted ZIP must pass isolated discovery, retained-session and source
+identity checks before publication. Keep the existing work/state folders and
+continue the same session; completed staging phases are reused after their byte
+proofs are qualified. No full Windows build, Unity import, shader sweep, Player/APK
+or headset success is claimed. See [diagnosis and continuation](QUEST-BUILD-CRLF-20261008.md).
+
+---
+
+**Quest Windows retry with current ModBuild 640, 2026-10-08 (Builder only).**
+
+Quest stays on `feature/quest3-standalone`. Seven unpublished repair commits were
+rebased onto a reviewed integration of committed dev `5c8298918`; published
+history remains intact. Capture 215452 reused all 16 original packages, then
+failed during canonical conversion because the installer Python lacked UnityPy.
+Prepare/build now execute in the pinned build interpreter, including child tools.
+Compatible per-file copies and completed transforms survive interruptions;
+current retry rows clear historical failures before prerequisite checks.
+
+The current mod's environment geometry is rebuilt from the owner's game into a
+separate resumable Android bank; original-derived Git payloads are excluded from
+the public Builder. Completed producers and the mod's Unity Library remain reusable.
+Actual source/mesh progress advances the open mod-bank operation. Installation
+and startup admit all four current banks; legacy signed three-bank packages are
+still installable. The environment header opens before dependent mod assets.
+
+The affected integrated gate at `71d211aeb` passes 717/719 cases in 26 suites
+(two existing optional skips), including 29 UI cases and 12 Chrome workflows.
+Strict Release/Debug 0/0, source 15/15, platform 3081/17 controls, bundle recipe
+111, managed startup 313/21 controls and logging 57/11 controls pass. Current Frame camera capture guards and bounded viewport reset repairs are
+composed with Quest ownership. Their source-bound renderer checks pass 99
+assertions/24 controls plus two startup controls; menu ownership passes 26/8.
+The final 640 composition receives fresh strict compilation, source15 and Quest
+platform checks; unchanged tooling and authored-bundle evidence is inherited.
+Exact extracted archive/retained-session qualification precedes publication;
+completed owned workers and obsolete host caches are removed afterwards.
+No host Player/APK, Unity import, full game conversion, exhaustive shader sweep
+or complete Windows/headset success is claimed. Keep existing state/work folders
+and resume the same Wizard session. See [cause, continuation and proof limits](QUEST-BUILD-RETRY-20261008.md).
+
+---
+
+
 **Build643 integration, 2026-10-08: 1.1.0 development candidate.**
 
 Three checked Frame presentation repairs are integrated after642. Late enabled
@@ -2932,6 +3898,37 @@ Unchanged evidence is inherited; no complete154-suite or headset pass is claimed
 See [the638 review](NPC-638-REVIEW.md) and
 [the previous-test failure audit](NPC-638-FIRST-PICTURE-AUDIT.md).
 Both peers must install638; no new bundle/default changes or release are made.
+
+---
+
+**Quest B627 durable Windows build continuation, 2026-10-07 (tooling only).**
+
+Capture 200625 identifies source `440b99057`: all sixteen raw packages already
+exist, but the first derived copy rejects `ErrorPulse.anim`. Combined rotated
+logs show a redundant 1,012.469-second raw scan. Closed raw exports now proceed
+to their qualified staging consumers without replaying that scan. Windows
+path/descriptor timestamp semantics and write-time finalization are handled
+without relaxing streamed byte qualification; exact Windows timestamp values
+were not captured, and a whole Windows build remains unverified.
+
+Fourteen durable staging phases and preparation checkpoints preserve compatible
+accepted copies and completed transforms after failure. Owned journals restore
+only unfinished destructive work; Unity `Library` and original inputs remain
+outside rollback. The long build is foregrounded in six groups and 23 actual
+operations, with completed/current/retained/failed/remaining work and genuine
+file/item progress contributing to the global percentage. Failures remain
+visible independently of the optional log stream. Incompatible outputs fail
+explicitly rather than silently restarting a completed stage.
+
+The integrated affected-tooling gate at `e55fbe2ff` passes 617 of 619 cases
+(two existing optional skips), including 28 UI cases and eleven Chrome workflows.
+Final planning-only edits preserve that tested implementation. Qualify the exact
+extracted game-free Builder ZIP and retained Wizard session before publication.
+Keep the existing work/state folders when replacing the archive. Only the Quest
+feature branch is pushed, as reconfirmed by the maintainer; clean only completed
+owned workers after retaining external evidence. See
+[continuation evidence and limits](QUEST-BUILD-RESUME-20261007.md).
+No host APK, game export, Unity import, shader sweep or full hardware result.
 
 ---
 
@@ -4704,6 +5701,39 @@ change per build) → this file (where things stand and what is owed) → the bu
 `.planning/INDEX.md` (which planning records are current or historical).
 
 ---
+
+
+## Quest Builder minimum storage/work review (2026-10-12, B672)
+
+Quest remains isolated on `feature/quest3-standalone` by the maintainer's explicit
+branch ruling. Current dev Build672 is merged; no game/APK is built locally.
+After the maintainer deleted the nearly400GB Windows workspace and reported7h
+cold builds, independent worker changes now overlap bounded raw exporters,
+prune committed scratch/duplicate core YAML, reuse real closed-source byte
+witnesses, and omit optional whole-graph/import/GPU/whole-bank diagnostic rereads.
+Campaign Unity tasks are17→8 before native cooking and6→1 afterward. Actual
+conversion/script binding/native compilation/owned-PC/signature contracts stay
+required. Archive transfer hashes while writing; qualified ZIP64 compressed
+members are copied without inflating/recompressing, with pre/post source identity
+checks and atomic publication. Plugin/content discovery prunes native runtime
+trees before recursion. Known observer/scheduling/QA changes retain reviewed
+raw/preparation/APK-update producer scopes; unknown producer changes remain real
+migrations. Concurrent exporter progress aggregates actual collection/closed
+receipt tasks; canonical merge stays in original order.
+
+Review: `.planning/QUEST-BUILD-STORAGE-TIME-20261012.md`. Focused composed checks
+include190 root,380 Wizard and165 profile/resume cases; final source/profile
+integration reruns and exact extracted-release qualification are recorded beside
+the ZIP. Strict composed mod Release has0 warnings/errors. Worker scopes include
+storage341, Recovery192 cases with2 existing skips, Builder80, Unity201 unique
+passing checks including inherited unchanged scope. Do not sum overlaps or call
+these a fresh complete-game gate. Small host fixtures prove eliminated reads and
+parallel overlap; no new Windows end-to-end duration/peak is claimed. Current
+hardware runtime outcomes are unchanged/unverified by this Builder review.
+
+All test subprocesses are reaped before central fixture cleanup. Own worker
+worktrees/caches are removed after integration, preserving external evidence,
+current deliverables and every other agent's active/borrowed inputs.
 
 ## 1. Position
 

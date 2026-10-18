@@ -200,7 +200,7 @@ internal sealed partial class RemoteCardArt
                 : graphic.material;
             if (!_nativeMaterials.TryGetValue(graphic, out var material) || material == null || material.shader != template.shader)
             {
-                if (material != null) { _ownedMaterials.Remove(material); Object.Destroy(material); }
+                if (material != null) { _questFlameMasks.Release(material); _ownedMaterials.Remove(material); Object.Destroy(material); }
                 material = new Material(template) { name = template.name + " (VR-native-card)" };
                 _ownedMaterials.Add(material); _nativeMaterials[graphic] = material;
             }
@@ -218,6 +218,7 @@ internal sealed partial class RemoteCardArt
             if (node.Role == 11 && (supported & NativePlaybackProperties.ParticleMask) != 0)
             {
                 NativePlaybackWrites.Texture(material, CardAppearanceBindings.Particle, (node.Flags & 8) != 0 ? _nativeBindings.GhostTexture : _nativeBindings.BurnTexture);
+                if (Core.QuestStandalonePlatform.Enabled) _questFlameMasks.Bind(material, _nativeBindings.BurnTexture);
                 // Low-detail native cards need the same world-space draw ordering even when
                 // the legacy high-detail burn rig had no matching _PosAndBounds images.
                 if (graphic is Image flameImage) MeasureFaceQueue(flameImage);

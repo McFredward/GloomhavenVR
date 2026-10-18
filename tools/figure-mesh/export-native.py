@@ -96,3 +96,37 @@ def main():
 
 
 if __name__ == '__main__': main()
+
+
+def export_bundle(path, output_dir, expected_sha256):
+    """One independently resumable owned bundle; never mutate the PC installation."""
+    path, output_dir = Path(path), Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    before = path.stat()
+    with path.open('rb') as stream:
+        hashed = hashlib.file_digest(stream, 'sha256').hexdigest()
+    if hashed != expected_sha256:
+        raise ValueError('Owned figure bundle changed: ' + path.name)
+    env = UnityPy.load(str(path))
+    cloth = {obj.read().m_GameObject.path_id for obj in env.objects if obj.type.name == 'Cloth'}
+    skins = set()
+    for obj in env.objects:
+        if obj.type.name == 'SkinnedMeshRenderer':
+            skin = obj.read()
+            if skin.m_GameObject.path_id not in cloth: skins.add(skin.m_Mesh.path_id)
+    records, skipped = [], []
+    for obj in env.objects:
+        if obj.type.name != 'Mesh' or obj.path_id not in skins: continue
+        mesh = obj.read()
+        if mesh.m_VertexData.m_VertexCount < 1000 or mesh.m_Name.startswith(('WP_', 'P_')): continue
+        if mesh.m_Shapes.channels or any(sub.topology != 0 for sub in mesh.m_SubMeshes):
+            skipped.append({'bundle': path.name, 'mesh': mesh.m_Name, 'reason': 'original expression/topology retained'})
+            continue
+        target = output_dir / (str(obj.path_id) + '.mesh')
+        record = export_mesh(mesh, target)
+        record.update(file=target.name, bundle=path.name, bundle_sha256=hashed)
+        records.append(record)
+    after = path.stat()
+    stamp = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+    if stamp(before) != stamp(after): raise ValueError('Owned figure bundle changed during extraction: ' + path.name)
+    return {'format': 'GHFM1', 'unitypy': UnityPy.__version__, 'meshes': records, 'excluded': skipped}

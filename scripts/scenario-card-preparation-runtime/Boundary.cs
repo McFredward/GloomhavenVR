@@ -6,6 +6,15 @@ using UnityEngine;
 // pin ownership, mip/readback/cache, and wrapper reservation code are full production files.
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform { internal static bool Enabled => false; }
+    // Production now resolves the plugin directory through its loader. This focused
+    // preparation fixture intentionally has no installed hand bundle at that path.
+    internal static class RuntimeDepsLoader
+    {
+        internal static string PluginDir => System.IO.Path.Combine(Application.temporaryCachePath,
+            typeof(RuntimeDepsLoader).Assembly.GetName().Name!);
+    }
+
     internal static class VRLog
     {
         internal static bool WantsDebug = true;

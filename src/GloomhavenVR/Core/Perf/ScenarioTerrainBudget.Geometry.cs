@@ -126,6 +126,8 @@ internal static partial class ScenarioTerrainBudget
         }
         internal bool IsMasked => _masked && Renderer != null && Renderer.forceRenderingOff
             && _proxyRenderer != null && _proxyRenderer.enabled && _proxy.activeInHierarchy;
+        internal bool HasExactGeometry => _exact != null;
+        internal bool HasReducedGeometry => _current != null && _current != Original && DrawTriangles < OriginalTriangles;
         internal bool HasCurrentRenderLease => _masked && Renderer != null;
         private static int TriangleCount(Mesh mesh)
         {

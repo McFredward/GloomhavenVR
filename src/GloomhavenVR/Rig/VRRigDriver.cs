@@ -557,6 +557,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
 
     private void OnSceneLoaded(SceneLoadedEvent e)
     {
+        NoteQuestTrackingScene(e.Scene.name);
         _sceneRecheck = true;
         _sceneRecheckName = e.Scene.name;
         // Every Light and LightFlicker the stabiliser recorded belonged to the scene that is going
@@ -606,6 +607,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
             // Read the previous frame's native rendering counters after rig kind resolution.
             // This is Debug-only and does not join the render-state tail step order.
             HeadRenderCounters.Tick(_kind == RigKind.Scenario);
+            TickQuestScenarioEvidence();
         }
         finally
         {
@@ -968,33 +970,6 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         RenderQuality.RequestEyeTargetDiagnostics("menu rig built");
     }
 
-    /// <summary>
-    /// The camera to anchor to outside scenarios, best first: Camera.main (tag
-    /// MainCamera) → highest-depth enabled backbuffer camera that isn't the UICamera.
-    /// Null when the menu scene has no world camera (the rig then waits; the flat
-    /// screen is hidden anyway because it needs a world camera too).
-    /// </summary>
-    private static Camera? ResolveMenuCamera()
-    {
-        Camera? cam = NativeCameraRenderBudget.Main;
-        if (cam != null)
-            return cam;
-
-        // Cold path only (no-rig frames / scene-load recheck) — shared non-alloc buffer.
-        int count = VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] all);
-        Camera? best = null;
-        for (int i = 0; i < count; i++)
-        {
-            Camera candidate = all[i];
-            if (candidate == null || !candidate.enabled || candidate.targetTexture != null
-                || candidate.CompareTag("UICamera") || candidate == HeadCamera)
-                continue;
-            if (best == null || candidate.depth > best.depth)
-                best = candidate;
-        }
-        return best;
-    }
-
     private void TearDownRig(string reason)
     {
         bool hadRig = _kind != RigKind.None;
@@ -1047,6 +1022,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
 
         // Everything we destroy here is OURS — the anchor game camera was never
         // reparented or modified, so there is nothing to restore on it.
+        StopQuestTrackingEvidence();
         if (_poseDriver != null)
         {
             Destroy(_poseDriver);

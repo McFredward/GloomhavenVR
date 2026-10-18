@@ -34,6 +34,9 @@ internal sealed class Weaver
         // Preserve reflection metadata and generic closure conservatively for the initial port.
         // This does not assert that every dynamic serializer has generated native code.
         string links = "<linker>\n" + string.Join("\n", model.Loaded.Distinct().Select(a => "  <assembly fullname=\"" + a.Name.Name + "\" preserve=\"all\" />")) + "\n  <assembly fullname=\"QuestWeaver.Runtime\" preserve=\"all\" />\n</linker>\n";
+        foreach (ReflectionRoot root in report.ReflectionRoots.Distinct())
+            links = links.Replace("</linker>", "  <assembly fullname=\"" + System.Security.SecurityElement.Escape(root.Assembly)
+                + "\"><type fullname=\"" + System.Security.SecurityElement.Escape(root.Type) + "\" preserve=\"all\" /></assembly>\n</linker>", StringComparison.Ordinal);
         string parent = Path.GetDirectoryName(absolute)!;
         Directory.CreateDirectory(parent);
         string scratch = Path.Combine(parent, ".quest-weaver-" + Guid.NewGuid().ToString("N"));
@@ -51,7 +54,7 @@ internal sealed class Weaver
                 report.ProtectedTypesVerified += ProtectedTypes.Verify(protectedSnapshots[assembly], reread);
             }
             File.Copy(typeof(Registry).Assembly.Location, Path.Combine(scratch, "QuestWeaver.Runtime.dll"));
-            HarmonyFacade.Write(Path.Combine(scratch, "0Harmony.dll"), model.Mod.MainModule.AssemblyReferences.FirstOrDefault(a => a.Name == "0Harmony"));
+            HarmonyFacade.Write(Path.Combine(scratch, "0Harmony.dll"), model.Mod.MainModule.AssemblyReferences.FirstOrDefault(a => a.Name == "0Harmony"), model.Loaded, model.ManagedPath);
             File.WriteAllText(Path.Combine(scratch, "link.xml"), links);
             if (diagnostic) File.WriteAllText(Path.Combine(scratch, "DIAGNOSTIC-INCOMPLETE.txt"), "This subset is not a complete Quest game/mod conversion. Inspect the audit report.\n");
             if (Directory.Exists(absolute)) Directory.Delete(absolute);

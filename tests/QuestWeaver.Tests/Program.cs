@@ -29,6 +29,48 @@ int assertions = 0;
 void Check(bool condition, string message) { assertions++; if (!condition) throw new Exception(message); }
 try
 {
+    if (args.Length == 1 && args[0] == "--target-metadata-only")
+    {
+        TargetMetadataTests.Run(projectRoot, Path.Combine(temp, "target-metadata"), Check);
+        Console.WriteLine($"Quest target metadata imports: {assertions} assertions passed.");
+        return;
+    }
+    if (args.Length == 1 && args[0] == "--package-api-only")
+    {
+        PackageApiTests.Run(temp + "-package-api", Check);
+        Console.WriteLine($"Quest package API binding: {assertions} assertions passed.");
+        return;
+    }
+    if (args.Length == 2 && args[0] == "--native-camera-boundary-only")
+    {
+        NativeCameraBoundaryTests.Run(projectRoot, Path.GetFullPath(args[1]), temp, Check);
+        Console.WriteLine($"Quest native camera boundary: {assertions} assertions passed.");
+        return;
+    }
+    if (args.Length == 2 && args[0] == "--current-mod-only")
+    {
+        CurrentModCompatibilityTests.Run(projectRoot, Path.GetFullPath(args[1]), temp, Check);
+        Console.WriteLine($"Quest current mod AOT compatibility: {assertions} assertions passed.");
+        return;
+    }
+    if (args.Length == 1 && args[0] == "--offline-profile-only")
+    {
+        OfflineDynamicProfileTests.Run(projectRoot, Check);
+        Console.WriteLine($"Quest offline dynamic profile: {assertions} assertions passed.");
+        return;
+    }
+    if (args.Length == 1 && args[0] == "--guildmaster-only")
+    {
+        StandaloneGuildmasterTests.Run(projectRoot, Check, requireOriginal: true);
+        Console.WriteLine($"Quest Guildmaster admission: {assertions} assertions passed.");
+        return;
+    }
+    if (args.Length == 1 && args[0] == "--type-lookup")
+    {
+        HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
+        Console.WriteLine($"Quest Harmony type lookup: {assertions} assertions passed.");
+        return;
+    }
     using (Discovery model = Discovery.Load(Path.Combine(fixtureDir, "FixtureMod.dll"), fixtureDir))
     {
         AuditReport report = model.Audit();
@@ -164,6 +206,22 @@ try
         if (Directory.Exists(nextOutput)) Directory.Delete(nextOutput, true);
     }
     context.Unload();
+    HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
+    if (args.Length == 1 && args[0] == "--weaver-core-only")
+    {
+        TargetMetadataTests.Run(projectRoot, Path.Combine(temp, "target-metadata"), Check);
+        Console.WriteLine($"QuestWeaver core executable and target metadata: {assertions} assertions passed.");
+        return;
+    }
+    StartupTests.Run(projectRoot, Check);
+    DlcTests.Run(projectRoot, Check);
+    StandaloneProfileTests.Run(projectRoot, Check);
+    StandaloneCampaignTests.Run(projectRoot, Path.Combine(temp, "native-campaign"), Check);
+    StandaloneOdinTests.Run(projectRoot, Check);
+    StandaloneGuildmasterTests.Run(projectRoot, Check);
+    StandaloneExportTests.Run(projectRoot, Path.Combine(temp, "native-export"), Check);
+    PackageApiTests.Run(temp + "-package-api", Check);
+    TargetMetadataTests.Run(projectRoot, Path.Combine(temp, "target-metadata"), Check);
     Console.WriteLine($"QuestWeaver executable fixture: {assertions} assertions passed.");
 }
 finally { if (Directory.Exists(temp)) Directory.Delete(temp, true); }

@@ -1,0 +1,480 @@
+# Local Windows and Linux conversion wizard backend
+
+The standard-library backend persists private local choices and seven verified
+stage receipts under a separately marked owned workspace. It provisions pinned
+portable Git on Windows and .NET 8/10 on both hosts without changing system installations, resolves the
+selected mod source to an immutable commit, and uses the existing builder's
+owned-game, profile and DLC rules. Local uncommitted source inputs remain part of
+the existing source inventory; ignored runtime dependency assemblies are copied
+when available or derived from the selected source's existing XR package projects.
+On Linux the existing Git executable is qualified and used for the declared XR
+source packages. No private maintainer cache is required for that derivation.
+
+Run `python tools/quest-wizard/wizard.py serve --state-root C:\GHQ
+--ui-root tools/quest-wizard-ui --open-browser` with the Windows launcher. The
+launcher supplies its existing isolated local CPython. Recovery continues to use
+the separate pinned conversion interpreter; no extension wheel is loaded into
+that CPython merely because it serves the UI.
+
+Linux x86_64 launches the same engine through `bash Quest-Builder.sh`, or
+`bash scripts/quest-builder-wizard.sh --state-root /private/workspace --no-browser`.
+The launcher uses a suitable system Python without changing it, or downloads
+checksum-pinned [python-build-standalone](https://github.com/astral-sh/python-build-standalone/releases/tag/20261003).
+Its isolated venv remains in `scripts/.quest-venv`; fallback Python uses
+`scripts/.quest-python-linux`. The default persistent workspace is `~/.ghvrq`.
+The release ZIP preserves executable permissions for shell scripts, and explicit
+`bash` invocation works even when an extractor does not restore those permissions.
+
+The browser API is loopback only with a random request token. Mutations require
+an exact Origin. GETs require the same token and either exact Origin or the
+browser's same-origin Fetch Metadata, always with the exact bound Host. UI assets
+are served from the declared ordinary directory; no arbitrary file endpoint,
+commands, CORS or credentials are accepted. Local log responses are limited to 64 KiB for an explicitly named stage,
+including its named Unity prerequisite or bounded asset-export logs when present. The token is in the browser fragment, never
+HTTP request URLs or request logs. Closing the backend requests cancellation and
+waits for owned child shutdown before exiting.
+
+## JSON protocol
+
+CLI commands `plan`, `status`, `run`, `cancel`, `discover`, and `serve` require
+`--state-root`. Plan requires `--choices-file`; optionally `--session` amends an
+explicitly selected prior session. Run/status/cancel require `--session`. The
+server prints one `schema:1,event:server,url` object. Progress has stage IDs
+`tools,source,unity,profile,inspect,build,install`; an unknown real percentage is
+`null`, never an invented elapsed-time estimate.
+
+HTTP uses GET `/api/discover`, `/api/status?session=ID`,
+`/api/events?session=ID&after=N`, `/api/log?session=ID&stage=STAGE`; POST
+`/api/plan {choices,session?}`, `/api/run {session}`,
+`/api/cancel {session}`, `/api/browse {kind:game|unity}`,
+`/api/action {session,action:unity-open|unity-check,nonce}`. The last route accepts
+only an action currently declared by the running Unity stage. Closing a Hub or
+installer window keeps the wait visible; reopening it does not complete the stage. Native browse uses
+Win32 on Windows and Zenity/KDialog on a Linux desktop. A missing Linux picker
+leaves the manual path fields available. GET `/api/gallery` exposes twenty-one hash-pinned public publisher character/enemy
+images bundled with the source release. An optional repair uses the exact official
+announcement CDN pins anonymously in a private local cache. No account or platform
+service is used, and an unavailable picture does not block conversion. GET
+`/api/promo-artwork?id=OPAQUE` revalidates the exact bytes and PNG/JPEG header.
+After a matching inspect/recovery witness, local game portraits can also become
+available. GET `/api/artwork?session=ID&id=OPAQUE` checks the token/origin and image SHA again; status exposes only opaque IDs/URLs, never a filesystem path. Capture and cache cleanup capabilities remain false.
+Discovery lists readable recent opaque session IDs because browser storage belongs
+to the random port's origin. The browser automatically opens the last selected
+session with its saved choices and progress, without starting any work. **Continue**
+uses that same ID; **Set up a new build** explicitly opens a fresh selection without
+removing previous sessions or verified caches. A missing/corrupt latest pointer
+falls back to a readable recent session. Failure to load the selected session stays
+visible and blocks accidental fresh planning until retry or an explicit new selection.
+
+## Resume and prerequisites
+
+For mod updates, shared requirements classification runs on the actual captured
+source before Unity provisioning. Observer-only changes use the pinned signing
+tools without an Editor or licence probe; final inspect independently qualifies
+owned PC/DLC/signature boundaries and the current source. Changed code/art still
+requires the compiler. Replacing an APK at the same path invalidates that earlier
+prerequisite decision. Corrected compact routes retire an old fallback overview,
+retaining the visible progress floor without claiming its old game-conversion
+steps completed any current native-code task.
+
+An incompatible compact update pauses with `update_rebuild_decision_required`;
+neither a newly inspected `cached-full-build` strategy nor an older saved fallback
+receipt authorizes original-content conversion. The CLI's current
+`Compact update needs a rebuild decision:` error uses the same localized choices.
+Retry/input review/diagnostics retain the selected update. Choosing a full build
+opens a separate confirmation explaining its time and disk cost; acceptance opens
+new-build setup without launching work or deleting the existing APK/run. Unity
+plugin import failures instead request targeted compiler-project repair, because
+failure to load a DLL does not prove serialized game-content incompatibility.
+
+Closed pinned Windows Git/.NET tool receipts can cross session boundaries using
+the existing strong file witnesses, so a fresh update need not recheck/extract the
+same large archives. Changed/missing files return to ordinary pinned provisioning.
+The Linux system Git path remains separately qualified. The new shared pointer
+is published only after a real tool receipt is closed, including a resumed owner.
+
+Device tools have their own operation bar and actual task counter. Long ADB
+queries display a named current command and elapsed time; known downloads/log
+transfers/capture-archive writes display measured byte progress too. Duration is
+never translated into a completion percentage. Current fixed state and bounded
+activity history allow a support export during a blocked command. Installed APK
+hashes are preserved because the build banner alone previously misattributed a
+hardware capture. Cancellation reaps owned commands and removes incomplete
+capture archives while keeping completed evidence.
+
+Storage cleanup accepts stopped/blocked sessions. A background disk-usage scan
+is a cancellable read-only estimate, so cleanup pauses it automatically and
+waits for its reader to exit before acquiring the ordinary deletion locks.
+Actually active build/device/export/cleanup work still excludes conflicting
+actions. A failure before a worker starts is retained in utility status and
+`logs/storage-cleanup.log`; request traces are captured too. Browser request
+errors survive unrelated build polls and idle inventory replies until retry or
+a genuinely new cleanup result. Each accepted utility job has an operation ID,
+allowing a lost POST response to reconcile with its completed actual result.
+
+Capture130723 also exposes a stale full-migration reserve during tools setup.
+Update setup uses its compact allowance; a full-build reserve is requested only
+after current inspect actually qualifies that route, immediately before build.
+The full-build safety reserve and real native compilation admission remain intact.
+Support exports prioritize the bounded cleanup/request logs ahead of historical
+Unity logs, so a disk-capacity stop cannot hide the separate reclamation failure.
+
+Duplicate-only cleanup never treats an abandoned build as disposable. The
+stopped-run selector offers an explicit choice to discard its restart state,
+optionally including its exclusively owned intermediate data. Both choices
+create a retained preview and require confirmation before any change. Small
+diagnostic records are retired under `logs/removed-runs/`; they are not claimed
+as freed bytes and never appear in discovery's resumable sessions. Dependencies
+referenced by other runs and completed APK/content-bank locators remain retained.
+Unproven or protected candidates are listed with their retention reasons.
+
+Authenticated GET `/api/storage/runs` lists readable inactive owner runs on
+demand without inspecting asset contents. POST `/api/storage/plan` accepts
+`{mode: "session", session: ID, removeData: BOOLEAN}` with an explicit cleanup
+choice; the existing `/api/storage/clean` accepts only its retained preview ID.
+Successful removal returns `sessionsRemoved`, so the browser can retire its
+selected run and refresh restart/default selection without opening another run.
+Kernel ownership still excludes real active work; stale running banners are
+reconciled through the Store before selecting a stopped run. Metadata-only run
+removal can be confirmed even when there are no intermediate files to reclaim.
+
+The home page lists all normal runs instead of binding a resume/delete tile to
+the implicit latest pointer. A retired run is absent from that list. Storage may
+still show its retained diagnostic/intermediate footprint and offer a separate
+explicit cleanup, which cannot resurrect its session. `/api/storage/runs`
+returns fresh run statuses (including complete/running), cached measurements and
+a separate `retiredRuns` list; it never initiates another filesystem inventory.
+
+The single owned-file metadata walk reports exclusive/shared/unassigned bytes
+as a non-overlapping workspace partition. Each dependent run may display the
+same shared footprint; those row totals must not be added to get global usage.
+Reusable/data-package/tool/diagnostic buckets are descriptive classifications,
+not another additive partition. Candidate reclaimable bytes are estimates until
+an actual guarded deletion preview. Volume capacity is reported independently:
+logical file sizes do not prove exact physical allocation on every filesystem.
+Publish the bounded completed snapshot as `logs/storage-analysis.json` for
+support export. Reopening the Wizard shows a dated cached measurement where
+available; it does not automatically enumerate the workspace. Refresh only on
+the user's explicit request. Cleanup marks measurements stale instead of
+starting another full inventory behind the deletion operation.
+
+Capture153619 reports a Windows access-denied5 on an OpenXR Git pack reverse
+index in an owned source snapshot. Windows read-only attributes can block
+deletion even for the account that created the file. Cleanup checks the exact
+already-authorized leaf, clears that attribute only when needed and retries;
+it does not change unrelated permissions. Sharing violations use bounded,
+cancellable retries and retain actionable recovery context.
+
+Cleanup scans qualify ancestors per directory and reuse enumerated metadata,
+including Windows directory batches when available. Their incremental
+fingerprint avoids serializing the entire large tree again at the end of a
+preview. Pins, linked/borrowed paths, changed previews, active producer locks
+and completed delivery/signing artifacts remain protected. Live progress uses
+aggregate files, bytes, directories, current folder and elapsed time. Unknown
+enumeration totals stay unknown rather than pretending that a local folder's
+counter is the complete job. Cancellation applies only to the selected storage
+operation, waits for that worker to exit, preserves diagnostics and any already
+removed files, and allows a new preview of the remaining data.
+
+Legacy ownership reads actual structured capacity events and the two bounded
+progress-log producer names. The capture130723 full-update fallback's new game
+key was never stored in `state.qualification`. Future qualification keeps
+`storageProvenance.games` outside the rotating event ring; this changes no build
+recipe or reuse decision. A retired session's confirmed intermediate cleanup
+returns `sessionsRemoved: []` and leaves its diagnostic archive in place.
+
+POST `/api/support` accepts `{}` for workspace-wide diagnostics or an explicit
+session ID for current/retired run context. The header control remains available
+on every real wizard view. Missing optional utility metadata is reported as an
+omission; exports retain the same byte/file limits and credential redaction and
+never read APK, asset-bank or save payloads. Workspace exports use `scope:
+"workspace"`, `session: null`; they do not invent an active build.
+
+Completed steps are reused only after their output size and SHA256 match the
+saved receipt and their input/dependency key matches. Installation failures can
+retry independently of an already verified APK. A changed profile does not
+repeat portable-tool or source provisioning. Cancelled downloads retain partial
+bytes; HTTP Range responses must match them. Tool extraction repairs members
+against the pinned ZIP's CRC and publishes completion atomically. An OS kernel
+workspace lock releases after process death; no persisted PID authorizes killing
+another process. Windows children start suspended and join a kill-on-close Job
+Object before resuming; cancellation waits for owned descendants to exit.
+
+Unity Hub is downloaded automatically from a versioned official URL and verified
+against the publisher SHA512/size pin before its installer window starts. Setup,
+sign-in and license activation remain visible user actions where Unity/Windows
+require them. The installed Hub's archived-version CLI is checked at runtime before
+Editor/module automation; the existing Editor receives only its missing Android
+modules. Unity documents this Hub CLI as deprecated with minimal support from
+3.18; an absent command produces a specific actionable fallback, never a pretend
+installation. A version check does **not** prove license activation. The Editor must also
+complete a bounded, owned empty-project probe with the exact success marker. Only
+then is `licenseVerified:true` recorded. The probe proves that the Editor can run;
+it does not decide account/license eligibility or read/export license contents.
+Old unverified prerequisite receipts are invalidated by prerequisite policy 2.
+Sign-in remains an explicit repeatable user action; supported headless tools have
+timeouts, and their authentication failures return to the visible wait. Unity
+failure logs remain local.
+
+The owned Linux AppImage supplies a missing `unityhub://` browser callback through
+a user-local XDG desktop entry after Unity terms acceptance. Existing handlers
+and unrelated desktop files remain untouched. This requires `xdg-utils`; the
+registration result and Hub window stderr are included in named, bounded Unity
+logs. Callback query parameters are redacted from support exports.
+
+After hard process death, a saved running session is marked interrupted only
+when the kernel workspace lock has no active owner; a live external run remains
+protected. No persisted PID is terminated during reconciliation.
+
+The selected source must declare `BUILDER_RESUME_CONTRACT=1` to resume an
+interrupted imported build; older source is retained and produces an explicit
+action instead of destroying its Library. The current contract journals mutable
+content, verifies completed source-export batches, and retries only the owned
+unfinished work. An unchanged original game keeps the same Unity workspace when
+the mod or local profile changes; each changed build still needs its own verified
+receipts and newly generated assets. Library survives regeneration, but asset
+copying is still required. Final Android color/API settings are serialized before
+the first Editor start. No faster import time is claimed without a measured run.
+Signing keys and device saves are never reset by this workflow.
+
+The native compiler policy derives concurrency from measured CPU, physical RAM
+and (on Windows) available commit headroom. It reserves 32 GiB for the first
+compiler and 28 GiB for each additional one, plus Unity/OS headroom. A user job
+setting is an upper bound. If physical RAM is insufficient but known Windows
+commit headroom covers the full one-job budget, exactly one paging-assisted job
+is admitted; unknown or insufficient headroom stops before Player-build output
+changes. Accepted warm native results bypass this fresh-compilation admission.
+Resource records expose the chosen budget and paging requirement, without
+claiming that Windows paging speed has been measured. The private .NET apphost
+routes only this Editor process to the original Bee backend with the thread
+option before its target; the installed Unity tools are not edited.
+
+New shader caches use `tool-cache/cs/<owned-game-hash>/o`; prior longer cache trees
+are preserved. Original shader asset names and GUIDs remain unchanged. The shader
+producer checks the actual Windows output roots before writing: a sufficiently
+long custom build root still needs a shorter directory. Cache path shortening
+does not assume Windows or Unity supports every extended-length path.
+
+Tool pins come from [official .NET release metadata](https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json)
+and [Git for Windows](https://github.com/git-for-windows/git/releases/tag/v2.51.0.windows.1).
+Unity's [Hub CLI](https://docs.unity.com/en-us/hub/hub-cli-reference) and
+[license workflow](https://docs.unity.com/en-us/hub/manage-license) remain its
+authoritative installation and activation contracts.
+
+Focused source fixtures: `python -B -m unittest discover -s tests/quest-wizard`.
+They do not download tools, import Unity projects or assert hardware outcomes.
+
+## Complete Windows and Linux source release
+
+The installer-only hardware handoff is not a builder distribution. Assemble the
+full game-free builder from a committed integration checkout with:
+
+```sh
+python -I -B scripts/package-quest-builder.py --output /private/output/GloomhavenVR-Quest-Builder.zip
+```
+
+The assembler inventories tracked mod source, authored Unity project assets,
+weaver, recovery, native/procedural source, Wizard/UI, launchers and tool pins.
+The explicit public converter ZIP includes pinned open-source binaries,
+corresponding upstream sources and license notices. Original-derived prebuilt
+figure meshes, reference/game DLLs, decompiled game code, credentials, local
+Unity licenses, caches, APKs and savegames are excluded. The release manifest
+contains exact relative paths, sizes, hashes and the actual source commit/build;
+assembly independently extracts and verifies the ZIP before publishing its audit.
+The two declared Unity authoring source links are verified against their exact
+in-repository mod targets and materialized as ordinary files; no links ship.
+Future tracked mod files inside declared source roots enter the next release.
+New root families or binary dependencies require an explicit inventory review.
+
+Extract into a fresh folder and start `Quest-Builder.cmd` on Windows or
+`bash Quest-Builder.sh` on Linux x86_64. No Git checkout or installed Python is
+required. The launcher bootstraps an isolated Python/venv, then starts the same
+browser Wizard. Portable Git is provisioned on Windows; Linux qualifies the
+system Git for public XR package sources. Git is not needed to identify the
+shipped mod. The separately owned build state defaults to `%USERPROFILE%\.ghvrq`
+on Windows and `~/.ghvrq` on Linux.
+Do not overlay different source release archives: unlisted source files are
+rejected. Moving/replacing the release folder does not remove user build caches
+or signing keys. A changed release manifest invalidates source and downstream
+stage identities while portable tools remain reusable. Each release gets its
+own resumable source-copy directory; old source workspaces remain untouched.
+Generated compile-time XR assemblies are derived from the user's game files and
+are inventoried separately from shipped source.
+
+Before downloads the backend checks Windows x64 or Linux x86_64, a short Windows workspace root and a
+4 GiB **setup-only** free-space floor. Before starting, the UI also presents a
+bounded estimate of full-conversion disk demand: eight times the owned data size
+plus a 20 GiB tools/import reserve, reduced conservatively by matching retained
+snapshot/project/recovery candidates. The metadata-only scans have time/file
+bounds. Unrelated game caches are not credited. Reuse is provisional until normal
+content hash checks pass; native/package reserves remain even with large caches.
+An amber warning displays estimated additional space versus available space,
+and a provably insufficient fresh snapshot + setup stops before SDK downloads.
+This planning estimate is not a full-game guarantee:
+Unity imports and recovered content require substantially more free disk space,
+and the check records `fullBuildSpaceVerified:false`. Unity Hub setup/sign-in and
+activation of an eligible license remain guided manual steps. The backend never
+reads or exports license contents and does not infer license validity from the
+Editor version. Whole-build acceptance on either OS and headset outcomes still
+require user testing; a package audit establishes only its delivered inputs.
+
+Linux tool pins use the same official .NET metadata, Temurin release assets and
+Android repository metadata as their Windows counterparts. Owned tar extraction
+keeps only internal links and required executable modes. The pinned Linux Unity
+Hub AppImage runs without FUSE through its extraction mode, and discovers or
+installs Editor/Android modules in the owned workspace. Linux system libraries
+and GPU drivers remain the distribution's responsibility; the Wizard reports
+missing native prerequisites rather than installing system packages with sudo.
+Unity's [2021 LTS requirements](https://docs.unity3d.com/2021.3/Documentation/Manual/system-requirements.html)
+define its supported Linux desktop environments. A real graphical Editor build
+uses the desktop X display when available; a headless host needs Xvfb and xauth.
+Windows stage pins exclude added Linux-only recipes, retaining existing Windows
+receipts. Original preparation identity excludes both root launchers and their
+instructions: they are delivery inputs, never original-asset producers.
+Linux cannot load the original Windows Steam entitlement DLL. The setup form
+requires an explicit purchased-DLC declaration for Steam before a full/mod build;
+an empty declaration means base game only. Missing declarations are rejected
+before tool downloads or Unity import. Profile-only updates do not require it.
+
+Missing original-derived figure mesh banks keep the complete original actor
+meshes intact through the mod's documented fallback. The Quest pipeline does not
+yet generate Android derivative LOD banks; excluding desktop/game-derived banks
+from public source delivery does not establish Steam Frame geometry-budget parity.
+
+## Shareable build diagnostic package
+
+The EN/DE **Save diagnostic package** button downloads a local support ZIP,
+including after failure or while a build runs. Nothing is uploaded. CLI users can
+run `python -I -B scripts/export-quest-build-support.py` for the latest session,
+or select `--state-root`, `--session`, and a new `--output` destination. The
+Wizard CLI also exposes `support --state-root ROOT --session ID [--output FILE]`.
+Token/origin-protected POST `/api/support {session}` returns `application/zip`;
+there is no arbitrary filesystem-path download endpoint.
+
+The ZIP contains bounded stage/error context, mod/source/input/build identities,
+host CPU/architecture, and the resource policy/events/metrics produced under
+`build/evidence/`. These records supply memory, chosen jobs, stage timings and
+outcomes when present. Only direct known stage/build logs, the three named resource records, and
+explicit `core-export.log` / `BundleRecovery/batch-NNN/export.log` paths from at
+most two current recovery workspaces are eligible. At most eight recent batch
+logs per workspace are retained; no recursive project/cache/game traversal occurs.
+When an owner-labelled raw-export binding points the current recipe at an earlier
+export folder, that folder's logs are included. A failure before binding publication
+can instead expose at most two recent folders, explicitly labelled as candidates.
+Diagnostic metadata records only existence and byte sizes for five named receipt /
+identity / journal files. Their contents and full proprietary asset inventories are
+never read or exported by this diagnostic scan. These observations do not qualify
+cached content or bypass the recovery process's hash checks.
+Profile and DLC JSON, environment files, license files, signing credentials,
+game assets and saves are excluded. Known profile/path values, authorization,
+token/password/serial fields, signed URL queries, JWTs and key blocks are
+redacted. Structured resource objects receive separate key redaction; oversized
+structured records are omitted rather than exporting unparsed secret fields.
+Each log retains bounded beginning/end context (2 MiB/file, 24 MiB total,
+64 files); the manifest records truncation, omissions and exported hashes.
+The export reads saved state directly and leaves running/interrupted workflow
+status and receipts unchanged. An export is a diagnostic snapshot, not proof
+that its APK was installed or that the headset picture is correct.
+
+## Observed progress and failure visibility
+
+Each stage carries its named current substep, real done/total/unit counters,
+percentage and update time. `stagePercent` is a persistent total of observed
+scheduled stage operations and remains below 100 until verified output publication.
+`percent` retains the secondary substep counter; switching substeps can change its
+denominator without resetting the stage total. Neither percentage estimates elapsed
+time or time remaining. Downloads use bytes, snapshots/hash checks use actual file/byte
+inventories, and bounded recovery combines committed batch counts with actual
+copy/export/collection/native-index/checkpoint counters inside the current batch.
+Explicit section/index boundaries keep a repeated file or index within its own
+bounded share. A large-file byte counter advances only the current parent file,
+not the entire stage. Six decimal places are retained for the CSS/ARIA bar;
+concise percentage text uses up to two. Version-one saved progress plans keep
+their attained high-water mark when acquiring these nested scopes. Batch numbers
+appear in substep labels, while adopting retained exports and restoring an
+interrupted write have separate labels. Bee native
+compilation uses its emitted action counts. The unchanged pinned AssetRipper
+exporter's actual `ExportProgress` log counters now reach the Wizard while its
+request runs; loading without a native denominator remains unknown. Its count
+can include core collections skipped by bundle-only export, so accepting the
+request and committing the package remain separate success boundaries.
+Elapsed time never invents progress.
+The child `GHVRQ_PROGRESS` protocol is enabled only for Wizard runs. Ordinary CLI
+output stays quiet. State/event writes are rate limited and the final observed
+counter is persisted; a failed or interrupted step never receives a success receipt.
+
+Retained recovery output is qualified once per fresh child invocation. The normal
+batch path no longer performs two growing full-output hash scans before/after
+each merge. Current file/index/checkpoint writers provide their own byte hashes;
+unchanged native recipe hashes are reused only in invocation-local memory, with
+file identity/size/write stamps invalidating them. No stat-only trust is retained
+across restarts. Successful journal cleanup checks the checkpoint that this
+invocation actually published rather than calling cold recovery again. A cold
+interrupted journal checks unchanged files once and restores/qualifies only its
+mutable indexes; an unfinished journal cannot be silently replaced.
+
+An already exported batch needs no repeated original-input staging or bundle
+copy. Completed asset-reference audits are reused until another batch changes
+the output. An unused old core export is not reread when the matching merged
+checkpoint is the actual qualified input. Catalog hashing produces one bundle
+schedule reused for final ownership indexing, and the selected exporter tool
+inventory is read once per invocation that has unfinished batches. Source,
+identity, retained-output and genuinely changed-input failures remain explicit.
+These checks support reliable continuation; they are not repeated build tasks.
+
+The build stage reserves 40 percent for conversion and 18 percent for the later
+Unity import, with smaller spans for its other actual operations. These are work
+shares, not time predictions. The producer announces its catalog-derived package
+count before core export; each package occupies one conversion task, alongside
+the six other conversion sections. A sixteen-package schedule therefore shows
+22 current conversion tasks instead of the seven Wizard stages. An unknown
+schedule stays unknown. `progress.activeWork` exposes this operation's integer
+`done`/`total` and measured fractional percentage. Batch and native index numbers
+identify repeated labels. A changed work distribution anchors remaining measured
+work to an existing owner's saved high-water once, so the update neither moves
+the bar backwards nor waits several packages to catch up.
+
+`row.timing` and `state.timing` report observed active elapsed seconds independently
+of work percentages. Monotonic clocks run only in the owning process; waits,
+cancellation and offline gaps are excluded. Persisted totals and bounded completed
+fresh-package durations are bound to the stage input and actual inspect input key.
+Historical sessions without timing evidence say "since update". Status polls only
+project the live clock; they do not write state, rerun tasks or advance counters.
+
+ETA uses measured counter throughput after at least three observations spanning
+ten seconds, or at least two successfully completed fresh packages with the same
+schedule. Reused packages do not train fresh-export rates. The visible estimate
+is a range scoped to the current phase or remaining data packages, never a forecast
+for unobserved later Unity/Android work. Reset/stale counters, a user wait or
+unobserved work return learning/unknown/paused states. Time/estimate context joins
+the existing bounded progress log, without a new polling log stream.
+
+Native evidence indexes now retain only invocation-local parsed, qualified state.
+Journal preparation and merge reuse it while file identity/write stamps match;
+identical canonical indexes are not rewritten. Source inventory hashes feed the
+same bundle schedule instead of a second original-bundle hash pass. Changed
+bytes/links invalidate these caches; cold continuation still qualifies retained
+output. These optimizations do not change the exporter binary or its identity
+format, and exact known previous orchestration profiles remain eligible for resume.
+
+The UI shows required actions and failures above the stage list. Failure context
+names the affected builder substep and a concise next action; detailed original
+error text, exception type/traceback, process exit, bounded invocation arguments
+and log locations remain in `logs/progress.log` and the support ZIP. Credential
+flags and environment contents are not logged. The log selector follows the
+active/failed stage until the user chooses another one. Live viewing includes
+known nested exporter logs instead of only the wrapper's generic exit message.
+An old `last-failure.json` from another attempt cannot replace the current cause.
+
+A changed conversion recipe gets a separate recovery key. Existing source/tool
+caches and old checkpoints remain preserved, but an exporter correction can
+require a new coherent export. This is not a promise that incompatible native
+export checkpoints can be reused across recipe changes.
+
+The raw-export eligibility reader permits the full `core-recovery.json` file
+inventory up to 256 MiB; smaller control/input manifests remain capped at 16 MiB.
+The read itself stays bounded if a file grows after its size check. Missing,
+non-regular, oversized and unreadable evidence have distinct diagnostics with
+observed bytes and the applicable limit. Reading this larger inventory does not
+hash all game assets in the eligibility helper: the child still independently
+verifies the retained core/batches and restores the actual pending merge journal.

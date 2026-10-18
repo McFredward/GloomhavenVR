@@ -31,6 +31,8 @@ internal static partial class ScenarioTerrainBudget
     private static Func<Renderer, bool>? _performanceWallHidden;
     private static Driver? _driver;
     private static bool _failed;
+    internal static string Diagnostics => _driver != null ? _driver.DescribeConsumers()
+        : "terrain driver=unavailable failed=" + _failed;
     private const string ShaderName = "GloomhavenVR/ScenarioCheapTerrain";
 
     // A verified immutable original bank is required, even for geometry whose CPU copy
@@ -256,6 +258,23 @@ internal static partial class ScenarioTerrainBudget
         private float _nextReport;
         private bool _assetsWereReady = true, _assetFailureReported;
         private Shader? _shader;
+        private int _pairedFrame = -1, _pairedSurfaces, _pairedPillars, _pairedReduced, _pairedOriginals, _pairedTriangles;
+
+        // Read only when the existing bounded Debug hardware snapshot asks. This
+        // separates prepared pillar geometry from actually paired camera leases;
+        // neither a ready bank nor structural batching proves LOD submission.
+        internal string DescribeConsumers()
+        {
+            int pillars = 0, exact = 0, reduced = 0;
+            foreach (Surface surface in _surfaces.Values)
+            { if (surface.Pillar) pillars++; if (surface.HasExactGeometry) exact++; if (surface.HasReducedGeometry) reduced++; }
+            return "terrain active=" + _active + " failed=" + _failed + " surfaces=" + _surfaces.Count
+                + " pillars=" + pillars + " exact=" + exact + " reduced=" + reduced + " pending=" + _pending.Count
+                + " visited=" + _discovered.Count + " refusedScope/Floor/Identity/Bank=" + string.Join("/", _refusals)
+                + " assetsReady=" + _assetsWereReady + " assetsFailed=" + _assetFailureReported
+                + " pairedFrame=" + _pairedFrame + " pairedSurfaces/Pillars/Reduced=" + _pairedSurfaces + "/" + _pairedPillars + "/" + _pairedReduced
+                + " pairedTriangles=" + _pairedTriangles + "/" + _pairedOriginals;
+        }
 
         private void Awake()
         {
@@ -529,7 +548,7 @@ internal static partial class ScenarioTerrainBudget
         private void HandlePostRender(Camera camera)
         {
             if (camera != _leaseCamera) return;
-            int originals = 0, submitted = 0, cheap = 0;
+            int originals = 0, submitted = 0, cheap = 0, surfaces = 0, pillars = 0, reduced = 0;
             foreach (Surface surface in _leases)
             {
                 // A later native MPB/material/visibility writer can revoke a pre-cull
@@ -537,11 +556,16 @@ internal static partial class ScenarioTerrainBudget
                 // Frustum/occlusion and GPU execution remain outside this measurement.
                 if (!surface.IsMasked) continue;
                 originals += surface.OriginalTriangles; submitted += surface.DrawTriangles;
+                surfaces++; if (surface.Pillar) pillars++; if (surface.HasReducedGeometry) reduced++;
                 if (surface.CheapLease) cheap++;
             }
             PerfMonitor.Count("Terrain.OriginalTriangles", originals);
             PerfMonitor.Count("Terrain.SubmittedTriangles", submitted);
             PerfMonitor.Count("Terrain.CheapSurfaces", cheap);
+            // These scalar facts piggyback the existing counted loop; no extra
+            // discovery, native material/pose access or GPU readback is introduced.
+            _pairedFrame = Time.frameCount; _pairedSurfaces = surfaces; _pairedPillars = pillars; _pairedReduced = reduced;
+            _pairedOriginals = originals; _pairedTriangles = submitted;
             RecoverLeases();
         }
         private void HandlePreCull(Camera camera)
@@ -685,6 +709,7 @@ internal static partial class ScenarioTerrainBudget
             _cheap.Clear();
             _reportedSurfaces = -1;
             _reportedDiscovery = -1; _discovered.Clear(); Array.Clear(_refusals, 0, _refusals.Length);
+            _pairedFrame = -1; _pairedSurfaces = _pairedPillars = _pairedReduced = _pairedOriginals = _pairedTriangles = 0;
         }
     }
 }

@@ -1,0 +1,256 @@
+# Local Quest Wizard UI (developer notes)
+
+`Quest-Builder.cmd` launches the loopback browser wizard on Windows through
+`scripts/quest-builder-wizard.cmd`.
+The PowerShell entry point reuses the installer's pinned, script-local CPython and
+virtual environment through `tools/quest-installer/bootstrap.ps1`. It passes a
+native argument array to Python; paths containing spaces are not assembled into
+an interpolated command string. The console remains the backend's lifetime owner.
+`-NoBrowser` suppresses automatic browser opening; the backend prints its URL.
+
+The default private state/build root is `%USERPROFILE%\.ghvrq`, rather than the
+downloaded checkout directory. This shortens generated Windows Unity paths and
+preserves downloads, original exports and imported projects across moving or
+replacing the launcher folder. `-StateRoot` overrides that location explicitly.
+The pinned Python installation and virtual environment remain script-local.
+The backend's ownership marker and kernel guard also protect this shared user
+workspace against two launchers attempting to build simultaneously.
+
+The UI has no external fonts, analytics or hosted frontend. Twenty-one pinned public
+publisher images are included for immediate offline display; the backend may
+repair missing images from their exact approved public CDN URLs. The Unity
+terms, GitHub repository and maintainer support page are explicit external links. German and English strings are
+kept in `i18n.mjs`. Further technical settings and bounded logs are collapsed.
+
+## Backend boundary
+
+The backend is maintained separately in `tools/quest-wizard/`. Launch command:
+
+```text
+wizard.py serve --state-root PATH --ui-root tools/quest-wizard-ui --open-browser
+```
+
+The server emits a loopback random-port URL with a private fragment token. The UI
+sends `X-Quest-Token`; the backend validates Host and browser Origin/fetch context.
+No browser-supplied command, executable or artwork filesystem path is accepted.
+
+The schema-1 API uses discovery, plan, run, cancel, status, events, fixed-kind
+native browse and bounded per-stage logs. Launch opens the home page with separate
+new-build, APK-mod-update, APK-profile-update and retained-run actions. Explicit
+Resume opens the owner workspace's validated `latestSession`, falling back to
+`recentSessions` on older backends. It restores choices, progress, failures and
+completed output without posting a plan or starting work. It does not depend on
+origin-scoped browser storage, so changing launcher folders, browser windows or
+loopback ports keeps the same session. The primary Continue action posts `/run`
+with that retained session ID. Setup changes post `/plan` with the existing ID;
+only explicitly choosing "Set up a new build" clears the UI's selected session.
+That action does not delete saved sessions, receipts, downloads or game exports.
+An inaccessible session remains visible and blocks accidental new planning
+until it is reopened or the user explicitly chooses a new build.
+If an update needs a full rebuild decision, both its inline and footer new-build
+actions first show a bilingual confirmation with the exact bounded cause and
+time/disk implications. Declining preserves the current update; acceptance opens
+new-build setup with the selected PC game/profile/DLC choices. Neither action
+posts a plan, launches conversion or deletes a retained result. A normal explicit
+start after setup remains required. Plugin import errors offer targeted repair
+guidance rather than this compatibility decision.
+Backend receipts decide safe reuse; opening a saved run is not a claim that
+cancelled/interrupted work is verified complete. Polling stops
+for inactive sessions; cancellation remains pending until backend confirmation.
+Each stage has one persistent total percentage (`progress.stagePercent`). Its
+scheduled operations advance that total using observed completion/counters;
+measured child work contributes to its scheduled operation immediately, rather
+than only advancing when that operation ends. Substep changes never reset the
+total. Labels keep up to two localized decimal places so small measured updates
+remain visible. Only verified stage completion publishes
+100%. A separately labelled substep bar may use raw `progress.percent` and reset
+between tasks. Unknown substep totals remain indeterminate while the stage's
+last observed total and concrete current task stay visible. These percentages
+describe scheduled work, not time remaining; elapsed time never invents progress.
+
+The active count uses `progress.activeWork.done/total`, naming its current
+operation. For conversion this includes its scheduled source/core/batch/final
+subtasks, not the seven top-level wizard stages. Missing counts are labelled as
+not reported; the UI never substitutes completed wizard stages. Repeated native
+merge activity carries its explicit batch and native index number, observed
+file/byte counts and current file detail so distinct work remains identifiable.
+
+`state.timing` and the current stage's `timing` provide recorded active duration.
+Waiting, stopped/offline intervals are excluded by the backend. Legacy sessions
+without prior timing display "since this update" rather than reconstructing an
+invented old duration. The backend's estimate is shown as a bounded duration range
+with its scope: the current phase or remaining conversion batches. Later Unity
+and packaging work is not included in a conversion estimate. Insufficient/stale
+observations, paused work and unavailable estimates are labelled directly. Neither
+the elapsed clock nor an ETA changes the observed percentages. Durations are
+formatted `HH:MM:SS`; the UI does not derive whole-build time from a progress ratio.
+
+Unity reporting combines observed editor task counters, content-bank boundaries,
+Player build callbacks and known log/Bee counters. The editor does not expose a
+reliable percentage for every internal operation. Tasks without a measured total
+retain their latest activity text rather than claiming false numerical progress.
+
+Discovery selects a sole detected copy and its provider. Availability of a local
+account does not establish a copied profile: the UI says it will be checked.
+Purchased DLC are automatic unless the user explicitly chooses the manual
+declaration. An explicit empty declaration means base game only.
+
+## Artwork ownership
+
+The hero heading combines `assets/gloomhavenvr-logo.png`, an unchanged copy of
+the project's tracked `docs/img/logo.png`, with a localized connector and the
+Meta Quest logo. Logo origins are recorded in `assets/provenance.json`. `assets/promo/` contains twenty-one exact publicly published
+character/enemy promotional images, with source attribution in that directory
+and SHA/size/dimensions pins in `promo-artwork.json`. They are not extracted from
+the owner's game or recovered game banks. The default `Gallery` validates these
+bundled files synchronously and serves opaque IDs through authenticated
+`/api/promo-artwork`. Selecting a game without owned artwork does not erase the
+publisher slideshow. The image area, captions and manual slideshow controls
+remain available during setup and build progress. Picture provenance is retained
+in `assets/promo/README.md` and the pinned manifest, outside the product flow.
+The two footer icons use the exact GitHub/support links already in the project
+README, without loading remote widgets or contacting those sites on page load.
+Their original SVG sources and the GitHub icon license are pinned locally.
+
+The optional stdlib `artwork.py` adapter consumes a locally recovered Campaign
+project and an independently verified game fingerprint. It requires the original
+full-recovery report, exact file size/hash, bounded PNG dimensions, canonical paths
+and no symlinks. The backend keeps descriptor paths private and exposes opaque
+IDs through its authenticated `/api/artwork` endpoint. `read_artwork` revalidates
+every response. Images never become Git, release or cloud content.
+
+This adapter does not decode untouched Unity game containers. Until a verified
+recovery cache is available, the production interface shows the bundled publisher
+slideshow. The explicit design preview is labelled as a preview. Supporting
+the adapter does not imply that a backend with `artwork:false` serves an image.
+
+## Home navigation and active work
+
+The Home button stays in the persistent top navigation. Its observed height
+sets the artwork offset and scroll padding, including wrapped narrow layouts.
+There is one game/platform hero brand; local GitHub and support links sit below
+the artwork without loading external widgets.
+
+Initial discovery can recommend Mod Update when its bundled build is newer than
+the retained APK and its bounded local input check is ready. This is a metadata
+suggestion, not a fresh ownership/content validation or an online release check.
+Clicking the suggestion preselects its APK and PC installation; an already edited
+workflow keeps its choices when returning from Home. Actual Update retains the
+backend's normal validation and compatibility decisions.
+
+Home shows an active build, device operation, package export or storage task with
+its current measured progress and an explicit return to details. Navigation does
+not cancel, resume or restart work; existing polling continues on Home. A running
+session named only by discovery offers its details without reopening itself.
+Unknown progress remains indeterminate. Conflicting build choices stay disabled
+while a run is active.
+
+## Selected mod source
+
+The ordinary release builds the mod source shipped inside the Builder ZIP,
+identified by its manifest commit, project version and `NetProtocol.ModBuild`.
+It does not adopt the `GloomhavenVR.dll` installed in the PC game's BepInEx folder
+or silently fetch the latest `dev` branch. Advanced CLI source selection remains
+explicit. Discovery describes the launch release; saved-session status describes
+that session's resolved source, even when the launch ZIP has subsequently changed.
+The visible mod badge uses this metadata rather than guessing from game files.
+When an inactive default-source session is reopened in a newer Builder, the
+badge shows the source that Continue will use and names the previous commit
+separately. Active sessions and completed outputs keep their resolved source.
+Explicit advanced source selections do not get replaced by the launch release.
+
+"Check mod files" hashes the selected source/tools/art inputs for a consistent
+snapshot and safe cached-stage reuse. It does not run the exhaustive shader gate.
+Receipt/source changes invalidate the affected work; retaining the owner workspace
+preserves completed setup and reusable original exports between source releases.
+
+## Focused verification
+
+```sh
+node --test tools/quest-wizard-ui/tests/ui.test.mjs
+python3 -B -m unittest discover -s tools/quest-wizard-ui/tests -p 'test_*.py'
+node --test tools/quest-wizard-ui/tests/browser.test.mjs
+# Optional real HTTP witness; the selected backend must be the matching checkout.
+QUEST_WIZARD_BACKEND=/path/to/tools/quest-wizard/wizard.py node --test tools/quest-wizard-ui/tests/real-api.test.mjs
+```
+
+The browser check uses installed Chrome and Node's built-in CDP/WebSocket support;
+it skips visibly when Chrome is absent and downloads nothing. It serves only the
+static UI in explicit `?preview=1` mode, checks the real DOM, keyboard activation,
+consent gate, cancellation, restored choices, EN/DE and narrow-screen overflow.
+Set `QUEST_WIZARD_SCREENSHOTS` to a private output directory for screenshots.
+
+Both headless test launchers use private temporary Chrome profiles with
+`--password-store=basic --use-mock-keychain`. This prevents an interactive host
+keyring from blocking a fresh profile's cookie-store initialization before
+loopback HTTP requests are sent. These flags are test-only; the user browser and
+production launcher remain unchanged. CDP commands fail after ten seconds and
+the test closes its own browser/profile rather than leaving pending navigation
+and processes after a test timeout. HTTP witnesses use direct Chrome-to-loopback
+transport, without request interception/fulfilment bridges.
+
+`resume-browser.test.mjs` witnesses explicit home-page reopening without `/plan` or `/run`,
+saved choices and total progress, same-ID Continue after changing loopback port,
+ready/cancelled/interrupted/completed sessions, explicit new-build selection and
+inaccessible-state retry. The actual backend witness also reopens the retained
+session after an explicit Resume click on the reloaded home page.
+
+The capability-gated home tools use `/api/device/status`, `/api/device/connect`,
+`/api/device/capture` and `/api/device/cancel` independently of build sessions.
+They show USB authorization and Wi-Fi setup instructions, retain observed device
+progress, and download captures only through an opaque server-issued ID.
+The storage card displays a cached read-only byte inventory by category. An
+explicit inventory request performs the first scan or refresh; ordinary polls do
+not enumerate or hash the workspace again. Cleanup still requires a scoped preview
+and a separate deletion click. Completed APKs and their required content banks
+remain retained, including when installation is unfinished. Legacy rollback APK
+sizes are displayed separately from save/app-data archives where metadata exists.
+
+`home-device-browser.test.mjs` exercises actual DOM/loopback requests against a
+declared asynchronous fixture. It covers explicit resume, all three build modes,
+wireless authorization, measured capture progress/download and home-page cleanup.
+It does not establish real Quest connectivity or backup/deletion correctness;
+the corresponding backend suites own those contracts.
+
+If Android refuses moving the retained game-content files during signature
+recovery, installation pauses before uninstalling. A separate content-reinstall
+button displays the measured transfer size and asks for the compromise. Its
+nonce, APK identity, device, transaction and installation attempt must match the
+current action record. Ordinary Retry does not grant approval; the dedicated
+choice resumes installation on the same completed build without changing choices.
+Username-only APK updates submit `profileName`; the backend inherits the existing
+APK's provider ID. A complete explicit profile still permits an intentional ID
+change. Ordinary build/mod-update manual profiles continue to require both fields.
+
+For manual preview, serve this directory on loopback and open
+`/?preview=1&lang=de` (or `en`). Demo mode never calls the real API and deliberately
+blocks its mock build before any completed APK/install claim. Screenshots are
+design/interaction evidence, not proof of Windows provisioning, a native Unity
+build or Quest hardware behavior.
+
+The separate real-API browser witness starts the actual loopback backend with an
+isolated temporary state directory. It proves JavaScript MIME/CSP and native fetch
+binding, token-authorized discovery/POST planning/status/log rendering, reopening
+a durable session and wrong-token rejection. CDP intercepts any accidental `/run`
+attempt before it reaches the server; the test requires that no such attempt occurs.
+It executes no provisioning, child tools, game conversion or Unity. Missing backend
+configuration is reported as a skipped test rather than successful native evidence.
+
+For the optional real owned-art transport check, additionally set
+`QUEST_WIZARD_OWNED_GAME`, `QUEST_WIZARD_OWNED_RECOVERY` and
+`QUEST_WIZARD_OWNED_INPUT` to matching private original provenance. The test copies
+only three actual PNGs plus the unchanged recovery report/input manifest into its
+temporary owned cache and establishes a clearly labeled fixture inspect receipt.
+This inheritance proves the HTTP/UI artwork route and exact response hashes; it
+does not represent a fresh inspect, recovery or build. Browser screenshots remain
+private. All temporary projected game files are removed when the test finishes.
+
+The 2026-10-06 footer/count/timing update's focused worker gate passes all 21
+Node UI cases without skips, including eight direct Chrome workflows and the
+actual loopback gallery displaying all 21 bundled images. Four owned-art adapter
+cases also pass. The stage browser witnesses a 22-subtask active conversion,
+explicit native index 2/2, precise whole-stage movement, elapsed stage/whole
+runtime and a conversion-scoped ETA range. Unknown/new-update timing remains
+labelled, completed state clears task counts, and desktop/mobile footer icons
+load locally with accessible labels and no horizontal overflow. These are
+UI/HTTP fixtures; they do not certify a Windows full export or Unity throughput.

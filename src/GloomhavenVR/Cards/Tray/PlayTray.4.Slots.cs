@@ -463,26 +463,22 @@ internal sealed partial class PlayTray
             if (slot == null || _wantedHighlights[i] != null)
                 continue;
             float xSpread = (i == 0 ? -0.5f : 0.5f) * ovSpacing; // spread the overlay pair apart along the slot axis
-            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            quad.name = "WantedHighlight";
-            Object.Destroy(quad.GetComponent<Collider>());
-            quad.transform.SetParent(slot, worldPositionStays: false);
             // Larger rim than the snap glow so the teal reads AROUND the gold when both show; sits a
             // hair less proud (base z -0.004) than the snap glow (-0.006) so the gold snap draws in
             // front of the teal, preserving the old ordering. 2026-08-11: this is now EXACTLY the
             // size of the card that will land here (SlotCardScale) — that is the whole point of the
             // shared dial, see SlotCardScale's doc — and the gold keeps its ratio to it.
             float wanted = WantedGlowScale;
-            quad.transform.localScale = new Vector3(w * wanted, h * wanted, 1f);
-            quad.transform.localPosition = new Vector3(ov.x + xSpread, ov.y, WantedGlowBaseZ + ov.z); // PROUD toward the player + per-board offset + pair spacing
-            var renderer = quad.GetComponent<MeshRenderer>();
             var baseColor = new Color(0.25f, 0.85f, 0.6f, 0.7f); // teal accent — the "drop here" hint
             // Emissive teal via Overlay (additive). CORE FIX: NEGATIVE local-Z (proud, toward the
-            // player) and NO RenderOnTop — depth-correct, no shine-through.
-            Material? mat = MakeGlowMaterial(baseColor);
-            if (mat != null)
-                renderer.sharedMaterial = mat;
+            // player) and NO RenderOnTop — depth-correct, no shine-through. Use the
+            // same factory as the snap/fan cue so Quest owns identical vertex inputs.
+            GameObject quad = CardGlow.CreateGlowQuad("WantedHighlight", slot!,
+                new Vector3(w * wanted, h * wanted, 1f),
+                new Vector3(ov.x + xSpread, ov.y, WantedGlowBaseZ + ov.z), baseColor);
+            var renderer = quad.GetComponent<MeshRenderer>();
             quad.AddComponent<SlotPulse>().Init(renderer, baseColor);
+            QuestCardGuideWitness.Attach(quad, _visual);
             // 2026-08-04 (status-placard defect family): additive glow, depth-less — ride the
             // board's furniture order group like the placard/labels.
             AdoptFurniture(quad);
@@ -931,6 +927,39 @@ internal sealed partial class PlayTray
     /// <summary>The wanted-slot glow mask exactly as currently shown (bit0 = left slot, bit1 =
     /// right slot; 0 before the driver ever wrote one). Wire input of the board-UI record.</summary>
     internal int WantedSlotMask => _wantedMask > 0 ? _wantedMask & 0x3 : 0;
+
+    internal int QuestGuideOwnerId => _root != null ? _root.GetInstanceID() : 0;
+    internal int QuestGuideRenderVersion =>
+        (_wantedHighlights[0] != null && _wantedHighlights[0]!.GetComponent<QuestCardGuideWitness>()?.Submitted == true ? 1 : 0)
+        | (_wantedHighlights[1] != null && _wantedHighlights[1]!.GetComponent<QuestCardGuideWitness>()?.Submitted == true ? 2 : 0);
+
+    // Only read on a bounded Debug guide-state transition, never as a frame scan.
+    // Active/renderable inputs are evidence, not proof that the headset sees it.
+    internal string QuestGuideDrawState(int index)
+    {
+        GameObject? go = _wantedHighlights[index];
+        if (go == null) return "missing";
+        MeshRenderer? renderer = go.GetComponent<MeshRenderer>();
+        Material? material = renderer != null ? renderer.sharedMaterial : null;
+        MeshFilter? filter = go.GetComponent<MeshFilter>();
+        Mesh? mesh = filter != null ? filter.sharedMesh : null;
+        string shader = material != null && material.shader != null ? material.shader.name : "none";
+        if (shader.Length > 32) shader = shader.Substring(0, 32);
+        string number(float value) => value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+        int state(string property) => material != null && material.HasProperty(property) ? material.GetInt(property) : -1;
+        return "active=" + go.activeSelf + "/" + go.activeInHierarchy
+            + ",renderer=" + (renderer != null && renderer.enabled)
+            + ",visible=" + (renderer != null && renderer.isVisible)
+            + ",mesh=" + (mesh != null ? mesh.vertexCount : 0) + "/" + (mesh != null ? mesh.subMeshCount : 0)
+            + ",color=" + (mesh != null && mesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Color))
+            + ",material=" + (material != null ? material.GetInstanceID() : 0) + ",shader=" + shader
+            + ",queue=" + (material != null ? material.renderQueue : 0) + "/" + (renderer != null ? renderer.sortingOrder : 0)
+            + ",state=" + state("_Cull") + "/" + state("_ZTest") + "/" + state("_ZWrite")
+                + "/" + state("_SrcBlend") + "/" + state("_DstBlend")
+            + ",det=" + number(go.transform.localToWorldMatrix.determinant)
+            + ",z=" + go.transform.localPosition.z.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)
+            + ",draw=" + (go.GetComponent<QuestCardGuideWitness>()?.Facts ?? "none");
+    }
 
     /// <summary>
     /// Which of the two card recesses PHYSICALLY holds a card right now (bit0 = Slot1, bit1 =

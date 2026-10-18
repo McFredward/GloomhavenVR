@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "dotnet8": {
+    "version": "8.0.425",
+    "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.425/dotnet-sdk-8.0.425-win-x64.zip",
+    "algorithm": "sha512",
+    "hash": "f0b6f15bf6f1a0507205c0cb102ab99e1dee875c4682c8ed94665be1d580186a06b21455e83b3a01a0ff7f4cd887b67420f2e2fe09ed985534a4cea488ae1af9",
+    "executable": "dotnet.exe",
+    "source": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json"
+  },
+  "dotnet10": {
+    "version": "10.0.401",
+    "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-win-x64.zip",
+    "algorithm": "sha512",
+    "hash": "24b670ad3d923bfcf47df6c3b034152398b42f6dbc388e10d783aee1cfb5e5817d399fc0ae2a12cfa822a55e61d34830ccb15c50ef6efee437ab874bb7c79430",
+    "executable": "dotnet.exe",
+    "source": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json"
+  },
+  "git": {
+    "version": "2.51.0.windows.1",
+    "url": "https://github.com/git-for-windows/git/releases/download/v2.51.0.windows.1/MinGit-2.51.0-64-bit.zip",
+    "algorithm": "sha256",
+    "hash": "c2c955a21fa99889d83f485f24fa5d9a38fffc2d509d4022385510e11c26b250",
+    "size": 41268410,
+    "executable": "cmd/git.exe",
+    "source": "https://github.com/git-for-windows/git/releases/tag/v2.51.0.windows.1"
+  },
+  "steamLogo": {
+    "url": "https://store.akamai.steamstatic.com/public/images/v6/logo_steam_footer.png",
+    "algorithm": "sha256",
+    "hash": "399f74c4e69eac8b59b149293f9a573955fef0a62b242cfa70346070013e0966",
+    "size": 2843
+  },
+  "unity": {
+    "version": "2021.3.5f1",
+    "changeset": "40eb3a945986",
+    "hubDownloadUrl": "https://unity.com/download",
+    "licenseUrl": "https://docs.unity.com/en-us/hub/manage-license",
+    "installDocumentation": "https://docs.unity.com/en-us/hub/install-editors",
+    "cliDocumentation": "https://docs.unity.com/en-us/hub/hub-cli-reference"
+  },
+  "source": {
+    "url": "https://github.com/McFredward/GloomhavenVR.git",
+    "ref": "feature/quest3-standalone"
+  },
+  "unityHub": {
+    "version": "3.22.2",
+    "url": "https://public-cdn.cloud.unity3d.com/hub/prod/3.22.2/UnityHubSetup-3.22.2-x64.exe",
+    "algorithm": "sha512",
+    "hash": "116c8e0dd15cd9ce00cc19bccb7a4da29a0b2fea760d9404f3223e973689f9f4cc287fe630b9593205f0e3f559d18802c870ff022e9e6cfd0e4ce122c0338474",
+    "size": 193623232,
+    "source": "https://public-cdn.cloud.unity3d.com/hub/prod/latest.yml"
+  },
+  "apkJdk": {
+    "version": "17.0.16+8",
+    "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.16%2B8/OpenJDK17U-jdk_x64_windows_hotspot_17.0.16_8.zip",
+    "algorithm": "sha256",
+    "hash": "8c7cfff78a55c56ebaf470ed6a89c6466b47d8274bdabdda997d7507c20325c5",
+    "size": 190520081,
+    "executable": "jdk-17.0.16+8/bin/java.exe",
+    "source": "https://github.com/adoptium/temurin17-binaries/releases/tag/jdk-17.0.16%2B8"
+  },
+  "apkBuildTools": {
+    "version": "35.0.0",
+    "url": "https://dl.google.com/android/repository/build-tools_r35_windows.zip",
+    "algorithm": "sha256",
+    "hash": "5753c679a1b90bcf6fbc9945a2ce39dfb9e74f1df0831a1e1866ae5b594326f0",
+    "size": 59878107,
+    "executable": "android-15/aapt.exe",
+    "source": "https://dl.google.com/android/repository/repository2-1.xml"
+  },
+  "linux": {
+    "dotnet8": {
+      "version": "8.0.425",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.425/dotnet-sdk-8.0.425-linux-x64.tar.gz",
+      "algorithm": "sha512",
+      "hash": "934b8060a7190e5909ad1fd0785db542f487b3bbf6cdd14826b02095fdd0d0394298b1634085eff302928fccc33f7c1a7253e9b87df555fc36fce819bcd2e798",
+      "archive": "tar.gz",
+      "executable": "dotnet",
+      "source": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json"
+    },
+    "dotnet10": {
+      "version": "10.0.401",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-linux-x64.tar.gz",
+      "algorithm": "sha512",
+      "hash": "51c8b999af9e8dd9998c9edc5944e19a90788862068acd38694e098889054ce8c23d4f0c5cccfa16bf187d044562359e5ee69a9f8ad0bbe913ba90311fbce25b",
+      "archive": "tar.gz",
+      "executable": "dotnet",
+      "source": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json"
+    },
+    "unityHub": {
+      "version": "3.22.2",
+      "url": "https://public-cdn.cloud.unity3d.com/hub/prod/3.22.2/UnityHub-3.22.2-x86_64.AppImage",
+      "algorithm": "sha512",
+      "hash": "eec1560813f25b10679d9d95d89a5e37cf87dd1c99ad82e634fbd26f5640ec03f6f5a237af4235e432f9c760d29ffcc1e4efd5e686abdb879cd5cd553b90567f",
+      "size": 204032504,
+      "archive": "appimage",
+      "executable": "UnityHub.AppImage",
+      "source": "https://public-cdn.cloud.unity3d.com/hub/prod/latest-linux.yml"
+    },
+    "apkJdk": {
+      "version": "17.0.16+8",
+      "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.16%2B8/OpenJDK17U-jdk_x64_linux_hotspot_17.0.16_8.tar.gz",
+      "algorithm": "sha256",
+      "hash": "166774efcf0f722f2ee18eba0039de2d685b350ee14d7b69e6f83437dafd2af1",
+      "size": 192062472,
+      "archive": "tar.gz",
+      "executable": "jdk-17.0.16+8/bin/java",
+      "source": "https://github.com/adoptium/temurin17-binaries/releases/tag/jdk-17.0.16%2B8"
+    },
+    "apkBuildTools": {
+      "version": "35.0.0",
+      "url": "https://dl.google.com/android/repository/build-tools_r35_linux.zip",
+      "algorithm": "sha256",
+      "hash": "bd3a4966912eb8b30ed0d00b0cda6b6543b949d5ffe00bea54c04c81e1561d88",
+      "size": 61958799,
+      "archive": "zip",
+      "executable": "android-15/aapt",
+      "source": "https://dl.google.com/android/repository/repository2-1.xml",
+      "repositorySha1": "2cfaa0bbb2336e9ec18ed3ecea84fa2e2af607bc"
+    }
+  }
+}

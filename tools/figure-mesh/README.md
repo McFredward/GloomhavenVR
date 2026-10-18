@@ -97,6 +97,46 @@ simplifier are removed. Reused extraction directories explicitly exclude old NPC
 rows; original town bodies, eye/facial geometry, animation and materials remain
 unchanged. The retained `Optimize/TownNpcDetailPercent` configuration key is inert
 and omitted from the options catalog. Scenario quality controls remain supported.
+
+### Quest owned-bank delivery
+
+The Quest builder uses `QuestFigureMeshGenerator` and `figure_banks.py` to recreate
+the same 75/45/20% endpoint derivatives and 5% SmartLink distance surfaces as Android
+AssetBundles. It reads only the owner's native PC figure bundles. Game-free builder
+archives contain this recipe and the MIT simplifier sources/license, never original
+mesh streams, generated vertices, or the desktop prebuilt banks.
+
+The producer key contains the original bundle hashes, exact geometry producers,
+Unity version/target and the runtime mesh-key function. Unrelated mod, host UI and
+diagnostic edits do not regenerate geometry. Each original bundle, derivative source
+and Android bank part has a durable completion boundary. A damaged mutable Unity
+mesh input is restored from its exact cached source; a retry retains completed parts.
+The complete Campaign bank is neither imported nor converted by this operation.
+
+Full builds stage independent StreamingAssets members; compact updates stream these
+same files into `assets/QuestFigureMeshes/` with a small signed manifest. The startup
+helper installs them into the existing resource directory before plugin activation.
+Cold copying uses the existing delivery view and byte progress. Warm launches consult
+bounded private per-part receipts and file sizes, without rereading all bank bytes.
+The runtime loader, native LOD tables and on-demand bank loading stay unchanged.
+
+Focused qualification: `scripts/quest-figure-banks-tests.py` reads two licensed
+hero/enemy bundles, checks all four tiers and actual Android serialization, compares
+the real runtime key across NativeFormat import including read/write OFF, repairs
+an edited Unity asset and forbids exporter/compiler calls on a completed retry.
+The private Android project must enable `com.unity.modules.assetbundle` as well
+as JSON serialization. Without it, Unity 2021.3.5 can emit readable Mesh data but
+omit the native AssetBundle container; the Quest then reports a misleading newer
+runtime incompatibility. Compiler modules are pinned in the bank recipe. This
+module-only repair retains matching previous native exports and simplified meshes,
+then rebuilds only their Android containers. Finished bank sets are checked for an
+exact Android/Unity container-to-index mapping once; warm receipts stay cheap.
+The focused producer test also loads every part through Unity's native bundle
+loader. `--broken-container PATH` adds a known Mesh-only native-loader control.
+`scripts/quest-figure-content-tests.py` checks exact file/ZIP/hash installation,
+warm reuse, cancellation, targeted updates and index-last publication with causal
+controls. These checks do not establish whole-game generation time, Windows tool
+execution, headset silhouettes or frame-rate improvements.
 Optional per-renderer skinning influence caps are independent of mesh selection.
 
 `python3 scripts/check-figure-distance-runtime.py` compiles the actual scenario

@@ -1,0 +1,513 @@
+export const stageIds = ['tools','source','unity','profile','inspect','build','install'];
+export function choicesFromForm(form, language) {
+  const gameRoot = String(form.gameRoot ?? '').trim();
+  if (!gameRoot) throw new Error('missingGame');
+  const mode = form.mode ?? 'build';
+  if (!['build','update-mod','update-profile'].includes(mode)) throw new Error('invalidMode');
+  const baseApk = String(form.baseApk ?? '').trim();
+  const provider = ['steam','epic','gog'].includes(form.provider) ? form.provider : 'steam';
+  if(form.hostSystem==='Linux'&&provider==='steam'&&mode!=='update-profile'&&!form.declareDlc)throw new Error('linuxDlcRequired');
+  const choices = {gameRoot, provider, mode, install:Boolean(form.install), acceptUnityTerms:Boolean(form.acceptUnityTerms), language};
+  // An omitted source lets the local server select the completed owner workspace.
+  // Explicit APK/ZIP choices remain intact; the server reports a missing source
+  // only when no suitable workspace result exists.
+  if (mode !== 'build' && baseApk) choices.baseApk = baseApk;
+  if (mode !== 'build' && ['auto','original','new-owner'].includes(form.signingMode)) choices.signingMode=form.signingMode;
+  if (mode !== 'build' && String(form.signingRoot ?? '').trim()) choices.signingRoot = form.signingRoot.trim();
+  if (String(form.unityEditor ?? '').trim()) choices.unityEditor = form.unityEditor.trim();
+  const displayName = String(form.profileName ?? '').trim(), providerId = String(form.profileId ?? '').trim();
+  if(mode==='update-profile'&&displayName&&!providerId){
+    // The Builder inherits the provider/ID from the selected APK's bounded
+    // profile entry. A name edit must not require manually copying a Steam ID.
+    choices.profileName=displayName;
+  }else if (displayName || providerId) {
+    if (!displayName || !providerId) throw new Error('missingProfile');
+    choices.profile = {schema:1, provider, displayName, providerId};
+    if (provider === 'steam') choices.profile.steamId = providerId;
+  }
+  if (form.declareDlc) choices.ownedDlc = [...new Set((form.ownedDlc ?? []).filter(value => ['jotl','solo','jotl-skins'].includes(value)))];
+  return choices;
+}
+export function progressView(state) {
+  const stages = Array.isArray(state?.stages) ? state.stages : [];
+  const completed = Number.isInteger(state?.progress?.completed) ? state.progress.completed : stages.filter(row => row.status === 'complete').length;
+  const total = Number.isInteger(state?.progress?.total) && state.progress.total > 0 ? state.progress.total : stages.length;
+  const active = stages.find(row => row.status === 'running') ?? stages.find(row => ['blocked','failed','interrupted','cancelled'].includes(row.status)) ?? stages.find(row=>row.status==='pending');
+  const build = stages.find(row => row.id === 'build');
+  // Setup receipts can change after a Builder update while closed game work
+  // waits for qualification. Keep that work's total visible and name the
+  // actual prerequisite separately; this does not certify an old receipt.
+  const retaining = Boolean(build && build.status !== 'complete' && stageProgress(build).percent > 0 &&
+    active && stageIds.indexOf(active.id) >= 0 && stageIds.indexOf(active.id) < stageIds.indexOf('build'));
+  const current = retaining ? build : active;
+  // A native phase can finish and restart inside one stage. Its percentage is
+  // never a substitute for the durable, planned whole-stage percentage.
+  const percent = state?.status === 'complete' ? 100 : stageProgress(current).percent;
+  return {completed, total, phase:current?.id ?? state?.progress?.phase ?? '', percent,
+    width:percent, indeterminate:false, current, active, retaining};
+}
+export function macroStep(state) {
+  const phase = progressView(state).phase;
+  if (state?.status === 'complete' || phase === 'install') return 3;
+  if (phase === 'build') return 2;
+  return 1;
+}
+export function isActive(state) { return ['running','cancelling','cancel_requested'].includes(state?.status); }
+export function installationView(state) {
+  const rows=state?.stages;
+  if(!Array.isArray(rows)||new Set(rows.map(row=>row?.id)).size!==rows.length)return null;
+  // A connection prerequisite occurs after the successful build, not during
+  // conversion. Never turn an earlier failed gate into an available APK.
+  if(!stageIds.slice(0,-1).every(id=>rows.some(row=>row?.id===id&&row.status==='complete')))return null;
+  const install=rows.find(row=>row?.id==='install'),build=rows.find(row=>row?.id==='build');
+  if(!install)return null;
+  const action=state.needsActions?.find(row=>row&&typeof row==='object'&&
+    (row.stage==='install'||row.parameters?.failureStage==='install'));
+  const parameters=action?.parameters??{};
+  const attention=['failed','blocked'].includes(state.status)&&['failed','blocked'].includes(install.status);
+  const connectionRequired=attention&&action?.code==='quest_connection_required';
+  const validIdentity=['inputKey','apkSha256'].every(key=>typeof build.details?.[key]==='string'&&/^[a-f0-9]{64}$/i.test(build.details[key]));
+  const canSkip=attention&&sessionId(state.session)!==null&&
+    (validIdentity||parameters.completedBuildRetained===true&&parameters.canSkipInstall===true&&parameters.retryAction==='install');
+  const rawCause=typeof parameters.cause==='string'?parameters.cause:typeof parameters.builderError==='string'?parameters.builderError:'';
+  const cause=rawCause.split(/\r?\n/).map(line=>line.trim()).filter(Boolean).join(' ').replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360);
+  const result={...build.details,...state.result},paths={};
+  for(const key of ['apk','handoff','outputRoot'])if(typeof result[key]==='string'&&result[key].length<=32768)paths[key]=result[key];
+  const view={attention,connectionRequired,canSkip,cause,paths};
+  // The installer can stay alive while a cable or debugging authorization is
+  // missing. This is an actionable pause, not a terminated install to restart.
+  if(state.status==='running'&&install.status==='running'&&install.progress?.phase==='install-connection-wait'&&
+     !['complete','reuse'].includes(install.progress.operationStatus))view.connectionWaiting=true;
+  if(attention&&['quest_signing_recovery_required','quest_signing_data_required','quest_signing_repair_wait'].includes(action?.code))view.recoveryRequired=true;
+  if(attention&&action?.code==='quest_clean_install_required'&&parameters.cleanInstallation===true)view.cleanInstallRequired=true;
+  if(attention&&action?.code==='quest_signing_repair_wait'&&parameters.saveDataProtected===true&&
+     ['backup-census-mismatch','backup-transfer-unavailable','restore-app-access','restore-app-storage-unavailable','restore-app-launch-unavailable'].includes(parameters.repairReason)&&
+     ['private','device-protected','external'].includes(parameters.repairRoot)&&
+     Number.isSafeInteger(parameters.repairAttempts)&&Number.isSafeInteger(parameters.repairTotalAttempts)&&
+     parameters.repairAttempts>=1&&parameters.repairAttempts===parameters.repairTotalAttempts&&parameters.repairTotalAttempts<=64){
+    view.repairWait={reason:parameters.repairReason,root:parameters.repairRoot,attempts:parameters.repairAttempts,totalAttempts:parameters.repairTotalAttempts};
+  }
+  if(view.repairWait&&parameters.requiresRestoreChoice===true&&
+     ['restore-app-access','restore-app-storage-unavailable','restore-app-launch-unavailable'].includes(view.repairWait.reason)){
+    const nonce=parameters.installationActionNonce,transaction=parameters.restoreChoiceTransaction,device=parameters.restoreChoiceDeviceSerial;
+    const declared=state.installationAction;
+    const bound=validIdentity&&sessionId(state.session)!==null&&typeof nonce==='string'&&/^[a-f0-9]{32}$/.test(nonce)&&
+      typeof transaction==='string'&&/^[a-f0-9]{32}$/.test(transaction)&&typeof device==='string'&&/^[A-Za-z0-9_.:-]{1,256}$/.test(device)&&
+      declared?.nonce===nonce&&declared.session===state.session&&declared.kind==='restore-choice'&&
+      declared.reason===view.repairWait.reason&&declared.transaction===transaction&&declared.deviceSerial===device&&
+      declared.attempt===install.attempts&&declared.inputKey===build.details?.inputKey&&declared.apkSha256===build.details?.apkSha256;
+    view.canManualLaunch=bound&&parameters.manualLaunchAvailable===true;
+    view.canResetAppData=bound&&parameters.resetAppDataAvailable===true;
+    if(view.canManualLaunch||view.canResetAppData)view.restoreActionNonce=nonce;
+  }
+  if(state.status==='running'&&install.status==='running'&&install.progress?.phase==='install-recovery-manual-launch'&&
+     !['complete','reuse'].includes(install.progress.operationStatus)){
+    view.manualLaunchWaiting=true;
+  }
+  if(attention&&action?.code==='quest_signing_data_required'&&parameters.saveDataProtected===true&&
+     ['save-data-inaccessible','non-save-inaccessible'].includes(parameters.recoveryDataReason)){
+    view.dataIssue=parameters.recoveryDataReason;
+    const declared=state.installationAction,nonce=parameters.installationActionNonce;
+    view.canUseSaves=view.dataIssue==='non-save-inaccessible'&&parameters.recoveryDataPolicy==='all'&&
+      typeof nonce==='string'&&/^[a-f0-9]{32}$/.test(nonce)&&declared?.nonce===nonce&&
+      declared.session===state.session&&declared.policy==='all'&&declared.reason===view.dataIssue&&
+      declared.attempt===install.attempts&&declared.inputKey===build.details?.inputKey&&declared.apkSha256===build.details?.apkSha256;
+    if(view.canUseSaves)view.actionNonce=nonce;
+  }
+  if(attention&&action?.code==='quest_signing_content_reinstall_required'&&parameters.saveDataProtected===true&&
+     parameters.requiresContentReinstall===true&&parameters.contentReinstallReason==='native-rename-unavailable'){
+    const nonce=parameters.installationActionNonce,transaction=parameters.contentReinstallTransaction,device=parameters.contentReinstallDeviceSerial;
+    const declared=state.installationAction;
+    view.contentReinstallRequired=true;
+    view.canReinstallContent=validIdentity&&sessionId(state.session)!==null&&typeof nonce==='string'&&/^[a-f0-9]{32}$/.test(nonce)&&
+      typeof transaction==='string'&&/^[a-f0-9]{32}$/.test(transaction)&&typeof device==='string'&&device.length>0&&device.length<=256&&!/[\u0000-\u001f\u007f]/.test(device)&&
+      declared?.nonce===nonce&&declared.session===state.session&&declared.kind==='content-reinstall'&&
+      declared.reason===parameters.contentReinstallReason&&declared.transaction===transaction&&declared.deviceSerial===device&&
+      declared.attempt===install.attempts&&declared.inputKey===build.details?.inputKey&&declared.apkSha256===build.details?.apkSha256;
+    if(view.canReinstallContent)view.contentActionNonce=nonce;
+    if(Number.isSafeInteger(parameters.estimatedBytes)&&parameters.estimatedBytes>=0)view.contentBytes=parameters.estimatedBytes;
+  }
+  if((view.recoveryRequired||view.cleanInstallRequired)&&typeof parameters.backupPath==='string'&&parameters.backupPath.length<=2048&&
+     !/[\u0000-\u001f\u007f]/.test(parameters.backupPath))view.backupPath=parameters.backupPath;
+  if(isActive(state)&&install.status==='running'&&typeof install.progress?.phase==='string'&&
+     /^(?:install-signature-|install-recovery-(?:backup(?:-work)?|restore|access|repair)$)/.test(install.progress.phase))view.recoveryActive=true;
+  if(isActive(state)&&install.status==='running'&&install.progress?.phase==='install-recovery-reset')view.cleanInstallActive=true;
+  return view;
+}
+export function failureView(state) {
+  const action=state?.needsActions?.find(value=>value&&typeof value==='object')??{};
+  const memoryBlocked=state?.status==='blocked'&&action.code==='native_memory_unavailable';
+  const workspaceBlocked=state?.status==='blocked'&&action.code==='workspace_metadata_busy';
+  const rebuildBlocked=state?.status==='blocked'&&action.code==='update_rebuild_decision_required';
+  const launcherBlocked=state?.status==='blocked'&&action.code==='store_launcher_required';
+  if(state?.status!=='failed'&&!memoryBlocked&&!workspaceBlocked&&!rebuildBlocked&&!launcherBlocked)return null;
+  const parameters=action.parameters??{};
+  const cause=typeof parameters.cause==='string'?parameters.cause:typeof parameters.builderError==='string'?parameters.builderError:'';
+  // Show one concrete, bounded diagnostic rather than a traceback wall. Text
+  // stays untrusted textContent; the complete original remains in the logs.
+  const lines=cause.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
+  const workspacePath=workspaceBlocked&&typeof parameters.path==='string'&&parameters.path.length<=2048&&
+    !/[\u0000-\u001f\u007f]/.test(parameters.path)?parameters.path:null;
+  return {stage:typeof parameters.failureStage==='string'?parameters.failureStage:action.stage??state.stages?.find(row=>row.status==='failed')?.id,
+    message:action.message??null,cause:lines.at(-1)?.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360)??'',
+    ...(memoryBlocked||workspaceBlocked||rebuildBlocked||launcherBlocked?{blocked:true}:{}),...(workspaceBlocked?{workspace:true}:{}),...(workspacePath?{workspacePath}:{})};
+}
+export function launcherView(state) {
+  if(!['blocked','failed'].includes(state?.status))return null;
+  const action=state.needsActions?.[0],guidance=action?.parameters?.launcherGuidance;
+  if(action?.code!=='store_launcher_required'||guidance?.schema!==1||!['steam','epic','gog'].includes(guidance.provider)||
+     guidance.provider!==state?.choices?.provider||action.parameters.launcherProvider!==guidance.provider)return null;
+  for(const language of ['en','de'])if(typeof guidance.nextSteps?.[language]!=='string'||
+    guidance.nextSteps[language].length>2048||/[\u0000-\u001f\u007f]/.test(guidance.nextSteps[language]))return null;
+  return {provider:guidance.provider,nextSteps:guidance.nextSteps};
+}
+export function updateFailureView(state) {
+  if(!failureView(state)||!['update-mod','update-profile'].includes(state?.choices?.mode))return null;
+  const action=state.needsActions?.find(value=>value&&typeof value==='object')??{};
+  const value=action.parameters?.updateGuidance;
+  const directStage=['inspect-update','update-mod','update-profile'].includes(action.parameters?.failureStage);
+  const legacyStage=['inspect','build'].includes(action.parameters?.failureStage)&&action.parameters?.workflowMode===state.choices.mode;
+  const rebuildDecision=action.code==='update_rebuild_decision_required'&&value?.kind==='rebuild-decision'&&value.newBuild===true;
+  if(action.code!=='build_tool_failed'&&!rebuildDecision||!directStage&&!legacyStage||
+    !value||value.schema!==1||!['compact-project','project-ownership','owned-input','signing','source-apk','unknown','rebuild-decision'].includes(value.kind)||
+    (value.kind==='rebuild-decision')!==rebuildDecision||
+    value.retryRetained!==true||value.editInputs!==true)return null;
+  const nextSteps=value.nextSteps;
+  if(!nextSteps||!['en','de'].every(language=>typeof nextSteps[language]==='string'&&nextSteps[language].length>0&&
+    nextSteps[language].length<=2048&&!/[\u0000-\u001f\u007f]/.test(nextSteps[language])))return null;
+  return {kind:value.kind,nextSteps:{en:nextSteps.en,de:nextSteps.de},editInputs:true,...(rebuildDecision?{newBuild:true}:{})};
+}
+export function activityView(stage,now=Date.now()/1000) {
+  const value=stage?.progress??{};
+  if(Object.hasOwn(value,'lastProgressAt')){
+    const valid=stamp=>typeof stamp==='number'&&Number.isFinite(stamp)&&stamp>0;
+    if(!valid(value.lastActivityAt)||typeof now!=='number'||!Number.isFinite(now))return null;
+    const activitySeconds=Math.max(0,Math.floor(now-value.lastActivityAt));
+    return {seconds:valid(value.lastProgressAt)?Math.max(0,Math.floor(now-value.lastProgressAt)):null,
+      activitySeconds,quiet:activitySeconds>=60,measured:true};
+  }
+  const updated=stage?.progress?.updatedAt;
+  if(typeof updated!=='number'||!Number.isFinite(updated)||updated<=0||typeof now!=='number'||!Number.isFinite(now))return null;
+  const seconds=Math.max(0,Math.floor(now-updated));
+  return {seconds,quiet:seconds>=60};
+}
+export function unityImportView(progress,now=Date.now()/1000) {
+  const value=progress?.unityImport??progress;
+  if(!value||!['unity-work-plan','unity-asset-import','unity-import-activity'].includes(value.phase))return null;
+  const done=Number.isSafeInteger(value.done)&&value.done>=0?value.done:null;
+  const total=Number.isSafeInteger(value.total)&&value.total>0&&(done===null||done<=value.total)?value.total:null;
+  const rawText=typeof value.detail==='string'?value.detail.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,1024):'';
+  const scope=rawText.startsWith('[asset-coverage]')?'coverage':rawText.startsWith('[unity-native-total]')?'native':null;
+  const text=rawText.replace(/^\[(?:asset-coverage|unity-native-total)\]\s*/,'');
+  const started=value.startedAt,status=['running','failed','complete','pending'].includes(value.status)?value.status:'running';
+  const endpoint=status==='running'?now:value.updatedAt;
+  const elapsedSeconds=typeof started==='number'&&Number.isFinite(started)&&started>0&&Number.isFinite(endpoint)?Math.max(0,endpoint-started):null;
+  return {done,total,detail:text,elapsedSeconds,
+    percent:done!==null&&total!==null?100*done/total:null,
+    status,...(scope?{scope}:{})};
+}
+export function unityWorkView(value) {
+  const names=['assets','method','result'],parts=['configuration','checks','sdk','scenes','catalog','shaders','audit','postprocess','packaging','il2cpp','native','build'];
+  const normalize=(rows,allowed,limit)=>{
+    if(!Array.isArray(rows)||!rows.length||rows.length>limit||new Set(rows.map(row=>row?.id)).size!==rows.length)return null;
+    if(rows.some(row=>!allowed.includes(row?.id)))return null;
+    return rows.map(row=>{
+      const count=row.counter,valid=count&&Number.isSafeInteger(count.done)&&Number.isSafeInteger(count.total)&&count.done>=0&&count.total>=0&&count.done<=count.total;
+      return {id:row.id,closed:row.closed===true,status:['pending','running','checking','failed','retained','reused','complete'].includes(row.status)?row.status:'pending',
+        percent:typeof row.percent==='number'&&Number.isFinite(row.percent)&&row.percent>=0&&row.percent<=100?row.percent:0,
+        counter:valid?{done:count.done,total:count.total,unit:typeof count.unit==='string'?count.unit.slice(0,40):'',phase:typeof count.phase==='string'?count.phase.slice(0,160):'',
+          detail:typeof count.detail==='string'?count.detail.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,1024):''}:null};
+    });
+  };
+  const phases=normalize(value?.phases,names,3);
+  if(!phases||!phases.some(row=>row.id==='assets')||!phases.some(row=>row.id==='result'))return null;
+  for(const row of phases)if(row.id==='method'){
+    const source=value.phases.find(item=>item.id===row.id);
+    row.parts=normalize(source.parts,parts,8)??[];
+    for(const part of row.parts){
+      const original=source.parts.find(item=>item.id===part.id);
+      part.activities=normalize(original.activities,['il2cpp','native-build'],2)??[];
+      const local=original.localCounter;
+      if(local&&Number.isSafeInteger(local.done)&&Number.isSafeInteger(local.total)&&local.done>=0&&local.total>0&&local.done<=local.total)
+        part.localCounter={done:local.done,total:local.total,unit:typeof local.unit==='string'?local.unit.slice(0,40):'',phase:typeof local.phase==='string'?local.phase.slice(0,160):'',
+          detail:typeof local.detail==='string'?local.detail.slice(0,1024):''};
+    }
+  }
+  return {phases,done:phases.filter(row=>row.closed).length,total:phases.length,
+    active:phases.some(row=>row.id===value.active)?value.active:null,
+    percent:typeof value.percent==='number'&&Number.isFinite(value.percent)&&value.percent>=0&&value.percent<=100?value.percent:0};
+}
+export function unityTaskView(progress,now=Date.now()/1000) {
+  const value=progress?.unityTask??progress;
+  if(!value||typeof value.phase!=='string'||!value.phase.startsWith('unity-'))return null;
+  const done=Number.isSafeInteger(value.done)&&value.done>=0?value.done:null;
+  const total=Number.isSafeInteger(value.total)&&value.total>0&&(done===null||done<=value.total)?value.total:null;
+  if(done===null)return null;
+  const started=value.startedAt,status=['running','failed','complete','pending'].includes(value.status)?value.status:'running';
+  const endpoint=status==='running'?now:value.updatedAt;
+  return {phase:value.phase,done,total,unit:typeof value.unit==='string'?value.unit.slice(0,40):'',
+    detail:typeof value.detail==='string'?value.detail.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,1024):'',status,
+    percent:total===null?null:100*done/total,
+    elapsedSeconds:typeof started==='number'&&Number.isFinite(started)&&started>0&&Number.isFinite(endpoint)?Math.max(0,endpoint-started):null};
+}
+export function nativeMemoryView(stage) {
+  const value=stage?.progress??{},phases=['native-compiler-profile','native-memory-retry','native-memory-wait','asset-memory-retry','asset-memory-wait'];
+  if(!phases.includes(value.phase))return null;
+  const raw=value.nativeMemory??{},result={phase:value.phase,waiting:value.phase.endsWith('-wait')&&value.operationStatus!=='complete'};
+  for(const [name,bound] of [['jobs',4096],['attempt',1000000]])if(Number.isSafeInteger(raw[name])&&raw[name]>0&&raw[name]<=bound)result[name]=raw[name];
+  for(const [name,bound] of [['compilerProfile',64],['reason',80]])if(typeof raw[name]==='string'&&raw[name].length<=bound&&/^[a-z][a-z0-9-]*$/.test(raw[name]))result[name]=raw[name];
+  const resources={};
+  for(const name of ['availableMemoryBytes','commitHeadroomBytes','processWorkingSetBytes','processPrivateCommitBytes'])if(Number.isSafeInteger(raw.resources?.[name])&&raw.resources[name]>=0)resources[name]=raw.resources[name];
+  if(Object.keys(resources).length)result.resources=resources;
+  return result;
+}
+export function stageStatus(state,stage) {
+  return stage.id==='install'&&stage.status==='complete'&&(stage.details?.requested===false||state?.choices?.install===false)?'skipped':stage.status;
+}
+export function artworkUrl(value, origin) {
+  try { const url = new URL(value, origin); return url.origin === origin && ['/api/artwork','/api/promo-artwork'].includes(url.pathname) ? url.href : null; }
+  catch { return null; }
+}
+export function publisherSourceUrl(value) {
+  // Attribution links are an explicit public-publisher action, never a
+  // browser-supplied image route or arbitrary external destination.
+  try { const url=new URL(value);return url.origin==='https://store.steampowered.com'&&url.pathname.startsWith('/news/')&&!url.username&&!url.password?url.href:null; }
+  catch { return null; }
+}
+export function stageProgress(stage) {
+  const value=stage?.progress??{},raw=value.stagePercent;
+  // A retry queues a previously failed stage before its prerequisite receipts
+  // finish. Its compatible retained work is still real; pending is a live
+  // status, not a reason to discard the backend's saved whole-stage percentage.
+  const percent=stage?.status==='complete'?100:
+    typeof raw==='number'&&Number.isFinite(raw)&&raw>=0&&raw<=100?Math.min(99.9,raw):0;
+  const phaseRaw=value.percent;
+  let phasePercent=typeof phaseRaw==='number'&&Number.isFinite(phaseRaw)&&phaseRaw>=0&&phaseRaw<=100?phaseRaw:null;
+  let displayPhase=value.phase,progressScope=null,scopeCounter=null;
+  const operation=value.activeWork?.operation??value.buildOverview?.active;
+  const owner=value.buildOverview?.groups?.flatMap(group=>group.operations??[]).find(row=>row.id===operation);
+  const work=owner?.unityWork,method=work?.phases?.find(row=>row.id==='method');
+  const parts=method?.parts??[];
+  const finished=value.operationStatus==='complete'||value.operationStatus==='reuse';
+  const project=(part,phase,scope)=>{
+    phasePercent=part?.closed?0:part?.percent??0;displayPhase=phase;progressScope=scope;
+    scopeCounter=part?.closed?null:part?.counter??null;
+  };
+  if((['player','update-code'].includes(operation)&&['unity-player-scenes','unity-player-shaders'].includes(value.phase))||(operation==='content-bank'&&value.phase==='unity-bank-shaders')){
+    const part=parts.find(row=>row.id===(value.phase==='unity-player-scenes'?'scenes':operation==='content-bank'?'build':'shaders'));
+    if(part?.closed){
+      const next=parts.slice(parts.indexOf(part)+1).find(row=>!row.closed);
+      project(next,'unity-work-stage:'+(next?.id??'result'),next?.status==='pending'?'next-phase':'phase-continuation');
+    }else if(part){
+      phasePercent=part.percent;progressScope=value.phase==='unity-player-scenes'?'scenes':'shader-phase';
+      if(progressScope==='shader-phase')scopeCounter={done:value.done,total:value.total-1,unit:'shader-names'};
+    }
+  }
+  if(['player','update-code'].includes(operation)&&(value.phase?.startsWith('bee-actions:')||value.phase?.startsWith('unity-progress:')||['unity-bee-activity','unity-native-build','unity-progress','unity-player-memory','unity-player-platform-handoff','unity-il2cpp','unity-native-build-plan'].includes(value.phase))){
+    const native=parts.find(row=>row.id==='native');
+    if(native?.closed){
+      const packaging=parts.find(row=>row.id==='packaging');
+      project(packaging,'unity-work-stage:packaging',packaging?.status==='pending'?'next-phase':'phase-continuation');
+    }else if(native){phasePercent=native.percent;displayPhase='unity-native-build-plan';progressScope='native-phase';}
+  }
+  if(['unity-shader-compile','unity-shader-task'].includes(value.phase)||value.phase?.startsWith('unity-shader-task:')){
+    const shaders=parts.find(row=>row.id===(operation==='content-bank'?'build':'shaders'));
+    const aggregate=owner?.compiler?.aggregate;
+    if(shaders?.closed){
+      const next=parts.slice(parts.indexOf(shaders)+1).find(row=>!row.closed);
+      project(next,'unity-work-stage:'+(next?.id??'result'),next?.status==='pending'?'next-phase':'phase-continuation');
+    }else{
+      // Every pass, including its intermediate ready/finished counters,
+      // projects the same whole compiler phase. A pass's100% is secondary.
+      phasePercent=aggregate?.percent??shaders?.percent??null;
+      displayPhase='unity-shader-overall';progressScope='shader-phase';
+      scopeCounter=aggregate&&Number.isSafeInteger(aggregate.done)&&Number.isSafeInteger(aggregate.total)&&aggregate.total>0
+        ?{done:aggregate.done,total:aggregate.total,unit:aggregate.unit}:null;
+      if(!scopeCounter&&['unity-player-shaders','unity-bank-shaders'].includes(shaders?.counter?.phase)&&Number.isSafeInteger(shaders.counter.total)&&shaders.counter.total>1)
+        scopeCounter={done:shaders.counter.done,total:shaders.counter.total-1,unit:'shader-names'};
+    }
+  }
+  if(owner&&!owner.closed&&work){
+    const result=work.phases?.find(row=>row.id==='result');
+    const packaging=parts.find(row=>row.id==='packaging');
+    const afterPackaging=packaging?.closed&&(['unity-gradle','unity-gradle-tasks','unity-player-native-result'].includes(value.phase)||progressScope==='next-phase'||progressScope==='phase-continuation');
+    if(afterPackaging||['player','update-code'].includes(operation)&&(value.phase==='unity-compute-identities'||value.phase==='unity-compute-kernels'&&finished)){
+      project(result,'unity-player-finalization','result-phase');
+    }else if(value.phase==='unity-work-stage:method'&&finished){
+      project(result,'unity-work-stage:result','next-phase');
+    }else if(value.phase==='unity-work-invocation'&&finished){
+      // The Editor returned, but the owner still requires its host-side
+      // publication/receipt gate. The completed invocation stays green.
+      project(null,'unity-owner-publication','next-phase');
+      scopeCounter={done:0,total:1,unit:'tasks',phase:'unity-owner-publication'};
+    }else if(finished&&progressScope===null&&value.phase?.startsWith('unity-')){
+      const part=parts.find(row=>!row.closed&&row.counter?.phase===value.phase)
+        ??parts.find(row=>!row.closed&&(value.phase==='unity-shader-compile'||value.phase==='unity-shader-task')&&['shaders','build'].includes(row.id));
+      if(part)project(part,'unity-work-stage:'+part.id,'phase-continuation');
+    }
+  }
+  if(progressScope===null&&!finished&&value.phase?.startsWith('unity-')&&phasePercent===100&&Number.isSafeInteger(value.done)&&Number.isSafeInteger(value.total)&&value.total>0){
+    // The counted items are ready, but the known Unity scope-return boundary
+    // remains open. Display that real additional task, never an arbitrary99%.
+    phasePercent=100*value.done/(value.total+1);progressScope='scope-return';
+  }
+  const preparation=owner?.updateCode?.preparation;
+  if(operation==='update-code'&&preparation&&preparation.done<preparation.total&&
+    (value.phase?.startsWith('update-code-')||['unity-refresh','unity-domain','unity-packages'].includes(value.phase))){
+    // One finite preparation schedule spans catalog, roster, changed import
+    // orders, preload, and native handover. Local row completion advances its
+    // share; an incidental refresh cannot reset this aggregate to0/unknown.
+    phasePercent=preparation.percent;displayPhase='update-code-preparation';progressScope='update-preparation';
+    scopeCounter={done:preparation.done,total:preparation.total,unit:'steps'};
+  }else if(operation==='update-code'&&!owner.closed&&preparation&&preparation.done===preparation.total&&
+    (value.phase?.startsWith('update-code-')||['unity-refresh','unity-domain','unity-packages'].includes(value.phase))){
+    // All preparation tasks returned. Their green proof remains below, while
+    // the active bar immediately names the next real native-build boundary.
+    // It must not wait at a local100% for Unity's first compiler counter.
+    phasePercent=0;displayPhase='unity-native-initialization';progressScope='next-phase';
+    scopeCounter={done:0,total:1,unit:'tasks'};
+  }
+  return {...value,percent,phasePercent,displayPhase,progressScope,scopeCounter,waiting:['running','blocked'].includes(stage?.status)?stage?.waiting??null:null};
+}
+export function activeWorkView(progress) {
+  const work=progress?.activeWork;
+  if(!work||!Number.isSafeInteger(work.done)||!Number.isSafeInteger(work.total)||work.total<1||work.done<0||work.done>work.total)return null;
+  const operation=typeof work.operation==='string'&&/^[a-z0-9-]{1,64}$/.test(work.operation)?work.operation:null;
+  const value={done:work.done,total:work.total,operation};
+  const unity=work.unity;
+  if(unity&&Number.isSafeInteger(unity.done)&&Number.isSafeInteger(unity.total)&&unity.total>0&&unity.total<=3&&unity.done>=0&&unity.done<=unity.total)
+    value.unity={done:unity.done,total:unity.total,active:['assets','method','result'].includes(unity.active)?unity.active:null};
+  if(Number.isSafeInteger(work.index)&&work.index>0&&work.index<=work.total&&typeof work.checkpoint==='string'&&/^[a-z0-9-]{1,80}$/.test(work.checkpoint)){
+    value.index=work.index;value.checkpoint=work.checkpoint;
+  }
+  const passes=work.passes;
+  if(passes&&Number.isSafeInteger(passes.done)&&Number.isSafeInteger(passes.total)&&passes.total>0&&passes.done>=0&&passes.done<=passes.total)
+    value.passes={done:passes.done,total:passes.total,active:typeof passes.active==='string'?passes.active:null,known:passes.known===true};
+  return value;
+}
+export function buildOverviewView(state) {
+  const raw=state?.stages?.find(row=>row.id==='build')?.progress?.buildOverview;
+  if(raw?.schema!==1||!Array.isArray(raw.groups)||raw.groups.length>8)return null;
+  const validId=id=>typeof id==='string'&&/^[a-z0-9-]{1,80}$/.test(id);
+  const counter=value=>value&&Number.isSafeInteger(value.done)&&Number.isSafeInteger(value.total)&&value.done>=0&&value.total>=0&&value.done<=value.total
+    ?{done:value.done,total:value.total,unit:typeof value.unit==='string'?value.unit:null,phase:typeof value.phase==='string'?value.phase:null}:null;
+  const normalize=rows=>Array.isArray(rows)&&rows.length<=32?rows.filter(row=>validId(row?.id)).map(row=>({id:row.id,
+    status:['pending','running','checking','failed','retained','reused','complete'].includes(row.status)?row.status:'pending',
+    closed:row.closed===true,percent:typeof row.percent==='number'&&Number.isFinite(row.percent)&&row.percent>=0&&row.percent<=100?row.percent:0,
+    ...(counter(row.counter)?{counter:counter(row.counter)}:{}),...(row.conditional===true?{conditional:true}:{})})):[];
+  const preparation=value=>{
+    if(!value||!Array.isArray(value.checkpoints)||value.checkpoints.length>16)return null;
+    const checkpoints=normalize(value.checkpoints).map(row=>{
+      const source=value.checkpoints.find(item=>item.id===row.id),passes=normalize(source.passes);
+      return {...row,passes,passDone:passes.filter(item=>item.closed).length,passTotal:passes.length,passPlanKnown:source.passPlanKnown===true,
+        detail:source.detail==='aggregate'?'aggregate':'observed',nestedCounter:counter(source.nestedCounter)};
+    });
+    if(!checkpoints.length||new Set(checkpoints.map(item=>item.id)).size!==checkpoints.length)return null;
+    return {checkpoints,done:checkpoints.filter(item=>item.closed).length,total:checkpoints.length,
+      active:checkpoints.some(item=>item.id===value.active)?value.active:null};
+  };
+  const compiler=(value,owner)=>{
+    if(!value||!(['unity-shader-compile','unity-shader-task'].includes(value.phase)||typeof value.phase==='string'&&value.phase.startsWith('unity-shader-task:')))return null;
+    // The backend retains the last observed pass census for diagnostics. Once
+    // its native caller succeeded, that stale local count is no longer live.
+    let aggregate=value.aggregate;
+    if(!aggregate){
+      // Existing runs retain old last-pass.closed snapshots. Their owner
+      // work still records the genuine whole phase; never replay that local
+      // closure as completion after replacing the Builder.
+      const part=owner.unityWork?.phases?.find(row=>row.id==='method')?.parts?.find(row=>row.id===(owner.id==='content-bank'?'build':'shaders'));
+      const closed=owner.closed===true||part?.closed===true,coverage=part?.counter;
+      const known=coverage&&['unity-player-shaders','unity-bank-shaders'].includes(coverage.phase)&&Number.isSafeInteger(coverage.total)&&coverage.total>1&&Number.isSafeInteger(coverage.done)&&coverage.done>=0&&coverage.done<coverage.total;
+      aggregate={scope:known?'sources':'caller',closed,status:closed?'complete':owner.status==='failed'?'failed':owner.status==='running'?'running':'pending',
+        percent:closed?100:known&&Number.isFinite(part?.percent)?part.percent:null,
+        ...(known?{done:coverage.done,total:coverage.total-1,unit:'shader-names'}:{})};
+    }
+    const overall=aggregate&&['sources','banks','caller'].includes(aggregate.scope)&&['running','failed','complete','pending'].includes(aggregate.status)
+      ?{scope:aggregate.scope,status:aggregate.status,closed:aggregate.closed===true,counter:counter(aggregate),
+        percent:typeof aggregate.percent==='number'&&Number.isFinite(aggregate.percent)&&aggregate.percent>=0&&aggregate.percent<=100?aggregate.percent:null}:null;
+    const local=value.currentPass??value;
+    const currentPass=local&&['pass','task'].includes(local.scope)&&['running','failed','complete','pending'].includes(local.status)
+      ?{scope:local.scope,status:local.status,counter:counter(local),
+        percent:typeof local.percent==='number'&&Number.isFinite(local.percent)&&local.percent>=0&&local.percent<=100?local.percent:null}:null;
+    return {phase:value.phase,scope:value.scope==='task'?'task':'pass',counter:overall?.status==='complete'?null:counter(value),aggregate:overall,currentPass,
+      percent:overall?.percent??null,
+      detail:typeof value.detail==='string'?value.detail.slice(0,1024):'',status:overall?.status??'pending'};
+  };
+  const observedPasses=(value,names)=>{
+    if(!value||!Array.isArray(value.passes)||value.passes.length!==names.length)return null;
+    const passes=normalize(value.passes);
+    if(passes.length!==names.length||new Set(passes.map(row=>row.id)).size!==names.length||passes.some(row=>!names.includes(row.id)))return null;
+    return {passes,done:passes.filter(row=>row.closed).length,total:names.length,
+      active:passes.some(row=>row.id===value.active)?value.active:null,
+      percent:typeof value.percent==='number'&&Number.isFinite(value.percent)&&value.percent>=0&&value.percent<=100?value.percent:0};
+  };
+  const groups=raw.groups.filter(group=>validId(group?.id)).map(group=>({...group,operations:normalize(group.operations).map(row=>{
+    const source=group.operations.find(item=>item.id===row.id);
+    const updateCode=observedPasses(source.updateCode,['weave','standalone','update-sdk','update-package-api','update-code','publication']);
+    return {...row,preparation:preparation(source.preparation),compiler:compiler(source.compiler,source),import:unityImportView(source.import),
+      pack:observedPasses(source.pack,['native-content-source-hash','native-content-native-hash','native-content-write','native-content-final-hash']),
+      api:observedPasses(source.api,['package-api-bind','package-api-output','package-api-publish']),
+      validation:observedPasses(source.validation,['unity-configuration','unity-validation-tasks']),unityTask:unityTaskView(source.unityTask),unityWork:unityWorkView(source.unityWork),
+      updateCode:updateCode?{...updateCode,
+        preparation:observedPasses(source.updateCode.preparation,['update-code-catalog','update-code-roster','update-code-orders','update-code-preload','update-code-handover'])}:null};
+  })}));
+  const operations=groups.flatMap(group=>group.operations);
+  if(!operations.length||operations.length>32||new Set(operations.map(row=>row.id)).size!==operations.length)return null;
+  const active=operations.some(row=>row.id===raw.active)?raw.active:null;
+  const recovery=raw.recovery??{},batches=recovery.batches??{};
+  const validBatches=Number.isSafeInteger(batches.done)&&Number.isSafeInteger(batches.total)&&batches.total>=0&&batches.done>=0&&batches.done<=batches.total;
+  const sections=normalize(recovery.sections),staging=normalize(recovery.staging);
+  const stagingParent=sections.find(row=>row.id==='staging');
+  const stagingLive=staging.some(row=>['running','checking','failed'].includes(row.status));
+  const stagingObserved=stagingLive||staging.some(row=>row.closed||row.percent>0);
+  // Older snapshots fabricated pending children after the whole recovered
+  // project was reused. Keep the parent proof without inventing child proofs.
+  const aggregate=stagingParent?.closed&&!stagingLive&&
+    (!staging.length||staging.some(row=>!row.closed)||recovery.stagingDetail==='aggregate');
+  const stagingDetail=aggregate?'aggregate':stagingObserved?'observed':'unobserved';
+  // The product explanation needs the route and prior measured floor only.
+  // Internal asset paths/reasons remain in the bounded backend diagnostics.
+  const migration=raw.workflow==='build'&&raw.updateMigration?.strategy==='cached-full-build'
+    ?{strategy:'cached-full-build',priorPercent:typeof raw.updateMigration.priorPercent==='number'&&
+      Number.isFinite(raw.updateMigration.priorPercent)&&raw.updateMigration.priorPercent>=0&&raw.updateMigration.priorPercent<=100
+      ?raw.updateMigration.priorPercent:null}:null;
+  return {groups,active,done:operations.filter(row=>row.closed).length,total:operations.length,workflow:raw.workflow,
+    updateMigration:migration,
+    recovery:{sections,staging:stagingDetail==='observed'?staging:[],stagingDetail,
+      batches:validBatches?{done:batches.done,total:batches.total}:null,stagingCounter:recovery.stagingCounter??null}};
+}
+export function durationText(value) {
+  // Actual elapsed/estimated durations come from the backend. Formatting a
+  // clock never advances a progress bar or reconstructs missing old runtime.
+  if(typeof value!=='number'||!Number.isFinite(value)||value<0)return '';
+  const seconds=Math.floor(value),hours=Math.floor(seconds/3600),minutes=Math.floor(seconds/60)%60;
+  return [hours,minutes,seconds%60].map(number=>String(number).padStart(2,'0')).join(':');
+}
+export function timingView(value) {
+  if(!value||typeof value.elapsedSeconds!=='number'||!Number.isFinite(value.elapsedSeconds)||value.elapsedSeconds<0)return null;
+  const raw=value.estimate??{},status=['learning','estimated','unknown','paused','complete'].includes(raw.status)?raw.status:'unknown';
+  const scope=raw.scope==='conversion-batches'?'conversion-batches':'phase';
+  const valid=raw.scope==='phase'||raw.scope==='conversion-batches';
+  const bounds=valid&&['remainingSeconds','lowerSeconds','upperSeconds'].every(key=>typeof raw[key]==='number'&&Number.isFinite(raw[key])&&raw[key]>=0)
+    &&raw.lowerSeconds<=raw.remainingSeconds&&raw.remainingSeconds<=raw.upperSeconds;
+  return {elapsedSeconds:value.elapsedSeconds,active:value.active===true,elapsedBasis:value.elapsedBasis==='since-update'?'since-update':'recorded-active',
+    estimate:{status:status==='estimated'&&!bounds?'unknown':status,scope,lowerSeconds:bounds?raw.lowerSeconds:null,upperSeconds:bounds?raw.upperSeconds:null}};
+}
+export function sessionId(value) { return typeof value === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(value) ? value : null; }
+export function savedSession(discovery) {
+  // The owner workspace, rather than this browser's changing loopback origin,
+  // decides which retained build to reopen after a launcher update.
+  return sessionId(discovery?.latestSession) ??
+    (Array.isArray(discovery?.recentSessions) ? discovery.recentSessions.map(row=>sessionId(row?.session)).find(Boolean) : null) ?? null;
+}
+
+
+export function resumableSession(discovery,state) {
+  // The selected latest record owns the resume decision. A completed latest
+  // build must never reveal an older failed job as the current resume target.
+  const selected=sessionId(state?.session)??savedSession(discovery);
+  if(!selected)return null;
+  const status=state?.session===selected?state.status:
+    discovery?.recentSessions?.find(row=>row?.session===selected)?.status;
+  return status==='complete'?null:selected;
+}

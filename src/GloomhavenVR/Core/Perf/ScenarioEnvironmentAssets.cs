@@ -24,7 +24,7 @@ internal static class ScenarioEnvironmentAssets
         {
             foreach (AssetBundle loaded in AssetBundle.GetAllLoadedAssetBundles())
                 if (loaded.name == Filename) { _bank = loaded; break; }
-            string folder = Path.GetDirectoryName(typeof(ScenarioEnvironmentAssets).Assembly.Location) ?? string.Empty;
+            string folder = QuestStandalonePlatform.EnvironmentBundleDirectory;
             string path = Path.Combine(folder, Filename);
             if (_bank == null)
             {
@@ -35,7 +35,9 @@ internal static class ScenarioEnvironmentAssets
             // Synchronous preparation has no legitimate pending state after this return.
             // An older/incomplete package is terminal, so no discovery queue waits forever.
             if (!_bank.Contains("Assets/Bundle/EnvironmentMeshes/index.json")
-                || !_bank.Contains("Assets/Bundle/Environments/ScenarioCheapTerrain.shader"))
+                || !_bank.Contains("Assets/Bundle/Environments/ScenarioCheapTerrain.shader")
+                || QuestStandalonePlatform.Enabled && (!_bank.Contains("Assets/Bundle/Environments/WorldSimpleMaterial.shader")
+                    || !_bank.Contains("Assets/Bundle/EnvironmentMeshes/quest-owned-sources.json")))
                 throw new InvalidDataException("incomplete environment asset bank");
             VRLog.Info("Perf", "Scenario environment assets loaded: " + Filename + "; shared PC/Frame presentation bank.");
             return true;

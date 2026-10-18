@@ -79,6 +79,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT/'.planning/debug/environment-budget-runtime')
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH','/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--production-only', action='store_true', help='Partial development run, omits negative controls')
+    parser.add_argument('--quest-callbacks', action='store_true', help='Run focused actual camera/geometry lease checks through the Quest owner')
     parser.add_argument('--case', action='append', help='Partial development run; repeat to select named variants')
     args = parser.parse_args()
     source_path = args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.cs'
@@ -92,12 +93,17 @@ def main():
     wall_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs'
     clock_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.AnimationClock.cs'
     trace_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.DrawTrace.cs'
+    unsupported_path = ROOT/'tests/world-material-runtime/Unsupported.shader'
     occlusion_path = args.source_root/'src/GloomhavenVR/Core/OcclusionFade.cs'
     dissolve_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.Dissolve.cs'
     import importlib.util
     attachment_binder = args.source_root/'scripts/check-world-material-runtime.py'
     spec = importlib.util.spec_from_file_location('wall_attachment_source_bindings', attachment_binder)
     attachment_module = importlib.util.module_from_spec(spec); spec.loader.exec_module(attachment_module)
+    if args.quest_callbacks:
+        before = attachment_module.pure_method(boundary, 'internal static void Install()')
+        boundary = boundary.replace(before, 'internal static void Install() { InstallQuest(); }', 1)
+        boundary = boundary.replace('private static Harmony? _installedOwner;', '', 1)
     attachment_paths, attachment_source = attachment_module.wall_attachment_source(args.source_root)
     attachment_source = attachment_source.replace('internal static partial class WallSegmentFade', 'internal static partial class WallDormantFixture', 1)
     source, shader, repair, floor = source_path.read_text(), shader_path.read_text(), repair_path.read_text(), floor_path.read_text()
@@ -129,6 +135,7 @@ def main():
     else: raise SystemExit('Native material repair removed-edge negative control escaped')
     assert 'StaticBatchingUtility' not in source and 'SetStaticBatchInfo' not in source, 'Native sources must not acquire Unity internal static-batch state'
     assert 'Camera.onPreCull += HandlePreCull;' in source and 'Camera.onPostRender -= HandlePostRender;' in source, 'Draw leases require paired real rendering hooks'
+    assert 'void OnPreCull(Camera' not in source and 'void OnPostRender(Camera' not in source, 'Camera events must not collide with parameterless Unity messages'
     variants = [('production',source,'')]
     if not args.production_only:
         for name, before, after, expected in (
@@ -346,10 +353,12 @@ def main():
         (swallowed_fixture/'Program.cs').write_text(program.replace(guard,
             'if (callbackFailure != null && bool.Parse("false")) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();'))
     manifest = {'result':str(run/'results.txt'),'cases':[]}
-    bound_sources = {attachment_binder:attachment_binder.read_text(), **{path:path.read_text() for path in attachment_paths}, source_path:source,boundary_path:boundary,ambient_path:ambient,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
-    for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
+    bound_sources = {unsupported_path:unsupported_path.read_text(), attachment_binder:attachment_binder.read_text(), **{path:path.read_text() for path in attachment_paths}, source_path:source,boundary_path:boundary,ambient_path:ambient,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
+    for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs','QuestEnvironmentJson.cs'):
         bank_path = args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file
         bound_sources[bank_path] = bank_path.read_text()
+    json_source = args.source_root/'src/GloomhavenVR/Core/SelfUpdate/SelfUpdateRelease.cs'
+    bound_sources[json_source] = json_source.read_text()
     (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{str(path):hashlib.sha256(value.encode()).hexdigest() for path,value in bound_sources.items()},'fixture_sha256':fixture_hashes,'coverage':'partial' if partial else 'production-and-negative-controls','cases':[name for name,_,_ in variants],'limits':['Native scene classes/config and empty wall attachment lists are explicit boundary surrogates.','Complete original wall Apply/EnsureTextures, shared ramp and wall-specific visual clock execute.', 'Original enable/disable subscription bodies and complete draw sampler execute against actual Camera.Render events; Time.frameCount alone is aliased to a deterministic fixture clock. Native scene-loaded bookkeeping is an explicit boundary.','Actual Unity meshes, renderer masks, pixels, cloning and camera callbacks are executed.','Native wall pixels execute GL surrogates of the LOW branch and exact HIGH/toggle-native clip equation derived from original DXBC; HIGH noise is a valid parameterized sample. Windows bytecode, artwork and lighting are not executed.','Native material healer integration is source-bound; its native callbacks are not executed.','Native game scenes, OpenXR HMD images and FPS remain hardware-open.']},indent=2)+'\n')
     (run/'repair-binding.json').write_text(json.dumps({'native-success-order':'sharedMaterials / enabled / MaterialReady / return true','removed-edge-negative-control':'rejected'},indent=2)+'\n')
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
@@ -357,7 +366,7 @@ def main():
         build = run/name; production = build/'production'; production.mkdir(parents=True)
         read_entry = 'private static bool CompatibleMaterial(Material material, bool floor)\n    {'
         assert value.count(read_entry) == 1, 'complete original material-read counter binding drift'
-        for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
+        for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs','QuestEnvironmentJson.cs'):
             bank_text = bank_variants.get(name, bound_sources[args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file]) if bank_file == 'ScenarioEnvironmentMeshBank.cs' else bound_sources[args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file]
             if bank_file == 'ScenarioEnvironmentMeshBank.cs':
                 lookup = '''        foreach (AssetBundle bundle in AssetBundle.GetAllLoadedAssetBundles())
@@ -369,6 +378,7 @@ def main():
                 assert bank_text.count(bank_entry) == 1, 'Complete original bank read-request counter binding drift'
                 bank_text = bank_text.replace(bank_entry, 'internal static bool TryGetExact(Mesh native, out Mesh mesh) { global::EnvironmentProgram.RecordBankRead(); return TryGet(native, 100, out mesh); }')
             (production/bank_file).write_text(bank_text)
+        (production/'SelfUpdateRelease.cs').write_text(bound_sources[json_source])
         (production/'Environment.cs').write_text(value.replace(read_entry,
             read_entry + '\n        global::EnvironmentProgram.RecordMaterialRead();'))
         (production/'CameraBoundary.cs').write_text(boundary_variants.get(name,boundary))
@@ -386,12 +396,13 @@ def main():
         result = subprocess.run(command,capture_output=True,text=True)
         (build/'build.log').write_text(result.stdout+result.stderr)
         if result.returncode: raise SystemExit(result.stdout+result.stderr+'\nA compilation failure cannot pass as a negative control')
-        manifest['cases'].append({'name':name,'dll':str(build/'bin/Release/netstandard2.1'/(assembly+'.dll')),'expected':expected})
+        manifest['cases'].append({'name':name,'dll':str(build/'bin/Release/netstandard2.1'/(assembly+'.dll')),'expected':expected,'questCallbacks':args.quest_callbacks})
     manifest_path = run/'manifest.json'; manifest_path.write_text(json.dumps(manifest,indent=2)+'\n')
     unity_project = run/'unity'; (unity_project/'Assets/Editor').mkdir(parents=True); (unity_project/'Packages').mkdir(); (unity_project/'ProjectSettings').mkdir()
     shutil.copyfile(fixture/'Editor/EnvironmentRunner.cs',unity_project/'Assets/Editor/EnvironmentRunner.cs')
     shutil.copyfile(fixture/'NativeMaterials.shader',unity_project/'Assets/NativeMaterials.shader')
     shutil.copyfile(fixture/'NativeHighBranch.shader',unity_project/'Assets/NativeHighBranch.shader')
+    shutil.copyfile(unsupported_path,unity_project/'Assets/Unsupported.shader')
     # Exact versions match the production BepInEx.Core -> HarmonyX dependency
     # graph. Private test copies never overwrite references or the editor install.
     native_dependencies = (

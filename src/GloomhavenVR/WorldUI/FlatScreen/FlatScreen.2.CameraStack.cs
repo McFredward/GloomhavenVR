@@ -102,6 +102,7 @@ internal sealed partial class FlatScreen
 
             var record = new CapturedCamera
             {
+                Owner = this,
                 Camera = cam,
                 OriginalClearFlags = cam.clearFlags,
                 OriginalBackground = cam.backgroundColor,
@@ -317,10 +318,12 @@ internal sealed partial class FlatScreen
             name = "GloomhavenVR.FlatScreenRT.UI",
             antiAliasing = 1,
         };
+        QuestScreenSampling.Configure(uiRt);
         // Alpha-blended glass shader (both verified shipped — see the Show() shader
         // comment); the RT alpha is exactly what the UI cameras leave behind, which
         // is the point: everything they did not draw stays see-through.
-        Shader? glassShader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+        Shader? glassShader = QuestStandalonePlatform.SelectFlatScreenGlassShader(
+            Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default"));
         if (glassShader == null || !uiRt.Create())
         {
             uiRt.Release();
@@ -334,9 +337,9 @@ internal sealed partial class FlatScreen
         _uiRt = uiRt;
         ClearUiRt(); // fresh RT color is undefined — the glass must start fully transparent
 
-        _glassMaterial = new Material(glassShader) { mainTexture = _uiRt };
+        _glassMaterial = CreateScreenMaterial(glassShader, _uiRt, glass: true);
         EnsureBackQuad();
-        _quadRenderer!.sharedMaterial = _glassMaterial;
+        SetScreenMaterial(_quadRenderer!, _glassMaterial, glass: true);
 
         _noUiSince = -1f;
         VRLog.Info("WorldUI", $"Screen layer split ENGAGED: UI cameras → transparent glass RT " +
@@ -351,12 +354,14 @@ internal sealed partial class FlatScreen
     {
         if (_backQuad != null)
             return;
+        ReleaseQuestScreenMesh(ref _questBackMesh);
         _backQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        RebuildQuestScreenMesh(_backQuad, ref _questBackMesh, "flat-screen-background");
         _backQuad.name = "GloomhavenVR.FlatScreen.Background";
         Object.DontDestroyOnLoad(_backQuad); // survives Single-mode scene loads like the screen quad
         Object.Destroy(_backQuad.GetComponent<Collider>());
         _backRenderer = _backQuad.GetComponent<Renderer>();
-        _backRenderer.sharedMaterial = _screenMaterial;
+        SetScreenMaterial(_backRenderer, _screenMaterial!, glass: false);
         VRLayers.Apply(_backQuad);
         PlaceScreen(instant: true); // the fresh quad needs its pose now, not on the next head move
     }
@@ -385,6 +390,7 @@ internal sealed partial class FlatScreen
             _backQuad = null;
             _backRenderer = null;
         }
+        ReleaseQuestScreenMesh(ref _questBackMesh);
         if (_glassMaterial != null)
         {
             Object.Destroy(_glassMaterial);
@@ -397,7 +403,7 @@ internal sealed partial class FlatScreen
             _uiRt = null;
         }
         if (_quadRenderer != null && _screenMaterial != null)
-            _quadRenderer.sharedMaterial = _screenMaterial;
+            SetScreenMaterial(_quadRenderer, _screenMaterial, glass: false);
         _noUiSince = -1f;
         VRLog.Info("WorldUI", $"Screen layer split RELEASED ({reason}) — single-RT path " +
                               "(all cameras composite the background RT; screen quad opaque).");

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using QuestWeaver.Runtime;
@@ -58,16 +59,80 @@ namespace HarmonyLib
 
         public static Type? TypeByName(string name)
         {
-            if (name == null) return null;
+            if (string.IsNullOrEmpty(name)) return null;
             Type? direct = Type.GetType(name, false);
             if (direct != null) return direct;
-            Type[] types = AppDomain.CurrentDomain.GetAssemblies().Where(a => !a.FullName.StartsWith("Microsoft.VisualStudio", StringComparison.Ordinal)).SelectMany(Types).ToArray();
-            return types.FirstOrDefault(t => t.FullName == name) ?? types.FirstOrDefault(t => t.Name == name);
+            return ResolveFromAssemblies(name, AppDomain.CurrentDomain.GetAssemblies());
         }
-        private static IEnumerable<Type> Types(Assembly assembly)
+
+        // B615's verified native abort occurred while the old all-assembly scan read an
+        // unrelated RuntimeType.FullName (IL2CPP GetBitmapNoInit/Class::Init). Catching a
+        // managed exception cannot recover SIGABRT. Resolve only the requested type;
+        // never enumerate or inspect unrelated runtime types, even for missing targets.
+        // Harmony's full-name priority and first-loaded-assembly short-name fallback
+        // remain intact. The weaver supplies short-name aliases from Cecil metadata,
+        // so namespace/nested aliases do not require Assembly.GetTypes at runtime.
+        private static Type? ResolveFromAssemblies(string name, Assembly[] assemblies)
         {
-            try { return assembly.GetTypes(); }
-            catch (ReflectionTypeLoadException e) { return e.Types.Where(t => t != null).Cast<Type>(); }
+            foreach (Assembly assembly in assemblies)
+            {
+                if (assembly.FullName.StartsWith("Microsoft.VisualStudio", StringComparison.Ordinal)) continue;
+                Type? exact = assembly.GetType(name, false);
+                if (exact != null) return exact;
+            }
+            foreach (Assembly assembly in assemblies)
+            {
+                if (assembly.FullName.StartsWith("Microsoft.VisualStudio", StringComparison.Ordinal)) continue;
+                string? assemblyName = assembly.GetName().Name;
+                if (assemblyName == null || !Aliases.Value.TryGetValue(assemblyName, out Dictionary<string, string[]> byName)
+                    || !byName.TryGetValue(name, out string[] candidates)) continue;
+                foreach (string candidate in candidates)
+                {
+                    Type? alias = assembly.GetType(candidate, false);
+                    if (alias != null) return alias;
+                }
+            }
+            return null;
+        }
+
+        private const string AliasResource = "QuestWeaver.TypeAliases.v1";
+        private static readonly Lazy<Dictionary<string, Dictionary<string, string[]>>> Aliases =
+            new Lazy<Dictionary<string, Dictionary<string, string[]>>>(ReadAliases);
+
+        private static Dictionary<string, Dictionary<string, string[]>> ReadAliases()
+        {
+            using (Stream stream = typeof(AccessTools).Assembly.GetManifestResourceStream(AliasResource)
+                ?? throw new InvalidDataException("The Quest facade is missing its generated type-alias metadata."))
+            using (var reader = new BinaryReader(stream))
+            {
+                if (reader.ReadInt32() != 1) throw new InvalidDataException("Unsupported Quest type-alias metadata version.");
+                int assemblies = ReadCount(reader);
+                var result = new Dictionary<string, Dictionary<string, string[]>>(StringComparer.Ordinal);
+                for (int a = 0; a < assemblies; a++)
+                {
+                    string assembly = reader.ReadString();
+                    int names = ReadCount(reader);
+                    var aliases = new Dictionary<string, string[]>(StringComparer.Ordinal);
+                    for (int n = 0; n < names; n++)
+                    {
+                        string name = reader.ReadString();
+                        int count = ReadCount(reader);
+                        var candidates = new string[count];
+                        for (int c = 0; c < count; c++) candidates[c] = reader.ReadString();
+                        aliases.Add(name, candidates);
+                    }
+                    result.Add(assembly, aliases);
+                }
+                if (stream.Position != stream.Length) throw new InvalidDataException("Unexpected Quest type-alias metadata tail.");
+                return result;
+            }
+        }
+
+        private static int ReadCount(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            if (count < 0 || count > 1000000) throw new InvalidDataException("Invalid Quest type-alias metadata count.");
+            return count;
         }
 
         public static FieldInfo? Field(Type? type, string name)
