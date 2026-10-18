@@ -117,11 +117,13 @@ static int dispatch(const GhprHeader *request, const uint8_t *payload) {
     if (request->operation != GHPR_INITIALISE && !initialised) { failure(request, -3); return 1; }
     switch (request->operation) {
     case GHPR_INITIALISE: {
-        if (initialised) { failure(request, -4); break; }
         char *path = string(&reader), *procedures = string(&reader);
         int synthesizers = (int)integer(&reader), megabytes = (int)integer(&reader), live_editing = (int)integer(&reader);
         if (!exact(&reader)) failure(request, -2);
-        else if (!load(path)) failure(request, (int)(GetLastError() ? GetLastError() : 127));
+        /* Original Initialise is reentrant for the original Awake/CodeStart
+           sequence. Keep the loaded module and its entities; the native API
+           owns repeated initialisation, just as in the desktop process. */
+        else if (!library && !load(path)) failure(request, (int)(GetLastError() ? GetLastError() : 127));
         else {
             /* Keep the original engine's optional log.txt in the private Wine
                prefix, never the read-only game/procedure input or APK path. */

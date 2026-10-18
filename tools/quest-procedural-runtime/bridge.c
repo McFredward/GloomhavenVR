@@ -1,6 +1,9 @@
 /* ARM64 Android ABI shim. The original x64 engine executes in a separate worker. */
 #define _GNU_SOURCE
 #include "protocol.h"
+#ifdef GHPR_EMBEDDED_WORKER
+#include "quest_worker_payload.h"
+#endif
 #if defined(GHPR_PROTON_BACKEND) && !defined(GHPR_HOST_PROOF)
 #include <dlfcn.h>
 #endif
@@ -225,13 +228,67 @@ static int begin_worker_log(const char *path) {
     }
     return current;
 }
+#ifdef GHPR_EMBEDDED_WORKER
+/* The PE worker is interpreted data, unlike the Android executable launcher.
+ * Embed this small owned helper with its ABI shim so compact updates cannot
+ * leave an older worker in the retained multi-GB original-content payload.
+ * Compare exact bytes before replacing a private runtime cache; no game/bank
+ * files or save data are touched and healthy launches do not rewrite it. */
+static int embedded_worker(char *path, size_t capacity) {
+    const size_t length = sizeof ghpr_worker_payload;
+    int count = snprintf(path, capacity, "%s/apparance-worker.exe", writable_dir);
+    if (!length || length > 1024u * 1024u || count < 0 || (size_t)count >= capacity) {
+        error("Embedded original procedural worker size/path is invalid."); return 0;
+    }
+    int current = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (current >= 0) {
+        struct stat info;
+        int equal = !fstat(current, &info) && S_ISREG(info.st_mode) && info.st_size == (off_t)length;
+        size_t offset = 0; uint8_t bytes[4096];
+        while (equal && offset < length) {
+            size_t amount = length - offset < sizeof bytes ? length - offset : sizeof bytes;
+            ssize_t got = read(current, bytes, amount);
+            if (got < 0 && errno == EINTR) continue;
+            if (got <= 0 || memcmp(bytes, ghpr_worker_payload + offset, (size_t)got)) equal = 0;
+            else offset += (size_t)got;
+        }
+        close(current);
+        if (equal && offset == length) return 1;
+    }
+    char temporary[8192];
+    count = snprintf(temporary, sizeof temporary, "%s/apparance-worker.%ld.tmp", writable_dir, (long)getpid());
+    if (count < 0 || (size_t)count >= sizeof temporary) { error("Embedded procedural worker temporary path is invalid."); return 0; }
+    /* Only this process's fixed cache name may be left by its interrupted
+       attempt. O_EXCL/O_NOFOLLOW prevent writing through a replacement link. */
+    unlink(temporary);
+    int target = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (target < 0) { error("Cannot create the private procedural worker cache."); return 0; }
+    size_t offset = 0; int success = 1;
+    while (offset < length) {
+        ssize_t wrote = write(target, ghpr_worker_payload + offset, length - offset);
+        if (wrote < 0 && errno == EINTR) continue;
+        if (wrote <= 0) { success = 0; break; }
+        offset += (size_t)wrote;
+    }
+    if (success && fsync(target)) success = 0;
+    if (close(target)) success = 0;
+    if (success && rename(temporary, path)) success = 0;
+    if (!success) { unlink(temporary); error("Cannot publish the private procedural worker cache."); return 0; }
+    return 1;
+}
+#endif
+
 static int launch(void) {
     if (!configured) { error("Quest original procedural runtime was not configured."); return 0; }
     int sockets[2];
     if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sockets)) { error("Cannot create original procedural worker channel."); return 0; }
     char box[8192], worker_path[8192], wine[8192], server[8192], prefix[8192], library_path[16384], diagnostics[8192], server_guest[8192];
     snprintf(box, sizeof box, "%s/libquest_box64.so", executable_dir);
+#ifdef GHPR_EMBEDDED_WORKER
+    if (!embedded_worker(worker_path, sizeof worker_path)) { close(sockets[0]); close(sockets[1]); return 0; }
+#else
     snprintf(worker_path, sizeof worker_path, "%s/ApparanceWorker.exe", payload_dir);
+#endif
     snprintf(wine, sizeof wine, "%s/wine/bin/wine64", payload_dir);
     snprintf(server, sizeof server, "%s/libquest_wineserver.so", executable_dir);
     snprintf(server_guest, sizeof server_guest, "%s/wine/bin/wineserver", payload_dir);
@@ -333,7 +390,12 @@ API int quest_apparance_configure(const char *executables, const char *payload, 
 API const char *quest_apparance_last_error(void) { return last_error; }
 API int ApparanceInitialise(const char *procedures, LogFn callback, int synthesizers, int megabytes, int live_editing) {
     pthread_mutex_lock(&api_mutex); log_callback = callback; last_error[0] = 0;
-    if (!procedures || !launch()) { finish(); return 0; }
+    /* The original owner calls Initialise from Awake and again when delayed
+       Start reconnects its code lifecycle. Entities may already exist between
+       those calls. Original Initialise preserves them; replacing the worker
+       here loses their native handles/tasks while managed IsBusy stays true.
+       Re-enter that SAME original DLL and socket until original Shutdown. */
+    if (!procedures || (channel < 0 && !launch())) { finish(); return 0; }
     char raw_library[8192]; snprintf(raw_library, sizeof raw_library, "%s/ApparanceEngine.dll", payload_dir);
     char *library = windows_path(raw_library), *directory = windows_path(procedures);
     if (!library || !directory) { free(library); free(directory); close_worker(); finish(); return 0; }
