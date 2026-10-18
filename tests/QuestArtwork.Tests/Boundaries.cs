@@ -31,9 +31,11 @@ namespace GloomhavenVR.Core
     internal static class VRLog
     {
         internal static bool WantsDebug;
+        internal static bool Wants(VRLogLevel level) => WantsDebug;
         internal static void Info(string scope, string text) => UnityEngine.Debug.Log(text);
         internal static void Warn(string scope, string text) => UnityEngine.Debug.LogWarning(text);
     }
+    internal enum VRLogLevel { Debug }
     internal static class PerfMonitor
     {
         internal readonly struct Measure : IDisposable { public void Dispose() {} }
@@ -44,9 +46,26 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.Cards
 {
     internal sealed class Setting<T> { internal T Value; internal Setting(T value) { Value = value; } }
-    internal static class CardsConfig { internal static readonly Setting<bool> FaceMipBake = new(true); }
+    internal enum ControlBoard { Oak }
+    internal static class CardsConfig {
+        internal static readonly Setting<bool> FaceMipBake = new(true);
+        internal static readonly Setting<float> CardWidth = new(.0635f);
+        internal static float CardHeight => .088f;
+        internal static ControlBoard CurrentBoard => ControlBoard.Oak;
+        internal static Setting<Vector3> SlotOverlayOffset(ControlBoard board) => new(new Vector3(.002f, -.003f, .001f));
+        internal static Setting<float> SlotOverlaySpacing(ControlBoard board) => new(-.008f);
+    }
+    internal static class PlayTray { internal static Shader? OverlayShader() => Resources.Load<Shader>("PrimitiveOverlay"); }
+    internal static class CardFan {}
     internal static class CardFace { internal static void Offer(Component root) {} internal static void MaintainArtArrival() {} }
     internal static class CardFxBounds { internal static void Reseat(Component root) {} }
+}
+namespace GloomhavenVR.WorldUI
+{
+    internal static class CanvasConversion {
+        internal static Camera? WorldCamera => null;
+        internal static int OrderAboveDistance(float distance, int lift) => lift;
+    }
 }
 
 namespace GloomhavenVR.Cards

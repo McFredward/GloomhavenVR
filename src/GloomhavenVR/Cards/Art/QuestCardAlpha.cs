@@ -27,6 +27,22 @@ internal static class QuestCardAlpha
         internal long Offset;
     }
 
+    /// <summary>Bounded metadata provenance for an existing artwork record; no decode or GPU work.</summary>
+    internal static string Availability(Texture source)
+    {
+        try
+        {
+            string path = Path.Combine(QuestStandalonePlatform.ResourceDirectory, FileName);
+            EnsureLoaded(path);
+            if (_entries == null) return File.Exists(path) ? "invalid" : "missing-file";
+            if (!_entries.TryGetValue(source.name, out Entry entry)) return "missing-entry";
+            return entry.Width == source.width && entry.Height == source.height ? "ready" : "dimensions";
+        }
+        catch (Exception error) when (error is IOException || error is InvalidDataException || error is UnauthorizedAccessException
+            || error is ArgumentException || error is NotSupportedException)
+        { return "invalid"; }
+    }
+
     /// <summary>
     /// The B684 native card is visible but its GPU-only alpha cannot safely be read
     /// through an XR framebuffer. The builder supplies the original mip-zero alpha,
@@ -42,11 +58,7 @@ internal static class QuestCardAlpha
         try
         {
             string path = Path.Combine(QuestStandalonePlatform.ResourceDirectory, FileName);
-            if (_path != path)
-            {
-                _path = path; _entries = null; _failureLogged = false;
-                Load(path);
-            }
+            EnsureLoaded(path);
             if (_entries == null || !_entries.TryGetValue(source.name, out Entry entry)
                 || entry.Width != source.width || entry.Height != source.height)
                 return null;
@@ -88,6 +100,13 @@ internal static class QuestCardAlpha
             }
             return null;
         }
+    }
+
+    private static void EnsureLoaded(string path)
+    {
+        if (_path == path) return;
+        _path = path; _entries = null; _failureLogged = false;
+        Load(path);
     }
 
     private static void Load(string path)

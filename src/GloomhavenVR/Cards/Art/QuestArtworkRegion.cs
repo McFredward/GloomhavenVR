@@ -6,10 +6,11 @@ namespace GloomhavenVR.Cards;
 /// <summary>Exact alpha-region readback for Quest card silhouette capture.</summary>
 internal static class QuestArtworkRegion
 {
-    // Existing silhouette files predate the explicit ordinary-2D copy. Keeping a
-    // separate recipe path prevents a previously truncated mask from determining
-    // all future card geometry. Desktop's file/header and native artwork stay put.
-    internal static string CacheSuffix => QuestStandalonePlatform.Enabled ? "." + QuestTextureCopy.Recipe : string.Empty;
+    // B685 adds exact owned CPU alpha, but the former suffix still admitted B683
+    // GPU-derived masks. A previously accepted mask is intentionally never
+    // reshaped during a session, so merely fixing delivery cannot replace one.
+    // Keep CPU-derived contours separate without changing desktop's cache or art.
+    internal static string CacheSuffix => QuestStandalonePlatform.Enabled ? ".quest-owned-cpu-alpha-v1" : string.Empty;
 
     internal static Texture2D? Read(Texture source, int x, int y, int width, int height)
     {

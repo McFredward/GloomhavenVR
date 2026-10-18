@@ -17,6 +17,15 @@ internal static class QuestArtworkEvidence
     private static readonly Dictionary<string, HashSet<int>> Seen = new();
     private static int _records;
     private static string _caller = "consumer";
+    private static string _abilityContour = "not-offered";
+
+    // Share the existing eight/two-per-role records. A successful APK sidecar
+    // install is not proof that the real card consumer found or applied it.
+    internal static void Contour(CardBodyKind kind, string status)
+    {
+        if (QuestStandalonePlatform.Enabled && VRLog.WantsDebug && kind == CardBodyKind.Ability)
+            _abilityContour = status;
+    }
 
     /// <summary>Read the native sources from the already bounded scenario census.
     /// B680's three consumer branches emitted no records although the scenario
@@ -230,6 +239,9 @@ internal static class QuestArtworkEvidence
         string sourcePixels = Sample(source, crop, out string sourceRead);
         string outputPixels = Sample(output, outputCrop, out string outputRead);
         detail += " reads=" + sourceRead + "/" + outputRead;
+        string contour = role == "ability-header" ? " cpuAlpha=" + QuestCardAlpha.Availability(source)
+            + " contour=" + _abilityContour : string.Empty;
+        detail += contour;
         // B681 records sampled the SAME header texture/crop twice and got different
         // pixels. Such a pair cannot establish damaged source art: retain that
         // distinction without a third GPU readback or another protected log record.
@@ -245,7 +257,7 @@ internal static class QuestArtworkEvidence
                 + " crop=" + Geometry(crop) + " output=" + Label(output) + " outputCrop=" + Geometry(outputCrop)
                 + " enabled=" + image.enabled + " self=" + image.gameObject.activeSelf
                 + " hierarchy=" + image.gameObject.activeInHierarchy + " sourceShader=" + shader
-                + " reads=" + sourceRead + "/" + outputRead
+                + " reads=" + sourceRead + "/" + outputRead + contour
                 + (ReferenceEquals(source, output) && crop == outputCrop
                     ? " sameInput=True copyStable=" + string.Equals(sourcePixels, outputPixels, StringComparison.Ordinal) : string.Empty);
             message = "[Quest startup] artwork" + compact + " caller=" + _caller + samples;

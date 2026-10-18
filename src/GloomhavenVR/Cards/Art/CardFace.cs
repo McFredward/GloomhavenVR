@@ -546,6 +546,7 @@ internal sealed class CardFace
     {
         if (faceRoot == null)
             return;
+        Image? questHeader = null;
         try
         {
             CardBodyKind kind;
@@ -579,7 +580,7 @@ internal sealed class CardFace
                 // Offer is the common original-widget seam for adopted cards AND
                 // inactive mod-owned clones. MaintainArtArrival alone requires an
                 // adopted owner and therefore cannot observe every visible face.
-                QuestArtworkEvidence.Image(ability.headerImage, "ability-header");
+                questHeader = ability.headerImage;
                 kind = CardBodyKind.Ability;
                 root = ability.RectTransform != null
                     ? ability.RectTransform
@@ -667,6 +668,12 @@ internal sealed class CardFace
             VRLog.Warn("Cards", $"CARD SILHOUETTE offer skipped ({ex.GetType().Name}: {ex.Message}) — " +
                                 "kept the rounded-rect card slab.");
         }
+        finally
+        {
+            // Observe after the actual contour offer, so the same protected source
+            // record distinguishes delivered alpha from an applied physical mesh.
+            if (questHeader != null) QuestArtworkEvidence.Image(questHeader, "ability-header");
+        }
     }
 
     /// <summary>
@@ -688,6 +695,7 @@ internal sealed class CardFace
         if (state.LastReason == code)
             return;
         state.LastReason = code;
+        QuestArtworkEvidence.Contour(kind, "refused-" + code);
         VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}): no footprint yet [{code}] — {detail}. " +
                             "The body keeps its opaque rounded-rect shape until a usable outline appears.");
     }
@@ -1065,6 +1073,7 @@ internal sealed class CardFace
         if (CardMesh.SilhouetteApplied(kind))
         {
             state.CaptureSettled = true;
+            QuestArtworkEvidence.Contour(kind, "cached");
             CardMesh.RefreshSilhouetteCache(kind, alpha, fw, fh, artRect, sourceName);
             return;
         }
@@ -1073,6 +1082,7 @@ internal sealed class CardFace
         if (applied)
         {
             state.CaptureSettled = true;
+            QuestArtworkEvidence.Contour(kind, "applied");
             // FIRST RUN ONLY, and the one thing that shortens its window. Until this moment the
             // blackout had no mask and did nothing; every face already on screen now has one, but
             // each is behind its own 1 s rate limit. Dropping those limits means the very next

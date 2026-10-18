@@ -78,7 +78,7 @@ def main():
     log.write_text('Quest artwork evidence: ' + str(run) + '\n')
     print(log.read_text(), end='', flush=True)
     sources = {}
-    for relative in ('Cards/Art/CardFaceMipBake.cs', 'Core/QuestTextureCopy.cs', 'Cards/Art/QuestArtworkEvidence.cs', 'Cards/Art/QuestArtworkRegion.cs', 'Cards/Art/QuestCardAlpha.cs', 'Cards/Art/CardContour.cs'):
+    for relative in ('Cards/Art/CardFaceMipBake.cs', 'Core/QuestTextureCopy.cs', 'Core/QuestPrimitiveMesh.cs', 'Cards/Art/CardGlow.cs', 'Cards/Art/QuestArtworkEvidence.cs', 'Cards/Art/QuestArtworkRegion.cs', 'Cards/Art/QuestCardAlpha.cs', 'Cards/Art/CardContour.cs'):
         path = ROOT / 'src/GloomhavenVR' / relative
         sources[path.name] = path.read_text()
     panel = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelMipBake.cs').read_text()
@@ -99,6 +99,23 @@ internal static bool Carry(Entry e, RenderTexture? previous) => CarryOverInto(e,
 internal static void Resolve(Entry e, bool priming = false) => ResolveAndMip(e, priming);
 ''' + method(capture, '    private static bool CarryOverInto(') + method(capture, '    private static void ResolveAndMip(') + '\n}\n'
     face = (ROOT / 'src/GloomhavenVR/Cards/Art/CardFace.cs').read_text()
+    slots = (ROOT / 'src/GloomhavenVR/Cards/Tray/PlayTray.4.Slots.cs').read_text()
+    nested = (ROOT / 'src/GloomhavenVR/Cards/Tray/PlayTray.7.Nested.cs').read_text()
+    sources['ActualWanted.cs'] = '''using GloomhavenVR.Core; using UnityEngine;
+namespace GloomhavenVR.Cards; internal sealed class ActualWanted : MonoBehaviour {
+internal readonly Transform?[] _slots = new Transform?[2];
+internal readonly GameObject?[] _wantedHighlights = new GameObject?[2];
+private const float WantedGlowBaseZ = -.004f;
+private static float WantedGlowScale => 1.45f;
+private static void AdoptFurniture(GameObject cue) {}
+private static GameObject UnqualifiedQuad(string name, Transform parent, Vector3 scale, Vector3 position, Color color) {
+var cue = GameObject.CreatePrimitive(PrimitiveType.Quad); cue.name = name;
+Object.Destroy(cue.GetComponent<Collider>()); cue.transform.SetParent(parent, false);
+cue.transform.localScale = scale; cue.transform.localPosition = position;
+cue.GetComponent<MeshRenderer>().sharedMaterial = CardGlow.MakeGlowMaterial(color); cue.SetActive(false); return cue;
+}
+internal void Build() => BuildWantedHighlights();
+''' + method(slots, '    private void BuildWantedHighlights(') + method(nested, '    private sealed class SlotPulse') + '\n}\n'
     constants = '\n'.join(re.findall(r'^    private const (?:float|int) (?:SilhouetteAttemptInterval|FootprintWidth|MinOutlineAreaFraction|BackdropAreaFraction|MinOutlineCoverage) = [^;]+;', face, re.M))
     sources['ActualSilhouette.cs'] = '''using System.Collections.Generic; using GloomhavenVR.Core; using UnityEngine; using UnityEngine.UI;
 namespace GloomhavenVR.Cards; internal static class ActualSilhouette {
@@ -134,6 +151,12 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         ('owned-alpha-dimensions-ignored', 'QuestCardAlpha.cs', '|| entry.Width != source.width || entry.Height != source.height)', ')', 'owned alpha refuses mismatched native dimensions instead of guessing a resized contour'),
         ('owned-alpha-unavailable', 'QuestArtworkRegion.cs', 'return QuestCardAlpha.Read(source, x, y, width, height);', 'return null;', 'owned CPU alpha is available for a GPU-only native texture'),
         ('owned-alpha-interior-unconditionally-refused', 'ActualSilhouette.cs', 'if (DominatesUnknown(alpha, fw, fh, img, norm, sprite, crop))', 'if (alpha.Length < 0)', 'known native alpha proves an unreadable interior cannot change the ordinary union'),
+        ('owned-alpha-cache-admits-gpu', 'QuestArtworkRegion.cs', '".quest-owned-cpu-alpha-v1"', '"." + QuestTextureCopy.Recipe', 'Quest silhouette cache is isolated from old GPU-derived masks'),
+        ('drop-glow-owned-upload-missing', 'CardGlow.cs', 'QuestPrimitiveMesh.Rebuild(filter.sharedMesh, "card-drop-glow")', 'null', 'actual wanted-slot consumer owns explicit white COLOR on Quest'),
+        ('wanted-glow-reverts-native-quad', 'ActualWanted.cs', 'GameObject quad = CardGlow.CreateGlowQuad("WantedHighlight", slot!,', 'GameObject quad = UnqualifiedQuad("WantedHighlight", slot!,', 'actual wanted-slot consumer owns explicit white COLOR on Quest'),
+        ('drop-glow-additive-missing', 'CardGlow.cs', 'm.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.One);', 'm.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);', 'drop cues retain additive light over the existing board'),
+        ('drop-glow-release-missing', 'CardGlow.cs', 'if (_mesh != null) Object.Destroy(_mesh);', ';', 'owned cue mesh is released with its visual'),
+        ('alpha-provenance-missing', 'QuestArtworkEvidence.cs', '+ " contour=" + _abilityContour', '+ ""', 'existing bounded native artwork record names alpha delivery and actual contour outcome'),
     ]
     if args.case:
         variants = [row for row in variants if row[0] in args.case]

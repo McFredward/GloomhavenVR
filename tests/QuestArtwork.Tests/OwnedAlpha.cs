@@ -69,12 +69,24 @@ public static partial class DiagnosticProgram
                 Check(actual[y * 11 + x].a == original[(y + 5) * source.width + x + 7].a,
                     "owned alpha crops exact original mip-zero bytes without a GPU readback");
             object state = ActualSilhouette.State(); CardMesh.Writes = 0; CardMesh.LastAlpha = null;
-            ActualSilhouette.Capture(face, state);
+            bool debug = VRLog.WantsDebug; VRLog.WantsDebug = true;
+            try { ActualSilhouette.Capture(face, state); }
+            finally { VRLog.WantsDebug = debug; }
             Check(CardMesh.Writes == 1 && CardMesh.LastAlpha != null,
                 "actual contour caller obtains its complete native GPU-only union from owned CPU alpha");
             Check(CardMesh.LastAlpha!.Length == reference.Length, "owned alpha keeps ordinary native union dimensions");
             for (int i = 0; i < reference.Length; i++)
                 Check(CardMesh.LastAlpha[i] == reference[i], "owned alpha preserves every ordinary native union sample");
+            string record = "";
+            Application.LogCallback observe = (message, trace, type) => {
+                if (message.StartsWith("[Quest startup] artwork role=ability-header", StringComparison.Ordinal)) record = message;
+            };
+            Application.logMessageReceived += observe; VRLog.WantsDebug = true;
+            try { QuestArtworkEvidence.Image(image, "ability-header"); }
+            finally { Application.logMessageReceived -= observe; VRLog.WantsDebug = debug; }
+            Check(record.Contains("cpuAlpha=ready") && record.Contains("contour=applied")
+                && Encoding.UTF8.GetByteCount(record) <= 1000,
+                "existing bounded native artwork record names alpha delivery and actual contour outcome");
 
             var interiorTexture = Pattern("unknown-native-interior", 71); interiorTexture.Apply(false, true);
             var decoration = Keep(new GameObject("unreadable-interior", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image)));

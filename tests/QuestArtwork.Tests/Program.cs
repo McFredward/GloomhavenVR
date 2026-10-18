@@ -70,7 +70,7 @@ public static partial class DiagnosticProgram
         Shader.EnableKeyword("STEREO_INSTANCING_ON");
         QualifyOwnedCopies();
         var atlas = Pattern("ordinary-atlas", 3); var expected = atlas.GetPixels32();
-        Check(QuestArtworkRegion.CacheSuffix == "." + QuestTextureCopy.Recipe, "Quest silhouette cache is isolated from old builtin-copy masks");
+        Check(QuestArtworkRegion.CacheSuffix == ".quest-owned-cpu-alpha-v1", "Quest silhouette cache is isolated from old GPU-derived masks");
         foreach (Rect crop in new[] { new Rect(5, 7, 8, 6), new Rect(2, 16, 11, 7), new Rect(0, 0, 32, 24) })
         {
             var alphaRegion = Keep(QuestArtworkRegion.Read(atlas, (int)crop.x, (int)crop.y, (int)crop.width, (int)crop.height)!);
@@ -84,6 +84,10 @@ public static partial class DiagnosticProgram
         QualifyReadableColorSpace();
         QualifyContourRefusal();
         QualifyOwnedAlpha();
+        Check(RenderTexture.active == sentinel && GL.sRGBWrite == !sentinel.sRGB, "alpha observer retains ambient target and color state");
+        IEnumerator dropGlows = QualifyDropGlows();
+        while (dropGlows.MoveNext()) yield return null;
+        Check(RenderTexture.active == sentinel && GL.sRGBWrite == !sentinel.sRGB, "drop cue fixture restores ambient target and color state");
         QualifyPanelCopies();
         QualifyNativeHeader();
         QualifyNativePortraits();

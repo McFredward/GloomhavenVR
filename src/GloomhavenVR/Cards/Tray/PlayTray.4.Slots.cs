@@ -385,25 +385,20 @@ internal sealed partial class PlayTray
             if (slot == null || _wantedHighlights[i] != null)
                 continue;
             float xSpread = (i == 0 ? -0.5f : 0.5f) * ovSpacing; // spread the overlay pair apart along the slot axis
-            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            quad.name = "WantedHighlight";
-            Object.Destroy(quad.GetComponent<Collider>());
-            quad.transform.SetParent(slot, worldPositionStays: false);
             // Larger rim than the snap glow so the teal reads AROUND the gold when both show; sits a
             // hair less proud (base z -0.004) than the snap glow (-0.006) so the gold snap draws in
             // front of the teal, preserving the old ordering. 2026-08-11: this is now EXACTLY the
             // size of the card that will land here (SlotCardScale) — that is the whole point of the
             // shared dial, see SlotCardScale's doc — and the gold keeps its ratio to it.
             float wanted = WantedGlowScale;
-            quad.transform.localScale = new Vector3(w * wanted, h * wanted, 1f);
-            quad.transform.localPosition = new Vector3(ov.x + xSpread, ov.y, WantedGlowBaseZ + ov.z); // PROUD toward the player + per-board offset + pair spacing
-            var renderer = quad.GetComponent<MeshRenderer>();
             var baseColor = new Color(0.25f, 0.85f, 0.6f, 0.7f); // teal accent — the "drop here" hint
             // Emissive teal via Overlay (additive). CORE FIX: NEGATIVE local-Z (proud, toward the
-            // player) and NO RenderOnTop — depth-correct, no shine-through.
-            Material? mat = MakeGlowMaterial(baseColor);
-            if (mat != null)
-                renderer.sharedMaterial = mat;
+            // player) and NO RenderOnTop — depth-correct, no shine-through. Use the
+            // same factory as the snap/fan cue so Quest owns identical vertex inputs.
+            GameObject quad = CardGlow.CreateGlowQuad("WantedHighlight", slot!,
+                new Vector3(w * wanted, h * wanted, 1f),
+                new Vector3(ov.x + xSpread, ov.y, WantedGlowBaseZ + ov.z), baseColor);
+            var renderer = quad.GetComponent<MeshRenderer>();
             quad.AddComponent<SlotPulse>().Init(renderer, baseColor);
             // 2026-08-04 (status-placard defect family): additive glow, depth-less — ride the
             // board's furniture order group like the placard/labels.

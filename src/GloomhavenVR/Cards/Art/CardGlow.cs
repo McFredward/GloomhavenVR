@@ -1,3 +1,4 @@
+using GloomhavenVR.Core;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -49,6 +50,21 @@ internal static class CardGlow
         var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.name = name;
         Object.Destroy(quad.GetComponent<Collider>());
+        // The B685 headset still draws the control board but not its drop cues.
+        // These consumers retained Unity's builtin Quad while the menu/pointer
+        // already use the hardware-qualified explicit position/UV/white-COLOR
+        // upload. Give only these mod-owned unlit cues the same bounded upload;
+        // retain their material, depth, placement, pulse and desktop identity.
+        MeshFilter filter = quad.GetComponent<MeshFilter>();
+        Mesh? owned = QuestPrimitiveMesh.Rebuild(filter.sharedMesh, "card-drop-glow");
+        if (owned != null)
+        {
+            filter.sharedMesh = owned;
+            quad.AddComponent<QuestGlowMeshOwner>().Init(owned);
+        }
+        // Register the owner while the fresh primitive is active, before moving
+        // under a possibly inactive board. Unity omits OnDestroy on components
+        // that have never been active; a never-shown hint still owns its upload.
         quad.transform.SetParent(parent, worldPositionStays: false);
         quad.transform.localScale = localScale;
         quad.transform.localPosition = localPos;
@@ -81,6 +97,18 @@ internal static class CardGlow
     // rejected that whole flat-quad look — the card is now framed by WorldUI.SoftCueArt's outline
     // (breathing via SoftFramePulse) and the stack drifts embers, so nothing wanted a pulsing quad any
     // more. The board play slots keep their own PlayTray.SlotPulse, which is where that math came from.
+}
+
+/// <summary>Release only the optional Quest cue upload, never Unity's shared Quad.</summary>
+internal sealed class QuestGlowMeshOwner : MonoBehaviour
+{
+    private Mesh? _mesh;
+    internal void Init(Mesh mesh) => _mesh = mesh;
+    private void OnDestroy()
+    {
+        if (_mesh != null) Object.Destroy(_mesh);
+        _mesh = null;
+    }
 }
 
 /// <summary>
