@@ -116,6 +116,24 @@ cue.GetComponent<MeshRenderer>().sharedMaterial = CardGlow.MakeGlowMaterial(colo
 }
 internal void Build() => BuildWantedHighlights();
 ''' + method(slots, '    private void BuildWantedHighlights(') + method(nested, '    private sealed class SlotPulse') + '\n}\n'
+    remote = (ROOT / 'src/GloomhavenVR/Net/Remote/RemoteBoardFurniture.cs').read_text()
+    board = (ROOT / 'src/GloomhavenVR/Net/Board/BoardVisual.cs').read_text()
+    remote_pulse = remote[remote.index('internal sealed class RemoteGlowPulse : MonoBehaviour'):]
+    assert remote_pulse.rstrip().endswith('}') and remote_pulse.count('\ninternal ') == 0
+    sources['ActualRemoteGlow.cs'] = '''using UnityEngine;
+namespace GloomhavenVR.Net;
+internal sealed class ActualRemoteGlow : MonoBehaviour {
+internal Transform _root = null!;
+internal float _slotFrameW = .08255f, _slotFrameH = .1144f;
+internal Material? Reported;
+internal GameObject Build(string name, Vector3 local, float scale, float proud, Color color, bool pulse)
+    => BuildSlotGlow(name, local, scale, proud, color, pulse);
+private void ReportSlotGlowBlend(Material? material) => Reported = material;
+private static GameObject UnqualifiedGlow(string name, Transform parent, Vector3 scale, Vector3 position, Color color, Material material) {
+var mr = BoardVisual.Quad(parent, name, new Vector2(scale.x, scale.y), material);
+mr.transform.localPosition = position; mr.gameObject.SetActive(false); return mr.gameObject;
+}
+''' + method(remote, '    private GameObject BuildSlotGlow(') + '\n}\n' + remote_pulse + '\ninternal static class BoardVisual {\n' + method(board, '    internal static MeshRenderer Quad(') + method(board, '    internal static Material Unlit(') + '\n}\n'
     constants = '\n'.join(re.findall(r'^    private const (?:float|int) (?:SilhouetteAttemptInterval|FootprintWidth|MinOutlineAreaFraction|BackdropAreaFraction|MinOutlineCoverage) = [^;]+;', face, re.M))
     sources['ActualSilhouette.cs'] = '''using System.Collections.Generic; using GloomhavenVR.Core; using UnityEngine; using UnityEngine.UI;
 namespace GloomhavenVR.Cards; internal static class ActualSilhouette {
@@ -157,6 +175,7 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         ('drop-glow-additive-missing', 'CardGlow.cs', 'm.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.One);', 'm.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);', 'drop cues retain additive light over the existing board'),
         ('drop-glow-release-missing', 'CardGlow.cs', 'if (_mesh != null) Object.Destroy(_mesh);', ';', 'owned cue mesh is released with its visual'),
         ('alpha-provenance-missing', 'QuestArtworkEvidence.cs', '+ " contour=" + _abilityContour', '+ ""', 'existing bounded native artwork record names alpha delivery and actual contour outcome'),
+        ('remote-drop-glow-owned-upload-missing', 'ActualRemoteGlow.cs', 'Cards.CardGlow.CreateGlowQuad(name, _root,', 'UnqualifiedGlow(name, _root,', 'actual mirrored slot guide owns the same explicit Quest vertex inputs'),
     ]
     if args.case:
         variants = [row for row in variants if row[0] in args.case]

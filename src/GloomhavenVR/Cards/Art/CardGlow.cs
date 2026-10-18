@@ -45,7 +45,7 @@ internal static class CardGlow
     /// GameObject so the caller can attach extra behaviour (e.g. a pulse) or toggle it.
     /// </summary>
     internal static GameObject CreateGlowQuad(string name, Transform parent, Vector3 localScale,
-        Vector3 localPos, Color color)
+        Vector3 localPos, Color color, Material? material = null)
     {
         var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.name = name;
@@ -68,7 +68,9 @@ internal static class CardGlow
         quad.transform.SetParent(parent, worldPositionStays: false);
         quad.transform.localScale = localScale;
         quad.transform.localPosition = localPos;
-        Material? mat = MakeGlowMaterial(color);
+        // Remote furniture already resolves its exact material/fallback for the
+        // blend report. Reuse that object rather than allocating a second tint.
+        Material? mat = material ?? MakeGlowMaterial(color);
         if (mat != null)
             quad.GetComponent<MeshRenderer>().sharedMaterial = mat;
         quad.SetActive(false);

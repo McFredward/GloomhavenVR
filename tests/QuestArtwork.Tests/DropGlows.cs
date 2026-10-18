@@ -14,6 +14,7 @@ public static partial class DiagnosticProgram
         RenderTexture priorTarget = RenderTexture.active;
         bool priorColor = GL.sRGBWrite;
         Camera priorCamera = Camera.current;
+        Mesh[] mirroredUploads = QualifyRemoteDropGlows();
         var host = Keep(new GameObject("actual-control-board-cues"));
         var wanted = host.AddComponent<ActualWanted>();
         for (int i = 0; i < 2; i++)
@@ -112,8 +113,65 @@ public static partial class DiagnosticProgram
         yield return null;
         Check(uploaded == null && native != null, "owned cue mesh is released with its visual");
         Check(neverShownMesh == null, "never-shown inactive board cue also releases its owned mesh");
+        foreach (Mesh mirrored in mirroredUploads)
+            Check(mirrored == null, "mirrored inactive slot guide releases its owned Quest upload");
         host.SetActive(false); blocker.SetActive(false);
         if (stereo) Shader.EnableKeyword("STEREO_INSTANCING_ON");
         Camera.SetupCurrent(priorCamera); RenderTexture.active = priorTarget; GL.sRGBWrite = priorColor;
+    }
+
+    private static Mesh[] QualifyRemoteDropGlows()
+    {
+        var uploads = new System.Collections.Generic.List<Mesh>();
+        var nativeObject = Keep(GameObject.CreatePrimitive(PrimitiveType.Quad));
+        Mesh native = nativeObject.GetComponent<MeshFilter>().sharedMesh; nativeObject.SetActive(false);
+        foreach (bool quest in new[] { false, true })
+        {
+            QuestStandalonePlatform.Enabled = quest;
+            var root = Keep(new GameObject("mirrored-slot-guides")); root.SetActive(false);
+            root.transform.position = new Vector3(1, 2, 3);
+            root.transform.rotation = Quaternion.Euler(17, -24, 8); root.transform.localScale = Vector3.one * 1.7f;
+            var owner = root.AddComponent<GloomhavenVR.Net.ActualRemoteGlow>(); owner._root = root.transform;
+            foreach (bool pulse in new[] { false, true })
+            {
+                Color color = pulse ? new Color(.25f, .85f, .6f, .7f) : new Color(1, .85f, .3f, .95f);
+                var local = new Vector3(.12f, -.03f, -.002f); const float scale = 1.71f, proud = -.0052f;
+                GameObject cue = owner.Build(pulse ? "RemoteWanted" : "RemoteSnap", local, scale, proud, color, pulse);
+                var renderer = cue.GetComponent<MeshRenderer>(); Mesh mesh = cue.GetComponent<MeshFilter>().sharedMesh;
+                Check(cue.transform.parent == root.transform && !cue.activeSelf
+                    && cue.transform.localPosition == new Vector3(local.x, local.y, local.z + proud)
+                    && cue.transform.localScale == new Vector3(owner._slotFrameW * scale, owner._slotFrameH * scale, 1),
+                    "mirrored guide retains owner metrics, proud depth and inactive state");
+                Check(renderer.sharedMaterial == owner.Reported && owner.Reported != null
+                    && owner.Reported.color == color, "mirrored guide reuses its exact resolved material without duplicate allocation");
+                Check(renderer.shadowCastingMode == ShadowCastingMode.Off && !renderer.receiveShadows,
+                    "mirrored guide retains its unshadowed presentation");
+                if (quest)
+                {
+                    Check(mesh != native && mesh.HasVertexAttribute(VertexAttribute.Color)
+                        && cue.GetComponent<QuestGlowMeshOwner>() != null,
+                        "actual mirrored slot guide owns the same explicit Quest vertex inputs");
+                    uploads.Add(mesh);
+                    for (int vertex = 0; vertex < native.vertexCount; vertex++)
+                        Check(mesh.vertices[vertex] == native.vertices[vertex]
+                            && mesh.uv[vertex] == native.uv[vertex] && mesh.colors[vertex] == Color.white,
+                            "mirrored guide keeps exact native geometry and original UVs");
+                }
+                else Check(mesh == native && cue.GetComponent<QuestGlowMeshOwner>() == null,
+                    "desktop mirrored guide retains its original shared primitive identity");
+                var animation = cue.GetComponent<GloomhavenVR.Net.RemoteGlowPulse>();
+                Check((animation != null) == pulse, "only original mirrored wanted guides receive a pulse");
+                if (pulse)
+                {
+                    animation!.GetType().GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(animation, null);
+                    float k = Mathf.Lerp(.30f, .85f, .5f + .5f * Mathf.Sin(Time.unscaledTime * 3.2f));
+                    Check(renderer.sharedMaterial.color == new Color(color.r * k, color.g * k, color.b * k, k),
+                        "mirrored wanted guide retains the native pulse waveform and brightness");
+                }
+                Object.DestroyImmediate(cue);
+            }
+        }
+        QuestStandalonePlatform.Enabled = true;
+        return uploads.ToArray();
     }
 }
