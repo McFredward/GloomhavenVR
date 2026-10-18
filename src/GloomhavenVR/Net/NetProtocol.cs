@@ -612,7 +612,29 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 685;
+    public const ushort ModBuild = 686;
+
+    // ModBuild686 — Quest consumer paths, animated loading and drop guides.
+    // Capture103822 proves installed/current685, previous684. The maintainer
+    // still sees only part of the world and an endless scenario spinner;
+    // completed internal room placement is not complete visible scene readiness.
+    // B685 installed exact CPU alpha above the actual mod ResourceDirectory.
+    // Publish under StreamingAssets before activation, qualify the real startup
+    // boundary and retire only old GPU-derived contour-cache recipes on Quest.
+    // Wanted/snap/fan glows now own the same explicit primitive inputs as the
+    // hardware-qualified pointer/menu path. Keep their artwork, depth and pulse.
+    // Native loading overlay starts at alpha0; do not freeze that acquisition
+    // value into every subsequent animated alpha. Preserve base/RGB/desktop.
+    // The private desktop generation wait subscribes hidden preview observers
+    // and uses a960-frame cap in retained data. Quest directly awaits scoped
+    // requested placement/material readiness; the original outer loading flow
+    // still owns networking, input and closure. No timeout or forced completion.
+    // Bound the first actual blocker through that same decision code. Native
+    // dark-world shading/final XR coverage remain unresolved; do not change
+    // global color space, material/light defaults or hidden renderer state.
+    // Preserve the confirmed laser, full viewport, density and B683 blit.
+    // Compact code update and reuse the existing small locally derived alpha;
+    // no original/mod bank conversion or full local APK build is required.
 
     // ModBuild685 — Quest loading dependencies and original physical card cuts.
     // Capture094059 proves installed/current684, previous683. The maintainer

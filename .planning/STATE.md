@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest consumer and loading follow-up, 2026-10-18: feature / B686.**
+
+Capture103822 verifies installed/current685, previous684. No new screenshot was
+supplied; the prior113913 partial-world image was inspected. The maintainer
+explicitly confirms the partial world AND endless scenario spinner remain.
+Room placement/handle counters are not visible scene completion. Correct the
+CPU-alpha installation's wrong parent directory before plugin activation, use
+a distinct exact-CPU contour cache, own drop-cue primitive inputs, and separate
+native loading glow from its acquisition-time zero alpha. Replace Quest's
+private unscoped960-frame wait with actual requested readiness, preserving the
+original outer networking/input/closure. Retain bounded first-blocker and actual
+native-world/light evidence; no qualified whole-world visual cure is claimed.
+Use compact Mod Update and retained banks. See
+[QUEST-HARDWARE-103822-20261018.md](QUEST-HARDWARE-103822-20261018.md).
+
 **Quest loading dependencies and physical card cuts, 2026-10-18: feature / B685.**
 
 Capture094059 verifies installed/current684, previous683; its screenshot was
