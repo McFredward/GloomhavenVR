@@ -1,7 +1,7 @@
 using UnityEngine;
 namespace GloomhavenVR.Core
 {
-    internal static class VRLog { internal static void Debug(string scope, string value) { } internal static void Warn(string scope, string value) { } }
+    internal static class VRLog { internal static void Info(string scope, string value) { } internal static void Debug(string scope, string value) { } internal static void Warn(string scope, string value) { } }
     internal static class VRLayers { internal const int ModLayer = 31; }
 }
 namespace GloomhavenVR.Rig

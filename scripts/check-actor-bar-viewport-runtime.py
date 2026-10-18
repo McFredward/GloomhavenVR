@@ -33,10 +33,10 @@ def main():
     production = source.read_text()
     before = 'Rect viewport = Viewport(camera, ref width, ref height);'
     assert production.count(before) == 1, 'Production provider-query boundary drift'
-    assert production.count('return XrViewportPixels(parameter.viewport, pass.renderTargetDesc, ref width, ref height);') == 1, 'Actual XR provider conversion/descriptor binding drift'
+    assert production.count('XrViewportPixels(parameter.viewport, pass.renderTargetDesc, ref width, ref height);') == 1, 'Actual XR provider conversion/descriptor binding drift'
     injected = production.replace(before, 'Rect viewport = ViewportFixture.ProviderViewport(ref width, ref height);')
     mutations = [('production', injected, '')]
-    old = 'return new Rect(normalized.x * width, normalized.y * height,\n            normalized.width * width, normalized.height * height);'
+    old = 'return XrPixelViewport(normalized, width, height);'
     assert injected.count(old) == 1, 'Normalized viewport conversion binding drift'
     mutations.append(('normalized-as-pixels', injected.replace(old, 'return normalized;'),
                       'production depth capture occupies the expected provider pixel subrect'))
