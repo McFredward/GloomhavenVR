@@ -27,6 +27,21 @@ class StageProgressTests(unittest.TestCase):
     def progress(self, stage='build'):
         return next(row for row in self.store.load(self.session)['stages'] if row['id'] == stage)['progress']
 
+    def test_figure_derivative_and_bank_work_share_one_monotonic_operation(self):
+        self.store.begin_stage(self.session, 'build', 'figures')
+        self.store.operation(self.session, 'build', 'figure-banks')
+        before = self.progress()['stagePercent']
+        for done, detail in ((100, 'extract1/2'), (200, 'extract2/2'), (350, 'mesh1/4'), (800, 'mesh4/4'), (850, 'bank1/4'), (999, 'bank4/4')):
+            self.store.progress(self.session, 'build', 'figure-banks', done, 1000, 'work-shares', detail=detail, operation='figure-banks')
+            current = self.progress()
+            self.assertEqual(current['stageOperation'], 'figure-banks')
+            self.assertGreater(current['stagePercent'], before)
+            self.assertLess(current['stagePercent'], 100)
+            before = current['stagePercent']
+        self.store.operation(self.session, 'build', 'figure-banks', complete=True)
+        self.store.operation(self.session, 'build', 'weave')
+        self.assertGreaterEqual(self.progress()['stagePercent'], before)
+
     def test_every_stage_has_one_finite_total_and_100_requires_verified_completion(self):
         for name in state.STAGES:
             self.store.begin_stage(self.session, name, 'same-' + name)
@@ -365,7 +380,7 @@ class StageProgressTests(unittest.TestCase):
         self.assertEqual(sum(stage_plan.BUILD_SHARES.values()), 100)
         self.store.operation(self.session, 'build', 'startup-content')
         overview = self.progress()['buildOverview']
-        self.assertEqual(overview['total'], 23)
+        self.assertEqual(overview['total'], 24)
         self.assertEqual(overview['active'], 'startup-content')
         self.assertEqual([group['id'] for group in overview['groups']], ['inputs', 'recovery', 'project', 'code', 'import', 'export'])
         remaining = [item['id'] for group in overview['groups'] for item in group['operations'] if not item['closed']]

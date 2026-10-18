@@ -1596,6 +1596,10 @@ def validate_player_shader_log(path):
 
 def build(args, inputs: dict, output: Path, source: Path, game: Path, project: Path) -> Path:
     tools = toolchain(args, output)
+    if args.target == "game":
+        figures = _local_helper("figure_banks")
+        figure_root, figure_manifest = figures.produce(_module_context(), args, source, game, output, inputs["game"], Path(tools["editor"]))
+        figures.stage(project, figure_root, figure_manifest)
     build_progress.operation("weave", detail="Compiling current VR mod and adapting original managed game assemblies")
     weave(args, inputs, output, source, game, project)
     build_progress.operation("weave", complete=True, detail="Current mod and original managed game bindings compiled")

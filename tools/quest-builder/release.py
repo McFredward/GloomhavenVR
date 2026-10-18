@@ -18,7 +18,7 @@ AUTHORED_LINKS = {
 PUBLIC_PACKAGES = {'prebuilt/quest-converters-win64-v1.zip': '61f7d664384b12663fb4fb799ffb8566bf11e99e15ce72c7afb00d5b62199f2d'}
 ROOT_FILES = {'Quest-Builder.cmd', 'Quest-Builder.sh', 'Quest-Repair-Access.cmd', 'Quest-Repair-Access.sh', 'QUEST-BUILDER-START.txt', 'LICENSE', 'Directory.Build.props', 'GloomhavenVR.sln', 'global.json', 'nuget.config', '.editorconfig'}
 TOOL_ROOTS = {'QuestCampaignInventory', 'QuestProceduralExport', 'QuestWeaver', 'RuntimeDepsBuild',
-              'ShaderOcclusionPatcher', 'environment-mesh', 'quest-builder', 'quest-campaign-audit', 'quest-compute',
+              'ShaderOcclusionPatcher', 'environment-mesh', 'figure-mesh', 'quest-builder', 'quest-campaign-audit', 'quest-compute',
               'quest-installer', 'quest-native', 'quest-network', 'quest-procedural',
               'quest-procedural-runtime', 'quest-recovery', 'quest-shaders', 'quest-wizard', 'quest-wizard-ui'}
 UNITY_ROOTS = {'GloomhavenVR.Assets', 'GloomhavenVR.Quest', 'GloomhavenVR.FigureMeshes'}
@@ -43,6 +43,7 @@ LINUX_REQUIRED = {'Quest-Builder.sh', 'scripts/quest-builder-wizard.sh', 'tools/
 # original geometry and its derived receipt never become public ZIP inputs.
 OWNED_DERIVED_ROOTS = ('unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/',)
 OWNED_DERIVED_FILES = {'tools/environment-mesh/bank.json', 'tools/environment-mesh/manifest.json',
+                       'tools/figure-mesh/manifest.json', 'tools/figure-mesh/distance-manifest.json',
                        'tools/environment-mesh/catalog.json', 'tools/environment-mesh/catalog.json.gz',
                        'tools/environment-mesh/ornaments.json'}
 
@@ -88,6 +89,14 @@ REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
     'tools/quest-wizard-ui/assets/provenance.json',
     'tools/quest-builder/recovery_resume.py',
     'tools/quest-builder/environment_bank.py',
+    'tools/quest-builder/figure_banks.py',
+    'tools/figure-mesh/QuestFigureMeshGenerator.cs',
+    'tools/figure-mesh/Generator.csproj',
+    'tools/figure-mesh/export-native.py',
+    'tools/figure-mesh/NativeFigureMeshStream.cs',
+    'tools/figure-mesh/ScenarioFigureMeshTopology.cs',
+    'tools/figure-mesh/UnityMeshSimplifier/MeshSimplifier.cs',
+    'tools/figure-mesh/UnityMeshSimplifier/LICENSE.md',
     'tools/environment-mesh/export-native.py',
     'tools/environment-mesh/geometry.py',
     'tools/environment-mesh/roles.py',

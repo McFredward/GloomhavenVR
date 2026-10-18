@@ -20,6 +20,8 @@ internal static class ScenarioFigureMeshBank
     private static readonly List<AssetBundle> Banks = new();
     private static readonly Dictionary<string, Mesh> Meshes = new();
     private static readonly Dictionary<int, string> SourceKeys = new();
+    internal static string Diagnostics => "figureBank indexAttempted=" + _indexAttempted + " entries=" + Index.Count
+        + " parts=" + Banks.Count + " derivatives=" + Meshes.Count + " missing=" + Missing.Count;
     private static readonly HashSet<string> Missing = new();
 
     internal static string Key(Mesh source, bool? nativeReadable = null)

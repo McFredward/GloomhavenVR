@@ -91,6 +91,39 @@ class ApkUpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(storage.BuildError, "scope"):
             self.publish({"assets/quest-card-alpha-unrelated.bin": alpha})
 
+    def test_owned_figure_parts_stream_without_buffering_or_changing_game_bytes(self):
+        part = self.root / "part.bundle"; payload = b"owned-figure-stream" * 100000
+        part.write_bytes(payload); member = "assets/QuestFigureMeshes/ghvr-figure-meshes-quest-20-00.bundle"
+        seen = []
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("no full part buffering")):
+            self.publish({member: part}, progress=lambda *row: seen.append(row))
+        with zipfile.ZipFile(self.output) as result: self.assertEqual(result.read(member), payload)
+        self.assertEqual(self.compressed(self.base, "assets/game-textures.resource"), self.compressed(self.output, "assets/game-textures.resource"))
+        self.assertEqual(seen[-1][0], seen[-1][1])
+        self.assertTrue(all(a[0] <= b[0] for a, b in zip(seen, seen[1:])))
+        with self.assertRaisesRegex(storage.BuildError, "Only owned figure"):
+            self.publish({update.PROFILE: part})
+
+    def test_figure_stream_rejects_changed_source_and_preserves_existing_output(self):
+        part = self.root / "part.bundle"; part.write_bytes(b"original-part" * 1000)
+        member = "assets/QuestFigureMeshes/ghvr-figure-meshes-quest-20-00.bundle"
+        self.output.write_bytes(b"previous-output")
+        def change(*_): part.write_bytes(b"changed")
+        with self.assertRaisesRegex(storage.BuildError, "Figure replacement changed"):
+            self.publish({member: part}, progress=change)
+        self.assertEqual(self.output.read_bytes(), b"previous-output")
+
+    def test_signed_figure_part_corruption_or_truncation_is_rejected(self):
+        part = self.root / "part.bundle"; part.write_bytes(b"original-owned-figure" * 1000)
+        member = "assets/QuestFigureMeshes/ghvr-figure-meshes-quest-5-00.bundle"
+        for data in (b"truncated", b"corrupt-owned-figure!" * 1000):
+            def corrupt(path):
+                with zipfile.ZipFile(path) as archive: values = {name: archive.read(name) for name in archive.namelist()}
+                values[member] = data; self.write_zip(path, values)
+            with self.assertRaisesRegex(storage.BuildError, "figure replacement"):
+                update.repack(self.base, self.output, {member: part}, update_manifest=self.provenance,
+                              signer=corrupt, verifier=lambda _: None)
+
     def test_signature_failure_keeps_previous_output_and_input(self):
         self.output.write_bytes(b"previous published result"); before = self.base.read_bytes()
         def fail(_): raise storage.BuildError("controlled signer failed")

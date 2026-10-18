@@ -26,6 +26,7 @@ internal static class ScenarioEnvironmentBudget
     private const int MaxBatchVertices = 48000;
     private const int MaxBatchMembers = 24;
     private static Driver? _driver;
+    internal static string Diagnostics => _driver != null ? _driver.DescribeConsumers() : "environment driver=unavailable failed=" + _failed;
     private static LeaseRecovery? _recovery;
     private static bool _failed;
     private static Func<bool>? _structuralEnabled;
@@ -738,6 +739,16 @@ internal static class ScenarioEnvironmentBudget
         private bool _unsupportedShaderNoted;
 
         internal bool IsPreparingPresentation => _pending.Count > 0 || _parts.Count > 0;
+        internal string DescribeConsumers()
+        {
+            int chunkSources = 0, instanceSources = 0;
+            foreach (Batch batch in _batches) chunkSources += batch.MaskedSourceCount;
+            foreach (InstanceBatch batch in _instances) instanceSources += batch.MaskedSourceCount;
+            return "environment active=" + _active + " failed=" + _failed + " surfaces=" + _surfaces.Count
+                + " simpleShader=" + (_shader == null ? "unresolved" : _shader.isSupported ? "supported" : "unsupported-native-fallback")
+                + " chunks=" + _batches.Count + " instances=" + _instances.Count + " leasedSources=" + chunkSources + "/" + instanceSources
+                + " pending=" + _pending.Count + "/" + _parts.Count + " meshBank=" + _meshBankOn + " unreadable=" + _unreadable;
+        }
 
         private void Awake()
         {

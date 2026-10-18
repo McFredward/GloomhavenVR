@@ -499,6 +499,16 @@ def builder_producer_digest(raw, *, original_prefix=False):
         tree = ast.parse(raw.decode("utf-8"))
     except (UnicodeError, SyntaxError) as error:
         raise BuildError("Preparation Builder source cannot be parsed.") from error
+    # The reviewed late build() addition stages a separately keyed owned figure
+    # sidecar, outside every retained original-asset producer. Qualify the ENTIRE
+    # function first; an unknown ordering/argument/call/body edit stays a mismatch.
+    # Figure recipe and original bundle identity are admitted independently by
+    # figure_banks.plan, never by this original Campaign compatibility alias.
+    for node in tree.body:
+        if (isinstance(node, ast.FunctionDef) and node.name == "build"
+                and hashlib.sha256(ast.dump(node, include_attributes=False).encode()).hexdigest()
+                    == "e3e70e215d72af2f63164f4e999f7e6a2766b5e4725688b02997bb85a138dd4b"):
+            del node.body[1]
     tree = _without_memory_coordination(tree)
     tree.body = [node for node in tree.body
                  if ast.dump(node, include_attributes=False) != ast.dump(LOAD, include_attributes=False)]

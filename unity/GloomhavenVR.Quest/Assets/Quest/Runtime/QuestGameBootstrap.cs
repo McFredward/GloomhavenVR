@@ -139,6 +139,15 @@ namespace GloomhavenVR.Quest
             string modRoot = Path.Combine(Application.persistentDataPath, "quest-mod-resources");
             yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");
             if (State == "failed") yield break;
+            decimal installedModWeight = modContentWeight;
+            yield return QuestFigureMeshContent.InstallRoutine(Application.platform == RuntimePlatform.Android && !Application.isEditor
+                ? Application.dataPath : null, Application.streamingAssetsPath, Path.Combine(modRoot, "StreamingAssets"),
+                progress => {
+                    State = "extracting-mod-content";
+                    modContentWeight = installedModWeight + progress.OverallTotalBytes;
+                    ReportContentProgress(new QuestGameContentProgress(progress.Phase, progress.File, progress.ProcessedBytes, progress.TotalBytes,
+                        (long)installedModWeight + progress.OverallProcessedBytes, (long)modContentWeight, progress.FileIndex, progress.FileCount));
+                }, UpdateStartupPresentation);
             // Exact card contours travel as a tiny independent APK asset. Never
             // reopen/reinstall the Campaign or mod bank for an alpha-only update.
             // Activate publishes modRoot/StreamingAssets as ResourceDirectory.

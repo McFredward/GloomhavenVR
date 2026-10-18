@@ -47,7 +47,7 @@ PLANS = {
     "unity": ("hub", "editor", "prerequisites", "output-verify"),
     "profile": ("logo", "identity", "output-verify"),
     "inspect": ("game-inputs", "mod-inputs", "profile-inputs", "manifest", "output-verify"),
-    "build": ("game-inputs", "mod-inputs", "profile-inputs", "source-snapshot", "game-snapshot", "snapshot-check", "recovery", "project-files", "startup-content", "native-runtime", "audio", "textures", "graphics", "mod-banks", "preparation-contracts", "weave", "unity-import", "package-api", "unity-validation", "content-bank", "player", "delivery", "output-verify"),
+    "build": ("game-inputs", "mod-inputs", "profile-inputs", "source-snapshot", "game-snapshot", "snapshot-check", "recovery", "project-files", "startup-content", "native-runtime", "audio", "textures", "graphics", "mod-banks", "preparation-contracts", "figure-banks", "weave", "unity-import", "package-api", "unity-validation", "content-bank", "player", "delivery", "output-verify"),
     "install": ("connect", "apk", "content", "launch", "output-verify"),
 }
 
@@ -56,9 +56,9 @@ PLANS = {
 # operations had already consumed 28.6% of the equally weighted old bar. Give
 # conversion/import their own useful spans and count each scheduled package
 # inside conversion. Only actual counters and successful boundaries advance it.
-BUILD_SHARES = dict(zip(PLANS["build"], (1, 1, 1, 1, 2, 1, 40, 1, 1, 2, 2, 5, 2, 2, 1, 2, 18, 1, 1, 4, 8, 2, 1)))
+BUILD_SHARES = dict(zip(PLANS["build"], (1, 1, 1, 1, 2, 1, 40, 1, 1, 2, 2, 5, 2, 2, 1, 2, 2, 16, 1, 1, 4, 8, 2, 1)))
 BUILD_GROUPS = {"inputs": PLANS["build"][:6], "recovery": ("recovery",),
-                "project": PLANS["build"][7:15], "code": ("weave",),
+                "project": PLANS["build"][7:15], "code": ("figure-banks", "weave"),
                 "import": ("unity-import", "package-api", "unity-validation"),
                 "export": ("content-bank", "player", "delivery", "output-verify")}
 UPDATE_PLANS = {
@@ -327,7 +327,7 @@ def update_alias(row, name):
     aliases = {"source-snapshot": "update-mod-source", "game-snapshot": "update-mod-source", "snapshot-check": "update-mod-source",
                "weave": "update-code", "package-api": "update-code", "unity-import": "update-code",
                "unity-validation": "update-code", "unity-build": "update-code",
-               "mod-banks": "update-art", "mod-resource-banks": "update-art", "delivery": "update-repack"}
+               "mod-banks": "update-art", "mod-resource-banks": "update-art", "figure-banks": "update-art", "delivery": "update-repack"}
     parent = aliases.get(name)
     if parent == "update-code" and row.get("progressPlan", {}).get("liveOperation") == "update-art": return "update-art"
     return parent
@@ -336,6 +336,7 @@ def update_alias(row, name):
 def phase_operation(stage, phase, value):
     """Recognize only counters with a known parent; arbitrary nested work stays local."""
     if phase == "output-verify": return "output-verify", True
+    if stage == "build" and phase == "figure-banks": return "figure-banks", True
     if phase == "receipt-verify": return None, False
     if phase == "package-import" and stage in ("tools", "profile"):
         return "qualify" if stage == "tools" else "identity", True

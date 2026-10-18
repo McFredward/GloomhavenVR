@@ -41,7 +41,7 @@ class ProgressTests(ProgressFixture):
         self.assertEqual(value["lastProgressAt"], value["updatedAt"])
         self.assertEqual(value["lastActivityAt"], value["updatedAt"])
         self.assertEqual(value["buildOverview"]["schema"], 1)
-        self.assertEqual(value["buildOverview"]["total"], 23)
+        self.assertEqual(value["buildOverview"]["total"], 24)
 
     def test_unknown_total_and_elapsed_time_never_invent_percentage(self):
         self.store.progress(self.session, "build", "unity", detail="Importing original assets")

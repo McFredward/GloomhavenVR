@@ -39,6 +39,12 @@ def _native_resume():
     return module
 
 
+def _figures():
+    spec = importlib.util.spec_from_file_location("quest_owned_figure_banks", Path(__file__).with_name("figure_banks.py"))
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    return module
+
+
 def card_alpha_delivery(builder, inputs, output, game):
     """Add only exact CPU outline bytes; retain every original serialized bank."""
     if not any(row.get("path") == "src/GloomhavenVR/Cards/Art/QuestCardAlpha.cs"
@@ -116,9 +122,10 @@ def inspect(builder, args, repo, output, data=None):
         requirements = update_requirements(builder, repo, base, files, inputs["mod"]["modBuild"])
         reasons, code_changed, art_changed = (requirements[name] for name in ("rebuildReasons", "codeChanged", "artChanged"))
         native_helper_changed = requirements["nativeHelperChanged"]
+        figure_banks_changed = requirements["figureBanksChanged"]
     else:
         reasons = []
-        code_changed = art_changed = native_helper_changed = False
+        code_changed = art_changed = native_helper_changed = figure_banks_changed = False
     # Owned game and DLC qualification above must precede any local key creation.
     source_stamp = _core(builder)._base_stamp(base_apk)
     source_change_stamp = _selection_stamp(builder, [base_apk])
@@ -135,11 +142,12 @@ def inspect(builder, args, repo, output, data=None):
             "signing": identity, "sourcePackage": base.get("sourcePackage"),
             "ownedGame": proof, "inputs": inputs,
             "updateStrategy": "cached-full-build" if reasons else "compact-code" if mode == "update-mod" else "profile-only",
-            "rebuildReasons": reasons, "requiresUnity": bool(reasons or code_changed or art_changed or native_helper_changed),
+            "rebuildReasons": reasons, "requiresUnity": bool(reasons or code_changed or art_changed or native_helper_changed or figure_banks_changed),
             "codeChanged": code_changed, "artChanged": art_changed, "nativeHelperChanged": native_helper_changed,
+            "figureBanksChanged": figure_banks_changed,
             "nativeCompilerRecipe": _native_resume().compiler_recipe(builder, __file__),
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
-                ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py")}}
+                ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "figure_banks.py")}}
     plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name not in ("baseApk", "sourcePackage")})
     root = output / "updates" / plan["updateKey"]
     builder.write_json(root / "plan.json", plan)
@@ -466,7 +474,7 @@ def _update_source_rows(files, *, art_changed, native_changed=False):
     source conversion and may be reused by a genuine later full build.
     """
     if art_changed: return files
-    prefixes = ("src/", "tools/QuestWeaver/", "unity/GloomhavenVR.Quest/", "libs/RefAsm/", "libs/RuntimeDeps/")
+    prefixes = ("src/", "tools/QuestWeaver/", "tools/figure-mesh/", "unity/GloomhavenVR.Quest/", "libs/RefAsm/", "libs/RuntimeDeps/")
     # The release inventory describes complete inputs; this private partial
     # compiler snapshot must not advertise itself as another complete release.
     native_paths = ({"tools/quest-procedural-runtime/" + name for name in (*_proton_helpers().SOURCE_NAMES, "runtime.py", "upstream.lock.json")}
@@ -700,9 +708,13 @@ def update_requirements(builder, source, base, files, mod_build):
     art_changed = _art_rows(files) != _art_rows(current_mod["files"])
     native_changed = bool(_proton_helpers().changed_rows(_native_rows(files), _native_rows(current_mod["files"]),
                                                        original.get("proceduralBackend")))
+    figure_changed = False
+    if any(row.get("path") == "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestFigureMeshContent.cs" for row in files):
+        expected_figures = _figures().plan(source, original["game"])
+        figure_changed = (base.get("figureBanks") or {}).get("producerKey") != expected_figures["producerKey"]
     return {"rebuildReasons": reasons, "codeChanged": code_changed, "artChanged": art_changed,
-            "nativeHelperChanged": native_changed,
-            "requiresUnity": bool(reasons or code_changed or art_changed or native_changed),
+            "nativeHelperChanged": native_changed, "figureBanksChanged": figure_changed,
+            "requiresUnity": bool(reasons or code_changed or art_changed or native_changed or figure_changed),
             "updateStrategy": "cached-full-build" if reasons else "compact-code"}
 
 
@@ -1138,7 +1150,7 @@ def run(builder, args, repo, output):
             builder.build_progress.operation("update-profile", complete=True, detail="Signed offline profile prepared; no Unity build.")
         else:
             changed_art = plan["artChanged"]
-            if plan["codeChanged"] or changed_art or plan.get("nativeHelperChanged"):
+            if plan["codeChanged"] or changed_art or plan.get("nativeHelperChanged") or plan.get("figureBanksChanged"):
                 builder.build_progress.operation("update-mod-source", detail="Freezing the current mod source.")
                 source_rows = _update_source_rows(inputs["mod"]["files"], art_changed=changed_art,
                                                  native_changed=bool(plan.get("nativeHelperChanged")))
@@ -1188,6 +1200,11 @@ def run(builder, args, repo, output):
                 installation["mod"] = manifest
                 replacements["assets/Quest/installation-manifest.json"] = json.dumps(installation, sort_keys=True).encode()
             replacements.update(card_alpha_delivery(builder, inputs, output, builder.game_data(args.game_root)))
+            if plan.get("figureBanksChanged"):
+                figures = _figures()
+                figure_root, figure_manifest = figures.produce(builder, args, source, builder.game_data(args.game_root),
+                    output, inputs["game"], Path(tools["editor"]))
+                replacements.update(figures.replacements(figure_root, figure_manifest))
             builder.build_progress.operation("update-art", complete=True, detail="Changed mod art built or unchanged embedded banks reused.")
             replacements["assets/Quest/offline-profile.json"] = builder.canonical(inputs["profile"])
         update = {"schema": 1, "updateKey": update_key, "mode": args.command,

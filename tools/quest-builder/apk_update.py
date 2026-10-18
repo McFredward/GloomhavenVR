@@ -138,6 +138,7 @@ def inspect_base(path, *, validate_update_contracts=True):
                     "capsule": capsule, "update": update, "legacy": capsule is None,
                     "currentMod": update.get("mod", manifest.get("mod")) if update else manifest.get("mod"),
                     "currentProfile": update.get("profile", manifest.get("profile")) if update else manifest.get("profile"),
+                    "figureBanks": _json(apk, "assets/Quest/figure-meshes.json", optional=True),
                     "dynamicProfile": bool(capsule and capsule.get("dynamicProfile"))}
     except (OSError, zipfile.BadZipFile) as exc:
         raise BuildError("The existing Quest APK could not be read.") from exc
@@ -726,7 +727,12 @@ def _resource_member(name):
 def _replaceable(name):
     return name in {LIBRARY, METADATA, INITIALIZERS, ASSEMBLIES, CAPSULE, UPDATE, PROFILE,
                     "AndroidManifest.xml", INSTALLATION, "assets/quest-mod-content.zip", PROTON_CONTRACT,
-                    "assets/bin/Data/unity_app_guid", "assets/quest-card-alpha.bin", "assets/Quest/card-alpha.json"} or name in PROTON_HELPERS or _resource_member(name) or (name.startswith(MANAGED_RESOURCES) and name.endswith("-resources.dat"))
+                    "assets/bin/Data/unity_app_guid", "assets/quest-card-alpha.bin", "assets/Quest/card-alpha.json",
+                    "assets/Quest/figure-meshes.json"} or _figure_member(name) or name in PROTON_HELPERS or _resource_member(name) or (name.startswith(MANAGED_RESOURCES) and name.endswith("-resources.dat"))
+
+
+def _figure_member(name):
+    return re.fullmatch(r"assets/QuestFigureMeshes/ghvr-figure-meshes-(?:index\.json|quest-(?:75|45|20|5)-[0-9]{2,3}\.bundle)", name) is not None
 
 
 def _qualify_proton_helpers(base, info, replacements, update_manifest, evidence):
@@ -1060,8 +1066,32 @@ Neither callback is optional: unsigned output is never an installable result.
             or not _SHA.fullmatch(update_manifest.get("updateKey", ""))):
         raise BuildError("APK update provenance must preserve the original game identity.")
     replacements[UPDATE] = _json_bytes(update_manifest)
+    figure_hashes = {}
+    if "assets/Quest/figure-meshes.json" in replacements:
+        try:
+            figure_manifest = json.loads(replacements["assets/Quest/figure-meshes.json"])
+            if figure_manifest.get("schema") != 1 or figure_manifest.get("target") != "Android": raise ValueError()
+            for row in figure_manifest["files"]:
+                name = "assets/QuestFigureMeshes/" + row["path"]
+                if not _figure_member(name) or not _SHA.fullmatch(row["sha256"]) or type(row["size"]) is not int:
+                    raise ValueError()
+                figure_hashes[name] = row
+        except (KeyError, TypeError, ValueError): raise BuildError("Owned figure replacement manifest is invalid.")
+    file_replacements = {}
     for name, value in replacements.items():
         _safe_name(name)
+        if isinstance(value, Path):
+            if not _figure_member(name): raise BuildError("Only owned figure parts accept streamed file replacements: " + name)
+            path = _ordinary_owned(value)
+            if not path.is_file() or path.stat().st_size > MAX_MEMBER: raise BuildError("Invalid streamed figure replacement: " + name)
+            # Production banks already have a producer hash in their signed
+            # manifest. Bind it to the current file witness and prove bytes
+            # during the actual copy instead of a redundant pre-read.
+            expected = figure_hashes.get(name)
+            if expected and expected["size"] != path.stat().st_size: raise BuildError("Owned figure source length changed: " + name)
+            file_replacements[name] = {"stamp": _base_stamp(path), "sha256": expected["sha256"] if expected else digest(path), "size": path.stat().st_size}
+            if _base_stamp(path) != file_replacements[name]["stamp"]: raise BuildError("Figure replacement changed while qualifying: " + name)
+            continue
         if not _replaceable(name) or not isinstance(value, (bytes, bytearray)) or len(value) > MAX_MEMBER:
             raise BuildError("Unsafe APK replacement scope: " + name)
         if _resource_member(name) and (_base_stamp(base), name, hashlib.sha256(value).hexdigest()) not in _resource_proofs:
@@ -1072,6 +1102,7 @@ Neither callback is optional: unsigned output is never an installable result.
     try:
         with zipfile.ZipFile(base) as original, base.open("rb") as raw, _ApkZip32(temporary, "w", allowZip64=True) as updated:
             entries = _entries(original); total = sum(e.compress_size for n, e in entries.items() if n not in replacements and not _signature(n)); done = 0
+            copy_total = total + sum(file_replacements[name]["size"] if name in file_replacements else len(value) for name, value in replacements.items())
             updated.comment = original.comment
             for name, entry in entries.items():
                 if name in replacements or _signature(name): continue
@@ -1082,14 +1113,28 @@ Neither callback is optional: unsigned output is never an installable result.
                 _copy_raw_record(raw, updated.fp, entry, boundary=original.start_dir)
                 updated.filelist.append(kept); updated.NameToInfo[name] = kept; updated.start_dir = updated.fp.tell()
                 done += entry.compress_size
-                if progress: progress(done, total, name)
+                if progress: progress(done, copy_total, name)
             for name, value in replacements.items():
                 entry = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0)); entry.compress_type = zipfile.ZIP_STORED
                 # FileHeader/its close-time rewrite use the padded local extra;
                 # the directory keeps the original (empty) central extra.
                 entry.extra = _aligned_extra(updated.fp.tell(), len(entry._encodeFilenameFlags()[0]),
                                              entry.extra, name, entry.compress_type)
-                updated.writestr(entry, value)
+                if name in file_replacements:
+                    expected = file_replacements[name]
+                    if _base_stamp(value) != expected["stamp"]: raise BuildError("Figure replacement changed before publication: " + name)
+                    entry.file_size = expected["size"]
+                    hashed = hashlib.sha256(); copied = 0
+                    with value.open("rb") as source, updated.open(entry, "w") as target:
+                        for block in iter(lambda: source.read(1048576), b""):
+                            target.write(block); hashed.update(block); copied += len(block)
+                            if progress: progress(done + copied, copy_total, name)
+                    if (copied != expected["size"] or hashed.hexdigest() != expected["sha256"]
+                            or _base_stamp(value) != expected["stamp"]):
+                        raise BuildError("Figure replacement changed during publication: " + name)
+                else: updated.writestr(entry, value)
+                done += file_replacements[name]["size"] if name in file_replacements else len(value)
+                if progress: progress(done, copy_total, name)
                 entry.extra = b""
         check_alignment(temporary)
         signer(temporary); verification = verifier(temporary)
@@ -1101,6 +1146,15 @@ Neither callback is optional: unsigned output is never an installable result.
         with zipfile.ZipFile(temporary) as final:
             actual = _entries(final)
             for name, value in replacements.items():
+                if name in file_replacements:
+                    expected = file_replacements[name]
+                    if name not in actual or actual[name].file_size != expected["size"] or _base_stamp(value) != expected["stamp"]:
+                        raise BuildError("Signed figure replacement identity changed: " + name)
+                    hashed = hashlib.sha256()
+                    with final.open(name) as stream:
+                        for block in iter(lambda: stream.read(1048576), b""): hashed.update(block)
+                    if hashed.hexdigest() != expected["sha256"]: raise BuildError("Signed figure replacement digest changed: " + name)
+                    continue
                 if name not in actual or final.read(name) != value: raise BuildError("Signed APK replacement did not survive signing: " + name)
             for name, entry in entries.items():
                 if name in replacements or _signature(name): continue

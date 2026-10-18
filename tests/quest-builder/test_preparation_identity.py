@@ -27,6 +27,20 @@ class BuilderProducerIdentityTests(unittest.TestCase):
     def setUp(self):
         self.original = (ROOT / identity.BUILDER).read_bytes()
 
+    def test_exact_late_figure_delivery_preserves_campaign_producer_only(self):
+        addition = b'''    if args.target == "game":
+        figures = _local_helper("figure_banks")
+        figure_root, figure_manifest = figures.produce(_module_context(), args, source, game, output, inputs["game"], Path(tools["editor"]))
+        figures.stage(project, figure_root, figure_manifest)
+'''
+        self.assertEqual(self.original.count(addition), 1)
+        previous = self.original.replace(addition, b'', 1)
+        for prefix in (False, True):
+            self.assertEqual(identity.builder_producer_digest(previous, original_prefix=prefix),
+                             identity.builder_producer_digest(self.original, original_prefix=prefix))
+        altered = self.original.replace(b'figures.stage(project, figure_root, figure_manifest)', b'figures.stage(game, figure_root, figure_manifest)')
+        self.assertNotEqual(identity.builder_producer_digest(previous), identity.builder_producer_digest(altered))
+
     def preceding_portable_source(self):
         """Remove only the reviewed late CLI/module additions from this tree."""
         tree = ast.parse(self.original.decode())
