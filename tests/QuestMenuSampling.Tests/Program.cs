@@ -126,7 +126,7 @@ public static class InteractionProgram
         image.rectTransform.sizeDelta = dimensions; image.rectTransform.pivot = pivot;
         return image;
     }
-    private static void CompareImage(Image image, Image basis)
+    private static void CompareImage(Image image, Image basis, bool boot = false)
     {
         MethodInfo populate = typeof(Image).GetMethod("OnPopulateMesh", BindingFlags.Instance | BindingFlags.NonPublic,
             null, new[] { typeof(VertexHelper) }, null)!;
@@ -147,7 +147,10 @@ public static class InteractionProgram
             Close(actual.yMin, minY, "native Image trim and preserveAspect drawing bounds");
             Close(actual.yMax, maxY, "native Image trim and preserveAspect drawing bounds");
             var indicator = new LoadingIndicator();
-            GameObject quad = indicator.Build(image, basis);
+            GameObject quad = indicator.Build(image, basis, boot);
+            if (boot)
+                Check(quad.GetComponent<Renderer>().sharedMaterial.mainTexture is RenderTexture,
+                    "Quest boot renderer owns its GPU source through original scene teardown");
             Mesh convertedMesh = quad.GetComponent<MeshFilter>().sharedMesh;
             if (QuestStandalonePlatform.Enabled)
             {
@@ -171,11 +174,12 @@ public static class InteractionProgram
                 }
                 Check(found, "converted spinner quad preserves original trim scale and pivot");
             }
-            SpinnerPixels(original, quad, image, basis, units, centre);
+            SpinnerPixels(original, quad, image, basis, units, centre, boot);
+            indicator.ReleaseCopies();
             UnityEngine.Object.DestroyImmediate(original);
         }
     }
-    private static void SpinnerPixels(Mesh native, GameObject quad, Image image, Image basis, float units, Vector2 centre)
+    private static void SpinnerPixels(Mesh native, GameObject quad, Image image, Image basis, float units, Vector2 centre, bool boot)
     {
         Vector3[] nativeVertices = native.vertices;
         for (int index = 0; index < nativeVertices.Length; index++)
@@ -190,7 +194,8 @@ public static class InteractionProgram
         original.GetComponent<MeshFilter>().sharedMesh = native;
         var nativeRenderer = original.GetComponent<MeshRenderer>();
         var converted = quad.GetComponent<MeshRenderer>();
-        nativeRenderer.sharedMaterial = converted.sharedMaterial;
+        var nativeMaterial = new Material(converted.sharedMaterial) { mainTexture = image.sprite.texture };
+        nativeRenderer.sharedMaterial = nativeMaterial;
         quad.transform.position += Vector3.forward;
         var camera = new GameObject("native-spinner-gpu-proof").AddComponent<Camera>();
         camera.enabled = false; camera.orthographic = true; camera.orthographicSize = .2f;
@@ -206,7 +211,7 @@ public static class InteractionProgram
             int different = 0;
             for (int index = 0; index < actual.Length; index++)
                 if (Math.Abs(actual[index].r - expected[index].r) >= .02f || Math.Abs(actual[index].a - expected[index].a) >= .02f) different++;
-            if (different != 0)
+            if (different != 0 && !boot)
             {
                 Debug.Log("Spinner GPU mismatch: quest=" + QuestStandalonePlatform.Enabled + " differences=" + different
                     + " originalUV=" + string.Join(";", native.uv) + " convertedUV=" + string.Join(";", quad.GetComponent<MeshFilter>().sharedMesh.uv));
@@ -222,6 +227,27 @@ public static class InteractionProgram
             for (int index = 0; index < actual.Length; index++)
             {
                 if (expected[index].a > .01f) visible++;
+                if (boot)
+                {
+                    // A fractional 111.84776-pixel native crop becomes a 112px
+                    // owned RT with one additional bilinear sample. At this
+                    // projected size its filter footprint is below one screen
+                    // pixel. Bound every channel by that exact neighbouring
+                    // native footprint rather than demanding zero resampling.
+                    for (int channel = 0; channel < 4; channel++)
+                    {
+                        float min = float.MaxValue, max = float.MinValue;
+                        int x = index % 128, y = index / 128;
+                        for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++)
+                        {
+                            Color neighbour = expected[Mathf.Clamp(y + dy, 0, 127) * 128 + Mathf.Clamp(x + dx, 0, 127)];
+                            min = Mathf.Min(min, neighbour[channel]); max = Mathf.Max(max, neighbour[channel]);
+                        }
+                        Check(actual[index][channel] >= min - .02f && actual[index][channel] <= max + .02f,
+                            "boot GPU copy remains within one native bilinear filter footprint");
+                    }
+                    continue;
+                }
                 Check(Math.Abs(actual[index].r - expected[index].r) < .02f
                     && Math.Abs(actual[index].g - expected[index].g) < .02f
                     && Math.Abs(actual[index].b - expected[index].b) < .02f
@@ -229,12 +255,21 @@ public static class InteractionProgram
                     "spinner GPU output retains complete native drawing pixels");
             }
             Check(visible > 0, "spinner native GPU reference contains visible pixels");
+            if (boot)
+            {
+                float nativeAlpha = 0, copiedAlpha = 0;
+                foreach (Color pixel in expected) nativeAlpha += pixel.a;
+                foreach (Color pixel in actual) copiedAlpha += pixel.a;
+                Check(Math.Abs(nativeAlpha - copiedAlpha) < actual.Length / 255f,
+                    "boot GPU copy retains native alpha coverage within RGBA8 quantization");
+            }
             Debug.Log("Spinner GPU parity: quest=" + QuestStandalonePlatform.Enabled + " sprite=" + image.sprite.name + " visible=" + visible);
         }
         finally
         {
             camera.targetTexture = null; target.Release();
             UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(camera.gameObject);
+            UnityEngine.Object.DestroyImmediate(nativeMaterial);
             UnityEngine.Object.DestroyImmediate(original);
             UnityEngine.Object.DestroyImmediate(quad.transform.parent.gameObject);
         }
@@ -330,9 +365,17 @@ public static class InteractionProgram
         var sprite = Sprite.Create(texture, new Rect(0, 0, 128, 64), new Vector2(.5f, .5f));
         Image basis = Image(sprite, new Vector2(64, 64), new Vector2(.5f, .5f), true);
         QuestStandalonePlatform.Enabled = false;
+        Check(LoadingIndicator.PersistentArtAllowed(), "Desktop retains its established persisted spinner artwork");
         CompareImage(basis, basis);
         QuestStandalonePlatform.Enabled = true;
+        Check(!LoadingIndicator.PersistentArtAllowed(), "Quest boot ignores untrusted persisted ReadPixels artwork");
         CompareImage(basis, basis);
+        // The native spinner atlas is bilinear. Compare the owned GPU copy
+        // under that same source contract, not this fixture's point-sampled
+        // high-frequency screen-aliasing chart.
+        texture.filterMode = FilterMode.Bilinear;
+        CompareImage(basis, basis, boot: true);
+        texture.filterMode = FilterMode.Point;
         CompareImage(Image(sprite, new Vector2(64, 96), new Vector2(.2f, .8f), true), basis);
         CompareImage(Image(sprite, new Vector2(64, 96), new Vector2(.2f, .8f), false), basis);
         // The persisted boot PNG has full identity UVs, unlike a native atlas
@@ -353,7 +396,9 @@ public static class InteractionProgram
             Check(padding.x > 7 && padding.y > 7, "owned native Image observes original sprite trim padding");
             Image nativeImage = Image(nativeBase, new Vector2(64, 64), new Vector2(.5f, .5f), true);
             CompareImage(nativeImage, nativeImage);
+            CompareImage(nativeImage, nativeImage, boot: true);
             CompareImage(Image(overlay!, new Vector2(64, 64), new Vector2(.5f, .5f), true), nativeImage);
+            CompareImage(Image(overlay!, new Vector2(64, 64), new Vector2(.5f, .5f), true), nativeImage, boot: true);
             foreach (string name in new[] { "DLC_Promo_JawsOfTheLion", "DLC_Promo_SoloScenarios_0" })
             {
                 Sprite art = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprite/" + name + ".asset");

@@ -168,6 +168,10 @@ namespace GloomhavenVR.WorldUI;
 /// source wins, the art is marked PROVISIONAL and dropped on the next hide, so every later load
 /// re-reads the live <c>LoadingScreen</c> exactly as it did before — the swap never happens
 /// while the spinner is on screen.</para>
+/// <para>QUEST EXCEPTION (B685): persisted ReadPixels PNGs are skipped for reads and writes.
+/// The B684 headset used an invisible cached boot copy while its live native spinner was
+/// correct. Quest instead uses the existing owned GPU copy of the live Intro widget, or the
+/// fallback if that native source is unavailable. Desktop keeps the persistent copy order.</para>
 ///
 /// <para>THE BOOT COPY IS MOD-OWNED, and has to be: the Intro scene's textures die when
 /// <c>Gloomhaven_unified</c> activates (Unity unloads the now-unused serialized files), which is
@@ -1136,6 +1140,18 @@ internal sealed class LoadingIndicator
     private static string IconCachePath(string suffix) =>
         Path.Combine(Paths.ConfigPath, MyPluginInfo.PLUGIN_GUID + ".loadingicon" + suffix);
 
+    private static bool CanUsePersistentArt()
+    {
+        // The B684 headset boot used decoded cached PNGs while its live native
+        // loading-screen sprite remained correct. The PNG path round-trips GPU
+        // pixels through ReadPixels, whose Quest data has already proved unsafe
+        // for optional derived art; a matching name/recipe cannot validate those
+        // saved pixels. The Intro scene already supplies the same native layers.
+        // Keep their existing owned GPU copy through scene teardown, avoiding both
+        // disk cache reads and writes on Quest. Desktop's proven cache is retained.
+        return !QuestStandalonePlatform.Enabled;
+    }
+
     /// <summary>What the stored copy is a copy OF. Compared against the live sprites on every
     /// ordinary load so a game update that changes the art re-takes the capture exactly once.</summary>
     private static string IconCacheIdentity(Sprite b, Sprite o) =>
@@ -1151,6 +1167,7 @@ internal sealed class LoadingIndicator
     /// </summary>
     private bool TryCachedIconArt()
     {
+        if (!CanUsePersistentArt()) return false;
         Texture2D? baseTex = null;
         Texture2D? overlayTex = null;
         try
@@ -1226,7 +1243,7 @@ internal sealed class LoadingIndicator
     /// </summary>
     private void TryWriteIconCache(GameObject? baseGo, GameObject? overlayGo, LayerArt baseArt, LayerArt overlayArt)
     {
-        if (_cacheWriteAttempted || baseGo == null || overlayGo == null)
+        if (!CanUsePersistentArt() || _cacheWriteAttempted || baseGo == null || overlayGo == null)
             return;
         _cacheWriteAttempted = true;
         Texture2D? basePixels = null;

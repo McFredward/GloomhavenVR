@@ -56,7 +56,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "renderer-state", "material-admission", "entity-parameter-property",
         "lifecycle-desktop", "lifecycle-inactive", "lifecycle-native-handle", "lifecycle-unrelated-handle", "lifecycle-preview-content", "lifecycle-native-loading", "lifecycle-repeat", "lifecycle-native-content",
-        "loading-boundary", "loading-visible-scope", "loading-busy", "loading-material-assignment", "lifecycle-playerloop-focus", "lifecycle-playerloop-window", "lifecycle-playerloop-pause", "lifecycle-playerloop-install", "lifecycle-playerloop-failure"))
+        "loading-boundary", "loading-visible-scope", "loading-busy", "loading-material-assignment", "loading-occlusion-object", "loading-occlusion-tile", "loading-material-room", "lifecycle-playerloop-focus", "lifecycle-playerloop-window", "lifecycle-playerloop-pause", "lifecycle-playerloop-install", "lifecycle-playerloop-failure"))
     parser.add_argument("--gpu", action="store_true")
     parser.add_argument("--playerloop", action="store_true")
     parser.add_argument("--loading", action="store_true")
@@ -137,6 +137,12 @@ def main():
                          "Original busy state keeps the loading boundary open after an early placement callback"),
         "loading-material-assignment": ("if (!found) return true;", "/* injected missing original assignment gate */",
                                         "Completed material handles cannot close before original renderer assignment"),
+        "loading-occlusion-object": ("renderer.GetComponent<ObjectOcclusionVolume>() == null", "true",
+                                     "Native object occlusion inputs do not wait for their unused Addressables material"),
+        "loading-occlusion-tile": ("renderer.GetComponentInParent<TilesOcclusionVolume>() == null", "true",
+                                   "Native tile occlusion ownership keeps auxiliary materials outside world readiness"),
+        "loading-material-room": ("renderer.GetComponentInParent<ProceduralMapTile>() != room", "false",
+                                  "Cross-room material references cannot make an unrevealed preview block visible readiness"),
     }
     if args.control in loading_controls:
         before, after, _ = loading_controls[args.control]

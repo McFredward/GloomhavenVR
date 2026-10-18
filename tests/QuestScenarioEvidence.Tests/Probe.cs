@@ -120,6 +120,8 @@ public class ApparanceEngine : MonoBehaviour
     }
 }
 public class ApparanceResources : MonoBehaviour { }
+public class ObjectOcclusionVolume : MonoBehaviour { }
+public class TilesOcclusionVolume : MonoBehaviour { }
 public class MaterialLoader : MonoBehaviour
 {
     public List<MaterialLoaderData> LoadersData = new List<MaterialLoaderData>();

@@ -234,6 +234,34 @@ public static class QuestProceduralLoadingContractProbe
     private static void ScopeChecks()
     {
         var maps = RoomVisibilityManager.s_Instance.Maps;
+        var occlusion = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        occlusion.name = "Native object occlusion input";
+        occlusion.transform.parent = _room.transform;
+        occlusion.AddComponent<ObjectOcclusionVolume>();
+        Renderer occlusionRenderer = occlusion.GetComponent<Renderer>(); occlusionRenderer.enabled = false;
+        var occlusionLoader = occlusion.AddComponent<MaterialLoader>();
+        var occlusionData = new MaterialLoaderData { Renderer = occlusionRenderer };
+        occlusionData.MaterialReferences.Add(new object()); occlusionLoader.LoadersData.Add(occlusionData);
+        Check(!QuestProceduralLoading.HasPendingContent(maps),
+            "Native object occlusion inputs do not wait for their unused Addressables material");
+        var volumes = new GameObject("Native tile occlusion owner"); volumes.transform.parent = _room.transform;
+        volumes.AddComponent<TilesOcclusionVolume>();
+        occlusion.transform.parent = volumes.transform;
+        UnityEngine.Object.DestroyImmediate(occlusion.GetComponent<ObjectOcclusionVolume>());
+        Check(!QuestProceduralLoading.HasPendingContent(maps),
+            "Native tile occlusion ownership keeps auxiliary materials outside world readiness");
+        occlusion.transform.parent = _room.transform;
+        Check(QuestProceduralLoading.HasPendingContent(maps),
+            "An equally disabled visible renderer still waits for actual material assignment");
+        var preview = maps.GetComponentsInChildren<ProceduralMapTile>()[1];
+        occlusion.transform.parent = preview.transform;
+        // A loader in the visible room may retain a renderer reference whose
+        // native presentation owner is a different, unrevealed room.
+        _room.gameObject.AddComponent<MaterialLoader>().LoadersData.Add(occlusionData);
+        Check(!QuestProceduralLoading.HasPendingContent(maps),
+            "Cross-room material references cannot make an unrevealed preview block visible readiness");
+        UnityEngine.Object.DestroyImmediate(occlusion);
+        UnityEngine.Object.DestroyImmediate(volumes);
         _wall.IsPlacementCompleted = false; _wallEntity.Frozen = true;
         Check(!QuestProceduralLoading.HasPendingContent(maps), "Frozen original requests remain outside loading admission");
         _wallEntity.Frozen = false; _wallEntity.IsPopulated = false;

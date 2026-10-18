@@ -96,14 +96,23 @@ def main():
                "EditorValidation.cs": (ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestSpriteGeometryValidation.cs").read_text()}
     factory = method((flat / "FlatScreenStereo.2.Compositor.cs").read_text(), "    internal static RenderTexture CreateColorRt(")
     sources["Factory.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static class FlatScreenStereo\n{\n" + factory + "}\n"
-    sources["Loading.cs"] = ("using UnityEngine;\nusing UnityEngine.UI;\nusing GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI;\n"
-        "internal sealed class LoadingIndicator\n{\nprivate const float SizeMeters=.25f;\n"
+    sources["Loading.cs"] = ("using System.Collections.Generic;\nusing UnityEngine;\nusing UnityEngine.UI;\nusing GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI;\n"
+        "internal sealed class LoadingIndicator\n{\nprivate const float SizeMeters=.25f;\nprivate const int CopyMaxPixels=512;\n"
+        "private readonly List<Texture> _ownedArtTextures = new();\n"
         "private GameObject? _root = new GameObject(\"fixture-loading-root\");\n" + layer
         + method(loading, "    private static void DestroyObj<")
         + method(loading, "    private static LayerArt? ReadLayer(")
         + method(loading, "    private Transform CreateQuad(")
         + method(loading, "    private Material CreateLayerMaterial(")
-        + "\ninternal GameObject Build(Image image, Image basis) { var art=ReadLayer(image.gameObject,basis.gameObject)!; Mesh? mesh=null; return CreateQuad(\"test\",CreateLayerMaterial(art,null),art,0,ref mesh).gameObject; }\n}\n")
+        + method(loading, "    private bool AdoptOwnedCopy(")
+        + method(loading, "    private static bool CanUsePersistentArt(")
+        + "\ninternal static bool PersistentArtAllowed() => CanUsePersistentArt();\n"
+        + "internal GameObject Build(Image image, Image basis, bool boot=false) { var art=ReadLayer(image.gameObject,basis.gameObject)!; if(boot && !AdoptOwnedCopy(art)) throw new System.Exception(\"Native boot source copy failed\"); Mesh? mesh=null; return CreateQuad(\"test\",CreateLayerMaterial(art,null),art,0,ref mesh).gameObject; }\n"
+        + "internal void ReleaseCopies() { foreach(var texture in _ownedArtTextures) UnityEngine.Object.DestroyImmediate(texture); _ownedArtTextures.Clear(); }\n}\n")
+    cached = method(loading, "    private bool TryCachedIconArt(")
+    persisted = method(loading, "    private void TryWriteIconCache(")
+    assert cached.index("if (!CanUsePersistentArt()) return false;") < cached.index("File.Exists(")
+    assert persisted.index("!CanUsePersistentArt()") < persisted.index("File.Exists(")
     assert 'version != "2"' in loading and 'v == "2"' in loading and 'sb.Append("v=2\\n")' in loading
     assert 'quest ? 0f : -OverlayLiftMeters' in loading and '_overlayMaterial.renderQueue = _baseMaterial.renderQueue + 1;' in loading
     stack = (flat / "FlatScreen.2.CameraStack.cs").read_text()
@@ -119,6 +128,8 @@ def main():
         ("native-aspect-discarded", "Geometry.cs", "if (image.preserveAspect &&", "if (false &&", "native Image trim and preserveAspect drawing bounds"),
         ("spinner-crop-normalized", "Loading.cs", "SizeRatio = Mathf.Max(width, height) / units,", "SizeRatio = 1f,", "converted spinner quad preserves original trim scale and pivot"),
         ("spinner-upload-omitted", "Loading.cs", 'QuestPrimitiveMesh.Rebuild(filter.sharedMesh, "loading-" + name)', "(Mesh?)null", "Quest spinner owns explicit vertex color inputs"),
+        ("quest-untrusted-spinner-cache-reused", "Loading.cs", "return !QuestStandalonePlatform.Enabled;", "return true;", "Quest boot ignores untrusted persisted ReadPixels artwork"),
+        ("spinner-boot-owned-source-lost", "Loading.cs", "art.Tex = rt;", "art.Tex = src;", "Quest boot renderer owns its GPU source through original scene teardown"),
         ("spinner-pivot-lost", "Loading.cs", "vertices[i] += new Vector3(x, y, 0f);", "vertices[i] += Vector3.zero;", "converted spinner quad preserves original trim scale and pivot")]
     if args.owned_project:
         variants.append(("native-trim-padding-discarded", "Geometry.cs", "Vector4 padding = DataUtility.GetPadding(sprite);", "Vector4 padding = Vector4.zero;", "native Image trim and preserveAspect drawing bounds"))

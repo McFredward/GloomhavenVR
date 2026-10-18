@@ -64,7 +64,7 @@ internal static class QuestProceduralLoading
                     || loader.GetComponentInParent<ProceduralMapTile>() != room) continue;
                 foreach (MaterialLoaderData data in loader.LoadersData)
                 {
-                    if (data == null || data.Renderer == null || !data.Renderer.gameObject.activeInHierarchy
+                    if (data == null || !NeedsMaterialAssignment(data.Renderer, room)
                         || data.MaterialReferences == null || data.MaterialReferences.Count == 0) continue;
                     var handles = data._handles;
                     if (handles == null || handles.Length != data.MaterialReferences.Count) return true;
@@ -94,6 +94,22 @@ internal static class QuestProceduralLoading
             }
         }
         return false;
+    }
+
+    private static bool NeedsMaterialAssignment(Renderer? renderer, ProceduralMapTile room)
+    {
+        if (renderer == null || !renderer.gameObject.activeInHierarchy
+            || renderer.GetComponentInParent<ProceduralMapTile>() != room) return false;
+        // These are native off-screen occlusion inputs, not missing world art.
+        // TilesOcclusionGenerator.DrawRenderer supplies its own occlusion material;
+        // their serialized built-in material references need not load through
+        // Addressables. MaterialLoaderHeal excludes the same native owners. B684
+        // could instead wait forever for their irrelevant material assignment
+        // after the requested rooms and visible material loads had completed.
+        // Test component ownership, never renderer.enabled: a real pending
+        // visible loader deliberately disables its renderer until assignment.
+        return renderer.GetComponent<ObjectOcclusionVolume>() == null
+            && renderer.GetComponentInParent<TilesOcclusionVolume>() == null;
     }
 
     private static bool Requested(ApparanceEntity? entity) => entity != null && entity.isActiveAndEnabled
