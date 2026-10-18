@@ -72,8 +72,11 @@ def main():
         'unready-admission': 'startup non-stereo head must not arm',
         'latched-mono': 'temporary Mono metadata must close without a permanent failure',
         'late-attachment': 'XR attachment loss after pre-cull closes normally',
-        'no-cohort': 'mid-pair Right must stay ordinary',
-        'same-frame-activation': 'following complete pair must also stay ordinary',
+        # Host-admission cases now prime a complete cohort before the dedicated
+        # stereo sequence below. These defects must already fail that earlier
+        # positive assertion; never require them to reach a later test first.
+        'no-cohort': 'first complete startup cohort must stay ordinary in both eyes',
+        'same-frame-activation': 'first complete startup cohort must stay ordinary in both eyes',
         'cross-frame-cohort': 'duplicate Left then Right on another frame never forms a complete cohort',
         'pending-host-admission': 'Pending host lease must not prepare a source',
         'stale-host-owner': 'Host lease loss before pre-cull revokes source ownership immediately',
@@ -117,7 +120,7 @@ def main():
                 assert status == 0 and 'startup/callback assertions passed' in output, output
                 assertions = int(output.split(' startup/callback assertions passed')[0].splitlines()[-1])
             else:
-                assert status != 0 and expected[name] in output and 'error CS' not in output, output
+                assert status != 0 and expected[name] in output and 'error CS' not in output, name + ': ' + output
             results.append({'variant': name, 'status': status, 'expected_semantic_result': True})
         # Compile the complete unmodified production owner, packer, coverage and
         # materials against actual Unity2021/net472 metadata with strict warnings.
