@@ -190,6 +190,7 @@ public sealed class VideoCamera : UnityEngine.Component
 }
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform { internal static bool Enabled { get; set; } = false; internal static string ResourceDirectory { get; set; } = string.Empty; }
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class VRLayers { internal static void Apply(UnityEngine.GameObject go) { } }
     internal static class VRLog { internal static readonly List<string> Notes = new();

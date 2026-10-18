@@ -115,7 +115,8 @@ namespace GloomhavenVR.Quest
             {
                 string target = Path.Combine(root, item.path.Replace('/', Path.DirectorySeparatorChar)), receipt = target + ".quest-receipt";
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
-                string proof = manifest.producerKey + ":" + item.sha256 + ":" + item.size;
+                // File identity is independent of another film or orchestration revision.
+                string proof = "quest-movie-file-v1:" + item.sha256 + ":" + item.size;
                 if (File.Exists(target) && new FileInfo(target).Length == item.size && File.Exists(receipt)
                     && new FileInfo(receipt).Length <= 256 && File.ReadAllText(receipt) == proof)
                 { completed += item.size; count++; continue; }

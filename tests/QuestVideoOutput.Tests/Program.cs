@@ -9,6 +9,11 @@ using GloomhavenVR.WorldUI;
 
 namespace GloomhavenVR.Core
 {
+    internal static class QuestMovieAssets
+    {
+        internal static bool UsesStereoPlane(VideoPlayer player) => player.url.EndsWith(".sbs-v1.mov", StringComparison.Ordinal);
+    }
+
     internal static partial class QuestStandalonePlatform
     {
         internal static bool Enabled = true;

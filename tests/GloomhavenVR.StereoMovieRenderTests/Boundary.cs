@@ -3,6 +3,19 @@ using UnityEngine;
 using UnityEngine.Video;
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform
+    {
+        internal static bool Enabled => false;
+        internal static bool SharedStereoEyeRouting => false;
+        internal static string ResourceDirectory => string.Empty;
+        internal static void SetFlatScreenEyes(Material material, Texture? left, Texture? right) { }
+        internal static void SetFlatScreenMono(Material material, Texture? texture) { }
+    }
+    internal static class QuestMovieAssets
+    {
+        internal static Shader Shader(string name) => throw new System.InvalidOperationException("Android shader loading is exercised separately.");
+    }
+
     internal static class StereoModeConfig
     {
         internal enum Mode { MultiPass, SinglePassInstanced }

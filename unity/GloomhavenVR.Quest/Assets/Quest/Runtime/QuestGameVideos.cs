@@ -164,7 +164,7 @@ namespace GloomhavenVR.Quest
                 // This addresses the path hypothesis without transcoding media.
                 selected.url = GloomhavenVR.Core.QuestMovieAssets.TryEmbeddedCompanion(clip.name, out string companion)
                     ? companion : paths[clip.guid];
-                var record = new BoundPlayer { Player = selected, Path = paths[clip.guid], ExpectedSize = clip.size,
+                var record = new BoundPlayer { Player = selected, Path = selected.url, ExpectedSize = new FileInfo(selected.url).Length,
                     BoundAt = Time.realtimeSinceStartup, LastObservedUrl = selected.url,
                     Context = scene.name + "/" + binding.playerPath + " source=" + clip.name + " delivery=" + (clip.delivery ?? "original-legacy") };
                 players.Add(record);

@@ -157,6 +157,10 @@ namespace UnityEngine.Video
 namespace GloomhavenVR.Core
 {
     internal static class QuestStandalonePlatform { internal static bool DebugLogging = true; }
+    internal static class QuestMovieAssets
+    {
+        internal static bool TryEmbeddedCompanion(string name, out string path) { path=string.Empty; return false; }
+    }
 }
 namespace GloomhavenVR.Quest
 {

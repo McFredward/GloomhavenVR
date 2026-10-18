@@ -24,6 +24,23 @@ public sealed class IntroPlayer { }
 public sealed class UIManager { public static UIManager? Instance => null; }
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform
+    {
+        internal static bool Enabled => false;
+        internal static bool SharedStereoEyeRouting => false;
+        internal static string ResourceDirectory => string.Empty;
+        internal static bool IsPreparationScene(string name) => false;
+        internal static Shader? SelectFlatScreenShader(Shader? shader) => shader;
+        internal static Shader? SelectFlatScreenGlassShader(Shader? shader) => shader;
+        internal static void SetFlatScreenMono(Material? material, Texture? texture) { }
+        internal static void SetFlatScreenEyes(Material material, Texture? left, Texture? right) { }
+        internal static void ObserveFlatScreenVideoSample() { }
+    }
+    internal static class QuestMovieAssets
+    {
+        internal static Shader Shader(string name) => throw new InvalidOperationException("Android shaders have a separate GPU fixture.");
+    }
+
     internal static class StereoModeConfig
     {
         internal enum Mode { MultiPass, SinglePassInstanced }

@@ -89,7 +89,7 @@ def startup_sources(source_root, movie, lease, surface):
     # branches are outside this startup fixture and must fail if they are requested.
     head = member(per_eye, '    private void OnPreRenderCamera(Camera cam)\n')
     head = head[head.index('        Camera? head = Rig.VRRigDriver.HeadCamera;'):]
-    head = head[:head.index('        if (_videoShift &&')]
+    head = head[:head.index('        // Desktop retains its existing timing.')]
     stereo += '    private void OnPreRenderCamera(Camera cam)\n    {\n        if (!_active) return;\n' + head
     stereo += '        throw new Exception("Unexpected nonmovie head render in startup fixture");\n    }\n'
     movies = (source_root / 'NativeVideoMovies.cs').read_text()
