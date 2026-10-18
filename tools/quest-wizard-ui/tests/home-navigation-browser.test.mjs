@@ -254,6 +254,11 @@ test('a completed update refreshes the published APK recommendation once without
     assert.equal(await client.evaluate("document.getElementById('home-mod').classList.contains('recommended')"),true);
     await client.evaluate("document.getElementById('home-active-open').click()");
     await client.wait("!document.getElementById('progress-page').hidden");
+    Object.assign(server.state.stages[5].progress,{phase:'figure-banks',unit:'work-shares',done:125,total:1000,
+      detail:'Extract original figure bundles 2/16'});
+    await client.wait("document.getElementById('progress-detail').textContent.includes('12.5 %')");
+    assert.doesNotMatch(await client.evaluate("document.getElementById('progress-detail').textContent"),/125\s*\/\s*1[,.]?000/,
+      'weighted work shares are a percentage, while the real local task count remains in the detail');
     server.publishCurrent();
     await client.wait("document.getElementById('progress-title').textContent.includes('complete')||document.getElementById('progress-title').textContent.includes('abgeschlossen')");
     await client.evaluate("document.getElementById('home').click()");
