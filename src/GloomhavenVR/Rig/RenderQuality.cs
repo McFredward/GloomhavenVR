@@ -311,6 +311,7 @@ internal static class RenderQuality
     private static float _nextMsaaApplyTime;
     private static float _lastEyeRefusal = -1f;
     private static float _lastPcEyeScaleAttempt = -1f;
+    private static float _lastPcEyeScaleWaiting = -1f;
     private const float SliderQuietSeconds = 0.35f;
     private const float MsaaResourceQuietSeconds = 1f;
     private const float ViewportRepairIntervalSeconds = 1f;
@@ -957,6 +958,7 @@ internal static class RenderQuality
         _lastLoggedEyeScale = -1f;
         _lastEyeRefusal = -1f;
         _lastPcEyeScaleAttempt = -1f;
+        _lastPcEyeScaleWaiting = -1f;
         _baseEyeWidth = 0;
         _baseMegaSamples = 0;
         _eyeScaleAnnounced = false;
@@ -1122,7 +1124,6 @@ internal static class RenderQuality
     private static void ApplyPcEyeScale(float wanted)
     {
         if (Mathf.Abs(_lastPcEyeScaleAttempt - wanted) < 0.0005f) return;
-        _lastPcEyeScaleAttempt = wanted;
         SubsystemManager.GetInstances(Displays);
         int running = 0;
         bool accepted = true;
@@ -1131,6 +1132,10 @@ internal static class RenderQuality
         foreach (XRDisplaySubsystem display in Displays)
         {
             if (!display.running) continue;
+            // A session may be marked running before its display is ready.
+            // No actual attempt has happened until a running display is found;
+            // leave the same settled request eligible across that brief gap.
+            if (running == 0) _lastPcEyeScaleAttempt = wanted;
             running++;
             try
             {
@@ -1155,10 +1160,13 @@ internal static class RenderQuality
         }
         if (running == 0)
         {
-            VRLog.Note("Rig", $"PC eye allocation request refused: {wanted:F2}x; "
-                + "no running XR display. No resources were changed.");
+            if (Mathf.Abs(_lastPcEyeScaleWaiting - wanted) >= 0.0005f)
+                VRLog.Note("Rig", $"PC eye allocation request refused: {wanted:F2}x; "
+                    + "no running XR display. No resources were changed; waiting for display readiness.");
+            _lastPcEyeScaleWaiting = wanted;
             return;
         }
+        _lastPcEyeScaleWaiting = -1f;
         // Older versions used this compatibility viewport setter. Its getter
         // may be separate from the display property on a provider, so remove an
         // observed old reduction once, never as a persistent correction loop.

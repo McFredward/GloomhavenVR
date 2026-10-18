@@ -110,9 +110,22 @@ try:
         (run/(name+'.log')).write_text(result.stdout+result.stderr)
         return result
     framework=Path.home()/'.nuget/packages/microsoft.netframework.referenceassemblies.net472/1.0.3/build/.NETFramework/v4.7.2'
+    # A runtime shard can have a cold optional NuGet cache. Use the local pack
+    # only if its actual reference assembly exists; otherwise let the SDK restore
+    # its ordinary framework-reference package. Never delete shared caches.
+    framework_args=['-p:FrameworkReferenceDir='+str(framework)] if (framework/'mscorlib.dll').is_file() else []
+    cold = subprocess.run([dotnet,'msbuild',str(fixture/'Typecheck.csproj'),
+        '-getProperty:AutomaticallyUseReferenceAssemblyPackages,FrameworkPathOverride',
+        '-p:FrameworkReferenceDir='+str(run/'missing-reference-pack')],
+        capture_output=True,text=True,timeout=45)
+    (run/'net472-cold-reference-policy.log').write_text(cold.stdout+cold.stderr)
+    if cold.returncode: raise SystemExit(cold.stdout+cold.stderr)
+    cold_policy=json.loads(cold.stdout)
+    if cold_policy['Properties']['AutomaticallyUseReferenceAssemblyPackages'].lower() != 'true' \
+        or cold_policy['Properties']['FrameworkPathOverride'] == str(run/'missing-reference-pack'):
+        raise SystemExit('Cold net472 cache disables SDK reference-package fallback.')
     typecheck = subprocess.run([dotnet,'build',str(fixture/'Typecheck.csproj'),'--configuration','Release',
-        '-p:ProductionDir='+str(run),'-p:FixtureDir='+str(fixture),
-        '-p:FrameworkReferenceDir='+str(framework),
+        '-p:ProductionDir='+str(run),'-p:FixtureDir='+str(fixture),*framework_args,
         '-p:BaseIntermediateOutputPath='+str(typecheck_dir/'obj')+'/',
         '-p:OutputPath='+str(typecheck_dir/'bin')+'/', '-p:UseSharedCompilation=false'],
         capture_output=True,text=True,timeout=90)
@@ -150,6 +163,7 @@ try:
      ('pc-stable-replayed', 'if (Mathf.Abs(_lastPcEyeScaleAttempt - wanted) < 0.0005f) return;', 'if (false && Mathf.Abs(_lastPcEyeScaleAttempt - wanted) < 0.0005f) return;', 'PC stable resolution does not repeat lifecycle work or logging'),
      ('pc-legacy-viewport-retained', 'display.scaleOfAllViewports = 1f;', '_ = display.scaleOfAllViewports;', 'PC clears a legacy display viewport reduction'),
      ('profile-marker-read-in-update', 'if (!_standaloneSession)\n        {\n            ApplyPcEyeScale(wanted);', 'if (!FrameDefaults.Active)\n        {\n            ApplyPcEyeScale(wanted);', 'Standalone Update and diagnostics never reread the profile marker'),
+     ('pc-display-wait-latched', 'if (Mathf.Abs(_lastPcEyeScaleAttempt - wanted) < 0.0005f) return;\n        SubsystemManager.GetInstances(Displays);', 'if (Mathf.Abs(_lastPcEyeScaleAttempt - wanted) < 0.0005f) return;\n        _lastPcEyeScaleAttempt = wanted;\n        SubsystemManager.GetInstances(Displays);', 'PC same settled request recovers when its display becomes running'),
     ]
     results = []
     for name, before, after, expected in ([] if args.production_only else mutations):
@@ -179,6 +193,7 @@ try:
             'fixtureBoundarySha256':hashlib.sha256((fixture/'Boundary.cs').read_bytes()).hexdigest(),
             'productionExecutableSha256':hashlib.sha256((run/'bin/GloomhavenVR.RenderQualityTests.dll').read_bytes()).hexdigest(),
             'net472Typecheck':'PASS (complete production class against explicit provider boundaries)',
+            'net472ColdReferencePolicy':'PASS (SDK automatic reference-package fallback remains enabled)',
             'limits':'Explicit XR boundary model; no native OpenXR/driver/headset pixel stability is claimed.'}
     (run/'results.json').write_text(json.dumps(report,indent=2)+'\n')
     print('RenderQuality proof: '+str(run/'results.json'))

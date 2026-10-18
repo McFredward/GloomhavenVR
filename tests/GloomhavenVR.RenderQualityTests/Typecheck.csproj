@@ -5,8 +5,8 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
-    <FrameworkPathOverride>$(FrameworkReferenceDir)</FrameworkPathOverride>
+    <AutomaticallyUseReferenceAssemblyPackages Condition="Exists('$(FrameworkReferenceDir)/mscorlib.dll')">false</AutomaticallyUseReferenceAssemblyPackages>
+    <FrameworkPathOverride Condition="Exists('$(FrameworkReferenceDir)/mscorlib.dll')">$(FrameworkReferenceDir)</FrameworkPathOverride>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(FixtureDir)/Boundary.cs" />

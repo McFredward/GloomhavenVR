@@ -258,6 +258,18 @@ internal static class Program
         Check(!VRLog.Lines.Any(x=>x.Contains("above-capacity request saved for next VR restart")),"PC live changes have no standalone next-restart cap");
         Check(VRLog.Lines.Any(x=>x.Contains("PC live allocation") && x.Contains("actual eye target 3408x3408")),"PC diagnostic reports real target dimensions separately from API acceptance");
 
+        display=Start(1, standalone:false); FrameTick(0); display.running=false;
+        RenderQuality.EyeResolutionScale!.Value=.75f; FrameTick(.1f); FrameTick(.46f);
+        Check(display.LiveAllocationWrites==0,"PC display-readiness wait is not an allocation attempt");
+        for(int i=0;i<100;i++) FrameTick(.5f+i*.02f);
+        Check(display.LiveAllocationWrites==0,"PC pending display never receives a resource setter");
+        Check(VRLog.Lines.Count(x=>x.StartsWith("PC eye allocation request refused:"))==1,"PC display-readiness wait is logged once per settled request");
+        display.running=true; FrameTick(3);
+        Near(display.scaleOfAllRenderTargets,.75f,"PC same settled request recovers when its display becomes running");
+        Check(display.LiveAllocationWrites==1,"PC display-readiness recovery makes one real allocation attempt");
+        for(int i=0;i<100;i++) FrameTick(3.1f+i*.02f);
+        Check(display.LiveAllocationWrites==1,"PC display-readiness recovery remains stable without repeated allocation");
+
         display=Start(.8f, standalone:false); FrameTick(0);
         RenderQuality.EyeResolutionScale!.Value=1.8f; FrameTick(.1f); FrameTick(.46f);
         Near(display.scaleOfAllRenderTargets,1.8f,"PC reduced startup can increase beyond starting capacity live");

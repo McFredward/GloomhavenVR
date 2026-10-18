@@ -14,9 +14,9 @@ explicit mutable boundary, so the same implementation runs on both paths.
   one attempt per distinct settled request, and never retries allocation every
   frame. The modeled provider updates its actual dimensions separately from the
   saved configuration; those changes are asserted directly.
-- Twenty-eight semantic mutants and two bootstrap-order controls must fail for
-  the expected reason. Five mutants specifically remove the PC path, omit its
-  allocation write, replay stable lifecycle work, retain the old viewport cap, or reread the standalone profile marker during Update.
+- Twenty-nine semantic mutants and two bootstrap-order controls must fail for
+  the expected reason. Six mutants specifically remove the PC path, omit its
+  allocation write, replay stable lifecycle work, retain the old viewport cap, or reread the standalone profile marker during Update, or latch a request before its display becomes ready.
 - A separate strict net472 build compiles the complete production class and
   provider boundaries without suppressing warnings. The executable fixture uses
   net8.0. Logs, source copies, hashes, results and cleanup receipts remain after
@@ -30,3 +30,7 @@ transport allocation participates in the PC resolution path.
 After a bounded runner-only repair, `--production-only` reruns production and
 net472 typechecking without repeating the semantic mutants. Its result explicitly
 records the limited scope; it is not evidence of a new complete focused-suite pass.
+
+The net472 typecheck uses an installed reference pack only when its actual
+`mscorlib.dll` exists. An isolated MSBuild property evaluation verifies that a
+missing pack leaves SDK package restoration enabled; no shared cache is removed.
