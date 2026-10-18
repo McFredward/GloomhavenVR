@@ -415,6 +415,8 @@ class ProgressParser:
         """Compiler logs belong to their actual child build, not Player import."""
         if source.startswith("figure-banks-"):
             return "update-art" if self.active_operation == "update-art" else "figure-banks"
+        if source.startswith("stereo-movies-"):
+            return "update-art" if self.active_operation == "update-art" else "stereo-movies"
         if source.startswith("native-audio-"):
             return "update-art" if self.active_operation == "update-art" else "native-audio"
         if source in self.import_worker_owners:

@@ -612,7 +612,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 709;
+    public const ushort ModBuild = 710;
+
+    // ModBuild710 — rebase Quest standalone onto dev709, retaining B693 hardware
+    // repairs and the current shared features, including native stereo movies.
+    // Qualify the two desktop URL transpilers as static setter substitutions;
+    // retain original decoder clocks, callbacks and native continuation. Deliver
+    // numeric-only movie recipes, owned locally reconstructed films and tiny
+    // Android shaders independently of the unchanged original Campaign bank.
+    // Compact updates preserve completed native/object caches and per-file movie
+    // results; unknown original producer/ABI drift still requires an explicit
+    // rebuild decision. Automated metadata/GPU evidence is not headset closure.
 
     // ModBuild709 — preserve XR progress during Steam Link observer retirement
     // and contain the legacy atlas while the Steam dashboard owns input focus.

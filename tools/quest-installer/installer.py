@@ -174,7 +174,7 @@ def builder_module():
     # those dependencies before loading builder even in a Git-free isolated launch.
     missing = object()
     names = ["profile", "storage"]
-    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "script_remap_resume", "editor_overlay", "preparation_identity", "preparation_metadata", "figure_banks", "audio_banks")
+    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "script_remap_resume", "editor_overlay", "preparation_identity", "preparation_metadata", "figure_banks", "audio_banks", "movie_banks")
               if (REPO / "tools/quest-builder" / (name + ".py")).is_file()]
     names += ["startup", "builder"]
     aliases = [name for name in names if name != "builder"] + ["_ghvr_wireless_" + name for name in names]
@@ -198,6 +198,8 @@ def builder_module():
                     module.figure_banks = sys.modules["figure_banks"]
                 if "audio_banks" in names:
                     module.audio_banks = sys.modules["audio_banks"]
+                if "movie_banks" in names:
+                    module.movie_banks = sys.modules["movie_banks"]
                 return module
             sys.modules[name] = module
     finally:

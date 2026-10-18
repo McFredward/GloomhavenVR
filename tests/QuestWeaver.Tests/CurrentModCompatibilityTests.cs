@@ -27,7 +27,9 @@ internal static class CurrentModCompatibilityTests
             AuditReport report = model.Audit();
             check(report.Issues.Count == 0, "Actual current mod conversion blocked: " + string.Join("; ", report.Issues));
             int expected = model.Mod.MainModule.GetType("GloomhavenVR.Core.ScenarioCameraCullBoundary") == null ? 2 : 3;
+            if (model.Mod.MainModule.GetType("GloomhavenVR.WorldUI.NativeVideoMovies") != null) expected++;
             check(report.StaticSubstitutions.Count == expected, "Current mod did not qualify its known AOT substitutions.");
+            NativeMovieBoundaryTests.Verify(model, managed, check);
             check(mainBody.SequenceEqual(Body(camera.Methods.Single(m => m.Name == "get_Main")))
                 && enumBody.SequenceEqual(Body(camera.Methods.Single(m => m.Name == "get_ProjectionCameras")))
                 && applyBody.SequenceEqual(Body(camera.Methods.Single(m => m.Name == "Apply"))), "Camera resolver/suspension semantics changed.");
@@ -73,6 +75,21 @@ internal static class CurrentModCompatibilityTests
             MethodDefinition bridge = a.MainModule.GetType("GloomhavenVR.Core.NativeCameraRenderBudget").Methods.Single(m => m.Name == "EnsureBridge");
             bridge.Body.Instructions.Single(i => i.OpCode == OpCodes.Ldstr && (string)i.Operand == "CanvasManager").Operand = "FFSNet.NetworkManager";
         });
+        if (File.Exists(modPath))
+        {
+            using Discovery source = Discovery.Load(modPath, managed);
+            if (source.Mod.MainModule.GetType("GloomhavenVR.WorldUI.NativeVideoMoviePatch") != null)
+            {
+                Negative("movie transpiler behavior drift", a => {
+                    MethodDefinition movie = a.MainModule.GetType("GloomhavenVR.WorldUI.NativeVideoMoviePatch").Methods.Single();
+                    movie.Body.GetILProcessor().InsertBefore(movie.Body.Instructions[0], Instruction.Create(OpCodes.Nop));
+                });
+                Negative("movie replacement signature drift", a => {
+                    MethodDefinition movie = a.MainModule.GetType("GloomhavenVR.WorldUI.NativeVideoMovies").Methods.Single(m => m.Name == "SetNativeUrl");
+                    movie.Parameters.RemoveAt(2);
+                });
+            }
+        }
         Negative("changed camera opcode", a => {
             TypeDefinition state = a.MainModule.GetType("GloomhavenVR.Core.NativeCameraRenderBudget").NestedTypes.Single(t => t.Name.StartsWith("<ReplaceMain>d__", StringComparison.Ordinal));
             FieldReference call = state.Methods.Single(m => m.Name == "MoveNext").Body.Instructions.Select(i => i.Operand).OfType<FieldReference>().Single(f => f.DeclaringType.FullName == "System.Reflection.Emit.OpCodes");

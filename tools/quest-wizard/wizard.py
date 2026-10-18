@@ -720,7 +720,8 @@ class Engine:
                                  detail="Comparing changed mod inputs before preparing the compiler.")
             base = module.apk_updates.inspect_base(self.selected_apk(state, module))
             files, _, _ = module.source_inventory(root)
-            requirements = updates.update_requirements(module, root, base, files, module.mod_build(root))
+            requirements = updates.update_requirements(module, root, base, files, module.mod_build(root),
+                                                      output=self.store.root / 'build')
             # This comparison admits only provisioning, never APK editing. The
             # normal inspect step independently qualifies ownership/signatures
             # and the actual current source before any output is published.

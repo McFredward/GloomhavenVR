@@ -47,7 +47,7 @@ PLANS = {
     "unity": ("hub", "editor", "prerequisites", "output-verify"),
     "profile": ("logo", "identity", "output-verify"),
     "inspect": ("game-inputs", "mod-inputs", "profile-inputs", "manifest", "output-verify"),
-    "build": ("game-inputs", "mod-inputs", "profile-inputs", "source-snapshot", "game-snapshot", "snapshot-check", "recovery", "project-files", "startup-content", "native-runtime", "audio", "textures", "graphics", "mod-banks", "preparation-contracts", "figure-banks", "native-audio", "weave", "unity-import", "package-api", "unity-validation", "content-bank", "player", "delivery", "output-verify"),
+    "build": ("game-inputs", "mod-inputs", "profile-inputs", "source-snapshot", "game-snapshot", "snapshot-check", "recovery", "project-files", "startup-content", "native-runtime", "audio", "textures", "graphics", "mod-banks", "preparation-contracts", "figure-banks", "native-audio", "stereo-movies", "weave", "unity-import", "package-api", "unity-validation", "content-bank", "player", "delivery", "output-verify"),
     "install": ("connect", "apk", "content", "launch", "output-verify"),
 }
 
@@ -56,9 +56,9 @@ PLANS = {
 # operations had already consumed 28.6% of the equally weighted old bar. Give
 # conversion/import their own useful spans and count each scheduled package
 # inside conversion. Only actual counters and successful boundaries advance it.
-BUILD_SHARES = dict(zip(PLANS["build"], (1, 1, 1, 1, 2, 1, 40, 1, 1, 2, 2, 5, 2, 2, 1, 1, 1, 2, 16, 1, 1, 4, 8, 2, 1)))
+BUILD_SHARES = dict(zip(PLANS["build"], (1, 1, 1, 1, 2, 1, 40, 1, 1, 2, 2, 5, 2, 2, 1, 1, 1, 10, 2, 8, 1, 1, 4, 6, 2, 1)))
 BUILD_GROUPS = {"inputs": PLANS["build"][:6], "recovery": ("recovery",),
-                "project": PLANS["build"][7:15], "code": ("figure-banks", "native-audio", "weave"),
+                "project": PLANS["build"][7:15], "code": ("figure-banks", "native-audio", "stereo-movies", "weave"),
                 "import": ("unity-import", "package-api", "unity-validation"),
                 "export": ("content-bank", "player", "delivery", "output-verify")}
 UPDATE_PLANS = {
@@ -82,10 +82,11 @@ UNITY_IMPORT_OBSERVATIONS = frozenset(("unity-work-plan", "unity-asset-import", 
 # time estimates. Native graph/shader/task counters fill only their own part;
 # a local 100% never closes another graph or the Editor process.
 UNITY_WORK_OWNERS = frozenset(("mod-banks", "unity-import", "package-api", "unity-validation",
-    "content-bank", "player", "update-code", "update-art", "native-audio"))
+    "content-bank", "player", "update-code", "update-art", "native-audio", "stereo-movies"))
 UNITY_METHOD_PARTS = {
     "mod-banks": {"build": 1.},
     "native-audio": {"build": 1.},
+    "stereo-movies": {"build": 1.},
     "unity-import": {"sdk": 1.},
     "package-api": {"sdk": 1.},
     "unity-validation": {"configuration": .1, "checks": .9},
@@ -328,7 +329,7 @@ def update_alias(row, name):
     aliases = {"source-snapshot": "update-mod-source", "game-snapshot": "update-mod-source", "snapshot-check": "update-mod-source",
                "weave": "update-code", "package-api": "update-code", "unity-import": "update-code",
                "unity-validation": "update-code", "unity-build": "update-code",
-               "mod-banks": "update-art", "mod-resource-banks": "update-art", "figure-banks": "update-art", "native-audio": "update-art", "delivery": "update-repack"}
+               "mod-banks": "update-art", "mod-resource-banks": "update-art", "figure-banks": "update-art", "native-audio": "update-art", "stereo-movies": "update-art", "delivery": "update-repack"}
     parent = aliases.get(name)
     if parent == "update-code" and row.get("progressPlan", {}).get("liveOperation") == "update-art": return "update-art"
     return parent
@@ -339,6 +340,7 @@ def phase_operation(stage, phase, value):
     if phase == "output-verify": return "output-verify", True
     if stage == "build" and phase == "figure-banks": return "figure-banks", True
     if stage == "build" and phase == "native-audio": return "native-audio", True
+    if stage == "build" and phase == "stereo-movies": return "stereo-movies", True
     if phase == "receipt-verify": return None, False
     if phase == "package-import" and stage in ("tools", "profile"):
         return "qualify" if stage == "tools" else "identity", True
@@ -1689,7 +1691,7 @@ def advance(row, value, operation=None, status=None):
         # historical import can move the live heading or close an operation.
         live_owner = plan.get("liveOperation")
         allowed = live_owner in ("mod-banks", "unity-import", "package-api", "unity-validation",
-                                 "content-bank", "player", "update-code", "update-art", "native-audio")
+                                 "content-bank", "player", "update-code", "update-art", "native-audio", "stereo-movies")
         if not allowed or operation not in (None, live_owner):
             if value is row.get("progress"):
                 # A status read may project an older snapshot whose last
@@ -1732,7 +1734,7 @@ def advance(row, value, operation=None, status=None):
         # Child log readers can outlive their Unity job. An explicitly foreign
         # bank/compiler cannot move the import or player frontier backwards.
         live_owner = plan.get("liveOperation")
-        allowed = live_owner in ("mod-banks", "unity-import", "content-bank", "player", "update-code", "update-art", "native-audio")
+        allowed = live_owner in ("mod-banks", "unity-import", "content-bank", "player", "update-code", "update-art", "native-audio", "stereo-movies")
         if not allowed or operation not in (None, live_owner):
             if operation is not None: value["reportedOperation"] = operation
             operation, measured = None, False

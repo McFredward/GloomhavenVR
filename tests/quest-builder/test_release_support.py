@@ -22,6 +22,18 @@ from storage import BuildError, record_file, write_json
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_movie_release_keeps_authored_inputs_and_excludes_original_pixels(self):
+        for name in release.AUTHORED_MOVIES | release.AUTHORED_RESOURCES:
+            self.assertTrue(release.selected(name), name)
+        for name in (
+            'src/GloomhavenVR/Assets/Movies/Heroes/Doomstalker.sbs-v1.mov',
+            'src/GloomhavenVR/Assets/Movies/Ambient/Ambient_Crypt_01.sbs-v1.mov',
+            'src/GloomhavenVR/Assets/Movies/Embedded/TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.mov',
+            'src/GloomhavenVR/Assets/Movies/Unknown/original.mov',
+            'src/GloomhavenVR/Assets/SteamLink/Assembly-CSharp.dll'):
+            self.assertFalse(release.selected(name), name)
+        self.assertTrue(release.selected('tools/quest-movies/depth/chunk-000.zst'))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name) / 'repo'; self.root.mkdir()
         for name in release.REQUIRED | release.LINUX_REQUIRED | {'src/GloomhavenVR/Net/NetProtocol.cs', 'tools/quest-wizard/tools.lock.json'}:

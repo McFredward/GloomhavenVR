@@ -15,6 +15,7 @@ internal static class CurrentModCompatibility
             CameraBridge(model, report, find, track);
             WindowRegistry(model, report);
             NativeCameraBoundary.Apply(model, report);
+            NativeMovieBoundary.Apply(model, report, find, track);
         }
         catch (Exception error) when (error is InvalidDataException or InvalidOperationException or AssemblyResolutionException)
         { report.Issues.Add(new IntegrationIssue("CURRENT_MOD_AOT_UNSUPPORTED", model.Mod.Name.Name, error.Message)); }

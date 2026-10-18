@@ -19,7 +19,7 @@ PUBLIC_PACKAGES = {'prebuilt/quest-converters-win64-v1.zip': '61f7d664384b12663f
 ROOT_FILES = {'Quest-Builder.cmd', 'Quest-Builder.sh', 'Quest-Repair-Access.cmd', 'Quest-Repair-Access.sh', 'QUEST-BUILDER-START.txt', 'LICENSE', 'Directory.Build.props', 'GloomhavenVR.sln', 'global.json', 'nuget.config', '.editorconfig'}
 TOOL_ROOTS = {'QuestCampaignInventory', 'QuestProceduralExport', 'QuestWeaver', 'RuntimeDepsBuild',
               'ShaderOcclusionPatcher', 'environment-mesh', 'figure-mesh', 'quest-builder', 'quest-campaign-audit', 'quest-compute',
-              'quest-installer', 'quest-native', 'quest-network', 'quest-procedural',
+              'quest-installer', 'quest-movies', 'quest-native', 'quest-network', 'quest-procedural',
               'quest-procedural-runtime', 'quest-recovery', 'quest-shaders', 'quest-wizard', 'quest-wizard-ui'}
 UNITY_ROOTS = {'GloomhavenVR.Assets', 'GloomhavenVR.Quest', 'GloomhavenVR.FigureMeshes'}
 SCRIPTS = {'build-quest.py', 'build-quest-native.py', 'recover-quest.py', 'build-runtimedeps.sh', 'repair-quest-access.ps1',
@@ -47,10 +47,23 @@ OWNED_DERIVED_FILES = {'tools/environment-mesh/bank.json', 'tools/environment-me
                        'tools/environment-mesh/catalog.json', 'tools/environment-mesh/catalog.json.gz',
                        'tools/environment-mesh/ornaments.json'}
 
+# These explicitly named resources contain authored shader programs, isolated
+# public-SDK helpers and the public Valve loader, never original game content.
+# They are compiler inputs of the current mod, including source-only APK updates.
+AUTHORED_RESOURCES = {'src/GloomhavenVR/Assets/StereoVideo/ui-sbs.bundle'} | {
+    'src/GloomhavenVR/Assets/SteamLink/' + name for name in (
+        'scene.bundle', 'connection-reader.exe', 'stream-quality.exe',
+        'compositor-state-probe.exe', 'projection-overlay-probe.exe', 'openvr_api.dll')}
+AUTHORED_MOVIES = {'src/GloomhavenVR/Assets/Movies/CP_Intro/' + name for name in (
+    'GH_CP_Intro.mov', 'GH_CP_Intro.sbs-v2.mov')}
+GAME_MOVIE_ROOTS = tuple('src/GloomhavenVR/Assets/Movies/' + name + '/'
+                        for name in ('Heroes', 'Ambient', 'Embedded'))
+
 
 def owned_derived_source(name):
     """One exclusion boundary shared by Git and released Builder inventories."""
-    return name.startswith(OWNED_DERIVED_ROOTS) or name in OWNED_DERIVED_FILES
+    return (name.startswith(OWNED_DERIVED_ROOTS + GAME_MOVIE_ROOTS)
+            or name in OWNED_DERIVED_FILES)
 
 
 PROMOTIONAL_ASSETS = {'tools/quest-wizard-ui/assets/promo/' + name for name in (
@@ -82,7 +95,7 @@ REQUIRED = set(PUBLIC_PACKAGES) | {"tools/quest-builder/staging_copy.py", "tools
             'src/GloomhavenVR/GloomhavenVR.csproj',
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs',
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestNativePluginContract.cs'}
-REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
+REQUIRED |= AUTHORED_RESOURCES | PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
     'tools/quest-wizard-ui/assets/meta-quest-logo.svg',
     'tools/quest-wizard-ui/assets/github-mark.svg',
     'tools/quest-wizard-ui/assets/buymeacoffee-cup.svg',
@@ -130,7 +143,10 @@ def safe_name(name):
 def selected(name):
     parts = safe_name(name).parts
     if name in PUBLIC_PACKAGES: return True
+    if name in AUTHORED_RESOURCES: return True
     if owned_derived_source(name): return False
+    if Path(name).suffix.lower() in {'.mov', '.mp4'} and name not in AUTHORED_MOVIES:
+        return False
     if any(part in GENERATED_PARTS for part in parts) or any(part.startswith('.env') for part in parts): return False
     if Path(name).suffix.lower() in SECRET_SUFFIXES or 'evidence' in parts or 'decompiled' in parts: return False
     if len(parts) == 1: return name in ROOT_FILES
@@ -241,7 +257,10 @@ def assemble(repo, destination):
                 if len(raw) != row['size'] or hashlib.sha256(raw).hexdigest() != row['sha256']: raise BuildError('Source changed during release assembly.')
                 info = zipfile.ZipInfo('GloomhavenVR-Quest-Builder/' + row['path'])
                 info.create_system = 3
-                info.compress_type = zipfile.ZIP_DEFLATED
+                # Authored H.264, numeric zstd recipes and the pinned converter
+                # archive are already compressed. Preserve their bytes directly.
+                info.compress_type = (zipfile.ZIP_STORED if Path(row['path']).suffix.lower()
+                                      in {'.mov', '.mp4', '.zst', '.zip'} else zipfile.ZIP_DEFLATED)
                 info.external_attr = (0o100755 if row['path'].endswith('.sh') else 0o100644) << 16
                 archive.writestr(info, raw)
             archive.writestr('GloomhavenVR-Quest-Builder/' + MANIFEST, canonical(manifest) + b'\n')
@@ -256,6 +275,7 @@ def assemble(repo, destination):
               'sourceBytes': sum(row['size'] for row in records), 'archiveSha256': digest(destination),
               'promotionalArtworkFiles': sorted(PROMOTIONAL_ASSETS),
               'excluded': ['owned game/decompiled code', 'reference DLLs', 'original-derived figure/environment mesh banks',
+                           'original-derived movie pixels/audio',
                            'generated APKs/caches', 'credentials/licenses/savegames'], 'materializedAuthoredLinks': [name for name in names if (repo / name).is_symlink()],
               'supportedHosts': ['windows-x64', 'linux-x64'],
               'windowsEndToEndVerified': False, 'linuxEndToEndVerified': False}
