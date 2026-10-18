@@ -2838,6 +2838,36 @@
       "weight": 8
     },
     {
+      "id": "steamlink-stream-quality",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-stream-quality/run.py",
+        "--output",
+        ".planning/debug/steamlink-stream-quality"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
+    },
+    {
+      "id": "steamlink-stream-quality-native",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-stream-quality-native/run.py",
+        "--output",
+        ".planning/debug/steamlink-stream-quality-native"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 7
+    },
+    {
       "id": "steamlink-loading-lifecycle",
       "command": [
         "python3",
