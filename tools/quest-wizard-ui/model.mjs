@@ -139,7 +139,8 @@ export function failureView(state) {
   const memoryBlocked=state?.status==='blocked'&&action.code==='native_memory_unavailable';
   const workspaceBlocked=state?.status==='blocked'&&action.code==='workspace_metadata_busy';
   const rebuildBlocked=state?.status==='blocked'&&action.code==='update_rebuild_decision_required';
-  if(state?.status!=='failed'&&!memoryBlocked&&!workspaceBlocked&&!rebuildBlocked)return null;
+  const launcherBlocked=state?.status==='blocked'&&action.code==='store_launcher_required';
+  if(state?.status!=='failed'&&!memoryBlocked&&!workspaceBlocked&&!rebuildBlocked&&!launcherBlocked)return null;
   const parameters=action.parameters??{};
   const cause=typeof parameters.cause==='string'?parameters.cause:typeof parameters.builderError==='string'?parameters.builderError:'';
   // Show one concrete, bounded diagnostic rather than a traceback wall. Text
@@ -149,7 +150,16 @@ export function failureView(state) {
     !/[\u0000-\u001f\u007f]/.test(parameters.path)?parameters.path:null;
   return {stage:typeof parameters.failureStage==='string'?parameters.failureStage:action.stage??state.stages?.find(row=>row.status==='failed')?.id,
     message:action.message??null,cause:lines.at(-1)?.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360)??'',
-    ...(memoryBlocked||workspaceBlocked||rebuildBlocked?{blocked:true}:{}),...(workspaceBlocked?{workspace:true}:{}),...(workspacePath?{workspacePath}:{})};
+    ...(memoryBlocked||workspaceBlocked||rebuildBlocked||launcherBlocked?{blocked:true}:{}),...(workspaceBlocked?{workspace:true}:{}),...(workspacePath?{workspacePath}:{})};
+}
+export function launcherView(state) {
+  if(!['blocked','failed'].includes(state?.status))return null;
+  const action=state.needsActions?.[0],guidance=action?.parameters?.launcherGuidance;
+  if(action?.code!=='store_launcher_required'||guidance?.schema!==1||!['steam','epic','gog'].includes(guidance.provider)||
+     guidance.provider!==state?.choices?.provider||action.parameters.launcherProvider!==guidance.provider)return null;
+  for(const language of ['en','de'])if(typeof guidance.nextSteps?.[language]!=='string'||
+    guidance.nextSteps[language].length>2048||/[\u0000-\u001f\u007f]/.test(guidance.nextSteps[language]))return null;
+  return {provider:guidance.provider,nextSteps:guidance.nextSteps};
 }
 export function updateFailureView(state) {
   if(!failureView(state)||!['update-mod','update-profile'].includes(state?.choices?.mode))return null;

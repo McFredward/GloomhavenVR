@@ -54,11 +54,12 @@ export class LocalApi {
       if(typeof session!=='string'||!/^[a-f0-9]{32}$/.test(session)||typeof removeData!=='boolean')throw {code:'invalidReply'};
       return this.request('/api/storage/plan',{mode,session,removeData});
     }
-    if(!['duplicates','build-cache'].includes(mode)||session!==undefined)throw {code:'invalidReply'};
+    if(!['duplicates','build-cache','update-history'].includes(mode)||session!==undefined)throw {code:'invalidReply'};
     return this.request('/api/storage/plan',{mode});
   }
   storageClean(planId) { if(typeof planId!=='string'||!planId||planId.length>256)throw {code:'invalidReply'};return this.request('/api/storage/clean',{planId}); }
   discover() { return this.request('/api/discover'); }
+  openLauncher(provider) { if(!['steam','epic','gog'].includes(provider))throw {code:'invalidReply'};return this.request('/api/launcher/open',{provider}); }
   plan(choices, session) { if(session !== undefined && !sessionId(session))throw {code:'invalidReply'};return this.request('/api/plan',{choices,...(session?{session}:{})}); }
   run(session) { return this.request('/api/run',{session}); }
   skipInstall(session) { if(!sessionId(session))throw {code:'invalidReply'};return this.request('/api/install/skip',{session}); }

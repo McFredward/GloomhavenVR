@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,activeWorkView,timingView,durationText,failureView,updateFailureView,installationView,activityView,buildOverviewView,nativeMemoryView,unityImportView,unityTaskView} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,activeWorkView,timingView,durationText,failureView,launcherView,updateFailureView,installationView,activityView,buildOverviewView,nativeMemoryView,unityImportView,unityTaskView} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -97,6 +97,7 @@ function showSlide(index) {
 }
 function storageActive() {return storageBusy||['planning','deleting','cancelling'].includes(storageInfo?.state?.status);}
 function stoppedRun(value){return typeof value?.session==='string'&&/^[a-f0-9]{32}$/.test(value.session)&&['ready','failed','blocked','cancelled','interrupted'].includes(value.status)&&!removedRuns.has(value.session);}
+function removableRun(value){return stoppedRun(value)||(value?.status==='complete'&&sessionId(value?.session)&&!removedRuns.has(value.session));}
 function normalRuns(){
   const saved=stoppedRuns?.runs??discovery?.recentSessions??[];
   const rows=state?.session&&!saved.some(row=>row?.session===state.session)?[state,...saved]:saved;
@@ -145,7 +146,7 @@ function renderRunList(target,rows,{home=false,locked=false,retired=false}={}){
       const action=isActive(row)?'open':['ready','failed','blocked','cancelled','interrupted'].includes(row.status)?'resume':row.status==='complete'?'result':null;
       if(action){const button=document.createElement('button');button.className='secondary';button.dataset.runAction=action;button.textContent=t(action==='open'?'homeOpenActive':action==='result'?'runOpenResult':'resumeContinue');button.disabled=busy||storageActive()||deviceActive()||packageActive();button.addEventListener('click',()=>openSession(row.session));actions.append(button);}
     }
-    if(discovery?.capabilities?.runRemoval===true&&(retired?retainedCleanupEligible(row):stoppedRun(row))){
+    if(discovery?.capabilities?.runRemoval===true&&(retired?retainedCleanupEligible(row):removableRun(row))){
       const button=document.createElement('button');button.className='text-button';button.dataset.runAction=retired?'cleanup':'delete';button.textContent=t(retired?'runCleanRetained':'runRemove');button.disabled=locked;button.addEventListener('click',()=>openStorage(row.session,retired));actions.append(button);
     }
     if(actions.childElementCount)article.append(actions);target.append(article);
@@ -535,7 +536,7 @@ function openStorage(session=null,retired=false){
 function renderRuns(locked){
   const available=discovery?.capabilities?.runRemoval===true;
   $('storage-runs').hidden=!available;if(!available)return;
-  const rows=[...normalRuns().filter(stoppedRun),...retiredRuns().filter(retainedCleanupEligible).map(row=>({...row,retired:true}))],selection=pendingRunSelection??$('storage-run').value;
+  const rows=[...normalRuns().filter(removableRun),...retiredRuns().filter(retainedCleanupEligible).map(row=>({...row,retired:true}))],selection=pendingRunSelection??$('storage-run').value;
   const key=JSON.stringify([language,rows.map(row=>[row.session,row.status,row.gameRoot,row.updated,row.created,row.mode,row.retired])]);
   if($('storage-run').dataset.runs!==key){
     $('storage-run').replaceChildren();
@@ -566,6 +567,8 @@ function renderStorage() {
   const inventory=storageInfo.inventory??{},measuring=['scanning','cancelling'].includes(inventory.status);
   $('storage-refresh').hidden=discovery?.capabilities?.storageInventory!==true;
   $('storage-refresh').disabled=measuring||busy||isActive(state)||storageActive()||deviceActive()||packageActive();
+  $('storage-fast-update-size').hidden=!Number.isFinite(inventory.fastUpdateBytes);
+  $('storage-fast-update-size').textContent=Number.isFinite(inventory.fastUpdateBytes)?t('storageFastUpdateSize',{size:storageSize(inventory.fastUpdateBytes)}):'';
   $('storage-used').textContent=Number.isFinite(inventory.totalBytes)?t('storageUsed',{size:storageSize(inventory.totalBytes)}):t('storageUsageUnknown');
   $('storage-inventory-cancel').hidden=!measuring||discovery?.capabilities?.storageCancel!==true;
   $('storage-inventory-cancel').disabled=inventory.status==='cancelling'||!inventory.operationId;
@@ -587,6 +590,8 @@ function renderStorage() {
   const retired=retiredRuns();$('storage-retired').hidden=!retired.length;renderRunList($('storage-retired-list'),retired,{retired:true,locked});
   renderRuns(locked);
   $('storage-plan-duplicates').disabled=locked;
+  $('storage-plan-updates').hidden=discovery?.capabilities?.updateHistoryCleanup!==true;
+  $('storage-plan-updates').disabled=locked;
   const completed=storageInfo.canDeleteBuildCache===true||inventory.canDeleteBuildCache===true||state?.status==='complete'||state?.stages?.some(row=>row.id==='build'&&row.status==='complete');
   $('storage-plan-cache').hidden=!completed;$('storage-plan-cache').disabled=locked;
   if(completed&&!storageCompletedShown){$('storage-details').open=true;storageCompletedShown=true;}
@@ -620,6 +625,13 @@ function renderStorage() {
   $('storage-skipped').hidden=!previewing||!plan?.skipped?.length;$('storage-skipped').replaceChildren();
   if(previewing)for(const row of plan?.skipped??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=typeof row==='string'?row:row.path??'';const reason=typeof row==='object'?row.reason:'';detail.textContent=t('storageRetainedPath',{reason:reason==='shared'?t('storageRetainedShared'):reason==='shared_or_delivered'?t('storageRetainedSharedDelivered'):reason==='protected'?t('storageRetainedProtected'):t('storageRetainedUnknown')});li.append(path,detail);$('storage-skipped').append(li);}
   $('storage-confirmation').hidden=!previewing||sessionPlan&&!sessionEligible||files<=0&&!sessionEligible;$('storage-confirm-copy').textContent=t(sessionPlan?(plan.retired?'runRetiredConfirmCopy':'runConfirmCopy'):'storageConfirmCopy');
+  const impact=plan?.fastUpdateImpact;
+  const impactValid=previewing&&impact?.schema===1&&['preserved','slower','unknown'].includes(impact.status);
+  $('storage-fast-update-impact').hidden=!impactValid;
+  $('storage-fast-update-impact').textContent=impactValid?message(impact.messages):'';
+  $('storage-protected-paths').replaceChildren();
+  $('storage-protected-paths').hidden=!impactValid||!impact.protectedPaths?.length;
+  if(impactValid)for(const row of (impact.protectedPaths??[]).slice(0,32)){const li=document.createElement('li');li.textContent=typeof row==='string'?row:row.path??'';$('storage-protected-paths').append(li);}
   $('storage-clean').textContent=t(sessionPlan&&!plan.retired?'runConfirm':'storageConfirm');
   $('storage-clean').disabled=locked||!plan?.id||Boolean(failure)||sessionPlan&&!sessionEligible;$('storage-dismiss').disabled=locked;
 }
@@ -972,6 +984,7 @@ function renderGames() {
   $('browse-game').hidden=discovery?.capabilities?.browse===false;$('browse-unity').hidden=discovery?.capabilities?.browse===false;
 }
 function updateView() {
+  renderLauncher();
   const previous=state?.modSource,current=discovery?.modSource;
   const sourceUpdate=state&&page===2&&!isActive(state)&&state.status!=='complete'&&
     !state.stages?.some(row=>row.id==='build'&&row.status==='complete')&&
@@ -1039,6 +1052,7 @@ function renderProgress() {
   if(state.requestError)error(state.requestError);
   const failure=failureView(state);
   const updateFailure=updateFailureView(state);
+  const launcher=launcherView(state);
   const installation=installationView(state),installIssue=installation?.attention===true,connectionWait=installation?.connectionWaiting===true,manualWait=installation?.manualLaunchWaiting===true;
   // Show connection setup as soon as installation begins, before a missing
   // device can become an error. Signing/corrupt-package failures retain their
@@ -1144,14 +1158,19 @@ function renderProgress() {
   $('failure-next').hidden=retainedWait||!failure&&!installIssue&&!connectionWait;$('failure-actions').hidden=!failure&&!installIssue;
   $('failure-next').textContent=t(connectionWait?'questConnectionWaitingNext':installIssue?installation.connectionRequired?'questConnectionNext':installation.cleanInstallRequired?'installationCleanNext':installation.recoveryRequired?'installationRecoveryNext':'installationNext':failure?.blocked?'nativeMemoryNext':'failureNext');
   if(retainedWait)$('failure-next').textContent='';
-  if(failure?.workspace)$('failure-next').textContent=t('workspaceMetadataNext');
+  if(launcher)$('failure-next').textContent=message(launcher.nextSteps);
+  else if(failure?.workspace)$('failure-next').textContent=t('workspaceMetadataNext');
   else if(updateFailure)$('failure-next').textContent=message(updateFailure.nextSteps);
   if(installation?.backupPath&&!retainedWait)$('failure-next').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
   $('failure-retry').textContent=t(installation?.dataIssue==='non-save-inaccessible'?'installationRetryAll':installIssue?'installationRetry':'failureRetry');
   const locked=busy||actionBusy||storageActive()||packageActive()||active||!canConnect||Boolean(resumeFailed);
   $('failure-retry').disabled=locked;
-  $('failure-edit-inputs').hidden=!updateFailure?.editInputs;
+  $('failure-edit-inputs').hidden=!updateFailure?.editInputs&&!launcher;
   $('failure-edit-inputs').disabled=locked;
+  $('failure-launcher-open').hidden=!launcher;
+  if(!launcher)$('failure-launcher-status').hidden=true;
+  $('failure-launcher-open').disabled=actionBusy||!canConnect||discovery?.capabilities?.storeLaunchers!==true;
+  $('failure-launcher-open').textContent=t('launcherOpen',{launcher:launcherLabel(launcher?.provider)});
   $('failure-new-build').hidden=!updateFailure?.newBuild;
   $('failure-new-build').disabled=locked;
   $('install-skip').hidden=!installation?.canSkip;$('install-skip').disabled=locked;
@@ -1291,6 +1310,27 @@ async function unityAction(action) {
   try{await api.action(state.session,action,waiting.nonce);await poll();}catch(value){error(value);}finally{actionBusy=false;updateView();schedulePoll();}
 }
 for(const id of ['unity-open','unity-check'])$(id).addEventListener('click',()=>unityAction(id));
+function launcherLabel(provider){return {steam:'Steam',epic:'Epic Games Launcher',gog:'GOG Galaxy'}[provider]??'';}
+function renderLauncher(){
+  $('launcher-open').disabled=actionBusy||!canConnect||discovery?.capabilities?.storeLaunchers!==true;
+  $('launcher-open').textContent=t('launcherOpen',{launcher:launcherLabel($('provider').value)});
+}
+async function openStoreLauncher(fromFailure=false){
+  const provider=fromFailure?launcherView(state)?.provider:$('provider').value;
+  if(actionBusy||!canConnect||discovery?.capabilities?.storeLaunchers!==true||!['steam','epic','gog'].includes(provider))return;
+  actionBusy=true;clearError();renderLauncher();updateView();
+  const status=$(fromFailure?'failure-launcher-status':'launcher-status');
+  status.hidden=false;status.textContent=t('launcherOpening',{launcher:launcherLabel(provider)});
+  try{const result=await api.openLauncher(provider);
+    if(result?.event!=='launcher-opened'||result.provider!==provider)throw {code:'invalidReply'};
+    status.textContent=message(result.message);
+  }catch(value){error(value);status.textContent=value?.message?message(value.message):t('launcherUnavailable');}
+  finally{actionBusy=false;renderLauncher();updateView();schedulePoll();}
+}
+$('launcher-open').addEventListener('click',()=>openStoreLauncher());
+$('failure-launcher-open').addEventListener('click',()=>openStoreLauncher(true));
+$('provider').addEventListener('change',()=>{$('launcher-status').hidden=true;renderLauncher();});
+
 $('gallery-previous').addEventListener('click',()=>showSlide(slideIndex-1));$('gallery-next').addEventListener('click',()=>showSlide(slideIndex+1));
 $('gallery-pause').addEventListener('click',()=>{slidePaused=!slidePaused;$('gallery-pause').textContent=t(slidePaused?'galleryPlay':'galleryPause');showSlide(slideIndex);});
 document.addEventListener('visibilitychange',()=>showSlide(slideIndex));
@@ -1397,6 +1437,7 @@ async function browsePackage(kind){
 document.querySelectorAll('[data-language]').forEach(node=>node.addEventListener('click',()=>setLanguage(node.dataset.language)));
 $('storage-plan-duplicates').addEventListener('click',()=>planStorage('duplicates'));
 $('storage-plan-cache').addEventListener('click',()=>planStorage('build-cache'));
+$('storage-plan-updates').addEventListener('click',()=>planStorage('update-history'));
 $('storage-refresh').addEventListener('click',inventoryStorage);
 $('storage-inventory-cancel').addEventListener('click',()=>void cancelStorage('inventory'));
 $('storage-cancel').addEventListener('click',()=>void cancelStorage('cleanup'));
@@ -1405,7 +1446,7 @@ $('storage-runs-refresh').addEventListener('click',()=>void refreshRuns());
 $('storage-run').addEventListener('change',()=>{$('storage-run-keep').checked=true;updateView();});
 $('storage-run-plan').addEventListener('click',()=>{
   const session=$('storage-run').value;
-  if(!normalRuns().some(row=>stoppedRun(row)&&row.session===session)&&!retiredRuns().some(row=>row.session===session))return;
+  if(!normalRuns().some(row=>removableRun(row)&&row.session===session)&&!retiredRuns().some(row=>row.session===session))return;
   void planStorage('session',session,$('storage-run-remove-data').checked);
 });
 $('storage-clean').addEventListener('click',cleanStorage);

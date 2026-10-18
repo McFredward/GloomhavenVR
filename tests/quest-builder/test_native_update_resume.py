@@ -65,7 +65,8 @@ class NativeUpdateResumeTests(unittest.TestCase):
             "baseApkSha256": storage.digest(self.base), "gameInputKey": "a" * 64,
             "inputs": copy.deepcopy(self.inputs), "updateStrategy": "compact-code", "codeChanged": True,
             "artChanged": False, "nativeHelperChanged": False, "rebuildReasons": [],
-            "updateRecipe": dict(resume._LEGACY_HOST)}
+            "updateRecipe": dict(resume._LEGACY_HOST),
+            "nativeCompilerRecipe": resume._PIXEL_SCOPE_PREVIOUS}
         self.prior_root, self.prior = self.write_plan(prior)
         current = copy.deepcopy(prior)
         current["nativeCompilerRecipe"] = resume.compiler_recipe(self.builder, driver.__file__)
@@ -128,7 +129,7 @@ class NativeUpdateResumeTests(unittest.TestCase):
         return driver._compile_code(self.builder, SimpleNamespace(), self.inputs, self.output, self.source,
                                     self.folder / "game", self.project, self.base, {}, self.root)
 
-    def test_legacy_successful_pair_survives_parser_and_support_repairs_without_any_compiler(self):
+    def test_b691_successful_pair_survives_data_delivery_repair_without_any_compiler(self):
         original = self.compiled.read_bytes(), self.receipt.read_bytes()
         self.assertFalse(storage.Stages(self.output).valid("update-code", self.prior_root.name))
         with patch.object(driver, "_build_code_player", side_effect=AssertionError("No weaving, SDK or native compiler")):
@@ -173,7 +174,7 @@ class NativeUpdateResumeTests(unittest.TestCase):
         self.assertTrue(self.compiled.exists()); self.assertTrue(self.receipt.exists())
 
     def test_unknown_legacy_host_recipe_is_not_adopted(self):
-        prior = copy.deepcopy(self.prior); prior["updateRecipe"]["apk_update.py"] = "9" * 64
+        prior = copy.deepcopy(self.prior); prior.pop("nativeCompilerRecipe", None); prior["updateRecipe"]["apk_update.py"] = "9" * 64
         self.prior_root, self.prior = self.write_plan(prior)
         # Point to a genuine alternate plan with the same complete native files.
         alternate = self.prior_root / "code-player.apk"; alternate.write_bytes(self.compiled.read_bytes())
@@ -294,7 +295,11 @@ class NativeUpdateResumeTests(unittest.TestCase):
                     self.folder / "game", self.project, self.base, {}, self.root)
 
     def test_legacy_bridge_is_exactly_the_reviewed_current_production_recipe(self):
-        self.assertEqual(resume.compiler_recipe(self.builder, driver.__file__), resume._LEGACY_RECIPE)
+        self.assertEqual(resume.compiler_recipe(self.builder, driver.__file__), resume._PIXEL_SCOPE_CURRENT)
+        self.assertTrue(resume._same_recipe({"nativeCompilerRecipe": resume._PIXEL_SCOPE_PREVIOUS}, resume._PIXEL_SCOPE_CURRENT))
+        self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": "0" * 64}, resume._PIXEL_SCOPE_CURRENT))
+        self.assertFalse(resume._same_recipe({"nativeCompilerRecipe": resume._PIXEL_SCOPE_PREVIOUS}, "1" * 64))
+        self.assertTrue(resume._same_recipe({"updateRecipe": dict(resume._LEGACY_HOST)}, resume._LEGACY_RECIPE))
         self.assertEqual(resume._LEGACY_HOST, {"update_driver.py": "e0756f5738d1f3791197769d15b059c4f166e4576aac57f1f44d71828e65f894",
             "apk_update.py": "0febdc91294da2b64843491fd50dcba4aa6fc8f1882a02310799beaba5e01af3"})
 

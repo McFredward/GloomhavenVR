@@ -1013,7 +1013,7 @@ def export_support(state_root, session=None, destination=None):
                     replacements.append((row['gameRoot'], '<owned-game>'))
         add_log(candidates, 'wizard/storage-analysis.json', root / 'logs/storage-analysis.json', True, omitted)
     for name in ('wizard-requests.log', 'wizard-requests.previous.log', 'storage-cleanup.log', 'storage-cleanup.previous.log',
-                 'package-export.jsonl', 'package-export.previous.jsonl', 'metadata-repair.jsonl'):
+                 'package-export.jsonl', 'package-export.previous.jsonl', 'metadata-repair.jsonl', 'update-storage.json'):
         add_log(candidates, 'wizard/' + name, root / 'logs' / name, False, omitted)
     for path in adb_lifetime_logs(root):
         add_log(candidates, 'wizard/' + path.name, path, False, omitted)
@@ -1063,7 +1063,7 @@ def export_support(state_root, session=None, destination=None):
         # preserve these two bounded utility/request records even when the
         # current build event history only reports a disk-capacity stop.
         return (7 if name in installation_names else
-                6 if name in ('wizard/storage-cleanup.log', 'wizard/wizard-requests.log', 'wizard/storage-analysis.json')
+                6 if name in ('wizard/storage-cleanup.log', 'wizard/wizard-requests.log', 'wizard/storage-analysis.json', 'wizard/update-storage.json')
                      or re.fullmatch(r'wizard/adb-lifetime-[0-9a-f]{12}\.log', name) else
                 5 if name == failed_log else 4 if structured else
                 3 if name in ('wizard/build.log', 'wizard/install.log', 'wizard/progress.log') or name.startswith('device/') else

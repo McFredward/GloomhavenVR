@@ -146,7 +146,18 @@ class Engine:
         with file_lock(self.store.root / "run.lock"):
             state = self.store.load(session)
             with self.store.active(state):
-                return self._run(state, session)
+                result = self._run(state, session)
+        if not self.actions and result.get("status") == "complete":
+            # Publication and installation are already closed. A failed optional
+            # housekeeping pass must never change their successful receipts.
+            # Running after completion releases this run's old APK input while
+            # keeping the latest APK and other pending runs' actual dependencies.
+            try:
+                from update_storage import maintain
+                maintain(self.store.root)
+            except (OSError, ValueError, RuntimeError, ImportError):
+                pass  # Explicit storage management can retry; outputs stay valid.
+        return result
 
     def build_work_key(self, state):
         """Progress scope, independent of release observer bytes; never a receipt."""
@@ -724,6 +735,19 @@ class Engine:
         from unity_setup import prepare
         return prepare(self.store, state, supervisor)
 
+    def profile_launcher_required(self, state, cause):
+        from store_launcher import launch, required
+        provider = state["choices"]["provider"]
+        try:
+            launch(self.repo, provider)
+            self.emit(self.store.event(state, "store_launcher_opened", "profile", provider=provider))
+        except WizardError as error:
+            cause = str(cause) + " " + error.message["en"]
+        # Opening a client cannot manufacture its account ID. Keep the profile
+        # boundary blocked until the original local identity can be read or the
+        # user supplies it. GOG offline manifests do not require Galaxy login.
+        raise required(provider, cause=cause, failureStage="profile")
+
     def stage_profile(self, state, supervisor):
         selected = state["choices"]; module = discovery.builder(self.details(state, "source")["sourceRoot"])
         logo = self.store.session_dir(state["session"]) / "steam-logo.png"
@@ -755,9 +779,13 @@ class Engine:
                                   "Das Profil der vorhandenen APK konnte nicht geändert werden: " + str(error)) from error
         elif selected["provider"] == "steam":
             root = Path(selected["steamRoot"]) if selected.get("steamRoot") else module.discover_steam_root()
-            if not root: raise WizardError("profile_required", "Select the PC account's local display name and identity.", "Bitte Anzeigenamen und lokale Identität des PC-Kontos wählen.")
-            profile = module.load_profile.__globals__["capture_steam_profile"](root, selected.get("steamId"))
-        else: raise WizardError("profile_required", "GOG/Epic install records do not contain an account identity; enter its name and account ID.", "GOG-/Epic-Installationsdaten enthalten keine Kontoidentität; bitte Namen und Konto-ID eingeben.")
+            if not root: self.profile_launcher_required(state, "The local Steam account identity is unavailable.")
+            try:
+                profile = module.load_profile.__globals__["capture_steam_profile"](root, selected.get("steamId"))
+            except (ValueError, OSError) as error:
+                self.profile_launcher_required(state, str(error))
+        else:
+            self.profile_launcher_required(state, "GOG/Epic installation markers do not contain an account identity; enter its name and account ID.")
         path = self.store.session_dir(state["session"]) / "profile.json"
         atomic_json(path, profile)
         self.store.operation(state["session"], "profile", "identity", complete=True, detail="Local identity recorded.")

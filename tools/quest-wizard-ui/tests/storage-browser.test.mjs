@@ -23,7 +23,7 @@ for(const completed of [false,true])test('native browser storage: explicit previ
         assert.equal(request.headers['x-quest-token'],'storage-fixture-token');
         let body='';for await(const data of request)body+=data;
         const input=body?JSON.parse(body):{},reply=value=>{response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify(value));};
-        if(path==='/api/discover')return reply({schema:1,event:'discovery',capabilities:{browse:false,support:false,logs:false},games:[],unityEditors:[],...(completed?{latestSession:session,recentSessions:[{session,status:'complete'}]}:{})});
+        if(path==='/api/discover')return reply({schema:1,event:'discovery',capabilities:{browse:false,support:false,logs:false,updateHistoryCleanup:true},games:[],unityEditors:[],...(completed?{latestSession:session,recentSessions:[{session,status:'complete'}]}:{})});
         if(path==='/api/gallery')return reply({schema:1,event:'gallery',artwork:[]});
         if(path==='/api/status')return reply({schema:1,event:'status',session,state:{session,status:'complete',needsActions:[],choices:{gameRoot:'C:\\OwnedGame',provider:'steam',install:false},stages:['tools','source','unity','profile','inspect','build','install'].map(id=>({id,status:'complete',details:id==='install'?{requested:false}:{}})),result:{apk:'C:\\Users\\Fixture\\.ghvrq\\build\\result.apk'}}});
         if(path==='/api/events')return reply({schema:1,event:'events',session,events:[],lastEvent:0});
@@ -38,7 +38,7 @@ for(const completed of [false,true])test('native browser storage: explicit previ
           if(['planning','deleting'].includes(storageState.status)){
             storagePolls++;
             if(storagePolls===1)storageState={...storageState,done:1,...(storageState.status==='deleting'?{files:1}:{})};
-            else if(storageState.status==='planning')storageState={status:'preview',plan:{id:'displayed-only-plan',mode:requestedMode,paths:[{path:'C:\\Users\\Fixture\\.ghvrq\\build\\unused-copy',bytes:2*1073741824,files:4}],bytes:2*1073741824,files:4,exact:true}};
+            else if(storageState.status==='planning')storageState={status:'preview',plan:{id:'displayed-only-plan',mode:requestedMode,paths:[{path:'C:\\Users\\Fixture\\.ghvrq\\build\\unused-copy',bytes:2*1073741824,files:4}],bytes:2*1073741824,files:4,exact:true,fastUpdateImpact:{schema:1,status:requestedMode==='build-cache'?'slower':'preserved',messages:requestedMode==='build-cache'?{de:'Spätere Updates benötigen erneut Kompilierung.',en:'Later updates need compilation again.'}:{de:'Daten für schnelle Updates bleiben erhalten.',en:'Fast update data is retained.'},protectedPaths:['build/updates/code-projects']}}};
             else storageState={status:'complete',result:{freedBytes:2*1073741824,deletedFiles:4}};
           }
           return reply(storage());
@@ -68,6 +68,9 @@ for(const completed of [false,true])test('native browser storage: explicit previ
     assert.equal(await client.evaluate("document.getElementById('primary').disabled"),true,'no build starts during cleanup work');
     await client.wait("!document.getElementById('storage-confirmation').hidden");
     assert.equal(requestedMode,'duplicates');assert.equal(cleanCalls,0,'a preview is not consent to delete');
+    assert.equal(await client.evaluate("document.getElementById('storage-fast-update-impact').hidden"),false);
+    assert.match(await client.evaluate("document.getElementById('storage-fast-update-impact').textContent"),/schnelle Updates bleiben erhalten/);
+    assert.match(await client.evaluate("document.getElementById('storage-protected-paths').textContent"),/code-projects/);
     assert.match(await client.evaluate("document.getElementById('storage-paths').textContent"),/unused-copy.*2 GiB.*4 Dateien/);
     assert.equal(await client.evaluate("document.getElementById('storage-cache-consequence').hidden"),true);
     await client.picture('storage-duplicates-preview-de-'+completed);
@@ -80,6 +83,7 @@ for(const completed of [false,true])test('native browser storage: explicit previ
       await client.evaluate("document.getElementById('storage-plan-cache').click()");
       await client.wait("!document.getElementById('storage-confirmation').hidden");
       assert.equal(requestedMode,'build-cache');assert.equal(cleanCalls,1);
+      assert.match(await client.evaluate("document.getElementById('storage-fast-update-impact').textContent"),/erneut Kompilierung/);
       assert.equal(await client.evaluate("document.getElementById('storage-cache-consequence').hidden"),false);
       assert.match(await client.evaluate("document.getElementById('storage-cache-consequence').textContent"),/Signierschlüssel.*erneut Konvertierung und Unity-Import.*APK-Updates/);
       await client.evaluate("document.querySelector('[data-language=en]').click()");
@@ -89,6 +93,11 @@ for(const completed of [false,true])test('native browser storage: explicit previ
       assert.equal(await client.evaluate("document.getElementById('storage-confirmation').hidden"),true);
       assert.equal(cleanCalls,1,'closing the cache preview never deletes');
     }
+    await client.evaluate("document.getElementById('storage-plan-updates').click()");
+    await client.wait("!document.getElementById('storage-confirmation').hidden");
+    assert.equal(requestedMode,'update-history');assert.equal(cleanCalls,1);
+    assert.match(await client.evaluate("document.getElementById('storage-fast-update-impact').textContent"),/Fast update data|schnelle Updates/);
+    await client.evaluate("document.getElementById('storage-dismiss').click()");
     failNext=true;await client.evaluate("document.getElementById('storage-plan-duplicates').click()");
     await client.wait("document.getElementById('storage-status').getAttribute('role')==='alert'");
     await client.evaluate("document.querySelector('[data-language=de]').click()");

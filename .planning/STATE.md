@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest Builder ownership readiness, artwork and storage, 2026-10-18: host-only / B691 retained.**
+
+Support175746 passes owned-PC inspection with Steam running and finishes native
+compilation, then exceeds the artwork spool bound. Deliver lossless level6 pixels
+with bounded dead-spool reclamation; preserve the completed B691 native pair
+through exact data-only recipe qualification. Installed Steam/Epic/GOG launchers
+are available as guided account actions; Steam additionally recovers initialization
+and qualifies base-game ownership even with explicit DLC choices. Retire completed
+runs, preview fast-update consequences, and prune only proved obsolete final
+update APKs after success while retaining current/original/compiler data. See
+[QUEST-BUILDER-OWNERSHIP-STORAGE-20261018.md](QUEST-BUILDER-OWNERSHIP-STORAGE-20261018.md).
+
+
 **Quest native loading, figure containers and filtering, 2026-10-18: feature / B691.**
 
 Capture165952 verifies current690/previous689. Preserve confirmed complete rooms,

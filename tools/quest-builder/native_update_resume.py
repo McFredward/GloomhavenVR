@@ -25,6 +25,10 @@ _PREVIOUS_RECIPE = "f9326c1a8bdcecad3cce0f6b6e2954389479a260d094d31b5477502d51de
 # and signed APK publisher from the native producer census. Their callers are
 # outside stage_code_project/code_build_env; neither produces compiler input.
 _LEGACY_RECIPE = "ce4a2de2b4a86cc7eec667875c128ad0116d5afcc095ead4d39e88f19630ed02"
+# Exact B691 data-only selector correction. The complete native producer
+# rows and matched code/metadata qualification remain mandatory below.
+_PIXEL_SCOPE_PREVIOUS = 'd1171ab145d33bcdcbeba7cbc6d4117cf1aa2c519033934ae8f5a4450e319667'
+_PIXEL_SCOPE_CURRENT = '1507d267a9957ccc9b813a60e2f490badac20ac926f24b9c78cbae9c3c385163'
 _HEX = re.compile(r"[0-9a-f]{64}")
 
 
@@ -71,6 +75,8 @@ def compiler_recipe(builder, driver_path):
 
 def _same_recipe(previous, recipe):
     if previous.get("nativeCompilerRecipe") == recipe:
+        return True
+    if recipe == _PIXEL_SCOPE_CURRENT and previous.get("nativeCompilerRecipe") == _PIXEL_SCOPE_PREVIOUS:
         return True
     # Support213445: only this explicitly reviewed host-only publication repair
     # may cross the old compiler recipe. Any real producer change has a different

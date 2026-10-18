@@ -63,6 +63,7 @@ REQUIRED = set(PUBLIC_PACKAGES) | {"tools/quest-builder/staging_copy.py", "tools
             'Quest-Repair-Access.cmd', 'Quest-Repair-Access.sh', 'scripts/repair-quest-access.ps1',
             'tools/quest-wizard/wizard.py', 'tools/quest-wizard-ui/index.html', 'tools/quest-installer/bootstrap.ps1',
             'tools/quest-wizard/server.py', 'tools/quest-wizard/cleanup.py',
+            'tools/quest-wizard/store_launcher.py', 'tools/quest-wizard/update_storage.py', 'tools/quest-builder/store_launchers.py',
             'tools/quest-wizard/cleanup_io.py', 'tools/quest-wizard/run_storage.py',
             'tools/quest-installer/installer.py', 'tools/quest-installer/signing_recovery.py',
             'tools/quest-installer/content_access.py', 'tools/quest-installer/device_cleanup.py',

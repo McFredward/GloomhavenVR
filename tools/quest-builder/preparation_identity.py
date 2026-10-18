@@ -132,6 +132,11 @@ UPDATE_RETAINED_APK_FIXED = {"path": "tools/quest-builder/update_driver.py", "si
 UPDATE_TOOL_HANDOFF_FIXED = {"path": "tools/quest-builder/update_driver.py", "size": 74433,
     "sha256": "7dcb5d94d4d20acab4cb1e6c88a718de8016983742588106bd2f73698b153838"}
 
+# Reviewed post-compiler pixel delivery scope correction; runtime/compiler
+# producer functions are otherwise identical to the B691 controller.
+UPDATE_PIXEL_DELIVERY_FIXED = {'path': 'tools/quest-builder/update_driver.py', 'size': 89068, 'sha256': 'f9e61017f01ebc025eb27faa361fe4b159f7d2f75c66da4a2f19e28bda6fe765'}
+UPDATE_PIXEL_DELIVERY_PREVIOUS = {'path': 'tools/quest-builder/update_driver.py', 'size': 88626, 'sha256': 'a12ebd13504aa6b98fb099cfcd1d8f25bb5113107fd5e197cebf80b22ec67714'}
+
 def _memory_row(row):
     if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE, MEMORY_POLICY_MINIMUM, MEMORY_POLICY_PARALLEL):
         return MEMORY_POLICY_PREVIOUS
@@ -634,6 +639,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     if original_prefix:
         reviewed = []
         for row in rows:
+            if row == UPDATE_PIXEL_DELIVERY_FIXED: row = UPDATE_PIXEL_DELIVERY_PREVIOUS
             if row in (UPDATE_DOWNLOAD_FIXED, UPDATE_DOWNLOAD_PARALLEL_PREVIOUS, UPDATE_RETAINED_APK_FIXED, UPDATE_TOOL_HANDOFF_FIXED): row = UPDATE_DOWNLOAD_PREVIOUS
             if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
             if row == COMPUTE_OWNER_DELIVERY_ROW:

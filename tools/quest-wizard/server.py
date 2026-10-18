@@ -599,7 +599,7 @@ class LocalServer(ThreadingHTTPServer):
                     raise error
                 selected = self.storage_plan
             else:
-                if mode not in ("duplicates", "build-cache", "session"):
+                if mode not in ("duplicates", "build-cache", "update-history", "session"):
                     raise WizardError("cleanup_mode", "Unsupported cleanup selection.", "Ungültige Auswahl für die Bereinigung.")
                 if mode == "session":
                     # Reconcile an abandoned console using the same Store
@@ -811,7 +811,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = dict(self.server.discover(REPO, self.server.store))
                 result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "storageInventory": True,
                                           "portablePackages": True, "runRemoval": True, "runOverview": True, "workspaceSupport": True,
-                                          "storageCancel": True}
+                                          "storageCancel": True, "storeLaunchers": True, "updateHistoryCleanup": True}
                 return result
             if parsed.path == '/api/gallery':
                 return {'schema': 1, 'event': 'gallery', 'artwork': self.server.promo.visible() if self.server.promo else []}
@@ -944,6 +944,11 @@ class Handler(BaseHTTPRequestHandler):
                 if set(value) != {"kind"}: raise WizardError("request_body", "Unsupported browse fields.")
                 with self.server.browse_lock: path = browse(value["kind"])
                 return {"schema": 1, "event": "browse", "path": path}
+            if parsed.path == "/api/launcher/open":
+                if set(value) != {"provider"}: raise WizardError("request_body", "Expected a selected store provider.")
+                from store_launcher import launch
+                with self.server.action_lock:
+                    return launch(REPO, value["provider"])
             if parsed.path == '/api/action':
                 if set(value) != {'session', 'action', 'nonce'}: raise WizardError('request_body', 'Expected a current declared action.')
                 from unity_setup import request_action

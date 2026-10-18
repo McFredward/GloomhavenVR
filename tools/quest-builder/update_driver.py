@@ -466,7 +466,9 @@ def _code_rows(files, *, normalizer=None):
     only improve reporting, rather than guessing whether new code is equivalent.
     """
     prefixes = ("src/", "tools/QuestWeaver/", "libs/RefAsm/")
-    producers = {"tools/quest-builder/apk_update.py", "tools/quest-builder/update_driver.py", "tools/quest-builder/quest_card_alpha.py", "tools/quest-builder/quest_card_pixels.py",
+    # Pixel extraction is a post-compiler data delivery. Its complete source is
+    # still bound by updateRecipe and its own cache recipe, never an IL2CPP input.
+    producers = {"tools/quest-builder/apk_update.py", "tools/quest-builder/update_driver.py", "tools/quest-builder/quest_card_alpha.py",
                  "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs"}
     def selected(name):
         # Every release records its commit and complete host-file inventory.
@@ -486,8 +488,12 @@ def _code_rows(files, *, normalizer=None):
         preceding = getattr(normalizer, "UPDATE_DOWNLOAD_PARALLEL_PREVIOUS", None)
         retained = getattr(normalizer, "UPDATE_RETAINED_APK_FIXED", None)
         tool_handoff = getattr(normalizer, "UPDATE_TOOL_HANDOFF_FIXED", None)
+        pixel_delivery = getattr(normalizer, "UPDATE_PIXEL_DELIVERY_FIXED", None)
         if fixed is not None and previous is not None:
             rows = [previous if row in (fixed, preceding, retained, tool_handoff) else row for row in rows]
+        pixel_previous = getattr(normalizer, "UPDATE_PIXEL_DELIVERY_PREVIOUS", None)
+        if pixel_delivery is not None and pixel_previous is not None:
+            rows = [pixel_previous if row == pixel_delivery else row for row in rows]
     return sorted(rows, key=lambda row: row["path"])
 
 

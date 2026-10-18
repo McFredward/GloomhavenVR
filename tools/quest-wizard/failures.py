@@ -398,6 +398,9 @@ def tool_failure(root, stage, log, started, executable, exit_code, *, workflow_m
         failed_stage = parameters.pop("failureStage")
         return disk_full_error(root, failed_stage, **parameters)
     if installer_error: return installer_error
+    from store_launcher import failure as launcher_failure
+    launcher_error = launcher_failure(parameters)
+    if launcher_error is not None: return launcher_error
     if failure_code == "native_memory_unavailable" or "Available RAM/commit is insufficient or unknown for the large native game compiler" in (parameters["cause"] + " " + parameters.get("builderError", "")):
         return native_memory_error(parameters, resources)
     import_failure = ("helper import failed before game conversion" in parameters.get("builderError", "")
