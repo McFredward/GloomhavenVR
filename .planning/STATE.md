@@ -28,10 +28,16 @@ embedded-bank identities are checked separately. New suite registration brings
 the local inventory to232; CI101/source16 are unchanged. Unrelated696 movie/UI/
 wire evidence is inherited, not a repeated full gate. See [the scoped record](STEAM-LINK-699-ROBUST-COVERAGE.md).
 
-Both PC producer and Frame receiver must update before the next functional test.
-The old installed patch cannot decode v3. No Frame changes/restarts were made
-during this preparation; request a fresh concrete approval once everything is
-ready. Harder headset edges and stereo agreement remain hardware checks.
+After fresh explicit approval, the public receiver82fb122 is now installed on
+the Frame with its exact31384-byte candidate and preserved enabled preference.
+One approved SteamVR restart completed; the loaded installed library, unchanged
+runtime cohort and complete native UI startup evidence are verified. An initial
+health observation mistook systemd's zero-to-populated main PID for a restart;
+read-only replay of the full original startup evidence passes the unchanged gate
+in the same invocation with no restart-counter increase. Backup/manual rollback
+are retained; no pixel capture, automatic timer or second restart was introduced.
+The maintainer has been signalled to stream699. Harder headset edges and stereo
+agreement remain pending visible hardware checks, not inferred from the logs.
 
 **Native Steam Link stereo regression containment, 2026-10-18: Build698.**
 

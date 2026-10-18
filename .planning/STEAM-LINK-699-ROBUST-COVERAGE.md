@@ -102,8 +102,25 @@ a real device update. Suite inventory is232 local/101 CI/16 source. Unrelated
 movie/UI/gameplay/wire behavior inherits unchanged prior evidence; this is not
 a new complete-suite pass.
 
-No new Frame installation, capture or restart occurs during preparation. The
-installed old receiver does not recognize v3. Both sides must update before a
-new streamed headset test. Preparing code does not authorize device writes or
-reuse the completed697 deployment permission; an additional concrete approval
-is required when the new package, backup and manual rollback are ready.
+No Frame installation, capture or restart occurred during preparation. That
+preparation did not reuse697's completed deployment permission. After a fresh
+explicit approval, public receiver82fb122 was cold-prepared on the Frame and
+installed through the public helper, preserving the enabled preference and all
+ten original runtime fingerprints. The exact31384-byte candidate is loaded from
+the installed package. One approved SteamVR restart completed; the same current
+invocation retains NRestarts0 and passes the complete native UI health gate.
+
+The first health observation incorrectly pinned the service's initial MainPID0
+and zero start timestamp before systemd populated them. A read-only recheck from
+the original pre-restart journal/log cursors confirms all required startup
+markers and process identities in that same invocation. The initial false alarm
+and an intervening incorrect reader-cursor recheck remain in the private record;
+neither caused another service action. This is a health-observation defect, not
+evidence of a compositor crash or a visual passthrough result.
+
+Private deployment/rollback receipts are retained in the receiver repository's
+`build/private-robust699-deployment`. The exact predecessor package is backed up
+on the Frame, and completed duplicate/compiler caches are removed. There is no
+pixel capture, automatic expiry or rollback timer. The maintainer has been
+signalled to stream Build699 and compare both eyes and window edges. The visible
+hardware result remains pending; native status alone cannot establish it.
