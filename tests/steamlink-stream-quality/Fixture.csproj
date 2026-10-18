@@ -3,6 +3,6 @@
   <ItemGroup>
     <Compile Include="$(FixtureDir)/Boundary.cs" />
     <Compile Include="$(FixtureDir)/Program.cs" />
-    <Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkStreamQuality.cs" />
+    <Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkStreamQuality.cs" /><Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkResolutionPolicy.cs" />
   </ItemGroup>
 </Project>

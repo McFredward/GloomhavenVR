@@ -1,5 +1,27 @@
 # State — where the project stands
 
+**Native Steam Link adaptive transport size, 2026-10-18: Build702.**
+
+The maintainer accepts Build701's edges, but reports markedly degraded picture
+quality. Its actual log shows4040x4040 eye/carrier sources and the newly applied
+fixed3072 uniform video request. Remove that extra ceiling: derive the request
+from current actual XR dimensions, rounding upward to64 (4040→4096), never writing
+XR allocation, viewport or render scale. Remove the independent MR-width row in
+both options menus; retain its saved key inert. A transient unknown extent keeps
+only the current eligible generation, avoiding load-time release/reacquisition.
+
+The verified helper now accepts64..16384 aligned requests and refuses/restores
+immediately observed smaller readbacks. Existing larger manual widths, absence,
+ownership and rollback controls remain. These arithmetic bounds/readbacks are
+not demonstrated decoder capabilities or proof of negotiated video resolution.
+The accepted v3 bank, receiver, masks and startup cohort remain unchanged. Its
+existing2048/3168 scene fraction is a separate residual spatial budget; removing
+the added3072 ceiling does not make that atlas pixel-lossless. No Frame update.
+
+Focused evidence and final build/artifact records are in
+[the correction record](STEAM-LINK-702-ADAPTIVE-RESOLUTION.md). Inventory is now
+236local/105CI/16source; no new complete-gate or headset-picture claim.
+
 **Native Steam Link admission and stereo startup, 2026-10-18: Build701.**
 
 Fresh Build700 hardware logs show all three quality leases refused at snapshot;

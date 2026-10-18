@@ -18,7 +18,7 @@ internal static class SteamLinkStreamQuality
 {
     internal const string Resource = "GloomhavenVR.SteamLink.stream-quality.exe";
     internal static readonly int HelperBytes = 46080;
-    internal static readonly string HelperSha256 = "4dae192d836d989e78a878e97abd6976b8ee3db03718b17122704e7745db99d4";
+    internal static readonly string HelperSha256 = "aae6bf6a0da3fd3a0f2e9e6b65ff6375786b5058fc4c8fc7c752c47298202ccd";
     internal const int RestoreGraceMs = 5000;
     private static readonly Monitor State = new(AcquireAsync, (warning, message) =>
     {
@@ -34,11 +34,10 @@ internal static class SteamLinkStreamQuality
             && SteamLinkConnection.Available && MixedReality.Enabled != null && MixedReality.Enabled.Value
             && MixedReality.SteamLinkNative != null && MixedReality.SteamLinkNative.Value;
     internal static void Reset() => State.Reset();
-    internal static bool ValidWidth(int value) => value >= 1024 && value <= 4096 && value % 64 == 0;
+    internal static bool ValidWidth(int value) => value >= 64 && value <= 16384 && value % 64 == 0;
     internal static int NormalizeWidth(int value)
     {
-        int clamped = Math.Max(1024, Math.Min(4096, value));
-        return (clamped + 63) / 64 * 64;
+        return SteamLinkResolutionPolicy.TryWidth(value, 1, out int normalized) ? normalized : 0;
     }
 
     internal sealed class ReleaseResult
@@ -91,9 +90,13 @@ internal static class SteamLinkStreamQuality
         }
         internal void Tick(bool wanted, int width, double now)
         {
-            if (double.IsNaN(now) || double.IsInfinity(now) || now < 0 || !ValidWidth(width)) wanted = false;
             lock (_gate)
             {
+                // XR may briefly withhold its extent during a load. Keep only
+                // this requested generation's known width; never invent an
+                // initial size or retain one after Off/session end/Reset.
+                if (wanted && width == 0 && _wanted && ValidWidth(_width)) width = _width;
+                if (double.IsNaN(now) || double.IsInfinity(now) || now < 0 || !ValidWidth(width)) wanted = false;
                 if (_wanted != wanted || wanted && _width != width)
                 {
                     _epoch++; _wanted = wanted; _width = width; _attempts = 0; _next = now;
@@ -129,7 +132,7 @@ internal static class SteamLinkStreamQuality
                 {
                     _log(false, "active; foveation and sharpening disabled; requested uniform width " + width
                         + "px; driver setting readback " + lease.AppliedWidth
-                        + "px. This is not proof of negotiated video resolution.");
+                        + "px, following the current XR carrier. This is not proof of negotiated video resolution.");
                     await Task.WhenAny(stop.Task, lease.Completion).ConfigureAwait(false);
                 }
             }
@@ -376,7 +379,7 @@ internal static class SteamLinkStreamQuality
             && ((absent & 4) == 0 || f["previous_sharpening"] == "false")
             && (f["previous_sharpening"] == "true" || f["previous_sharpening"] == "false")
             && (f["previous_automatic_width"] == "true" || f["previous_automatic_width"] == "false")
-            && (ValidWidth(applied) || applied > requested && applied == previousWidth && (absent & 11) == 0
+            && (ValidWidth(applied) && applied == requested || applied > requested && applied == previousWidth && (absent & 11) == 0
                 && f["previous_automatic_width"] == "false" && (previousMode == 1 || previousMode == 3));
     }
     internal static bool DecodeRestored(string raw, out bool restored, out int conflicts)

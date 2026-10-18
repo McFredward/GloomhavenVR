@@ -96,7 +96,7 @@ static bool same_identity(struct System022 *api,const struct Identity *before){
     return identity(api,&current)&&!strcmp(before->tracking,current.tracking)
         &&!strcmp(before->model,current.model)&&!strcmp(before->registered,current.registered);
 }
-static bool valid_width(int32_t width){return width>=1024&&width<=4096&&width%64==0;}
+static bool valid_width(int32_t width){return width>=64&&width<=16384&&width%64==0;}
 static int32_t setting_read_status(struct Settings003 *api,int key,int32_t *out){
     int32_t error=0;
     *out=(key==AUTOMATIC||key==SHARPENING)?(int32_t)api->getBool(section,keys[key],&error):api->getInt(section,keys[key],&error);
@@ -174,9 +174,12 @@ static struct Outcome quality_session(Init init,Get get,Shutdown shutdown,int32_
         if(!written){out.error="write";goto rollback;}
         if(!read){out.error="readback";goto rollback;}
         /* The driver can clamp width to its encoder limit and write it back.
-         * Accept only a bounded reduction observed in this immediate readback;
-         * do not infer a decoder/network capability or an actual video extent. */
-        if(key==WIDTH&&after!=wanted[key]&&valid_width(after)&&after<wanted[key])lease.applied[key]=after;
+         * Record that owned value for rollback, but do not call a smaller stream
+         * an applied quality policy: MR must not silently lower the chosen size.
+         * Readback still does not prove actual encoder/client dimensions. */
+        if(key==WIDTH&&after!=wanted[key]&&valid_width(after)&&after<wanted[key]){
+            lease.applied[key]=after;out.error="width_limited";goto rollback;
+        }
         else if(after!=wanted[key]){out.error="readback";goto rollback;}
     }
     for(int key=0;key<KEY_COUNT;++key){
@@ -234,7 +237,7 @@ static int failure(const char *reason){
 }
 static bool parse_width(const wchar_t *s,int32_t *width){
     int32_t n=0;if(!*s)return false;
-    for(;*s;++s){if(*s<L'0'||*s>L'9'||n>4096)return false;n=n*10+(*s-L'0');}
+    for(;*s;++s){if(*s<L'0'||*s>L'9'||n>16384)return false;n=n*10+(*s-L'0');}
     if(!valid_width(n))return false;
     *width=n;return true;
 }

@@ -42,10 +42,10 @@ internal static class Program
         Check(!Q.DecodeAcquired(Absent(Acquired(applied:4608,previous:4608,mode:1,auto:false),1),3072),"Absent manual width cannot justify a larger inherited request");
         Check(!Q.DecodeAcquired(Acquired(mode:4),3072),"Original foveation mode is bounded");
 
-        Check(Q.DecodeAcquired(Acquired(applied:2048),3072),"Actual bounded clamp is a readback, not rejection");
+        Check(!Q.DecodeAcquired(Acquired(applied:2048),3072),"A smaller driver readback cannot silently lower chosen image quality");
         Check(Q.DecodeAcquired(Acquired(applied:4608,previous:4608,mode:1,auto:false),3072),"Preserve existing higher manual no-foveation value");
         Check(Q.DecodeAcquired(Acquired(applied:3408,previous:3408,mode:3,auto:false),3072),"Preserve existing nonstep manual value");
-        Check(!Q.DecodeAcquired(Acquired(applied:4608),3072),"No invented out-of-range width");
+        Check(!Q.DecodeAcquired(Acquired(applied:4608),3072),"No invented width increase");
         Check(!Q.DecodeAcquired(Acquired(applied:20000,previous:20000,mode:1,auto:false),3072),"Hard typed readback bound");
         Check(!Q.DecodeAcquired(Acquired(applied:3408,previous:3408,mode:0,auto:false),3072),"No foveated manual preservation");
         Check(!Q.DecodeAcquired(Acquired(),4096),"Wrong request refused");
@@ -63,9 +63,9 @@ internal static class Program
         Check(Q.DecodeError(error,out ok,out _)&&ok,"Explicit no-write/rollback error receipt");
         Check(Q.DecodeError(error.Replace("\"restored\":true","\"restored\":false"),out ok,out _)&&!ok,"Partial rollback failure remains unconfirmed");
         Check(Q.DecodeError(error.Replace("\"error\":\"busy\"","\"error\":\"abandoned\"").Replace("\"restored\":true","\"restored\":false"),out ok,out _)&&!ok,"Abandoned prior ownership is unsafe");
-        foreach(int value in new[]{1024,3072,4096})Check(Q.ValidWidth(value),"Allowed width"+value);
-        foreach(int value in new[]{0,1023,1025,4097,8192})Check(!Q.ValidWidth(value),"Refused request width"+value);
-        foreach(var pair in new[]{(1024,1024),(4096,4096),(2125,2176),(0,1024),(int.MaxValue,4096)})Check(Q.NormalizeWidth(pair.Item1)==pair.Item2,"Bounded persisted width normalization");
+        foreach(int value in new[]{64,960,1024,3072,4096,4160,8192,16384})Check(Q.ValidWidth(value),"Allowed width"+value);
+        foreach(int value in new[]{0,63,65,1023,1025,4097,16385})Check(!Q.ValidWidth(value),"Refused request width"+value);
+        foreach(var pair in new[]{(1024,1024),(4096,4096),(2125,2176),(0,0),(int.MaxValue,0),(4040,4096),(4848,4864),(16384,16384)})Check(Q.NormalizeWidth(pair.Item1)==pair.Item2,"Bounded persisted width normalization");
     }
     private static void Gates()
     {
@@ -83,6 +83,7 @@ internal static class Program
         var second=new TaskCompletionSource<Q.ILease>(TaskCreationOptions.RunContinuationsAsynchronously);
         var monitor=new Q.Monitor(width=>{lock(requested)requested.Add(width);int call=Interlocked.Increment(ref calls);return call==1?first.Task:second.Task;},(warn,text)=>{lock(logs)logs.Add((warn?"WARN ":"INFO ")+text);});
         monitor.Tick(false,3072,0);Check(calls==0,"Ineligible never schedules helper");
+        monitor.Tick(true,0,0);Check(calls==0,"Unknown initial XR extent never invents a size");
         monitor.Tick(true,3072,0);await Until(()=>calls==1,"One async acquisition starts");
         for(int i=0;i<30;i++)monitor.Tick(true,3072,i*.01);
         Check(calls==1,"Menu/loading/head changes with stable eligibility do not restart acquisition");
@@ -95,8 +96,12 @@ internal static class Program
         var active=new Lease{AppliedWidth=4096};second.SetResult(active);await Until(()=>monitor.Current==Q.Phase.Active,"Current helper acquired");
         Check(requested.Count==2&&requested[0]==3072&&requested[1]==4096,"Exact width generations");
         for(int i=0;i<20;i++)monitor.Tick(true,4096,31+i);Check(calls==2&&active.Releases==0,"Active lease has no automatic expiry");
+        monitor.Tick(true,0,51);monitor.Tick(true,4096,52);
+        Check(calls==2&&active.Releases==0&&monitor.Current==Q.Phase.Active,"Transient unknown XR extent retains current generation without reconfiguring loading stereo");
         monitor.Tick(false,4096,60);await Until(()=>active.Releases==1,"Explicit off requests restoration");active.Finish();await monitor.Settled;
         Check(monitor.Current==Q.Phase.Idle,"Restored lease ends idle");
+        monitor.Tick(true,0,61);Check(calls==2,"Off clears permission to reuse the preceding generation's extent");
+        monitor.Reset();monitor.Tick(true,0,62);Check(calls==2,"Reset with unknown extent never reuses a previous generation");
 
         var risky=new Lease();int riskCalls=0;var safety=new Q.Monitor(_=>{Interlocked.Increment(ref riskCalls);return Task.FromResult<Q.ILease>(risky);},(_,_)=>{});
         safety.Tick(true,3072,0);await Until(()=>safety.Current==Q.Phase.Active,"Unsafe case initially active");safety.Reset();await Until(()=>risky.Releases==1,"Unsafe case release requested");risky.Finish(false,true);await safety.Settled;

@@ -26,7 +26,7 @@ def main():
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output.resolve()))
     log=run/'completion.log';log.write_text('Async stream quality focused controls: '+str(run)+'\n')
     source=ROOT/'src/GloomhavenVR/Core/SteamLink/SteamLinkStreamQuality.cs'
-    inputs=[source,*[p for p in HERE.iterdir() if p.is_file()]];pins={str(p.relative_to(ROOT)):digest(p) for p in inputs}
+    inputs=[source,ROOT/'src/GloomhavenVR/Core/SteamLink/SteamLinkResolutionPolicy.cs',*[p for p in HERE.iterdir() if p.is_file()]];pins={str(p.relative_to(ROOT)):digest(p) for p in inputs}
     (run/'source-pins.json').write_text(json.dumps(pins,indent=2)+'\n');copies=run/'sources';copies.mkdir()
     for p in inputs:shutil.copyfile(p,copies/p.name)
     transcripts=[]

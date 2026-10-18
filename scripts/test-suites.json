@@ -2838,6 +2838,21 @@
       "weight": 8
     },
     {
+      "id": "steamlink-resolution-policy",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-resolution-policy/run.py",
+        "--output",
+        ".planning/debug/steamlink-resolution-policy"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
+    },
+    {
       "id": "steamlink-stream-quality",
       "command": [
         "python3",

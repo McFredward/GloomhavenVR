@@ -488,11 +488,9 @@ internal static partial class MixedReality
             "Higher video resolution needs more network bandwidth and headset decoder capacity. " +
             "No automatic expiry, colour replacement or opacity cutoff is used.");
         SteamLinkEncodeWidth = _file.Bind("MixedReality", "SteamLinkEncodeWidth", Defaults.SteamLinkEncodeWidth,
-            new ConfigDescription("Requested uniform Steam Link encoding width in pixels while clean " +
-                "passthrough edges are enabled. Higher values preserve finer edges and text but need " +
-                "more network bandwidth and headset decoding capacity. Lower this if streaming stutters. " +
-                "Rounded to 64 pixels; the driver may limit the request. This is not a measured or " +
-                "negotiated maximum. An existing higher manual non-foveated width is preserved.",
+            new ConfigDescription("INERT since build 702. Native Steam Link MR follows the actual XR " +
+                "eye target dimensions automatically; this former separate encoding-width override " +
+                "is kept only for configuration compatibility and is never used for rendering.",
                 new AcceptableValueRange<int>(1024, 4096)));
         KeyColor = _file.Bind("MixedReality", "KeyColor", Defaults.KeyColor,
             "The solid chroma-key color the sky/background clears to in mixed-reality mode " +
@@ -627,8 +625,15 @@ internal static partial class MixedReality
     {
         Bind();
         SteamLink.SteamLinkConnectionLifecycle.Tick();
+        // Native MR must follow the allocation actually used by XR, never a
+        // separate saved transport resolution. Reading dimensions does not write
+        // EyeResolutionScale, the stable XR allocation, projection or viewport.
+        int streamWidth = 0;
+        if (SteamLink.SteamLinkStreamQuality.Requested(SteamLinkEdgeQuality.Value))
+            SteamLink.SteamLinkResolutionPolicy.TryWidth(UnityEngine.XR.XRSettings.eyeTextureWidth,
+                UnityEngine.XR.XRSettings.eyeTextureHeight, out streamWidth);
         SteamLink.SteamLinkStreamQuality.Tick(SteamLinkEdgeQuality.Value,
-            SteamLinkEncodeWidth.Value, Time.unscaledTime);
+            streamWidth, Time.unscaledTime);
 
         // ELEMENT MOOD IS TICKED HERE, not from SkyAlternative.Tick, because this is the only
         // per-frame call that runs on BOTH branches below. The user's requirement is that the

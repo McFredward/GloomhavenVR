@@ -1,7 +1,7 @@
 {
   "schema": "ghvr-steamlink-stream-quality-build-v1",
   "source": "tools/steamlink-stream-quality.c",
-  "source_sha256": "38b6acd7df2147b5d0472938ce07043a02b8f9e7f4258b2dc6be1c0f093f784b",
+  "source_sha256": "45d773cff219783583b18722d3278761e9924335ebf1dbbdf16969f063ed7027",
   "script_sha256": "8ad69744f22f15a9739705ddb03c3f782689bca98947ac614e57efa258afa1b2",
   "compiler": "x86_64-w64-mingw32-gcc-win32",
   "compiler_sha256": "260b0d734871a82030aaaa446338cd1dd1a48efeec119a110c0379b73a7ce972",
@@ -17,7 +17,7 @@
     "-s"
   ],
   "output_bytes": 46080,
-  "output_sha256": "4dae192d836d989e78a878e97abd6976b8ee3db03718b17122704e7745db99d4",
+  "output_sha256": "aae6bf6a0da3fd3a0f2e9e6b65ff6375786b5058fc4c8fc7c752c47298202ccd",
   "windows_or_proton_executed": false,
   "hardware_verified": false
 }

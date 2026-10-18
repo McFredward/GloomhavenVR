@@ -82,15 +82,27 @@ The current hardware stream's exact reconstruction weights are not measured.
 
 **World → Scenery → Steam Link edge quality** defaults on for eligible native
 Frame/Steam Link MR. It temporarily disables foveated encoding and pre-encode
-sharpening. **Steam Link encoding width (px)** requests 3072 by default, adjustable
-from 1024 to 4096 in steps of 64. A higher existing manual uniform width is kept.
-This costs network/decoder capacity; reduce the width if streaming stutters.
-Readback confirms a driver setting, not actual negotiated video dimensions.
-No supported client maximum or standalone-identical picture is claimed.
+sharpening. Since Build702 its uniform video-width request follows the actual
+current XR carrier dimensions, rounded upward to the driver's64-pixel alignment
+(4040 becomes4096). It does not write eye allocation, viewport or render scale.
+The former separate encoding-width control is removed; its saved key is inert.
+A higher existing manual uniform width is kept. Immediately observed smaller
+readbacks refuse and restore the temporary settings instead of claiming success.
+
+This removes Build701's additional fixed3072 video ceiling, which the latest
+hardware logs identify alongside4040x4040 sources. It does not make the existing
+v3 atlas pixel-lossless: its scene occupies2048/3168 of the carrier's linear size.
+Increasing encoder width alone cannot restore source samples already lost while
+packing that atlas. Readback is not proof of asynchronously negotiated or decoded
+video dimensions. The helper's64..16384 arithmetic bounds are not a tested client
+maximum. Higher video widths cost network/decoder capacity; no standalone-identical
+picture is claimed. Changing eye resolution above the existing XR allocation
+continues to require a VR restart; this policy does not add live reallocation.
 
 One isolated public Background OpenVR client snapshots all four typed settings
 before any write, enables the complete policy, and holds it only while requested
-native MR remains eligible. It survives camera, loading and options-menu changes;
+native MR remains eligible. It survives camera, loading and options-menu changes, including transient unknown
+XR extents within an already requested generation;
 Off, disconnection or game exit requests cooperative restoration. There is no
 active timeout. Restoration compares each still-owned value, preserving observed
 manual edits. Startup is bounded to five seconds; a pending Off can wait for that
@@ -103,7 +115,7 @@ restoration of its value does not reconstruct that override's original absence.
 
 The helper is embedded in the mod, hash-verified before execution and uses the
 same Windows/Proton public SDK bridge as connection detection. There is no Steam
-binary patch or Frame update for Build700. The accepted v3 shaders, atlas, mask,
+binary patch or Frame update for Builds700–702. The accepted v3 shaders, atlas, mask,
 receiver, both-eye admission and fractional opacity are unchanged. Standalone,
 Virtual Desktop and other connections do not acquire this lease. See the
 [scoped evidence and limits](../.planning/STEAM-LINK-700-EDGE-QUALITY.md).
@@ -112,8 +124,10 @@ Build700's first hardware review did not exercise this policy: all three leases
 were refused at snapshot. Build701 admits explicitly absent settings without
 inventing defaults. Successful application produces `Steam Link stream quality:
 active`; a refusal now reports the exact bounded key/API code. The original
-hardware failure did not record that code, and visible edge improvement is not
-inferred from the automated checks.
+hardware failure did not record that code, and visible edge improvement was not
+inferred from the automated checks. The maintainer subsequently confirmed that
+Build701 removes the outlines; Build702 preserves that policy while repairing
+the newly reported fixed-width image-quality regression.
 
 New source epochs also wait for a complete explicitly observed stereo frame
 before starting atlas output at a new frame boundary. Temporary non-stereo

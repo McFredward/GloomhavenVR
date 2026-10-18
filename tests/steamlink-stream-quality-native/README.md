@@ -21,9 +21,9 @@ of the same value, is not distinguishable. An observed later unknown width chang
 is preserved as a conflict rather than attributed to the driver. Parent/game death
 closes stdin and requests restore; killing/crashing this helper itself can prevent
 restore and must remain an explicit unknown-outcome warning in the parent.
-Restoration preserves the previous effective typed values; public IVRSettings
-does not expose whether those values originally came from defaults or explicit
-overrides, so absence of a user override is not reconstructed.
+Restoration preserves previous effective typed values and explicitly missing
+keys as described below. An effective API default cannot be distinguished from
+an explicit override; that case restores the value, not unobservable provenance.
 
 Build701 also covers all16 setting-presence combinations, explicit false/zero,
 120 partial-apply rollback cases with absent keys, exact RemoveKeyInSection
@@ -33,3 +33,11 @@ means neither explicit value nor default; it is not permission to fabricate an
 old effective value. Receipts carry an absence mask, and remaining snapshot
 failures name the key plus public API error number. The old hardware log only
 said snapshot, so it cannot identify the original failing key/error retroactively.
+
+Build702 requests64..16384 in64-pixel steps, including actual-carrier examples
+3456/4096/4864. These are parser/arithmetic bounds, not a demonstrated encoder or
+decoder maximum. An immediately observed smaller readback rolls back with
+`width_limited`; the helper cannot prove later asynchronous video negotiation.
+The managed parser also rejects a smaller acquired receipt. Higher existing
+manual widths remain preserved. The fixture exercises these paths in the actual
+C session, with ASan/UBSan and byte-identical shipping-PE reproduction.

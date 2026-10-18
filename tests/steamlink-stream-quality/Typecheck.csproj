@@ -3,5 +3,5 @@
     <TargetFramework>net472</TargetFramework><EnableDefaultCompileItems>false</EnableDefaultCompileItems><Nullable>enable</Nullable><LangVersion>latest</LangVersion><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages><FrameworkPathOverride>$(FrameworkReferenceDir)</FrameworkPathOverride>
   </PropertyGroup>
-  <ItemGroup><Compile Include="$(FixtureDir)/Boundary.cs" /><Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkStreamQuality.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="$(FixtureDir)/Boundary.cs" /><Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkStreamQuality.cs" /><Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkResolutionPolicy.cs" /></ItemGroup>
 </Project>

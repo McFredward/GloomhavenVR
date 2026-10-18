@@ -612,7 +612,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 701;
+    public const ushort ModBuild = 702;
+
+    // ModBuild702 — remove the accepted edge policy's extra fixed video ceiling.
+    // The maintainer accepts701 edges but reports degraded picture quality. Its
+    // hardware log shows4040x4040 actual XR sources and a3072 uniform video request.
+    // Derive the request from actual current carrier dimensions, rounded UP to64;
+    // never alter XR allocation, viewport, render scale or camera targets here.
+    // Retire the independent MR-width control, keeping its saved key inert.
+    // A transient unknown extent retains only the current requested generation;
+    // Off/session end/Reset cannot invent or reuse an old initial allocation.
+    // Extend the verified helper's request bounds without silently accepting an
+    // observed smaller driver readback. Preserve existing larger manual widths
+    // and all ownership/absence/rollback/EOF controls. Driver settings are not
+    // proof of negotiated video dimensions or a safe maximum for every decoder.
+    // Keep701's accepted no-foveation/no-sharpening policy and stereo-startup
+    // gates. The v3 bank/receiver/2048-of3168 scene budget remains unchanged;
+    // removing the additional3072 ceiling does NOT make that atlas pixel-lossless.
+    // No native patch update, new shader, Frame action, active timer or wire change.
 
     // ModBuild701 — actually admit the stream-quality policy and gate XR startup.
     // Fresh700 hardware logs show all three leases refused at generic snapshot:

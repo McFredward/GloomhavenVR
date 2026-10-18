@@ -10,12 +10,12 @@ starts a process, OpenVR client, settings write or headset action. Optional
 `--native-transcript <file>` arguments parse the exact C helper's captured flat
 JSON serializers; the suite copies/hashes those borrowed inputs before use.
 
-Controls cover genuine Frame/Steam Link/native-MR eligibility, rounded/clamped
-persisted width, fixed helper request bounds, exact acquired/restored/error
-receipts, actual readback clamps and preserved larger manual widths. Lifecycle
+Controls cover genuine Frame/Steam Link/native-MR eligibility, actual-carrier-derived
+width rounded upward, extended helper request bounds, exact acquired/restored/error
+receipts, refusal of observed smaller readbacks and preserved larger manual widths. Lifecycle
 checks exercise pending acquisition, reset/re-entry, stale receipt refusal,
 width changes, delayed restoration, no overlapping helper generations, no active
-lease expiry, bounded retries and permanently blocked reacquisition after any
+lease expiry, transient unknown XR extents without reconfiguration, bounded retries and permanently blocked reacquisition after any
 unconfirmed restore. A controlled post-Start monitor/cleanup fault retains
 explicit unknown ownership instead of adopting it as a fresh settings baseline.
 
@@ -41,3 +41,9 @@ The Build701 acquired receipt optionally includes a bounded four-bit
 false/zero baseline, validates matching placeholders and cannot authorize a
 larger inherited manual width from absent policy fields. Actual missing-setting
 and detailed API-error C transcripts are included in the focused integration.
+
+Build702 removes the old fixed3072 request. The separate persisted width is inert;
+only a valid current carrier extent establishes a width generation. Unknown initial
+extents do not acquire anything. Temporary unknown extents preserve an eligible
+active generation, but Off/session end/Reset prevent its reuse. Request validation
+is64..16384 in64-pixel steps; these arithmetic bounds are not decoder capabilities.

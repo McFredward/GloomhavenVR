@@ -22,12 +22,12 @@ def main():
         flags=['-fsanitize=address,undefined','-fno-omit-frame-pointer','-g'] if args.sanitize else ['-O2']
         binary=cache/'fixture';run('native-build',[os.environ.get('CC','cc'),'-std=c11','-Wall','-Wextra','-Werror',*flags,str(HERE/'NativeFixture.c'),'-o',str(binary)])
         run('native-lease',[str(binary)],20)
-        for name in ['transcript','transcript-error','transcript-conflict','transcript-absent','transcript-snapshot-error']:
+        for name in ['transcript','transcript-error','transcript-conflict','transcript-absent','transcript-snapshot-error','transcript-width-limit']:
             run(name,[str(binary),'--'+name],10)
             lines=[json.loads(x) for x in (out/(name+'.log')).read_text().splitlines()]
             assert all(x['schema']=='ghvr-steamlink-quality-v1' for x in lines)
-            assert len(lines)==(1 if name in ('transcript-error','transcript-snapshot-error') else 2)
-            assert set(lines[0])==({'schema','event','error','restored','conflicts','errors'} if name in ('transcript-error','transcript-snapshot-error') else {'schema','event','applied','requested_width','applied_width','previous_foveation_mode','previous_sharpening','previous_automatic_width','previous_uniform_width','previous_absent_mask'})
+            assert len(lines)==(1 if name in ('transcript-error','transcript-snapshot-error','transcript-width-limit') else 2)
+            assert set(lines[0])==({'schema','event','error','restored','conflicts','errors'} if name in ('transcript-error','transcript-snapshot-error','transcript-width-limit') else {'schema','event','applied','requested_width','applied_width','previous_foveation_mode','previous_sharpening','previous_automatic_width','previous_uniform_width','previous_absent_mask'})
             if len(lines)==2:assert set(lines[1])=={'schema','event','ok','conflicts','errors'}
         # Inspect the real shipping resource/pins, not a separate fixture binary.
         asset=ROOT/'src/GloomhavenVR/Assets/SteamLink/stream-quality.exe';provenance=json.loads(asset.with_name('stream-quality-provenance.json').read_text())

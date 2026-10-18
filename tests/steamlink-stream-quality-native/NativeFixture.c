@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 static bool transcript;
+static int32_t expected_request=3072,seen_width;
 static bool absent[KEY_COUNT],baseline_absent[KEY_COUNT];
 static int setting_error,setting_error_key,manual_absence,remove_fail,remove_ignored;
 static unsigned removals;
@@ -62,7 +63,7 @@ static void *fake_get(const char *name,int32_t *e){
 }
 static void fake_shutdown(void){check(stage==1&&init_error==0);stage=2;shutdowns++;}
 static const char *await_close(const struct Lease *lease,void *context){
-    (void)context;ready_calls++;check(lease->requested==3072);
+    (void)context;ready_calls++;check(lease->requested==expected_request);seen_width=lease->applied[WIDTH];
     if(transcript){const char *error=print_acquired(lease);if(error)return error;}check(values[FOVEATION]==1&&values[SHARPENING]==0&&values[AUTOMATIC]==0);
     check(lease->applied[WIDTH]==values[WIDTH]);
     if(manual_key>=0)values[manual_key]=manual_value;
@@ -70,6 +71,7 @@ static const char *await_close(const struct Lease *lease,void *context){
     return close_error?"stdin_error":NULL;
 }
 static void reset(void){
+    expected_request=3072;seen_width=0;
     reads=writes=identities=ready_calls=shutdowns=inits=gets=removals=0;
     memset(absent,0,sizeof(absent));memset(baseline_absent,0,sizeof(baseline_absent));
     setting_error=remove_fail=remove_ignored=0;setting_error_key=manual_absence=-1;
@@ -86,8 +88,8 @@ static void validation(void){
     reset();struct Outcome out=run();check(!out.error&&out.acquired&&ready_calls==1&&writes==8);restored_state(out);
     const int expected[]={AUTOMATIC,WIDTH,SHARPENING,FOVEATION,FOVEATION,SHARPENING,WIDTH,AUTOMATIC};
     for(int n=0;n<8;n++)check(write_keys[n]==expected[n]);
-    const int invalid[]={-1,0,1023,3073,4097,4160,INT32_MIN,INT32_MAX};
-    const int valid[]={1024,1088,3072,4096};
+    const int invalid[]={-1,0,1023,3073,4097,16385,INT32_MIN,INT32_MAX};
+    const int valid[]={64,128,960,1024,1088,3072,4096,4160,8192,16384};
     for(unsigned i=0;i<sizeof(invalid)/sizeof(invalid[0]);i++)check(!valid_width(invalid[i]));
     for(unsigned i=0;i<sizeof(valid)/sizeof(valid[0]);i++)check(valid_width(valid[i]));
     reset();out=quality_session(fake_init,fake_get,fake_shutdown,3073,await_close,NULL);check(out.error&&!inits&&!writes);
@@ -113,7 +115,7 @@ static void apply_errors(void){
     for(int f=1;f<=8;f++){
         reset();identity_change=f;out=run();check(out.error&&!out.acquired&&!ready_calls);check(!memcmp(values,baseline,sizeof(values)));check(shutdowns==1);
     }
-    reset();clamp_width=2688;out=run();check(!out.error&&out.acquired);restored_state(out);
+    reset();clamp_width=2688;out=run();check(!strcmp(out.error,"width_limited")&&!out.acquired&&!ready_calls);restored_state(out);
     reset();clamp_width=1000;out=run();check(!strcmp(out.error,"readback")&&out.conflicts==1&&values[WIDTH]==1000&&out.restored); /* Unknown change preserved. */
 }
 static void identity_controls(void){
@@ -161,6 +163,12 @@ static void absence_controls(void){
         memcpy(baseline_absent,absent,sizeof(absent));write_fail=fail;write_fail_applies=applied;
         out=run();check(!strcmp(out.error,"write")&&!out.acquired&&!ready_calls);restored_state(out);
     }
+    const int actual_carriers[]={64,960,1024,3456,4096,4864,8192,16384};
+    for(unsigned n=0;n<sizeof(actual_carriers)/sizeof(actual_carriers[0]);n++){
+        reset();expected_request=actual_carriers[n];
+        out=quality_session(fake_init,fake_get,fake_shutdown,expected_request,await_close,NULL);
+        check(!out.error&&out.acquired&&seen_width==expected_request);restored_state(out);
+    }
     reset();settings.removeKey=NULL;out=run();check(!strcmp(out.error,"settings_interface")&&!writes);
     for(int key=0;key<KEY_COUNT;key++)for(int error=1;error<=6;error++)if(error!=5){
         reset();setting_error_key=key;setting_error=error;out=run();
@@ -194,6 +202,7 @@ int main(int argc,char **argv){
   else if(!strcmp(argv[1],"--transcript-conflict")){manual_key=FOVEATION;manual_value=2;}
   else if(!strcmp(argv[1],"--transcript-absent")){absent[WIDTH]=true;}
   else if(!strcmp(argv[1],"--transcript-snapshot-error")){setting_error_key=WIDTH;setting_error=6;}
+  else if(!strcmp(argv[1],"--transcript-width-limit")){clamp_width=2688;}
   else check(!strcmp(argv[1],"--transcript"));
   struct Outcome out=run();print_outcome(&out);return 0;
  }
