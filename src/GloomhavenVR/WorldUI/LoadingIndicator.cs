@@ -170,10 +170,16 @@ namespace GloomhavenVR.WorldUI;
 /// while the spinner is on screen.</para>
 /// <para>QUEST EXCEPTION (B685): persisted ReadPixels PNGs are skipped for reads and writes.
 /// The B684 headset used an invisible cached boot copy while its live native spinner was
-/// correct. Quest instead uses the existing owned GPU copy of the live Intro widget, or the
-/// fallback if that native source is unavailable. Desktop keeps the persistent copy order.</para>
+/// correct. Quest uses the live Intro widget, or the fallback if that native source is
+/// unavailable. Desktop keeps the persistent copy order.</para>
+/// <para>QUEST BOOT CONSUMER (B687): the B686 headset still sees only a flash before the menu,
+/// while the later native sprite spinner works. Retain that same direct Texture2D/UV consumer
+/// for the Intro art, too. Its mod-owned persistent renderer/material binds the borrowed
+/// texture before the Intro unloads, so native asset collection reaches it through the live
+/// hierarchy. Do not replace this with another unqualified RenderTexture sample or mutate
+/// the borrowed asset's flags. Desktop retains its established owned-copy path.</para>
 ///
-/// <para>THE BOOT COPY IS MOD-OWNED, and has to be: the Intro scene's textures die when
+/// <para>THE DESKTOP BOOT COPY IS MOD-OWNED: the historical desktop path observed the Intro textures die when
 /// <c>Gloomhaven_unified</c> activates (Unity unloads the now-unused serialized files), which is
 /// ~2.7 s BEFORE the game's own loading screen takes over — holding the raw sprite reference
 /// would put blank white quads on screen for exactly that stretch. Both layers are therefore
@@ -894,7 +900,7 @@ internal sealed class LoadingIndicator
                     _baseArt = baseArt;
                     _overlayArt = overlayArt;
                     _artIsProvisional = false;
-                    _spinDegrees = ReadTuning(ls, "m_IconSpinSpeed", FallbackSpinDegrees);
+                    _spinDegrees = ReadSpinDegrees(ReadTuningRaw(ls, "m_IconSpinSpeed"));
                     _stepSeconds = ReadTuning(ls, "m_IconUpdateSpeed", FallbackStepSeconds);
                     _glowStep = ReadTuning(ls, "m_IconGlowSpeed", FallbackGlowStep);
                     // Min alpha may legitimately be 0 — only NaN/negative/degenerate falls back.
@@ -1032,9 +1038,13 @@ internal sealed class LoadingIndicator
             LayerArt? overlayArt = ReadLayer(overlayGo, baseGo, animatedOpacity: anim != null);
             if (baseArt == null || overlayArt == null)
                 return false;
-            // The Intro scene's textures die when Gloomhaven_unified activates — take mod-owned
-            // copies NOW or the last ~2.7 s of the window renders blank white quads.
-            if (!AdoptOwnedCopy(baseArt) || !AdoptOwnedCopy(overlayArt))
+            // Quest's working scenario spinner samples the native sprite atlas
+            // directly. Bind that same consumer to our persistent visual before
+            // the Intro scene unloads; the live native Material->Texture edge
+            // retains the borrowed asset without a copy, readback or flag edit.
+            // B686's boot-only RT consumer remained invisible on the headset,
+            // despite isolated host-copy tests. Keep desktop copies unchanged.
+            if (!QuestStandalonePlatform.Enabled && (!AdoptOwnedCopy(baseArt) || !AdoptOwnedCopy(overlayArt)))
             {
                 DestroyOwnedArtTextures();
                 return false;
@@ -1044,7 +1054,7 @@ internal sealed class LoadingIndicator
             _artIsProvisional = true;
             if (anim != null)
             {
-                _spinDegrees = ReadAnimTuning(anim, "m_IconSpinSpeed", FallbackSpinDegrees);
+                _spinDegrees = ReadSpinDegrees(ReadFloatField(anim, typeof(AnimateLoadingIcon), "m_IconSpinSpeed"));
                 _stepSeconds = ReadAnimTuning(anim, "m_IconUpdateSpeed", FallbackStepSeconds);
                 _glowStep = ReadAnimTuning(anim, "m_IconGlowSpeed", FallbackGlowStep);
                 float minAlpha = ReadFloatField(anim, typeof(AnimateLoadingIcon), "m_IconOverlayMinAlpha");
@@ -1124,6 +1134,18 @@ internal sealed class LoadingIndicator
     {
         float v = ReadFloatField(anim, typeof(AnimateLoadingIcon), field);
         return (v > 0f && !float.IsNaN(v) && !float.IsInfinity(v)) ? v : fallback;
+    }
+
+    private static float ReadSpinDegrees(float value)
+    {
+        // Native Intro/LoadingScreen author -6 degrees. Unlike a duration or
+        // glow increment, the sign is the visible rotation direction. The full
+        // Tick fixture exposed that the shared positive-number guard silently
+        // substituted +6. Preserve signed native tuning on Quest while keeping
+        // the established desktop path and invalid-value fallback unchanged.
+        if (QuestStandalonePlatform.Enabled && value != 0f && !float.IsNaN(value) && !float.IsInfinity(value))
+            return value;
+        return PositiveOr(value, FallbackSpinDegrees);
     }
 
     private static float ReadFloatField(object target, Type type, string field)
