@@ -612,7 +612,26 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 691;
+    public const ushort ModBuild = 692;
+
+    // ModBuild692 — native loading ownership, Quest overlay inputs and settled wall sampling.
+    // Capture191141 verifies current691/previous690. Keep confirmed complete rooms,
+    // clear artwork, actual figure derivatives, menu depth video and idle-click repair.
+    // Qualify Intro/Single loading through exact serialized owners across legitimate
+    // Canvas camera rebinding; preserve native timings and restore originals on release.
+    // Own the exact native hex vertex upload, preserving both shader passes, geometry,
+    // depth/slab rules, hover/reach eligibility and desktop identity. Bind only the
+    // authored white sampler on private Quest guide quads; preserve supplied imagery.
+    // Shared PC/Frame/Quest automatic wall sampling starts ten seconds after native
+    // loading/reveal/focus readiness, then keeps the existing two-second FPS window.
+    // Preserve manual Hide all and ordinary wall fading. Keep active guide-pair facts
+    // and true hit-audio evidence beyond saturated startup logs. The imported native
+    // hit samples remain exact; audible squeak is unresolved, not a decoder fix.
+    // Red burn paint is correct. Retain bounded separate flame base/drawn material,
+    // timeline and texture evidence without repainting cards or forcing effects.
+    // Linux rendering proves original flame pixels, not Android final visibility.
+    // Compact Mod Update; no original content/bank regeneration or local full APK.
+    // See .planning/QUEST-HARDWARE-191141-20261018.md for evidence and open gates.
 
     // ModBuild691 — Quest native loading mask, actual LOD containers and UI pixels.
     // Capture165952 verifies current690/previous689. Preserve hardware-confirmed

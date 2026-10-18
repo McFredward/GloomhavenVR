@@ -1,3 +1,25 @@
+**Quest hardware follow-up, 2026-10-18: feature / B692.**
+
+Capture191141 proves current691/previous690 and actual figure derivatives. Preserve
+confirmed complete rooms, card art/cuts, menu video, pointer point and removed idle
+click. Qualify exact native loading owners across camera rebinding/departed Intro
+actor; upload identical Quest hex geometry privately; bind private guide white
+samplers and retain eligible pair evidence. Shared automatic wall FPS sampling now
+waits ten seconds after load/reveal/focus readiness before its unchanged two-second
+window. Manual wall controls and desktop rendering remain intact.
+
+Red burnt-card paint is correct (maintainer clarification); the missing flame is a
+separate native overlay. Exact recovered flame inputs render in a small Vulkan
+witness, but the actual Android binding remains open. Retain bounded passive flame
+material/timeline/texture facts outside saturated logs. Actual hit squeak also
+remains unresolved: checked native imported samples are exact, while B691 retained
+no real hit observations. Reserve the next audio lane for true spatial/hit starts
+and applied-source facts. Muted hardware testing still collects this metadata.
+Compact Mod Update, no original-bank regeneration or local full APK. Focused worker
+checks plus final strict build/actual owned-assembly Weaver/source classification
+are recorded in `.planning/QUEST-HARDWARE-191141-20261018.md` and handoff validation;
+no new headset/full-gate success is claimed.
+
 # State — where the project stands
 
 **Quest Builder ownership readiness, artwork and storage, 2026-10-18: host-only / B691 retained.**

@@ -71,6 +71,11 @@ remain explicit. Restore a native lifecycle only under source-qualified original
 owner/readiness conditions; never use this ruling to force hidden room renderers
 or gameplay state.
 
+**Quest burn-effect clarification, 2026-10-18:** red card paint during/after a burn
+is correct. The reported missing presentation is the separate native flame overlay.
+Preserve that tint; neither Frame defaults nor the historical optional CardSmoke
+particle setting authorize removal of the original flame material/timeline.
+
 **Quest evidence binding, B681:** the original GH.Runtime defines a global
 `Debug` facade with conditional `Log` methods. Unqualified mod calls can compile
 away without `ENABLE_LOGS`; a file-level `Debug` alias can instead conflict with

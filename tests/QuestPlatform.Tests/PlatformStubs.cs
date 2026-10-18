@@ -222,6 +222,16 @@ namespace GloomhavenVR.Rig
 }
 namespace GloomhavenVR.Core
 {
+    // Consumers have separate native fixtures; this fixture tests platform admission.
+    internal static class QuestCombatAudioEvidence
+    {
+        internal static string[] Snapshot => System.Array.Empty<string>();
+        internal static string[] ObserveBackground() => System.Array.Empty<string>();
+    }
+    internal static class QuestPerformanceEvidence
+    {
+        internal static string[] Snapshot() => System.Array.Empty<string>();
+    }
     // The native OpenXR feature has its own lifecycle/ABI suite. Compile the real
     // Frame backend selector against an explicit feature boundary here.
     internal sealed class OpenXrEnvironmentBlendFeature : UnityEngine.XR.OpenXR.Features.OpenXRFeature
