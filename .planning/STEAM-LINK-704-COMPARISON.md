@@ -144,3 +144,41 @@ Frame providers; the source and diagnostic SPV hashes remain unchanged. The
 new package is prepared locally, not deployed; actual device admission and menu
 composition remain unproved. Evidence: `native/queue-profile-correction/` and
 `native/dashboard-transition-probe-queue-v2-prepared/`.
+
+## Admitted native queue and reproduced startup-summary overflow
+
+The second authorized attachment actually prepared resources: native ordinary
+queue0 has graphics flags15 and one unchained KHR priority1024 node, with the
+required feature already enabled. Thus the queue correction accepts a recorded
+real input that the old blanket extension check rejects. Later refusal7 arose
+before manual phases. Six ordinary presenter replacements favor optional
+shader/route-summary exhaustion, but old refusal7 conflates three capacities;
+its specific branch is not retrospectively proved. No six-slot capture occurred.
+The maintainer approved rollback and confirmed normal UI; exact public hashes,
+activation and compositor mappings are restored.
+
+The native fix keeps128 shader hashes,56 generic routes and8 reserved accepted
+routes bounded. Only optional summaries may truncate; immutable accepted recipe
+identities survive and the ninth actual companion remains fatal. The expanded
+local startup replay fails on old code and passes on the fix:192 synthetic
+shader events/96 routes followed by real owned GPU phase updates, all6 slots
+and fenced collection,45 checks, zero validation errors. Separate real Probe
+initialization/creation through a fake driver passes290 checks under normal
+and ASan/UBSan, with4 detected causal mutants. Shipping preprocessor bytes and
+both shader artifacts remain unchanged;470 earlier raster cases are inherited.
+All75 strong imports of the optimized ARM package are covered by actual Frame
+provider metadata (69 inherited,6 additionally read without device writes).
+
+The maintainer's fullscreen-minimize workflow opens the Steam window to answer
+chat. Saved Frame UI logs distinguish remote show requests from local toggles;
+a reply is not evidence of closed UI. The prepared operator now checks logged
+menu context before issuing phases;8 local vectors cover this, including actual
+log snippets and refusal to treat `bOpenDashboard false` as a hide.
+
+Current native source correction: `c07b065`; the GPU replay remains an integrator
+fixture change. Private evidence: `native/census-overflow-correction/`, including
+old/fixed startup GPU receipts, source/import/provider proof and cleanup receipts.
+The new package is only locally prepared at
+`native/dashboard-transition-probe-startup-v3-prepared/`. No claim that either
+menu composition or full-quality streaming is solved. The ordinary public Frame
+installation remains active.

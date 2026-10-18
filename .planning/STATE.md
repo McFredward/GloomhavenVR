@@ -26,6 +26,16 @@ scheduling node; that narrow contract and precise cold evidence must be reused
 before another attachment. This is diagnostic repair work, not a menu/quality
 fix or a new hardware-success claim.
 
+A second attachment admitted the actual priority1024 graphics queue, then hit
+an optional startup-summary capacity before capture. The source now separates
+bounded optional truncation from strict8-companion/resource gates and reserves
+accepted identities. An old-fail/new-pass GPU startup replay (45 checks,
+6 slots, zero validation errors),290 focused checks plus ASan/UBSan and4 causal
+controls cover this repair. Public Frame activation is restored/user-confirmed;
+no menu-picture or full-quality fix is claimed. Fullscreen minimization opens
+Steam UI while replying, so future phase context requires actual logged UI
+show/hide events, not the reply alone.
+
 **Live PCVR eye resolution and native dashboard assessment, 2026-10-18: Build703.**
 
 Actual Frame702 video is3264x6400 despite an acknowledged4096 request; the v3
