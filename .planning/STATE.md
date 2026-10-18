@@ -1,5 +1,29 @@
 # State — where the project stands
 
+**Negotiated sender companion authorized, 2026-10-18; runtime remains707.**
+
+The maintainer now permits a PC sender modification and selects the ordinary
+Steam Link RGB plus frame-bound compressed coverage architecture. This explicitly
+supersedes the earlier no-PC-sender-change constraint for this work. Both modified
+ends must recognize and mutually confirm a compatible fresh session. Missing or
+incompatible counterparts must preserve ordinary Steam Link and give the user
+appropriate status; no passthrough activation follows from local API readiness
+or an unconfirmed HELLO. Masks remain on the existing video transport; reverse
+control/authentication, actual coded-AU interception and selected-frame binding
+must be established separately before installation or renderer activation.
+Portable protocol/SEI and lifecycle adapters now pass focused software checks.
+An actual four-frame libx265/FFmpeg round trip retains every original NAL and
+identical decoded frame hashes/cadence; Linux, Windows and AArch64 portable builds
+pass. This is not proof of Steam Link preservation or an installed sender.
+The maintainer's current-PC SHA-256 readback now matches the privately reviewed
+Windows driver (`1e846be041039798580a91452371f6288c614fb4c152126b137e2c693fb77eef`).
+Guided CMD/SH setup and SSH pairing are in development. SSH establishes a private
+per-installation secret; no secret is carried in video, logs or process arguments.
+The installer must distinguish legacy public receiver installations from the
+new negotiated bridge and refuse live installation of incomplete prototypes.
+No new hardware-quality result is claimed. Frame writes and restarts still
+require coordinated readiness; no timer/restart is added.
+
 **Larger same-stream RGB/coverage carrier review, 2026-10-18; runtime remains707.**
 
 The maintainer proposes a larger actual Steam Link video to retain the selected
