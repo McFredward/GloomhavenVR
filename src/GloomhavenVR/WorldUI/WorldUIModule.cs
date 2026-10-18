@@ -175,6 +175,7 @@ internal sealed class WorldUIModule : IVRModule
         // EmbeddedResource in this DLL (the asset bundle stays byte-identical on purpose).
         // See MainMenuLogoSwap.
         VRSession.Harmony?.PatchAll(typeof(Patches.MainMenuLogoSwap));
+        VRSession.Harmony?.PatchAll(typeof(QuestTutorialViewportMaskPatch));
         // NO EXIT CONTROL MAY BE LEFT LATCHED (user, 2026-09-02, his SECOND deadlock in two
         // days: "Ich konnte aus dem Tutorial heraus nicht mehr ins Hauptmenu zurückkehren, da
         // das Fenster das mich normalerweise fragt nicht mehr angezeigt wurde"). UIMenuOption
