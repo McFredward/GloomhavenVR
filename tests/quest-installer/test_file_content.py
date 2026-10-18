@@ -61,14 +61,14 @@ class LocalDevice:
             if self.prefix.rstrip("/") in script and self.prefix not in script:
                 script = script.replace(self.prefix.rstrip("/"), str(self.root))
                 self.root.mkdir(parents=True, exist_ok=True)
-                result = subprocess.run(["sh", "-c", script], text=True, capture_output=True, timeout=30)
+                result = subprocess.run(["sh", "-s"], input=script, text=True, capture_output=True, timeout=30)
                 if result.returncode: raise installer.InstallError("Device app shell failed: " + result.stderr)
                 return result.stdout.strip()
             assert self.prefix in script
             # Any other absolute provider/save location is forbidden by this fake.
             assert "/data/user" not in script and "quest-saves" not in script
             translated = script.replace(self.prefix, str(self.root) + "/")
-            result = subprocess.run(["sh", "-c", translated], text=True, capture_output=True, timeout=30)
+            result = subprocess.run(["sh", "-s"], input=translated, text=True, capture_output=True, timeout=30)
             if result.returncode:
                 raise installer.InstallError("Device shell failed: " + result.stderr)
             return result.stdout.strip().replace(str(self.root) + "/", self.prefix)
