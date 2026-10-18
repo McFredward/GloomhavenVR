@@ -35,6 +35,21 @@ No Frame files or services were changed. Actual native runtime control work
 is separate; install remains unavailable until the full source-AU,
 selected eye/extent, mask/renderer and provider integration chain is established.
 
+The native dev branch also integrates6abfc86: explicit default-off private
+credential loading, OS randomness and bounded actual TCP reverse control wired
+to the existing authenticated SEI sender/receiver ports.202 actual private-file,
+loopback and handshake checks pass normally and under ASan/UBSan;4 causal
+controls fail as intended, Win64/AArch64 production-module cross-links pass,
+and the integrator's one affected CTest passes. The unchanged native gate is
+green at23d0dc5 (CI39138159183); the new native CI runs independently. This
+library is uninstalled and is not part of the maintenance asset. Installed
+provider event-loop wiring, actual complete-AU/source authority and exact GPU
+selection/coverage association still prevent a new full-resolution MR claim.
+All three worker worktrees are removed after patch-identity/clean checks;
+current native build caches and two superseded generated inspection ZIPs
+(26717556 bytes) are removed. Source archives, source/capture evidence, results,
+hardware inputs, public release records and the current manager archive remain.
+
 **Friendly setup inspection v2 published, 2026-10-18; runtime remains707.**
 
 The maintainer's actual v1 report reaches the AArch64 Frame, finds its enabled
