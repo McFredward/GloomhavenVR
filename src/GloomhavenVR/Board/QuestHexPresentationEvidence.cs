@@ -72,6 +72,8 @@ internal static class QuestHexPresentationEvidence
             + " forceOff=" + (renderer != null && renderer.forceRenderingOff)
             + " shader=" + (shader != null ? name(shader.name) : "none") + " supported=" + (shader != null && shader.isSupported)
             + " passes=" + (material != null ? material.passCount : 0) + " mesh=" + (mesh != null ? mesh.vertexCount : 0)
+            + " upload=" + (mesh != null && mesh.name.StartsWith("GloomhavenVR.QuestLitPrimitive.") ? "owned" : "native")
+            + " stride=" + (mesh != null ? mesh.GetVertexBufferStride(0) : 0)
             + " mask=" + texture("_HexMask") + " fill=" + scalar("_HexIntensity") + " border=" + scalar("_BorderLineIntensity")
             + " tint=" + number(tint.r) + "/" + number(tint.g) + "/" + number(tint.b) + "/" + number(tint.a)
             + " edges=" + scalar("_NW_On") + "/" + scalar("_NE_On") + "/" + scalar("_E_On")

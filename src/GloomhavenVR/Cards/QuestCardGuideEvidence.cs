@@ -15,6 +15,7 @@ internal static class QuestCardGuideEvidence
         int mode, int remaining, int handCards, int roundCards, int fields, int locked,
         bool blocked, string box, string help, int pickWanted, int renderVersion) _prior;
     private static bool _havePrior;
+    private static string? _lastPair;
 
     internal static void Observe(CardsHandUI? hand, PlayTray tray, int fields, int locked, bool blocked)
     {
@@ -49,7 +50,8 @@ internal static class QuestCardGuideEvidence
                 + " handCards=" + current.Item9 + " roundCards=" + current.Item10
                 + " picks=" + fields + " locked=" + locked + " blocked=" + blocked
                 + " box=" + Short(box) + " help=" + Short(help)
-                + " left={" + tray.QuestGuideDrawState(0) + "} right={" + tray.QuestGuideDrawState(1) + "}");
+                + " left={" + tray.QuestGuideDrawState(0) + "} right={" + tray.QuestGuideDrawState(1) + "}",
+                current.Item3 == 3);
         }
         catch (Exception error)
         {
@@ -61,17 +63,24 @@ internal static class QuestCardGuideEvidence
 
     private static string Short(string text) => text.Length <= 32 ? text : text.Substring(0, 32);
 
-    private static void Add(string facts)
+    private static void Add(string facts, bool pair = false)
     {
         // Bounded independently of potentially long native names and repeat visits.
         while (Encoding.UTF8.GetByteCount(facts) > 1024) facts = facts.Substring(0, facts.Length - 1);
+        if (pair) _lastPair = facts;
         Reports.Add(facts);
-        int bytes = 0;
+        // Late action/lose-card transitions evicted every wanted=3 activation
+        // from B691's capture. Preserve the last actual pair, including its
+        // head-submission update, inside the same four-KiB budget. This is not a
+        // statement that either fragment passed its final depth/blend test.
+        int bytes = _lastPair != null && _lastPair != facts ? Encoding.UTF8.GetByteCount(_lastPair) : 0;
         for (int i = Reports.Count - 1; i >= 0; i--)
         {
             bytes += Encoding.UTF8.GetByteCount(Reports[i]);
-            if (bytes > 4096 || Reports.Count - i > 8) { Reports.RemoveRange(0, i + 1); break; }
+            if (bytes > 4096 || Reports.Count - i > (_lastPair != null && _lastPair != facts ? 7 : 8)) { Reports.RemoveRange(0, i + 1); break; }
         }
-        QuestStandalonePlatform.CardGuideDiagnostics = Reports.ToArray();
+        var snapshot = new List<string>(Reports);
+        if (_lastPair != null && !snapshot.Contains(_lastPair)) snapshot.Insert(0, _lastPair);
+        QuestStandalonePlatform.CardGuideDiagnostics = snapshot.ToArray();
     }
 }

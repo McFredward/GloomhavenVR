@@ -202,6 +202,8 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         ('guide-determinant-evidence-missing', 'ActualWanted.cs', '+ ",det=" + number(go.transform.localToWorldMatrix.determinant)', '+ ",missingDet=" + number(go.transform.localToWorldMatrix.determinant)', 'actual left/right guide facts retain transform determinant and independent material state'),
         ('stat-copy-cpu-stale', 'ActualStat.cs', 'if (QuestStandalonePlatform.Enabled && !tex.isReadable)', 'if (QuestStandalonePlatform.Enabled && tex.isReadable)', 'actual panel mip rescan preserves native frozen portrait GPU pixels'),
         ('stat-shared-texture', 'ActualStat.cs', 'img!.sprite = rebuilt;', 'img!.sprite = sprite;', 'frozen portrait owns its source texture independently of the native loader'),
+        ('guide-sampler-unbound', 'QuestCardGuideWitness.cs', 'material.mainTexture = Texture2D.whiteTexture;', 'material.mainTexture = null;', 'actual Quest guide explicitly binds its authored white sampler independently of previous native draws'),
+        ('guide-sampler-replaces-imagery', 'QuestCardGuideWitness.cs', '&& material.HasProperty("_MainTex") && material.mainTexture == null)', '&& material.HasProperty("_MainTex"))', 'Quest cue binding never replaces supplied imagery or writes a global texture'),
         ('guide-submission-silent', 'QuestCardGuideWitness.cs', 'Submitted = true;', 'Submitted = false;', 'actual head-camera submission updates guide evidence after culling'),
         ('owned-pixels-missing', 'CardFaceMipBake.cs', 'if (!src.isReadable) return QuestCardPixels.Read(src);', 'if (!src.isReadable) return null;', 'owned GPU-only card receives exact mip filtering without XR readback'),
         ('owned-pixels-rgb-swapped', 'QuestCardPixels.cs', 'new Color32(rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3])', 'new Color32(rgba[at + 2], rgba[at + 1], rgba[at], rgba[at + 3])', 'owned GPU-only card receives exact original RGBA before mip generation'),
@@ -257,6 +259,28 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
                     shutil.copyfile(source_folder / (source + suffix), project / 'Assets/Resources' / (destination + suffix))
                     original = source_folder / (source + suffix)
                     board_inputs.append({'source': str(original), 'sha256': hashlib.sha256(original.read_bytes()).hexdigest(), 'fixturePath': 'Assets/Resources/' + destination + suffix})
+            # Exercise the actual BoardLit/material path; the old witness's
+            # uniform Overlay replacement could not qualify native vertex/depth state.
+            dependency_guids = set()
+            for model, style in boards:
+                material = source_folder / (model + '.mat')
+                for suffix in ('', '.meta'):
+                    original = Path(str(material) + suffix)
+                    destination = project / 'Assets/Resources' / ('NativeBoardMaterial' + style + '.mat' + suffix)
+                    shutil.copyfile(original, destination)
+                    board_inputs.append({'source': str(original), 'sha256': hashlib.sha256(original.read_bytes()).hexdigest(), 'fixturePath': str(destination.relative_to(project))})
+                dependency_guids.update(re.findall(r'guid: ([0-9a-f]{32})', material.read_text()))
+            for meta in source_folder.rglob('*.meta'):
+                match = re.search(r'^guid: ([0-9a-f]{32})$', meta.read_text(), re.M)
+                if not match or match.group(1) not in dependency_guids: continue
+                original_asset = meta.with_suffix('')
+                if original_asset.suffix not in ('.shader', '.png', '.jpg', '.tga'): continue
+                for original in (original_asset, meta):
+                    destination = project / 'Assets/Resources' / original.name
+                    shutil.copyfile(original, destination)
+                    board_inputs.append({'source': str(original), 'sha256': hashlib.sha256(original.read_bytes()).hexdigest(), 'fixturePath': str(destination.relative_to(project))})
+                dependency_guids.remove(match.group(1))
+            if dependency_guids: raise RuntimeError('Native board material dependencies unresolved: ' + str(dependency_guids))
             (run / 'board-inputs.json').write_text(json.dumps({'inputs': board_inputs, 'core': hashlib.sha256(board_core.encode()).hexdigest(), 'defaults': hashlib.sha256(board_defaults.encode()).hexdigest(), 'slotScale': scale, 'wantedScale': wanted}, indent=2) + '\n')
         if args.native_header_project:
             retained = args.native_header_project.resolve()
@@ -337,6 +361,10 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         result = Path(manifest['result'])
         if result.is_file(): print(result.read_text(), end='', flush=True)
         if code or not result.is_file(): raise RuntimeError('Actual Unity artwork fixture failed: ' + str(run / 'unity.log'))
+        if args.native_board_probe:
+            for entry in board_inputs:
+                if hashlib.sha256(Path(entry['source']).read_bytes()).hexdigest() != entry['sha256']:
+                    raise RuntimeError('Read-only native board source changed: ' + entry['source'])
         print('PASS Quest artwork ' + args.graphics + ': ' + str(len(variants)) + ' production/causal variants', flush=True)
     finally:
         if process is not None and process.poll() is None: process.kill(); process.wait()

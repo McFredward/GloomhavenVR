@@ -18,14 +18,15 @@ source=ROOT/'src/GloomhavenVR/Cards/QuestCardGuideEvidence.cs'
 original=source.read_text()
 update=(ROOT/'src/GloomhavenVR/Cards/Driver/CardsDriver.2.Update.cs').read_text()
 assert update.index('UpdateWantedSlots(_fakeActive ? null : hand);') < update.index('QuestCardGuideEvidence.Observe(_fakeActive ? null : hand, _tray,') < update.index('UpdatePickStatus(_fakeActive ? null : hand);')
-assert 'QuestStandalonePlatform.CardGuideDiagnostics = Reports.ToArray();' in original
+assert 'QuestStandalonePlatform.CardGuideDiagnostics = snapshot.ToArray();' in original
 base=ROOT/'.planning/debug/quest-card-guide';base.mkdir(parents=True,exist_ok=True)
 run=Path(tempfile.mkdtemp(prefix='run-',dir=base));log=run/'runner.log'
 log.write_text('Quest card guide evidence: '+str(run)+'\n');print(log.read_text(),end='',flush=True)
 variants=[('production','','',''),
+('active-pair-evicted','if (pair) _lastPair = facts;','if (pair) _lastPair = null;','actual both-wanted activation was evicted by later non-guide actions'),
 ('disabled-scope-lost','if (!QuestStandalonePlatform.Enabled || !QuestStandalonePlatform.DebugLogging) return;','if (!QuestStandalonePlatform.DebugLogging) return;','disabled evidence reads or formats native state'),
 ('change-dedup-lost','if (_havePrior && current.Equals(_prior)) return;','if (_havePrior && current.Equals(_prior) && fields < 0) return;','unchanged selection repeatedly formats renderer facts'),
-('observation-cap-lost','Reports.Count - i > 8','Reports.Count - i > int.MaxValue','guide history exceeds eight observations'),
+('observation-cap-lost','Reports.Count - i > (_lastPair != null && _lastPair != facts ? 7 : 8)','Reports.Count - i > int.MaxValue','guide history exceeds eight observations'),
 ('utf8-entry-bound-lost','Encoding.UTF8.GetByteCount(facts) > 1024','Encoding.UTF8.GetByteCount(facts) > 4096','native Unicode text bypasses guide byte bounds')]
 dotnet=shutil.which('dotnet') or '/home/claw/.dotnet/dotnet'
 code=1;process=None
@@ -49,7 +50,7 @@ try:
   results.append({'name':name,'passed':True,'expectedDefect':expected,'output':output.strip()})
  (run/'results.json').write_text(json.dumps(results,indent=2)+'\n')
  (run/'source-hashes.json').write_text(json.dumps({'producer':hashlib.sha256(source.read_bytes()).hexdigest(),'actualCallSite':hashlib.sha256(update.encode()).hexdigest(),'fixture':hashlib.sha256((ROOT/'tests/QuestCardGuide.Tests/Program.cs').read_bytes()).hexdigest(),'hardwareVerified':False},indent=2)+'\n')
- print('PASS Quest card guide evidence: '+results[0]['output']+'; 4 causal controls',flush=True);code=0
+ print('PASS Quest card guide evidence: '+results[0]['output']+'; 5 causal controls',flush=True);code=0
 finally:
  if process is not None and process.poll() is None:process.kill();process.wait()
  spec=importlib.util.spec_from_file_location('card_guide_cleanup',ROOT/'scripts/quest-artwork-tests.py');helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)

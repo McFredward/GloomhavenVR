@@ -34,6 +34,8 @@ public static partial class DiagnosticProgram
                 "actual wanted-slot consumer owns explicit white COLOR on Quest");
             Check(item.GetComponent<QuestGlowMeshOwner>() != null,
                 "wanted-slot upload is owned by the visual lifetime");
+            Check(item.GetComponent<Renderer>().sharedMaterial.mainTexture == Texture2D.whiteTexture,
+                "actual Quest guide explicitly binds its authored white sampler independently of previous native draws");
             for (int vertex = 0; vertex < native.vertexCount; vertex++)
                 Check(geometry.vertices[vertex] == native.vertices[vertex]
                     && geometry.uv[vertex] == native.uv[vertex] && geometry.colors[vertex] == Color.white,
@@ -68,7 +70,20 @@ public static partial class DiagnosticProgram
             Vector3.zero, Color.white));
         Check(desktop.GetComponent<MeshFilter>().sharedMesh == native
             && desktop.GetComponent<QuestGlowMeshOwner>() == null, "desktop cue retains native mesh by identity");
+        Material desktopMaterial = desktop.GetComponent<Renderer>().sharedMaterial;
+        Texture? desktopTexture = desktopMaterial.mainTexture;
+        QuestCardGuideWitness.Attach(desktop, null);
+        Check(desktopMaterial.mainTexture == desktopTexture && desktop.GetComponent<QuestCardGuideWitness>() == null,
+            "desktop guide keeps exact sampler binding and no Quest witness");
         QuestStandalonePlatform.Enabled = true;
+        var suppliedMaterial = Keep(CardGlow.MakeGlowMaterial(Color.white)!);
+        suppliedMaterial.mainTexture = Texture2D.blackTexture;
+        var suppliedCue = Keep(CardGlow.CreateGlowQuad("supplied-cue-imagery", host.transform, Vector3.one,
+            Vector3.zero, Color.white, suppliedMaterial));
+        Texture globalSampler = Shader.GetGlobalTexture("_MainTex");
+        QuestCardGuideWitness.Attach(suppliedCue, null);
+        Check(suppliedMaterial.mainTexture == Texture2D.blackTexture && Shader.GetGlobalTexture("_MainTex") == globalSampler,
+            "Quest cue binding never replaces supplied imagery or writes a global texture");
 
         // Actual additive draw, independent of any native mesh's missing COLOR
         // default. A solid occluder must still hide it: no always-on-top repair.

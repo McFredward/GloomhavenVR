@@ -13,6 +13,16 @@ internal sealed class QuestCardGuideWitness : MonoBehaviour
     internal static void Attach(GameObject guide, Transform? visual)
     {
         if (!QuestStandalonePlatform.Enabled) return;
+        Material? material = guide.GetComponent<Renderer>()?.sharedMaterial;
+        // These mod-owned additive quads author a white _MainTex default. B691
+        // still submitted the missing left cue with a null sampler binding;
+        // unlike actual card imagery there is no content texture to preserve.
+        // Bind that exact authored default on this material, independently of
+        // the previous native draw's sampler state. Never write a global texture
+        // or replace any supplied imagery, mask, material, depth or pulse input.
+        if (material != null && material.shader != null && material.shader.name == "GloomhavenVR/Overlay"
+            && material.HasProperty("_MainTex") && material.mainTexture == null)
+            material.mainTexture = Texture2D.whiteTexture;
         guide.AddComponent<QuestCardGuideWitness>()._visual = visual;
     }
     private void OnEnable() { Submitted = false; Facts = "pending"; }

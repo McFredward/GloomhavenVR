@@ -30,12 +30,13 @@ public static partial class DiagnosticProgram
         Quaternion face = Quaternion.LookRotation(normal, vertical);
         first.rotation = second.rotation = face;
         first.localScale *= NativeBoardContract.SlotScale; second.localScale *= NativeBoardContract.SlotScale;
-        var opaque = Keep(CardGlow.MakeGlowMaterial(new Color(.1f, .1f, .1f, 1))!);
-        opaque.SetInt("_DstBlend", 0); opaque.SetInt("_ZWrite", 1); opaque.SetInt("_VertexColor", 0); opaque.renderQueue = 2000;
+        Material opaque = Resources.Load<Material>("NativeBoardMaterial" + style);
+        Check(opaque != null && opaque.shader != null && opaque.shader.name == "GloomhavenVR/BoardLit"
+            && opaque.mainTexture != null, "actual authored BoardLit/material/texture path is present: " + style);
         foreach (MeshRenderer renderer in model.GetComponentsInChildren<MeshRenderer>(true))
         {
             Material[] materials = renderer.sharedMaterials;
-            for (int i = 0; i < materials.Length; i++) materials[i] = opaque;
+            for (int i = 0; i < materials.Length; i++) materials[i] = opaque!;
             renderer.sharedMaterials = materials;
         }
         var guides = new GameObject[2];

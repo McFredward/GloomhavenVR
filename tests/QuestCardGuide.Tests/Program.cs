@@ -14,6 +14,7 @@ static class Program
     {
         ((IList)typeof(QuestCardGuideEvidence).GetField("Reports",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!).Clear();
         typeof(QuestCardGuideEvidence).GetField("_havePrior",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,false);
+        typeof(QuestCardGuideEvidence).GetField("_lastPair",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,null);
         QuestStandalonePlatform.Enabled=QuestStandalonePlatform.DebugLogging=true;
         QuestStandalonePlatform.CardGuideDiagnostics=Array.Empty<string>();
         LevelMessagesUIHandler.s_Instance=new();CardsGameApi.NativeReads=0;CardsGameApi.CurrentMode=CardHandMode.CardsSelection;CardsGameApi.PickWanted=2;
@@ -46,10 +47,11 @@ static class Program
         QuestCardGuideEvidence.Observe(native,board,1,0,true);
         Check(QuestStandalonePlatform.CardGuideDiagnostics.Last().Contains("picks=1 locked=0 blocked=True")&&QuestStandalonePlatform.CardGuideDiagnostics.Last().Contains("help=TB_next"),"native tutorial step or pick/gate change was lost");
         for(int n=0;n<50;n++){board.Owner++;QuestCardGuideEvidence.Observe(native,board,n,0,false);}
+        Check(QuestStandalonePlatform.CardGuideDiagnostics.Any(s=>s.Contains("wanted=3 occupied=00")),"actual both-wanted activation was evicted by later non-guide actions");
         Check(QuestStandalonePlatform.CardGuideDiagnostics.Length<=8&&QuestStandalonePlatform.CardGuideDiagnostics.Length>0,"guide history exceeds eight observations");
         Check(QuestStandalonePlatform.CardGuideDiagnostics.Sum(Encoding.UTF8.GetByteCount)<=4096,"guide history exceeds four KiB");
         board.LongFacts=new string('\u754c',3000);board.Owner++;QuestCardGuideEvidence.Observe(native,board,0,0,false);
-        Check(QuestStandalonePlatform.CardGuideDiagnostics.All(s=>Encoding.UTF8.GetByteCount(s)<=1024)&&QuestStandalonePlatform.CardGuideDiagnostics.Sum(Encoding.UTF8.GetByteCount)<=4096,"native Unicode text bypasses guide byte bounds");
+        Check(QuestStandalonePlatform.CardGuideDiagnostics.All(s=>Encoding.UTF8.GetByteCount(s)<=1024)&&QuestStandalonePlatform.CardGuideDiagnostics.Sum(Encoding.UTF8.GetByteCount)<=4096&&QuestStandalonePlatform.CardGuideDiagnostics.Any(s=>s.Contains("owner="+board.Owner+" ")),"native Unicode text bypasses guide byte bounds");
         CardsGameApi.CurrentMode=CardHandMode.DiscardCard;CardsGameApi.PickWanted=2;board.LongFacts=null;
         QuestCardGuideEvidence.Observe(native,board,0,0,false);
         Check(QuestStandalonePlatform.CardGuideDiagnostics.Last().Contains("selectionRemaining=-1 pickWanted=2"),"pick demand is confused with ordinary card selection");
