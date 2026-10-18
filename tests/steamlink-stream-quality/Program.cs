@@ -94,6 +94,11 @@ internal static class Program
         var refused=new Lease{Applied=false};int refusedCalls=0;var refusal=new Q.Monitor(_=>{Interlocked.Increment(ref refusedCalls);return Task.FromResult<Q.ILease>(refused);},(_,_)=>{});
         refusal.Tick(true,3072,0);await Until(()=>refused.Releases==1,"Partially acquired refusal released");Check(refusal.Current!=Q.Phase.Active,"Refused acquisition never active");refused.Finish(false,true);await refusal.Settled;refusal.Tick(true,3072,10);Check(refusedCalls==1,"Startup rollback unknown prevents rebaseline");
 
+        int safeRefusalWarnings=0;var safelyRefused=new Lease{Applied=false};
+        var safeRefusal=new Q.Monitor(_=>Task.FromResult<Q.ILease>(safelyRefused),(warning,_)=>{if(warning)Interlocked.Increment(ref safeRefusalWarnings);});
+        safeRefusal.Tick(true,3072,0);await Until(()=>safelyRefused.Releases==1,"No-write startup refusal released");safelyRefused.Finish();await safeRefusal.Settled;
+        Check(safeRefusalWarnings==1,"Failed startup remains visible even when no-write rollback was confirmed");
+
         int failCalls=0;var failures=new Q.Monitor(_=>{Interlocked.Increment(ref failCalls);return Task.FromException<Q.ILease>(new InvalidOperationException());},(_,_)=>{});
         for(int attempt=0;attempt<3;attempt++){failures.Tick(true,3072,attempt*2);await Until(()=>failCalls==attempt+1,"Bounded failed attempt");await failures.Settled;failures.Tick(true,3072,attempt*2+.5);Check(failCalls==attempt+1,"Retry floor respected");}
         failures.Tick(true,3072,100);Check(failCalls==3&&failures.Current==Q.Phase.Unavailable,"Maximum retry count reached");

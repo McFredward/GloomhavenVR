@@ -145,8 +145,10 @@ internal static class SteamLinkStreamQuality
                     // Process exit alone does not prove restoration. Retrying
                     // could adopt our own un-restored value as a new baseline.
                     lock (_gate) if (!released.Restored || !released.Exited) _unsafe = true;
-                    _log(!released.Restored, released.Restored
-                        ? "released; original settings restored where still owned; external changes preserved=" + released.Conflicts + "."
+                    _log(!released.Restored || !lease.Applied, released.Restored
+                        ? lease.Applied
+                            ? "released; original settings restored where still owned; external changes preserved=" + released.Conflicts + "."
+                            : "requested settings lease was refused; no owned changes remain; stage=" + released.Detail + "."
                         : "restore unconfirmed; helper exited=" + released.Exited + "; stage=" + released.Detail + ".");
                 }
                 lock (_gate) _phase = _unsafe ? Phase.Unavailable : Phase.Idle;
@@ -286,6 +288,7 @@ internal static class SteamLinkStreamQuality
             Task<string?> errors = ReadBoundedAsync(_process.StandardError, 512);
             bool acquired = false, valid = true, restored = false, terminal = false, errorReceipt = false;
             int conflicts = 0, total = 0;
+            string detail = "helper-receipt";
             try
             {
                 for (int lineCount = 0; ; lineCount++)
@@ -299,7 +302,12 @@ internal static class SteamLinkStreamQuality
                     else if (!terminal && acquired && DecodeRestored(line, out bool ok, out int count))
                     { restored = ok; conflicts = count; terminal = true; }
                     else if (!terminal && DecodeError(line, out bool rolledBack, out int preserved))
-                    { restored = rolledBack; conflicts = preserved; terminal = true; errorReceipt = true; _ready.TrySetResult(false); }
+                    {
+                        restored = rolledBack; conflicts = preserved; terminal = true; errorReceipt = true;
+                        string code = Fields(line)!["error"];
+                        detail = code.Length <= 48 ? "helper:" + code : "helper:invalid-error";
+                        _ready.TrySetResult(false);
+                    }
                     else { valid = false; _ready.TrySetResult(false); CloseInput(); }
                 }
                 _ready.TrySetResult(false);
@@ -307,7 +315,7 @@ internal static class SteamLinkStreamQuality
                 string? stderr = await errors.ConfigureAwait(false);
                 return new ReleaseResult(valid && terminal && restored && stderr != null && stderr.Length == 0
                     && (acquired && !errorReceipt && _process.ExitCode == 0 || errorReceipt && _process.ExitCode == 2),
-                    conflicts: conflicts, detail: "helper-receipt");
+                    conflicts: conflicts, detail: detail);
             }
             catch { _ready.TrySetResult(false); CloseInput(); return new ReleaseResult(false, _exit.Task.IsCompleted, detail: "helper-output"); }
         }
