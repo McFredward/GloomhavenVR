@@ -182,15 +182,14 @@ public static class LoadingSourceFixture
             SteamLinkSceneRuntime.Reset();Enter(third,"Explicit reset recovers actual failed head");
             yield return null;Packed(third,"after explicit fault reset");
 
-            Stage("unknown XR eye metadata rejects actual pack callback");previous=Current!;
+            Stage("temporary mono XR render closes without poisoning the returning head");previous=Current!;
             LoadingSourceBoundary.CurrentEye=Camera.MonoOrStereoscopicEye.Mono;
             third.Render();result.renders++;
-            Check(!previous.Ready&&previous.Failure=="UnknownEye","Unknown eye refusal retains actual result");
-            Check(!SteamLinkSceneRuntime.TryEnter(third),"Unknown-eye render fault remains latched");result.fault_refusals++;
+            Check(!previous.Ready&&string.IsNullOrEmpty(previous.Failure),"Temporary mono closes without an attachment fault");
             LoadingSourceBoundary.CurrentEye=Camera.MonoOrStereoscopicEye.Left;
-            SteamLinkSceneRuntime.Reset();Enter(third,"Explicit reset after unknown eye");
+            Enter(third,"Stereo recovery after temporary mono needs no explicit reset");result.resumes++;
             yield return null;Packed(third,"final left resumed");
-            Check(result.resumes==5&&result.fault_refusals==2&&result.guard_cells==96,"All bounded lifecycle/raster cases executed");
+            Check(result.resumes==6&&result.fault_refusals==1&&result.guard_cells==96,"All bounded lifecycle/raster cases executed");
             result.passed=true;
         }
         finally

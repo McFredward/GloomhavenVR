@@ -56,8 +56,10 @@ def freeze_runtime(text, mutant):
     assert 'if (_output.Ready) return true;' in original, 'Source lacks the transient-close recovery under test'
     if mutant:
         text = text[:begin] + OLD_OWNER + text[end:]
-    assert text.count('Head.stereoActiveEye') == 3
+    assert text.count('Head.stereoActiveEye') == 1
     text = text.replace('Head.stereoActiveEye', 'LoadingSourceBoundary.EyeMetadata(Head)')
+    assert text.count('head.stereoEnabled') == 1
+    text = text.replace('head.stereoEnabled', 'LoadingSourceBoundary.StereoEnabled(head)')
     text = text.replace('using UnityEngine.XR;',
                         'using UnityEngine.XR;\nusing XRSettings = LoadingSourceBoundary.XrSettings;')
     marker = '[RequireComponent(typeof(Camera))]'
@@ -66,7 +68,8 @@ def freeze_runtime(text, mutant):
     return text, {
         'actual_source_methods_replaced': [],
         'xr_settings_alias': 'explicit owned MultiPass metadata, no XR session',
-        'active_eye_metadata_reads': 3,
+        'active_eye_metadata_reads': 1,
+        'stereo_attachment_metadata': 'explicit ready XR attachment; actual Editor camera has no XR device',
         'editor_callback_activation': 'ExecuteInEditMode on otherwise real SceneHeadOutput',
         'old_owner_mutant': mutant,
         'old_owner_original_block': OLD_OWNER if mutant else None,

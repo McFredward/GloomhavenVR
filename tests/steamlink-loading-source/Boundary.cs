@@ -11,6 +11,7 @@ internal static class LoadingSourceBoundary
     internal static int Warnings, Prepared, EyeReads;
     internal static Camera.MonoOrStereoscopicEye EyeMetadata(Camera camera)
     { EyeReads++; return CurrentEye; }
+    internal static bool StereoEnabled(Camera camera) => true;
     internal static class XrSettings
     {
         internal enum StereoRenderingMode { MultiPass }

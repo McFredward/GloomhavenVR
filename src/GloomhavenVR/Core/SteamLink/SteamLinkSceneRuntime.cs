@@ -24,7 +24,8 @@ internal static class SteamLinkSceneRuntime
 
     internal static bool TryEnter(Camera? head)
     {
-        if (head == null || !head.isActiveAndEnabled || !VRSession.IsRunning)
+        if (head == null || !head.isActiveAndEnabled || !VRSession.IsRunning
+            || !StereoReady(head))
         {
             Exit();
             return false;
@@ -123,6 +124,13 @@ internal static class SteamLinkSceneRuntime
     internal static bool Owns(SceneHeadOutput output, Camera head, ulong epoch) =>
         ReferenceEquals(_output, output) && epoch == _epoch && VRSession.IsRunning
         && VRCameraPolicy.AllowedHead == head && Requested && MixedReality.Enabled.Value;
+
+    // A running VR session does not certify a camera's current XR attachment.
+    // Startup/load teardown can temporarily render that same head as mono or
+    // target only one eye. Never introduce the packed atlas during that gap.
+    // This is temporary admission loss, not a shader/attachment fault latch.
+    internal static bool StereoReady(Camera head) => head.stereoEnabled
+        && head.stereoTargetEye == StereoTargetEyeMask.Both;
 }
 
 // Unity invokes this only on the camera it is attached to. Unknown eyes and
@@ -195,7 +203,8 @@ internal sealed class SceneHeadOutput : MonoBehaviour
     private void OnPreCull()
     {
         if (!Ready) return;
-        if (!SteamLinkSceneRuntime.Owns(this, Head, _epoch)) Close();
+        if (!SteamLinkSceneRuntime.Owns(this, Head, _epoch)
+            || !SteamLinkSceneRuntime.StereoReady(Head)) Close();
         else if (Head.allowHDR || Head.targetTexture != _target
             || Head.clearFlags != CameraClearFlags.SolidColor
             || Head.actualRenderingPath != RenderingPath.Forward)
@@ -218,18 +227,30 @@ internal sealed class SceneHeadOutput : MonoBehaviour
         if (Ready && SteamLinkSceneRuntime.Owns(this, Head, _epoch)
             && _coverage!.IsArmedFor(Head, _epoch))
         {
+            // Unity can report Mono while an XR camera starts/stops even after
+            // the previous cold tick observed a running session. Do not publish
+            // an atlas for that ordinary render or permanently poison this head;
+            // a later admitted stereo render prepares a fresh coverage epoch.
+            Camera.MonoOrStereoscopicEye eye = Head.stereoActiveEye;
+            if (!SteamLinkSceneRuntime.StereoReady(Head)
+                || eye == Camera.MonoOrStereoscopicEye.Mono)
+            {
+                Close();
+                Graphics.Blit(source, destination);
+                return;
+            }
             try
             {
-                SceneEyeResult result = _pack!.TryRender(source, destination, Head.stereoActiveEye);
+                SceneEyeResult result = _pack!.TryRender(source, destination, eye);
                 packed = result == SceneEyeResult.Rendered;
                 if (!packed) Failure = result.ToString();
                 else if (VRLog.WantsDebug)
                 {
-                    int eyeBit = Head.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right ? 2 : 1;
+                    int eyeBit = eye == Camera.MonoOrStereoscopicEye.Right ? 2 : 1;
                     if ((_reportedEyes & eyeBit) == 0)
                     {
                         _reportedEyes |= eyeBit;
-                        VRLog.Debug("Core", "Steam Link real scene eye=" + Head.stereoActiveEye
+                        VRLog.Debug("Core", "Steam Link real scene eye=" + eye
                             + " source=" + source.width + "x" + source.height + " format=" + source.graphicsFormat
                             + " samples=" + source.antiAliasing + " carrier="
                             + (destination == null ? "XR target" : destination.width + "x" + destination.height)
