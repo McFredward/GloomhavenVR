@@ -2907,6 +2907,20 @@
         "local"
       ],
       "weight": 40
+    },
+    {
+      "id": "steamlink-robust-coverage",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-robust-coverage/run.py",
+        "--output",
+        ".planning/debug/steamlink-robust-coverage"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
     }
   ]
 }

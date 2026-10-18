@@ -612,7 +612,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 698;
+    public const ushort ModBuild = 699;
+
+    // ModBuild699 — robust recognition for equal-resolution Steam Link coverage.
+    // Build697's first real stream showed different scale/passthrough per eye.
+    // A lossy-codec plus exact-native-fragment reproduction exposes its fragile
+    // small header, but the hardware's actual guard/encoder values are unknown.
+    // New frozen v3 keeps the same2048-square RGB and coverage, windmill geometry,
+    // source transfer and global halos. Twelve separated128-square grey cells
+    // replace v2's32-square signature, with four spaced levels and explicit
+    // sixteen-code admission windows. These identify the format, never threshold
+    // coverage or prove frame/eye/UV registration. Preserve genuine glass/MSAA
+    // and additive contribution at A0, without window classification or tags.
+    // The matching updated Frame receiver selects v3 or legacy v1 with the same
+    // guard-fetch budget and exact native ordinary-image fallback. Historical
+    // v1/v2 contracts and transform bytes remain retained. No new descriptor,
+    // camera, sticky verdict, prior-eye queue or Steam sender patch is added.
+    // Update both PC producer and Frame receiver before testing: an older patch
+    // cannot decode v3. Software source/codec/GPU evidence is not a headset pass.
+    // Existing standalone MR,694 lifecycle,696 movie/Cheats and wire stay intact.
 
     // ModBuild698 — contain the observed v2 native Steam Link stereo regression.
     // The maintainer reports different eye scale and one-sided passthrough after

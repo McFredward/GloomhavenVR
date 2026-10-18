@@ -1,5 +1,30 @@
 # Steam Link availability repair coordination, 2026-10-17
 
+## Active robust equal-resolution follow-up699
+
+The maintainer asks to continue after698 containment, retaining the original
+equal-resolution-mask goal. Root independently reviews and freezes a new v3
+contract in both repositories. Its scene, coverage, windmill strips, halos and
+transfer are byte-identical to v2; only the format header changes to twelve
+separated128-square four-level cells. V1/v2 contracts remain immutable.
+
+Worker `worker/steamlink-robust699-source` starts at current GHdev11b6f128f and
+owns the new producer shader/bank, bounded same-eye source selection and focused
+paired4040/actual8xMSAA proof. Worker `worker/native-robust699` starts at current
+receiverdev3bcb040 and owns the v3+v1 candidate, official package pins and affected
+native tests. Worker `worker/native-robust699-e2e`, from the same receiver commit,
+owns only a new end-to-end actual-producer/lossy-codec/native-GPU fixture and its
+registration. Root owns699 notes, integration, review and final artifacts.
+
+The shipping receiver should recognize v3 or legacy v1 without adding a third
+guard. Historical v1/v2 transform bytes and their tests remain retained. No
+window classification, coverage threshold, second camera, previous-eye queue,
+sticky format result or descriptor/R1 change is authorized by this correction.
+The existing Frame installation is unchanged: a new concrete update/restart
+permission is required once prepared. Passing owned-codec/GPU controls must not
+be presented as a successful headset test or proof of the actual failed run's
+guard/encoder parameters. Do not repeat unrelated complete suites.
+
 ## Eye-divergence regression698; v2 quarantined
 
 The maintainer rejects697 in real streaming: different eye scale/depth and

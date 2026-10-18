@@ -35,34 +35,39 @@ changed by building or enabling the PC source. Install the public matching
 separately using its documented supported SteamVR version. The existing
 standalone native MR backend is separate and unchanged.
 
-## Current transport and quarantined equal-resolution coverage
+## Equal-resolution coverage and transport recognition
 
-The active producer selects the retained `scene-contribution-atlas-v1` shader.
-Build697's v2 headset test showed divergent eye images, including different
-apparent scale and passthrough in only one eye. Successful PC pack callbacks do
-not establish that the real receiver recognized both transported eye images.
-Selecting v1 contains that regression without another headset installation:
-the installed dual-profile receiver already supports it. This is a containment,
-not proof of the hardware cause or a fix for the earlier soft window edges.
+Build699 prepares `scene-contribution-atlas-v3` and requires its matching updated
+Frame receiver. Independent coverage and scene RGB use the same2048-square
+logical resolution from the same current eye source. No half-resolution alpha
+box or C1 reconstruction filter remains in this path. This applies to all scene
+geometry, without window tags or opacity thresholds. Genuine fractional edges,
+glass and contribution at zero coverage remain distinct from packing softness.
 
-The retained experimental `scene-contribution-atlas-v2` has independent coverage and
-scene RGB have the same2048-square logical resolution, sampled from the same
-current eye source. The old half-resolution alpha box/reconstruction filter is
-removed from this path. This applies to all scene geometry, without window tags
-or thresholds that would erase genuine partial transparency. Coverage and format
-cells remain neutral grey in the video transport; scene RGB retains its colors.
+The3168-square carrier keeps v2's four haloed coverage strips around central RGB.
+V3 changes only its format recognition: twelve separated128-square neutral-grey
+cells, in two unused corners, use four well-separated levels with inclusive
+sixteen-code windows. These windows identify the format; they do not threshold
+coverage or authenticate a frame, eye, body or exact UV registration. Both
+planes still share the original native invocation's current image and R1 chart.
+No previous mask, sticky decision, extra camera, descriptor or queue is added.
 
-A matching updated receiver recognizes v2 and retains the frozen
-v1 decoder for the active producer. Building/enabling the mod does not update the
-headset patch. The3168-square carrier layout uses four haloed coverage strips
-around the central scene. At a fixed stream resolution, the larger mask consumes
-more video area, reducing the area's allocation to RGB; no SteamVR resolution or
-bitrate setting is changed automatically. Keep true MSAA/partial-opacity edges
-and codec limitations distinct from additional packing blur. Headset appearance
-and streaming cost still require hardware validation before v2 can be selected
-again. Existing producer/native GPU checks did not include the actual lossy
-stereo stream, and do not establish physical-eye agreement. See
-[the scoped implementation record](../.planning/STEAM-LINK-697-FULL-COVERAGE.md).
+Build697's v2 real-stream test failed with different apparent scale/passthrough
+between eyes. An owned lossy-codec reproduction shows that its small32-square,
+two-code-window header can be accepted in one chart and rejected in another.
+The exact shipping native fragment reproduces the observed output split; the
+actual failed hardware guard values and encoder parameters remain unknown.
+Build698 therefore restored v1 temporarily. V2 is retained unchanged for
+regression controls and must not be re-enabled from its earlier ideal GPU proof.
+
+The new receiver recognizes v3 first, then the frozen legacy v1; historical v2
+tools remain quarantined. A v3 producer with an older receiver can display the
+packed image. Building/enabling the mod does not update the headset patch.
+At a fixed stream resolution the larger mask consumes more video area, reducing
+RGB's allocation; no SteamVR resolution or bitrate is changed automatically.
+Owned source/codec/native tests are separate from the still-required headset
+picture and streaming-cost checks. See [the bounded v3 record](../.planning/STEAM-LINK-699-ROBUST-COVERAGE.md)
+and the [failed v2 review](../.planning/STEAM-LINK-698-EYE-DIVERGENCE.md).
 
 ## Host identity lookup: Windows and Proton
 
