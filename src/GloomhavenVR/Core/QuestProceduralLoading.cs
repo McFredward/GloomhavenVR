@@ -81,7 +81,8 @@ internal static class QuestProceduralLoading
                 if (Requested(entity) && (!placement.IsPlacementCompleted || entity.IsBusy))
                 {
                     if (describe) detail = "placement:" + Label(placement.name) + ":room=" + Label(room.name)
-                        + ":completed=" + placement.IsPlacementCompleted + ":busy=" + entity.IsBusy;
+                        + ":completed=" + placement.IsPlacementCompleted + ":busy=" + entity.IsBusy
+                        + QuestProceduralRequests.Describe(entity);
                     return true;
                 }
             }

@@ -97,6 +97,7 @@ public class ApparanceMeshInstances : MonoBehaviour { public int instanceCount; 
 public class ApparanceEngine : MonoBehaviour
 {
     public static int NativeStarts, NativeUpdates;
+    private void UpdateEngine() { }
     private void Start() { NativeStarts++; m_LastRunTime = s_LastRunTime; }
     private void Update() { NativeUpdates++; }
     public static ApparanceEngine Instance;

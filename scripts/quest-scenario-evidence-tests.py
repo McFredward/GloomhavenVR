@@ -139,6 +139,8 @@ def main():
             raise AssertionError("Lifecycle mutation binding drift: " + args.control)
         lifecycle_source = lifecycle_source.replace(before, after, 1)
     (editor / "Lifecycle.cs").write_text("#nullable enable\n" + lifecycle_source.replace("namespace GloomhavenVR.Core;", "namespace GloomhavenVR.Core {") + "\n}\n")
+    requests_source = (ROOT / "src/GloomhavenVR/Core/QuestProceduralRequests.cs").read_text()
+    (editor / "Requests.cs").write_text("#nullable enable\n" + requests_source.replace("namespace GloomhavenVR.Core;", "namespace GloomhavenVR.Core {") + "\n}\n")
     loading_source = (ROOT / "src/GloomhavenVR/Core/QuestProceduralLoading.cs").read_text()
     loading_controls = {
         "loading-boundary": ("while (HasPendingContent(maps));", "while (false);",
@@ -255,6 +257,7 @@ def main():
             "gpuSource": hashlib.sha256(gpu_source.encode()).hexdigest(),
             "lifecycleSource": hashlib.sha256(lifecycle_source.encode()).hexdigest(),
             "loadingSource": hashlib.sha256(loading_source.encode()).hexdigest(),
+            "requestsSource": hashlib.sha256(requests_source.encode()).hexdigest(),
             "graphics": "vulkan" if args.gpu else "null", "actualPlayerLoop": args.playerloop or args.loading,
             "engineBoundary": "controlled Unity component callbacks; original managed/native engine not executed",
             "playerLoopProbe": hashlib.sha256((editor / "PlayerLoopProbe.cs").read_bytes()).hexdigest() if args.playerloop else None,
