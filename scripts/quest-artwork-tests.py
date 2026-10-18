@@ -70,6 +70,7 @@ def main():
     parser.add_argument('--case', action='append')
     parser.add_argument('--native-header-project', type=Path, help='Optional retained owned game project; copies only the native Brute header Sprite/texture and exact shader inputs.')
     parser.add_argument('--color-space', choices=('gamma', 'linear'), default='linear')
+    parser.add_argument('--drop-guides-only', action='store_true', help='Run only the actual card drop-guide geometry, material and evidence graph.')
     args = parser.parse_args()
     base = ROOT / '.planning/debug/quest-artwork'
     base.mkdir(parents=True, exist_ok=True)
@@ -115,7 +116,7 @@ cue.transform.localScale = scale; cue.transform.localPosition = position;
 cue.GetComponent<MeshRenderer>().sharedMaterial = CardGlow.MakeGlowMaterial(color); cue.SetActive(false); return cue;
 }
 internal void Build() => BuildWantedHighlights();
-''' + method(slots, '    private void BuildWantedHighlights(') + method(nested, '    private sealed class SlotPulse') + '\n}\n'
+''' + method(slots, '    private void BuildWantedHighlights(') + method(slots, '    internal string QuestGuideDrawState(') + method(nested, '    private sealed class SlotPulse') + '\n}\n'
     remote = (ROOT / 'src/GloomhavenVR/Net/Remote/RemoteBoardFurniture.cs').read_text()
     board = (ROOT / 'src/GloomhavenVR/Net/Board/BoardVisual.cs').read_text()
     remote_pulse = remote[remote.index('internal sealed class RemoteGlowPulse : MonoBehaviour'):]
@@ -176,6 +177,7 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
         ('drop-glow-release-missing', 'CardGlow.cs', 'if (_mesh != null) Object.Destroy(_mesh);', ';', 'owned cue mesh is released with its visual'),
         ('alpha-provenance-missing', 'QuestArtworkEvidence.cs', '+ " contour=" + _abilityContour', '+ ""', 'existing bounded native artwork record names alpha delivery and actual contour outcome'),
         ('remote-drop-glow-owned-upload-missing', 'ActualRemoteGlow.cs', 'Cards.CardGlow.CreateGlowQuad(name, _root,', 'UnqualifiedGlow(name, _root,', 'actual mirrored slot guide owns the same explicit Quest vertex inputs'),
+        ('guide-determinant-evidence-missing', 'ActualWanted.cs', '+ ",det=" + number(go.transform.localToWorldMatrix.determinant)', '+ ",missingDet=" + number(go.transform.localToWorldMatrix.determinant)', 'actual left/right guide facts retain transform determinant and independent material state'),
     ]
     if args.case:
         variants = [row for row in variants if row[0] in args.case]
@@ -267,7 +269,9 @@ internal static string? Reason(object state) => ((SilhouetteState)state).LastRea
             'hardwareVerified': False}, indent=2) + '\n')
         command = [str(unity), '-batchmode', '-force-' + args.graphics, '-projectPath', str(project), '-executeMethod', 'DiagnosticRunner.Start', '-interactionManifest', str(manifest_path), '-logFile', str(run / 'unity.log')]
         if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a'] + command
-        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True)
+        environment = dict(os.environ)
+        if args.drop_guides_only: environment['GHVRQ_TEST_DROP_GUIDES_ONLY'] = '1'
+        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=environment)
         code = process.wait(timeout=240)
         result = Path(manifest['result'])
         if result.is_file(): print(result.read_text(), end='', flush=True)

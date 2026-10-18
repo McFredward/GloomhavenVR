@@ -95,6 +95,36 @@ public static partial class DiagnosticProgram
             + " shader=" + gold.GetComponent<Renderer>().sharedMaterial.shader.name);
         Check(lit.r > background.r + 10 && lit.g > background.g + 10 && lit.b > background.b,
             "actual additive cue draws nonzero native GPU pixels");
+        // Test BOTH actual wanted consumers, including a mirrored first anchor.
+        // Cull-Off and explicit primitive colors must retain the same pulse.
+        gold.SetActive(false);
+        Color32[] wantedPixels = new Color32[2];
+        Material? firstWantedMaterial = null;
+        for (int i = 0; i < 2; i++)
+        {
+            GameObject item = wanted._wantedHighlights[i]!;
+            wanted._slots[i]!.position = Vector3.zero;
+            wanted._slots[i]!.localScale = new Vector3(i == 0 ? -1 : 1, 1, 1);
+            item.layer = 30; item.SetActive(true);
+            MonoBehaviour actualPulse = Array.Find(item.GetComponents<MonoBehaviour>(), p => p.GetType().Name == "SlotPulse")!;
+            actualPulse.GetType().GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(actualPulse, null);
+            Material actualMaterial = item.GetComponent<MeshRenderer>().sharedMaterial;
+            if (i == 0) firstWantedMaterial = actualMaterial;
+            else Check(actualMaterial != firstWantedMaterial, "left and right pulses retain independent material ownership");
+            string facts = wanted.QuestGuideDrawState(i);
+            Check(facts.Contains("active=True/True") && facts.Contains("mesh=4/1") && facts.Contains("color=True")
+                && facts.Contains("state=0/4/0/1/1") && facts.Contains("det=") && facts.Contains(",p=") && facts.Contains(",s=")
+                && (i == 0 ? facts.Contains("det=-") : !facts.Contains("det=-")),
+                "actual left/right guide facts retain transform determinant and independent material state");
+            wantedPixels[i] = Capture();
+            item.SetActive(false);
+        }
+        Check(wantedPixels[0].g > background.g + 10 && wantedPixels[1].g > background.g + 10
+            && Math.Abs(wantedPixels[0].r - wantedPixels[1].r) <= 1
+            && Math.Abs(wantedPixels[0].g - wantedPixels[1].g) <= 1
+            && Math.Abs(wantedPixels[0].b - wantedPixels[1].b) <= 1,
+            "actual left/right wanted pulses produce equal additive pixels through mirrored and ordinary anchors");
+        gold.SetActive(true);
         var blocker = Keep(GameObject.CreatePrimitive(PrimitiveType.Quad)); blocker.layer = 30;
         blocker.transform.localScale = Vector3.one;
         blocker.transform.position = new Vector3(0, 0, -.02f);

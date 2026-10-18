@@ -849,6 +849,40 @@ internal sealed partial class PlayTray
     /// right slot; 0 before the driver ever wrote one). Wire input of the board-UI record.</summary>
     internal int WantedSlotMask => _wantedMask > 0 ? _wantedMask & 0x3 : 0;
 
+    internal int QuestGuideOwnerId => _root != null ? _root.GetInstanceID() : 0;
+
+    // Only read on a bounded Debug guide-state transition, never as a frame scan.
+    // Active/renderable inputs are evidence, not proof that the headset sees it.
+    internal string QuestGuideDrawState(int index)
+    {
+        GameObject? go = _wantedHighlights[index];
+        if (go == null) return "missing";
+        MeshRenderer? renderer = go.GetComponent<MeshRenderer>();
+        Material? material = renderer != null ? renderer.sharedMaterial : null;
+        MeshFilter? filter = go.GetComponent<MeshFilter>();
+        Mesh? mesh = filter != null ? filter.sharedMesh : null;
+        string shader = material != null && material.shader != null ? material.shader.name : "none";
+        if (shader.Length > 32) shader = shader.Substring(0, 32);
+        string number(float value) => value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+        int state(string property) => material != null && material.HasProperty(property) ? material.GetInt(property) : -1;
+        Color tint = material != null ? material.color : Color.clear;
+        return "active=" + go.activeSelf + "/" + go.activeInHierarchy
+            + ",renderer=" + (renderer != null && renderer.enabled)
+            + ",visible=" + (renderer != null && renderer.isVisible)
+            + ",mesh=" + (mesh != null ? mesh.vertexCount : 0) + "/" + (mesh != null ? mesh.subMeshCount : 0)
+            + ",color=" + (mesh != null && mesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Color))
+            + ",material=" + (material != null ? material.GetInstanceID() : 0) + ",shader=" + shader
+            + ",queue=" + (material != null ? material.renderQueue : 0) + "/" + (renderer != null ? renderer.sortingOrder : 0)
+            + ",kw=" + (material != null ? material.shaderKeywords.Length : 0)
+            + ",state=" + state("_Cull") + "/" + state("_ZTest") + "/" + state("_ZWrite")
+                + "/" + state("_SrcBlend") + "/" + state("_DstBlend")
+            + ",tint=" + number(tint.r) + "/" + number(tint.g) + "/" + number(tint.b) + "/" + number(tint.a)
+            + ",det=" + number(go.transform.localToWorldMatrix.determinant)
+            + ",p=" + number(go.transform.position.x) + "/" + number(go.transform.position.y) + "/" + number(go.transform.position.z)
+            + ",s=" + number(go.transform.lossyScale.x) + "/" + number(go.transform.lossyScale.y) + "/" + number(go.transform.lossyScale.z)
+            + ",z=" + go.transform.localPosition.z.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     /// <summary>
     /// Which of the two card recesses PHYSICALLY holds a card right now (bit0 = Slot1, bit1 =
     /// Slot2). Wire input of the board-UI record's occupancy nibble

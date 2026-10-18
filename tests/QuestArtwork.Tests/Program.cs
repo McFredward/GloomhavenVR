@@ -64,6 +64,13 @@ public static partial class DiagnosticProgram
     public static IEnumerator Run()
     {
         QuestStandalonePlatform.Enabled = true;
+        if (Environment.GetEnvironmentVariable("GHVRQ_TEST_DROP_GUIDES_ONLY") == "1")
+        {
+            IEnumerator guides = QualifyDropGlows();
+            while (guides.MoveNext()) yield return null;
+            Metrics = "focused actual drop-guide graph; no artwork or contour rerun";
+            yield break;
+        }
         var originalTarget = RenderTexture.active; bool originalColor = GL.sRGBWrite;
         var sentinel = Keep(new RenderTexture(7, 9, 0)); sentinel.Create();
         RenderTexture.active = sentinel; GL.sRGBWrite = !sentinel.sRGB;
