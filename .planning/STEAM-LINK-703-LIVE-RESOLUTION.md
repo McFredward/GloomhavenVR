@@ -37,6 +37,13 @@ the native crash-sensitive path is not restored there. PC provider refusals are
 reported with bounded output and no automatic allocation retry loop. Engine
 getters and modeled dimensions remain distinct from actual headset evidence.
 
+Independent review caught two bounded follow-up defects before distribution:
+the bootstrap can mark the session active before its display is running, so
+waiting for that display must not consume a resolution request; and the new
+net472 typecheck must permit automatic reference-package restore on a cold CI
+cache. The readiness notification is deduplicated separately from actual setter
+attempts, and the framework override is conditional on existing references.
+
 ## Chosen menu behavior and remaining work
 
 The controller Steam button opens the LOCAL Frame dashboard in this run:
@@ -73,6 +80,16 @@ scoped architecture reports are retained in `steamlink-703-source/BRIDGE-DESIGN.
 and `steamlink-703-review/ideal-dashboard/ASSESSMENT.md` under the debug directory.
 
 ## Verification boundary
+
+The final production lifecycle passes181 assertions with strict net472 typecheck
+and a separate cold-reference MSBuild policy check. Earlier full-focused evidence
+passes171 assertions,27 semantic mutants and two bootstrap controls. The later
+profile-cache and pending-display repairs each have their own new rejected
+causal control. That composed evidence is not a new full-focused-suite or entire
+project gate pass. The runner registers all29 semantic mutants for normal CI.
+Four affected source checks pass; public surfaces remain669config/241patches/
+4806log tokens. The final pending-display field changes only the diagnostic-field
+census among those checks; its affected check is repeated on the integrated tree.
 
 Only the live-resolution lifecycle and its affected source/build checks are
 rerun. The accepted699 v3 source bank/native receiver and702 helper remain
