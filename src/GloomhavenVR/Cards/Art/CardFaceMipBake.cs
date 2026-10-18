@@ -482,17 +482,7 @@ internal static class CardFaceMipBake
         Sprite? made = null;
         if (srcTex != null && srcTex.mipmapCount <= 1) // already-mipped textures need nothing
         {
-            if (QuestStandalonePlatform.Enabled && !source.packed && !TryExactRect(source, out _))
-            {
-                // Recovered native cards retain their authored tight mesh even
-                // though the texture is not atlas-packed. Its fractional trim
-                // (Brute: y=11.076) cannot be rounded into a per-sprite CPU slice.
-                // Copy the full exact texture and original geometry instead,
-                // admitting the replacement only when Unity reproduces ALL UVs,
-                // vertices and native uGUI trim padding. Never guess a rectangle.
-                made = ExactUnpackedReplacement(source, srcTex);
-            }
-            else if (IsRotatedPacked(source))
+            if (IsRotatedPacked(source))
             {
                 LogSpriteSkip(source, "ROTATED atlas placement — not expressible as a rect sprite");
             }
@@ -529,43 +519,6 @@ internal static class CardFaceMipBake
         s_replacementBySource[id] = made;
         if (QuestStandalonePlatform.Enabled) s_spriteUpdates[id] = update;
         return made;
-    }
-
-    private static Sprite? ExactUnpackedReplacement(Sprite source, Texture2D texture)
-    {
-        Texture2D? baked = BakedTextureFor(texture);
-        if (baked == null) return null;
-        Sprite made = Sprite.Create(baked, source.rect, NormalizedPivot(source), source.pixelsPerUnit, 0,
-            SpriteMeshType.FullRect, source.border);
-        try
-        {
-            Vector2[] vertices = source.vertices;
-            ushort[] triangles = source.triangles;
-            made.OverrideGeometry(vertices, triangles);
-            Vector2[] expectedUv = source.uv, actualUv = made.uv;
-            Vector2[] actualVertices = made.vertices;
-            ushort[] actualTriangles = made.triangles;
-            bool exact = actualUv.Length == expectedUv.Length && actualVertices.Length == vertices.Length
-                && actualTriangles.Length == triangles.Length
-                && (UnityEngine.Sprites.DataUtility.GetPadding(source) - UnityEngine.Sprites.DataUtility.GetPadding(made)).sqrMagnitude < .00001f;
-            for (int i = 0; exact && i < expectedUv.Length; i++)
-                exact = (expectedUv[i] - actualUv[i]).sqrMagnitude < .0000000001f
-                    && (vertices[i] - actualVertices[i]).sqrMagnitude < .0000000001f;
-            for (int i = 0; exact && i < triangles.Length; i++) exact = triangles[i] == actualTriangles[i];
-            if (exact)
-            {
-                made.name = source.name + " (VR-mip)";
-                return made;
-            }
-            LogSpriteSkip(source, "exact unpacked native mesh/UV/padding equivalence failed; original retained");
-        }
-        catch
-        {
-            Object.Destroy(made);
-            throw;
-        }
-        Object.Destroy(made);
-        return null;
     }
 
     /// <summary>Read-only preparation cache test. A cached null is a completed native
