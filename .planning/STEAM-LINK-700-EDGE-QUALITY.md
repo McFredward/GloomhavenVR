@@ -87,3 +87,20 @@ boundaries. No coverage threshold or semantic classification hides real glass,
 MSAA or additive light. Headset edge quality and streaming cost remain the next
 hardware judgment; disable edge quality to compare against the unchanged 699
 rendering path without updating the receiver.
+
+## Final integration result
+
+Strict Debug and Release pass with zero warnings/errors at clean source commit
+`314ff9d9f`. Separate actual-Mono reflection verifies Build700, the dev stamp,
+quality=true/width=3072 compiled defaults, the embedded helper against its
+compiled verifier, all 30 unchanged 699 resource hashes and exactly one new
+45568-byte helper. Current DLLs/preloaders and resource receipts are retained in
+the evidence directory. The final independent review includes the bounded
+startup-warning follow-up; its 76 checks use the identical integrated managed
+source hash. Existing connection controls also pass: 98 native metadata, 105
+Background-query and 187 managed checks, the rejected binding mutant and strict
+net472 typecheck. Options coverage and EN/DE documentation checks pass. Surface
+census: config 667→669, patches 241→241 and log tokens 4806→4806, no removals.
+This scoped integration reuses unchanged 699 renderer/wire proof; it does not
+repeat or claim the entire 234-suite gate. The documentation-only closeout
+commit does not change the source or the already verified artifact identity.
