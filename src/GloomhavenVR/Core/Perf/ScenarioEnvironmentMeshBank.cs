@@ -22,6 +22,7 @@ internal static class ScenarioEnvironmentMeshBank
     private static readonly Dictionary<string, bool> Provenance = new();
     private static readonly HashSet<string> Failed = new();
     private static bool _loaded;
+    private static string _failureDetail = string.Empty;
     private static HashSet<string>? _questSources;
     private static Func<bool>? _ensureAssetsLoaded;
     internal static void ConfigureAssetPreparation(Func<bool> ensureAssetsLoaded) => _ensureAssetsLoaded = ensureAssetsLoaded;
@@ -29,7 +30,24 @@ internal static class ScenarioEnvironmentMeshBank
     internal static bool IsUnavailable => Failed.Contains("index") || Failed.Contains("asset-loader");
     internal static string Diagnostics => "environmentBank loaded=" + _loaded + " entries=" + Entries.Count
         + " nativeMatches=" + NativeEntries.Count + " meshes=" + Meshes.Count + " failures=" + Failed.Count
-        + " questOrigins=" + (_questSources?.Count ?? 0);
+        + " questOrigins=" + (_questSources?.Count ?? 0)
+        + " firstFailure=" + (_failureDetail.Length == 0 ? "none" : _failureDetail);
+
+    // B691's retained headset state reported only failures=1, while its useful
+    // Note was absent from the saturated text-log lanes. Keep the first exact
+    // stage/type/inner cause in the existing bounded Debug snapshot. This is not
+    // another scan, retry or source hash; it executes only on the first failure.
+    private static void RetainFailure(string stage, Exception error)
+    {
+        if (_failureDetail.Length != 0) return;
+        string detail = stage;
+        for (int depth = 0; depth < 3 && error != null; depth++, error = error.InnerException!)
+            detail += ":" + error.GetType().Name + ":" + error.Message;
+        if (detail.Length > 384) detail = detail.Substring(0, 384);
+        char[] text = detail.ToCharArray();
+        for (int i = 0; i < text.Length; i++) if (char.IsControl(text[i])) text[i] = ' ';
+        _failureDetail = new string(text);
+    }
 
     internal static bool TryGetExact(Mesh native, out Mesh mesh) => TryGet(native, 100, out mesh);
     internal static bool TryGetDetail(Mesh native, int percent, out Mesh mesh) => TryGet(native, percent >= 100 ? 100 : percent >= 50 ? 50 : 0, out mesh);
@@ -74,7 +92,11 @@ internal static class ScenarioEnvironmentMeshBank
         {
             if (mesh != null) UnityEngine.Object.Destroy(mesh);
             mesh = null!;
-            if (Failed.Add(variant.file)) VRLog.Note("Perf", "Scenario environment mesh unavailable (" + error.Message + "); native surfaces retained.");
+            if (Failed.Add(variant.file))
+            {
+                RetainFailure("mesh:" + variant.file, error);
+                VRLog.Note("Perf", "Scenario environment mesh unavailable (" + error.Message + "); native surfaces retained.");
+            }
             return false;
         }
     }
@@ -120,7 +142,11 @@ internal static class ScenarioEnvironmentMeshBank
         }
         catch (Exception error)
         {
-            if (Failed.Add("index")) VRLog.Note("Perf", "Scenario environment mesh index unavailable (" + error.Message + "); native surfaces retained.");
+            if (Failed.Add("index"))
+            {
+                RetainFailure("index", error);
+                VRLog.Note("Perf", "Scenario environment mesh index unavailable (" + error.Message + "); native surfaces retained.");
+            }
             return false;
         }
     }
@@ -129,7 +155,11 @@ internal static class ScenarioEnvironmentMeshBank
         try { if (_ensureAssetsLoaded?.Invoke() == false) return null; }
         catch (Exception error)
         {
-            if (Failed.Add("asset-loader")) VRLog.Note("Perf", "Scenario environment asset preparation unavailable (" + error.Message + "); native surfaces retained.");
+            if (Failed.Add("asset-loader"))
+            {
+                RetainFailure("asset-loader", error);
+                VRLog.Note("Perf", "Scenario environment asset preparation unavailable (" + error.Message + "); native surfaces retained.");
+            }
             return null;
         }
         string path = AssetRoot + filename;
