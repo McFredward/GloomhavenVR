@@ -23,7 +23,14 @@ fewer useful RGB samples than a full-area **equally sized uniform** carrier.
 This is layout arithmetic, not a percentage of perceived quality or an exact
 comparison with MR-Off's different foveated sample distribution.
 
-## Preferred next route
+## Separate-channel candidate, not an implemented decision
+
+The maintainer subsequently questions an independent channel's competition
+with Steam Link and requests evaluation of a larger same-stream image first.
+See [the larger-carrier review](STEAM-LINK-LARGER-CARRIER-20261018.md). The
+candidate below is not an implemented or automatically selected route. A shared
+Wi-Fi/CPU/memory budget, compression and scheduling must be evaluated alongside
+association and image quality before recommending it over in-band alternatives.
 
 Keep ordinary Steam Link RGB/foveation and send exact same-generation coverage
 through an application-owned authenticated channel. A small source token must

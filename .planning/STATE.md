@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Larger same-stream RGB/coverage carrier review, 2026-10-18; runtime remains707.**
+
+The maintainer proposes a larger actual Steam Link video to retain the selected
+scene raster plus mask. The99/64 per-axis budget calculation is valid, but the
+retained host's manual request and later layout fitter reduce every square
+input to at most3200 in all three layouts. The layouts' larger complete-image
+maxima pay for their own packing, not a larger scene input. Min/max settings and
+GPU capability queries do not raise that internal bound. This is exact static
+evidence for the pinned2026-10-11 PE, not proved identity with the current PC;
+the actual constant3264x6400 decode despite increasing4040/5050/6060 sources is
+independently consistent. Do not ship another width-only purported fix or ask
+for a repeat of that headset test. See [the bounded decision record](STEAM-LINK-LARGER-CARRIER-20261018.md).
+No runtime, shader, helper or Frame installation changes in this research.
+
 **Application-only quality route review, 2026-10-18; runtime remains707.**
 
 The707 preview logs local overlay visibility1 twice, but the maintainer sees no
