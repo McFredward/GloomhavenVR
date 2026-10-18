@@ -23,7 +23,10 @@ internal static partial class VROptionsTab
         // native target pixels and the shared Frame density reference. The factor
         // remains the saved user value, separate from the larger provider scale.
         Func<string> readPixels = () => Rig.QuestEyeResolution.CurrentPixels(german, ReadNumber(item, 0));
-        TMP_Text? pixels = BuildNote(parent, readPixels(), multiline: true).GetComponentInChildren<TMP_Text>(true);
+        GameObject note = BuildNote(parent, readPixels(), multiline: true);
+        // BuildNote writes the caption selected by StampRow. Its inactive donor
+        // option can contain another TMP label before Title in hierarchy order.
+        TMP_Text? pixels = FindPart<TMP_Text>(note.transform, "Title");
         if (pixels != null) ValueLabels.Add((pixels, readPixels));
         return true;
     }
