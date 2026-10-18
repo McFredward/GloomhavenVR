@@ -47,10 +47,6 @@ def main():
     assert text.count(late_guard) == 1
     cohort_guard = '            if (!StereoCohortReady(eye, Time.frameCount))'
     assert text.count(cohort_guard) == 1
-    focus_admission = '            || VRSession.InputFocus != true\n'
-    focus_ownership = '        && VRSession.InputFocus == true\n'
-    late_ownership = '        if (Ready && !SteamLinkSceneRuntime.Owns(this, Head, _epoch)) Close();'
-    assert text.count(focus_admission) == text.count(focus_ownership) == text.count(late_ownership) == 1
     variants = {
         'production': text,
         'unready-admission': text.replace('            || !StereoReady(head)', ''),
@@ -64,9 +60,6 @@ def main():
         'no-cohort': text.replace(cohort_guard, '            if (!StereoCohortReady(eye, Time.frameCount) && Time.frameCount == int.MinValue)'),
         'same-frame-activation': text.replace('        return _cohortReady;', '        return _cohortReady || _cohortEyes == 3;'),
         'cross-frame-cohort': text.replace('            _cohortEyes = 0;', '            // Mutant retains eye labels across unrelated frames.'),
-        'unfocused-admission': text.replace(focus_admission, ''),
-        'unfocused-ownership': text.replace(focus_ownership, ''),
-        'late-focus-revocation': text.replace(late_ownership, '        // Mutant leaves a late-unfocused epoch alive.'),
     }
     expected = {
         'unready-admission': 'startup non-stereo head must not arm',
@@ -75,9 +68,6 @@ def main():
         'no-cohort': 'mid-pair Right must stay ordinary',
         'same-frame-activation': 'following complete pair must also stay ordinary',
         'cross-frame-cohort': 'duplicate Left then Right on another frame never forms a complete cohort',
-        'unfocused-admission': 'unfocused or unknown XR focus must not prepare an atlas',
-        'unfocused-ownership': 'dashboard ownership loss closes normally',
-        'late-focus-revocation': 'late XR focus loss revokes the epoch without a fault',
     }
     production = source.parent
     names = ['SteamLinkSceneRuntime.cs', 'SceneEyeCoverage.cs', 'SceneEyeOutput.cs',

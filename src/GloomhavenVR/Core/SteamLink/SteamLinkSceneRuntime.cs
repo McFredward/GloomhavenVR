@@ -25,7 +25,6 @@ internal static class SteamLinkSceneRuntime
     internal static bool TryEnter(Camera? head)
     {
         if (head == null || !head.isActiveAndEnabled || !VRSession.IsRunning
-            || VRSession.InputFocus != true
             || !StereoReady(head))
         {
             Exit();
@@ -124,16 +123,7 @@ internal static class SteamLinkSceneRuntime
 
     internal static bool Owns(SceneHeadOutput output, Camera head, ulong epoch) =>
         ReferenceEquals(_output, output) && epoch == _epoch && VRSession.IsRunning
-        && VRSession.InputFocus == true
         && VRCameraPolicy.AllowedHead == head && Requested && MixedReality.Enabled.Value;
-
-    // SteamVR can show a dashboard while the XR session stays running/Visible.
-    // Its compositor may transform the game's image and invalidate atlas guards;
-    // a receiver must then keep ordinary RGB, never expose a transformed atlas.
-    // Admit packing only after the cached XR lifecycle explicitly reports Focused.
-    // Unknown focus is temporary, as is a dashboard; neither latches _failedHead.
-    // Requested intentionally remains independent: do not change the MR preference,
-    // background ownership or stream-quality lease just because the dashboard opens.
 
     // A running VR session does not certify a camera's current XR attachment.
     // Startup/load teardown can temporarily render that same head as mono or
@@ -230,11 +220,6 @@ internal sealed class SceneHeadOutput : MonoBehaviour
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
         bool packed = false;
-        // A cached XR focus/ownership event can arrive after OnPreCull. Revoke
-        // this epoch before publishing any further atlas, without treating a
-        // normal dashboard transition as a rendering fault. Already submitted
-        // eyes cannot be recalled; resumption observes a fresh complete cohort.
-        if (Ready && !SteamLinkSceneRuntime.Owns(this, Head, _epoch)) Close();
         if (!_closed && _materials != null && !_materials.Ready)
         {
             Failure = "Owned material scope: " + _materials.Reason;

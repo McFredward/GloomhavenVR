@@ -57,7 +57,7 @@ namespace GloomhavenVR.Core
 {
     internal sealed class Choice { internal bool Value=true; }
     internal static class MixedReality { internal static Choice SteamLinkNative=new Choice(),Enabled=new Choice(); }
-    internal static class VRSession { internal static bool IsRunning=true;internal static bool? InputFocus=true; }
+    internal static class VRSession { internal static bool IsRunning=true; }
     internal static class FrameNativePassthrough { internal static bool Required=false; }
     internal static class VRCameraPolicy { internal static UnityEngine.Camera? AllowedHead; }
     internal static class StereoModeConfig { internal enum Mode { MultiPass,Other } internal static Mode Current=Mode.MultiPass; }

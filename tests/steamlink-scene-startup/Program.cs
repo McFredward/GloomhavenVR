@@ -21,7 +21,7 @@ internal static class Program
         SteamLinkSceneRuntime.Reset();VRLog.Warnings.Clear();SceneEyeOutput.Packed=0;
         SceneEyeOutput.Next=SceneEyeResult.Rendered;Graphics.Ordinary=0;
         MixedReality.Enabled.Value=true;MixedReality.SteamLinkNative.Value=true;
-        SteamLinkConnection.Available=true;VRSession.IsRunning=true;VRSession.InputFocus=true;
+        SteamLinkConnection.Available=true;VRSession.IsRunning=true;
         QualitySettings.activeColorSpace=ColorSpace.Gamma;
         Time.frameCount=100;
         var head=new Camera();VRCameraPolicy.AllowedHead=head;return head;
@@ -44,60 +44,6 @@ internal static class Program
         =>Invoke(output,"OnRenderImage",new RenderTexture(),new RenderTexture());
     private static void Render(SceneHeadOutput output,Camera head)
     { Invoke(output,"OnPreCull");Camera.Begin(head);Image(output);Camera.End(head); }
-    private static void DashboardCases()
-    {
-        foreach(bool? focus in new bool?[]{null,false})
-        {
-            var head=Fresh();VRSession.InputFocus=focus;
-            Check(SteamLinkSceneRuntime.Requested,"dashboard and unknown focus keep the native transport request");
-            Check(!SteamLinkSceneRuntime.TryEnter(head),"unfocused or unknown XR focus must not prepare an atlas");
-            Check(head.gameObject.Components==0&&!SteamLinkSceneRuntime.Active,"unfocused startup allocates no source");
-            Check(VRLog.Warnings.Count==0,"unfocused startup is not a rendering refusal");
-            VRSession.InputFocus=true;var output=Enter(head);Render(output,head);
-            Check(SceneEyeOutput.Packed==1,"focused startup recovers without explicit Reset");
-        }
-        var repeatedHead=Fresh();
-        for(int cycle=0;cycle!=4;cycle++)
-        {
-            SceneEyeOutput.Packed=0;Graphics.Ordinary=0;
-            var output=Enter(repeatedHead);Render(output,repeatedHead);
-            Check(SceneEyeOutput.Packed==1,"focused cycle publishes a current-eye atlas");
-            VRSession.InputFocus=false;Render(output,repeatedHead);
-            Check(!output.Ready&&output.Failure=="","dashboard ownership loss closes normally");
-            Check(SceneEyeOutput.Packed==1&&Graphics.Ordinary==1,"dashboard does not publish another atlas");
-            Check(SteamLinkSceneRuntime.Requested&&MixedReality.Enabled.Value&&MixedReality.SteamLinkNative.Value,
-                "dashboard must not toggle native MR or its quality-lease request");
-            Check(!SteamLinkSceneRuntime.TryEnter(repeatedHead),"dashboard cannot recreate the source while visible");
-            Check(VRLog.Warnings.Count==0,"repeated dashboard transitions do not latch a rendering failure");
-            VRSession.InputFocus=true;
-        }
-        // Focus can change after pre-cull, including after the other eye was
-        // already submitted. Do not manufacture a stale partner or reuse its
-        // cohort; close this epoch and observe a fresh complete pair on return.
-        foreach(bool? focus in new bool?[]{false,null})
-        {
-            var head=Fresh();var output=Enter(head);Render(output,head);
-            head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;
-            Invoke(output,"OnPreCull");VRSession.InputFocus=focus;Image(output);
-            Check(!output.Ready&&output.Failure=="","late XR focus loss revokes the epoch without a fault");
-            Check(SceneEyeOutput.Packed==1&&Graphics.Ordinary==1,"late XR focus loss never submits a later-eye atlas");
-            Check(SteamLinkSceneRuntime.Requested,"late XR focus loss preserves the transport request");
-            VRSession.InputFocus=true;Time.frameCount++;
-            var resumed=Enter(head,false);
-            Render(resumed,head);
-            Check(SceneEyeOutput.Packed==1,"resumed mid-pair Right cannot reuse a previous epoch's cohort");
-            Time.frameCount++;head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Left;Render(resumed,head);
-            head.stereoActiveEye=Camera.MonoOrStereoscopicEye.Right;Render(resumed,head);
-            Check(SceneEyeOutput.Packed==1,"resumed complete pair still stays ordinary");
-            Time.frameCount++;Render(resumed,head);
-            Check(SceneEyeOutput.Packed==2,"resumed atlas begins only on a fresh complete-cohort boundary");
-            Check(VRLog.Warnings.Count==0,"late focus recovery needs no failure reset");
-        }
-        var offHead=Fresh();MixedReality.SteamLinkNative.Value=false;VRSession.InputFocus=false;
-        Check(!SteamLinkSceneRuntime.Requested,"explicit native Off remains distinct from dashboard suspension");
-        VRSession.InputFocus=true;
-        Check(!SteamLinkSceneRuntime.Requested,"focus return never turns a saved Off preference on");
-    }
     public static void Main()
     {
         var cohortHead=Fresh();var cohort=Enter(cohortHead,false);
@@ -176,7 +122,6 @@ internal static class Program
         head=Fresh();output=Enter(head);SceneEyeOutput.Next=SceneEyeResult.SourceFormat;Render(output,head);
         Check(!output.Ready&&output.Failure=="SourceFormat","real pack failure remains permanent");
         Check(Graphics.Ordinary==1&&!SteamLinkSceneRuntime.TryEnter(head),"real pack failure has one fallback and stays latched");
-        DashboardCases();
         SteamLinkSceneRuntime.Reset();Console.WriteLine(checks+" startup/callback assertions passed");
     }
 }
