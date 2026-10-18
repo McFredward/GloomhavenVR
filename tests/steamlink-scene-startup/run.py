@@ -24,6 +24,12 @@ def sha(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / '.planning/debug/steamlink-scene-startup')
+    parser.add_argument('--typecheck-only', action='store_true',
+                        help='Compile the real Unity/net472 sources without repeating state/mutant cases.')
+    parser.add_argument('--metadata', choices=('auto', 'unity', 'nuget'), default='auto',
+                        help='Use installed Unity metadata, the pinned NuGet modules, or automatic fallback.')
+    parser.add_argument('--unity-managed', type=Path,
+                        default=Path('/home/claw/unity-2021.3.5/Editor/Data/Managed'))
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output.resolve()))
@@ -74,7 +80,7 @@ def main():
     saved = run/'sources'; saved.mkdir()
     for i,p in enumerate(inputs): shutil.copyfile(p, saved/(str(i)+'-'+p.name))
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
-    children = []; results = []; code = 1
+    children = []; results = []; code = 1; assertions = None
     def execute(command, output):
         with output.open('w') as stream:
             child = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
@@ -84,9 +90,11 @@ def main():
                 if child.poll() is None: os.killpg(child.pid, signal.SIGKILL)
                 child.wait(); raise
     try:
-        fixture = run/'owned-portable-project'; fixture.mkdir()
-        shutil.copyfile(HERE/'Fixture.csproj', fixture/'Fixture.csproj')
-        for name,content in variants.items():
+        fixture = run/'owned-portable-project'
+        if not args.typecheck_only:
+            fixture.mkdir()
+            shutil.copyfile(HERE/'Fixture.csproj', fixture/'Fixture.csproj')
+        for name,content in ({} if args.typecheck_only else variants).items():
             candidate = saved/(name+'.cs'); candidate.write_text(content)
             status = execute([dotnet, 'run', '--project', str(fixture/'Fixture.csproj'), '-c', 'Release',
                               '-p:SourceFile='+str(candidate), '-p:FixtureDir='+str(HERE),
@@ -104,26 +112,49 @@ def main():
         for name in names: shutil.copyfile(production/name, frozen/name)
         typecheck = run/'owned-typecheck-project'; typecheck.mkdir()
         shutil.copyfile(gpu_fixture/'Fixture.csproj', typecheck/'Fixture.csproj')
-        framework = Path.home()/'.nuget/packages/microsoft.netframework.referenceassemblies.net472/1.0.3/build/.NETFramework/v4.7.2'
-        managed = Path('/home/claw/unity-2021.3.5/Editor/Data/Managed')
+        packages = Path(os.environ.get('NUGET_PACKAGES', str(Path.home()/'.nuget/packages')))
+        framework = packages/'microsoft.netframework.referenceassemblies.net472/1.0.3/build/.NETFramework/v4.7.2'
+        modules = ['CoreModule', 'XRModule', 'VRModule', 'AssetBundleModule', 'JSONSerializeModule']
+        unity_files = [args.unity_managed/'UnityEngine'/('UnityEngine.'+name+'.dll') for name in modules]
+        use_unity = args.metadata != 'nuget' and all(p.is_file() for p in unity_files)
+        if args.metadata == 'unity':
+            assert use_unity, 'Requested installed Unity metadata is incomplete: '+str(args.unity_managed)
+        if use_unity:
+            managed = args.unity_managed
+            metadata_files = unity_files
+        else:
+            # Hosted CI restores this exact module package alongside the net472
+            # framework. Supply the Editor-shaped directory privately; never
+            # create or alter a shared reference directory or its symlinks.
+            nuget = packages/'unityengine.modules/2021.3.5/lib/net35'
+            metadata_files = [nuget/('UnityEngine.'+name+'.dll') for name in modules]
+            assert all(p.is_file() for p in metadata_files), 'Pinned Unity2021.3.5 NuGet metadata is incomplete: '+str(nuget)
+            managed = run/'owned-typecheck-metadata'
+            (managed/'UnityEngine').mkdir(parents=True)
+            for p in metadata_files: shutil.copyfile(p, managed/'UnityEngine'/p.name)
+        metadata_pins = {str(p): sha(p) for p in metadata_files}
+        (run/'metadata-pins.json').write_text(json.dumps({'provider': 'unity' if use_unity else 'nuget',
+            'unity_version': '2021.3.5', 'files': metadata_pins}, indent=2)+'\n')
         status = execute([dotnet, 'build', str(typecheck/'Fixture.csproj'), '-c', 'Release',
                           '-p:FrozenSource='+str(frozen), '-p:FixtureDir='+str(gpu_fixture),
                           '-p:UnityManaged='+str(managed), '-p:FrameworkReferenceDir='+str(framework),
                           '-p:UseSharedCompilation=false'], run/'net472-typecheck.log')
         assert status == 0, 'Actual Unity net472 compile failed: '+str(run)
+        assert metadata_pins == {str(p): sha(p) for p in metadata_files}, 'Borrowed metadata changed through child reap'
         assert pins == {str(p.relative_to(ROOT)): sha(p) for p in inputs}, 'Sources changed through child reap'
         code = 0
     finally:
         reaped = all(c.poll() is not None for c in children)
         receipt = cleanup_completed_run('steamlink-scene-startup', code, log, ROOT, process_reaped=reaped)
         if reaped:
-            for name in ['owned-portable-project', 'owned-typecheck-project']:
+            for name in ['owned-portable-project', 'owned-typecheck-project', 'owned-typecheck-metadata']:
                 project = run/name
                 if project.is_dir() and not project.is_symlink(): shutil.rmtree(project)
         (run/'cleanup.json').write_text(json.dumps({'retention_api': receipt, 'all_children_reaped': reaped}, indent=2)+'\n')
         (run/'result.json').write_text(json.dumps({'exit_code': code, 'cases': results,
             'assertions': assertions if code == 0 else None,
-            'actual_runtime_and_callback_bodies': True, 'xr_and_gpu_boundaries_supplied': True,
+            'actual_runtime_and_callback_bodies': True, 'state_callbacks_executed': not args.typecheck_only,
+            'xr_and_gpu_boundaries_supplied': True,
             'native_receiver_executed': False, 'headset_picture_proven': False}, indent=2)+'\n')
         print(json.dumps({'run': str(run), 'exit_code': code}))
     return code

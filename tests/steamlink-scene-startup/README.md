@@ -16,7 +16,16 @@ eye of the same frame and cross-frame label accumulation; each must compile
 and fail at its specific assertion.
 
 A separate strict net472 compilation uses the real Unity2021 metadata and the
-complete original coverage, packer and material sources. Actual camera callbacks,
+complete original coverage, packer and material sources. Local runs use the
+installed Unity2021.3.5 Editor metadata when present; hosted runs automatically
+use the already restored `UnityEngine.Modules/2021.3.5` NuGet package. Both paths
+record hashes of all five module inputs. The fallback copies references into an
+owned temporary layout and never writes a shared reference directory.
+
+Use `--typecheck-only --metadata nuget` to check only that hosted metadata branch
+without repeating unchanged state/mutant cases. `--metadata unity` requires the
+installed Editor metadata; `--unity-managed PATH` selects its Managed directory.
+The NuGet/package root respects `NUGET_PACKAGES`. Actual camera callbacks,
 GPU raster, command-buffer detachment, retained shipping-bank pixels and material
 restore remain covered by `steamlink-loading-source`. This portable suite does
 not prove native receiver pair acceptance or the headset's loading picture.
