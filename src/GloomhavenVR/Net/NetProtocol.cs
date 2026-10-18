@@ -612,7 +612,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 699;
+    public const ushort ModBuild = 700;
+
+    // ModBuild700 — common transmission quality for native Steam Link MR edges.
+    // Build699's stereo picture is accepted, but the maintainer still sees a
+    // shimmering silhouette unlike direct standalone composition. Equal virtual
+    // RGB/A grids did not guarantee equal physical raster phase, YUV filtering
+    // or native foveation. Retained real metadata reconstructs central colour
+    // at3.507 times the mask's linear density; older flat-interior checks missed
+    // that boundary mismatch. The current hardware's exact weights are unknown.
+    // An isolated Background OpenVR child now owns a reversible, user-visible
+    // driver-settings lease only during requested native Frame streaming MR:
+    // uniform encoding, no CAS, explicit configurable video width. Snapshot all
+    // typed old values before writing; partial failure restores owned settings,
+    // later manual edits survive, and stdin EOF/game exit releases the lease.
+    // The width is a request with a bandwidth/decoder tradeoff, not a negotiated
+    // safe client maximum or a verified live video size. No duration/expiry,
+    // opacity threshold, window tag, new atlas, camera, decoder or wire change.
+    // Keep all699 source/receiver RGBA semantics, full-resolution masks, glass,
+    // emission and both-eye guards unchanged. Standalone/VD/non-MR are inert.
+    // Focused lifecycle/helper/actual-artifact controls do not certify the HMD
+    // boundary picture; the visible stream remains a separate hardware check.
 
     // ModBuild699 — robust recognition for equal-resolution Steam Link coverage.
     // Build697's first real stream showed different scale/passthrough per eye.

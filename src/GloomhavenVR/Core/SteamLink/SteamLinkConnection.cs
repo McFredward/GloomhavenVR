@@ -312,6 +312,9 @@ internal static class SteamLinkConnection
         return LocalWindowsPath(normalized) ? normalized : "";
     }
 
+    internal static string? PrepareVerifiedResource(string resourceName, int bytes, string hash, string fileName, bool dll, ref string stage)
+        => PrepareResource(resourceName, bytes, hash, fileName, dll, ref stage);
+
     private static string? PrepareResource(string resourceName, int bytes, string hash, string fileName, bool dll, ref string stage)
     {
         stage = fileName + ":cache-folder";

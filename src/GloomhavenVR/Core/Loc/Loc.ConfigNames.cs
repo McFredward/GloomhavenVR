@@ -564,6 +564,8 @@ internal static partial class Loc
             // ---- [MixedReality] / [Stereo] / [RenderQuality] — picture ----------------------
             ["MixedReality/Enabled"] = Pair("Mixed Reality", "Mixed Reality an"),
             ["MixedReality/SteamLinkNative"] = Pair("Steam Link native passthrough", "Steam Link: natives Passthrough"),
+            ["MixedReality/SteamLinkEdgeQuality"] = Pair("Steam Link edge quality", "Steam-Link-Kantenqualität"),
+            ["MixedReality/SteamLinkEncodeWidth"] = Pair("Steam Link encoding width (px)", "Steam-Link-Übertragungsbreite (px)"),
             ["MixedReality/KeyColor"] = Pair("Key colour", "Key-Farbe"),
             // THE FOUR FOG-OF-WAR BACKING DIALS, NAMED BY THE 2026-08-22 SETTINGS AUDIT (§3.4).
             // Seven [MixedReality] entries had no line here and showed a spaced-out English key in

@@ -46,6 +46,8 @@ def main():
     requested = re.search(r'internal static bool Requested =>.*?;', owner, re.S)[0]
     visible = re.search(r'private static bool IsRowVisible\(.*?;', dependencies, re.S)[0]
     predicate = re.search(r'\["MixedReality/KeyColor"\] = new\("MixedReality", "SteamLinkNative",\s*(.*?)\),', dependencies, re.S)[1]
+    edge_predicate = re.search(r'\["MixedReality/SteamLinkEdgeQuality"\] = new\("MixedReality", "SteamLinkNative",\s*(.*?)\),', dependencies, re.S)[1]
+    width_predicate = re.search(r'\["MixedReality/SteamLinkEncodeWidth"\] = new\("MixedReality", "SteamLinkEdgeQuality",\s*(.*?)\),', dependencies, re.S)[1]
     refresh = method(menu, 'private static void RefreshMixedRealityAvailability()')
     clear = method(menu, 'private static void ClearMixedRealityAvailabilityRefreshers()')
     assert re.search(r'internal const bool SteamLinkNative = true;', defaults)
@@ -58,6 +60,10 @@ def main():
         'fallback': (requested, visible, 'static v => Off(v)', refresh),
         'live-refresh': (requested, visible, predicate, refresh.replace('if (changed)', 'if (changed && false)')),
     }
+    variants = {name: (*values, edge_predicate, width_predicate) for name, values in variants.items()}
+    variants['quality-parent'] = (requested, visible, predicate, refresh, 'static v => true', width_predicate)
+    variants['width-parent'] = (requested, visible, predicate, refresh, edge_predicate,
+        'static v => MixedReality.SteamLinkNative.Value')
     project = run / 'owned-project'; project.mkdir()
     shutil.copyfile(HERE / 'Fixture.csproj', project / 'Fixture.csproj')
     shutil.copyfile(HERE / 'Program.cs', project / 'Program.cs')
@@ -67,13 +73,18 @@ def main():
     expected = {'request-gate': 'only proven Frame/vrlink plus preference',
         'row-gate': 'native control requires current Frame/vrlink',
         'fallback': 'unsupported persisted-on preference must retain chromakey controls',
-        'live-refresh': 'resolved capability refreshes an already open pane'}
+        'live-refresh': 'resolved capability refreshes an already open pane',
+        'quality-parent': 'edge quality requires proven streaming plus native preference',
+        'width-parent': 'encoding width requires proven native streaming plus edge quality'}
     try:
-        for name, (request, row, pred, update) in variants.items():
+        for name, (request, row, pred, update, edge_pred, width_pred) in variants.items():
             fixture = ('using System; using System.Collections.Generic; using GloomhavenVR.Core;\n'
                 + 'namespace GloomhavenVR.Core.SteamLink { internal static partial class SteamLinkSceneRuntime {' + request + '} }\n'
                 + 'namespace GloomhavenVR.WorldUI { internal static partial class VROptionsTab {'
-                + 'private static Func<object?, bool> KeyPredicate = ' + pred + ';\n' + row + '\n' + update + '\n' + clear + '} }')
+                + 'private static Func<object?, bool> KeyPredicate = ' + pred + ';\n'
+                + 'private static Func<object?, bool> EdgeQualityPredicate = ' + edge_pred + ';\n'
+                + 'private static Func<object?, bool> EncodeWidthPredicate = ' + width_pred + ';\n'
+                + row + '\n' + update + '\n' + clear + '} }')
             (project / 'Source.cs').write_text(fixture)
             (copies / (name + '.cs')).write_text(fixture)
             command = ['dotnet', 'run', '--project', str(project / 'Fixture.csproj'), '-c', 'Release']
@@ -81,7 +92,7 @@ def main():
                 process = subprocess.run(command, env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=120)
             output = (run / (name + '.log')).read_text()
             if name == 'production':
-                assert process.returncode == 0 and '37 assertions' in output, output
+                assert process.returncode == 0 and '69 assertions' in output, output
             else:
                 assert process.returncode != 0 and expected[name] in output, 'Wrong refusal: ' + name + '\n' + output
                 assert 'error CS' not in output, output
@@ -94,7 +105,7 @@ def main():
         cleanup = cleanup_completed_run('steamlink-availability', code, completion, ROOT, process_reaped=True)
         if project.is_dir() and not project.is_symlink(): shutil.rmtree(project)
         (run / 'result.json').write_text(json.dumps({'exit_code': code, 'cases': results,
-            'assertions': 37 if results and results[0]['accepted'] else None,
+            'assertions': 69 if results and results[0]['accepted'] else None,
             'cleanup': cleanup, 'scope': 'Production predicates; HMD identity and actual image output are external boundaries.'}, indent=2) + '\n')
         print('Evidence: ' + str(run))
     return code

@@ -103,6 +103,9 @@ internal static partial class VROptionsTab
         // connection is proven; the global preference is enabled by default.
         ["MixedReality/KeyColor"] = new("MixedReality", "SteamLinkNative",
             static v => !Core.SteamLink.SteamLinkConnection.Available || Off(v)),
+        ["MixedReality/SteamLinkEdgeQuality"] = new("MixedReality", "SteamLinkNative", On),
+        ["MixedReality/SteamLinkEncodeWidth"] = new("MixedReality", "SteamLinkEdgeQuality",
+            static v => On(v) && MixedReality.SteamLinkNative.Value),
         // ---- Komfort ▸ Drehen: the two speed dials belong to their mode, the hand to any ------
         ["Comfort/SnapTurnDegrees"] = new("Comfort", "TurnMode", Named("Snap")),
         ["Comfort/SmoothTurnSpeed"] = new("Comfort", "TurnMode", Named("Smooth")),
@@ -453,8 +456,10 @@ internal static partial class VROptionsTab
         // Native alpha passthrough uses no chroma-key color. Keep its saved value
         // for PC streaming without offering an ineffective Frame-only control.
         && !(FrameNativePassthrough.Required && item.Section == "MixedReality"
-            && (item.Key == "KeyColor" || item.Key == "SteamLinkNative"))
-        && !(item.Section == "MixedReality" && item.Key == "SteamLinkNative"
+            && (item.Key == "KeyColor" || item.Key == "SteamLinkNative"
+                || item.Key == "SteamLinkEdgeQuality" || item.Key == "SteamLinkEncodeWidth"))
+        && !(item.Section == "MixedReality"
+            && (item.Key == "SteamLinkNative" || item.Key == "SteamLinkEdgeQuality" || item.Key == "SteamLinkEncodeWidth")
             && !Core.SteamLink.SteamLinkConnection.Available)
         && IsShownForCurrentVariant(item) && DependencyMet(item);
 }

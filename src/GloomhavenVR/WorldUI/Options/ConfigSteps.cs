@@ -118,6 +118,7 @@ internal static class ConfigSteps
     /// </summary>
     private static readonly Dictionary<string, double> Explicit = new(StringComparer.Ordinal)
     {
+        ["MixedReality/SteamLinkEncodeWidth"] = 64d,
         // Millisecond work budgets are not the Seconds suffix's wall-clock intervals.
         // 0.1ms lands on the 0.5ms default; 16 work items keeps the 8..512 integral
         // range reachable without hundreds of button presses.

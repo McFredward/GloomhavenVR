@@ -4,7 +4,7 @@ namespace GloomhavenVR.Core
 {
     internal static class FrameNativePassthrough
     { internal static bool Required; internal static int Status = 0; internal static bool IsAvailable = true; }
-    internal static class MixedReality { internal static Entry SteamLinkNative = new(); }
+    internal static class MixedReality { internal static Entry SteamLinkNative = new(), SteamLinkEdgeQuality = new(); }
     internal sealed class Entry { internal bool Value; }
     internal static class TickGuard
     { internal static void Run(string key, Action callback, string category) => callback(); }
@@ -21,6 +21,7 @@ namespace GloomhavenVR.WorldUI
     internal static partial class VROptionsTab
     {
         private static readonly Func<object?, bool> Off = static v => v is bool b && !b;
+        private static readonly Func<object?, bool> On = static v => v is bool b && b;
         private static readonly List<Action> MixedRealityAvailabilityRefreshers = new();
         private static int _mixedRealityAvailabilitySignature = -1;
         private static bool? _steamLinkAvailable;
@@ -30,7 +31,9 @@ namespace GloomhavenVR.WorldUI
         private static bool HasItsOwnPage(ConfigCatalog.ConfigItem item) => false;
         private static bool IsShownForCurrentVariant(ConfigCatalog.ConfigItem item) => true;
         private static bool DependencyMet(ConfigCatalog.ConfigItem item) => item.Section != "MixedReality"
-            || item.Key != "KeyColor" || KeyPredicate(Core.MixedReality.SteamLinkNative.Value);
+            || (item.Key != "KeyColor" || KeyPredicate(Core.MixedReality.SteamLinkNative.Value))
+                && (item.Key != "SteamLinkEdgeQuality" || EdgeQualityPredicate(Core.MixedReality.SteamLinkNative.Value))
+                && (item.Key != "SteamLinkEncodeWidth" || EncodeWidthPredicate(Core.MixedReality.SteamLinkEdgeQuality.Value));
         private static void Rebuild() { _rebuilds++; ClearMixedRealityAvailabilityRefreshers(); }
         internal static int CheckAll()
         {
@@ -69,6 +72,21 @@ namespace GloomhavenVR.WorldUI
             IsOpen = false; Core.SteamLink.SteamLinkConnection.Available = true;
             RefreshMixedRealityAvailability();
             Check(_rebuilds == 2, "closed pane does not rebuild");
+            var quality = new ConfigCatalog.ConfigItem { Section = "MixedReality", Key = "SteamLinkEdgeQuality" };
+            var width = new ConfigCatalog.ConfigItem { Section = "MixedReality", Key = "SteamLinkEncodeWidth" };
+            for (int i = 0; i != 16; i++)
+            {
+                bool required = (i & 1) != 0, available = (i & 2) != 0;
+                bool nativeOn = (i & 4) != 0, qualityOn = (i & 8) != 0;
+                Core.FrameNativePassthrough.Required = required;
+                Core.SteamLink.SteamLinkConnection.Available = available;
+                Core.MixedReality.SteamLinkNative.Value = nativeOn;
+                Core.MixedReality.SteamLinkEdgeQuality.Value = qualityOn;
+                Check(IsRowVisible(quality) == (!required && available && nativeOn),
+                    "edge quality requires proven streaming plus native preference");
+                Check(IsRowVisible(width) == (!required && available && nativeOn && qualityOn),
+                    "encoding width requires proven native streaming plus edge quality");
+            }
             return assertions;
         }
     }

@@ -72,6 +72,8 @@ internal static partial class MixedReality
     /// <summary>MR mode master (settings-panel toggle binds this).</summary>
     internal static ConfigEntry<bool> Enabled = null!;
     internal static ConfigEntry<bool> SteamLinkNative = null!;
+    internal static ConfigEntry<bool> SteamLinkEdgeQuality = null!;
+    internal static ConfigEntry<int> SteamLinkEncodeWidth = null!;
 
     /// <summary>Chroma key color the sky/background clears to (default solid green).</summary>
     internal static ConfigEntry<Color> KeyColor = null!;
@@ -478,6 +480,20 @@ internal static partial class MixedReality
             "Disable this choice or mixed reality to stop it; no automatic timer is used. " +
             "Currently requires MultiPass stereo, SDR and Gamma colour space. " +
             "Does not change Steam Frame standalone passthrough or the Steam PC sender.");
+        SteamLinkEdgeQuality = _file.Bind("MixedReality", "SteamLinkEdgeQuality", Defaults.SteamLinkEdgeQuality,
+            "Use uniform Steam Link video quality and disable pre-encode sharpening while native " +
+            "Steam Frame streaming mixed reality is active. This reduces different colour/opacity " +
+            "edge filtering. Temporarily changes the supported SteamVR driver settings; restores " +
+            "previous values on exit or when switched off, preserving subsequent manual edits. " +
+            "Higher video resolution needs more network bandwidth and headset decoder capacity. " +
+            "No automatic expiry, colour replacement or opacity cutoff is used.");
+        SteamLinkEncodeWidth = _file.Bind("MixedReality", "SteamLinkEncodeWidth", Defaults.SteamLinkEncodeWidth,
+            new ConfigDescription("Requested uniform Steam Link encoding width in pixels while clean " +
+                "passthrough edges are enabled. Higher values preserve finer edges and text but need " +
+                "more network bandwidth and headset decoding capacity. Lower this if streaming stutters. " +
+                "Rounded to 64 pixels; the driver may limit the request. This is not a measured or " +
+                "negotiated maximum. An existing higher manual non-foveated width is preserved.",
+                new AcceptableValueRange<int>(1024, 4096)));
         KeyColor = _file.Bind("MixedReality", "KeyColor", Defaults.KeyColor,
             "The solid chroma-key color the sky/background clears to in mixed-reality mode " +
             "(default pure green RGBA 0,1,0,1). The in-VR settings panel cycles the presets " +
@@ -611,6 +627,8 @@ internal static partial class MixedReality
     {
         Bind();
         SteamLink.SteamLinkConnectionLifecycle.Tick();
+        SteamLink.SteamLinkStreamQuality.Tick(SteamLinkEdgeQuality.Value,
+            SteamLinkEncodeWidth.Value, Time.unscaledTime);
 
         // ELEMENT MOOD IS TICKED HERE, not from SkyAlternative.Tick, because this is the only
         // per-frame call that runs on BOTH branches below. The user's requirement is that the
