@@ -354,6 +354,8 @@ internal sealed class LoadingIndicator
     private Canvas? _questIntroCanvas;
     private bool _questIntroCanvasEnabled;
     private bool _questIntroCanvasSuppressed;
+    private GameObject? _questNativeLoadingOwner;
+    private readonly List<(Graphic graphic, bool enabled)> _questNativeLoadingGraphics = new();
 
     public void Tick()
     {
@@ -438,6 +440,7 @@ internal sealed class LoadingIndicator
         if (!_root.activeSelf)
             _root.SetActive(true);
         SuppressQuestIntroCanvas();
+        SuppressQuestNativeLoadingGraphics();
         if (!_shownLogged)
         {
             _shownLogged = true;
@@ -465,6 +468,7 @@ internal sealed class LoadingIndicator
     {
         if (_shownLogged) ReportQuestLifecycle("fully-faded-hide");
         RestoreQuestIntroCanvas();
+        RestoreQuestNativeLoadingGraphics();
         _townReloadVisual = false;
         if (_root != null && _root.activeSelf)
         {
@@ -480,6 +484,7 @@ internal sealed class LoadingIndicator
     {
         if (_shownLogged || _boot == BootCoverage.Covering) ReportQuestLifecycle("driver-shutdown");
         RestoreQuestIntroCanvas();
+        RestoreQuestNativeLoadingGraphics();
         _questIntroCanvas = null;
         _questIntroCanvasEnabled = false;
         _nativeLoadingObserved = false;
@@ -519,6 +524,7 @@ internal sealed class LoadingIndicator
     private void DropProvisionalArt()
     {
         RestoreQuestIntroCanvas();
+        RestoreQuestNativeLoadingGraphics();
         _questIntroCanvas = null;
         _artIsProvisional = false;
         _baseArt = null;
@@ -1194,6 +1200,47 @@ internal sealed class LoadingIndicator
             || !_questIntroCanvasEnabled || _root == null || !_root.activeInHierarchy) return;
         _questIntroCanvas.enabled = false;
         _questIntroCanvasSuppressed = true;
+    }
+
+    // B690's admitted spinner remained live until native completion, yet the
+    // headset lost it after Intro's Single unload. Gloomhaven_unified authors
+    // a second PersistentOverlay (ScreenSpaceOverlay, order1000): its exact
+    // SceneController.LoadingScreenGO owns another opaque full-screen Image.
+    // Hand off only that loading widget's graphics, never its GlobalCanvas:
+    // sibling native error/dialog presentation must remain available. The
+    // native loader, animator, enabled owner, callbacks and progress continue.
+    // Retain each enabled bit and restore on handover, option-off or shutdown;
+    // do not disable a native behaviour or extend the original loading state.
+    private void SuppressQuestNativeLoadingGraphics()
+    {
+        if (!QuestStandalonePlatform.Enabled) return;
+        SceneController? scene = SceneController.Instance;
+        GameObject? owner = scene == null ? null : scene.LoadingScreenGO;
+        if (owner == null || !owner.activeInHierarchy || _root == null || !_root.activeInHierarchy)
+        {
+            RestoreQuestNativeLoadingGraphics();
+            return;
+        }
+        if (_questNativeLoadingOwner != owner)
+        {
+            RestoreQuestNativeLoadingGraphics();
+            Canvas? canvas = owner.GetComponentInParent<Canvas>();
+            if (canvas == null || !canvas.isRootCanvas || canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                || scene == null || scene.GlobalCanvas != canvas.gameObject) return;
+            _questNativeLoadingOwner = owner;
+            foreach (Graphic graphic in owner.GetComponentsInChildren<Graphic>(true))
+                if (graphic != null) _questNativeLoadingGraphics.Add((graphic, graphic.enabled));
+        }
+        foreach (var state in _questNativeLoadingGraphics)
+            if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = false;
+    }
+
+    private void RestoreQuestNativeLoadingGraphics()
+    {
+        foreach (var state in _questNativeLoadingGraphics)
+            if (state.graphic != null) state.graphic.enabled = state.enabled;
+        _questNativeLoadingGraphics.Clear();
+        _questNativeLoadingOwner = null;
     }
 
     private void RestoreQuestIntroCanvas()

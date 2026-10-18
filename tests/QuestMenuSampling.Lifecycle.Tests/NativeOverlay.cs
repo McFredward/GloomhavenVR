@@ -78,6 +78,41 @@ internal static class NativeOverlayComposition
             spinner = Visual(indicator).GetComponentInChildren<Renderer>();
             check(Visual(indicator).activeInHierarchy && Capture(head, spinner, "native-overlay-after-single") > .02f,
                 "The same native-art consumer stays drawable after actual overlay destruction and Single activation");
+            // The native Single replacement has its OWN opaque final overlay.
+            // Reproduce the exact GlobalCanvas -> LoadingScreenGO producer edge
+            // while the same persistent boot spinner continues across handover.
+            owner = Graph(art(), out canvas); owner.SetActive(true);
+            GameObject loading = owner.transform.GetChild(0).gameObject;
+            actor = new GameObject("controlled-unified-native-controller"); actor.SetActive(false);
+            SceneController controller = actor.AddComponent<SceneController>();
+            SceneController.Instance = controller;
+            controller.GlobalCanvas = owner; controller.LoadingScreenGO = loading;
+            typeof(SceneController).GetField("<IsLoading>k__BackingField", Fields)!.SetValue(controller, true);
+            var hidden = new GameObject("native-already-disabled-image", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            hidden.transform.SetParent(loading.transform, false); hidden.GetComponent<Image>().enabled = false;
+            var sibling = new GameObject("native-error-sibling-must-stay-enabled", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            sibling.transform.SetParent(owner.transform, false); sibling.GetComponent<Image>().color = Color.clear;
+            for (int i = 0; i < 12; i++) yield return null;
+            check(canvas.enabled && loading.activeInHierarchy && loading.GetComponentInChildren<AnimateLoadingIcon>().isActiveAndEnabled
+                && sibling.GetComponent<Image>().enabled && !hidden.GetComponent<Image>().enabled,
+                "Native loading handoff preserves GlobalCanvas siblings, original animation and pre-disabled graphics");
+            setTick(null);
+            foreach (Graphic graphic in loading.GetComponentsInChildren<Graphic>(true))
+                if (graphic.gameObject != hidden) graphic.enabled = true;
+            for (int i = 0; i < 6; i++) yield return null;
+            covered = Capture(head, spinner, "unified-native-loading-covered");
+            setTick(indicator.Tick);
+            for (int i = 0; i < 6; i++) yield return null;
+            uncovered = Capture(head, spinner, "unified-native-loading-owned");
+            check(canvas.enabled && covered < .01f && uncovered > .02f,
+                "Actual unified native loading overlay covers the admitted spinner until its exact widget hands off graphics");
+            typeof(SceneController).GetField("<IsLoading>k__BackingField", Fields)!.SetValue(controller, false);
+            float release = Time.unscaledTime + .5f; while (Time.unscaledTime < release) yield return null;
+            check(canvas.enabled && loading.GetComponent<Image>().enabled && !hidden.GetComponent<Image>().enabled
+                && sibling.GetComponent<Image>().enabled && !LoadingIndicator.FlatScreenSuppressed,
+                "Native loading completion restores exact prior graphic bits and leaves native sibling presentation intact");
+            SceneController.Instance = null;
+            UnityEngine.Object.DestroyImmediate(owner); UnityEngine.Object.DestroyImmediate(actor); owner = actor = null;
             indicator.Shutdown(); setTick(null); indicator = null;
             // A complete source graph also exists on desktop. Quest's capture
             // must not take its Canvas, even when boot and art otherwise match.
@@ -93,7 +128,7 @@ internal static class NativeOverlayComposition
         }
         finally
         {
-            setTick(null); indicator?.Shutdown(); WorldUIConfig.LoadingIndicator.Value = true; QuestStandalonePlatform.Enabled = true;
+            setTick(null); indicator?.Shutdown(); SceneController.Instance = null; WorldUIConfig.LoadingIndicator.Value = true; QuestStandalonePlatform.Enabled = true;
             head.targetTexture = saved; head.enabled = enabled;
             if (owner != null) UnityEngine.Object.Destroy(owner);
             if (actor != null) UnityEngine.Object.Destroy(actor);

@@ -22,9 +22,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--owned-project", type=Path, required=True)
     parser.add_argument("--final-composition", action="store_true", help="Also qualify the native overlay in a real automatically rendered GameView (GL/Xvfb).")
-    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept"))
+    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept"))
     args = parser.parse_args()
-    if args.control == "native-overlay-kept" and not args.final_composition:
+    if args.control in ("native-overlay-kept", "native-loading-overlay-kept") and not args.final_composition:
         parser.error("The native overlay control requires --final-composition.")
     base = ROOT / ".planning/debug/quest-menu-lifecycle"; base.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=base.resolve()))
@@ -44,6 +44,7 @@ def main():
             "skip-head-reparent": ("bool attach = _root.transform.parent != head.transform;", "bool attach = _root.transform.parent == null && _root.transform.parent != head.transform;", "through actual same-frame head-rig replacement"),
             "stale-draw-witness": ("LastHeadId = camera.GetInstanceID();", "LastHeadId = 0;", "Actual native camera submission updates the owned loading draw witness"),
             "native-overlay-kept": ("_questIntroCanvas.enabled = false;", "_questIntroCanvas.enabled = true;", "Actual final native overlay draw hides the admitted spinner and Quest Tick reveals the same pixels"),
+            "native-loading-overlay-kept": ("if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = false;", "if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = true;", "Actual unified native loading overlay covers the admitted spinner until its exact widget hands off graphics"),
         }
         expected = ""
         if args.control:
@@ -102,6 +103,21 @@ def main():
                 black |= any(kind == 114 and f"  m_GameObject: {{fileID: {panel_id}}}\n" in body and "  m_Color: {r: 0, g: 0, b: 0, a: 1}\n" in body for kind, key, body in records)
             assert black, "Original Intro loading overlay has no qualified opaque full-screen backdrop"
             copy(scene, run / "native-source/Intro.unity")
+            unified = source / "Assets/Scenes/Release/Gloomhaven_unified.unity"
+            text = unified.read_text()
+            rows = {int(key): (int(kind), body) for kind, key, body in re.findall(r"^--- !u!(\d+) &(\d+)\n(.*?)(?=^--- !u!|\Z)", text, re.M | re.S)}
+            controllers = [body for kind, body in rows.values() if kind == 114 and "  LoadingScreenGO:" in body]
+            assert len(controllers) == 1, "Native unified loading producer is ambiguous"
+            native_root = int(re.search(r"GlobalCanvas: \{fileID: (\d+)\}", controllers[0])[1])
+            loading = int(re.search(r"LoadingScreenGO: \{fileID: (\d+)\}", controllers[0])[1])
+            canvases = [body for kind, body in rows.values() if kind == 223 and f"  m_GameObject: {{fileID: {native_root}}}\n" in body]
+            assert len(canvases) == 1 and "  m_RenderMode: 0\n" in canvases[0] and "  m_SortingOrder: 1000\n" in canvases[0], "Native replacement overlay contract changed"
+            root_transforms = [key for key, (kind, body) in rows.items() if kind == 224 and f"  m_GameObject: {{fileID: {native_root}}}\n" in body]
+            loading_rects = [body for kind, body in rows.values() if kind == 224 and f"  m_GameObject: {{fileID: {loading}}}\n" in body]
+            assert len(root_transforms) == len(loading_rects) == 1 and f"  m_Father: {{fileID: {root_transforms[0]}}}\n" in loading_rects[0], "Native loading root no longer belongs directly to GlobalCanvas"
+            black = [body for kind, body in rows.values() if kind == 114 and f"  m_GameObject: {{fileID: {loading}}}\n" in body and "  m_Color: {r: 0, g: 0, b: 0, a: 1}\n" in body]
+            assert len(black) == 1, "Native replacement loading widget has no qualified opaque backdrop"
+            copy(unified, run / "native-source/Gloomhaven_unified.unity")
         for name in ("LoadingBase.asset", "LoadingOverlay.asset"):
             path = source / "Assets/Sprite" / name
             wanted.update(re.findall(r"texture: \{fileID: 2800000, guid: ([a-f0-9]{32}),", path.read_text()))
