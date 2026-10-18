@@ -696,6 +696,7 @@ function counters(value) {
   if(value.unit==='bytes'&&Number.isSafeInteger(value.done)&&value.done>=0&&value.total==null)return t('counterTransferredBytes',{size:new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(value.done/1048576)+' MiB'});
   if(!Number.isFinite(value.done)||!Number.isFinite(value.total)||value.total<=0)return '';
   const number=n=>new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(n);
+  if(value.unit==='work-shares')return number(Math.max(0,Math.min(100,100*value.done/value.total)))+' %';
   if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
   if(value.phase?.startsWith('bee-actions:'))return t('counterLocalGraphActions',{done:number(value.done),total:number(value.total)});
   if(value.phase==='unity-player-scenes')return t('counterSceneEntries',{done:number(value.done),total:number(value.total)});
