@@ -1,3 +1,5 @@
+// The extracted dependency members retain the production Core name lookup.
+global using GloomhavenVR.Core;
 using System;
 using System.Collections.Generic;
 using BepInEx.Configuration;
@@ -54,7 +56,17 @@ namespace GloomhavenVR.Core
 {
     internal static partial class PerfConfig
     {
-        internal static void BindFixture(ConfigFile file) => BindFrameRendering(file);
+        internal static void BindFixture(ConfigFile file)
+        {
+            BindFrameRendering(file);
+            MixedReality.SteamLinkNative = file.Bind("MixedReality", "SteamLinkNative", true);
+        }
+    }
+    // Compile the entire original dependency table against a real bool entry;
+    // Steam Link identity itself remains an unavailable capability in this suite.
+    internal static class MixedReality
+    {
+        internal static ConfigEntry<bool> SteamLinkNative = null!;
     }
     internal static class VRLog { internal static void Warn(string area, string message) => throw new Exception(message); }
     internal static class Loc

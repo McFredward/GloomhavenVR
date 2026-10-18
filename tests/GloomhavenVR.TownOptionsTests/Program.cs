@@ -50,6 +50,13 @@ namespace GloomhavenVR.Core
     }
     internal static class VRLog { internal static void Warn(string module, string message) => throw new Exception(message); }
     internal static class VRSession { internal static bool IsRunning { get; set; } }
+    // The complete production dependency table reads the native-MR preference
+    // for its stream-width child. Preserve the bool configuration port even
+    // though connection discovery is unavailable in these town-option cases.
+    internal static class MixedReality
+    {
+        internal static readonly WorldUI.Entry<bool> SteamLinkNative = new(true);
+    }
     internal static class TickGuard
     {
         internal static void Run(string key, Action action, string module) => action();
