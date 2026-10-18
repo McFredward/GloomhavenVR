@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest boot/native request follow-up, 2026-10-18: feature / B687.**
+
+Preserve B686's hardware-confirmed complete cards and physical cuts. Quest boot
+now binds the original native atlas rather than a separate RT, retaining native
+signed spin, handover and desktop copies. Actual complete Tick/scene/unload/
+head-rebuild fixture:597 assertions/4 controls, existing native sprite:397143.
+Actual original task-first five-ms scheduling can starve queued wall submissions;
+give only already-queued qualified All-room requests an original Update(.1f)
+opportunity during native loading. Original decode/EndContentUpdate complete
+placement (15 assertions/2 controls); never clear busy or force visibility.
+B686 does not capture queued state, so its exact headset cause and the full-world
+outcome remain unverified. Add handle/queue to the same bounded blocker and use
+compact Mod Update with unchanged banks/native helper. See
+[QUEST-HARDWARE-114020-20261018.md](QUEST-HARDWARE-114020-20261018.md).
+
 **Quest B686 hardware review, 2026-10-18: confirmed card cuts; loading open.**
 
 Capture114020 verifies installed/current686, previous685. The maintainer confirms
