@@ -26,8 +26,10 @@ class BuilderHostIntegration(unittest.TestCase):
                 (source / "scripts").mkdir(parents=True)
                 (source / "scripts/build-quest-native.py").write_text("# command is intercepted")
                 args = SimpleNamespace(target="game", validate_campaign_shaders=False, dotnet="unused")
-                inputs = {"inputKey": "a" * 64, "profile": {"isDummy": True}}
-                tools = {"key": "b" * 64, "androidNdk": "unused"}
+                scope.enter_context(patch.dict(os.environ, {
+                    "GHVR_QUEST_VALIDATE_IMPORTED_ASSETS": "0", "GHVR_QUEST_VERIFICATION": ""}))
+                inputs = {"inputKey": "a" * 64, "target": "game", "profile": {"isDummy": True}, "game": {"key": "c" * 64}}
+                tools = {"key": "b" * 64, "androidNdk": "unused", "editor": str(root / "Unity")}
                 provenance = {"schema": 1, "fixture": "unchanged inputs"}
                 key = builder.value_hash({"input": inputs["inputKey"], "toolchain": tools["key"], "recipe": builder.RECIPE,
                                           "buildProvenance": builder.value_hash(provenance), "validateCampaignShaders": False})
@@ -45,6 +47,15 @@ class BuilderHostIntegration(unittest.TestCase):
                 for name, result in (("toolchain", tools), ("weave", None), ("signing", (root / "key", {})),
                                      ("recover_delivery_pending", None), ("project_content_transaction", nullcontext())):
                     scope.enter_context(patch.object(builder, name, return_value=result))
+                # Independent media producers own their own ready cache. This
+                # test intercepts only native scheduling, never real sidecars.
+                helpers = {name: Mock() for name in ("figure_banks", "audio_banks", "movie_banks")}
+                for name in ("figure_banks", "audio_banks"):
+                    helpers[name].produce.return_value = (root / name, {"fixture": name})
+                helpers["movie_banks"].produce.return_value = {"metadata": {}, "files": []}
+                actual_local = builder._local_helper
+                scope.enter_context(patch.object(builder, "_local_helper", side_effect=lambda name:
+                    helpers[name] if name in helpers else actual_local(name)))
                 scope.enter_context(patch.object(builder, "Stages", Stages))
                 scope.enter_context(patch.object(builder.build_provenance, "capture", return_value=provenance))
                 budgets = scope.enter_context(patch.object(builder.host_resources, "phase_budget", return_value=policy))
@@ -80,9 +91,17 @@ class BuilderHostIntegration(unittest.TestCase):
                 return SimpleNamespace(returncode=0)
             arguments = [str(root / "Unity"), "-batchmode", "-projectPath", str(root / 'quoted " $(&) project')]
             environment = {"GHVRQ_BEE_THREADS": "2", "GHVRQ_BEE_LAUNCHER": str(root / "native host")}
-            with patch.object(builder.host_resources, "phase_budget", return_value={"jobs": 7}), patch.object(builder.subprocess, "run", side_effect=run):
+            # Pin the host rather than depending on Linux DISPLAY/xvfb or this
+            # machine's available RAM. JobQueue and import-process counts differ.
+            def jobs(_host, phase):
+                return {"jobs": 3 if phase == "unity-import" else 7,
+                        "memoryKnown": True, "memoryInsufficient": False, "additionalWorkerReserveBytes": 0}
+            with patch.object(builder.host_resources, "detect_host", return_value={"platform": "win32", "effectiveCpus": 16}), \
+                 patch.object(builder.host_resources, "choose_jobs", side_effect=jobs), \
+                 patch.object(builder.subprocess, "run", side_effect=run):
                 result = builder.command(arguments, log, env=environment)
-            self.assertEqual(calls[0][0], [*arguments, "-job-worker-count", "7"])
+            self.assertEqual(calls[0][0], [*arguments, "-job-worker-count", "7",
+                "-refreshImportMode", "OutOfProcessPerQueue", "-desiredWorkerCount", "3", "-standbyWorkerCount", "0"])
             self.assertEqual(calls[0][1]["env"], environment)
             self.assertNotIn("--threads", json.dumps(calls[0][0]))
             self.assertEqual(arguments[-1], str(root / 'quoted " $(&) project'))
@@ -96,6 +115,44 @@ class BuilderHostIntegration(unittest.TestCase):
             records = [json.loads(line) for line in (root / "evidence/resource-events.jsonl").read_text().splitlines()]
             self.assertEqual(records[-1]["outcome"], "failed")
             self.assertNotIn("SystemExit", json.dumps(records))
+
+    def test_unity_memory_retry_records_failed_then_successful_child_attempts(self):
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as scope:
+            root = Path(folder); log = root / "retry.log"
+            arguments = [str(root / "Unity"), "-batchmode", "-projectPath", str(root / "project"),
+                "-refreshImportMode", "OutOfProcessPerQueue", "-job-worker-count", "3",
+                "-desiredWorkerCount", "2", "-standbyWorkerCount", "0",
+                "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk"]
+            calls = []
+            def run(argv, **kwargs):
+                calls.append(list(argv))
+                kwargs["stdout"].write("System.OutOfMemoryException" if len(calls) == 1 else "completed retry")
+                return SimpleNamespace(returncode=1 if len(calls) == 1 else 0)
+            scope.enter_context(patch.object(builder.host_resources, "unity_launch_arguments", side_effect=lambda argv, _: list(argv)))
+            scope.enter_context(patch.object(builder.subprocess, "run", side_effect=run))
+            scope.enter_context(patch.object(builder.unity_work, "publish_plan", return_value=None))
+            scope.enter_context(patch.object(builder.unity_work, "finish_plan"))
+            wait = scope.enter_context(patch.object(builder.project_access, "wait_for_editor"))
+            with builder.host_resources.resource_context(root, 1):
+                self.assertEqual(builder.command(arguments, log), "completed retry")
+            wait.assert_called_once()
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(calls[1][calls[1].index("-refreshImportMode") + 1], "InProcess")
+            self.assertEqual(calls[1][calls[1].index("-job-worker-count") + 1], "1")
+            records = [json.loads(line) for line in (root / "evidence/resource-events.jsonl").read_text().splitlines()]
+            finished = [row for row in records if row.get("event") == "phase" and row.get("state") == "finished"]
+            self.assertEqual([row["outcome"] for row in finished], ["failed", "succeeded"])
+            self.assertNotEqual(finished[0]["id"], finished[1]["id"])
+
+    def test_exact_command_observer_keeps_original_closures_but_unknown_retry_edits_do_not(self):
+        identity = builder.preparation_identity
+        raw = (ROOT / identity.BUILDER).read_bytes()
+        changed = raw.replace(b"if error is not nonzero_error: raise", b"if False: raise")
+        self.assertNotEqual(raw, changed)
+        for prefix, expected in ((False, "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"),
+                                 (True, "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f")):
+            self.assertEqual(identity.builder_producer_digest(raw, original_prefix=prefix), expected)
+            self.assertNotEqual(identity.builder_producer_digest(changed, original_prefix=prefix), expected)
 
     def test_git_free_release_delegates_exact_validator_and_adds_owned_local_dependencies(self):
         with tempfile.TemporaryDirectory() as folder:

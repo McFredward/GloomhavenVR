@@ -1,6 +1,7 @@
 """The host delivery path cannot re-enter an already successful Unity Player."""
 import contextlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -75,7 +76,7 @@ class FinishBuildTests(unittest.TestCase):
             path = self.root / name
             path.write_bytes(b"selected tool")
             tools[name] = str(path)
-        inputs = {"inputKey": "a" * 64, "mod": {"modBuild": 665}}
+        inputs = {"inputKey": "a" * 64, "target": "game", "mod": {"modBuild": 665}}
         selected = {"inputs": inputs, "key": key, "apk": apk, "tools": tools,
                     "source": self.root / "frozen665", "project": self.root / "retainedProject", "provenance": {"runtime": 665}}
         helper = Mock()
@@ -140,7 +141,7 @@ class CompletedPlayerCompositionTests(unittest.TestCase):
         self.material.write_bytes(b"authored original material contract")
         self.args = SimpleNamespace(game_root=f.data, profile_json=None, delivery_input_key=f.inputs["inputKey"])
 
-    def run_finish(self, *, corrupt_bank=False, fail_compute=False, fail_publication=False, counters=None):
+    def run_finish(self, *, corrupt_bank=False, fail_compute=False, fail_publication=False, counters=None, full_validation=True):
         f = self.fixture
         actual_local = builder._local_helper
         actual_update = actual_local("update_driver")
@@ -172,6 +173,11 @@ class CompletedPlayerCompositionTests(unittest.TestCase):
             return {"shaderCount": 13, "kernelCount": 36, "graphicsApi": "Vulkan",
                     "actualExecutableBytesVerified": True, "hardwareVerified": False}
         with contextlib.ExitStack() as stack:
+            # These cases deliberately test developer audits. Ordinary delivery
+            # omits whole-bank readbacks; its independent contract is below.
+            stack.enter_context(patch.dict(os.environ, {
+                "GHVR_QUEST_VALIDATE_IMPORTED_ASSETS": "1" if full_validation else "0",
+                "GHVR_QUEST_VERIFICATION": ""}))
             if fail_publication:
                 actual_write = storage.write_json
                 def publish(path, value):
@@ -197,6 +203,17 @@ class CompletedPlayerCompositionTests(unittest.TestCase):
         self.assertEqual(metadata["buildProvenance"], f.provenance)
         self.assertTrue(metadata["deliveryDriver"]["resumedCompletedPlayer"])
         self.assertTrue((f.output / "latest-player.json").is_file())
+
+    def test_normal_delivery_checks_apk_without_optional_whole_bank_readbacks(self):
+        f = self.fixture
+        counts = dict.fromkeys(("apk", "shaders", "compute"), 0)
+        self.assertEqual(self.run_finish(counters=counts, full_validation=False), f.apk)
+        self.assertEqual(counts, {"apk": 1, "shaders": 0, "compute": 0})
+        details = builder.verified_latest_build(f.output)[1]
+        self.assertFalse(details["optionalAssetValidation"]["requested"])
+        self.assertFalse(details["optionalAssetValidation"]["completed"])
+        self.assertNotIn("nativeShaderValidation", details)
+        self.assertNotIn("computeValidation", details)
 
     def test_changed_bank_fails_only_delivery_and_preserves_completed_apk(self):
         f = self.fixture

@@ -169,6 +169,17 @@ REBASE_AUDIO_DELIVERY_ROWS = {
          "sha256": "df54f32af280a842ef3572a014602bdf9455fd87bb3d4a9adc817eaf1ed2ad16"}),
 }
 
+# Exact command observer repair: nonzero child exits now leave their timed
+# phase as failures before the unchanged bounded Unity OOM retry is considered.
+# Complete normalized source trees qualify both closures; no arbitrary command
+# edit or producer statement is excluded from the preparation identity.
+BUILDER_COMMAND_OUTCOME_AST = {
+    "f519da8291c50e951984bb3c13c9c66516d5484679e1afb6303226db0a5c9b52":
+        "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1",
+    "52fd295515adbf2791e763cc72c27e9044e835266992badde826fbbf3dbd220f":
+        "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f",
+}
+
 def _memory_row(row):
     if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE, MEMORY_POLICY_MINIMUM, MEMORY_POLICY_PARALLEL):
         return MEMORY_POLICY_PREVIOUS
@@ -633,7 +644,8 @@ def builder_producer_digest(raw, *, original_prefix=False):
     observed, preceding = BUILDER_UNITY_WORK_AST[bool(original_prefix)]
     if result == observed: result = preceding
     observed, preceding = BUILDER_PROGRESS_AST[bool(original_prefix)]
-    return preceding if result == observed else result
+    if result == observed: result = preceding
+    return BUILDER_COMMAND_OUTCOME_AST.get(result, result)
 
 
 def _builder_bytes(root, records):
