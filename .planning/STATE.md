@@ -24,6 +24,21 @@ new negotiated bridge and refuse live installation of incomplete prototypes.
 No new hardware-quality result is claimed. Frame writes and restarts still
 require coordinated readiness; no timer/restart is added.
 
+The native repository's `dev` now also contains guided CMD/SH launchers,
+PowerShell/Bash online bootstraps and release packaging with a
+release-pinned portable Windows Python runtime. The source-pinned Windows
+NVENC provider builds but deliberately has no live negotiation start. Other
+codecs and source changes retain ordinary output and revoke old authority.
+The actual paired sender -> signed SEI -> receiver bootstrap passes283 checks
+with an independently encoded HEVC AU and sanitizer/causal controls; this is a
+software fixture, not a real Steam Link transmission. Setup executes its actual
+remote agent only in temporary fixture homes; no Frame installation is changed.
+There is no complete released two-sided bundle yet, and the online installers
+must refuse an old Frame-only/prototype package. Linux host inventory works;
+native Linux sender support is not established by the portable cross-build.
+Actual Frame coded-AU interception, reverse control, selected-frame/UV association
+and new coverage rendering remain required before user installation/testing.
+
 **Larger same-stream RGB/coverage carrier review, 2026-10-18; runtime remains707.**
 
 The maintainer proposes a larger actual Steam Link video to retain the selected
