@@ -612,7 +612,29 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 692;
+    public const ushort ModBuild = 693;
+
+    // ModBuild693 — observed menu handoff, native audio channels and Quest effect inputs.
+    // Capture202103 verifies current692/previous691. Preserve confirmed full rooms,
+    // cards, menu video, pointer point and now-visible hover/reachable hex overlays.
+    // IsMainMenu precedes native InitializeUI/Show: retain only the initial spinner
+    // until an open, alpha-positive native window passes UI capture and head draw.
+    // Repack only original ping billboard POSITION/COLOR/UV streams; preserve all
+    // native particles, materials, timing, geometry and reversible pool ownership.
+    // Read the existing environment index/source receipt without reflection-driven
+    // generic deserialization: Android lacked EnsureArraySize<uint> AOT code.
+    // The explicit reader matches all1,139 existing native index identities/fields.
+    // Startup quad Vorbis was mislabeled mono. Native Unity reproduces both B692
+    // corrupt hit sample hashes exactly; recover the original four-channel Vorbis
+    // packets and import PCM in a small cached32-clip sidecar, retaining Campaign.
+    // Native source lease changes preserve playback cursor, pooling and mixer state.
+    // The original Gamma flame uses a numeric particle mask; Quest Linear must
+    // sample the same blocks without sRGB decoding, using a private linear view.
+    // Preserve red burnt-card paint, original timeline and all other native textures.
+    // Isolate the left/right slot pulse uniforms per renderer without changing
+    // eligibility, depth, pose or waveform; its Adreno outcome remains open.
+    // Compact Mod Update; no original-bank regeneration or local full-game APK.
+    // See .planning/QUEST-HARDWARE-202103-20261018.md for scope and hardware gates.
 
     // ModBuild692 — native loading ownership, Quest overlay inputs and settled wall sampling.
     // Capture191141 verifies current691/previous690. Keep confirmed complete rooms,

@@ -50,7 +50,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `Choreographer_HeldFigureAction_Patch`<br/><sub>src/GloomhavenVR/Board/FigureGrab/Choreographer_HeldFigureAction_Patch.cs:18</sub> | `Choreographer.ProcessMessage()` *(private)* | prefix | `BoardModule`:120 |
 | `MF_HeldFigureAnimation_Patch`<br/><sub>src/GloomhavenVR/Board/FigureGrab/MF_HeldFigureAnimation_Patch.cs:13</sub> | `MF.AnimatorPlay()` | prefix | `BoardModule`:121 |
 | `HexHighlightFix.ProjectorModifier_Awake_Patch`<br/><sub>src/GloomhavenVR/Board/HexHighlightFix.cs:435</sub> | `ProjectorModifier.Awake()` *(private)* | postfix | `BoardModule`:114 |
-| `HexHighlightFix.HexSelect_ProjectorMaterialAdjustment_Patch`<br/><sub>src/GloomhavenVR/Board/HexHighlightFix.cs:554</sub> | `HexSelect_Control.ProjectorMaterialAdjustment()` *(private)* | postfix | `BoardModule`:106 |
+| `HexHighlightFix.HexSelect_ProjectorMaterialAdjustment_Patch`<br/><sub>src/GloomhavenVR/Board/HexHighlightFix.cs:555</sub> | `HexSelect_Control.ProjectorMaterialAdjustment()` *(private)* | postfix | `BoardModule`:106 |
 | `AllCardsViewerBlock`<br/><sub>src/GloomhavenVR/Board/Patches/AllCardsViewerBlock.cs:115</sub> | `CardsHandManager.ToggleViewAllCards(CPlayerActor, bool)` | prefix | `BoardModule`:144 |
 | &nbsp; | `CardsHandUI.ToggleFullCardsPreview(bool, bool)` | prefix | &nbsp; |
 | `InitiativeTrack_ShowMonsterClasses_ArmSkip`<br/><sub>src/GloomhavenVR/Board/Patches/EnemyInfoPhaseSkip.cs:437</sub> | `InitiativeTrack.ShowMonsterClassesForSelectingRoundAbilityCards()` | postfix | `BoardModule`:158 |
@@ -180,12 +180,12 @@ runtime, which is why a runtime audit could never do this job (see
 | `StructuralInstancing_ShownPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioStructuralInstancing.cs:258</sub> | `ProceduralMapTile.ShowContent()` | postfix | `ScenarioStructuralInstancing`:38 |
 | `StructuralInstancing_MaterialPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioStructuralInstancing.cs:264</sub> | `MaterialLoaderData.CheckAllMaterialLoaded()` *(private)* | postfix | `ScenarioStructuralInstancing`:39 |
 | `StructuralInstancing_LoadedPatch`<br/><sub>src/GloomhavenVR/Core/Perf/ScenarioStructuralInstancing.cs:270</sub> | `SceneController.DisableLoadingScreen()` | prefix | `ScenarioStructuralInstancing`:40 |
-| `AudioObject_QuestCombatDelayed`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudio.cs:75</sub> | `AudioObject._PlayDelayed()` *(private)* | prefix | `QuestProceduralLifecycle`:46 |
-| `AudioObject_QuestCombatScheduled`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudio.cs:81</sub> | `AudioObject._PlayScheduled()` *(private)* | prefix | `QuestProceduralLifecycle`:47 |
-| `AudioObject_QuestCombatStopped`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudio.cs:87</sub> | `AudioObject._Stop()` *(private)* | postfix | `QuestProceduralLifecycle`:48 |
-| `AudioObject_QuestCombatReset`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudio.cs:93</sub> | `AudioObject._SetReferences0()` *(private)* | prefix | `QuestProceduralLifecycle`:49 |
-| `AudioObject_QuestCombatSecondary`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudio.cs:99</sub> | `AudioObject._CreateSecondAudioSource()` *(private)* | postfix | `QuestProceduralLifecycle`:50 |
-| `AudioObject_QuestCombatEvidence`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudioEvidence.cs:119</sub> | `AudioObject._OnPlay()` *(private)* | postfix | `QuestProceduralLifecycle`:45 |
+| `AudioObject_QuestCombatDelayed`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudio.cs:94</sub> | `AudioObject._PlayDelayed()` *(private)* | prefix | `QuestProceduralLifecycle`:46 |
+| `AudioObject_QuestCombatScheduled`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudio.cs:100</sub> | `AudioObject._PlayScheduled()` *(private)* | prefix | `QuestProceduralLifecycle`:47 |
+| `AudioObject_QuestCombatStopped`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudio.cs:106</sub> | `AudioObject._Stop()` *(private)* | postfix | `QuestProceduralLifecycle`:48 |
+| `AudioObject_QuestCombatReset`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudio.cs:112</sub> | `AudioObject._SetReferences0()` *(private)* | prefix | `QuestProceduralLifecycle`:49 |
+| `AudioObject_QuestCombatSecondary`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudio.cs:118</sub> | `AudioObject._CreateSecondAudioSource()` *(private)* | postfix | `QuestProceduralLifecycle`:50 |
+| `AudioObject_QuestCombatEvidence`<br/><sub>src/GloomhavenVR/Core/QuestCombatAudioEvidence.cs:156</sub> | `AudioObject._OnPlay()` *(private)* | postfix | `QuestProceduralLifecycle`:45 |
 | `UnityGameEditorRuntime_QuestPlacementLoading`<br/><sub>src/GloomhavenVR/Core/QuestProceduralLoading.cs:175</sub> | `UnityGameEditorRuntime.WaitForProcGen()` *(private)* | postfix | `QuestProceduralLifecycle`:43 |
 | `ApparanceEngine_QuestPendingRequests`<br/><sub>src/GloomhavenVR/Core/QuestProceduralRequests.cs:76</sub> | `ApparanceEngine.UpdateEngine()` *(private)* | postfix | `QuestProceduralLifecycle`:44 |
 | `TilesOcclusionVolume_Start_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:308</sub> | `TilesOcclusionVolume.Start()` *(private)* | postfix | `SceneRegistry`:156 |

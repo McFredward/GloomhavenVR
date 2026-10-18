@@ -1,3 +1,19 @@
+**Quest hardware follow-up, 2026-10-18: feature / B693.**
+
+Capture202103 verifies current692/previous691. Preserve confirmed complete rooms,
+artwork, menu video, pointer point and working hover/reachable hex overlays. Hold
+startup spinner until the initialized original menu actually reaches UI capture
+and head draw. Correct original ping stream layout without replacement particles.
+Environment/pillar bank admission failed on a missing IL2CPP uint-array serializer;
+explicit Quest readers retain existing index/source identities without that path.
+Native Unity exactly reproduces the corrupt hit samples from an incorrectly mono
+startup Vorbis import. Recover the original four-channel streams into a separately
+cached32-clip PCM bank; retain Campaign data and playback cursor/mixer behavior. Linear mask
+sampling restores the original Gamma flame input; preserve correct red card paint.
+Per-renderer slot pulse isolation is a controlled Android hypothesis, not hardware
+closure. Compact Mod Update; no full-game asset conversion/local APK. Focused checks,
+source/host classification and open gates: `QUEST-HARDWARE-202103-20261018.md`.
+
 **Quest hardware follow-up, 2026-10-18: feature / B692.**
 
 Capture191141 proves current691/previous690 and actual figure derivatives. Preserve

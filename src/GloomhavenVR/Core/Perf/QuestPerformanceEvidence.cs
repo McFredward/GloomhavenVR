@@ -8,15 +8,16 @@ internal static class QuestPerformanceEvidence
     {
         string[] hexes = Board.QuestHexPresentationEvidence.Snapshot;
         string[] fire = Cards.QuestCardFireEvidence.Snapshot;
-        var result = new string[6 + hexes.Length + fire.Length];
+        var result = new string[7 + hexes.Length + fire.Length];
         result[0] = ScenarioFigureDetailBudget.Diagnostics;
         result[1] = ScenarioFigureMeshBank.Diagnostics;
         result[2] = WorldMaterialBudget.Diagnostics;
         result[3] = ScenarioEnvironmentBudget.Diagnostics;
         result[4] = ScenarioTerrainBudget.Diagnostics;
         result[5] = ScenarioEnvironmentMeshBank.Diagnostics;
-        System.Array.Copy(hexes, 0, result, 6, hexes.Length);
-        System.Array.Copy(fire, 0, result, 6 + hexes.Length, fire.Length);
+        result[6] = QuestCombatAudioBank.Diagnostics;
+        System.Array.Copy(hexes, 0, result, 7, hexes.Length);
+        System.Array.Copy(fire, 0, result, 7 + hexes.Length, fire.Length);
         return result;
     }
 }
