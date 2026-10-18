@@ -37,6 +37,9 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.WorldUI { internal static class FixtureNamespace { } }
 namespace GloomhavenVR.Cards
 {
+    // Exact owned Quest RGBA files are unavailable on this explicit desktop
+    // fixture port; production readback/mip/preparation still executes unchanged.
+    internal static class QuestCardPixels { internal static Color32[]? Read(Texture2D source) => null; }
     internal sealed class Setting<T> { internal T Value; internal Setting(T value) { Value = value; } }
     internal static class CardsConfig
     {
