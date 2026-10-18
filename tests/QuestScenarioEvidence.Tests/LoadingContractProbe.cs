@@ -52,6 +52,15 @@ public class NativeLoadingFixtureDriver : MonoBehaviour
 /// callbacks; no test claim about generated Android geometry is made.</summary>
 public static class QuestProceduralLoadingContractProbe
 {
+    private sealed class UnstartedNativeWait : IEnumerator, IDisposable
+    {
+        internal int Moves;
+        internal bool Disposed;
+        public object Current => null;
+        public bool MoveNext() { Moves++; return false; }
+        public void Reset() { throw new NotSupportedException(); }
+        public void Dispose() { Disposed = true; }
+    }
     private static int _assertions, _phase, _due, _exit;
     private static float _deadline;
     private static ApparanceEngine _engine;
@@ -127,6 +136,8 @@ public static class QuestProceduralLoadingContractProbe
                     "Original engine callbacks run while the native loading continuation waits");
                 Check(SceneController.Instance.IsLoading && SceneController.Instance.LoadingClosures == 0,
                     "Original load continuation cannot close before requested placement completion");
+                Check(QuestProceduralLoading.DescribePendingContent(RoomVisibilityManager.s_Instance.Maps).StartsWith("placement:Visible requested room"),
+                    "Loading evidence names the actual pending room before placement completion");
                 Check(InputManager.Blocks == 1 && InputManager.Releases == 0,
                     "Native input ownership remains blocked during actual generation");
                 _room.IsPlacementCompleted = true; _room.GetComponent<ApparanceEntity>().m_EntityHandle = 1;
@@ -136,6 +147,8 @@ public static class QuestProceduralLoadingContractProbe
             {
                 Check(SceneController.Instance.IsLoading && SceneController.Instance.LoadingClosures == 0,
                     "A complete room cannot bypass its requested unfinished original wall");
+                Check(QuestProceduralLoading.DescribePendingContent(RoomVisibilityManager.s_Instance.Maps).StartsWith("placement:Requested original wall"),
+                    "Complete room census cannot hide the actual pending child placement");
                 _wall.IsPlacementCompleted = true; _wallEntity.IsBusy = true;
                 _due = Time.frameCount + 4; _phase = 3;
             }
@@ -143,6 +156,8 @@ public static class QuestProceduralLoadingContractProbe
             {
                 Check(SceneController.Instance.IsLoading && SceneController.Instance.LoadingClosures == 0,
                     "Original busy state keeps the loading boundary open after an early placement callback");
+                Check(QuestProceduralLoading.DescribePendingContent(RoomVisibilityManager.s_Instance.Maps).Contains(":completed=True:busy=True"),
+                    "Loading evidence distinguishes placement callbacks from continuing native busy state");
                 _wallEntity.IsBusy = false;
                 var source = GameObject.CreatePrimitive(PrimitiveType.Cube); source.name = "Placed pending material";
                 source.transform.parent = _room.transform;
@@ -156,6 +171,8 @@ public static class QuestProceduralLoadingContractProbe
             {
                 Check(SceneController.Instance.IsLoading && SceneController.Instance.LoadingClosures == 0,
                     "Placed native geometry with a deferred material Start retains loading");
+                Check(QuestProceduralLoading.DescribePendingContent(RoomVisibilityManager.s_Instance.Maps).StartsWith("material-handles:Placed pending material"),
+                    "Loading evidence identifies the actual deferred original material entry");
                 _materialData._handles = new[] { new FixtureMaterialHandle { Valid = true, IsDone = false } };
                 _due = Time.frameCount + 4; _phase = 31;
             }
@@ -163,6 +180,8 @@ public static class QuestProceduralLoadingContractProbe
             {
                 Check(SceneController.Instance.IsLoading && SceneController.Instance.LoadingClosures == 0,
                     "Actual in-flight material handles retain loading without renderer writes");
+                Check(QuestProceduralLoading.DescribePendingContent(RoomVisibilityManager.s_Instance.Maps).Contains(":valid=True:done=False"),
+                    "Loading evidence reports genuine in-flight handles without claiming a failed load");
                 _materialData._handles = new[] { new FixtureMaterialHandle { Valid = true, IsDone = true, Result = _material } };
                 _materialData.Renderer.sharedMaterial = null;
                 _due = Time.frameCount + 4; _phase = 32;
@@ -171,6 +190,8 @@ public static class QuestProceduralLoadingContractProbe
             {
                 Check(SceneController.Instance.IsLoading && SceneController.Instance.LoadingClosures == 0,
                     "Completed material handles cannot close before original renderer assignment");
+                Check(QuestProceduralLoading.DescribePendingContent(RoomVisibilityManager.s_Instance.Maps).StartsWith("material-assignment:Placed pending material"),
+                    "Loading evidence distinguishes completed handles from pending assignment");
                 _materialData.Renderer.sharedMaterial = _material;
                 _due = Time.frameCount + 4; _phase = 4;
             }
@@ -178,6 +199,8 @@ public static class QuestProceduralLoadingContractProbe
             {
                 Check(!QuestProceduralLoading.HasPendingContent(RoomVisibilityManager.s_Instance.Maps),
                     "Hidden and preview requests do not keep the native loader open");
+                Check(QuestProceduralLoading.DescribePendingContent(RoomVisibilityManager.s_Instance.Maps) == "none",
+                    "The completed loading boundary and its diagnostic share the same admission decision");
                 Check(!SceneController.Instance.IsLoading && SceneController.Instance.LoadingClosures == 1
                     && InputManager.Releases == 1,
                     "Actual original continuation closes once and releases input after all requested placements finish");
@@ -201,18 +224,21 @@ public static class QuestProceduralLoadingContractProbe
                 IEnumerator capped = notifier.WaitForPlacementCompletedAll(0);
                 Check(capped.MoveNext() && capped.Current is WaitForEndOfFrame && !capped.MoveNext(),
                     "Actual original zero-frame notifier finishes after its one allowed frame despite pending placements");
-                Begin(true, -1); _due = Time.frameCount + 12; _phase = 5;
+                // The original optional notifier would now wait on the pending
+                // hidden preview for 100000 frames. Quest's requested-content
+                // replacement must complete without enumerating that wait.
+                Begin(true, 100000); _due = Time.frameCount + 12; _phase = 5;
             }
             else if (_phase == 5 && Time.frameCount >= _due)
             {
                 Check(SceneController.Instance.IsLoading && SceneController.Instance.LoadingClosures == 1,
-                    "Original exhausted placement frame budget cannot bypass actual Quest readiness");
+                    "Original optional placement wait cannot bypass actual Quest readiness");
                 _room.IsPlacementCompleted = true; _due = Time.frameCount + 4; _phase = 6;
             }
             else if (_phase == 6 && Time.frameCount >= _due)
             {
                 Check(!SceneController.Instance.IsLoading && SceneController.Instance.LoadingClosures == 2,
-                    "Original capped notifier still completes normally after the Quest readiness boundary");
+                    "Quest loading completes from actual requested readiness without hidden preview frame waits");
                 ScopeChecks();
                 QuestStandalonePlatform.Enabled = false;
                 _room.IsPlacementCompleted = false;
@@ -273,6 +299,15 @@ public static class QuestProceduralLoadingContractProbe
         _wall.gameObject.SetActive(true); _wall.enabled = false;
         Check(!QuestProceduralLoading.HasPendingContent(maps), "Disabled native observer ownership remains unchanged");
         _wall.enabled = true; _wall.IsPlacementCompleted = true;
+        string originalName = _wall.name;
+        _wall.name = new string('x', 1024); _wall.IsPlacementCompleted = false;
+        Check(QuestProceduralLoading.DescribePendingContent(maps).Length < 250,
+            "First-blocker evidence bounds native names without emitting a hierarchy dump");
+        _wall.name = originalName; _wall.IsPlacementCompleted = true;
+        var superseded = new UnstartedNativeWait();
+        IEnumerator replacement = QuestProceduralLoading.Wait(superseded);
+        Check(replacement.MoveNext() && !replacement.MoveNext() && superseded.Disposed && superseded.Moves == 0,
+            "Quest disposes the superseded private iterator without enlisting hidden native callbacks");
     }
     private static void Begin(bool originalWait, int frameLimit)
     {

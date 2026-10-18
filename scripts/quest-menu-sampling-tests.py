@@ -74,7 +74,7 @@ def main():
     parser.add_argument("--unity", type=Path, default=Path("/home/claw/unity-2021.3.5/Editor/Unity"))
     parser.add_argument("--owned-project", type=Path)
     parser.add_argument("--game-data", type=Path)
-    parser.add_argument("--case", help="Run one named fixture while investigating an affected render path.")
+    parser.add_argument("--case", action="append", help="Run named fixtures while investigating an affected render path; may be repeated.")
     parser.add_argument("--graphics", choices=("glcore", "vulkan"), default="glcore")
     args = parser.parse_args()
     if bool(args.owned_project) != bool(args.game_data):
@@ -99,15 +99,22 @@ def main():
     sources["Loading.cs"] = ("using System.Collections.Generic;\nusing UnityEngine;\nusing UnityEngine.UI;\nusing GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI;\n"
         "internal sealed class LoadingIndicator\n{\nprivate const float SizeMeters=.25f;\nprivate const int CopyMaxPixels=512;\n"
         "private readonly List<Texture> _ownedArtTextures = new();\n"
+        "private const int MaxStepsPerFrame=8;\n"
+        "private Transform? _baseQuad, _overlayQuad; private Material? _baseMaterial, _overlayMaterial;\n"
+        "private LayerArt? _baseArt, _overlayArt; private float _accum, _overlayAlpha, _fade, _spinDegrees, _stepSeconds, _glowStep, _minAlpha; private bool _increaseAlpha;\n"
         "private GameObject? _root = new GameObject(\"fixture-loading-root\");\n" + layer
         + method(loading, "    private static void DestroyObj<")
         + method(loading, "    private static LayerArt? ReadLayer(")
         + method(loading, "    private Transform CreateQuad(")
         + method(loading, "    private Material CreateLayerMaterial(")
         + method(loading, "    private bool AdoptOwnedCopy(")
+        + method(loading, "    private void Animate(")
+        + method(loading, "    private void ApplyOverlayAlpha(")
         + method(loading, "    private static bool CanUsePersistentArt(")
         + "\ninternal static bool PersistentArtAllowed() => CanUsePersistentArt();\n"
         + "internal GameObject Build(Image image, Image basis, bool boot=false) { var art=ReadLayer(image.gameObject,basis.gameObject)!; if(boot && !AdoptOwnedCopy(art)) throw new System.Exception(\"Native boot source copy failed\"); Mesh? mesh=null; return CreateQuad(\"test\",CreateLayerMaterial(art,null),art,0,ref mesh).gameObject; }\n"
+        + "internal GameObject BuildAnimation(Image image,Image basis,bool boot,float step) { _baseArt=ReadLayer(basis.gameObject,basis.gameObject)!; _overlayArt=ReadLayer(image.gameObject,basis.gameObject,true)!; if(boot && !AdoptOwnedCopy(_overlayArt)) throw new System.Exception(\"Native animated boot copy failed\"); _baseMaterial=CreateLayerMaterial(_baseArt,null); _overlayMaterial=CreateLayerMaterial(_overlayArt,null); Mesh? mesh=null; _baseQuad=CreateQuad(\"animated-base\",_baseMaterial,_baseArt,0,ref mesh); _overlayQuad=CreateQuad(\"animated-overlay\",_overlayMaterial,_overlayArt,0,ref mesh); _spinDegrees=-6; _stepSeconds=step; _glowStep=.07f; _minAlpha=0; _overlayAlpha=0; _increaseAlpha=true; _fade=1; return _overlayQuad.gameObject; }\n"
+        + "internal void StepAnimation() => Animate(); internal Color OverlayColor => _overlayMaterial!.color; internal Color BaseColor => _baseMaterial!.color; internal Quaternion OverlayRotation => _overlayQuad!.localRotation;\n"
         + "internal void ReleaseCopies() { foreach(var texture in _ownedArtTextures) UnityEngine.Object.DestroyImmediate(texture); _ownedArtTextures.Clear(); }\n}\n")
     cached = method(loading, "    private bool TryCachedIconArt(")
     persisted = method(loading, "    private void TryWriteIconCache(")
@@ -130,13 +137,16 @@ def main():
         ("spinner-upload-omitted", "Loading.cs", 'QuestPrimitiveMesh.Rebuild(filter.sharedMesh, "loading-" + name)', "(Mesh?)null", "Quest spinner owns explicit vertex color inputs"),
         ("quest-untrusted-spinner-cache-reused", "Loading.cs", "return !QuestStandalonePlatform.Enabled;", "return true;", "Quest boot ignores untrusted persisted ReadPixels artwork"),
         ("spinner-boot-owned-source-lost", "Loading.cs", "art.Tex = rt;", "art.Tex = src;", "Quest boot renderer owns its GPU source through original scene teardown"),
+        ("spinner-native-zero-alpha-frozen", "Loading.cs", "animatedOpacity && QuestStandalonePlatform.Enabled", "false && QuestStandalonePlatform.Enabled", "Quest native overlay glow survives acquisition at zero alpha"),
+        ("spinner-desktop-alpha-mutated", "Loading.cs", "animatedOpacity && QuestStandalonePlatform.Enabled", "animatedOpacity", "Desktop keeps its established spinner opacity sampling"),
         ("spinner-pivot-lost", "Loading.cs", "vertices[i] += new Vector3(x, y, 0f);", "vertices[i] += Vector3.zero;", "converted spinner quad preserves original trim scale and pivot")]
     if args.owned_project:
         variants.append(("native-trim-padding-discarded", "Geometry.cs", "Vector4 padding = DataUtility.GetPadding(sprite);", "Vector4 padding = Vector4.zero;", "native Image trim and preserveAspect drawing bounds"))
         variants.append(("native-import-size-gate-removed", "EditorValidation.cs", "Close(rect.width, entry.restoredAtlasRect.width, entry.asset);", "/* injected: imported width not validated */", "native imported geometry gate rejects altered receipt"))
     if args.case:
-        variants = [row for row in variants if row[0] == args.case]
-        if not variants: parser.error("Unknown fixture case.")
+        wanted = set(args.case)
+        variants = [row for row in variants if row[0] in wanted]
+        if len(variants) != len(wanted): parser.error("Unknown fixture case.")
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     fixture = ROOT / "tests/QuestMenuSampling.Tests"
     manifest = {"result": str(run / "results.txt"), "managed": str(ROOT / "ressources/GH_Data/Managed"),

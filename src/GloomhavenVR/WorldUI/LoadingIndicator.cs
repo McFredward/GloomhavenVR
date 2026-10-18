@@ -888,7 +888,7 @@ internal sealed class LoadingIndicator
                 var baseGo = AccessTools.Field(typeof(LoadingScreen), "m_LoadingIconBase")?.GetValue(ls) as GameObject;
                 var overlayGo = AccessTools.Field(typeof(LoadingScreen), "m_LoadingIconOverlay")?.GetValue(ls) as GameObject;
                 LayerArt? baseArt = ReadLayer(baseGo, baseGo);
-                LayerArt? overlayArt = ReadLayer(overlayGo, baseGo);
+                LayerArt? overlayArt = ReadLayer(overlayGo, baseGo, animatedOpacity: true);
                 if (baseArt != null && overlayArt != null)
                 {
                     _baseArt = baseArt;
@@ -1029,7 +1029,7 @@ internal sealed class LoadingIndicator
             }
 
             LayerArt? baseArt = ReadLayer(baseGo, baseGo);
-            LayerArt? overlayArt = ReadLayer(overlayGo, baseGo);
+            LayerArt? overlayArt = ReadLayer(overlayGo, baseGo, animatedOpacity: anim != null);
             if (baseArt == null || overlayArt == null)
                 return false;
             // The Intro scene's textures die when Gloomhaven_unified activates — take mod-owned
@@ -1435,7 +1435,7 @@ internal sealed class LoadingIndicator
 
     /// <summary>One icon layer from its uGUI object: sprite texture + atlas sub-rect + tint +
     /// authored rect size (aspect and size relative to the base icon).</summary>
-    private static LayerArt? ReadLayer(GameObject? iconGo, GameObject? baseGo)
+    private static LayerArt? ReadLayer(GameObject? iconGo, GameObject? baseGo, bool animatedOpacity = false)
     {
         if (iconGo == null || baseGo == null)
             return null;
@@ -1470,6 +1470,17 @@ internal sealed class LoadingIndicator
             SizeRatio = Mathf.Max(width, height) / units,
             CenterRatio = new Vector2(center.x / units, center.y / units),
         };
+        // The native LoadingScreen/AnimateLoadingIcon owns the overlay alpha:
+        // OnEnable assigns m_IconOverlayMinAlpha (0 in the original scenes),
+        // then AnimateIcon writes a new absolute alpha on every glow step.
+        // B685 sampled that live zero as permanent artwork opacity and multiplied
+        // every future replica step by it. Both headset acquisitions therefore
+        // logged overlay alpha 0; the bright part could never recover. Preserve
+        // RGB, but let our matching animator own that alpha exactly once. This
+        // applies only to the two source-qualified native animator overlays on
+        // Quest, never the authored base, an arbitrary Image or desktop copies.
+        if (animatedOpacity && QuestStandalonePlatform.Enabled)
+            art.Tint = new Color(art.Tint.r, art.Tint.g, art.Tint.b, 1f);
         return art;
     }
 

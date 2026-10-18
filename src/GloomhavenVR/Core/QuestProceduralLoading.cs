@@ -10,7 +10,7 @@ namespace GloomhavenVR.Core;
 /// DisableLoadingScreen remain native. Desktop's optional, frame-limited
 /// WaitForProcGen is insufficient for the translated worker: B683 dismissed the
 /// loader with zero handles/content, then completed both rooms fifteen seconds
-/// later. Append actual original placement/material readiness inside that same wait.
+/// later. Use actual original placement/material readiness inside that same wait.
 /// Hidden/preview rooms and frozen or unrequested entities never extend loading.
 /// No renderer, hierarchy, generation flag or rules state is written here.
 /// </summary>
@@ -18,12 +18,27 @@ internal static class QuestProceduralLoading
 {
     internal static IEnumerator Wait(IEnumerator native)
     {
-        yield return native;
-        if (!QuestStandalonePlatform.Enabled || !VRSession.IsRunning) yield break;
+        if (!QuestStandalonePlatform.Enabled || !VRSession.IsRunning)
+        {
+            yield return native;
+            yield break;
+        }
         SceneController controller = SceneController.Instance;
         RoomVisibilityManager visibility = RoomVisibilityManager.s_Instance;
-        if (controller == null || visibility == null || visibility.Maps == null) yield break;
+        if (controller == null || visibility == null || visibility.Maps == null)
+        {
+            yield return native;
+            yield break;
+        }
         GameObject maps = visibility.Maps;
+        // Do not first enumerate desktop's optional frame-budget wait here.
+        // Its notifier enlists every ProceduralBase, including hidden previews
+        // and frozen/unrequested children, before our requested-content gate
+        // could run. Those callbacks may correctly never complete. The scoped
+        // native readiness below supersedes that private wait on Quest; the
+        // surrounding original WaitForLoad still owns networking, input and
+        // DisableLoadingScreen, with no deadline or synthetic completion.
+        (native as System.IDisposable)?.Dispose();
         // Generation delivers prefab Start and deferred material callbacks on
         // the following PlayerLoop. Observe completion across that boundary,
         // rather than closing the native loader in the placement callback.
@@ -38,8 +53,21 @@ internal static class QuestProceduralLoading
         while (HasPendingContent(maps));
     }
 
-    internal static bool HasPendingContent(GameObject maps)
+    internal static bool HasPendingContent(GameObject maps) => HasPendingContent(maps, false, out _);
+
+    // The room census can report complete rooms while a requested child or
+    // material entry still holds the original continuation. Reuse the exact
+    // admission below for its bounded first-blocker observation, instead of
+    // inferring readiness from room totals or writing another per-frame log.
+    internal static string DescribePendingContent(GameObject maps)
     {
+        HasPendingContent(maps, true, out string detail);
+        return detail;
+    }
+
+    private static bool HasPendingContent(GameObject maps, bool describe, out string detail)
+    {
+        detail = "none";
         foreach (ProceduralMapTile room in maps.GetComponentsInChildren<ProceduralMapTile>(true))
         {
             if (room == null || !room.isActiveAndEnabled || room.visibility != ProceduralMapTile.Visibility.All)
@@ -50,7 +78,12 @@ internal static class QuestProceduralLoading
                 if (placement == null || !placement.isActiveAndEnabled
                     || placement.GetComponentInParent<ProceduralMapTile>() != room) continue;
                 ApparanceEntity entity = placement.GetComponent<ApparanceEntity>();
-                if (Requested(entity) && (!placement.IsPlacementCompleted || entity.IsBusy)) return true;
+                if (Requested(entity) && (!placement.IsPlacementCompleted || entity.IsBusy))
+                {
+                    if (describe) detail = "placement:" + Label(placement.name) + ":room=" + Label(room.name)
+                        + ":completed=" + placement.IsPlacementCompleted + ":busy=" + entity.IsBusy;
+                    return true;
+                }
             }
             // MaterialLoader.Start can defer one frame after placement. Its
             // original entry owns renderer disable/assignment and may also be
@@ -67,7 +100,13 @@ internal static class QuestProceduralLoading
                     if (data == null || !NeedsMaterialAssignment(data.Renderer, room)
                         || data.MaterialReferences == null || data.MaterialReferences.Count == 0) continue;
                     var handles = data._handles;
-                    if (handles == null || handles.Length != data.MaterialReferences.Count) return true;
+                    if (handles == null || handles.Length != data.MaterialReferences.Count)
+                    {
+                        if (describe) detail = "material-handles:" + Label(data.Renderer.name) + ":room=" + Label(room.name)
+                            + ":loader=" + Label(loader.name) + ":handles=" + (handles == null ? -1 : handles.Length)
+                            + ":refs=" + data.MaterialReferences.Count + ":enabled=" + data.Renderer.enabled;
+                        return true;
+                    }
                     bool nativeCallbackCompleted = data._loadedMaterials != null
                         && data._loadedMaterials.Length >= handles.Length;
                     if (nativeCallbackCompleted)
@@ -76,7 +115,13 @@ internal static class QuestProceduralLoading
                     Material[] assigned = data.Renderer.sharedMaterials;
                     foreach (var handle in handles)
                     {
-                        if (!handle.IsValid() || !handle.IsDone || handle.Result == null) return true;
+                        if (!handle.IsValid() || !handle.IsDone || handle.Result == null)
+                        {
+                            if (describe) detail = "material-pending:" + Label(data.Renderer.name) + ":room=" + Label(room.name)
+                                + ":valid=" + handle.IsValid() + ":done=" + (handle.IsValid() && handle.IsDone)
+                                + ":enabled=" + data.Renderer.enabled;
+                            return true;
+                        }
                         // Original callbacks fill _loadedMaterials then assign
                         // synchronously on this same main thread. A complete
                         // array proves that native edge even when a later local
@@ -88,13 +133,21 @@ internal static class QuestProceduralLoading
                         foreach (Material material in assigned)
                             if (material != null && ReferenceEquals(ScenarioEnvironmentBudget.CanonicalMaterial(material), handle.Result))
                             { found = true; break; }
-                        if (!found) return true;
+                        if (!found)
+                        {
+                            if (describe) detail = "material-assignment:" + Label(data.Renderer.name) + ":room=" + Label(room.name)
+                                + ":loaded=" + Label(handle.Result.name) + ":slots=" + assigned.Length
+                                + ":callback=" + nativeCallbackCompleted + ":enabled=" + data.Renderer.enabled;
+                            return true;
+                        }
                     }
                 }
             }
         }
         return false;
     }
+
+    private static string Label(string name) => name.Length <= 64 ? name : name.Substring(0, 64);
 
     private static bool NeedsMaterialAssignment(Renderer? renderer, ProceduralMapTile room)
     {

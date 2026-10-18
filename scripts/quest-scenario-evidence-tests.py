@@ -56,7 +56,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--control", choices=("desktop-gate", "launch-cap", "gpu-transform", "gpu-native-light", "gpu-private-cleanup", "renderer-state", "material-admission", "entity-parameter-property",
         "lifecycle-desktop", "lifecycle-inactive", "lifecycle-native-handle", "lifecycle-unrelated-handle", "lifecycle-preview-content", "lifecycle-native-loading", "lifecycle-repeat", "lifecycle-native-content",
-        "loading-boundary", "loading-visible-scope", "loading-busy", "loading-material-assignment", "loading-occlusion-object", "loading-occlusion-tile", "loading-material-room", "lifecycle-playerloop-focus", "lifecycle-playerloop-window", "lifecycle-playerloop-pause", "lifecycle-playerloop-install", "lifecycle-playerloop-failure"))
+        "loading-boundary", "loading-visible-scope", "loading-busy", "loading-material-assignment", "loading-occlusion-object", "loading-occlusion-tile", "loading-material-room", "loading-blocker-evidence", "loading-original-hidden-wait", "lifecycle-playerloop-focus", "lifecycle-playerloop-window", "lifecycle-playerloop-pause", "lifecycle-playerloop-install", "lifecycle-playerloop-failure"))
     parser.add_argument("--gpu", action="store_true")
     parser.add_argument("--playerloop", action="store_true")
     parser.add_argument("--loading", action="store_true")
@@ -143,7 +143,7 @@ def main():
                                   "Hidden and preview requests do not keep the native loader open"),
         "loading-busy": ("!placement.IsPlacementCompleted || entity.IsBusy", "!placement.IsPlacementCompleted",
                          "Original busy state keeps the loading boundary open after an early placement callback"),
-        "loading-material-assignment": ("if (!found) return true;", "/* injected missing original assignment gate */",
+        "loading-material-assignment": ("if (!found)", "if (false && !found)",
                                         "Completed material handles cannot close before original renderer assignment"),
         "loading-occlusion-object": ("renderer.GetComponent<ObjectOcclusionVolume>() == null", "true",
                                      "Native object occlusion inputs do not wait for their unused Addressables material"),
@@ -151,6 +151,10 @@ def main():
                                    "Native tile occlusion ownership keeps auxiliary materials outside world readiness"),
         "loading-material-room": ("renderer.GetComponentInParent<ProceduralMapTile>() != room", "false",
                                   "Cross-room material references cannot make an unrevealed preview block visible readiness"),
+        "loading-blocker-evidence": ("return detail;", 'return "none";',
+                                     "Loading evidence names the actual pending room before placement completion"),
+        "loading-original-hidden-wait": ("(native as System.IDisposable)?.Dispose();", "yield return native;",
+                                         "Quest loading completes from actual requested readiness without hidden preview frame waits"),
     }
     if args.control in loading_controls:
         before, after, _ = loading_controls[args.control]

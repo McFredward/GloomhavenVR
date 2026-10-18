@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.IO;
 using System.Reflection;
 using GloomhavenVR.Core;
@@ -179,6 +180,88 @@ public static class InteractionProgram
             UnityEngine.Object.DestroyImmediate(original);
         }
     }
+    private static void SpinnerOpacityLifecycle()
+    {
+        // Exercise the original game's actual coroutine, not a second fixture
+        // implementation of the glow. The retained Intro scene authors min=0,
+        // glow=.07 and spin=-6. Acquiring the live Image at the minimum phase
+        // must not make that animated zero a permanent multiplier.
+        Type animatorType = Type.GetType("AnimateLoadingIcon, GH.Runtime")!;
+        Check(animatorType != null, "original native spinner animator loads");
+        var texture = new Texture2D(16, 16, TextureFormat.RGBA32, false, false)
+            { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+        var pixels = new Color[256];
+        for (int i = 0; i < pixels.Length; i++) pixels[i] = new Color(1, .75f, .5f, i % 16 < 8 ? .6f : 1);
+        texture.SetPixels(pixels); texture.Apply(false);
+        Sprite sprite = Sprite.Create(texture, new Rect(0, 0, 16, 16), new Vector2(.5f, .5f));
+        foreach (bool quest in new[] { false, true }) foreach (bool boot in new[] { false, true })
+        {
+            QuestStandalonePlatform.Enabled = quest;
+            Image basis = Image(sprite, new Vector2(64, 64), new Vector2(.5f, .5f), true);
+            Image overlay = Image(sprite, new Vector2(64, 64), new Vector2(.5f, .5f), true);
+            basis.color = new Color(.953f, .867f, .671f, .42f);
+            overlay.color = Color.white;
+            var go = new GameObject("native-original-spinner-animator"); go.SetActive(false);
+            var animator = (MonoBehaviour)go.AddComponent(animatorType!);
+            void Set(string field, object value) => animatorType!.GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(animator, value);
+            Set("m_LoadingIconBase", basis.gameObject); Set("m_LoadingIconOverlay", overlay.gameObject);
+            Set("m_IconSpinSpeed", -6f); Set("m_IconGlowSpeed", .07f);
+            Set("m_IconUpdateSpeed", .07f); Set("m_IconOverlayMinAlpha", 0f);
+            go.SetActive(true); animator.StopAllCoroutines();
+            // The minimum is a normal native animation phase. Begin there so
+            // the prior sampled-alpha defect deterministically reproduces.
+            overlay.color = new Color(.9f, .8f, .7f, 0);
+            overlay.rectTransform.localRotation = Quaternion.identity;
+            basis.rectTransform.localRotation = Quaternion.identity;
+            Set("m_IncreaseAlpha", true);
+            var native = (IEnumerator)animatorType!.GetMethod("AnimateIcon", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(animator, null)!;
+            var indicator = new LoadingIndicator();
+            Check(Time.unscaledDeltaTime > 0, "real Unity spinner lifecycle receives a live frame delta");
+            GameObject quad = indicator.BuildAnimation(overlay, basis, boot, Time.unscaledDeltaTime);
+            Color peak = Color.clear;
+            for (int step = 0; step < 61; step++)
+            {
+                Check(native.MoveNext(), "original native spinner coroutine remains live");
+                indicator.StepAnimation();
+                Color actual = indicator.OverlayColor;
+                if (quest)
+                {
+                    Close(actual.a, overlay.color.a, "Quest native overlay glow survives acquisition at zero alpha");
+                    Close(Quaternion.Angle(indicator.OverlayRotation, overlay.rectTransform.localRotation), 0,
+                        "Quest overlay retains the original stepped animation clock");
+                    for (int channel = 0; channel < 3; channel++) Close(actual[channel], overlay.color[channel], "native glow preserves authored RGB");
+                    if (actual.a > peak.a) peak = actual;
+                }
+                else
+                    Close(actual.a, 0, "Desktop keeps its established spinner opacity sampling");
+                Close(indicator.BaseColor.a, .42f, "authored base alpha remains independent of native overlay animation");
+            }
+            if (quest)
+            {
+                Check(peak.a > .95f, "Quest spinner reaches a visible native glow peak");
+                // Use the actual native Image mesh and a real camera to ensure
+                // the qualified bright phase emits visible art, including when
+                // the Intro source was copied into a mod-owned GPU texture.
+                overlay.color = Color.white;
+                overlay.rectTransform.localRotation = basis.rectTransform.localRotation = Quaternion.identity;
+                quad.transform.localRotation = Quaternion.identity;
+                quad.GetComponent<Renderer>().sharedMaterial.color = peak;
+                MethodInfo populate = typeof(Image).GetMethod("OnPopulateMesh", BindingFlags.Instance | BindingFlags.NonPublic,
+                    null, new[] { typeof(VertexHelper) }, null)!;
+                using (var helper = new VertexHelper())
+                {
+                    populate.Invoke(overlay, new object[] { helper });
+                    var original = new Mesh(); helper.FillMesh(original);
+                    SpinnerPixels(original, quad, overlay, basis, 64, Vector2.zero, boot);
+                    UnityEngine.Object.DestroyImmediate(original);
+                }
+            }
+            indicator.ReleaseCopies();
+            UnityEngine.Object.DestroyImmediate(go);
+            UnityEngine.Object.DestroyImmediate(overlay.gameObject); UnityEngine.Object.DestroyImmediate(basis.gameObject);
+        }
+        UnityEngine.Object.DestroyImmediate(sprite); UnityEngine.Object.DestroyImmediate(texture);
+    }
     private static void SpinnerPixels(Mesh native, GameObject quad, Image image, Image basis, float units, Vector2 centre, bool boot)
     {
         Vector3[] nativeVertices = native.vertices;
@@ -244,7 +327,8 @@ public static class InteractionProgram
                             min = Mathf.Min(min, neighbour[channel]); max = Mathf.Max(max, neighbour[channel]);
                         }
                         Check(actual[index][channel] >= min - .02f && actual[index][channel] <= max + .02f,
-                            "boot GPU copy remains within one native bilinear filter footprint");
+                            "boot GPU copy remains within one native bilinear filter footprint index=" + index + " channel=" + channel
+                                + " actual=" + actual[index][channel] + " expectedRange=" + min + ":" + max);
                     }
                     continue;
                 }
@@ -324,6 +408,7 @@ public static class InteractionProgram
     public static int Run()
     {
         checks = 0;
+        SpinnerOpacityLifecycle();
         AtlasCopy();
         RenderTexture desktop = Target(false, 512), quest = Target(true, 512);
         Check(!desktop.useMipMap && desktop.filterMode == FilterMode.Bilinear, "desktop capture defaults preserved");
