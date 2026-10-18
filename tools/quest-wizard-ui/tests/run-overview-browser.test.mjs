@@ -107,7 +107,7 @@ test('main run rows expose each status and storage owner without singleton actio
     assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.blocked,'resume'))}))`),true);
     assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.cancelled,'delete'))}))`),true);
     assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.complete,'resume'))}))`),false);
-    assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.complete,'delete'))}))`),false);
+    assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.complete,'delete'))}))`),true);
     assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.running,'open'))}))`),true);
     assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.running,'delete'))}))`),false);
     assert.equal(await client.evaluate(`document.querySelector('#home-runs-list [data-session="${ids.blocked}"] h4').textContent.includes('${ids.blocked}')`),false,'opaque full identifiers are not the main label');

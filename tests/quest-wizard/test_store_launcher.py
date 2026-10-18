@@ -111,4 +111,22 @@ class LauncherHttpTests(unittest.TestCase):
             self.assertEqual(calls,['steam','epic','gog'])
         self.assertEqual(self.store.load(saved['session']),before)
 
+class UpdateMaintenanceIntegrationTests(unittest.TestCase):
+    def test_success_releases_run_lock_before_optional_cleanup_and_failure_preserves_success(self):
+        import update_storage
+        from state import file_lock
+        with tempfile.TemporaryDirectory() as temp:
+            store=Store(Path(temp));saved=store.create(wizard.choices({'gameRoot':'fixture'}));engine=wizard.Engine(store)
+            def finish(value, _session):
+                value['status']='complete';store.event(value,'run_complete');return value
+            calls=[]
+            def maintenance(root):
+                calls.append(root)
+                with file_lock(root/'run.lock'):
+                    self.assertEqual(store.load(saved['session'])['status'],'complete')
+                raise OSError('Optional cleanup is temporarily locked')
+            with mock.patch.object(engine,'_run',side_effect=finish),mock.patch.object(update_storage,'maintain',side_effect=maintenance):
+                result=engine.run(saved['session'])
+            self.assertEqual(result['status'],'complete');self.assertEqual(calls,[store.root])
+
 if __name__=='__main__':unittest.main()
