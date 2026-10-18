@@ -1,5 +1,40 @@
 # State — where the project stands
 
+**Guided maintenance v1 published, 2026-10-18; runtime remains707.**
+
+The maintainer's actual v2 report now matches both Windows reference files,
+including vrpathreg.exe (840856 bytes, no hardlink). The Frame is reachable at
+its confirmed address and has the enabled legacy public patch; the new PC
+provider is absent. This is setup prerequisite evidence, not a new MR result.
+
+Native setup now has width-aware spaced EN/DE sections, separate wrapped path
+lines and numbered actions. The same preview entry point now requests the separate public
+setup-manager-v1 maintenance package, offering Check / Uninstall / Exit.
+It does not ship or install the unfinished full-resolution two-sided bridge.
+Actual removal uses a canonical byte-pinned helper and the exact owned receipt;
+all artifacts and the receipt are checked before staging and again after the
+native lock is acquired. Altered/foreign files are preserved. A running SteamVR
+or unresolved camera restoration returns pending with disabled activation and
+recovery files retained. After the user manually stops SteamVR, another pass
+can restore the original camera baseline and finish. No PC component, pairing,
+Steam service or headset restart is silently changed.
+
+Focused integration evidence:39 presentation cases;26 bootstrap cases (the
+PowerShell-specific case is covered in actual Windows CI);8 management cases including one
+using the real numbered presentation, and4 worker causal mutation controls.
+The actual packaged engine runs management --check under an isolated interpreter
+without Frame contact. Source/result evidence is under
+`.planning/debug/steamlink-sender711/`. Windows/Linux setup CI39138239216 passes
+at native99699b5, including actual bundled Python, OpenSSH, archive parser and
+management --check execution without Frame contact. The new menu pipe fixture
+normalizes Windows CRLF before checking for cursor-control CR; no product change
+was needed for that failed fixture. The public unauthenticated download and both
+raw preview entry points match the reviewed bytes. Package14140107 bytes,
+SHA256 2d30259b4db9adf52243d4ab3f953431326f813a0f28b67a324ca184be27d484.
+No Frame files or services were changed. Actual native runtime control work
+is separate; install remains unavailable until the full source-AU,
+selected eye/extent, mask/renderer and provider integration chain is established.
+
 **Friendly setup inspection v2 published, 2026-10-18; runtime remains707.**
 
 The maintainer's actual v1 report reaches the AArch64 Frame, finds its enabled
