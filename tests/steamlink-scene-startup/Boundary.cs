@@ -129,3 +129,16 @@ namespace GloomhavenVR.Core.SteamLink
         public void Dispose() => Ready=false;
     }
 }
+
+namespace GloomhavenVR.Core.SteamLink
+{
+    // The optional Cheats probe owner has a separate lifecycle/real-Unity
+    // fixture. Existing source tests keep the normal MR input unchanged.
+    internal static class SteamLinkProjectionProbe
+    {
+        internal static void Tick() { }
+        internal static void Stop() { }
+        internal static void PackFailed() { }
+        internal static UnityEngine.RenderTexture InputForFrame(UnityEngine.RenderTexture source,int frame) => source;
+    }
+}

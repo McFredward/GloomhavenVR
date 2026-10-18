@@ -28,7 +28,7 @@ internal static class SteamLinkProjectionProbe
     internal static Phase Status => State.Current;
     internal static bool Eligible => VRLog.WantsDebug && VRSession.IsRunning
         && WorldUI.VROptionsTab.ProjectionProbeCheatsEnabled && MixedReality.Enabled.Value
-        && SteamLinkSceneRuntime.Requested;
+        && SteamLinkSceneRuntime.Requested && SteamLinkSceneRuntime.ProjectionProbeSourceReady;
 
     internal static bool Arm()
     {
@@ -58,7 +58,8 @@ internal static class SteamLinkProjectionProbe
 
     internal static void Tick()
     {
-        State.Tick(Eligible, WorldUI.VROptionsTab.IsOpen);
+        // Ordinary users do not even poll the options window for this test.
+        if (State.OwnsTest) State.Tick(Eligible, WorldUI.VROptionsTab.IsOpen);
         RetireZero();
     }
     internal static void Stop() { State.Stop(); RetireZero(); }
@@ -79,6 +80,7 @@ internal static class SteamLinkProjectionProbe
     internal static RenderTexture InputForFrame(RenderTexture original, int frame)
     {
         Tick();
+        if (State.Current == Phase.Active && (_zero == null || !_zero.IsCreated())) PackFailed();
         return Frames.Select(original, _zero, frame, State.Current == Phase.Active);
     }
 
@@ -97,7 +99,7 @@ internal static class SteamLinkProjectionProbe
                 _frame = frame;
                 _zeroFrame = active && zero != null && zero.IsCreated();
             }
-            return _zeroFrame && zero != null ? zero : original;
+            return _zeroFrame && zero != null && zero.IsCreated() ? zero : original;
         }
     }
 
@@ -171,6 +173,10 @@ internal static class SteamLinkProjectionProbe
             }
             finally
             {
+                // EOF, process exit and parser failure revoke zero-base authority
+                // BEFORE any cooperative teardown wait. Keep only this frame's
+                // already-latched eye decision, never seconds of a missing game.
+                lock (_gate) if (_epoch == epoch) { _wanted = false; _phase = Phase.Stopping; }
                 if (child != null)
                 {
                     bool stopped;
@@ -206,12 +212,21 @@ internal static class SteamLinkProjectionProbe
                     {
                         string input = line.ToString(); line.Clear();
                         if (input.EndsWith("\r", StringComparison.Ordinal)) input = input.Substring(0, input.Length - 1);
+                        if (input.IndexOf('\r') >= 0) throw new InvalidDataException("Embedded projection carriage return.");
                         bool ready = protocol.Accept(input);
+                        if (input.StartsWith("SFNP_PROJECTION_META_V2 ", StringComparison.Ordinal)
+                            || input.StartsWith("SFNP_PROJECTION_GEOMETRY_V2 ", StringComparison.Ordinal)
+                            || input.StartsWith("SFNP_PROJECTION_REFUSED_V2 ", StringComparison.Ordinal))
+                            if (CurrentEpoch(epoch)) _log(input);
+                        if (input.StartsWith("SFNP_PROJECTION_REFUSED_V2 ", StringComparison.Ordinal))
+                            throw new IOException("Projection helper refused.");
+                        if (input == StoppedLine) lock (_gate) if (_epoch == epoch)
+                        { _wanted = false; _phase = Phase.Stopping; _stop?.TrySetResult(true); }
                         if (ready) lock (_gate) if (_wanted && _epoch == epoch) { _phase = Phase.Active; _log("both public projections ready; zero base begins at the next complete-eye frame boundary."); }
                     }
                     else
                     {
-                        if (value < 32 || line.Length >= MaximumLine - 1) throw new InvalidDataException("Projection line budget/encoding.");
+                        if ((value < 32 && value != '\r') || line.Length >= MaximumLine - 1) throw new InvalidDataException("Projection line budget/encoding.");
                         line.Append(value);
                     }
                 }

@@ -18,6 +18,9 @@ internal static class SteamLinkSceneRuntime
     private static Camera? _failedHead;
 
     internal static bool Active => _output != null && _output.Ready;
+    internal static bool ProjectionProbeSourceReady => _output != null && _output.ReadyForProjection
+        && _output.Head.isActiveAndEnabled && StereoReady(_output.Head)
+        && Owns(_output, _output.Head, _epoch);
     internal static bool Requested => MixedReality.SteamLinkNative != null
         && MixedReality.SteamLinkNative.Value && !FrameNativePassthrough.Required
         && SteamLinkConnection.Available;
@@ -116,7 +119,7 @@ internal static class SteamLinkSceneRuntime
 
     internal static void Exit()
     {
-        SteamLinkProjectionProbe.Tick();
+        SteamLinkProjectionProbe.Stop();
         SceneHeadOutput? previous = _output;
         _output = null; // Revoke callback authority before releasing any owned resource.
         if (previous == null) return;
@@ -153,6 +156,7 @@ internal sealed class SceneHeadOutput : MonoBehaviour
     internal Camera Head { get; private set; } = null!;
     internal bool Ready => !_closed && _coverage != null && _coverage.Ready
         && _pack != null && _materials != null && _materials.Ready;
+    internal bool ReadyForProjection => Ready && _cohortReady && _pack!.Profile == SceneAtlasProfile.RobustProfile;
     internal string Failure { get; private set; } = "Scene source has not been prepared.";
     private SceneEyeCoverage? _coverage;
     private SceneEyeOutput? _pack;
@@ -290,7 +294,7 @@ internal sealed class SceneHeadOutput : MonoBehaviour
                             + " source=" + source.width + "x" + source.height + " format=" + source.graphicsFormat
                             + " samples=" + source.antiAliasing + " carrier="
                             + (destination == null ? "XR target" : destination.width + "x" + destination.height)
-                            + "; " + _pack.Profile + ".");
+                            + "; " + _pack!.Profile + ".");
                     }
                 }
             }
@@ -332,6 +336,7 @@ internal sealed class SceneHeadOutput : MonoBehaviour
     {
         if (_closed) return;
         _closed = true;
+        SteamLinkProjectionProbe.Tick();
         if (_materials != null)
         {
             if (_materialCallbacks)
