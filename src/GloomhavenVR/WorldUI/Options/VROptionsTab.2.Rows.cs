@@ -1685,6 +1685,7 @@ internal static partial class VROptionsTab
         // labels, and without this the handle would sit where the last drag left it.
         BindValueLabels(row, title, item, component);
         Sliders.Add((slider, item, component));
+        QuestOptionsMask.ApplySlider(slider, QuestStandalonePlatform.Enabled);
 
         AttachTooltip(row, item, title, hintKey);
         return true;

@@ -1210,6 +1210,7 @@ internal static partial class VROptionsTab
 
         ContentRoot = BuildContentRoot(holder, scrolled: scroll != null && scroll.content != null);
         TabBarRoot = BuildTabBar(scroll);
+        QuestOptionsMask.ApplyViewport(scroll, QuestStandalonePlatform.Enabled);
         clone.gameObject.SetActive(false);
 
         LogCloneHierarchy(clone);
