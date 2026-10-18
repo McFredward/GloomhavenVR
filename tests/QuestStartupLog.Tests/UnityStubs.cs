@@ -95,6 +95,10 @@ namespace UnityEngine.Networking
 }
 namespace GloomhavenVR.Quest
 {
+    // File publication is qualified by QuestCardAlphaContent.Tests; this fixture
+    // isolates startup logging and its subscription/reserve lifecycle.
+    public static class QuestCardAlphaContent
+    { public static bool Install(string apk, string streamingAssets, string root) { return false; } }
     public class QuestGameMenu { }
     public class QuestGameKeyboard { public bool Bound, Visible; public string Failure; }
     // These are lifecycle seams for the logging fixture, not a real mod execution proof.
