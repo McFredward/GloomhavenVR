@@ -39,6 +39,17 @@ native Linux sender support is not established by the portable cross-build.
 Actual Frame coded-AU interception, reverse control, selected-frame/UV association
 and new coverage rendering remain required before user installation/testing.
 
+Official narrowly downloaded Steam host references are now available privately.
+The Windows registration-tool revision comes with the exact maintainer-reported
+driver hash. The Linux x86-64 source uses Vulkan Video, not the Windows NVENC
+table path; its complete-AU borrow/transmit boundary remains unimplemented.
+The native repository records the exact depot/manifests and pins in
+`docs/research/linux-host-reference-20261018.md`; no Valve binaries are published.
+Native CI is green at060a862 and Linux/Windows PowerShell5.1 setup CI is green
+at8e7debf; finalfffd799 only adds source-provenance documentation. All six own
+worker worktrees and transient build/download tools have been removed after
+integration; small source/capture/result evidence and current deliverables remain.
+
 **Larger same-stream RGB/coverage carrier review, 2026-10-18; runtime remains707.**
 
 The maintainer proposes a larger actual Steam Link video to retain the selected
