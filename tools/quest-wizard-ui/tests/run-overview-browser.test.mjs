@@ -195,7 +195,7 @@ test('a delayed metadata response cannot restore a deleted main row',
   }finally{try{await client?.close();}finally{await server.close();}}
  });
 
-test('newer completed run metadata supersedes an older blocked detail view and removes resume/delete actions',
+test('newer completed metadata removes resume while retaining explicit history deletion',
  {skip:!existsSync(chrome),timeout:30000},async()=>{
   const server=await fixture({single:true});let client;try{
     client=await launch(server);await client.chooseHome('resume');await client.wait("!document.getElementById('progress-page').hidden");
@@ -203,8 +203,8 @@ test('newer completed run metadata supersedes an older blocked detail view and r
     await client.wait("!document.getElementById('home-runs-refresh').disabled");await client.evaluate("document.getElementById('home-runs-refresh').click()");
     await client.wait(`Boolean(document.querySelector(${JSON.stringify(select(ids.blocked,'result'))}))`);
     assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.blocked,'resume'))}))`),false);
-    assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.blocked,'delete'))}))`),false);
-    assert.equal(await client.evaluate("document.getElementById('storage-run').options.length"),0,'old loaded state cannot supply a deletable storage selector either');
+    assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.blocked,'delete'))}))`),true);
+    assert.equal(await client.evaluate("document.getElementById('storage-run').options.length"),1,'completed metadata allows explicit history deletion without resuming work');
     assert.equal(server.requests.filter(item=>item.path==='/api/run'||item.path==='/api/storage/plan').length,0);
   }finally{try{await client?.close();}finally{await server.close();}}
  });

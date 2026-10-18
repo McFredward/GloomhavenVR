@@ -121,7 +121,7 @@ test('all stopped runs are selectable, old intermediate cleanup is optional and 
     const server=await fixture({many:true});let client;
     try{
       client=await launch(server);await client.chooseHome('storage');
-      await client.wait("document.getElementById('storage-run').options.length===16");
+      await client.wait("document.getElementById('storage-run').options.length===17");
       await client.evaluate("document.getElementById('storage-details').open=true;document.getElementById('storage-plan-duplicates').click()");
       await client.wait("document.getElementById('storage-status').textContent.includes('Zwischendaten angehaltener Runs bleiben erhalten')");
       assert.equal(await client.evaluate("document.getElementById('storage-confirmation').hidden"),true,'empty duplicate preview never auto-retires a run');
@@ -190,16 +190,17 @@ test('an old in-flight build status cannot revive a retired run',
     }finally{try{await client?.close();}finally{await server.close();}}
   });
 
-for(const options of [{status:'running'},{status:'complete'},{activeUtility:true}])test('run retirement admission stays disabled for '+JSON.stringify(options),
+for(const options of [{status:'running'},{status:'complete'},{activeUtility:true}])test('run retirement respects active ownership and permits completed history for '+JSON.stringify(options),
   {skip:!existsSync(chrome),timeout:30000},async()=>{
     const server=await fixture(options);let client;
     try{
       client=await launch(server);
       await client.wait("document.querySelectorAll('#home-runs-list .run-row').length===3");
       if(options.activeUtility)await client.wait("document.querySelector('#home-runs-list [data-session=\""+session+"\"] [data-run-action=delete]').disabled");
+      else if(options.status==='complete')assert.equal(await client.evaluate("document.querySelector('#home-runs-list [data-session=\""+session+"\"] [data-run-action=delete]').disabled"),false);
       else assert.equal(await client.evaluate("document.querySelector('#home-runs-list [data-session=\""+session+"\"] [data-run-action=delete]')"),null);
       await client.chooseHome('storage');await client.wait("document.getElementById('storage-run').options.length>=1");
-      assert.equal(await client.evaluate("[...document.getElementById('storage-run').options].some(row=>row.value==='"+session+"')"),options.activeUtility??false,'active and completed rows never become deletable');
+      assert.equal(await client.evaluate("[...document.getElementById('storage-run').options].some(row=>row.value==='"+session+"')"),options.activeUtility===true||options.status==='complete','active builds stay protected while completed history is eligible');
       if(options.activeUtility)assert.equal(await client.evaluate("document.getElementById('storage-run-plan').disabled"),true,'active export remains protected');
       assert.equal(mutations(server).length,0);
       assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
