@@ -32,7 +32,7 @@ namespace GloomhavenVR.Quest
             public double elapsedSeconds, lastContentProgressAgeSeconds;
             public int mainThreadFrames, startupOverallPercent;
             public QuestFrameSnapshot frameTiming;
-            public string[] combatAudio, backgroundAudio, cardGuides;
+            public string[] combatAudio, backgroundAudio, cardGuides, performance;
             public bool snapshotWriteOffThread;
             public bool loadingViewAvailable, contentLogWriteFailed, campaignPackageBuilt, proceduralBridgeConfigured;
             public bool contentReady, modContentReady, addressablesReady, originalBootstrapStarted, modInitializationComplete, rigReady, modLifecycleAvailable, fullGameReady, eosAuthorised, proceduralRuntimeAvailable, voiceNativeAvailable, passthroughActive, inviteKeyboardBound, inviteKeyboardVisible, realKeyboardVisible, focused, paused;
@@ -462,6 +462,7 @@ namespace GloomhavenVR.Quest
                 proceduralBackend = proceduralBackend,
                 combatAudio = GloomhavenVR.Core.QuestStandalonePlatform.AudioPlaybackDiagnostics,
                 backgroundAudio = GloomhavenVR.Core.QuestStandalonePlatform.BackgroundAudioDiagnostics,
+                performance = GloomhavenVR.Core.QuestStandalonePlatform.PerformanceDiagnostics,
                 cardGuides = GloomhavenVR.Core.QuestStandalonePlatform.DebugLogging
                     ? GloomhavenVR.Core.QuestStandalonePlatform.CardGuideDiagnostics : Array.Empty<string>(),
                 modBuild = build != null ? build.modBuild : 0, inputKey = build != null ? build.inputKey : null, state = State, failureDetail = FailureDetail,

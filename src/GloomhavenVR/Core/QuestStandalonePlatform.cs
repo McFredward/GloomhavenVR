@@ -31,6 +31,7 @@ public static class QuestStandalonePlatform
     // lanes; original playback/guide owners remain unchanged.
     public static string[] AudioPlaybackDiagnostics => DebugLogging ? QuestCombatAudioEvidence.Snapshot : Array.Empty<string>();
     public static string[] BackgroundAudioDiagnostics => DebugLogging ? QuestCombatAudioEvidence.ObserveBackground() : Array.Empty<string>();
+    public static string[] PerformanceDiagnostics => DebugLogging ? QuestPerformanceEvidence.Snapshot() : Array.Empty<string>();
     public static string[] CardGuideDiagnostics { get; set; } = Array.Empty<string>();
 
     public static bool Enabled => Application.platform == RuntimePlatform.Android && _resourceDirectory != null;

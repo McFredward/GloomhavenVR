@@ -149,6 +149,7 @@ namespace GloomhavenVR.Core
     public static class QuestStandalonePlatform {
         public static string[] AudioPlaybackDiagnostics => System.Array.Empty<string>();
         public static string[] BackgroundAudioDiagnostics => System.Array.Empty<string>();
+        public static string[] PerformanceDiagnostics => System.Array.Empty<string>();
         public static string[] CardGuideDiagnostics { get; set; } = System.Array.Empty<string>();
  public static bool DebugLogging; }
 }
