@@ -10,7 +10,7 @@ from state import Cancelled, WizardError
 
 PROJECT_AREAS = ("project-lifecycle", "prepare-resume", "project-content-transactions", "preparation-repair")
 INTERMEDIATE_CATEGORIES = frozenset(("inputs", "converted-assets", "unity-projects", "unity-caches"))
-STOPPED = frozenset(("ready", "failed", "blocked", "cancelled", "interrupted"))
+STOPPED = frozenset(("ready", "failed", "blocked", "cancelled", "interrupted", "complete"))
 
 
 class Ownership:
@@ -21,6 +21,7 @@ class Ownership:
         self.retained = set(); self.warnings = []; self.complete = True; self.expected_files = {}; self.project_groups = {}
         self.exclusive_bytes = self.shared_bytes = self.unassigned_bytes = 0
         self.reusable_bytes = self.deliverable_bytes = self.tool_bytes = self.diagnostic_bytes = 0
+        self.fast_update_bytes = 0
         self._build()
 
     def check_cancel(self):
@@ -87,6 +88,8 @@ class Ownership:
                        "totalBytes": 0, "exact": True, "complete": True, "reclaimableExact": False}
                 self.rows[folder.name] = row; scopes[folder.name] = scope
                 self.claim(folder, folder.name)
+                for key in scope.get("updates", ()):
+                    self.claim(self.build / "updates" / key, folder.name)
                 try:
                     for target in h._source_targets(self.root, folder, folder.name, proofs, [], cancel=self.cancel):
                         self.claim(target, folder.name, intermediate=True, reclaimable=True)
@@ -140,6 +143,26 @@ class Ownership:
                         group.add(related)
                         self.claim(related, folder.name, intermediate=True, reclaimable=candidate)
                     self.project_groups[project] = group
+        # Compact updates retain one compiler project per original game/ABI,
+        # rather than a copy per Wizard run. Its producer-owned codeKey and
+        # gameInputKey bind it to the exact captured plans already observed.
+        try:
+            for project in h._children(self.build / "updates/code-projects", cancel=self.cancel):
+                marker = project / "QuestCodeUpdate/code-project-owner.json"
+                if not marker.is_file(): continue
+                value = h._read(marker, proofs)
+                owner = value.get("owner")
+                if set(value) != {"owner", "state"} or value.get("state") != "ready" or not isinstance(owner, dict): continue
+                if not h._key(owner.get("codeKey")) or not h._key(owner.get("gameInputKey")): continue
+                for session, scope in scopes.items():
+                    if owner["codeKey"] in scope.get("updates", ()) or owner["gameInputKey"] in scope["inputs"]:
+                        self.claim(project, session, intermediate=True)
+            for key_folder in h._children(self.build / "updates/game-inputs", cancel=self.cancel):
+                for session, scope in scopes.items():
+                    if key_folder.name in scope["games"]: self.claim(key_folder, session, intermediate=True)
+        except Cancelled: raise
+        except (WizardError, OSError, ValueError, TypeError, KeyError):
+            self.warn("unreadable_update_owner", self.build / "updates")
         try:
             self.report(self.build / "cache")
             raw_owners = h._raw_owners(self.build, manifests, proofs, verify_files=False, cancel=self.cancel)
@@ -195,6 +218,10 @@ class Ownership:
         else: self.unassigned_bytes += size
         intermediate = category in INTERMEDIATE_CATEGORIES or any(claim["intermediate"] for _, claim in matches)
         if intermediate: self.reusable_bytes += size
+        parts = path.relative_to(self.build).parts if self.build in path.parents else ()
+        fast_update = (parts[:2] in (("updates", "code-projects"), ("updates", "source-inputs"), ("updates", "game-inputs"))
+                       or len(parts) > 2 and parts[0] == "updates" and parts[2] in ("code-player.apk", "code-player.apk.code-build.json"))
+        if fast_update: self.fast_update_bytes += size
         if category == "apk-content": self.deliverable_bytes += size
         if category == "tools": self.tool_bytes += size
         if category == "logs-captures": self.diagnostic_bytes += size
@@ -229,4 +256,8 @@ class Ownership:
                 "unassignedBytes": self.unassigned_bytes, "reusableBytes": self.reusable_bytes,
                 "deliverableBytes": self.deliverable_bytes, "toolBytes": self.tool_bytes,
                 "diagnosticBytes": self.diagnostic_bytes, "ownershipComplete": self.complete,
+                "fastUpdateBytes": self.fast_update_bytes,
+                "fastUpdatePolicy": {"schema": 1, "retainedOnRunRemoval": True,
+                    "messages": {"en": "Fast-update compiler data is shared between runs and retained when old runs are removed.",
+                                 "de": "Daten für schnelle Updates werden von mehreren Läufen genutzt und beim Entfernen alter Läufe behalten."}},
                 "ownershipWarnings": self.warnings}

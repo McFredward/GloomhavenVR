@@ -82,7 +82,13 @@ class RunStorageTests(unittest.TestCase):
         self.run["status"] = "complete"; self.store.save(self.run)
         result = cleanup.inventory(self.root); row = self.row(result)
         self.assertEqual(row["deliverableBytes"], apk.stat().st_size + bank.stat().st_size)
-        self.assertEqual(row["reclaimableBytes"], 0)
+        # Successful run history can now be retired too. Its exclusive source
+        # intermediates may be offered, but published APK/content never are.
+        preview = cleanup.plan_session(self.root, self.session, remove_data=True)
+        offered = {item["path"] for item in preview["paths"]}
+        self.assertNotIn(apk.relative_to(self.root).as_posix(), offered)
+        self.assertNotIn(bank.relative_to(self.root).as_posix(), offered)
+        self.assertLessEqual(row["reclaimableBytes"], row["intermediateBytes"])
         self.assertTrue(apk.is_file() and bank.is_file())
 
     def test_inventory_does_not_open_payloads_or_hash_game_data(self):

@@ -114,15 +114,15 @@ class RunCleanupTests(unittest.TestCase):
         self.assertTrue(project.is_dir()); self.assertFalse((self.root / "latest-session.json").exists())
 
     def test_every_supported_stopped_status_can_be_retired(self):
-        for status in ("ready", "failed", "blocked", "cancelled", "interrupted"):
+        for status in ("ready", "failed", "blocked", "cancelled", "interrupted", "complete"):
             with self.subTest(status=status):
                 run = self.other_run(status)
                 selected = cleanup.plan_session(self.root, run["session"])
                 cleanup.execute(self.root, selected)
                 self.assertFalse(self.store.session_dir(run["session"]).exists())
 
-    def test_running_and_successful_runs_are_not_removed(self):
-        for status in ("running", "complete"):
+    def test_running_runs_are_not_removed(self):
+        for status in ("running",):
             run = self.other_run(status)
             with self.assertRaises(state.WizardError): cleanup.plan_session(self.root, run["session"], remove_data=True)
             self.assertTrue(self.store.session_dir(run["session"]).is_dir())

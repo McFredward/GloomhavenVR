@@ -45,6 +45,12 @@ INVENTORY_CATEGORIES = ("inputs", "converted-assets", "unity-projects", "unity-c
 def _inventory_category(relative):
     parts = relative.parts
     if "signing-recovery" in parts: return "signing-backups"
+    if parts[:3] == ("build", "updates", "code-projects"):
+        return "unity-caches" if any(part in ("Library", "Temp", "Obj", "obj", "bin") for part in parts[4:5]) else "unity-projects"
+    if parts[:3] in (("build", "updates", "source-inputs"), ("build", "updates", "game-inputs")): return "inputs"
+    if parts[:2] == ("build", "updates") and len(parts) > 3:
+        if parts[3] == "mod-bank-delivery": return "unity-projects"
+        if parts[3] in ("code-player.apk", "code-player.apk.code-build.json", "package-api"): return "converted-assets"
     if parts[:2] in (("build", "builds"), ("build", "updates")) or parts[:1] == ("exports",): return "apk-content"
     if parts[:2] == ("build", "inputs"): return "inputs"
     if parts[:2] == ("build", "projects"):
@@ -666,12 +672,13 @@ def _session_scope(root, build, folder, value, manifests, proofs, *, cancel=None
     Structured capacity events are genuine per-run observations; arbitrary
     progress text and the mutable global latest-input pointer are not owners.
     """
-    inputs = set(); games = _qualified_games(folder, value, proofs, cancel=cancel); sources = set(); references = set()
+    inputs = set(); games = _qualified_games(folder, value, proofs, cancel=cancel); sources = set(); references = set(); updates = set()
     def observe(item):
         _check_cancel(cancel)
         if isinstance(item, dict):
             for name, member in item.items():
                 if name in ("inputKey", "gameInputKey") and _key(member): inputs.add(member)
+                if name == "updateKey" and _key(member): updates.add(member)
                 if name in ("gameKey", "cacheGameKey") and _key(member): games.add(member)
                 if name == "sourceRoot" and isinstance(member, str): sources.add(member)
                 if name in ("path", "sourcePackage", "apk", "bank", "profilePath") and isinstance(member, str):
@@ -711,7 +718,8 @@ def _session_scope(root, build, folder, value, manifests, proofs, *, cancel=None
                     and manifest["game"]["key"] in games)
         if manifest["inputKey"] in inputs or fallback:
             selected.append(manifest); inputs.add(manifest["inputKey"]); games.add(manifest["game"]["key"])
-    return {"inputs": inputs, "games": games, "sources": sources, "references": references, "manifests": selected}
+    return {"inputs": inputs, "games": games, "sources": sources, "references": references, "manifests": selected,
+            "updates": updates}
 
 
 def _project_key(manifest):
@@ -896,7 +904,7 @@ def _tree_projects(tree, build):
 
 
 def plan_session(state_root, session, *, remove_data=False, progress=None, cancel=None):
-    """Retire one stopped run, optionally removing only its exclusive data.
+    """Retire one stopped or completed run, removing only selected exclusive data.
 
     Capture130723 contains different game inventories, not canonical duplicate
     snapshots. Ordinary duplicate cleanup correctly finds nothing in that case.
@@ -917,9 +925,9 @@ def plan_session(state_root, session, *, remove_data=False, progress=None, cance
             if not remove_data: raise _error("cleanup_session_archive", "Select data cleanup for this removed run.")
             folder = retired
         value = _session(folder, proofs)
-        if value.get("status") not in ("ready", "failed", "blocked", "cancelled", "interrupted"):
-            raise WizardError("cleanup_session_active", "Only a stopped, unfinished run can be removed.",
-                              "Nur ein angehaltener, nicht abgeschlossener Lauf kann entfernt werden.")
+        if value.get("status") not in ("ready", "failed", "blocked", "cancelled", "interrupted", "complete"):
+            raise WizardError("cleanup_session_active", "Stop the current run before removing its history.",
+                              "Den laufenden Vorgang vor dem Entfernen seines Verlaufs anhalten.")
         proofs[str(parent)] = {"stamp": _stamp(parent), "sha256": None}
         if retired.exists() and not already_retired: raise _error("cleanup_session_archive")
         session_scan = _scan(folder, progress, "cleanup-session-scan", cancel=cancel)
@@ -1016,6 +1024,8 @@ def plan_session(state_root, session, *, remove_data=False, progress=None, cance
                    "consequences": (["diagnostics-retained"] if already_retired else
                                     ["run-removed", "resume-lost", "diagnostics-retained"]) +
                                    (["exclusive-run-data-removed"] if remove_data else ["build-data-retained"])}
+        from update_storage import impact
+        preview.update(impact(root, paths, mode="session", protected=protected if remove_data else ()))
         saved = {"folder": folder, "archive": retired, "scan": session_scan,
                  "retired": already_retired,
                  "pointer": pointer, "survivor": max(survivors)[1] if survivors else None,
@@ -1028,14 +1038,18 @@ def plan_session(state_root, session, *, remove_data=False, progress=None, cance
 
 def plan(state_root, mode="duplicates", progress=None, *, cancel=None):
     """Return a confirmation preview; unknown/unproven duplicate data is retained."""
-    if mode not in ("duplicates", "build-cache"): raise _error("cleanup_mode")
+    if mode not in ("duplicates", "build-cache", "update-history"): raise _error("cleanup_mode")
     _check_cancel(cancel)
     _notify(progress, "cleanup-discover", 0, None, "", files=0, bytes=0, folders=0)
     proofs = {}; root, build = _root(state_root, proofs)
-    targets = []; skipped = []
+    targets = []; skipped = []; protected = set()
     with _guard(root, build):
         if build.is_dir():
-            if mode == "build-cache":
+            if mode == "update-history":
+                from update_storage import candidates
+                targets, protected, skipped = candidates(sys.modules.get(__name__) or SimpleNamespace(**globals()),
+                                                         root, build, proofs, cancel=cancel)
+            elif mode == "build-cache":
                 try: _completed_build(build, proofs)
                 except (OSError, KeyError, TypeError, WizardError) as error:
                     raise WizardError("cleanup_no_completed_build", "Keep the caches until a complete APK and content bank have been built successfully.",
@@ -1061,7 +1075,11 @@ def plan(state_root, mode="duplicates", progress=None, *, cancel=None):
         value = {"id": secrets.token_urlsafe(24), "mode": mode, "paths": paths,
                  "bytes": sum(row["bytes"] for row in paths), "files": sum(row["files"] for row in paths),
                  "exact": True, "eligible": bool(paths), "skipped": skipped,
-                 "consequences": ["full-rebuild-cache-removed"] if mode == "build-cache" else ["canonical-resume-preserved"]}
+                 "consequences": (["full-rebuild-cache-removed"] if mode == "build-cache" else
+                                  ["superseded-update-apks-removed", "fast-update-data-retained"] if mode == "update-history" else
+                                  ["canonical-resume-preserved"])}
+        from update_storage import impact
+        value.update(impact(root, paths, mode=mode, protected=protected))
         _check_cancel(cancel)
         _notify(progress, "cleanup-ready", value["files"], value["files"], mode,
                 files=value["files"], bytes=value["bytes"], eligibleFiles=value["files"], eligibleBytes=value["bytes"])
