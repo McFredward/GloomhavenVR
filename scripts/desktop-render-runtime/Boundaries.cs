@@ -56,6 +56,9 @@ namespace GloomhavenVR.WorldUI
         private Renderer? _backRenderer = null;
         private bool SplitActive => _uiRt != null;
         private static bool IsPreMenuScene() => false;
+        // Quest startup-spinner observation is outside this desktop ownership
+        // fixture; the notification never changes native camera capture here.
+        private void ObserveQuestMenuProducer(Camera camera) { }
         // Explicit construction boundaries: tests execute real native capture and
         // clear policy, and separately observe its calls into the stereo owner.
         private int _fixtureCaptureScans;
