@@ -1,9 +1,11 @@
 #nullable disable
 #if GHVR_QUEST_STARTUP
 using System;
+using System.Collections;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace GloomhavenVR.Quest
@@ -23,7 +25,31 @@ namespace GloomhavenVR.Quest
             public string sha256 = null;
         }
 
-        internal static bool Install(string apk, string streamingAssets, string root)
+        internal static IEnumerator InstallRoutine(string apk, string streamingAssets, string root,
+            Action<QuestGameContentProgress> progress, Action present)
+        {
+            object sync = new object(); QuestGameContentProgress latest = null, reported = null;
+            // Only managed ZIP/file/hash data runs on the worker. Paths were
+            // captured by Bootstrap on the main thread; presentation stays here.
+            Task<bool> delivery = Task.Run(() => Install(apk, streamingAssets, root,
+                value => { lock (sync) latest = value; }));
+            void Report()
+            {
+                QuestGameContentProgress value; lock (sync) value = latest;
+                if (value == null || value == reported) return;
+                reported = value; progress?.Invoke(value);
+            }
+            while (!delivery.IsCompleted) { Report(); present(); yield return null; }
+            Report(); present();
+            if (delivery.IsFaulted)
+                UnityEngine.Debug.LogWarning("[GloomhavenVR] [Quest cards] Owned mip pixels unavailable: "
+                    + delivery.Exception.GetBaseException().Message + "; native artwork and filtering remain active.");
+            else if (delivery.Result)
+                UnityEngine.Debug.Log("[GloomhavenVR] [Quest cards] Owned mip pixels installed or retained.");
+        }
+
+        internal static bool Install(string apk, string streamingAssets, string root,
+            Action<QuestGameContentProgress> progress = null)
         {
             if (!string.IsNullOrEmpty(apk))
             {
@@ -40,7 +66,7 @@ namespace GloomhavenVR.Quest
                     ZipArchiveEntry entry = archive.GetEntry(Member);
                     if (entry == null || entry.Length != manifest.bytes)
                         throw new InvalidDataException("Owned card pixels payload is missing or has the wrong length.");
-                    using (var source = entry.Open()) Publish(root, source, manifest, text);
+                    using (var source = entry.Open()) Publish(root, source, manifest, text, progress);
                     return true;
                 }
             }
@@ -51,7 +77,7 @@ namespace GloomhavenVR.Quest
             Manifest local = Parse(localText);
             if (Reuse(root, local, localText)) return true;
             using (var source = File.OpenRead(Path.Combine(streamingAssets, "quest-card-pixels.bin")))
-                Publish(root, source, local, localText);
+                Publish(root, source, local, localText, progress);
             return true;
         }
 
@@ -78,30 +104,34 @@ namespace GloomhavenVR.Quest
                 && File.ReadAllText(receipt) == text;
         }
 
-        static void Publish(string root, Stream source, Manifest manifest, string text)
+        static void Publish(string root, Stream source, Manifest manifest, string text,
+            Action<QuestGameContentProgress> progress)
         {
             Directory.CreateDirectory(root);
             string target = Path.Combine(root, "quest-card-pixels.bin");
             string temporary = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
+                string digest;
                 using (var output = File.Create(temporary))
+                using (var hash = SHA256.Create())
                 {
-                    var buffer = new byte[32768];
+                    var buffer = new byte[1024 * 1024];
                     int remaining = manifest.bytes;
                     while (remaining > 0)
                     {
                         int count = source.Read(buffer, 0, Math.Min(buffer.Length, remaining));
                         if (count == 0) throw new EndOfStreamException("Owned card pixels payload is truncated.");
                         output.Write(buffer, 0, count);
+                        hash.TransformBlock(buffer, 0, count, null, 0);
                         remaining -= count;
+                        progress?.Invoke(new QuestGameContentProgress("extracting-file", "quest-card-pixels.bin",
+                            manifest.bytes - remaining, manifest.bytes, manifest.bytes - remaining, manifest.bytes, 1, 1));
                     }
                     if (source.ReadByte() != -1) throw new InvalidDataException("Owned card pixels payload has extra bytes.");
+                    hash.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                    digest = BitConverter.ToString(hash.Hash).Replace("-", "").ToLowerInvariant();
                 }
-                string digest;
-                using (var hash = SHA256.Create())
-                using (var input = File.OpenRead(temporary))
-                    digest = BitConverter.ToString(hash.ComputeHash(input)).Replace("-", "").ToLowerInvariant();
                 if (digest != manifest.sha256) throw new InvalidDataException("Owned card pixels payload digest does not match.");
                 if (File.Exists(target)) File.Replace(temporary, target, null); else File.Move(temporary, target);
                 File.WriteAllText(target + ".receipt.json", text);

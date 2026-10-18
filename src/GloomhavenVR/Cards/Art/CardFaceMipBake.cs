@@ -999,8 +999,9 @@ internal static class CardFaceMipBake
             catch (UnityException)
             {
                 // Some readable compressed formats cannot be decoded by this API.
-                // Filtering is optional; preserve the original instead of guessing.
-                return null;
+                // An immutable exact owned entry can supply these bytes too;
+                // a mutable/readable CPU source is never replaced by file pixels.
+                return QuestCardPixels.Read(src);
             }
         }
         RenderTexture rt = RenderTexture.GetTemporary(

@@ -38,7 +38,7 @@ internal static class QuestCardPixels
     /// </summary>
     internal static Color32[]? Read(Texture2D source)
     {
-        if (!QuestStandalonePlatform.Enabled || source == null || source.isReadable || source.updateCount != 0)
+        if (!QuestStandalonePlatform.Enabled || source == null || source.updateCount != 0)
             return null;
         try
         {

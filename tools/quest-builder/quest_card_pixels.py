@@ -71,8 +71,13 @@ def decode_bundle(path):
             width, height = int(texture.m_Width), int(texture.m_Height)
             if int(texture.m_MipCount) > 1:
                 continue  # The original already supplies filtering; no duplicate.
-            if not 1 <= width <= 4096 or not 1 <= height <= 4096 or width * height > MAX_PIXELS:
-                raise PixelError("Owned UI texture exceeds its pixel bound: " + texture.m_Name)
+            if width < 2 or height < 2 or width > 4096 or height > 4096 or width * height > MAX_PIXELS:
+                # Common GUI bundles also contain empty dynamic Font Texture
+                # placeholders and oversized font atlases.
+                # CardFaceMipBake's unchanged max side is4096, so it can never
+                # consume this entry. Leave original font sampling untouched
+                # rather than decoding64M unrelated font pixels or aborting.
+                continue
             image = texture.image.convert("RGBA")
             if image.size != (width, height) or int(texture.m_ColorSpace) not in (0, 1):
                 raise PixelError("Owned UI decoder dimensions or colour encoding disagree.")
