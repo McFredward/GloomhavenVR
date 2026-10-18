@@ -2,8 +2,9 @@
 
 The real input key still owns the mutable archive, settings and final Player.
 Compatibility here only permits the ordered preparation journal to retain
-completed conversions. Game, profile, templates and actual producer logic stay
-scoped. Later mod source and release metadata do not produce original assets;
+completed conversions. Game, profile, original templates and actual producer
+logic stay scoped. Exact reviewed late runtime/Editor scripts are refreshed
+transactionally under their existing owners. Later mod source and release metadata do not produce original assets;
 the current real input key still owns all subsequent mod and Player work.
 """
 from __future__ import annotations
@@ -14,6 +15,7 @@ import hashlib
 from pathlib import Path
 import re
 import editor_overlay
+import runtime_overlay
 
 from storage import BuildError, _ordinary_owned, value_hash
 
@@ -156,6 +158,17 @@ REBASE_MEDIA_DELIVERY_ROWS = {
          "sha256": "533d0eb5917c103ee67cbbafd924dbd4040b299e16e374fb9bffb3860f04b7af"}),
 }
 
+# B693 first added its independently streamed audio bank after prepare().
+# Preserve both exact delivered host pairs, including the B692 test APK which
+# the maintainer had installed before asking for this dev rebase.
+REBASE_AUDIO_DELIVERY_ROWS = {
+    "tools/quest-builder/update_driver.py": (REBASE_MEDIA_DELIVERY_ROWS["tools/quest-builder/update_driver.py"][1],
+        UPDATE_PIXEL_DELIVERY_FIXED),
+    "tools/quest-builder/apk_update.py": (REBASE_MEDIA_DELIVERY_ROWS["tools/quest-builder/apk_update.py"][1],
+        {"path": "tools/quest-builder/apk_update.py", "size": 79908,
+         "sha256": "df54f32af280a842ef3572a014602bdf9455fd87bb3d4a9adc817eaf1ed2ad16"}),
+}
+
 def _memory_row(row):
     if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE, MEMORY_POLICY_MINIMUM, MEMORY_POLICY_PARALLEL):
         return MEMORY_POLICY_PREVIOUS
@@ -169,6 +182,7 @@ PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builde
                            "tools/quest-builder/apk_input_cache.py", "tools/quest-builder/portable_package.py",
                            "tools/quest-builder/native_content_pack.py",
                            "tools/quest-builder/native_update_resume.py",
+                           "tools/quest-builder/audio_banks.py",
                            "tools/quest-builder/movie_banks.py", "tools/quest-builder/movie_render.py",
                            "tools/quest-builder/requirements-movies.txt"}
 PREFIX_DELIVERY_ROOTS = ("tools/quest-movies/",)
@@ -683,7 +697,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     if inputs.get("proceduralBackend") == "proton-arm64ec-fex":
         rows = [PROTON_DOWNLOAD_PREVIOUS if row == PROTON_DOWNLOAD_FIXED else row for row in rows]
     if completed:
-        rows = _completed_editor_rows(rows)
+        rows = runtime_overlay.normalize_rows(_completed_editor_rows(rows))
     # These modules validate/select identity; neither generates game assets.
     # Delivery tools are never read by generate_files or its conversion tools.
     rows = [row for row in rows if row["path"] not in (BUILDER, IDENTITY, RECIPE_IDENTITY, "quest-builder-release.json")
@@ -692,6 +706,8 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
         reviewed = []
         for row in rows:
             current, preceding = REBASE_MEDIA_DELIVERY_ROWS.get(row["path"], (None, row))
+            if row == current: row = preceding
+            current, preceding = REBASE_AUDIO_DELIVERY_ROWS.get(row["path"], (None, row))
             if row == current: row = preceding
             if row == UPDATE_PIXEL_DELIVERY_FIXED: row = UPDATE_PIXEL_DELIVERY_PREVIOUS
             if row in (UPDATE_DOWNLOAD_FIXED, UPDATE_DOWNLOAD_PARALLEL_PREVIOUS, UPDATE_RETAINED_APK_FIXED, UPDATE_TOOL_HANDOFF_FIXED): row = UPDATE_DOWNLOAD_PREVIOUS

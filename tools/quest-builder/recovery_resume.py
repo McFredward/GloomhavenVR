@@ -421,6 +421,12 @@ PARALLEL_OBSERVATION_ROWS = {'tools/quest-builder/editor_overlay.py': ({'path': 
 OBSERVATION_PARALLEL_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
 OBSERVATION_EDITOR_OVERLAY = {**OBSERVATION_PARALLEL_PREVIOUS, **{'tools/quest-builder/editor_overlay.py': {'path': 'tools/quest-builder/editor_overlay.py', 'size': 26149, 'sha256': '94668aacbd035f783b1b7bcd88a29356b7c22fc50c820a55f407c2d11ac343c8'}, 'tools/quest-builder/unity_work.py': {'path': 'tools/quest-builder/unity_work.py', 'size': 14692, 'sha256': '9301848b4866ba9aaf3726e4f97fc4adc48c7e2cf806c61ca8034f9fb53d678e'}, 'tools/quest-builder/full_assets.py': {'path': 'tools/quest-builder/full_assets.py', 'size': 34056, 'sha256': 'fefd26838b2f8e823637d0fe21bf8a56a110b7a9ce24ae6a7009be4da4cfe459'}, 'tools/quest-builder/staging_copy.py': {'path': 'tools/quest-builder/staging_copy.py', 'size': 7603, 'sha256': '7a0d18c4ca4ca2621a8ab57a5ff14164087db29dfddbd105939baaec7844d369'}}}
 
+# Exact late runtime-template transaction; original asset producers are intact.
+# Preserve the complete shipped reader profile and qualify every new helper
+# byte before removing only its identity/publication role from asset scope.
+OBSERVATION_RUNTIME_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
+OBSERVATION_EDITOR_OVERLAY = {**OBSERVATION_RUNTIME_PREVIOUS, **{'tools/quest-builder/preparation_metadata.py': {'path': 'tools/quest-builder/preparation_metadata.py', 'size': 14014, 'sha256': '87a3225881104ac9e567af8c82a150047ce5c7935d850730ae41710cb898c0ec'}, 'tools/quest-builder/runtime_overlay.py': {'path': 'tools/quest-builder/runtime_overlay.py', 'size': 7359, 'sha256': '8c7a6979b0a209b843ee388b5d5791d09595dd9ea0d83003404f699f191dabbe'}}}
+
 ORCHESTRATION_FILES = set(LEGACY_MERGE_FILES) | {OBSERVER_FILE}
 # native_stage runs only on the fresh derived project, after all raw export
 # checkpoints. Its deferred duplicate audit cannot alter an original export.
@@ -475,6 +481,13 @@ def _native_byte_rows(rows):
 
 def preparation_source_rows(rows):
     """Return reviewed output-equivalent rows; actual source proof stays exact."""
+    # Match complete delivered profiles before independent staging/observer
+    # aliases remove rows from their census. Unknown mixtures still fall back
+    # to the legacy normalized-profile matcher below.
+    raw = {}
+    for row in rows: raw.setdefault(row["path"], []).append(row)
+    shipped_profile = next((profile for profile in (OBSERVATION_RUNTIME_PREVIOUS, OBSERVATION_EDITOR_OVERLAY)
+                            if all(raw.get(name) == [fixed] for name, fixed in profile.items())), None)
     rows = _native_byte_rows(rows)
     rows = [PARALLEL_OBSERVATION_ROWS[row['path']][1]
             if row['path'] in PARALLEL_OBSERVATION_ROWS and row == PARALLEL_OBSERVATION_ROWS[row['path']][0]
@@ -482,7 +495,7 @@ def preparation_source_rows(rows):
     current = {}
     for row in rows:
         current.setdefault(row["path"], []).append(row)
-    profile = next((profile for profile in (OBSERVATION_EDITOR_OVERLAY_PREVIOUS,
+    profile = shipped_profile or next((profile for profile in (OBSERVATION_EDITOR_OVERLAY_PREVIOUS,
                                            OBSERVATION_EDITOR_IMPORT_PREVIOUS,
                                            OBSERVATION_EDITOR_OWNERS_PREVIOUS,
                                            OBSERVATION_TARGETED_REPAIR_PREVIOUS,
@@ -493,6 +506,7 @@ def preparation_source_rows(rows):
                                            OBSERVATION_UNDO_WITNESSES_PREVIOUS,
                                            OBSERVATION_COST_PREVIOUS,
                                            OBSERVATION_PARALLEL_PREVIOUS,
+                                           OBSERVATION_RUNTIME_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:
@@ -500,7 +514,7 @@ def preparation_source_rows(rows):
         if "tools/quest-builder/script_remap_resume.py" in profile:
             excluded.add("tools/quest-builder/script_remap_resume.py")
         for name in ("tools/quest-builder/preparation_repair.py", "tools/quest-builder/project_access.py",
-                     "tools/quest-builder/unity_work.py"):
+                     "tools/quest-builder/unity_work.py", "tools/quest-builder/runtime_overlay.py"):
             if name in profile: excluded.add(name)
         rows = [NATIVE_AUDIT_READER_PREVIOUS
                 if "tools/quest-builder/campaign_native_shaders.py" in profile
