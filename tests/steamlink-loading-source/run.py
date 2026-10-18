@@ -51,7 +51,7 @@ def execute(command, log, **kwargs):
 
 def freeze_runtime(text, mutant):
     begin = text.index('        if (_output != null && _output.Head == head)')
-    end = text.index('        Exit();', begin)
+    end = text.index('        Exit();\n        if (!ScenePayloadAssets.TryGet(', begin)
     original = text[begin:end]
     assert 'if (_output.Ready) return true;' in original, 'Source lacks the transient-close recovery under test'
     if mutant:
@@ -70,6 +70,7 @@ def freeze_runtime(text, mutant):
     return text, {
         'actual_source_methods_replaced': [],
         'xr_settings_alias': 'explicit owned MultiPass metadata, no XR session',
+        'xr_eye_texture_extent': [256, 256],
         'active_eye_metadata_reads': 1,
         'stereo_attachment_metadata': 'explicit ready XR attachment; actual Editor camera has no XR device',
         'frame_metadata': 'explicit XR frame grouping; real Camera.Render callbacks and GPU remain unchanged',

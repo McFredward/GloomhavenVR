@@ -612,7 +612,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 707;
+    public const ushort ModBuild = 708;
+
+    // ModBuild708 — negotiate ordinary full-frame RGB+A with the paired Steam Link bridge.
+    // The new sender reports readiness through a bounded same-user/PID-checked
+    // SBN1 pipe only after native encoder/source admission and authenticated
+    // receiver roundtrip. Ordinary colour and true coverage share the original
+    // app eye surface; the sender carries its independently certified mask in
+    // the same HEVC access unit. No RGB atlas/resolution or foveation lease is
+    // used while this route is selected. Missing/disconnected peers preserve
+    // the established legacy source. Source negotiation alone does not prove
+    // headset output; first combined runtime hardware test is still pending.
+    // Renderer, source/generation changes and both-eye lifecycle revoke a stale
+    // source instead of borrowing a current image from a different session.
+    // Native setup includes explicit startup health + user-confirmed recovery;
+    // no automatic device restart or timeout-based uninstall is introduced.
 
     // ModBuild707 — start the projection preview on the click; never blank the game.
     // The real706 helper reports successful local API setup, but the maintainer

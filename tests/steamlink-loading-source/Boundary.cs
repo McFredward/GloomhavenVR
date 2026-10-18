@@ -15,6 +15,9 @@ internal static class LoadingSourceBoundary
     internal static bool StereoEnabled(Camera camera) => true;
     internal static class XrSettings
     {
+        // Matches the fixture's real 256x256 per-eye camera target.
+        internal static int eyeTextureWidth => 256;
+        internal static int eyeTextureHeight => 256;
         internal enum StereoRenderingMode { MultiPass }
         internal static StereoRenderingMode stereoRenderingMode => StereoRenderingMode.MultiPass;
     }

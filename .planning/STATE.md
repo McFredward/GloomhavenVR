@@ -1,5 +1,38 @@
 # State — where the project stands
 
+**Paired full-resolution Steam Link preview, Build708, 2026-10-18.**
+
+The Windows/NVIDIA HEVC sender and exact-version Frame receiver are integrated
+on native dev at bdca521. The mod negotiates an ordinary full-frame RGB+A source
+through the paired sender, releasing the legacy resolution/foveation lease only
+after admission. Independently certified coverage travels in the same HEVC access
+unit; the original colour output and native reconstruction remain intact. Missing
+or mismatched associations retain opaque rendering. This is the first combined
+hardware candidate, not a new verified headset result.
+
+Native CI39146832939 and setup CI39146832958 pass, including actual Windows
+bootstrap execution. Installer transactions preserve existing settings and owned
+receipts, generate native shaders locally, and check fresh SteamVR startup evidence
+plus the user's visible-picture verdict. Failure offers explicit Undo; no automatic
+restart or timed rollback. The actual preview ZIP also passes the bootstrap parser
+and its own isolated packaged --check entry without contacting the Frame.
+
+Integrated mod evidence: strict Release build (zero warnings/errors), source guard
+16/16, EN/DE documentation check, all15 affected SteamLink suites, and300598 real
+network golden assertions pass. One source-loading fixture needed its extraction
+boundary and owned256x256 XR metadata updated; only that suite was rerun after the
+fixture repair. The additional general239-suite run was deliberately interrupted
+and is not reported as a complete gate. Renderer validation includes16896 actual
+production-port assertions in both normal and sanitizer configurations; GPU source,
+coverage and lossless access-unit checks remain separately scoped in the evidence.
+
+Evidence and the current installable archive remain under
+`.planning/debug/steamlink-sender712/`. The explicit preview bootstrap installs
+the Windows PC/Frame candidate; the ordinary public release is unchanged. No Frame
+files or services were changed during this delivery. First hardware checks must
+compare sharpness, both-eye consistency, resolution changes and the local Steam
+menu using Build708 or newer. Native Linux PC sender installation remains unsupported.
+
 **Guided maintenance v1 published, 2026-10-18; runtime remains707.**
 
 The maintainer's actual v2 report now matches both Windows reference files,
