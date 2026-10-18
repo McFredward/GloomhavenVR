@@ -1,5 +1,21 @@
 # State — where the project stands
 
+**Live PCVR eye resolution and native dashboard assessment, 2026-10-18: Build703.**
+
+Actual Frame702 video is3264x6400 despite an acknowledged4096 request; the v3
+atlas also retains its2048/3168 scene fraction. No settings-only full-quality
+correction is claimed. PCVR eye-slider edits now resize the running display at
+the existing safe Update boundary after slider quiet, independently of MR.
+Standalone retains the existing allocation containment; profile detection is
+cached at the session boundary. Readbacks are not headset-picture evidence.
+
+The Steam button opens the local Frame menu. The user chose live game + menu +
+camera together; the prepared focus-pause fallback is reverted. Native menu
+coordinate/background repair and full-quality coverage transport remain separate
+open tasks. No Frame writes, restart or new headset test in this round. See
+[the scoped record](STEAM-LINK-703-LIVE-RESOLUTION.md) for actual input evidence,
+focused verification and the implementation assessment.
+
 **Native Steam Link adaptive transport size, 2026-10-18: Build702.**
 
 The maintainer accepts Build701's edges, but reports markedly degraded picture

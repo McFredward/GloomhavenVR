@@ -612,7 +612,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 702;
+    public const ushort ModBuild = 703;
+
+    // ModBuild703 — restore the PCVR eye-resolution control's live allocation.
+    // Build702 hardware edits above1.0 were deferred because Frame standalone's
+    // allocation containment also governed the PC. Classify the existing native
+    // standalone marker at a cold session boundary, then on PC apply the settled
+    // slider request to the running XRDisplay allocation in the existing Update
+    // resource phase. Clear legacy viewport reduction; never multiply allocation
+    // and viewport, change camera rect/FOV, or add an MR-only resolution factor.
+    // Preserve standalone's stable allocation/viewport/capacity behavior. Refused
+    // PC requests do not become an automatic native-resource retry loop. Getter
+    // acknowledgment is not proof of actual rendered or streamed pixel dimensions.
+    // Actual Frame702 video is3264x6400 despite a4096 settings readback; the v3
+    // atlas also retains its2048/3168 RGB fraction. This repair is NOT a claim
+    // that native-MR source quality is restored. No shader/bank/receiver change.
+    // The user chose simultaneous game+local Frame menu+camera, so the prepared
+    // XR-focus-pause fallback is reverted, not shipped as that solution. The
+    // dashboard route needs a separate native context/coordinate repair. No Frame
+    // install, restart, capture, automatic timer or wire change in this build.
 
     // ModBuild702 — remove the accepted edge policy's extra fixed video ceiling.
     // The maintainer accepts701 edges but reports degraded picture quality. Its

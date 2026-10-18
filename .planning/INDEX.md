@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-18: Build696 startup and spoiler-gate follow-up; Build695 library accepted in the headset.
+Updated 2026-10-18: Build703 live PCVR resolution; native dashboard and RGB-quality assessment.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [STEAM-LINK-703-LIVE-RESOLUTION.md](STEAM-LINK-703-LIVE-RESOLUTION.md) | Actual702 delivered-video evidence, live PCVR slider repair, chosen game/menu/camera behavior and explicit remaining transport work |
 | [STEREO-VIDEO-LIBRARY-2026-10-17.md](STEREO-VIDEO-LIBRARY-2026-10-17.md) | Headset-accepted20-subject/22-file library;696 automatic studio admission and Cheats-gated spoiler reviews, composed evidence and trailer exclusion |
 | [../docs/stereo-video-library.md](../docs/stereo-video-library.md) | Native media authorities, pinned conversion and encoder policies, original clocks/audio and verification boundaries |
 | [STEAM-LINK-694-PRESENTATION.md](STEAM-LINK-694-PRESENTATION.md) | Retained published loading continuity and UI-effect bounds repair, focused source/raster evidence and residual headset-softness limit |
