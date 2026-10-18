@@ -612,7 +612,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 708;
+    public const ushort ModBuild = 709;
+
+    // ModBuild709 — preserve XR progress during Steam Link observer retirement
+    // and contain the legacy atlas while the Steam dashboard owns input focus.
+    // The708 hardware log shows a synchronous cancellation callback throwing
+    // SafeHandle/AggregateException into the XR tick. Revoke source authority
+    // immediately, but cancel and dispose the observer off the render thread;
+    // retain ownership until both its body and cancellation callbacks finish.
+    // Legacy atlas now requires explicit current XR focus at entry and both
+    // rendering seams. Focus loss restores ordinary presentation without
+    // chroma key, clearing the stereo epoch but retaining the user's request
+    // and quality/coverage observation. Regain needs a fresh complete eye pair.
+    // The independent ordinary-RGBA route remains active beside a Steam menu;
+    // its headset/menu composition is a separate pending hardware check.
+    // No protocol, mask geometry, eye resolution, retry policy or standalone
+    // passthrough change. Focused production lifecycle, actual Unity callback/
+    // pixel and net472 checks establish software behavior, not headset output.
 
     // ModBuild708 — negotiate ordinary full-frame RGB+A with the paired Steam Link bridge.
     // The new sender reports readiness through a bounded same-user/PID-checked

@@ -1,5 +1,28 @@
 # State — where the project stands
 
+**Steam Link observer/menu containment, Build709, 2026-10-19.**
+
+The fresh paired logs confirm that the orphan UNIX endpoint is repaired and the
+real PC/Frame handshake plus coded-AU roundtrip succeeds. Native D3D draw hooks
+are still absent, so ordinary-RGBA admission never happens and the legacy atlas
+continues to explain the sharpness loss. A real Windows/WARP production-boundary
+fixture now reproduces runtime replacement of all four hooked dispatch slots.
+The native fix is being validated against repeated real render/state transitions;
+no new headset-success claim or device change is made.
+
+The separate game SafeHandle cancellation exception is fixed by off-thread
+observer retirement with immediate authority revocation and owned callback
+completion. Legacy atlas also pauses on unknown/lost native XR focus, restores
+ordinary presentation without chroma key, and resumes with a fresh stereo pair.
+The new independent-RGBA route stays active for combined game/menu MR. Current
+hardware evidence proves full-dashboard focus loss, not every quick-menu variant.
+
+Focused lifecycle, real Unity rendering/callback checks and strict Release build
+pass; all669 config keys,241 Harmony bindings and4806 log tokens remain. There
+is no repeated complete gate. See [the scoped review](STEAM-LINK-709-OBSERVER-MENU.md)
+and `.planning/debug/steamlink-sender721/`. Native delivery remains separately
+pending the dispatch fix and its real Windows regression checks.
+
 **Paired full-resolution Steam Link preview, Build708, 2026-10-18.**
 
 The Windows/NVIDIA HEVC sender and exact-version Frame receiver are integrated
