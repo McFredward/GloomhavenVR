@@ -1,3 +1,15 @@
+**Quest current-dev integration and review, 2026-10-19: feature / B709.**
+
+Rebase the published Quest adaptations onto dev708 while preserving existing
+hardware fixes. Deliver current stereo movies through owned local reconstruction
+and independently cached Android shaders, with static AOT URL substitutions and
+native clock/continuation ownership. Keep the original Campaign preparation
+identities; compact updates replace only changed code/art/media and preserve
+compatible intermediate results. Review Builder/runtime failure, memory, storage,
+loader and progress boundaries. Final automated evidence and remaining headset
+gates are recorded with the game-free handoff, not inferred from desktop pixels.
+See `QUEST-DEV-REBASE-20261019.md`.
+
 **Quest hardware follow-up, 2026-10-18: feature / B693.**
 
 Capture202103 verifies current692/previous691. Preserve confirmed complete rooms,

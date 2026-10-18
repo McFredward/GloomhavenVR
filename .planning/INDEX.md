@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-18: Build704 direct MR comparison and host-source preparation boundary.
+Updated 2026-10-19: Quest Build709 current-dev rebase, stereo movie delivery and minimal-update review.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [QUEST-DEV-REBASE-20261019.md](QUEST-DEV-REBASE-20261019.md) | Quest on dev708, owned stereo reconstruction, static AOT movie seams, independent update caches and final review |
 | [STEAM-LINK-704-COMPARISON.md](STEAM-LINK-704-COMPARISON.md) | Actual703 A/B and delivered video, host preparation repair, remaining quality and native-menu transport constraints |
 | [STEAM-LINK-703-LIVE-RESOLUTION.md](STEAM-LINK-703-LIVE-RESOLUTION.md) | Actual702 delivered-video evidence, live PCVR slider repair, chosen game/menu/camera behavior and explicit remaining transport work |
 | [STEREO-VIDEO-LIBRARY-2026-10-17.md](STEREO-VIDEO-LIBRARY-2026-10-17.md) | Headset-accepted20-subject/22-file library;696 automatic studio admission and Cheats-gated spoiler reviews, composed evidence and trailer exclusion |
