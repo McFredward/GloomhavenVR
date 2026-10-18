@@ -154,6 +154,12 @@ namespace GloomhavenVR.Rig
 }
 namespace GloomhavenVR.Core
 {
+    // Compilation boundaries for later platform display APIs. This fixture
+    // executes Activate/resource-directory ownership, not swapchain allocation.
+    public static class FrameDefaults { public const int MsaaLevel = 4; public const float EyeResolutionScale = .8f; }
+    public static class QuestEyeAllocation { public static void Prepare(string path) { } }
+    public static class StereoModeConfig
+    { public enum Mode { MultiPass } public static Mode Current => Mode.MultiPass; }
     public enum VRLogLevel { Debug }
     public static class VRLog
     {
@@ -171,9 +177,14 @@ namespace UnityEngine.SceneManagement
 }
 namespace UnityEngine.XR
 {
+    public static class XRSettings
+    { public enum StereoRenderingMode { MultiPass } public static StereoRenderingMode stereoRenderingMode; }
     public class XRDisplaySubsystem { public bool running = true; }
     public class XRInputSubsystem { public bool running = true; }
 }
+namespace UnityEngine.Rendering { public enum GraphicsDeviceType { Vulkan } }
+namespace UnityEngine { public static class SystemInfo { public static Rendering.GraphicsDeviceType graphicsDeviceType; } }
+namespace GloomhavenVR { public static class MyPluginInfo { public const string PLUGIN_GUID = "fixture"; } }
 namespace UnityEngine.XR.Management
 {
     public class XRLoader

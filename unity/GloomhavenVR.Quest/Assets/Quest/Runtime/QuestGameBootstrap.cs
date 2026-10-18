@@ -138,10 +138,13 @@ namespace GloomhavenVR.Quest
             if (State == "failed") yield break;
             // Exact card contours travel as a tiny independent APK asset. Never
             // reopen/reinstall the Campaign or mod bank for an alpha-only update.
+            // Activate publishes modRoot/StreamingAssets as ResourceDirectory.
+            // B685 installed at its parent, so the real consumer silently used
+            // the complete-card fallback despite a successfully delivered asset.
             try
             {
                 QuestCardAlphaContent.Install(Application.platform == RuntimePlatform.Android && !Application.isEditor
-                    ? Application.dataPath : null, Application.streamingAssetsPath, modRoot);
+                    ? Application.dataPath : null, Application.streamingAssetsPath, Path.Combine(modRoot, "StreamingAssets"));
             }
             catch (Exception error)
             {

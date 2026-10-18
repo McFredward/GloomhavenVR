@@ -17,11 +17,15 @@ def main():
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime-source", type=Path, default=root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime")
+    parser.add_argument("--case", action="append", help="Run only the selected production/control case.")
+    parser.add_argument("--alpha-only", action="store_true", help="Exercise the actual alpha-install/plugin boundary without unrelated startup cases.")
     args = parser.parse_args()
-    names = ("QuestGameBootstrap.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs", "QuestFrameEvidence.cs")
+    names = ("QuestGameBootstrap.cs", "QuestCardAlphaContent.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs", "QuestFrameEvidence.cs")
     sources = {name: (args.runtime_source / name).read_text() for name in names}
     bootstrap = sources["QuestGameBootstrap.cs"]
     mutations = (
+        ("alpha-wrong-resource-root", 'Application.streamingAssetsPath, Path.Combine(modRoot, "StreamingAssets"));',
+         "Application.streamingAssetsPath, modRoot);", "alpha-before-plugin"),
         ("missing-original-path-cache", "QuestGame.Compatibility.Paths.Initialize(Application.persistentDataPath);",
          "/* Missing original path initialization */", "cached-original-paths"),
         ("late-loading-view", "modLifecycle.PrepareStartupView();", "/* Missing early loading view */", "early-anchor"),
@@ -72,6 +76,10 @@ def main():
             modified = modified.replace("        IEnumerator EnsureContent(",
                 "        static Task<QuestGameContentDeliveryResult> RunSynchronously(Func<QuestGameContentDeliveryResult> work) { return Task.FromResult(work()); }\n        IEnumerator EnsureContent(")
         cases.append((name, modified, expected))
+    if args.case:
+        cases = [case for case in cases if case[0] in args.case]
+        if len(cases) != len(set(args.case)):
+            parser.error("Unknown or repeated case")
     output = root / ".planning/debug/quest-startup-loading"
     output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
@@ -89,7 +97,7 @@ def main():
         for filename, source in sources.items():
             (case / filename).write_text(modified if filename == "QuestGameBootstrap.cs" else source)
         result = subprocess.run([dotnet, "run", "--project", str(harness / "QuestStartupLoading.Tests.csproj"),
-                                 "--configuration", "Release", "--property:RuntimeSource=" + str(case), "--", str(case / "files"), str(case / "QuestGameBootstrap.cs")],
+                                 "--configuration", "Release", "--property:UseSharedCompilation=false", "--property:RuntimeSource=" + str(case), "--", str(case / "files"), str(case / "QuestGameBootstrap.cs"), *(('alpha-only',) if args.alpha_only else ())],
                                 text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=90)
         (case / "console.log").write_text(result.stdout)
         passed = (result.returncode == 0 and "PASS Quest startup loading:" in result.stdout) if not expected else (result.returncode != 0 and expected in result.stdout)
@@ -101,7 +109,7 @@ def main():
             print(next(line for line in result.stdout.splitlines() if line.startswith("PASS Quest startup loading:")), flush=True)
         else:
             print("PASS rejected " + name + " at " + expected, flush=True)
-    print("PASS production startup coroutine and " + str(len(mutations)) + " defect controls")
+    print("PASS selected startup coroutine cases: " + str(len(cases)))
 
 
 if __name__ == "__main__":

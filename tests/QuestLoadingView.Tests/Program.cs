@@ -83,6 +83,8 @@ static class Program
             BepInExInitializerSeam(); var activation = cold.Activate(root);
             for (int count = 0; activation.MoveNext(); ++count) if (count > 5) throw new InvalidOperationException("actual lifecycle did not observe fixture rig");
             Check(cold.Available, "actual plugin/session lifecycle unavailable: " + cold.Failure);
+            Check(QuestStandalonePlatform.ResourceDirectory == Path.Combine(root, "StreamingAssets"),
+                "actual plugin resource directory differs from the bootstrap sidecar consumer contract");
             Check(ReferenceEquals(View(cold), retained) && retained.Alive && retained.Available
                 && ReferenceEquals(retained.GetComponent<Canvas>(), retainedCanvas), "plugin activation retired or recreated cold view");
             Check(retained.transform.parent == QuestStandalonePlatform.HeadCamera!.transform

@@ -15,6 +15,7 @@ internal static class Fixture
     internal static readonly ConcurrentQueue<string> Events = new();
     internal static Action<string> OnLog;
     internal static Action<string> OnDurableRecord;
+    internal static Action<string> BeforePlugin;
     internal static string Root;
     internal static int MainUpdates, Activations, Addressables, Loads, WorkerApiCalls, ViewCreations, ViewRetargets, LastStartupPercent;
     internal static bool NativeHandover;
@@ -33,7 +34,7 @@ internal static class Fixture
     {
         MainThread = Environment.CurrentManagedThreadId;
         while (Events.TryDequeue(out _)) { }
-        OnLog = OnDurableRecord = null; MainUpdates = Activations = Addressables = Loads = WorkerApiCalls = 0;
+        OnLog = OnDurableRecord = null; BeforePlugin = null; MainUpdates = Activations = Addressables = Loads = WorkerApiCalls = 0;
         ViewPrepared = ViewVisible = ModFailure = AddressablesFailure = NativeHandover = false;
         ViewCreations = ViewRetargets = LastStartupPercent = 0; Percentages.Clear();
         SceneAvailable = true;
@@ -237,6 +238,9 @@ namespace GloomhavenVR.Quest
         public IEnumerator Activate(string root)
         {
             Fixture.RequireMain("ModLifecycle.Activate"); Fixture.Activations++; Fixture.Event("real-mod");
+            // Consumer path independently exercised by the real Activate and
+            // QuestStandalonePlatform in QuestLoadingView.Tests.
+            Fixture.BeforePlugin?.Invoke(Path.Combine(root, "StreamingAssets"));
             // Observe the durable boundary before the synchronous plugin seam,
             // without relying on a later periodic Unity Update to write it.
             using (var checkpoint = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(Fixture.Root, "quest-startup-state.json"))))

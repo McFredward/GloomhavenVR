@@ -233,6 +233,42 @@ internal static class Program
         finally { release.Set(); }
         pump.Finish(); Fixture.OnDurableRecord = null; Successful(owner, inputs, false);
     }
+    static void AlphaAtActualBootstrapBoundary()
+    {
+        // Execute the actual Bootstrap coroutine and actual ZIP/file installer,
+        // not an isolated Install call that could choose the wrong target root.
+        // Actual Activate's ResourceDirectory is independently executed by the
+        // QuestLoadingView fixture; only downstream plugin construction is a seam.
+        foreach (bool editor in new[] { false, true })
+        foreach (bool warm in new[] { false, true })
+        {
+            Inputs inputs = Setup("alpha-boundary-" + editor + "-" + warm, editor: editor, warm: warm, keepSource: true);
+            byte[] alpha = Enumerable.Range(0, 173).Select(i => (byte)i).ToArray();
+            string metadata = JsonSerializer.Serialize(new { schema = 1, bytes = alpha.Length, sha256 = Hash(alpha) });
+            using (var apk = new ZipArchive(File.Open(Application.Data, FileMode.Open, FileAccess.ReadWrite), ZipArchiveMode.Update))
+            {
+                WriteEntry(apk, "assets/quest-card-alpha.bin", alpha);
+                WriteEntry(apk, "assets/Quest/card-alpha.json", System.Text.Encoding.UTF8.GetBytes(metadata));
+            }
+            System.IO.Directory.CreateDirectory(Path.Combine(Application.Streaming, "Quest"));
+            File.WriteAllText(Path.Combine(Application.Streaming, "Quest/card-alpha.json"), metadata);
+            File.WriteAllBytes(Path.Combine(Application.Streaming, "quest-card-alpha.bin"), alpha);
+            int observed = 0;
+            Fixture.BeforePlugin = resources =>
+            {
+                observed++;
+                string target = Path.Combine(resources, "quest-card-alpha.bin");
+                Check(File.Exists(target), "alpha-before-plugin", "exact alpha was not installed at the actual resource directory before card consumers start");
+                Check(File.ReadAllBytes(target).SequenceEqual(alpha), "alpha-before-plugin", "installed alpha differs from this APK's payload");
+                Check(File.ReadAllText(target + ".receipt.json") == metadata, "alpha-before-plugin", "exact alpha receipt is absent at the consumer boundary");
+                Check(!File.Exists(Path.Combine(Fixture.Root, "quest-mod-resources", "quest-card-alpha.bin")),
+                    "alpha-wrong-parent", "the unused B685 parent location must not receive a new sidecar");
+            };
+            var owner = Owner(); new Pump(owner).Finish();
+            Check(observed == 1, "alpha-before-plugin", "plugin boundary was not observed exactly once");
+            Successful(owner, inputs, warm);
+        }
+    }
     static void Success(string name, bool editor = false, bool warm = false, bool legacy = false)
     {
         Inputs inputs = Setup(name, editor, warm, legacy: legacy); var owner = Owner();
@@ -395,7 +431,14 @@ internal static class Program
         try
         {
             evidence = Path.GetFullPath(args[0]); System.IO.Directory.CreateDirectory(evidence);
+            if (args.Length > 2 && args[2] == "alpha-only")
+            {
+                AlphaAtActualBootstrapBoundary();
+                Console.WriteLine("PASS Quest startup loading: " + assertions + " assertions; actual Bootstrap alpha delivery before the plugin consumer");
+                return 0;
+            }
             ModBanks(args.Length > 1 ? args[1] : "");
+            AlphaAtActualBootstrapBoundary();
             HeldWorker(); HeldSceneHandover(); Success("cold-editor", editor: true); Success("warm-android", warm: true); Success("warm-editor", editor: true, warm: true); Success("legacy-android", warm: true, legacy: true); RepairOnlyChangedBank(); LogWriteFailure();
             PcInstalledCampaign();
             foreach (string defect in new[] { "mod-archive", "payload", "missing-entry", "missing-manifest" }) Failure(defect);
