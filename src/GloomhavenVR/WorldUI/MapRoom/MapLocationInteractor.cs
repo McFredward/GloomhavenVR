@@ -393,6 +393,9 @@ internal sealed class MapLocationInteractor
         VRHand? clicking = TriggerEdgeHand();
         if (clicking == null)
             return;
+        if (clicking.Grabber.FigureGrabOffered
+            || clicking.Grabber.Held is IBoardGrabTarget { BoardKind: BoardGrabKind.Figure })
+            return;
         // MB491: the shared hover can belong to the OTHER hand. Re-pick through the clicking
         // hand's own geometry before dispatch; a window-grab trigger must never select an icon
         // that the resting offhand happened to hover while the primary beam stood down.

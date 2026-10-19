@@ -91,7 +91,7 @@ internal sealed partial class CardsDriver
         IFanSweepTarget? held = leftCard ?? rightCard;
         VRHand? free = ReferenceEquals(holder, left) ? right : left;
         if (held == null || holder == null || free == null || !free.HasPose
-            || free.Grabber.Held != null || _modalInputBlocked)
+            || free.Grabber.Held != null || free.Grabber.FigureGrabOffered || _modalInputBlocked)
         {
             _transferHoverHand = null;
             return;
@@ -134,11 +134,12 @@ internal sealed partial class CardsDriver
         // Claim the free hand's trigger while it is on the held card: no board far-click, no
         // proximity grab of a bystander card with the very pull that means "take THIS card".
         if (free.Ray.Enabled)
-            free.Ray.SuppressFarClick();
+            free.Ray.SuppressWorldFarClick("held card transfer hover");
         if (free.RayUgui.HasHit)
             return; // genuinely nearer game UI keeps the trigger, as everywhere else
         if (!free.TriggerDown)
             return;
+        free.Ray.ClaimTrigger("held card transfer");
         // ONE gesture, two owners: an ability card is handed over by this driver (it owns the
         // release routing that must be skipped), an item chip by its pile (same reason — its
         // OnRelease is where the clip-in / glide-home routing lives). See both methods.

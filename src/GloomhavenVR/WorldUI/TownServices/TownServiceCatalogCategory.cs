@@ -101,7 +101,8 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
     internal static void TickLaser()
     {
         VRHand? hand=VRHands.Primary;
-        if(hand==null||!hand.HasPose||!hand.Ray.Active||hand.Grabber.Held!=null||hand.RayGrab.OwnsPointerFrame) {_hover=null;return;}
+        if(hand==null||!hand.HasPose||!hand.Ray.Active||hand.Grabber.Held!=null||hand.RayGrab.OwnsPointerFrame
+            ||hand.Grabber.FigureGrabOffered) {_hover=null;return;}
         hand.GetAimRay(out Vector3 origin,out Vector3 direction);var ray=new Ray(origin,direction);
         float best=RayGrabDriver.MaxDistanceMeters*hand.WorldScale;TownServiceCatalogCategory? target=null;Vector3 point=default;
         foreach(var button in All) if(button._shape.enabled&&button._shape.Raycast(ray,out RaycastHit hit,best)) {target=button;best=hit.distance;point=hit.point;}
@@ -109,7 +110,7 @@ internal sealed class TownServiceCatalogCategory : IPokeable, IDisposable
             || hand.Ray.SolidOccluderDistance<best-.005f*hand.WorldScale
             || hand.RayUgui.HasHit&&hand.RayUgui.HitDistance<best))target=null;
         if(target!=_hover&&target!=null)target.OnPokeEnter(hand);_hover=target;
-        if(target==null)return;hand.Ray.UiHitOverride=point;
+        if(target==null)return;hand.Ray.SetWorldUiHit(point,"town catalog category hover");
         if(hand.TriggerDown){TownServicePhysicalRay.Claim(hand);target.OnPoke(hand);}
     }
     public void Dispose() { All.Remove(this); if(_hover==this)_hover=null; VRInteractables.UnregisterPokeable(this); foreach (Material material in _materials) UnityEngine.Object.Destroy(material); _materials.Clear(); UnityEngine.Object.Destroy(_root); }

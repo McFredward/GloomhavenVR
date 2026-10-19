@@ -1124,7 +1124,8 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             return;
         // Near reach-grab (a highlighted figure in the palm) belongs to the ProximityGrabber;
         // the far pluck only runs when the grabber is idle this frame.
-        if (hand.Grabber.Held != null || hand.Grabber.Highlighted != null)
+        if (hand.Grabber.FigureGrabOffered || hand.Grabber.Held != null
+            || hand.Grabber.Highlighted != null)
             return;
         if (!hand.Ray.TryGetPick(out PickPose pick) || !pick.HasHit || pick.HitCollider == null)
             return;
@@ -1139,7 +1140,8 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // trigger. HasFreshUiHit is their signal; ignore our OWN figure clamp from last frame
         // (recorded below) so we never defer to ourselves.
         int myClampFrame = hand.Side == HandSide.Left ? _leftClampFrame : _rightClampFrame;
-        bool foreignUi = hand.Ray.HasFreshUiHit && Time.frameCount - myClampFrame > 1;
+        bool foreignUi = hand.Ray.HasFreshTriggerClaim
+                         || (hand.Ray.HasFreshUiHit && Time.frameCount - myClampFrame > 1);
         if (foreignUi)
             return;
 
@@ -1153,7 +1155,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // in either phase. Adding [DefaultExecutionOrder] to pin the phase would freeze an order
         // nothing relies on, and would quietly narrow that window's job to nothing.
         // See .planning/refactor/REVIEW-Hands-Board-Core.md §P2.
-        hand.Ray.UiHitOverride = pick.HitPoint;
+        hand.Ray.SetWorldUiHit(pick.HitPoint, "figure far pickup hover");
         if (hand.Side == HandSide.Left)
             _leftClampFrame = Time.frameCount;
         else
@@ -1161,6 +1163,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
         if (hand.TriggerDown)
         {
+            hand.Ray.ClaimTrigger("figure far pickup");
             // THE LASER IS A DELIBERATE AIM, so it is not subject to the proximity arbitration —
             // clear this hand's suppression on the target before plucking. It is load-bearing since
             // the pinch-radius gate: a figure can now be inside the palm reach with NO winner
@@ -1306,6 +1309,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // the one outcome this subsystem could not describe. Tracked on trigger frames only.
         Adopted? nearestMiss = null;
         float nearestMissDist = float.MaxValue;
+        bool previousEligible = false;
 
         foreach (Adopted adopted in _adoptions.Values)
         {
@@ -1351,6 +1355,8 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             float admit = ReferenceEquals(adopted.Grabbable, held) ? exitWorld : pickWorld;
             if (anchorDist > admit)
                 continue; // in the palm's reach, but not in the PINCH — you have to reach for a mini
+            if (ReferenceEquals(adopted.Grabbable, held))
+                previousEligible = true;
             if (anchorDist < bestAnchorDist)
             {
                 bestAnchorDist = anchorDist;
@@ -1376,8 +1382,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             // Letting GO is immediate — only ARRIVING has to be earned. A hand that has genuinely
             // left every figure must stop highlighting in the same frame, or the release would
             // itself become a lag the player feels as stickiness.
-            if (winner != null && _dwellBySide[side] < PickDwellFrames)
+            // A switching dwell may preserve only an offer that still passed this sweep.
+            // Otherwise a newly busy/remote-held figure, a disabled native collider under a
+            // reach extension, or a zoomed-away volume could be reallowed on stale identity.
+            if (winner != null && _dwellBySide[side] < PickDwellFrames && previousEligible)
                 winner = held;
+            else if (winner != null && _dwellBySide[side] < PickDwellFrames)
+                winner = null;
         }
         else
         {

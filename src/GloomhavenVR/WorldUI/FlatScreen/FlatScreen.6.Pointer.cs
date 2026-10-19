@@ -33,6 +33,15 @@ internal sealed partial class FlatScreen
         }
 
         VRHand? hand = VRHands.Primary;
+        // A lit near figure owns a new pull. A screen press already in flight retains its
+        // release/drag; losing it here would leave the native pointer permanently pressed.
+        if (hand != null && !_pressing && hand.Grabber.FigureGrabOffered)
+        {
+            YieldScreenPointer();
+            return;
+        }
+        if (hand != null && _pressing)
+            hand.Ray.ClaimTrigger("flat screen active press");
         if (hand != null && hand.RayGrab.OwnsPointerFrame)
         {
             // A carry stands down TryGetPick, so ownership must be checked before that return.
@@ -210,7 +219,7 @@ internal sealed partial class FlatScreen
         Vector3 uiWorldPoint = frozen
             ? t.TransformPoint(new Vector3(_latchedLocal.x, _latchedLocal.y, 0f))
             : hit;
-        hand.Ray.UiHitOverride = uiWorldPoint;
+        hand.Ray.SetWorldUiHit(uiWorldPoint, "flat screen pointer hover");
 
         // Trigger = left mouse button (press/release so drags work). The release
         // condition is the trigger STATE, not the TriggerUp edge: a hands rebuild
@@ -219,6 +228,7 @@ internal sealed partial class FlatScreen
         // globally (I3 hardening; VirtualMouse has a second, time-based watchdog).
         if (hand.TriggerDown && !_pressing)
         {
+            hand.Ray.ClaimTrigger("flat screen pointer press");
             _pressing = true;
             // ALWAYS LATCHED ([WorldUI] ClickLatch removed, user ruling 2026-08-13): press and
             // release must land on the same pixel or uGUI sees a tremor drag and no click at all.
@@ -343,6 +353,7 @@ internal sealed partial class FlatScreen
                 EndPoke("grip released (or the hand grabbed something) mid-press — no click");
                 return;
             }
+            hand.Ray.ClaimTrigger("flat screen active fingertip press");
 
             float scale = hand.WorldScale;
             Vector3 tip = hand.Rig.IndexTip.position;
@@ -415,7 +426,7 @@ internal sealed partial class FlatScreen
     {
         // Respect the per-mode interactor matrix: only hands whose Poke interactor
         // is enabled may poke the screen.
-        if (hand == null || !hand.HasPose || !hand.Poke.Enabled)
+        if (hand == null || !hand.HasPose || !hand.Poke.Enabled || hand.Grabber.FigureGrabOffered)
             return;
 
         float scale = hand.WorldScale;
@@ -449,6 +460,7 @@ internal sealed partial class FlatScreen
         }
 
         var pixel = new Vector2((local.x + 0.5f) * _rt!.width, (local.y + 0.5f) * _rt.height);
+        hand.Ray.ClaimTrigger("flat screen fingertip press");
         _pokePressing = true;
         _pokeHand = hand;
         _pokeLatched = true; // always latched — see the trigger path ([WorldUI] ClickLatch is gone)

@@ -13,7 +13,7 @@ internal static class TownServicePhysicalRay
     private static int _leftFrame=-10, _rightFrame=-10;
     internal static void Claim(VRHand hand)
     {
-        hand.Ray.SuppressFarClick();
+        hand.Ray.ClaimTrigger("town service physical interaction");
         if(hand.Side==HandSide.Left){_leftStamp=hand;_leftFrame=Time.frameCount;}
         else{_rightStamp=hand;_rightFrame=Time.frameCount;}
     }
@@ -134,11 +134,13 @@ internal static class TownServicePhysicalRay
     internal static void Tick(VRHand hand)
     {
         if(OwnsPointerFrame(hand)){Claim(hand);return;}
+        if(hand.Grabber.FigureGrabOffered)return;
         if (!TryPick(hand, out IGrabbable? target, out Vector3 point, out float distance)
             || hand.RayUgui.IsPressing || (hand.RayUgui.HasHit && hand.RayUgui.HitDistance < distance)) return;
-        hand.Ray.SetPanelUiHit(point, "a physical town service sample");
+        hand.Ray.SetWorldUiHit(point, "town service physical sample hover");
         if (hand.TriggerDown && !hand.Grabber.TriggerGrabOffered)
         {
+            hand.Ray.ClaimTrigger("town service physical pickup");
             if(target is TownServiceMerchantDrawer drawer)drawer.BeginLaser();
             if(hand.Grabber.ForceGrab(target!, releaseOnTriggerUp: true))Claim(hand);
         }
