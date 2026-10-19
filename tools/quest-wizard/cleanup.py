@@ -284,7 +284,7 @@ def _children(parent, *, cancel=None):
     return selected
 
 
-def _snapshot(folder, proofs, *, verify_files=True, cancel=None):
+def _snapshot(folder, proofs, *, verify_files=True, bind_files=False, allow_missing=False, cancel=None):
     _check_cancel(cancel)
     proofs[str(folder)] = {"identity": _stamp(folder)[:3], "sha256": None}
     value = _read(folder / ".snapshot.json", proofs, cancel=cancel)
@@ -294,8 +294,12 @@ def _snapshot(folder, proofs, *, verify_files=True, cancel=None):
     if verify_files:
         for name, row in rows.items():
             _check_cancel(cancel)
-            stamp = _stamp(folder / name)
+            try: stamp = _stamp(folder / name)
+            except FileNotFoundError:
+                if allow_missing: continue
+                raise
             if not stat.S_ISREG(stamp[2]) or stamp[3] != row["size"]: raise _error("cleanup_receipt", name)
+            if bind_files: proofs[str(folder / name)] = {"stamp": stamp, "sha256": None}
     return value, rows
 
 
@@ -328,17 +332,18 @@ def _children_files(parent, *, cancel=None):
     return result
 
 
-def _duplicates(build, proofs, *, cancel=None):
+def _duplicates(build, proofs, *, bind_files=False, keep_paths=(), cancel=None):
     targets = []; duplicates = {}; manifests = _manifests(build, proofs, cancel=cancel)
     for folder in _children(build / "inputs/game", cancel=cancel):
         _check_cancel(cancel)
+        if any(folder == path or folder in path.parents or path in folder.parents for path in keep_paths): continue
         try:
-            value, rows = _snapshot(folder, proofs, cancel=cancel)
+            value, rows = _snapshot(folder, proofs, allow_missing=bind_files, cancel=cancel)
             ordered = sorted(value["files"], key=lambda row: row["path"])
             correct_key = value_hash({"files": ordered})
             if correct_key == folder.name: continue
             correct = folder.with_name(correct_key)
-            correct_value, correct_rows = _snapshot(correct, proofs, cancel=cancel)
+            correct_value, correct_rows = _snapshot(correct, proofs, bind_files=bind_files, cancel=cancel)
             if correct_value["files"] != ordered or correct_rows != rows: continue
             if not any(item["game"]["key"] == folder.name and item["game"]["files"] == value["files"] for item in manifests):
                 continue
@@ -843,7 +848,8 @@ def _raw_owners(build, manifests, proofs, *, verify_files=True, cancel=None):
     return result
 
 
-def _session_targets(root, build, folder, session, scope, protected, proofs, skipped, raw_owners, *, cancel=None):
+def _session_targets(root, build, folder, session, scope, protected, proofs, skipped, raw_owners, *, cancel=None,
+                     skip_protected_metadata=False):
     """Prove each subtree independently; no entire-cache or guessed-path sweep."""
     targets = []
     for manifest in scope["manifests"]:
@@ -854,7 +860,10 @@ def _session_targets(root, build, folder, session, scope, protected, proofs, ski
             area = {"game": "game", "mod": "mod", "probeAssets": "probe", "startupProject": "startup"}[kind]
             candidate = build / "inputs" / area / member["key"]
             if not candidate.is_dir(): continue
-            captured, rows = _snapshot(candidate, proofs, cancel=cancel)
+            if skip_protected_metadata and any(candidate == path or candidate in path.parents or path in candidate.parents
+                                               for path in protected):
+                skipped.append({"path": candidate.relative_to(root).as_posix(), "reason": "shared_or_delivered"}); continue
+            captured, rows = _snapshot(candidate, proofs, allow_missing=skip_protected_metadata, cancel=cancel)
             if captured["files"] != member.get("files"): raise _error("cleanup_receipt")
             targets.append(candidate)
         key = _project_key(manifest)
@@ -868,8 +877,12 @@ def _session_targets(root, build, folder, session, scope, protected, proofs, ski
                 if owner not in (expected, legacy):
                     skipped.append({"path": project.relative_to(root).as_posix(), "reason": "unproven_owner"}); continue
                 if project.is_dir():
-                    if _editor_busy(project): raise _error("cleanup_editor_busy", key[:12])
-                    targets.append(project)
+                    if skip_protected_metadata and any(project == path or project in path.parents or path in project.parents
+                                                       for path in protected):
+                        skipped.append({"path": project.relative_to(root).as_posix(), "reason": "shared_or_delivered"})
+                    else:
+                        if _editor_busy(project): raise _error("cleanup_editor_busy", key[:12])
+                        targets.append(project)
                 # These exact producer roots are all owned by this same project
                 # lifecycle. Their large journals are stat-scanned, not decoded.
                 for area in ("project-lifecycle", "prepare-resume", "project-content-transactions", "preparation-repair"):
@@ -1038,14 +1051,18 @@ def plan_session(state_root, session, *, remove_data=False, progress=None, cance
 
 def plan(state_root, mode="duplicates", progress=None, *, cancel=None):
     """Return a confirmation preview; unknown/unproven duplicate data is retained."""
-    if mode not in ("duplicates", "build-cache", "update-history"): raise _error("cleanup_mode")
+    if mode not in ("duplicates", "build-cache", "update-history", "safe"): raise _error("cleanup_mode")
     _check_cancel(cancel)
     _notify(progress, "cleanup-discover", 0, None, "", files=0, bytes=0, folders=0)
     proofs = {}; root, build = _root(state_root, proofs)
     targets = []; skipped = []; protected = set()
     with _guard(root, build):
         if build.is_dir():
-            if mode == "update-history":
+            if mode == "safe":
+                from automatic_cleanup import candidates
+                targets, protected, skipped = candidates(sys.modules.get(__name__) or SimpleNamespace(**globals()),
+                                                         root, build, proofs, cancel=cancel)
+            elif mode == "update-history":
                 from update_storage import candidates
                 targets, protected, skipped = candidates(sys.modules.get(__name__) or SimpleNamespace(**globals()),
                                                          root, build, proofs, cancel=cancel)
@@ -1057,26 +1074,46 @@ def plan(state_root, mode="duplicates", progress=None, *, cancel=None):
                 targets = [build / name for name in ("cache", "projects", "inputs") if (build / name).is_dir()]
             else: targets = _duplicates(build, proofs, cancel=cancel)
         paths = []; private = []
+        retained_projects = set(); retained_sources = set()
         tracker = _ScanProgress(progress, "cleanup-scan", cancel, root=root)
         for target in targets:
             _check_cancel(cancel)
+            if mode == "safe":
+                if (target.parent.parent == build / "cache" and target.name in retained_projects and target.parent.name in
+                        ("project-lifecycle", "prepare-resume", "project-content-transactions", "preparation-repair")):
+                    skipped.append({"path": target.relative_to(root).as_posix(), "reason": "project_retained"}); continue
+                if (target.parent == root / "source" and target.name.endswith(".owner.json")
+                        and target.name[:-len(".owner.json")] in retained_sources):
+                    skipped.append({"path": target.relative_to(root).as_posix(), "reason": "source_retained"}); continue
             try: scan = _scan(target, progress, cancel=cancel, tracker=tracker)
             except Cancelled: raise
             except (WizardError, OSError) as error:
+                if mode == "safe":
+                    if target.parent == build / "projects": retained_projects.add(target.name)
+                    if target.parent == root / "source": retained_sources.add(target.name)
                 skipped.append({"path": target.relative_to(root).as_posix(), "reason": getattr(error, "code", "unreadable")}); continue
             # Reject surplus files in duplicate snapshots: they are not part of
             # the proven immutable source owner, even if a valid receipt exists.
-            if target.parent == build / "inputs/game":
+            if target.parent.parent == build / "inputs" and target.parent.name in ("game", "mod", "probe", "startup"):
                 expected = set(_rows(_read(target / ".snapshot.json", proofs)["files"])) | {".snapshot.json"}
                 observed = {path.relative_to(target).as_posix() for path, stamp in scan["nodes"] if stat.S_ISREG(stamp[2])}
-                if expected != observed: skipped.append({"path": target.relative_to(root).as_posix(), "reason": "surplus_files"}); continue
+                if observed - expected or (mode != "safe" and expected != observed):
+                    skipped.append({"path": target.relative_to(root).as_posix(), "reason": "surplus_files"}); continue
+            if mode == "safe" and stat.S_ISDIR(scan["nodes"][0][1][2]):
+                # Reverse deletion must leave a producer's root receipt until
+                # last, so a cancelled cleanup can still prove the residue's
+                # ownership on its next click. Fingerprints retain scan order;
+                # only the private deletion traversal changes.
+                owners = {".snapshot.json", "original-source.json", "stage-owner.json"}
+                early = [node for node in scan["nodes"][1:] if node[0].parent == target and node[0].name in owners]
+                scan["nodes"] = scan["nodes"][:1] + early + [node for node in scan["nodes"][1:] if node not in early]
             row = {"path": target.relative_to(root).as_posix(), "bytes": scan["bytes"], "files": scan["files"]}
             paths.append(row); private.append({"root": target, **scan})
         value = {"id": secrets.token_urlsafe(24), "mode": mode, "paths": paths,
                  "bytes": sum(row["bytes"] for row in paths), "files": sum(row["files"] for row in paths),
                  "exact": True, "eligible": bool(paths), "skipped": skipped,
                  "consequences": (["full-rebuild-cache-removed"] if mode == "build-cache" else
-                                  ["superseded-update-apks-removed", "fast-update-data-retained"] if mode == "update-history" else
+                                  ["superseded-update-apks-removed", "fast-update-data-retained"] if mode in ("update-history", "safe") else
                                   ["canonical-resume-preserved"])}
         from update_storage import impact
         value.update(impact(root, paths, mode=mode, protected=protected))
@@ -1135,8 +1172,10 @@ def execute(state_root, preview, progress=None, *, cancel=None):
         checker = _ScanProgress(progress, "cleanup-check", cancel, root=root)
         for name, proof in saved["proofs"].items():
             _check_cancel(cancel)
-            path = ordinary(name)
-            current = _stamp(path)
+            try:
+                path = ordinary(name)
+                current = _stamp(path)
+            except OSError as error: raise _error("cleanup_preview_changed", Path(name).name) from error
             if (current[:3] != proof["identity"] if "identity" in proof else current != proof["stamp"]):
                 raise _error("cleanup_preview_changed", path.name)
             if proof["sha256"] is not None and hashlib.sha256(path.read_bytes()).hexdigest() != proof["sha256"]:
@@ -1191,6 +1230,9 @@ def execute(state_root, preview, progress=None, *, cancel=None):
             raise failure from error
         _notify(progress, "cleanup-complete", deleted, public["files"], public["mode"],
                 files=deleted, bytes=freed, folders=deleting.folders, currentPath="")
-    return {"freedBytes": freed, "deletedFiles": deleted,
+    result = {"freedBytes": freed, "deletedFiles": deleted,
             "invalidatedStages": ["inspect", "build"] if public["mode"] == "build-cache" and deleted else [], "sessionsReset": reset,
             "sessionsRemoved": [public["session"]] if public["mode"] == "session" and not public.get("retired") else []}
+    if public["mode"] == "safe":
+        result.update({name: public[name] for name in ("fastUpdateImpact", "protectedPaths", "skipped", "warnings")})
+    return result
