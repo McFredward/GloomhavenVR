@@ -42,10 +42,6 @@
   <a href="docs/PLAYING.de.md">Spielablauf &amp; Steuerung</a>
 </p>
 
-> **Native Mixed Reality auf Steam Frame:** Standalone ist sie integriert; beim PC-Streaming
-> über Steam Link brauchst du den [separaten Passthrough-Patch](https://github.com/McFredward/steam-link-native-passthrough#readme).
-> Er nutzt echte Transparenz statt Farbersetzung. [Einrichtung und Grenzen](https://github.com/McFredward/steam-link-native-passthrough/blob/dev/docs/COMPATIBILITY.md).
-
 > **Empfehlung: Spiele zuerst das erste Tutorial.** Es erklärt die Spielgrundlagen und viele Besonderheiten der VR-Bedienung.
 
 <p align="center">

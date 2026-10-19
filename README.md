@@ -42,10 +42,6 @@
   <a href="docs/PLAYING.md">Playing &amp; controls</a>
 </p>
 
-> **Native mixed reality on Steam Frame:** built in for standalone; PC streaming
-> through Steam Link needs the [paired PC and Frame companions](https://github.com/McFredward/steam-link-native-passthrough#readme).
-> It uses real transparency, not colour replacement. [Setup and limits](https://github.com/McFredward/steam-link-native-passthrough/blob/dev/docs/COMPATIBILITY.md).
-
 > **Recommended: play the first tutorial.** It explains the gameplay basics and many VR-specific controls and interactions.
 
 <p align="center">
