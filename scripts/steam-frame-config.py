@@ -770,7 +770,9 @@ def verify_managed_setup(path: Path, proc_root: Path, *, require_client: bool = 
 def apply_managed_setup(path: Path, proc_root: Path) -> int:
     # The persistent nonfatal startup hook remains safe after offline setup removes
     # its request. A corrupt present request is an error, never a missing-job pass.
-    if not path.exists():
+    try:
+        path.lstat()
+    except FileNotFoundError:
         return 0
     with managed_setup_lock(path):
         receipt = read_managed_setup(path)
@@ -889,7 +891,14 @@ def main(argv: list[str] | None = None) -> int:
                 receipt = {"schema": 1, "processes": processes, "boot_id": steam_boot_id(args.proc_root)}
                 backup_and_replace(args.record_running_setup, (json.dumps(receipt) + "\n").encode())
                 return 0
-            if args.pending_setup and args.pending_setup.exists():
+            pending_present = False
+            if args.pending_setup:
+                try:
+                    args.pending_setup.lstat()
+                    pending_present = True
+                except FileNotFoundError:
+                    pass
+            if pending_present:
                 try:
                     pending = json.loads(read_bounded(args.pending_setup))
                     if isinstance(pending, dict) and pending.get("schema") == 2:
