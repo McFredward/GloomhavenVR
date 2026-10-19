@@ -23,6 +23,7 @@ public static class LoadingLifecycleProgram
 {
     public static int ObservedBoundary { get; private set; }
     public static int RenderedSamples => shownFrames;
+    public static int MenuFrameSamples => MenuFrameTrace.Samples;
     public static bool OriginalBootCallbacks { get; private set; }
     private static int checks, shownFrames;
     private static LoadingIndicator indicator = null!;
@@ -120,15 +121,16 @@ public static class LoadingLifecycleProgram
         Sprite basis = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprite/LoadingBase.asset");
         Sprite overlay = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprite/LoadingOverlay.asset");
         Check(basis != null && overlay != null, "Actual owned native loading sprites import");
-        // Clone only the bounded atlas used by these original sprites. Neither
-        // the canonical source nor its import metadata is modified. The clone
-        // has no DontUnload flag or static Texture/Sprite reference.
-        Texture2D texture = UnityEngine.Object.Instantiate(basis!.texture);
-        texture.name = "fixture-native-intro-atlas"; texture.hideFlags = HideFlags.None;
+        // Preserve the actual Sprite's authored rect, tight packing, UVs and
+        // padding. Sprite.Create(source.textureRect) silently replaced its
+        // original128px rect with the trimmed atlas crop, hiding geometry bugs.
+        // This fixture proves native collection occurs and the borrowed flags
+        // stay unchanged; the imported assets can also be held by AssetDatabase,
+        // so it does not claim that a particular asset would otherwise unload.
+        Texture2D texture = basis!.texture;
         nativeTextureId = texture.GetInstanceID(); nativeHideFlags = (int)texture.hideFlags;
-        Sprite clone(Sprite source) => Sprite.Create(texture, source.textureRect, new Vector2(.5f, .5f), 100);
-        Image baseImage = Icon("native-intro-base", clone(basis));
-        Image overlayImage = Icon("native-intro-overlay", clone(overlay!));
+        Image baseImage = Icon("native-intro-base", basis);
+        Image overlayImage = Icon("native-intro-overlay", overlay!);
         baseImage.color = new Color(.953f, .867f, .671f, 1);
         var owner = new GameObject("native-intro-spinner", typeof(RectTransform)); owner.SetActive(false);
         baseImage.transform.SetParent(owner.transform, false); overlayImage.transform.SetParent(owner.transform, false);
@@ -356,9 +358,9 @@ public static class LoadingLifecycleProgram
                 MethodInfo? callback = type.GetMethod(method, Fields | BindingFlags.DeclaredOnly);
                 if (callback != null) harmony.Patch(callback, prefix: new HarmonyMethod(typeof(LoadingLifecycleProgram), nameof(SkipNativeLifecycle)));
             }
-        var root = new GameObject("native-readiness-menu", typeof(RectTransform), typeof(Canvas), typeof(CanvasGroup)); root.SetActive(false);
+        var root = new GameObject("native-readiness-menu", typeof(RectTransform), typeof(Canvas), typeof(CanvasGroup)); root.SetActive(false); root.layer = 5;
         var manager = root.AddComponent<GLOOM.MainMenu.MainMenuUIManager>(); manager.enabled = false;
-        var optionsOwner = new GameObject("native-options", typeof(RectTransform)); optionsOwner.SetActive(false);
+        var optionsOwner = new GameObject("native-options", typeof(RectTransform)); optionsOwner.SetActive(false); optionsOwner.layer = 5;
         optionsOwner.transform.SetParent(root.transform, false);
         var options = optionsOwner.AddComponent<GLOOM.MainMenu.UIMainOptionsMenu>(); options.enabled = false;
         UIWindow window = optionsOwner.AddComponent<UIWindow>(); window.enabled = false;
@@ -368,19 +370,22 @@ public static class LoadingLifecycleProgram
         root.SetActive(true); optionsOwner.SetActive(true);
         var cameraOwner = new GameObject("native-readiness-ui-camera");
         Camera ui = cameraOwner.AddComponent<Camera>(); ui.enabled = false;
+        ui.cullingMask = 1 << 5; ui.clearFlags = CameraClearFlags.SolidColor; ui.backgroundColor = Color.clear;
         var capture = new RenderTexture(64, 64, 0); capture.Create(); ui.targetTexture = capture;
         Canvas nativeCanvas = root.GetComponent<Canvas>(); nativeCanvas.renderMode = RenderMode.ScreenSpaceCamera;
         nativeCanvas.worldCamera = ui; nativeCanvas.planeDistance = .5f;
         var graphicOwner = new GameObject("native-original-menu-graphic", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        graphicOwner.layer = 5;
         graphicOwner.transform.SetParent(optionsOwner.transform, false);
         graphicOwner.GetComponent<RectTransform>().sizeDelta = Vector2.one * 64;
         graphicOwner.GetComponent<Image>().color = Color.white;
         Canvas.ForceUpdateCanvases();
         var consumer = GameObject.CreatePrimitive(PrimitiveType.Quad);
         consumer.name = "native-readiness-capture-consumer"; consumer.layer = 29;
-        consumer.transform.position = head.transform.TransformPoint(Vector3.forward);
+        consumer.transform.position = head.transform.TransformPoint(Vector3.forward * 2.5f);
         consumer.transform.rotation = head.transform.rotation;
-        var material = new Material(Shader.Find("Unlit/Texture")) { mainTexture = capture };
+        var material = new Material(Shader.Find("GloomhavenVR/Overlay")) { mainTexture = capture };
+        material.SetFloat("_VertexColor", 0); material.SetFloat("_ZTest", 8);
         consumer.GetComponent<Renderer>().sharedMaterial = material;
         var screen = new FlatScreen(); screen.Setup(ui, capture, consumer);
         try
@@ -407,8 +412,51 @@ public static class LoadingLifecycleProgram
             ui.Render(); head.Render(); yield return null;
             Check(!FlatScreen.QuestMenuPresented, "A head surface displaying another texture cannot acknowledge the menu capture");
             material.mainTexture = capture; UnityEngine.Object.DestroyImmediate(foreign);
+            Image nativeImage = graphicOwner.GetComponent<Image>();
+            var blankTexture = new Texture2D(4, 4, TextureFormat.RGBA32, false);
+            blankTexture.SetPixels(new Color[16]); blankTexture.Apply();
+            Sprite transparent = Sprite.Create(blankTexture, new Rect(0, 0, 4, 4), new Vector2(.5f, .5f));
+            try
+            {
+                if (MenuFrameTrace.Includes("transparent-native-graphic"))
+                {
+                    nativeImage.sprite = transparent; Canvas.ForceUpdateCanvases();
+                    IEnumerator frames = MenuFrameTrace.Covered("transparent-native-graphic", ui, head, capture, target, Visual!, Check);
+                    while (frames.MoveNext()) yield return frames.Current;
+                    nativeImage.sprite = null;
+                }
+                if (MenuFrameTrace.Includes("offscreen-native-graphic"))
+                {
+                    nativeImage.rectTransform.anchoredPosition = Vector2.one * 100000; Canvas.ForceUpdateCanvases();
+                    IEnumerator frames = MenuFrameTrace.Covered("offscreen-native-graphic", ui, head, capture, target, Visual!, Check);
+                    while (frames.MoveNext()) yield return frames.Current;
+                    nativeImage.rectTransform.anchoredPosition = Vector2.zero;
+                }
+                if (MenuFrameTrace.Includes("later-target-overwrite"))
+                {
+                    var laterOwner = new GameObject("native-later-capture-writer");
+                    Camera later = laterOwner.AddComponent<Camera>(); later.enabled = false;
+                    later.targetTexture = capture; later.cullingMask = 0; later.clearFlags = CameraClearFlags.SolidColor; later.backgroundColor = Color.clear;
+                    try
+                    {
+                        Canvas.ForceUpdateCanvases();
+                        IEnumerator frames = MenuFrameTrace.Covered("later-target-overwrite", ui, head, capture, target, Visual!, Check, later);
+                        while (frames.MoveNext()) yield return frames.Current;
+                    }
+                    finally { UnityEngine.Object.DestroyImmediate(laterOwner); }
+                }
+                if (MenuFrameTrace.Includes("black-head-consumer"))
+                {
+                    material.color = Color.black; Canvas.ForceUpdateCanvases();
+                    IEnumerator frames = MenuFrameTrace.Covered("black-head-consumer", ui, head, capture, target, Visual!, Check);
+                    while (frames.MoveNext()) yield return frames.Current;
+                    material.color = Color.white;
+                }
+            }
+            finally { UnityEngine.Object.DestroyImmediate(transparent); UnityEngine.Object.DestroyImmediate(blankTexture); }
             ui.Render(); head.Render(); yield return null;
             Check(FlatScreen.QuestMenuPresented, "Actual produced visible native UI reaches the real head consumer");
+            MenuFrameTrace.Visible("visible-native-menu", ui, head, capture, target, Visual!, Check);
             until = Time.unscaledTime + .5f;
             while (Time.unscaledTime < until) yield return null;
             Check(!LoadingIndicator.FlatScreenSuppressed && (Visual == null || !Visual.activeSelf),

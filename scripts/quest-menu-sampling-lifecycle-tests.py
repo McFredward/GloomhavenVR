@@ -18,9 +18,18 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from town_run_retention import cleanup_completed_run
 
 
+def replace_control(source, before, after, name):
+    count = source.count(before)
+    if count != 1:
+        raise RuntimeError(f"Control binding drift before compilation: {name} matched {count} source sites")
+    return source.replace(before, after, 1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--owned-project", type=Path, required=True)
+    parser.add_argument("--production-root", type=Path, default=ROOT, help="Read reviewed production sources from this checkout; fixture and runner remain this checkout's own files.")
+    parser.add_argument("--handoff-case", choices=("transparent-native-graphic", "offscreen-native-graphic", "later-target-overwrite", "black-head-consumer"), help="Isolate one final-frame handoff failure before the valid native menu.")
     parser.add_argument("--final-composition", action="store_true", help="Also qualify the native overlay in a real automatically rendered GameView (GL/Xvfb).")
     parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept", "intro-mode-assumption", "unified-mode-assumption", "intro-root-assumption", "unified-root-assumption", "intro-actor-assumption", "early-menu-hide", "menu-state-only", "menu-no-submission", "menu-empty-window", "menu-hidden-ancestor", "menu-foreign-capture"))
     args = parser.parse_args()
@@ -34,7 +43,8 @@ def main():
     try:
         fixture = ROOT / "tests/QuestMenuSampling.Lifecycle.Tests"
         production = run / "production"; production.mkdir()
-        loading = (ROOT / "src/GloomhavenVR/WorldUI/LoadingIndicator.cs").read_text()
+        production_root = args.production_root.resolve(strict=True)
+        loading = (production_root / "src/GloomhavenVR/WorldUI/LoadingIndicator.cs").read_text()
         controls = {
             "retire-at-controller": ("if (ordinary)", "if (sc != null)", "through SceneController construction before native loading begins"),
             "copy-boot-rt": ("!QuestStandalonePlatform.Enabled && (!AdoptOwnedCopy(baseArt)", "(!AdoptOwnedCopy(baseArt)", "Quest boot uses the hardware-qualified native Sprite consumer without a copied RT"),
@@ -70,35 +80,37 @@ def main():
         if args.control in controls:
             before, after, expected = controls[args.control]
             assert loading.count(before) == 1, "Control binding drift: " + args.control
-            loading = loading.replace(before, after, 1)
-        readiness = (ROOT / "src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.7.QuestMenuReadiness.cs").read_text()
+            loading = replace_control(loading, before, after, args.control)
+        readiness = (production_root / "src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.7.QuestMenuReadiness.cs").read_text()
         if args.control in ("early-menu-hide", "menu-state-only", "menu-no-submission"):
             expected = {"early-menu-hide": "Actual Quest spinner covers native menu preparation after loading flags retire",
                 "menu-state-only": "A menu state without original Show remains covered",
                 "menu-no-submission": "A produced menu without actual head submission remains covered"}[args.control]
             if args.control == "early-menu-hide":
-                loading = loading.replace("bool menuHandoff = indicatorEnabled && TickQuestMenuHandoff();", "bool menuHandoff = false;")
+                loading = replace_control(loading, "bool menuHandoff = indicatorEnabled && TickQuestMenuHandoff();", "bool menuHandoff = false;", args.control)
             elif args.control == "menu-state-only":
-                readiness = readiness.replace("if (menu == null || !menu.Initialised) return;", "if (menu == null) return;")
-                readiness = readiness.replace("if (window == null || !window.IsOpen || group == null || group.alpha <= .01f) return null;", "if (window == null || group == null) return null;")
+                readiness = replace_control(readiness, "if (menu == null || !menu.Initialised) return;", "if (menu == null) return;", args.control)
+                readiness = replace_control(readiness, "if (window == null || !window.IsOpen || group == null || group.alpha <= .01f) return null;", "if (window == null || group == null) return null;", args.control)
             else:
-                readiness = readiness.replace("_questProducedMenu = menu;", "_questPresentedMenu = menu;\n        _questProducedMenu = menu;")
+                readiness = replace_control(readiness, "_questProducedMenu = menu;", "_questPresentedMenu = menu;\n        _questProducedMenu = menu;", args.control)
         if args.control == "menu-empty-window":
-            readiness = readiness.replace("if (graphic == null) return;", "if (graphic == null) { _questPresentedMenu = menu; return; }")
+            readiness = replace_control(readiness, "if (graphic == null) return;", "if (graphic == null) { _questPresentedMenu = menu; return; }", args.control)
             expected = "An opened native menu without a submitted Graphic remains covered"
         elif args.control == "menu-hidden-ancestor":
-            readiness = readiness.replace("graphic.canvasRenderer.GetInheritedAlpha() <= .01f", "false")
-            readiness = readiness.replace("owner._questProducedMenuGraphic.canvasRenderer.GetInheritedAlpha() <= .01f", "false")
+            readiness = replace_control(readiness, "graphic.canvasRenderer.GetInheritedAlpha() <= .01f", "false", args.control)
+            readiness = replace_control(readiness, "owner._questProducedMenuGraphic.canvasRenderer.GetInheritedAlpha() <= .01f", "false", args.control)
             expected = "A hidden native menu ancestor cannot acknowledge a visible picture"
         elif args.control == "menu-foreign-capture":
-            readiness = readiness.replace("renderer.sharedMaterial.mainTexture != owner._questProducedMenuTarget", "false")
+            readiness = replace_control(readiness, "renderer.sharedMaterial.mainTexture != owner._questProducedMenuTarget", "false", args.control)
             expected = "A head surface displaying another texture cannot acknowledge the menu capture"
         rows = {"LoadingIndicator.cs": loading, "QuestMenuReadiness.cs": readiness}
         for path in ("Core/QuestTextureCopy.cs", "Core/QuestPrimitiveMesh.cs", "WorldUI/Sharpness/LoadingIconGeometry.cs"):
-            rows[Path(path).name] = (ROOT / "src/GloomhavenVR" / path).read_text()
+            rows[Path(path).name] = (production_root / "src/GloomhavenVR" / path).read_text()
         for name, text in rows.items(): (production / name).write_text(text)
         source_hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in rows.items()}
         source_hashes.update({str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in fixture.glob("*") if path.is_file()})
+        for shader in ("unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader", "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader"):
+            source_hashes[shader] = hashlib.sha256((production_root / shader).read_bytes()).hexdigest()
         (run / "source-hashes.json").write_text(json.dumps(source_hashes, indent=2) + "\n")
         # Retain the exact test source before later development can change it.
         # Compile from this snapshot and preserve it with the run's receipts.
@@ -106,20 +118,15 @@ def main():
         unity = Path("/home/claw/unity-2021.3.5/Editor/Unity")
         managed = ROOT / "ressources/GH_Data/Managed"
         harmony = Path.home() / ".nuget/packages/harmonyx/2.7.0/lib/net45/0Harmony.dll"
-        project = run / "Runtime.csproj"; shutil.copyfile(fixture / "Runtime.csproj", project)
-        result = subprocess.run([shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet"), "build", str(project), "-c", "Release", "--nologo", "--verbosity", "quiet",
-            "-p:CaseName=QuestLoadingLifecycle", "-p:FixtureDir=" + str(fixture), "-p:ProductionDir=" + str(production),
-            "-p:UnityManaged=" + str(unity.parent / "Data/Managed"), "-p:GameManaged=" + str(managed), "-p:Harmony=" + str(harmony),
-            "-p:UseSharedCompilation=false", "-nodeReuse:false"], capture_output=True, text=True)
-        (run / "build.log").write_text(result.stdout + result.stderr)
-        if result.returncode: raise RuntimeError(result.stdout + result.stderr + "\nCompilation failure is not a passing control")
+        runtime_project = run / "Runtime.csproj"; shutil.copyfile(fixture / "Runtime.csproj", runtime_project)
         project = run / "unity"; editor = project / "Assets/Editor"; editor.mkdir(parents=True)
         (project / "Assets/Resources").mkdir(); (project / "Assets/Sprite").mkdir(); (project / "Assets/Texture2D").mkdir()
         # Match runtime plugin loading: establish the real-game resolver before
         # loading this assembly. Importing it as a Unity project plugin would
         # cache missing GH.Runtime type resolutions before that boundary exists.
         dll = run / "bin/Release/netstandard2.1/QuestLoadingLifecycle.dll"
-        shutil.copyfile(ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader", project / "Assets/Resources/QuestTextureCopy.shader")
+        shutil.copyfile(production_root / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader", project / "Assets/Resources/QuestTextureCopy.shader")
+        shutil.copyfile(production_root / "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader", project / "Assets/Resources/Overlay.shader")
         wanted = set()
         source = args.owned_project.resolve(strict=True)
         def copy(path, target):
@@ -171,6 +178,19 @@ def main():
                 for original in (meta, Path(str(meta)[:-5])): copy(original, project / original.relative_to(source))
                 wanted.remove(match[1])
         assert not wanted, "Native spinner texture closure incomplete"
+        # Resolve/validate the finite owned-input closure before compiling or
+        # launching Unity. A missing input is a preflight failure, never a
+        # successful negative control or an excuse for a large project import.
+        (run / "input-preflight.json").write_text(json.dumps({"passed": True, "files": len(owned),
+            "canonicalScenesImported": False, "nativeMenuLifecycleControlled": True,
+            "usesActualOwnedSpriteMetadata": True, "xrProviderActive": False,
+            "productionRoot": str(production_root)}, indent=2) + "\n")
+        result = subprocess.run([shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet"), "build", str(runtime_project), "-c", "Release", "--nologo", "--verbosity", "quiet",
+            "-p:CaseName=QuestLoadingLifecycle", "-p:FixtureDir=" + str(fixture), "-p:ProductionDir=" + str(production),
+            "-p:UnityManaged=" + str(unity.parent / "Data/Managed"), "-p:GameManaged=" + str(managed), "-p:Harmony=" + str(harmony),
+            "-p:UseSharedCompilation=false", "-nodeReuse:false"], capture_output=True, text=True)
+        (run / "build.log").write_text(result.stdout + result.stderr)
+        if result.returncode: raise RuntimeError(result.stdout + result.stderr + "\nCompilation failure is not a passing control")
         dependencies = run / "dependencies"; dependencies.mkdir()
         shutil.copyfile(harmony, dependencies / harmony.name)
         for folder, name in (("monomod.runtimedetour/21.12.13.1/lib/net452", "MonoMod.RuntimeDetour.dll"),
@@ -216,7 +236,8 @@ public static class LoadingLifecycleRunner {
         bool control=!String.IsNullOrEmpty(input.expected), passed=control?error!=null&&error.Message.Contains(input.expected):error==null;
         Type program=fixture==null?null:fixture.GetType("LoadingLifecycleProgram"); int boundary=program==null?0:(int)program.GetProperty("ObservedBoundary").GetValue(null); int samples=program==null?0:(int)program.GetProperty("RenderedSamples").GetValue(null);
         bool originalBoot=program!=null&&(bool)program.GetProperty("OriginalBootCallbacks").GetValue(null);
-        string value="{\"passed\":"+passed.ToString().ToLowerInvariant()+",\"assertions\":"+checks+",\"actualPlayerLoop\":true,\"observedBoundary\":"+boundary+",\"renderedSamples\":"+samples+",\"actualOriginalBootCallbacks\":"+originalBoot.ToString().ToLowerInvariant()+",\"actualSingleSceneLoad\":"+(originalBoot||boundary>=2).ToString().ToLowerInvariant()+",\"actualAssetCollection\":"+(boundary>=3).ToString().ToLowerInvariant()+",\"fullProductionTick\":true,\"hardwareVerified\":false,\"control\":"+control.ToString().ToLowerInvariant()+"}";
+        int menuFrames=program==null?0:(int)program.GetProperty("MenuFrameSamples").GetValue(null);
+        string value="{\"passed\":"+passed.ToString().ToLowerInvariant()+",\"assertions\":"+checks+",\"actualPlayerLoop\":true,\"observedBoundary\":"+boundary+",\"renderedSamples\":"+samples+",\"finalMenuFrameSamples\":"+menuFrames+",\"actualOriginalBootCallbacks\":"+originalBoot.ToString().ToLowerInvariant()+",\"actualSingleSceneLoad\":"+(originalBoot||boundary>=2).ToString().ToLowerInvariant()+",\"actualAssetCollection\":"+(boundary>=3).ToString().ToLowerInvariant()+",\"fullProductionTick\":true,\"actualXrProvider\":false,\"nativeMenuLifecycleControlled\":true,\"hardwareVerified\":false,\"control\":"+control.ToString().ToLowerInvariant()+"}";
         File.WriteAllText(input.result,value+"\n"); if(error!=null) Debug.LogException(error); EditorApplication.Exit(passed?0:1);
     }
 }''')
@@ -230,6 +251,8 @@ public static class LoadingLifecycleRunner {
         if not os.environ.get("DISPLAY"): command = ["xvfb-run", "-a"] + command
         print("Full loading Tick evidence: " + str(run), flush=True)
         environment = os.environ.copy()
+        environment["QUEST_LOADING_FRAME_REPORT"] = str(run)
+        if args.handoff_case: environment["QUEST_LOADING_HANDOFF_CASE"] = args.handoff_case
         if args.final_composition: environment["QUEST_LOADING_COMPOSITION_REPORT"] = str(run)
         process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=environment); reaped=False
         code = process.wait(timeout=240)
