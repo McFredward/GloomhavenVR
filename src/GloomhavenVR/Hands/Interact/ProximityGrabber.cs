@@ -64,7 +64,7 @@ internal sealed class ProximityGrabber
     private const float SwitchMarginMeters = 0.025f;
 
     /// <summary>
-    /// HOVER SCHMITT TRIGGER, the release ring: a target that ALREADY holds the highlight keeps it
+    /// HOVER SCHMITT TRIGGER, the release ring: a non-figure target that ALREADY holds the highlight keeps it
     /// out to <c>ReachMeters * ExitReachFactor</c>, while a new one still has to come inside
     /// <see cref="ReachMeters"/> to take it. A factor rather than a second dial for the same reason
     /// <c>FigureGrabDriver.PickExitFactor</c> is one: a player tunes "how close must I get", never
@@ -79,10 +79,11 @@ internal sealed class ProximityGrabber
     private const float ExitReachFactor = 1.35f;
 
     /// <summary>
-    /// HOVER SCHMITT TRIGGER, the exit dwell: how long the glow is held after the election stops
-    /// naming the current target, while that target is still inside the exit ring.
+    /// HOVER SCHMITT TRIGGER, the non-figure exit dwell: how long a card/panel glow is held after
+    /// the election stops naming it, while it remains inside the exit ring. Figures never use
+    /// this visual-only tail after Build711; their glow ends with actual eligibility.
     ///
-    /// <para>WHY A DWELL AND NOT JUST A RADIUS (ModBuild 335 hardware log). The highlight did fire
+    /// <para>HISTORICAL REASON FOR THE DWELL (ModBuild 335 hardware log). The highlight did fire
     /// on every figure the user hovered — SpittingDrake, ElderDrake, RendingDrakeElite, Mindthief —
     /// and was torn down again within one to three log lines, in a log printing ~20 lines a frame.
     /// A glow that lives a frame or two is invisible, which is the whole of "kein highlighting wenn
