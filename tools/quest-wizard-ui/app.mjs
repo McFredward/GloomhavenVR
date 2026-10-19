@@ -630,8 +630,9 @@ function renderStorage() {
   $('storage-retry').disabled=locked;
   const previewing=status==='preview'&&!failure;$('storage-paths').hidden=!previewing;$('storage-paths').replaceChildren();
   if(previewing)for(const row of plan?.paths??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=row.path;detail.textContent=t('storagePlanSize',{size:storageSize(row.bytes),files:new Intl.NumberFormat(language).format(row.files??0)});li.append(path,detail);$('storage-paths').append(li);}
-  $('storage-skipped').hidden=!previewing||!plan?.skipped?.length;$('storage-skipped').replaceChildren();
-  if(previewing)for(const row of plan?.skipped??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=typeof row==='string'?row:row.path??'';const reason=typeof row==='object'?row.reason:'';detail.textContent=t('storageRetainedPath',{reason:reason==='shared'?t('storageRetainedShared'):reason==='shared_or_delivered'?t('storageRetainedSharedDelivered'):reason==='protected'?t('storageRetainedProtected'):t('storageRetainedUnknown')});li.append(path,detail);$('storage-skipped').append(li);}
+  const retained=previewing?plan?.skipped??[]:automatic&&status==='complete'?current.result?.skipped??[]:[];
+  $('storage-skipped').hidden=!retained.length;$('storage-skipped').replaceChildren();
+  for(const row of retained){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=typeof row==='string'?row:row.path??'';const reason=typeof row==='object'?row.reason:'';detail.textContent=t('storageRetainedPath',{reason:reason==='shared'?t('storageRetainedShared'):reason==='shared_or_delivered'?t('storageRetainedSharedDelivered'):reason==='protected'?t('storageRetainedProtected'):t('storageRetainedUnknown')});li.append(path,detail);$('storage-skipped').append(li);}
   $('storage-confirmation').hidden=!previewing||sessionPlan&&!sessionEligible||files<=0&&!sessionEligible;$('storage-confirm-copy').textContent=t(sessionPlan?(plan.retired?'runRetiredConfirmCopy':'runConfirmCopy'):'storageConfirmCopy');
   $('storage-confirm-summary').textContent=t(sessionPlan?(plan.retired?'runRetiredPreview':'runPreview'):'storagePreview', {...parameters,session:(plan?.session??'').slice(0,8)});
   const impact=previewing?plan?.fastUpdateImpact:automatic&&status==='complete'?current.result?.fastUpdateImpact:null;
@@ -642,8 +643,8 @@ function renderStorage() {
   $('storage-protected-paths').hidden=!impactValid||!impact.protectedPaths?.length;
   if(impactValid)for(const row of (impact.protectedPaths??[]).slice(0,32)){const li=document.createElement('li');li.textContent=typeof row==='string'?row:row.path??'';$('storage-protected-paths').append(li);}
   $('storage-delete-list-title').hidden=!previewing||!plan?.paths?.length;
-  $('storage-retain-list-title').hidden=(!previewing||!plan?.skipped?.length)&&(!impactValid||!impact.protectedPaths?.length);
-  $('storage-preview-details').hidden=!previewing&&!impactValid;
+  $('storage-retain-list-title').hidden=!retained.length&&(!impactValid||!impact.protectedPaths?.length);
+  $('storage-preview-details').hidden=!previewing&&!impactValid&&!retained.length;
   $('storage-clean').textContent=t(sessionPlan&&!plan.retired?'runConfirm':'storageConfirm');
   $('storage-clean').disabled=locked||!plan?.id||Boolean(failure)||sessionPlan&&!sessionEligible;$('storage-dismiss').disabled=locked;
   if(page==='storage'&&previewing&&plan?.id!==storagePresentedPlan){

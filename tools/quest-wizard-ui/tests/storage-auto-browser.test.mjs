@@ -47,7 +47,7 @@ async function fixture({fail=false,reject=false,hold=false,run=false}={}){
         if(current.automatic&&!hold&&['planning','deleting'].includes(current.status)){
           polls++;
           if(polls===2)current={...current,status:'deleting',phase:'cleanup-delete',unit:'entries',done:1,total:4,files:1};
-          if(polls===4)current={...current,status:'complete',result:{freedBytes:3*GiB,deletedFiles:4,fastUpdateImpact:impact}};
+          if(polls===4)current={...current,status:'complete',result:{freedBytes:3*GiB,deletedFiles:4,fastUpdateImpact:impact,skipped:[{path:'build/cache/unproven-owner',reason:'current_dependency_unknown'}]}};
         }
         return reply(value());
       }
@@ -85,6 +85,9 @@ for(const language of ['de','en'])test('one click cleans automatically, retains 
     assert.match(await client.evaluate("document.getElementById('storage-status').textContent"),/3 GiB/);
     assert.doesNotMatch(await client.evaluate("document.getElementById('storage-status').textContent"),/Dateien entfernen|Removing files/,'completion does not retain the old live phase');
     assert.match(await client.evaluate("document.getElementById('storage-fast-update-impact').textContent"),/schnelle Updates|fast updates/);
+    assert.equal(await client.evaluate("document.getElementById('storage-skipped').hidden"),false);
+    assert.match(await client.evaluate("document.getElementById('storage-skipped').textContent"),/unproven-owner/);
+    assert.match(await client.evaluate("document.getElementById('storage-skipped').textContent"),language==='de'?/nicht eindeutig/:/not confirmed/);
     assert.equal(await client.evaluate(shown('storage-operation-title')),true);await client.picture('storage-automatic-complete-'+language);
     assert.equal(server.calls.filter(row=>row.path==='/api/storage/auto').length,1);
     assert.equal(server.calls.filter(row=>['/api/storage/clean','/api/storage/plan','/api/storage/inventory'].includes(row.path)).length,0);
