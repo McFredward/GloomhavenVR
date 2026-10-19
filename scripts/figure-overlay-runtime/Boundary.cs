@@ -124,6 +124,12 @@ namespace GloomhavenVR.Core
         internal readonly struct Marker : System.IDisposable { public void Dispose() { } }
         internal static Marker Scope(string label) => new();
     }
+    // Exact private terrain ownership is exercised by the terrain Unity fixture.
+    // Figure clones here are foreign to that owner and retain wall-shader rules.
+    internal static class ScenarioTerrainBudget
+    {
+        internal static bool IsPrivateRenderer(Renderer renderer) => false;
+    }
     internal static class ScenarioEnvironmentBudget
     {
         internal static void BeforeNativeRendererWrite(Renderer renderer) { }

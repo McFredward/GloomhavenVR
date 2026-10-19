@@ -149,6 +149,11 @@ namespace GloomhavenVR.Core
     internal static class VRLayers
     { internal const int ModLayer = 31; internal const string ModOwnedNamePrefix = "VR", ModOwnedQualifiedPrefix = "GloomhavenVR."; }
 
+    internal static class ScenarioTerrainBudget
+    {
+        internal static readonly HashSet<Renderer> Private = new();
+        internal static bool IsPrivateRenderer(Renderer renderer) => Private.Contains(renderer);
+    }
     internal static class ScenarioEnvironmentBudget
     {
         internal static void BeforeNativeRendererWrite(Renderer renderer) { }
@@ -244,6 +249,7 @@ namespace GloomhavenVR.Core
                 driver.MaterialAdmission();
                 driver.FigureRoots();
                 driver.DisabledReads();
+                driver.TerrainProxyOwnership();
                 driver.VisualCloneOwnership();
                 driver.VisualCloneOwnershipQueries();
                 driver.NativeSelectionVisuals();
@@ -436,6 +442,33 @@ namespace GloomhavenVR.Core
                 var nativeFact = new RendererFact { Mesh = native };
                 ClassifyMaterialsAndName(native, ref nativeFact);
                 Check(nativeFact.WaterSurface, "Native water retains protection before adoption");
+            }
+
+            private void TerrainProxyOwnership()
+            {
+                var proxy = Renderer(Mat("Amp_Basic_WallFade"));
+                proxy.name = "GloomhavenVR.TerrainProxy";
+                // Canonical material lookup intentionally presents the same original
+                // WallFade shader as a live native source; exact ownership is decisive.
+                ScenarioTerrainBudget.Private.Add(proxy);
+                SurveyOwned(proxy);
+                Check(_facts[0].Mod && !_facts[0].WallFadeShader && _factWallFade.Count == 0
+                    && _sceneExemptRows == 1 && _sceneFoldedRows == 0,
+                    "Owned terrain proxies never enter a second shader-wall decision or structural signature");
+                var materials = new List<Material>();
+                for (int pass = 0; pass < 10000; pass++) ReadFadeMaterials(proxy, materials);
+                Check(proxy.MaterialListReads == 0 && materials.Count == 0,
+                    "Ten thousand private terrain reads avoid native material-list calls without retaining wall inputs");
+                ScenarioTerrainBudget.Private.Remove(proxy);
+                _classifyCold = true;
+                SurveyOwned(proxy);
+                Check(_facts[0].Mod && _facts[0].WallFadeShader && _factWallFade.Count == 1
+                    && _sceneFoldedRows == 1,
+                    "A name-identical foreign wall renderer retains conservative native wall adoption");
+                var native = Renderer(proxy.Materials.ToArray());
+                SurveyOwned(native);
+                Check(!_facts[0].Mod && _facts[0].WallFadeShader && _factWallFade.Count == 1,
+                    "Native pillar sources using the identical original material retain wall authority");
             }
 
             private void VisualCloneOwnership()

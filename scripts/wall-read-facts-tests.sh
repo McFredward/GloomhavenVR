@@ -7,7 +7,7 @@ if ! command -v dotnet >/dev/null 2>&1 && [[ -x "$HOME/.dotnet/dotnet" ]]; then
 fi
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 project="$repo_root/tests/GloomhavenVR.WallReadFactsTests/GloomhavenVR.WallReadFactsTests.csproj"
-mutations=(material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored selection-owner-broadened drawing-force-ignored masked-restitution-lost prepared-cross-frame prepared-label-unshared prepare-room-gate-omitted mirror-owner-ignored mirror-cache-ignored mirror-cache-unbounded mirror-wall-signature-unconditional mirror-death-reclassified root-selection-owner-broadened root-selection-owner-ignored waypoint-parent-broadened waypoint-owner-ignored action-prefab-broadened action-parked-omitted native-water-veto-omitted native-wall-veto-omitted native-live-owner-omitted owned-water-veto-omitted)
+mutations=(material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored selection-owner-broadened drawing-force-ignored masked-restitution-lost prepared-cross-frame prepared-label-unshared prepare-room-gate-omitted mirror-owner-ignored mirror-cache-ignored mirror-cache-unbounded mirror-wall-signature-unconditional mirror-death-reclassified root-selection-owner-broadened root-selection-owner-ignored waypoint-parent-broadened waypoint-owner-ignored action-prefab-broadened action-parked-omitted native-water-veto-omitted native-wall-veto-omitted native-live-owner-omitted owned-water-veto-omitted terrain-private-wall-adoption)
 if (($#)); then
     mutations=()
     while (($#)); do
@@ -27,6 +27,7 @@ root, temporary = map(pathlib.Path, sys.argv[1:3])
 mutation = sys.argv[3]
 source = root / 'src/GloomhavenVR/Core/WallFade/WallSegmentFade.ReadFacts.cs'
 changes = {
+    'terrain-private-wall-adoption': ('if (ScenarioTerrainBudget.IsPrivateRenderer(renderer)) return;', '// injected second wall adoption'),
     'material-no-cache': ('if (_wallCacheMaterialFactsActive\n                && _wallCacheMaterialFacts.TryGetValue',
                           'if (bool.Parse("false")\n                && _wallCacheMaterialFacts.TryGetValue'),
     'material-retained': ('_wallCacheMaterialFactsActive = false;\n            _wallCacheMaterialFacts.Clear();',
@@ -104,6 +105,7 @@ else:
 PY
     property=ReadFactsSource
     case "$mutation" in
+        terrain-private-wall-adoption) expected='Owned terrain proxies never enter a second shader-wall decision or structural signature' ;;
         material-no-cache) expected='Repeated shared material inspection must not repeat native property probes' ;;
         material-retained) expected='The material memo must close and release references' ;;
         figure-no-cache) expected='Shared ancestor component lookups must run once per node per synchronous window' ;;

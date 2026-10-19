@@ -19,6 +19,12 @@ internal static partial class WallSegmentFade
         private static void ReadFadeMaterials(Renderer renderer, List<Material> destination)
         {
             destination.Clear();
+            // A terrain draw already follows its exact native source's block and
+            // visibility. Its canonical WallFade material must not enroll that
+            // detached proxy in a second wall, with unrelated bounds/room coverage.
+            // Use actual owner identity: names, layers and shared materials alone
+            // never exempt a genuine native wall or an unrelated visual clone.
+            if (ScenarioTerrainBudget.IsPrivateRenderer(renderer)) return;
             renderer.GetSharedMaterials(destination);
             for (int i = 0; i < destination.Count; i++)
                 if (destination[i] != null)

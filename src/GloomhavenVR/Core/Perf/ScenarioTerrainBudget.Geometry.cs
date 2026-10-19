@@ -54,6 +54,7 @@ internal static partial class ScenarioTerrainBudget
             _sourceTransform = renderer.transform; _proxyTransform = _proxy.transform; _owner = owner;
             _proxyFilter = _proxy.AddComponent<MeshFilter>();
             _proxyRenderer = _proxy.AddComponent<MeshRenderer>();
+            PrivateRenderers.Add(_proxyRenderer);
             _proxyRenderer.enabled = false;
         }
         internal float HeadDistance(Vector3 position, Bounds currentBounds)
@@ -325,6 +326,7 @@ internal static partial class ScenarioTerrainBudget
         {
             Unmask();
             if (_morph != null) UnityEngine.Object.Destroy(_morph);
+            PrivateRenderers.Remove(_proxyRenderer);
             if (_proxy != null) UnityEngine.Object.Destroy(_proxy);
             _morph = null; _current = null; _target = null; _exact = null;
             _from = null; _to = null; _vertices = null;
