@@ -3,19 +3,21 @@
 The accepted opening also supplies the first-save campaign intro, with a native-style
 GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
 
-The current VR gameplay pass uses four October 17 recordings. V14 adds active
-combat looting at 1:43 and an actual scenario Victory with closing dialog at
-1:58 from the new 11:28 capture. Cragheart/Loot1 replaces Scoundrel/Loot2;
-the narration describes the same active looting mechanic. A tutorial Victory
-replaces the original scenario Victory. These differences are named in review.
-Both excerpts run at exact 1x; the Victory's first twelve frames join the native
-defocus using an optical treatment of the actual capture. Original duration,
-audio, all accepted cinematics and the continuous full-trailer fan mark remain.
-Twelve inventory regions now contain VR pictures, with 29 still native pending
-matching captures. The active review is `vr-gameplay-v5/REVIEW.html`, with source
-links and 18 grouped capture requests. Potion previews, short-rest burns and
-outgoing attacks do not replace item use, played loss or incoming damage.
-V13's continuous team selection and the separate approved game intro remain.
+The October 19 pass prioritizes visibly Flat gameplay UI. HUDless scenes are
+acceptable for now under the maintainer's latest instruction. Equivalent actions
+may use different classes, cards and rewards. V15 adds genuine exhaustion,
+melee and incoming hits, enemy repositioning into a trap, damage-sacrifice
+confirmation, played loss, actual healing-potion use and a chest reward from
+`2026-10-19 19-33-36.mp4`. Real actions still matter: inspection, short rest and
+outgoing damage cannot stand in for item use, played loss and incoming damage.
+
+Seven new windows preserve the native timing, gold wipes and camera-smear
+transitions. All source motion remains at 1x with ordinary 30-to-60fps repeats.
+The accepted cinematics, original AAC track, full-trailer fan mark and separate
+approved campaign intro are inherited. Twenty-one inventory regions now contain
+VR pictures; twenty remain native, including deferred HUDless scenes. The active
+review is `vr-gameplay-v6/REVIEW.html`, with nineteen chapter buttons, source
+comparisons and nine grouped requests for remaining UI footage.
 No paid inference or runtime change is used. See
 [vr-gameplay-replacement.md](vr-gameplay-replacement.md) for exact evidence.
 

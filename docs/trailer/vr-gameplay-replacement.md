@@ -1,5 +1,94 @@
 # Genuine VR gameplay replacement
 
+## October 19 UI-focused capture pass (v15)
+
+The maintainer permits equivalent broad actions with different classes, cards
+and rewards, and explicitly prioritizes visibly Flat UI. HUDless gameplay is
+acceptable for now. The new `2026-10-19 19-33-36.mp4` recording supplies seven
+further windows. No inference or runtime implementation is involved.
+
+| Trailer | Window at 60fps | Actual VR demonstration |
+| --- | --- | --- |
+| 1:02.93 | `[3776,4088)` | Mindthief takes lethal hits, collapses/disappears, then shows the native exhausted tooltip. |
+| 1:12.65 | `[4359,4534)` | Mindthief executes Fearsome Blade and deals a melee hit. |
+| 1:19.65 | `[4779,4965)` | A Bandit Archer hits Cragheart; Receive Damage 1, HP 10 to 9 and a red pulse follow. |
+| 1:25.20 | `[5112,5304)` | Push targets and confirmation move a guard into a floor trap; the trap vanishes with an effect. |
+| 1:32.48 | `[5549,5690)` | Crater is selected to avoid damage, the player confirms, and its loss animation starts. |
+| 1:34.83 | `[5690,6067)` | Rock Tunnel executes and its played card burns; the gold wipe leads into physical Minor Healing Potion use with HEAL3. |
+| 1:46.88 | `[6413,6617)` | Chest loot resolves with the native item-reward message. |
+
+The short Crater excerpt does not show completed disappearance or a burned-counter
+increment. That damage sacrifice is distinct from the next excerpt's played-loss
+ability. The push uses a mechanical trap rather than the original pull into fire;
+no trap-damage amount is claimed. The chest awards Resonant Crystal instead of
+the original gold; its upper card artwork is partly outside the recorded view.
+These differences are named in the review. FG07's old request for an entire
+push/trap/attack sequence is corrected to the native window's visible melee hit.
+FG11 separately demonstrates repositioning into a trap.
+
+Source motion stays at exact 1x, with ordinary 30fps repeats in the 60fps trailer.
+The two gold wipes follow measured native angle, width and frame clock. FG04
+retains the accepted outgoing cinematic outside the advancing wipe. The combined
+FG14–FG16 wipe composites two genuine VR sources, without old native actors/UI.
+FG09's first/last twelve frames use optical horizontal smear on corresponding
+live VR pictures and adjacent row palettes. No source-time fitting, synthesized
+gameplay, interpolation or held ending is used.
+
+Nine further inventory rows contain VR pictures: 21 covered, 20 still native.
+Nineteen review chapters include the combined three-row loss/item sequence.
+The remaining capture list has nine UI-focused groups; additional HUDless combat
+captures and exact original-class variants are not required in this pass.
+The current private review and selection live under `vr-gameplay-v6/`.
+
+V15 SHA256 is
+`a9423dc88ed5dc2175f00d6d18b53d050e446c5c0142b8fe59aa306dcaa287ed`.
+The assembler passes 13/13 media checks. Independent sequential validation
+checks all 14,810 frames, 13,223 outside-window pictures against v14, the fan
+mark on every frame and all 11,573 unchanged AAC packet payloads/clocks/config.
+Outside-picture maximum 320-by-180 MAE is 0.79283. All 1,587 new component
+frames pass at maximum MAE 1.42408, below the unchanged 2.0 threshold.
+
+This is composed evidence: the initial full run passed outside pictures, audio,
+footer and five components, but twelve saturated optical-edge frames in FG04/09
+failed a direct color-path comparison. A focused check of all 498 FG04/09 frames
+uses their exact assembler RGBA/overlay/color pipeline; matrix controls confirm
+the reference mismatch. It passes without changing the master, components or
+threshold. The original failed report remains. The final authority is
+`vr-gameplay-v6/qc-independent/technical-final.json`; this is not a second full
+gate or a claim of pixel identity.
+
+An exact source-PTS check passes 1,504 untreated component frames across eight
+spans, including both compound-shot source clocks. Maximum MAE is 1.24333;
+adjacent-source-frame negative controls are consistently worse. Only 83 optical
+transition frames are excluded from that direct source-picture check; every
+new frame remains covered by final component validation. Root personally views
+99 exact component witnesses, 56 actual-export Watch cues and 33 exactly decoded
+export boundary/result pictures. Evidence lives under
+`vr-gameplay-v6/{source-analysis/1019-193336,qc-root,qc-independent}/`.
+These are focused media checks; unchanged v14 creative evidence is inherited,
+and no game-runtime or headset gate is claimed.
+
+Desktop Chromium and mobile emulation each play all seven new contexts at 1x;
+38 paused chapter checks and 12 time/state-preserving comparisons pass.
+The reviewer personally inspects 62 player pictures, two final page headers and
+two corrected loss descriptions. Both headless viewports report no dropped
+frames; no JavaScript/media errors occur. The final wording correction is
+checked without replaying unchanged media. See
+`vr-gameplay-v6/browser-review/final-review.json`. Root additionally views the
+desktop/mobile exhaustion player witnesses. Full-trailer branding remains
+continuous; the separate approved game intro retains its explicit exception.
+
+Postpublication navigation reaches v15 from the homepage and checks all
+nineteen chapters in both viewports without adding playback runs. All 71
+HTTP/Range requests pass. The separate intro section remains byte-identical.
+See `vr-gameplay-v6/browser-review/final-navigation.json`.
+
+Both completed clean worker worktrees and stopped owned bytecode caches are
+removed. All 36 protected media hashes still match, including the five supplied
+recordings, accepted sources/components, separate intro, new master and two
+normalized comparison references. Logs, manifests and review evidence remain.
+See `vr-gameplay-v6/editor/protected-media-final.json`.
+
 ## Fourth October 17 capture (v14)
 
 The new `2026-10-17 11-28-25.mp4` recording was compared with the actual native

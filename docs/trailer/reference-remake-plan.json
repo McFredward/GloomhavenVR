@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "status": "Provisional v11 material trial: user rejected v10 contextual filling. Keep only3matching demonstrations/nativehardcuts;restore17substitutions and original transitions. More footage will arrive; coverage is not quality target.",
-  "date": "2026-10-16",
+  "status": "Provisional v15 genuine VR material trial: prioritize visibly Flat UI; equivalent broad actions may use different classes/cards/rewards. HUDless scenes retained for now; remaining UI awaits more footage.",
+  "date": "2026-10-19",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
   "source_duration_seconds": 246.861,
@@ -15,7 +15,7 @@
     "motion_quality": "V9 root review covers all762 changed component frames,139 whole-film Watch cues and21 native witness contacts/eight full-size witnesses. Independent visual review, all14810-frame technical/footer checks and actual browser playback pass; user acceptance is not claimed."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
-  "timing_note": "Provisionalv11 preserves14810frames/60fps and246.861s AAC clock. Only3nativehardcutwindows/350frames replaced;14460framesincludingallacceptedcinematicsandrestoredgameplayfollowv9. No source speedchanges.",
+  "timing_note": "V15 preserves 14,810 frames at 60fps and the 246.861s AAC clock. Seven new windows contain 1,587 replacement frames; 13,223 pictures outside them follow accepted V14. Genuine source motion stays at 1x with normal 30-to-60fps repeats. Native wipe/smear clocks remain intact.",
   "voice": {
     "mode": "Keep original English text/timing, user confirmed; small GloomhavenVR substitutions only",
     "patches": [
@@ -2468,22 +2468,22 @@
     "cleanup_authority": "Latest explicit unused-video/resource deletion instruction overrides historical preserve-all-AI policy. Retain selected used sources and all fal run recovery metadata."
   },
   "current_working_cut": {
-    "phase": "genuine-vr-gameplay-v5",
+    "phase": "genuine-vr-gameplay-v6",
     "status": "provisional-material-trial-reviewed-and-published",
-    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/full-timeline-v1/reference-remake-vr-v14.mp4",
-    "sha256": "ac93cd713684eb5ce55fe2cf3bfd71cb2884238fb072666d5963dc89a1541403",
-    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/REVIEW.html",
-    "base_phase": "genuine VR material trial v13 with accepted cinematic v9 inherited",
-    "base_sha256": "ea621fa53396e68b1fce34db382dfcc94cfff58b41157c8d519f73b065f264e2",
+    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/full-timeline-v1/reference-remake-vr-v15.mp4",
+    "sha256": "a9423dc88ed5dc2175f00d6d18b53d050e446c5c0142b8fe59aa306dcaa287ed",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/REVIEW.html",
+    "base_phase": "genuine VR material trial v14 with accepted cinematic v9 inherited",
+    "base_sha256": "ac93cd713684eb5ce55fe2cf3bfd71cb2884238fb072666d5963dc89a1541403",
     "frames": 14810,
     "fps": 60,
     "container_seconds": 246.861,
     "new_paid_calls": 0,
     "user_acceptance_claimed": false,
     "provisional_material_trial": true,
-    "bytes": 303633941,
+    "bytes": 295302671,
     "review_published": true,
-    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v5/REVIEW.html"
+    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v6/REVIEW.html"
   },
   "genuine_vr_gameplay_pass_v1": {
     "date": "2026-10-16",
@@ -2991,7 +2991,7 @@
   },
   "genuine_vr_gameplay_pass_v5": {
     "date": "2026-10-17",
-    "status": "provisional-material-trial-reviewed-and-published",
+    "status": "historical-superseded-by-v15",
     "source_file": "2026-10-17 11-28-25.mp4",
     "source_sha256": "d28452f2fd872a7b59d9327c046669c0b4b86d6559fefef92c6d92b75fb80fc4",
     "source_duration_seconds": 562.433333,
@@ -3087,6 +3087,118 @@
       "all_25_media_authorities_hash_preserved": true,
       "all_four_oct17_sources_and_separate_intro_preserved": true,
       "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v5/editor/protected-media-final.json"
+    }
+  },
+  "genuine_vr_gameplay_pass_v6": {
+    "date": "2026-10-19",
+    "status": "focused-media-and-browser-reviewed-published",
+    "new_recording": "gameplay/2026-10-19 19-33-36.mp4",
+    "new_recording_sha256": "e7e753a8df0761c9e888481dd03662e2fbba879cbf8b5379dbb8a73e8b3eede0",
+    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/full-timeline-v1/reference-remake-vr-v15.mp4",
+    "master_sha256": "a9423dc88ed5dc2175f00d6d18b53d050e446c5c0142b8fe59aa306dcaa287ed",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/REVIEW.html",
+    "private_selection": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/editor/selection-final.json",
+    "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/NAECHSTE-AUFNAHMEN.txt",
+    "new_paid_calls": 0,
+    "new_windows": [
+      {
+        "id": "FG04",
+        "start_frame": 3776,
+        "end_frame_exclusive": 4088,
+        "component_sha256": "832a44a22c60651c77062157124857e2b1b280f3be9c5af5ca794761730a9cb2"
+      },
+      {
+        "id": "FG07",
+        "start_frame": 4359,
+        "end_frame_exclusive": 4534,
+        "component_sha256": "aaaa9a5bf2d367dc3ba0c0e05d44224d2a29ecac8ee3c01c0a987aef550601ae"
+      },
+      {
+        "id": "FG09",
+        "start_frame": 4779,
+        "end_frame_exclusive": 4965,
+        "component_sha256": "4050bccdab1569a4696803754978e5dc512ce9018a1ff0f220fa53bd02d138ec"
+      },
+      {
+        "id": "FG11",
+        "start_frame": 5112,
+        "end_frame_exclusive": 5304,
+        "component_sha256": "12f45d1ccceeaf6c17a5ea87d1630914372ad4f5415aa9cf9fd419a9b3d563a4"
+      },
+      {
+        "id": "FG13",
+        "start_frame": 5549,
+        "end_frame_exclusive": 5690,
+        "component_sha256": "fdfd2b0cdc64c6210455ac61d2990f4a8ea33be5976909c27e68373053826784"
+      },
+      {
+        "id": "FG14-16",
+        "start_frame": 5690,
+        "end_frame_exclusive": 6067,
+        "component_sha256": "a21e22517f827ef24b844f427a3e5c21785671e306d8b4c581d8ec0898b2f99e"
+      },
+      {
+        "id": "FG18",
+        "start_frame": 6413,
+        "end_frame_exclusive": 6617,
+        "component_sha256": "e16494a85091999c000dcd678a8e2ace47f6e2d717f93abb4e9d76226bd7188d"
+      }
+    ],
+    "new_changed_frames": 1587,
+    "outside_window_frames": 13223,
+    "covered_inventory_regions": 21,
+    "remaining_native_regions": 20,
+    "review_chapters": 19,
+    "capture_request_groups": 9,
+    "matching_ruling": "Equivalent broad actions; original class/card/reward not mandatory. Prioritize visible Flat UI, leave HUDless scenes unchanged for now.",
+    "source_tempo": "Exactly 1x; normal 30fps repeats at 60fps.",
+    "audio": "All 11,573 original AAC packets copied with their timing and codec configuration.",
+    "preserve_accepted_cinematics": true,
+    "separate_campaign_intro_unchanged": true,
+    "qualifications": [
+      "Crater damage sacrifice: confirmation and initial loss effect, not completed burn/count change.",
+      "Rock Tunnel played loss: orange loss animation/card departure; BURNED remains 0 before the wipe, so no counter increment is claimed.",
+      "Push into floor trap replaces pull into fire; no trap damage amount inferred.",
+      "Chest item reward replaces native gold; reward card partly cropped."
+    ],
+    "user_acceptance_claimed": false,
+    "technical": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/qc-independent/technical-final.json",
+      "validation": "Composed full14,810-frame outside/AAC/footer evidence plus498-frame exact-assembler color-path check. First failed comparison retained; no media changes or raised threshold.",
+      "outside_frames": 13223,
+      "outside_max_mae": 0.7928298611111111,
+      "component_frames": 1587,
+      "component_max_mae": 1.424084,
+      "mae_threshold": 2.0,
+      "source_clock_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/qc-independent/source-clock-qc.json",
+      "source_clock_frames": 1504,
+      "source_clock_max_mae": 1.243322,
+      "unchanged_aac_packets": 11573
+    },
+    "visual": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/qc-root/visual-review.json",
+      "root_component_witnesses": 99,
+      "root_export_watch_cues": 56,
+      "root_export_exact_witnesses": 33
+    },
+    "browser": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/browser-review/final-review.json",
+      "contexts_played_at_1x": 14,
+      "chapter_navigation_checks": 38,
+      "comparison_switches": 12,
+      "screenshots_personally_viewed": 62,
+      "full_runtime_or_hardware_gate": false,
+      "final_navigation_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/browser-review/final-navigation.json",
+      "http_range_requests": 71,
+      "postpublication_paused_chapter_checks": 38,
+      "separate_intro_section_byte_identical": true
+    },
+    "cleanup": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/editor/protected-media-final.json",
+      "protected_media_hashes": 36,
+      "owned_worker_worktrees_removed": 2,
+      "used_media_deleted": false,
+      "shared_references_modified": false
     }
   }
 }
