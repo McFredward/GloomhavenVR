@@ -44,6 +44,8 @@ internal static class CurrentModCompatibilityTests
             new Weaver(model).Write(output, report, false);
             check(report.Complete && report.ProtectedTypesVerified > 0, "Actual output failed protected original game boundaries.");
         }
+        RuntimeRegistrationTests.VerifyCurrentOutput(output, managed, check);
+        RuntimeRegistrationTests.VerifyWriteGate(modPath, managed, Path.Combine(output, "static-proof-rejection"), check);
         using (AssemblyDefinition woven = AssemblyDefinition.ReadAssembly(Path.Combine(output, "GloomhavenVR.dll")))
         {
             check(!woven.MainModule.AssemblyReferences.Any(a => a.Name == "System.Private.CoreLib"), "Host framework identity escaped into Unity output.");

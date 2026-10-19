@@ -41,6 +41,12 @@ try
         Console.WriteLine($"Quest package API binding: {assertions} assertions passed.");
         return;
     }
+    if (args.Length == 1 && args[0] == "--runtime-registration-only")
+    {
+        RuntimeRegistrationTests.RunFixture(temp, Check, fixtureDir);
+        Console.WriteLine($"Quest runtime patch registration: {assertions} assertions passed.");
+        return;
+    }
     if (args.Length == 2 && args[0] == "--native-camera-boundary-only")
     {
         NativeCameraBoundaryTests.Run(projectRoot, Path.GetFullPath(args[1]), temp, Check);
@@ -207,6 +213,7 @@ try
     }
     context.Unload();
     HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
+    RuntimeRegistrationTests.RunFixture(Path.Combine(temp, "runtime-registration"), Check, fixtureDir);
     if (args.Length == 1 && args[0] == "--weaver-core-only")
     {
         TargetMetadataTests.Run(projectRoot, Path.Combine(temp, "target-metadata"), Check);
