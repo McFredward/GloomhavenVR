@@ -612,7 +612,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 710;
+    public const ushort ModBuild = 711;
+
+    // ModBuild711 — make a visible near-figure highlight a live pickup offer.
+    // Hardware710 logs prove elected figure pulls refused by generic beam hover;
+    // they do not establish stale zoom geometry or the exact hover publisher.
+    // Separate named world hover from committed presses/gestures. Hover producers
+    // yield before starting a competing action, while an actual active action
+    // suppresses the figure offer. Revalidate the same highlighted figure's live
+    // policy, pose, native collider and registered reach before accepting it.
+    // Remove figure-only visual afterglow when no pickup is possible, including
+    // grip fallthrough; preserve ordinary card/panel hysteresis. Retain a previous
+    // election winner through switching dwell only while eligible in this sweep.
+    // Preserve native busy/dead/remote-held gates, hold/release behavior, geometry,
+    // frame order and wire layout. Focused executable regressions cover competing
+    // input orders and single dispatch; final headset behavior remains unverified.
 
     // ModBuild710 — use the paired ordinary-RGBA Steam Link bridge exclusively.
     // Remove the image/mask atlas and its encoder quality/resolution overrides,

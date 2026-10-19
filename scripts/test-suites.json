@@ -800,6 +800,18 @@
       "weight": 68
     },
     {
+      "id": "near-figure-grab-runtime",
+      "command": [
+        "python3",
+        "scripts/check-near-figure-grab-runtime.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 25
+    },
+    {
       "id": "presentation-send",
       "command": [
         "bash",

@@ -14,6 +14,45 @@ visual acceptance is claimed. See `.planning/retired-PILLAR-LOD-20261019.md`.
 
 # State — where the project stands
 
+**Figure highlight/pickup agreement, Build711, 2026-10-19.**
+
+Fresh local710 logs show26 elected-figure trigger refusals plus20 explicitly
+counted suppressed refusals. A16mm Elementalist contact within40mm pinch reach
+was refused by a generic beam claim. The logs establish the arbitration defect,
+not stale zoom geometry or the exact unlabelled hover publisher. Old remote logs
+are not paired710 evidence. The maintainer explicitly requires every highlighted
+figure to be grabbable.
+
+Named world hover now yields to the same live highlighted figure; actual presses,
+drags and stretch captures retain ownership. Their starts yield before callbacks,
+including early flat-screen fingertip entry and the native board-click bridge.
+Invalid offers immediately revoke figure glow, including after grip-bar pickup.
+Original native collider permission remains distinct from a mod reach extension;
+switching dwell retains an old winner only while eligible in the current sweep.
+Native busy/dead/remote-held rules, hold/release, geometry and frame order remain.
+
+Verification: portable production2789 assertions/13 compiling causal controls;
+integrated production rerun2789 with all15 worker input hashes matched. Existing
+focused figure-hold1440/6 controls, native enhancement1515/78, town interaction
+7915/73, semantic haptics32/8, native seated raycast transfer/nine controls and
+map navigation205/two controls pass. The seated test's old beam sink initially
+failed compilation against the new named API; only that boundary was adapted and
+its suite rerun. Retain the original non-green aggregate and separate repair pass.
+Source16/16, runner unit19 (two intentional skips), strict Debug/Release0W0E and
+private710-to711 compiled scope pass:16 owned behavior types, eight version-only
+consumers, three metadata files. All669 config keys,241 Harmony bindings and4806
+log tokens remain. New portable suite is registered local+CI (229/102); unchanged
+wire300598 evidence is inherited from710, with no new complete local gate claimed.
+
+Own stopped caches were cleaned through the canonical API. All three completed
+worker worktrees were removed only after byte-verified evidence archives and
+source integration; unrelated worktrees were untouched. Debug711 delivery, frozen
+hardware, raw failed attempts, source inputs and receipts remain under
+`.planning/debug/figure-grab711/` and `figure-grab710-zoom/`. Implementation and
+focused software behavior are established; headset glow/pickup after real zoom
+and live multiplayer ownership remain hardware outcomes to verify. See
+`.planning/FIGURE-GRAB-711-COORDINATION.md`.
+
 **Steam Link paired-only transport, Build710, 2026-10-19.**
 
 The maintainer explicitly retired the Frame-only atlas method. The game no longer

@@ -117,6 +117,12 @@ its board position before any non-idle action starts, locally and for remote obs
 This supersedes the older forced-release glide ruling; ordinary idle manual releases keep
 their usual glide. Native movement must never derive its start from a hand-held transform.
 
+The user's 2026-10-19 figure-grab clarification requires every visible figure pickup
+highlight to represent a live pickup offer. A world-laser hover yields to that offer;
+an established press/gesture or genuine native permission loss must revoke the competing
+figure glow. Never retain a visual-only figure hover tail after pickup becomes invalid.
+Keep original busy/dead/remote-held, tracking, mode and geometry gates intact.
+
 The user's 2026-09-17 window-placement request permits necessary, animated opening-time
 room making when a new window would overlap an existing visible window. Keep affected
 windows in view and use one author for shared movement. This narrowly supersedes the
