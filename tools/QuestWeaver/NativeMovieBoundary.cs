@@ -87,12 +87,18 @@ internal static class NativeMovieBoundary
                 entry.Target.Body.OptimizeMacros();
             }
             else { entry.Setter.OpCode = OpCodes.Call; entry.Setter.Operand = replacement; }
+            string removedPatch = Discovery.MethodKey(entry.Transpiler);
             entry.Patch.Methods.Remove(entry.Transpiler);
             foreach (CustomAttribute attribute in entry.Patch.CustomAttributes.Where(a => a.AttributeType.FullName == "HarmonyLib.HarmonyPatch").ToArray())
                 entry.Patch.CustomAttributes.Remove(attribute);
+            // WorldUIModule still installs these exact desktop patch classes. A
+            // static substitution has no runtime hook body, but is not an unknown
+            // empty class: retain its closed registration proof for the AOT
+            // registry. Only the completely qualified pair may receive it.
+            model.StaticPatches.Add(new StaticPatchDefinition(entry.Patch, entry.Target, removedPatch));
             track(entry.Target.Module.Assembly);
         }
-        report.StaticSubstitutions.Add("Native movies: two verified URL setter sites retain native decoder, Play order, callbacks and exception boundaries; reviewed desktop transpilers are removed before Quest AOT conversion.");
+        report.StaticSubstitutions.Add("Native movies: two verified URL setter sites retain native decoder, Play order, callbacks and exception boundaries; reviewed desktop transpilers are removed before Quest AOT conversion and their exact static registration proofs remain available to the Quest registry.");
     }
 
     internal static string Fingerprint(MethodDefinition method)

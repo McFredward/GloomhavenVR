@@ -16,6 +16,13 @@ internal sealed class Weaver
             || absolute == Path.GetDirectoryName(model.ModPath)) throw new ArgumentException("Output must not modify an input assembly directory.");
         if (Directory.Exists(absolute) && Directory.EnumerateFileSystemEntries(absolute).Any()) throw new ArgumentException("Output directory must be empty.");
         var allHooks = model.Hooks.ToArray();
+        StaticPatchDefinition[] staticPatches = model.StaticPatches.ToArray();
+        if (staticPatches.Select(p => p.PatchClass.FullName).Distinct(StringComparer.Ordinal).Count() != staticPatches.Length
+            || staticPatches.Any(p => p.PatchClass.Module != model.Mod.MainModule || !p.PatchClass.IsAbstract || !p.PatchClass.IsSealed
+                || p.PatchClass.Methods.Count != 0 || allHooks.Any(h => h.Patch.DeclaringType == p.PatchClass)
+                || !p.RemovedPatch.StartsWith(model.Mod.Name.Name + "/" + p.PatchClass.FullName + "::Transpiler(", StringComparison.Ordinal)
+                || !p.RemovedPatch.EndsWith(")", StringComparison.Ordinal) || !model.Loaded.Contains(p.Target.Module.Assembly)))
+            throw new InvalidDataException("Static Quest registration proof is outside its reviewed empty-class/target closure.");
         var protectedSnapshots = model.Loaded.Distinct().ToDictionary(a => a, ProtectedTypes.Snapshot);
         var slots = allHooks.Select((h, i) => (h, i)).ToDictionary(x => x.h, x => x.i);
         foreach (TypeDefinition type in Discovery.AllTypes(model.Mod.MainModule))
@@ -29,8 +36,13 @@ internal sealed class Weaver
         foreach (FieldHelper helper in model.Helpers) ReplaceHelper(helper);
         RewriteRegistrations();
         string manifest = string.Join("\n", allHooks.Select(h => h.Patch.DeclaringType.FullName + "|" + Discovery.MethodKey(h.Target)
-            + "|" + Discovery.MethodKey(h.Patch) + "|" + h.Kind + "|" + h.Priority + "|" + slots[h])) + "\n";
+            + "|" + Discovery.MethodKey(h.Patch) + "|" + h.Kind + "|" + h.Priority + "|" + slots[h]));
         model.Mod.MainModule.Resources.Add(new EmbeddedResource("QuestWeaver.Hooks.v1", ManifestResourceAttributes.Private, Encoding.UTF8.GetBytes(manifest)));
+        if (staticPatches.Length > 0)
+        {
+            string proofs = string.Join("\n", staticPatches.Select(p => p.PatchClass.FullName + "|" + Discovery.MethodKey(p.Target) + "|" + p.RemovedPatch));
+            model.Mod.MainModule.Resources.Add(new EmbeddedResource("QuestWeaver.StaticPatches.v1", ManifestResourceAttributes.Private, Encoding.UTF8.GetBytes(proofs)));
+        }
         // Preserve reflection metadata and generic closure conservatively for the initial port.
         // This does not assert that every dynamic serializer has generated native code.
         string links = "<linker>\n" + string.Join("\n", model.Loaded.Distinct().Select(a => "  <assembly fullname=\"" + a.Name.Name + "\" preserve=\"all\" />")) + "\n  <assembly fullname=\"QuestWeaver.Runtime\" preserve=\"all\" />\n</linker>\n";
