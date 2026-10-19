@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Reflection;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands.Interact;
@@ -32,6 +31,12 @@ internal static class NativeVideoWindow
     private static string _shownUrl = string.Empty;
     private static VideoPlayer? _observedNative;
     private static bool _nativePresentationSuppressed;
+    private static StereoVideoSurface? _stereo;
+    private static bool _shownStereo;
+    private static VideoPlayer? _reportedStereoSource;
+    private static string _reportedStereoUrl = string.Empty;
+    private static uint _reportedStereoOpening, _remoteOpening;
+    private static string _remoteKey = string.Empty;
     private static uint _nativePlaybackGeneration;
     private static readonly FieldInfo? IntroClick = typeof(UIMapFTUEInitialStep).GetField(
         "clickTrackerExtended", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -44,6 +49,9 @@ internal static class NativeVideoWindow
     internal static UIWindow? Window { get; private set; }
     internal static bool Visible => _root != null && _root.activeSelf;
     internal static uint NativePlaybackGeneration => _nativePlaybackGeneration;
+    internal static uint OriginatingPlaybackGeneration => NativeVideoReview.Active ? NativeVideoReview.Generation : _nativePlaybackGeneration;
+    internal static VideoPlayer? OriginatingPlayer => NativePlayer ?? NativeVideoReview.Source;
+    internal static bool HasRemoteSource => _remoteSource != null;
 
     // The native movie camera is also the decoder's live presentation/continuation lease.
     // Its pixels already go to the discarded sink; disabling it would invalidate NativePlayer.
@@ -62,6 +70,17 @@ internal static class NativeVideoWindow
             VideoPlayer? player = owner.m_VideoPlayer;
             return player != null && player.isActiveAndEnabled && (player.isPlaying || player.isPaused)
                 ? player : null;
+        }
+    }
+
+    internal static bool NativePlaybackBusy
+    {
+        get
+        {
+            VideoCamera? owner = VideoCamera.s_This;
+            return owner != null && owner.m_Camera != null && owner.m_Camera.isActiveAndEnabled
+                && owner.m_VideoPlayer != null && owner.m_VideoPlayer.isActiveAndEnabled
+                && (!owner.m_VideoPlayer.isPrepared || owner.m_VideoPlayer.isPlaying || owner.m_VideoPlayer.isPaused);
         }
     }
 
@@ -86,56 +105,21 @@ internal static class NativeVideoWindow
     {
         get
         {
-            VideoPlayer? player = NativePlayer;
+            VideoPlayer? player = OriginatingPlayer;
+            if (player == NativeVideoReview.Source && player != null) return NativeVideoReview.SelectedKey;
             if (player == null || string.IsNullOrEmpty(player.url))
                 return string.Empty;
-            string url = player.url.Replace('\\', '/');
-            int last = url.LastIndexOf('/');
-            if (last <= 0) return string.Empty;
-            int parent = url.LastIndexOf('/', last - 1);
-            string key = url.Substring(parent + 1);
-            return IsPlaybackKey(key) ? key : string.Empty;
+            return NativeVideoMovies.NativePlaybackKey(player);
         }
     }
 
     // Native callers select only CP_Intro/GH_CP_Intro or Heroes/<ECharacter>. A peer may name
     // those assets, never an arbitrary file, network URL or path traversal. Keep the resolver
     // separate from existence so malformed keys can be exercised without the installed game.
-    internal static bool IsPlaybackKey(string key)
-    {
-        if (string.IsNullOrEmpty(key) || key.Length > 128) return false;
-        string extension = Application.platform == RuntimePlatform.Switch ? ".mp4" : ".mov";
-        if (!key.EndsWith(extension, StringComparison.Ordinal)) return false;
-        string stem = key.Substring(0, key.Length - extension.Length);
-        if (stem == "CP_Intro/GH_CP_Intro") return true;
-        if (!stem.StartsWith("Heroes/", StringComparison.Ordinal) || stem.Length <= 7) return false;
-        for (int i = 7; i < stem.Length; i++)
-        {
-            char c = stem[i];
-            if (!(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z')
-                && !(c >= '0' && c <= '9') && c != '_' && c != '-') return false;
-        }
-        return true;
-    }
+    internal static bool IsPlaybackKey(string key) => NativeVideoMovies.IsPlaybackKey(key);
 
-    internal static bool TryResolvePlaybackKey(string key, out string url)
-    {
-        url = string.Empty;
-        if (!IsPlaybackKey(key)) return false;
-        string root;
-        if (Application.platform == RuntimePlatform.OSXPlayer)
-            root = Path.Combine(Application.dataPath, "Resources", "Data", "StreamingAssets", "Movies");
-        else
-        {
-            string folder = Application.platform == RuntimePlatform.Switch ? "Movies_MP4_30"
-                : Application.platform == RuntimePlatform.GameCoreXboxOne ? "Movies_MOV_30" : "Movies";
-            root = Path.Combine(Application.dataPath, "StreamingAssets", folder);
-        }
-        string candidate = Path.Combine(root, key.Replace('/', Path.DirectorySeparatorChar));
-        if (!File.Exists(candidate)) return false;
-        url = candidate;
-        return true;
-    }
+    internal static bool TryResolvePlaybackKey(string key, out string url) =>
+        NativeVideoMovies.TryResolvePlaybackKey(key, out url);
 
     internal static bool TryGetGrab(out GrabbableModal? grab)
     {
@@ -155,10 +139,18 @@ internal static class NativeVideoWindow
     internal static bool OwnsClick(GameObject? target) => Visible && _image != null
         && ReferenceEquals(_image.gameObject, target);
 
-    internal static void SetRemoteSource(VideoPlayer? player)
+    internal static void SetRemoteSource(VideoPlayer? player, string selectedKey = "")
     {
-        if (_remoteSource != player) _remotePoseReady = false;
+        // The elected remote publication takes over before its decoder prepares.
+        // Review originals must not remain hidden/audible behind a genuine movie.
+        if (player != null) NativeVideoReview.CancelForNativePlayback();
+        if (_remoteSource != player)
+        {
+            _remotePoseReady = false;
+            unchecked { _remoteOpening++; }
+        }
         _remoteSource = player;
+        _remoteKey = player != null ? selectedKey : string.Empty;
     }
 
     internal static void SetNativePresentationSuppressed(bool suppressed) => _nativePresentationSuppressed = suppressed;
@@ -173,15 +165,25 @@ internal static class NativeVideoWindow
 
     internal static void Tick()
     {
+        NativeVideoReview.Tick();
         // The network elects one presentation owner. A peer that also has its own native
         // decoder displays the elected cosmetic mirror while its native callbacks run normally.
-        VideoPlayer? source = _remoteSource ?? (_nativePresentationSuppressed ? null : NativePlayer);
+        VideoPlayer? source = _remoteSource ?? (_nativePresentationSuppressed ? null : OriginatingPlayer);
         if (!WorldUIConfig.ConversionActive || CanvasConversion.WorldCamera == null
             || source == null || !source.isActiveAndEnabled || !source.isPrepared
             || !(source.isPlaying || source.isPaused) || source.frame < 0 || source.texture == null
             || source.texture.width <= 0 || source.texture.height <= 0
             || (source == _remoteSource && !_remotePoseReady))
         {
+            Close();
+            return;
+        }
+
+        if (NativeVideoMovies.IsStereoUrl(source.url)
+            && (source.texture.width != 3840 || source.texture.height != 1080))
+        {
+            ReportStereoIssue(source, "versioned SBS frame dimensions are not 3840x1080",
+                "refusing the invalid picture; native playback continues.");
             Close();
             return;
         }
@@ -195,7 +197,7 @@ internal static class NativeVideoWindow
         }
         if (_image == null || _grab == null || _panel == null) return;
         if (_image.texture != source.texture) _image.texture = source.texture;
-        float aspect = source.texture.width / (float)Mathf.Max(1, source.texture.height);
+        float aspect = DisplayAspect(source);
         Vector2 size = new(1280f, 1280f / aspect);
         if (_panel.HostRect.sizeDelta != size)
         {
@@ -211,6 +213,7 @@ internal static class NativeVideoWindow
     {
         var root = new GameObject("GloomhavenVR.NativeVideoWindow", typeof(RectTransform));
         _root = root;
+        root.AddComponent<NativeVideoWindowLifetime>();
         root.SetActive(false);
         UnityEngine.Object.DontDestroyOnLoad(root);
         var canvas = root.AddComponent<Canvas>();
@@ -223,7 +226,8 @@ internal static class NativeVideoWindow
         Window = root.AddComponent<UIWindow>();
         Window.enabled = false;
         var host = (RectTransform)root.transform;
-        host.sizeDelta = new Vector2(1280f, 1280f * source.texture.height / source.texture.width);
+        _shownStereo = NativeVideoMovies.IsStereoUrl(source.url);
+        host.sizeDelta = new Vector2(1280f, 1280f / DisplayAspect(source));
         var content = new GameObject("Movie", typeof(RectTransform));
         content.transform.SetParent(root.transform, false);
         var rect = (RectTransform)content.transform;
@@ -231,6 +235,14 @@ internal static class NativeVideoWindow
         _image = content.AddComponent<RawImage>();
         _image.texture = source.texture;
         _image.color = Color.white;
+        if (_shownStereo && !StereoVideoSurface.TryAttach(_image, out _stereo, out string reason))
+        {
+            // Keep the exact selected frame/audio/clock when the local renderer is unavailable.
+            // The left half is the approved original picture, never a stretched packed image.
+            _image.uvRect = new Rect(.5f / source.texture.width, .5f / source.texture.height,
+                .5f - 1f / source.texture.width, 1f - 1f / source.texture.height);
+            ReportStereoIssue(source, reason, "showing the selected file's left eye in 2D.");
+        }
         // Intercept the foreground plane even when the native movie is unskippable; clicking
         // the picture must not click map icons through it. Native escape remains the skip path.
         _image.raycastTarget = true;
@@ -270,13 +282,20 @@ internal static class NativeVideoWindow
         CanvasConversion.RegisterStandalonePanelOrder(_panel);
         _shownSource = source;
         _shownUrl = source.url;
+        string selectedKey = source == _remoteSource && _remoteKey.Length > 0 ? _remoteKey
+            : source == NativeVideoReview.Source ? NativeVideoReview.SelectedKey : NativeVideoMovies.NativePlaybackKey(source);
+        string routing = _shownStereo ? (_stereo != null ? "stereo" : "left-only") : "mono";
         // HW-VERIFY
         VRLog.Note("WorldUI", "NATIVE VIDEO WINDOW: opened from a prepared video texture; native playback unchanged. "
+            + $"key={selectedKey}, packedDimensions={source.texture.width}x{source.texture.height}, routing={routing}. "
             + "Window owns its persistent grab holder; movie pixels are foreground content for the bar.");
     }
 
     private static void Close()
     {
+        _stereo?.Dispose();
+        _stereo = null;
+        _shownStereo = false;
         if (_panel != null)
         {
             CanvasConversion.UnregisterStandalonePanelOrder(_panel);
@@ -299,8 +318,34 @@ internal static class NativeVideoWindow
         _shownUrl = string.Empty;
     }
 
+    private static float DisplayAspect(VideoPlayer source) => _shownStereo
+        ? StereoVideoSurface.PerEyeAspect(source.texture.width, source.texture.height)
+        : source.texture.width / (float)Mathf.Max(1, source.texture.height);
+
+    private static void ReportStereoIssue(VideoPlayer source, string reason, string outcome)
+    {
+        uint opening = source == _remoteSource ? _remoteOpening : NativePlaybackGeneration;
+        if (_reportedStereoSource == source && _reportedStereoUrl == source.url && _reportedStereoOpening == opening) return;
+        _reportedStereoSource = source;
+        _reportedStereoUrl = source.url;
+        _reportedStereoOpening = opening;
+        VRLog.Warn("WorldUI", $"NATIVE VIDEO STEREO FALLBACK: opening={opening}, "
+            + $"key={NativeVideoMovies.KeyFromUrl(source.url)}, reason={reason}; {outcome}");
+    }
+
+    internal static void OnRootDestroyed(GameObject root)
+    {
+        if (ReferenceEquals(root, _root)) Close();
+    }
+
+    internal static void CloseReview(VideoPlayer? player)
+    {
+        if (!ReferenceEquals(player, null) && ReferenceEquals(_shownSource, player)) Close();
+    }
+
     internal static void Shutdown()
     {
+        NativeVideoReview.Stop();
         Close();
         SetRemoteSource(null);
         _nativePresentationSuppressed = false;
@@ -309,12 +354,23 @@ internal static class NativeVideoWindow
 
     internal static bool TrySkipNativeMovie()
     {
+        if (Visible && _shownSource != null && _shownSource == _remoteSource
+            && GloomhavenVR.Net.VideoMovieKeys.IsReview(_remoteKey))
+        {
+            NativeVideoReview.RequestClose();
+            return _remoteSource == null;
+        }
+        if (Visible && _shownSource != null && _shownSource == NativeVideoReview.Source)
+        {
+            NativeVideoReview.Stop();
+            return true;
+        }
         // The original intro's click calls Escape -> its own ClickTracker callback, which stops
         // video AND performs FadeInShow. VideoCamera.Stop alone omits that continuation. Resolve
         // the live owner at click time; never escape a different popup or a cosmetic peer movie.
         VideoPlayer? native = NativePlayer;
         if (!Visible || native == null || native != _shownSource || !native.isPlaying) return false;
-        string key = PlaybackKey;
+        string key = NativeVideoMovies.CanonicalKey(PlaybackKey);
         UIMapFTUEInitialStep? owner = null;
         foreach (UIMapFTUEInitialStep step in UnityEngine.Object.FindObjectsOfType<UIMapFTUEInitialStep>())
         {
@@ -342,6 +398,11 @@ internal static class NativeVideoWindow
         NativeEndReached.Invoke(VideoCamera.s_This, new object[] { native });
         return true;
     }
+}
+
+internal sealed class NativeVideoWindowLifetime : MonoBehaviour
+{
+    private void OnDestroy() => NativeVideoWindow.OnRootDestroyed(gameObject);
 }
 
 internal sealed class NativeVideoClick : MonoBehaviour, IPointerClickHandler

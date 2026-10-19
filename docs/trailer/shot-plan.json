@@ -1,0 +1,577 @@
+{
+  "schema_version": 2,
+  "project": {
+    "working_title": "Step Inside",
+    "product": "GloomhavenVR",
+    "language": "en",
+    "duration_seconds": 65,
+    "width": 1920,
+    "height": 1080,
+    "fps": 24,
+    "frame_count": 1560,
+    "color": "Rec.709",
+    "status": "First complete 65-second cut ready for maintainer review; native card-print repair, assembly and final export QC complete.",
+    "direction_authorization": "Review09 film direction approved; maintainer authorized full original script with faithful faces and consistent cuts. Earlier stop-after-probe fulfilled and superseded.",
+    "evidence_root": ".planning/debug/trailer/full-production/",
+    "review_file": ".planning/debug/trailer/review/10-full-trailer-v1.mp4",
+    "superseded_by": "docs/trailer/reference-remake-plan.json",
+    "direction_update": "2026-10-13: prior65sCGI approach retained as historical complete cut; active task is reference-film edits plus genuine new VR capture."
+  },
+  "voice": {
+    "mode": "consent_attested_clone",
+    "language": "English",
+    "consent": "Maintainer explicitly confirmed permission for new cloned trailer narration; private original consent/source receipt retained.",
+    "script": "Welcome to Gloomhaven.\nA city of fortunes.\nA world of danger.\nBut something is different this time.\nThe world is in your hands.\nGather your party.\nShare the adventure.\nGloomhaven VR.\nStep inside.",
+    "word_count": 33,
+    "cues": [
+      {
+        "id": "N01",
+        "start_seconds": 0.4,
+        "end_seconds": 2.1,
+        "text": "Welcome to Gloomhaven."
+      },
+      {
+        "id": "N02",
+        "start_seconds": 3,
+        "end_seconds": 5.14,
+        "text": "A city of fortunes."
+      },
+      {
+        "id": "N03",
+        "start_seconds": 5.5,
+        "end_seconds": 7.38,
+        "text": "A world of danger."
+      },
+      {
+        "id": "N04",
+        "start_seconds": 9.3,
+        "end_seconds": 12.35,
+        "text": "But something is different this time."
+      },
+      {
+        "id": "N05",
+        "start_seconds": 15,
+        "end_seconds": 17.6,
+        "text": "The world is in your hands."
+      },
+      {
+        "id": "N06",
+        "start_seconds": 23,
+        "end_seconds": 24.9,
+        "text": "Gather your party."
+      },
+      {
+        "id": "N07",
+        "start_seconds": 51.95,
+        "end_seconds": 53.65,
+        "text": "Share the adventure."
+      },
+      {
+        "id": "N08",
+        "start_seconds": 59.7,
+        "end_seconds": 61.55,
+        "text": "Gloomhaven VR."
+      },
+      {
+        "id": "N09",
+        "start_seconds": 62.1,
+        "end_seconds": 63.9,
+        "text": "Step inside."
+      }
+    ],
+    "narration_free_seconds": [
+      26,
+      51
+    ],
+    "cue_time_basis": "Final placed excerpt windows; speech within each excerpt may begin after its leading silence."
+  },
+  "shots": [
+    {
+      "id": "F01",
+      "start_seconds": 0,
+      "end_seconds": 2.25,
+      "duration_seconds": 2.25,
+      "start_frame": 0,
+      "end_frame_exclusive": 54,
+      "frame_count": 54,
+      "subject": "merchant",
+      "content": "current merchant/cabinet atmosphere",
+      "continuity_cut": "resident glance; no giant presence",
+      "sound": "town detail",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F02",
+      "start_seconds": 2.25,
+      "end_seconds": 3.75,
+      "duration_seconds": 1.5,
+      "start_frame": 54,
+      "end_frame_exclusive": 90,
+      "frame_count": 36,
+      "subject": "enchantress",
+      "content": "current enchantress/stand atmosphere",
+      "continuity_cut": "match glance/lateral direction",
+      "sound": "town detail",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F03",
+      "start_seconds": 3.75,
+      "end_seconds": 5.25,
+      "duration_seconds": 1.5,
+      "start_frame": 90,
+      "end_frame_exclusive": 126,
+      "frame_count": 36,
+      "subject": "priestess",
+      "content": "current priestess altar/purse cue",
+      "continuity_cut": "circular detail -> Brute medallion",
+      "sound": "muted coin/cloth",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F04",
+      "start_seconds": 5.25,
+      "end_seconds": 9.25,
+      "duration_seconds": 4.0,
+      "start_frame": 126,
+      "end_frame_exclusive": 222,
+      "frame_count": 96,
+      "subject": "living Brute",
+      "content": "source-accurate original Inox face and sword/shield",
+      "continuity_cut": "one weighty step/shift, then upward reaction",
+      "sound": "native material/footstep",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F05",
+      "start_seconds": 9.25,
+      "end_seconds": 13.25,
+      "duration_seconds": 4.0,
+      "start_frame": 222,
+      "end_frame_exclusive": 318,
+      "frame_count": 96,
+      "subject": "god-mask",
+      "content": "source Grimhorn above original ruined room",
+      "continuity_cut": "cut on eyeline; mask looks at Brute",
+      "sound": "music withdraws/material air",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F06",
+      "start_seconds": 13.25,
+      "end_seconds": 18,
+      "duration_seconds": 4.75,
+      "start_frame": 318,
+      "end_frame_exclusive": 432,
+      "frame_count": 114,
+      "subject": "gentle lift",
+      "content": "First1.75 seconds of close pickup; cut before superseded tavern, then native forest/table reveal and original-cell release.",
+      "continuity_cut": "camera travels through board edge; restore original cell",
+      "sound": "leather/base contact",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F07",
+      "start_seconds": 18,
+      "end_seconds": 22,
+      "duration_seconds": 4,
+      "start_frame": 432,
+      "end_frame_exclusive": 528,
+      "frame_count": 96,
+      "subject": "second player",
+      "content": "exact Runeveil + two arcane hands",
+      "continuity_cut": "friendly response across fixed table axis",
+      "sound": "second tonal layer",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F08",
+      "start_seconds": 22,
+      "end_seconds": 26,
+      "duration_seconds": 4,
+      "start_frame": 528,
+      "end_frame_exclusive": 624,
+      "frame_count": 96,
+      "subject": "shared table",
+      "content": "same dungeon/table and separate actual controlboards",
+      "continuity_cut": "one orbit/settle establishes geography",
+      "sound": "shared room tone",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F09",
+      "start_seconds": 26,
+      "end_seconds": 29.5,
+      "duration_seconds": 3.5,
+      "start_frame": 624,
+      "end_frame_exclusive": 708,
+      "frame_count": 84,
+      "subject": "card choice",
+      "content": "Controlled-player macro, original Assault61 placed into left Steel card well; tracked exact card print and finger occlusion.",
+      "continuity_cut": "observer-visible backs; controlboard recognizable",
+      "sound": "original card shuffle",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F10",
+      "start_seconds": 29.5,
+      "end_seconds": 34,
+      "duration_seconds": 4.5,
+      "start_frame": 708,
+      "end_frame_exclusive": 816,
+      "frame_count": 108,
+      "subject": "CONTROLBOARD placement",
+      "content": "Original Trample72 placed into right well, existing upper-right button press; original left card remains seated. Tight macro excludes tavern windows.",
+      "continuity_cut": "owner detail; first card stays as second seats",
+      "sound": "two separate card contacts",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F11",
+      "start_seconds": 34,
+      "end_seconds": 36,
+      "duration_seconds": 2,
+      "start_frame": 816,
+      "end_frame_exclusive": 864,
+      "frame_count": 48,
+      "subject": "legal move",
+      "content": "original figure movement from restored source cell",
+      "continuity_cut": "match card-contact/direction to native step",
+      "sound": "native movement",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F12",
+      "start_seconds": 36,
+      "end_seconds": 40,
+      "duration_seconds": 4,
+      "start_frame": 864,
+      "end_frame_exclusive": 960,
+      "frame_count": 96,
+      "subject": "Brute melee",
+      "content": "same source-accurate Brute/target; right sword/left shield",
+      "continuity_cut": "one legal original melee and actual response",
+      "sound": "native melee impact",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F13",
+      "start_seconds": 40,
+      "end_seconds": 45,
+      "duration_seconds": 5,
+      "start_frame": 960,
+      "end_frame_exclusive": 1080,
+      "frame_count": 120,
+      "subject": "tactical result",
+      "content": "actual settled destination/outcome + observing companions",
+      "continuity_cut": "overhead/wide resets axis without invented action",
+      "sound": "native result/score rises",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F14",
+      "start_seconds": 45,
+      "end_seconds": 51,
+      "duration_seconds": 6,
+      "start_frame": 1080,
+      "end_frame_exclusive": 1224,
+      "frame_count": 144,
+      "subject": "priestess bowl donation",
+      "content": "Original gathered cloth purse lowered and released into actual priestess bowl. Drop confirms internally; successful purse sinks/fades, then native-style blessing.",
+      "continuity_cut": "separate campaign location; same resident as F01",
+      "sound": "cloth/metal contact and restrained temple ritual; no invented confirmation popup",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F15",
+      "start_seconds": 51,
+      "end_seconds": 59,
+      "duration_seconds": 8,
+      "start_frame": 1224,
+      "end_frame_exclusive": 1416,
+      "frame_count": 192,
+      "subject": "companionship",
+      "content": "Grimhorn/fingerless pair and Runeveil/arcane pair",
+      "continuity_cut": "friendly response then shared settled view",
+      "sound": "warm resolution",
+      "classification": "generative cinematic interpretation with source identity references"
+    },
+    {
+      "id": "F16",
+      "start_seconds": 59,
+      "end_seconds": 65,
+      "duration_seconds": 6,
+      "start_frame": 1416,
+      "end_frame_exclusive": 1560,
+      "frame_count": 144,
+      "subject": "title",
+      "content": "exact GLOOMHAVEN VR logo, STEP INSIDE",
+      "continuity_cut": "local composite; continuous unofficial label survives",
+      "sound": "new product-name/closing narration",
+      "classification": "local original mod-logo and typography composite"
+    }
+  ],
+  "identity_locks": {
+    "Brute": "Exactly three striped horns, pale cream/grey original marked short feline muzzle, amber eyes, bone armour, right sword and left shield.",
+    "Mindthief": "Original small Vermling, cyan eyes, swept grey-white fur mantle, original satchel/curved blade/tail.",
+    "Grimhorn": "Original wood/bone-horn mask and turquoise eye openings; two simple fingerless brown leather gloves with bare flesh tips and thumb.",
+    "Runeveil": "Original ivory gold-ribbed mask, violet glyphs/eyes; two arcane gloves, cyan glyphs on backs and plain palms.",
+    "avatars": "Floating masks and disconnected hands only; no invented bodies/robes.",
+    "location": "Same sanctuary miniature across opening, scale reveal, action and finale; actual night forest and native planked table outside. Separate source priestess temple for donation.",
+    "lighting": "One cool moon source upper-right, consistent warm miniature torches; temple retains same upper-right moon-window fill.",
+    "cards": "Original complete Overwhelming Assault61 and Trample72 fronts from native440s video crops, stable frame-by-frame perspective/finger occlusion.",
+    "actions": "Assault top Attack6 with Trample bottom Move4/Jump/Attack2. Cinematic interpretation, not exact native-turn capture or proof of a four-cell route.",
+    "donation": "Purse in bowl, not priestess hand; automatic native confirmation, successful sink/fade and original blessing gesture."
+  },
+  "asset_registry": {
+    "grimhorn": {
+      "kind": "shipped_mesh",
+      "name": "Grimhorn",
+      "paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.prefab"
+      ]
+    },
+    "runeveil": {
+      "kind": "shipped_mesh",
+      "name": "Runeveil",
+      "paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.prefab"
+      ]
+    },
+    "glove": {
+      "kind": "shipped_skinned_mesh",
+      "paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_L_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_normal.png"
+      ]
+    },
+    "arcane": {
+      "kind": "shipped_skinned_mesh",
+      "paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_L_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_R_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_normal.png"
+      ]
+    },
+    "table": {
+      "kind": "actual native runtime tabletop",
+      "name": "GH_Map_TableTop_Lg",
+      "source": "ressources/GH_Data/sharedassets9.assets Mesh27, original404 vertices/UV/triangles; GH_WorldMap_Table_Dk_MAT_LCM, GH_Map_Table_D texture",
+      "runtime_underside": "MapTableLegs",
+      "identity": "Long parallel planks, thick double-profile rim, source scale1.5519×2.30m and0.1481m thickness",
+      "excluded": "Bundle/Table/MapTable.prefab is built but not spawned"
+    },
+    "play_tray": {
+      "kind": "actual Steel controlboard",
+      "paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray_9capjqp6.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray_9capjqp6.prefab"
+      ],
+      "identity": "Two central tall card wells; two rest circles left; three round button seats right"
+    },
+    "cellar": {
+      "kind": "shipped_environment",
+      "paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/Env_Cellar.prefab"
+      ],
+      "preview": "docs/img/env-cellar.jpg"
+    },
+    "logo": {
+      "kind": "existing_mod_logo",
+      "paths": [
+        "docs/img/logo.png"
+      ],
+      "usage": "Composite locally; inspect transparent edge and existing exact spelling before export."
+    },
+    "merchant": {
+      "kind": "shipped_npc",
+      "paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Prefabs/TownMerchant.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/merchant/merchant_rig.fbx"
+      ],
+      "preview": "docs/img/town-merchant.png"
+    },
+    "enchantress": {
+      "kind": "shipped_npc",
+      "paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Prefabs/TownEnchantress.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/enchantress/enchantress_rig.fbx"
+      ],
+      "preview": "docs/img/town-enchantress.png"
+    },
+    "priestess": {
+      "kind": "shipped_npc",
+      "paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Prefabs/TownPriestess.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/priestess/priestess_rig.fbx"
+      ],
+      "preview": "docs/img/town-priestess.png"
+    },
+    "forest": {
+      "kind": "actual mod environment",
+      "path": "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/Env_Swamp.prefab",
+      "runtime_name": "SwampNight",
+      "identity": "Close pine/fir trunks/branches, forest floor litter, ferns, stump with axe",
+      "lighting_reference": "Diagnostic geometry render, not native headset evidence"
+    }
+  },
+  "branding": {
+    "continuous_label": {
+      "text": "UNOFFICIAL · FAN-MADE MOD",
+      "start_seconds": 0,
+      "end_seconds": 65,
+      "position": "bottom-right",
+      "safe_margin_px": 48,
+      "min_font_px_at_1080p": 24,
+      "text_color": "#F3EEE4",
+      "backing": "subtle black 70% box with 12 px padding",
+      "composite_stage": "Burn in after every transition and final edit, including all black frames",
+      "must_be_legible_every_frame": true
+    },
+    "final_footer": {
+      "text": "AN UNOFFICIAL COMMUNITY VR MOD\nRequires Gloomhaven Digital",
+      "start_seconds": 59,
+      "end_seconds": 65,
+      "position": "lower center, clear of continuous label"
+    },
+    "no_official_publisher_implication": true,
+    "community_attribution": {
+      "text": "A community project by McFredward",
+      "start_seconds": 59,
+      "end_seconds": 65,
+      "position": "under title, clear of requirements and continuous unofficial label"
+    }
+  },
+  "models": {
+    "hero_and_close_lift": "Seedance2.5 reference-to-video, native720p",
+    "individual_and_forest_table_shots": "Happy Horse1.1, native1080p",
+    "narration": "Existing authorized original narrator clone, MiniMax speech2.8HD",
+    "music": "Original65-second ElevenLabs instrumental score",
+    "keyframes": "Built-in imagegen with original source references; outside fal budget",
+    "postproduction": "Local FFmpeg/OpenCV/Pillow, exact native card-surface composites",
+    "reused_enchantress": "Earlier source-referenced Kling film portrait, locally cropped/graded"
+  },
+  "budget": {
+    "currency": "USD",
+    "hard_cap": 30,
+    "conservative_reserved_total_usd": 29.9,
+    "actual_invoice_reconciled": false,
+    "failed_reservations_retained": true,
+    "further_paid_calls_planned": false,
+    "ledger": ".planning/debug/trailer/production/ledger.json",
+    "no_automatic_rerolls": true,
+    "generation_reserved_total_usd": 29.75,
+    "final_speech_qc_reserved_usd": 0.15
+  },
+  "acceptance": {
+    "requirements": [
+      "65 seconds/1560 frames at24fps; continuous unofficial mark on every frame including black/fades.",
+      "Correct original Brute, masks and hand pairs, meaningful smooth motion/eyelines, consistent sanctuary and forest/table.",
+      "Original card text/numbers/icons stabilized throughout placements and subsequent wides; finger occlusion/shading/motion retained.",
+      "Same original figure returns to original cell before action; hands make choices, figures execute.",
+      "Correct priestess purse-into-bowl service rather than ability-card merchant sale.",
+      "Complete new narration without clipped final words, original score, intelligible stereo mix.",
+      "Watch entire finished movie plus dense source/contact/cut frames; decode/duration/audio/branding checks.",
+      "Private raw sources/prompts/hash manifests/receipts preserved; source/native-capture/generative classifications honest."
+    ],
+    "first_cut_evidence": {
+      "complete_decode": "pass",
+      "duration_seconds": 65,
+      "frame_count": 1560,
+      "persistent_label_frames_pass": 1560,
+      "speech_words_matched": 33,
+      "encoded_integrated_lufs": -14.0,
+      "encoded_true_peak_dbtp": -1.9,
+      "integrator_final_frames_viewed": 61,
+      "independent_final_frames_viewed": 12,
+      "maintainer_final_creative_approval": false,
+      "qc": ".planning/debug/trailer/full-production/qc/final-technical/technical-qa.json"
+    }
+  },
+  "references": [
+    {
+      "role": "initial CGI visual language",
+      "url": "https://www.youtube.com/watch?v=N9vXBNJ5r1k",
+      "viewing": "Integrator inspected 24 sampled frames.",
+      "runtime_seconds": 112.9,
+      "observations": [
+        "game-native settings",
+        "ground-level sweeps",
+        "warm torch against cool magic",
+        "rising action/group finish"
+      ]
+    },
+    {
+      "role": "cinematic gameplay edit/camera language",
+      "url": "https://www.youtube.com/watch?v=oPbmpZGHyug",
+      "viewing": "Integrator inspected 20 sampled frames.",
+      "runtime_seconds": 126,
+      "cues": [
+        {
+          "timestamp": "0:37",
+          "subject": "players/headsets after narrative attic opening"
+        },
+        {
+          "timestamp": "0:55",
+          "subject": "low in-world monster view"
+        },
+        {
+          "timestamp": "0:59",
+          "subject": "physical card hand"
+        },
+        {
+          "timestamp": "1:12",
+          "subject": "hero miniatures"
+        },
+        {
+          "timestamp": "1:15",
+          "subject": "overhead legal movement"
+        },
+        {
+          "timestamp": "1:34",
+          "subject": "attacks"
+        }
+      ],
+      "restriction": "Use relationship between physical choice and original action; do not copy Demeo rules, UI, dialogue or shots."
+    },
+    {
+      "role": "existing native GloomhavenVR gameplay source",
+      "url": "https://www.youtube.com/watch?v=tgJAk6Z62b4",
+      "viewing": "Integrator inspected 24 overview frames plus 11 focused cues. Older1.0 recording.",
+      "cues": [
+        {
+          "timestamp": "6:25",
+          "subject": "fan above wrist"
+        },
+        {
+          "timestamp": "6:58",
+          "subject": "actual arcane hand reaching original cards"
+        },
+        {
+          "timestamp": "9:05",
+          "subject": "native movement/attack"
+        },
+        {
+          "timestamp": "10:51",
+          "subject": "native action and hex overlays"
+        },
+        {
+          "timestamp": "14:38",
+          "subject": "overhead tactical battle"
+        }
+      ],
+      "limitations": [
+        "Existing 2D viewpoints only; no arbitrary new3D camera.",
+        "Does not establish second-player mask.",
+        "Does not establish current1.1 NPC interactions."
+      ]
+    }
+  ]
+}

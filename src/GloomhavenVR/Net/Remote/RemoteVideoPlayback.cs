@@ -8,7 +8,7 @@ using UnityEngine.Video;
 namespace GloomhavenVR.Net;
 
 /// <summary>Share native movie presentation without touching VideoCamera or game progression.
-/// Only a native decoder may originate a movie; a cosmetic decoder cannot create a replay loop.
+/// Native decoders and deliberate review originals may originate a movie; a mirror never may.
 /// Close, decoder end/error and monotonically newer playback tokens retire old publications.</summary>
 internal static class RemoteVideoPlayback
 {
@@ -25,6 +25,7 @@ internal static class RemoteVideoPlayback
     private static VideoWindowState _active;
     private static float _activeAt;
     private static VideoPlayer? _mirror;
+    private static GameObject? _mirrorRoot;
     private static uint _mirrorToken;
     private static int _mirrorOwner;
     private static uint _failedMirrorToken;
@@ -32,6 +33,10 @@ internal static class RemoteVideoPlayback
     private static bool _mirrorEnded;
     private static uint _sentToken;
     private static bool _sentPlaying;
+    private static int _dismissedReviewOwner;
+    private static uint _dismissedReviewToken, _dismissedReviewPose;
+    private static string _dismissedReviewKey = string.Empty;
+    private static float _reviewCloseUntil, _lastReviewCloseSent = -10f;
     private static VideoPlayer? _mutedNative;
     private static bool[]? _savedMute;
     private static AudioSource?[]? _savedAudioSources;
@@ -44,16 +49,16 @@ internal static class RemoteVideoPlayback
         {
             TrackNative();
             bool source = _native != null && _suppressedNativeToken != _token;
-            return (source ? _token : 0) != _sentToken
+            return (ReviewCloseDue || (source ? _token : 0) != _sentToken)
                 || (source && _native!.isPlaying) != _sentPlaying;
         }
     }
 
     private static void TrackNative()
     {
-        VideoPlayer? native = NativeVideoWindow.NativePlayer;
+        VideoPlayer? native = NativeVideoWindow.OriginatingPlayer;
         string clip = NativeVideoWindow.PlaybackKey;
-        uint generation = NativeVideoWindow.NativePlaybackGeneration;
+        uint generation = NativeVideoWindow.OriginatingPlaybackGeneration;
         if (!VideoWindowCodec.ValidClip(clip)) native = null;
         if (native != null && (_native != native || _nativeClip != clip || _nativeGeneration != generation))
         {
@@ -62,7 +67,7 @@ internal static class RemoteVideoPlayback
             _closedUntil = 0;
             _suppressedNativeToken = 0;
         }
-        if (_native != null && native == null)
+        if (!ReferenceEquals(_native, null) && native == null)
         {
             _closedUntil = Time.unscaledTime + 3f;
             if (_owner == _localId && _activeToken == _token) FinishActivePlayback();
@@ -82,6 +87,15 @@ internal static class RemoteVideoPlayback
         _sentPlaying = nativeSource && _native!.isPlaying;
         if (!SharedWindows.ParticipatesHere(SharedWindowKind.Video) || localId <= 0) return;
         VideoWindowState state;
+        if (ReviewCloseDue)
+        {
+            _lastReviewCloseSent = Time.unscaledTime;
+            extras.HasVideoWindow = true;
+            extras.VideoWindow = new VideoWindowState { Native = false, Closed = true,
+                Token = _dismissedReviewToken, Revision = ++_revision, Clip = _dismissedReviewKey,
+                Window = new SharedWindowEntry { ContentKey = _dismissedReviewPose } };
+            return;
+        }
         if (_native != null && _suppressedNativeToken != _token)
         {
             state = new VideoWindowState { Native = true, Playing = _native.isPlaying,
@@ -110,6 +124,19 @@ internal static class RemoteVideoPlayback
 
     internal static void Observe(int sender, in PresenceState extras)
     {
+        if (extras.HasVideoWindow && !extras.VideoWindow.Native && extras.VideoWindow.Closed
+            && VideoMovieKeys.IsReview(extras.VideoWindow.Clip))
+        {
+            TrackNative();
+            VideoWindowState request = extras.VideoWindow;
+            if (_localId > 0 && _native != null && request.Token == _token
+                && request.Clip == _nativeClip && request.Window.ContentKey == PoseKey(_localId, _token)
+                && NativeVideoReview.TryCloseOwnedKey(request.Clip!))
+            {
+                VRLog.Note("Net", $"SHARED VIDEO REVIEW CLOSE: requester={sender}, owner={_localId}, opening={_token}, key={request.Clip}.");
+                TrackNative();
+            }
+        }
         if (!Peers.TryGetValue(sender, out VideoSourceClock? peer)) Peers[sender] = peer = new VideoSourceClock();
         if (!extras.HasVideoWindow || !extras.VideoWindow.Native)
         {
@@ -118,6 +145,11 @@ internal static class RemoteVideoPlayback
         else
         {
             if (!peer.Observe(in extras.VideoWindow, Time.unscaledTime)) return;
+            // A real native movie always outranks a deliberate review, even when
+            // its author has a higher actor id. A cosmetic mirror never publishes
+            // Native, and review aliases preserve deterministic review collisions.
+            if (!extras.VideoWindow.Closed && !VideoMovieKeys.IsReview(extras.VideoWindow.Clip))
+                NativeVideoReview.CancelForNativePlayback();
             if (extras.VideoWindow.Closed && sender == _owner && extras.VideoWindow.Token == _activeToken)
                 FinishActivePlayback();
         }
@@ -151,7 +183,13 @@ internal static class RemoteVideoPlayback
             {
                 peer.HasSource = false;
             }
-            if (!peer.HasSource || (owner != 0 && kv.Key >= owner)) continue;
+            if (!peer.HasSource) continue;
+            if (owner != 0)
+            {
+                bool candidateReview = VideoMovieKeys.IsReview(peer.State.Clip);
+                bool chosenReview = VideoMovieKeys.IsReview(chosen.Clip);
+                if ((candidateReview && !chosenReview) || (candidateReview == chosenReview && kv.Key >= owner)) continue;
+            }
             // The same election applies on every client, including one whose native game
             // happens to be playing a different movie. Its original callbacks keep running;
             // only the one shared presentation plane follows this room-wide authority.
@@ -164,13 +202,45 @@ internal static class RemoteVideoPlayback
         _activeAt = at;
         _activeToken = chosen.Token;
         _poseKey = owner != 0 ? PoseKey(owner, chosen.Token) : 0;
-        if (owner == 0 || owner == localId) StopMirror();
+        if (_dismissedReviewOwner != 0 && !CurrentReviewDismissed) ClearReviewDismissal();
+        if (owner == 0 || owner == localId || CurrentReviewDismissed) StopMirror();
         else EnsureMirror();
         bool suppressed = _native != null && _suppressedNativeToken == _token;
         NativeVideoWindow.SetNativePresentationSuppressed(suppressed);
         bool mirrorAudible = _mirror != null && _mirror.isPrepared && (_mirror.isPlaying || _mirror.isPaused);
         SyncNativeAudio(_native != null && (mirrorAudible || suppressed));
         RemoteMapStory.ResolveVideoPose(_poseKey);
+    }
+
+    private static bool CurrentReviewDismissed => _owner == _dismissedReviewOwner && _activeToken == _dismissedReviewToken
+        && _active.Clip == _dismissedReviewKey && VideoMovieKeys.IsReview(_active.Clip);
+    private static bool ReviewCloseDue => _dismissedReviewOwner != 0 && CurrentReviewDismissed
+        && Time.unscaledTime < _reviewCloseUntil && Time.unscaledTime - _lastReviewCloseSent >= .1f;
+
+    internal static bool RequestCloseReview(out string selectedKey)
+    {
+        selectedKey = string.Empty;
+        if (_owner <= 0 || _owner == _localId || _activeToken == 0 || !VideoMovieKeys.IsReview(_active.Clip)
+            || Time.unscaledTime - _activeAt > 2f) return false;
+        _dismissedReviewOwner = _owner;
+        _dismissedReviewToken = _activeToken;
+        _dismissedReviewKey = _active.Clip!;
+        _dismissedReviewPose = PoseKey(_owner, _activeToken);
+        _reviewCloseUntil = Time.unscaledTime + 2f;
+        _lastReviewCloseSent = Time.unscaledTime - 1f;
+        selectedKey = _dismissedReviewKey;
+        StopMirror();
+        RestoreNativeAudio();
+        VRLog.Note("Net", $"SHARED VIDEO REVIEW CLOSE: requested owner={_owner}, opening={_activeToken}, key={selectedKey}.");
+        return true;
+    }
+
+    private static void ClearReviewDismissal()
+    {
+        _dismissedReviewOwner = 0;
+        _dismissedReviewToken = _dismissedReviewPose = 0;
+        _dismissedReviewKey = string.Empty;
+        _reviewCloseUntil = 0;
     }
 
     private static uint PoseKey(int owner, uint token)
@@ -181,6 +251,7 @@ internal static class RemoteVideoPlayback
 
     private static void EnsureMirror()
     {
+        if (!ReferenceEquals(_mirror, null) && _mirror == null) StopMirror();
         if (_mirror != null && (_mirrorOwner != _owner || _mirrorToken != _activeToken)) StopMirror();
         // An unavailable local decoder is not evidence that the native source completed.
         // Preserve that publication and any healthy local native fallback; retry only when
@@ -193,7 +264,11 @@ internal static class RemoteVideoPlayback
                 FailMirror("movie asset unavailable");
                 return;
             }
+            if (NativeVideoMovies.IsStereoKey(_active.Clip) && !NativeVideoMovies.IsStereoUrl(url))
+                VRLog.Note("Net", $"SHARED VIDEO STEREO FALLBACK: owner={_owner}, opening={_activeToken}, "
+                    + $"key={_active.Clip}, reason=selected stereo asset is missing; using its approved 2D companion at the owner clock.");
             var root = new GameObject("GloomhavenVR Shared Video Decoder");
+            _mirrorRoot = root;
             UnityEngine.Object.DontDestroyOnLoad(root);
             _mirror = root.AddComponent<VideoPlayer>();
             _mirror.playOnAwake = false;
@@ -207,7 +282,7 @@ internal static class RemoteVideoPlayback
             _mirror.prepareCompleted += Prepared;
             _mirror.loopPointReached += Ended;
             _mirror.errorReceived += Failed;
-            NativeVideoWindow.SetRemoteSource(_mirror);
+            NativeVideoWindow.SetRemoteSource(_mirror, _active.Clip ?? string.Empty);
             _mirror.Prepare();
             VRLog.Note("Net", $"SHARED VIDEO START: owner={_owner}, token={_activeToken}, clip={_active.Clip}");
         }
@@ -218,7 +293,7 @@ internal static class RemoteVideoPlayback
 
     private static void Prepared(VideoPlayer player)
     {
-        if (player != _mirror) return;
+        if (!ReferenceEquals(player, _mirror) || player == null) return;
         SyncNativeAudio(_native != null);
         ApplyPlayback(player, initial: true);
     }
@@ -241,12 +316,12 @@ internal static class RemoteVideoPlayback
 
     private static void Ended(VideoPlayer player)
     {
-        if (player == _mirror) HoldMirrorEnd(player);
+        if (ReferenceEquals(player, _mirror)) HoldMirrorEnd(player);
     }
 
     private static void Failed(VideoPlayer player, string reason)
     {
-        if (player == _mirror) FailMirror(reason);
+        if (ReferenceEquals(player, _mirror)) FailMirror(reason);
     }
 
     private static void HoldMirrorEnd(VideoPlayer player)
@@ -261,7 +336,7 @@ internal static class RemoteVideoPlayback
     {
         _failedMirrorOwner = _owner;
         _failedMirrorToken = _activeToken;
-        VRLog.Note("Net", $"SHARED VIDEO STOP: owner={_owner}, token={_activeToken}, reason={reason}");
+        VRLog.Note("Net", $"SHARED VIDEO STOP: owner={_owner}, token={_activeToken}, key={_active.Clip}, reason={reason}");
         StopMirror();
         RestoreNativeAudio();
     }
@@ -271,8 +346,8 @@ internal static class RemoteVideoPlayback
         // Native intros may start on several clients. Completion belongs to the elected
         // presentation source: do not hand the screen to a lagging copy of that same play.
         foreach (VideoSourceClock peer in Peers.Values)
-            if (peer.HasSource && peer.State.Clip == _active.Clip) peer.Retire();
-        if (_native != null && _nativeClip == _active.Clip) _suppressedNativeToken = _token;
+            if (peer.HasSource && NativeVideoMovies.SamePresentation(peer.State.Clip, _active.Clip)) peer.Retire();
+        if (_native != null && NativeVideoMovies.SamePresentation(_nativeClip, _active.Clip)) _suppressedNativeToken = _token;
     }
 
     private static void SyncNativeAudio(bool mute)
@@ -342,13 +417,18 @@ internal static class RemoteVideoPlayback
     private static void StopMirror()
     {
         NativeVideoWindow.SetRemoteSource(null);
-        if (_mirror == null) return;
-        _mirror.prepareCompleted -= Prepared;
-        _mirror.loopPointReached -= Ended;
-        _mirror.errorReceived -= Failed;
-        _mirror.Stop();
-        UnityEngine.Object.Destroy(_mirror.gameObject);
+        VideoPlayer? player = _mirror;
+        GameObject? root = _mirrorRoot;
         _mirror = null;
+        _mirrorRoot = null;
+        if (!ReferenceEquals(player, null))
+        {
+            player!.prepareCompleted -= Prepared;
+            player.loopPointReached -= Ended;
+            player.errorReceived -= Failed;
+            if (player != null) player.Stop();
+        }
+        if (root != null) UnityEngine.Object.Destroy(root);
         _mirrorOwner = 0;
         _mirrorToken = 0;
         _mirrorEnded = false;
@@ -370,6 +450,7 @@ internal static class RemoteVideoPlayback
         _closedUntil = 0;
         _activeToken = _poseKey = _sentToken = 0;
         _sentPlaying = false;
+        ClearReviewDismissal();
         RemoteMapStory.ResetVideoPose();
     }
 }

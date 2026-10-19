@@ -62,6 +62,7 @@ internal sealed partial class FlatScreen
             RenderPipelineManager.beginCameraRendering -= OnCaptureBeginCameraRendering;
             RenderPipelineManager.endCameraRendering -= OnCaptureEndCameraRendering;
             RestoreCaptureMask();
+            NativeMovieCameraPlane.RestoreAll();
         }
     }
 
@@ -99,10 +100,15 @@ internal sealed partial class FlatScreen
                 VRLog.Info("WorldUI", $"FlatScreen first-render discovery: '{camera.name}' — " +
                     "late native backbuffer camera joined the capture before culling.");
         }
+        // A known startup camera can begin a film between census and render.
+        // Refresh the real split/compositor before choosing its target or hiding
+        // its packed plane. No options page, scenario board or later Tick is needed.
+        if (_stereo.NeedsMovieCaptureSync(camera)) CaptureStack();
         VRCameraPolicy.ExcludeStereo(camera, "screen capture render");
         RenderTexture? target = TargetFor(captured);
         if (target != null && camera.targetTexture != target)
             camera.targetTexture = target;
+        if (_stereo.OwnsMoviePlane(camera)) NativeMovieCameraPlane.BeforeRender(camera);
         int mask = camera.cullingMask;
         // An exhausted unnamed-layer pool falls back to the native UI layer.
         // That shared layer cannot be excluded without blanking the real menu.
@@ -115,6 +121,7 @@ internal sealed partial class FlatScreen
 
     private void OnCapturePostRender(Camera camera)
     {
+        NativeMovieCameraPlane.AfterRender(camera);
         if (_captureMaskedCamera != null && camera == _captureMaskedCamera)
             RestoreCaptureMask();
     }

@@ -123,6 +123,10 @@ public static partial class MirrorProgram
         Check(Messages(mirrorPrefix) == mirrorStart + 9,
             "ordinary map teardown starts a fresh mirror diagnostic lifetime");
         NativeInitializationProbe.Fail = false; NativeInitializationProbe.Select(null); NativeInitializationProbe.OrdinaryShutdown();
+        TownServiceSync.FixtureDiagnostic669("prepare", new MissingReferenceException(string.Empty));
+        Check(GloomhavenVR.Core.VRLog.Messages.Exists(message => message == "TownServices: Original widget publisher unavailable: prepare: MissingReferenceException"),
+            "empty native exception message retains its actionable publisher exception type");
+        NativeInitializationProbe.OrdinaryShutdown();
     }
 
     private static void RetiredPublisherContinuation669()

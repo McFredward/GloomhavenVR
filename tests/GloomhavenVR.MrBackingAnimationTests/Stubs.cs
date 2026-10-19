@@ -74,10 +74,10 @@ namespace GloomhavenVR.WorldUI
     internal sealed class MrBackingVisibility { public Transform? Root;public readonly List<CanvasRenderer> Witnesses=new(); }
     internal static class PanelInkBounds
     {
-        internal struct Ink { public bool Valid;public Rect Rect;public int Plates,PendingPaint;public float PlateBottom; }
+        internal struct Ink { public bool Valid;public Rect Rect;public int Plates,PendingPaint;public float PlateBottom,BackZ; }
         public static readonly List<Rect> ExtraPieces=new();
         public static CanvasRenderer? OriginalRenderer;public static float NativeOriginal=1;
-        public static int Pending;
+        public static int Pending;public static float BackZ;
         public static bool Valid=true,Throw,PaintedQuery;public static Rect Bounds=new(20,30,200,120);public static Action? OnMeasure;
         public static bool TryMeasure(ConvertedPanel p,out Ink ink,Transform? contentRoot=null,List<CanvasRenderer>? visibleWitnesses=null,bool backingGeometry=false,List<Rect>? backingPieces=null,IReadOnlyDictionary<CanvasRenderer,float>? backingOriginalAlpha=null)
         {
@@ -88,7 +88,7 @@ namespace GloomhavenVR.WorldUI
             if(OriginalRenderer!=null && backingOriginalAlpha!=null && backingOriginalAlpha.TryGetValue(OriginalRenderer,out float original)) alpha=original;
             bool valid=Valid&&alpha>=.05f;
             if(valid){backingPieces?.Add(Bounds);if(backingPieces!=null)backingPieces.AddRange(ExtraPieces);}
-            ink=new(){Valid=valid,Rect=Bounds,PendingPaint=Pending};return valid;
+            ink=new(){Valid=valid,Rect=Bounds,PendingPaint=Pending,BackZ=BackZ};return valid;
         }
     }
     internal static class PanelSupersample
@@ -124,7 +124,7 @@ namespace GloomhavenVR.WorldUI
             internal ConvertedPanel Panel=null!;internal Transform? Plate;internal Material? FadeMat;
             internal readonly MrBackingAnimationState Animation=new();internal readonly MrBackingLayout Layout=new();
             internal readonly MrBackingVisibility Visibility=new();internal MrBackingMaterialise? Materialise;
-            internal bool Faded;internal Rect Shown;
+            internal bool Faded;internal Rect Shown;internal float BackZ;
         }
         private static readonly List<PanelEntry> Panels=new();private static bool _applied;
         private static Material? _plateMat;private static Color _plateColor;
@@ -132,8 +132,10 @@ namespace GloomhavenVR.WorldUI
         private static void DestroyPlate(Transform? t,Material? m){Object.Destroy(t);Object.Destroy(m);}
         private static Material CreateFadeMaterial()=>new();private static Transform CreatePlate(RectTransform host) { var plate=new Transform();plate.Renderer.sharedMaterial=_plateMat;return plate; }
         private static void Fit(Transform plate,RectTransform host,Vector2 size,Vector2 center) { }
+        internal static float SeatedDepth;
+        private static void SeatBehindContent(Transform plate,float backZ){SeatedDepth=backZ;}
         private static void LogPaintedExtent(PanelEntry entry,RectTransform host,Rect frame,Rect fitted) { }
-        internal static void ResetTest() { Panels.Clear();PanelSupersample.Captured=false;PanelInkBounds.ExtraPieces.Clear();PanelInkBounds.OriginalRenderer=null;PanelInkBounds.Pending=0;GrabbableModal.Cached=false;_applied=false;_plateMat=null;MixedReality.BackingsWanted=true;PanelInkBounds.Valid=true;PanelInkBounds.Throw=false;PanelInkBounds.OnMeasure=null;MrBackingMaterialise.ThrowApply=false;MrBackingMaterialise.ThrowRestore=false;MrBackingMaterialise.Disposals=0;GloomhavenVR.Core.VRLog.Throw=false;GloomhavenVR.Core.VRLog.Warnings=0;Time.unscaledTime=0; }
+        internal static void ResetTest() { Panels.Clear();SeatedDepth=0;PanelInkBounds.BackZ=0;PanelSupersample.Captured=false;PanelInkBounds.ExtraPieces.Clear();PanelInkBounds.OriginalRenderer=null;PanelInkBounds.Pending=0;GrabbableModal.Cached=false;_applied=false;_plateMat=null;MixedReality.BackingsWanted=true;PanelInkBounds.Valid=true;PanelInkBounds.Throw=false;PanelInkBounds.OnMeasure=null;MrBackingMaterialise.ThrowApply=false;MrBackingMaterialise.ThrowRestore=false;MrBackingMaterialise.Disposals=0;GloomhavenVR.Core.VRLog.Throw=false;GloomhavenVR.Core.VRLog.Warnings=0;Time.unscaledTime=0; }
         internal static int EntryCount=>Panels.Count;
         internal static bool Ready=>_applied&&_plateMat!=null;
         internal static bool Active(ConvertedPanel p)=>FindAnimationEntry(p)?.Animation.Active??false;

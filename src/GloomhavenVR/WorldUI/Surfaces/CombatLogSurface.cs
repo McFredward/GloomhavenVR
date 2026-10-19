@@ -1471,7 +1471,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         if (cap == null || cap.Collider == null || !cap.Collider.enabled
             || !cap.gameObject.activeInHierarchy
             || hand == null || !hand.HasPose || !hand.Ray.Active || hand.Grabber.Held != null
-            || hand.RayGrab.OwnsPointerFrame)
+            || hand.RayGrab.OwnsPointerFrame || hand.Grabber.FigureGrabOffered)
         {
             ClearCapLaserHover();
             return;
@@ -1503,11 +1503,11 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             _pinLaserHovered = true;
             cap.OnPokeEnter(hand); // the cap does its own hover tint/haptic vocabulary
         }
-        hand.Ray.UiHitOverride = rh.point; // beam clamps to the cap (also suppresses the far click)
+        hand.Ray.SetWorldUiHit(rh.point, "combat log pin hover");
 
         if (hand.TriggerDown)
         {
-            hand.Ray.SuppressFarClick();
+            hand.Ray.ClaimTrigger("combat log pin press");
             cap.Press(hand, $"combat-log laser ({hand.Side})");
         }
     }

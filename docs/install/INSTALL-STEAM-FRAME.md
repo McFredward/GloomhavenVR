@@ -105,10 +105,11 @@ file selected in its folder.
   <img src="../img/frame-install/05-setup.jpg" width="640" alt="GloomhavenVR-Setup.desktop selected in BepInEx/plugins/GloomhavenVR/FrameSetup/ in Dolphin.">
 </p>
 
-The setup configures BepInEx for the original Steam game and adds a separate **GloomhavenVR**
-entry with artwork to the VR library. Steam may restart to show the new entry. The original
-**Gloomhaven** entry remains available for flat play; both entries use the same installed game
-and saves. The Frame display may briefly restart with Steam; setup finishes its changes first.
+The setup adds a separate **GloomhavenVR** entry with artwork to the VR library and sets the
+required launch options automatically, preserving any other launch options you already use.
+If Steam is running, setup restarts it. The Frame display and setup terminal may close briefly;
+wait for the library to return, then launch **GloomhavenVR**. The original **Gloomhaven** entry
+remains available for flat play; both entries use the same installed game and saves.
 It also suggests a 3408-pixel per-eye SteamVR resolution, preserving an existing preference
 or a resolution you have chosen in SteamVR. SteamVR reads a new suggested default after a restart.
 
@@ -150,14 +151,23 @@ with lower figure detail, clothing simulation off and reduced generation on. All
 also work on PC; saved choices are retained.
 
 Fresh Frame configurations use the original service windows rather than immersive NPCs.
-You can change **Immersive town NPCs** under **VR Options → World & sound** when using the 3D map.
+You can change **Immersive town NPCs** under **VR Options → World → Campaign map** when using the 3D map.
 
 ## Mixed reality
 
-Choose **Mixed reality** under **VR Options → World & sound** to place the table in your
-room. Standalone uses the Frame's native passthrough when the active runtime supports it.
+Choose **Mixed Reality** under **VR Options → World → Scenery** to place the table in your
+room. Standalone uses the Frame's native passthrough without an additional patch
+when the active runtime supports it.
 If the choice is grey, hover over it for the explanation. Update **SteamVR** and the
 **Proton version selected for Gloomhaven**, then restart the game and check again.
+
+**PC streaming through Steam Link** instead needs the paired PC and Frame setup:
+[Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#readme).
+That is a different setup from the standalone installation covered here.
+
+The experimental streaming companion currently requires Windows, NVIDIA and HEVC.
+The former Frame-only receiver is retired; use its guided setup for both devices.
+Standalone passthrough is independent of this streaming companion.
 
 ## Updating
 
@@ -173,7 +183,8 @@ need the same mod build.
 | GloomhavenVR is missing from Steam | Run `GloomhavenVR-Setup.desktop` again. Steam may need to restart. |
 | Dolphin does not offer **Execute** | Use the terminal command in step 5. |
 | The mod does not load | Check the two green mod folders in the diagram, then run setup again. |
-| GloomhavenVR starts flat or closes | Keep `BepInEx/LogOutput.log` from that launch and report the problem. |
+| GloomhavenVR asks to finish setup | Save the complete launch-options line in the original Gloomhaven entry as in step 5, then restart Frame. |
+| GloomhavenVR starts flat or closes | Check the original Gloomhaven launch options in step 5, then keep `BepInEx/LogOutput.log` from that launch and report the problem. |
 | The game no longer starts | Restore `GH_Data/boot.config` from `GH_Data/boot.config.gloomhavenvr-backup`. |
 
 For a setup problem, keep `BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-setup.log`.

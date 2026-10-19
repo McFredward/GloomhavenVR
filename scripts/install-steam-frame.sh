@@ -7,7 +7,8 @@ usage() {
 Usage: bash install-steam-frame.sh [--game-path PATH] [--steam-root PATH] [--dry-run] [--pause]
 
 Run this from the extracted GloomhavenVR release after installing BepInEx.
-The setup creates the GloomhavenVR library entry and configures the first VR launch.
+The setup prepares the GloomhavenVR library entry and the original game's
+required launch options. A running Steam Frame client restarts automatically.
 EOF
 }
 
@@ -62,14 +63,14 @@ done
 # The desktop launcher opens a terminal. Keep setup failures visible even when
 # Steam later restarts the headset shell and closes the terminal.
 temporary_launcher=""
-steam_client_alive() {
-    pgrep -u "$(id -u)" -x steam >/dev/null 2>&1 ||
-        pgrep -u "$(id -u)" -x steamwebhelper >/dev/null 2>&1
-}
+helper_temporary=""
 on_exit() {
     local status=$?
     if [[ -n "$temporary_launcher" ]]; then
         rm -f -- "$temporary_launcher"
+    fi
+    if [[ -n "$helper_temporary" ]]; then
+        rm -f -- "$helper_temporary"
     fi
     echo "Setup exit status: $status; log: $setup_log"
     if $pause_on_exit && [[ -t 0 ]]; then
@@ -92,6 +93,7 @@ fi
 game_dir="$(cd -- "$game_dir" && pwd -P)"
 patcher="$game_dir/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
 marker="$game_dir/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker"
+legacy_pending_setup="$script_dir/steam-launch-options.pending.json"
 # Valve reads this app-provided Steam Frame default from the installed game's
 # root. SteamVR keeps any per-application value the player has already chosen.
 vr_preferences="$game_dir/vrpreferences.json"
@@ -101,6 +103,14 @@ if [[ ! -d "$artwork_source" && -d "$script_dir/../src/GloomhavenVR/Assets/Steam
     artwork_source="$script_dir/../src/GloomhavenVR/Assets/SteamFrameArtwork"
 fi
 destination="${XDG_DATA_HOME:-$HOME/.local/share}/GloomhavenVR"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+if [[ "$destination" != /* || "$config_home" != /* ]]; then
+    echo 'error: Steam setup requires absolute XDG_DATA_HOME and XDG_CONFIG_HOME paths' >&2
+    exit 2
+fi
+managed_directory="$destination/SteamSetup"
+pending_setup="$managed_directory/managed-setup.json"
+managed_dropin="$config_home/systemd/user/steam.service.d/90-gloomhavenvr-setup.conf"
 launcher="$destination/launch-steam-frame.sh"
 artwork_destination="$destination/SteamArtwork"
 logo_destination="$destination/GloomhavenVR-steam-logo.png"
@@ -136,6 +146,100 @@ done
 }
 command -v python3 >/dev/null 2>&1 || { echo 'error: python3 is required for Steam Frame setup' >&2; exit 1; }
 
+# A failed process inspection must never select the offline writer. The strict
+# census and the service ownership check share the configuration helper's rules.
+inspect_steam() {
+    python3 -B - "$steam_helper" "$@" <<'PY'
+import importlib.util
+import os
+from pathlib import Path
+import re
+import sys
+
+spec = importlib.util.spec_from_file_location("frame_config", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+try:
+    processes = module.strict_steam_processes(Path("/proc"))
+    if sys.argv[2] == "state":
+        print("running" if processes else "stopped")
+        sys.exit(0)
+    properties = dict(line.split("=", 1) for line in sys.argv[3].splitlines() if "=" in line)
+    if properties.get("LoadState") != "loaded" or properties.get("ActiveState") != "active":
+        raise ValueError("the user Steam service is not loaded and active")
+    if properties.get("KillMode") not in {"control-group", "mixed"}:
+        raise ValueError("the Steam service does not stop its complete process group")
+    duration = properties.get("TimeoutStartUSec", "")
+    if duration != "infinity":
+        parts = re.findall(r"([0-9]+(?:\.[0-9]+)?)\s*(us|ms|s|min|h|d)", duration)
+        residue = re.sub(r"[0-9]+(?:\.[0-9]+)?\s*(?:us|ms|s|min|h|d)", "", duration).strip()
+        units = {"us": 1e-6, "ms": .001, "s": 1, "min": 60, "h": 3600, "d": 86400}
+        if not parts or residue or sum(float(n) * units[u] for n, u in parts) < 30:
+            raise ValueError("the Steam service startup budget cannot accommodate the bounded setup hook")
+    main_pid = properties.get("MainPID", "")
+    group = properties.get("ControlGroup", "").rstrip("/") or "/"
+    if (not main_pid.isdigit() or int(main_pid) <= 0 or group == "/"
+            or not properties.get("ControlGroup", "").startswith("/")):
+        raise ValueError("Steam service process ownership is unavailable")
+    def lifetime(pid):
+        process = Path("/proc") / pid
+        if process.stat().st_uid != os.getuid():
+            raise ValueError("a Steam service process belongs to another user")
+        return (process / "stat").read_text().rsplit(")", 1)[1].split()[19]
+    def in_group(pid):
+        rows = (Path("/proc") / pid / "cgroup").read_text().splitlines()
+        paths = [row.split(":", 2)[2] for row in rows
+                 if len(row.split(":", 2)) == 3 and row.split(":", 2)[1] in {"", "name=systemd"}]
+        return any(path == group or path.startswith(group.rstrip("/") + "/") for path in paths)
+    main_lifetime = lifetime(main_pid)
+    if not in_group(main_pid) or not processes:
+        raise ValueError("the Steam service does not own the running client")
+    # Inspect a second census as well: webhelpers may appear while checking.
+    for snapshot in (processes, module.strict_steam_processes(Path("/proc"))):
+        for pid, start in snapshot.items():
+            try:
+                if lifetime(pid) != start or not in_group(pid):
+                    raise ValueError("a running Steam client is outside the managed Steam service")
+            except FileNotFoundError:
+                continue  # An observed webhelper exited during the census.
+    if lifetime(main_pid) != main_lifetime:
+        raise ValueError("the Steam service changed during setup inspection")
+    print("Verified the running client belongs to the active user Steam service.")
+except (OSError, ValueError, IndexError, module.ConfigError) as error:
+    print(f"error: cannot safely restart Steam for automatic setup: {error}", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
+validate_managed_service() {
+    command -v systemctl >/dev/null 2>&1 || { echo 'error: the Steam user service manager is unavailable' >&2; return 1; }
+    [[ -x /usr/bin/python3 && -x /usr/bin/timeout ]] || {
+        echo 'error: /usr/bin/python3 and /usr/bin/timeout are required for automatic Steam setup' >&2
+        return 1
+    }
+    local properties
+    local -a query=(systemctl --user show steam.service
+        --property=LoadState,ActiveState,MainPID,ControlGroup,TimeoutStartUSec,KillMode --no-pager)
+    if ! properties="$("${query[@]}" 2>&1)"; then
+        # Desktop launchers may omit the user bus variables. Only derive them
+        # from this user's actual runtime socket; do not guess another session.
+        local runtime="/run/user/$(id -u)"
+        if [[ -d "$runtime" && -O "$runtime" && -S "$runtime/bus" && -O "$runtime/bus" ]]; then
+            export XDG_RUNTIME_DIR="$runtime"
+            export DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime/bus"
+            if ! properties="$("${query[@]}" 2>&1)"; then
+                printf 'error: cannot inspect the Steam user service: %s\n' "$properties" >&2
+                return 1
+            fi
+        else
+            printf 'error: cannot inspect the Steam user service: %s\n' "$properties" >&2
+            return 1
+        fi
+    fi
+    inspect_steam service "$properties"
+}
+
 # Validate all inputs before touching either the game or Steam. In particular,
 # failure to locate the active Steam account must not leave a half-created entry.
 python3 "$boot_helper" --game-path "$game_dir" --dry-run
@@ -150,8 +254,12 @@ Steam icon: $icon_destination
 Steam Library artwork: $artwork_destination
 Steam Frame per-eye resolution default: $vr_preferences (3408 px; existing value preserved)
 EOF
-if steam_client_alive; then
+live_setup=false
+steam_state="$(inspect_steam state)"
+if [[ "$steam_state" == running ]]; then
+    live_setup=true
     echo 'Steam client before setup: running'
+    if ! $dry_run; then validate_managed_service; fi
 else
     echo 'Steam client before setup: stopped'
 fi
@@ -258,14 +366,31 @@ python3 "$boot_helper" --game-path "$game_dir"
 # preferResolution is an absolute per-eye width, not SteamVR's percentage
 # multiplier. This file is a suggested DEFAULT; the user's SteamVR override
 # remains authoritative. The helper adds only a missing key in valid JSON.
-preferences_changed=false
 preferences_result="$(ensure_frame_preferences apply)"
 echo "$preferences_result"
-[[ "$preferences_result" != CHANGED:* ]] || preferences_changed=true
 
 # The marker is intentionally Frame-only. It keeps the original library entry
 # flat even when its winhttp override loads BepInEx.
 mkdir -p -- "$artwork_destination"
+mkdir -p -- "$managed_directory"
+# The service hook must survive closure of the old desktop terminal and does
+# not depend on a game library/removable drive to find its own executable.
+helper_temporary="$(mktemp -- "$managed_directory/.steam-frame-config.XXXXXX")"
+install -m 0644 -- "$steam_helper" "$helper_temporary"
+helper_digest="$(python3 - "$helper_temporary" <<'PY'
+import hashlib
+from pathlib import Path
+import sys
+print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+)"
+managed_helper="$managed_directory/steam-frame-config-$helper_digest.py"
+if [[ -f "$managed_helper" ]] && cmp -s -- "$helper_temporary" "$managed_helper"; then
+    rm -f -- "$helper_temporary"
+else
+    mv -f -- "$helper_temporary" "$managed_helper"
+fi
+helper_temporary=""
 # Keep the two legacy destination paths stable so an existing shortcut only
 # changes its artwork, not its identity or the path stored in shortcuts.vdf.
 for artwork in library_600x900.png library_header.png library_hero.png logo.png icon.png; do
@@ -286,6 +411,26 @@ cat > "$temporary_launcher" <<'EOF'
 #!/usr/bin/env bash
 # Keep Gloomhaven's original Steam AppID and Proton prefix (including its saves).
 set -euo pipefail
+EOF
+# Quote each argument as shell syntax, including Steam libraries with spaces.
+# The read-only helper also resolves the current account afresh on each launch.
+printf 'check=(python3 -B %q --game-path %q --pending-setup %q' "$managed_helper" "$game_dir" "$pending_setup" >> "$temporary_launcher"
+for argument in "${steam_root_args[@]}"; do
+    printf ' %q' "$argument" >> "$temporary_launcher"
+done
+printf ' --check-launch-options)\n' >> "$temporary_launcher"
+cat >> "$temporary_launcher" <<'EOF'
+if ! message="$("${check[@]}" 2>&1)"; then
+    printf '%s\n' "$message" >&2
+    if command -v kdialog >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+        # KDialog auto-detects rich text; custom launch options are literal data.
+        dialog_message="$(python3 -c 'import html,sys; print("<pre>" + html.escape(sys.argv[1]) + "</pre>")' "$message")"
+        kdialog --title 'GloomhavenVR setup required' --error "$dialog_message" || true
+    elif command -v zenity >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+        zenity --error --no-markup --title='GloomhavenVR setup required' --text="$message" || true
+    fi
+    exit 3
+fi
 if ! command -v steam >/dev/null 2>&1; then
     echo 'Steam is not available in PATH.' >&2
     exit 127
@@ -300,32 +445,28 @@ else
 fi
 temporary_launcher=""
 
-# On Steam Frame, closing Steam also restarts the headset shell and terminates
-# the installer, even when it runs in a detached process session. Complete and
-# verify every file change before requesting that restart as the final step.
-steam_changes="$(python3 "$steam_helper" "${steam_helper_args[@]}" --needs-update)"
-if [[ "$steam_changes" != yes && "$steam_changes" != no ]]; then
-    echo "error: unexpected Steam setup status: $steam_changes" >&2
-    exit 1
-fi
-if [[ "$steam_changes" == yes ]]; then
-    live_write_args=()
-    if steam_client_alive; then
-        live_write_args=(--allow-running)
-        echo 'Steam is running; writing its backed-up configuration before the headset restarts.'
+# Never write the running client's VDF cache. Its shutdown flush can undo even
+# a successful disk readback. The managed branch writes only after that flush,
+# from the actual Steam service's persisted pre-start hook.
+if ! $live_setup; then
+    steam_changes="$(python3 "$managed_helper" "${steam_helper_args[@]}" --needs-update)"
+    if [[ "$steam_changes" != yes && "$steam_changes" != no ]]; then
+        echo "error: unexpected Steam setup status: $steam_changes" >&2
+        exit 1
     fi
-    python3 "$steam_helper" "${steam_helper_args[@]}" "${live_write_args[@]}"
-else
-    echo 'Steam configuration already correct; no Steam restart needed.'
-fi
-
-echo 'Steam configuration readback before restart:'
-python3 "$steam_helper" "${steam_helper_args[@]}" --dry-run
-readback_changes="$(python3 "$steam_helper" "${steam_helper_args[@]}" --needs-update)"
-echo "Steam configuration before restart needs repair: $readback_changes"
-if [[ "$readback_changes" != no ]]; then
-    echo 'error: Steam-side files differ from the expected setup state before restart' >&2
-    exit 1
+    if [[ "$steam_changes" == yes ]]; then
+        python3 "$managed_helper" "${steam_helper_args[@]}"
+    else
+        echo 'Steam files selected for this setup are already current.'
+    fi
+    echo 'Steam file readback (Steam is stopped):'
+    python3 "$managed_helper" "${steam_helper_args[@]}" --dry-run
+    readback_changes="$(python3 "$managed_helper" "${steam_helper_args[@]}" --needs-update)"
+    echo "Selected Steam files need repair: $readback_changes"
+    if [[ "$readback_changes" != no ]]; then
+        echo 'error: selected Steam-side files differ from the expected setup state' >&2
+        exit 1
+    fi
 fi
 # Archives before the nested setup layout placed these owned helpers directly in
 # the game root. Extraction never deletes old files, so retire them after the
@@ -344,26 +485,101 @@ if [[ "$script_dir" == "$game_dir/BepInEx/plugins/GloomhavenVR/FrameSetup" ]]; t
         fi
     done
 fi
-echo 'Steam configuration is present on disk; the original Gloomhaven entry remains flat.'
-if { [[ "$steam_changes" == yes ]] || $preferences_changed; } &&
-   command -v steam >/dev/null 2>&1 && steam_client_alive; then
-    echo 'All setup changes and readback checks are complete. Restarting Steam as the final step.'
-    echo 'The Steam Frame display may briefly reboot; then check the library for GloomhavenVR.'
-    # Desktop-mode Steam may not relaunch itself. This best-effort waiter starts
-    # it after shutdown there; Frame's own shell restart can terminate it.
-    if command -v setsid >/dev/null 2>&1; then
-        setsid bash -c '
-            for ((attempt = 0; attempt < 45; attempt++)); do
-                if ! pgrep -u "$(id -u)" -x steam >/dev/null 2>&1 &&
-                   ! pgrep -u "$(id -u)" -x steamwebhelper >/dev/null 2>&1; then
-                    exec steam -silent
-                fi
-                sleep 1
-            done
-        ' </dev/null >/dev/null 2>&1 &
+if $live_setup; then
+    # Validate again before handing ownership to the manager. A service/client
+    # replacement during asset preparation must not restart an unrelated client.
+    validate_managed_service
+    queue_result="$(python3 "$managed_helper" "${steam_helper_args[@]}" --queue-managed-setup "$pending_setup")"
+    printf '%s\n' "$queue_result"
+    generation="$(printf '%s\n' "$queue_result" | sed -n 's/^Managed setup generation: \([0-9a-f]\{32\}\)$/\1/p')"
+    if [[ ! "$generation" =~ ^[0-9a-f]{32}$ ]]; then
+        echo 'error: the queued Steam setup did not return its generation' >&2
+        exit 1
     fi
-    pause_on_exit=false
-    steam -shutdown || true
+    python3 - "$managed_dropin" "$managed_helper" "$pending_setup" <<'PY'
+import os
+from pathlib import Path
+import shutil
+import sys
+import tempfile
+import time
+
+path = Path(sys.argv[1])
+def quote(value):
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError("Steam setup paths cannot contain control characters")
+    # systemd command lines are not shell commands. Escape its own specifier and
+    # environment substitutions as well as its quoted-string syntax.
+    return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%').replace('$', '$$') + '"'
+
+command = ('ExecStartPre=-/usr/bin/timeout --signal=TERM --kill-after=2s 15s '
+           '/usr/bin/python3 -B ' + quote(sys.argv[2]) + ' --apply-managed-setup ' + quote(sys.argv[3]))
+content = ('# Owned by GloomhavenVR Steam Frame setup. No pending request is a no-op.\n'
+           '# Failure is nonfatal to Steam; the VR launcher checks the repair receipt.\n'
+           '[Service]\n' + command + '\n').encode()
+path.parent.mkdir(parents=True, exist_ok=True)
+if path.is_symlink():
+    raise ValueError("refusing to replace a symlinked Steam setup drop-in")
+if not path.exists() or path.read_bytes() != content:
+    if path.exists():
+        shutil.copy2(path, path.with_name(path.name + time.strftime('.backup-%Y%m%d-%H%M%S-') + str(os.getpid())))
+    fd, temporary = tempfile.mkstemp(prefix='.gloomhavenvr-setup.', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as target:
+            target.write(content)
+            target.flush()
+            os.fsync(target.fileno())
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+print(f"Steam service setup hook: {path}")
+PY
+    systemctl --user daemon-reload
+    rm -f -- "$legacy_pending_setup"
+    echo "Durable Steam setup request: $pending_setup"
+    echo 'Setup state: queued; Steam service will apply the launch options before loading the library.'
+    echo 'Restarting the Steam service. The Frame display and this terminal may close briefly.'
+    systemctl --user --no-block restart steam.service
+
+    # The old UI may close this foreground process. The persisted manager job
+    # still owns completion and leaves its exact-generation result on disk.
+    verified=false
+    verification_log="$managed_directory/verification.log"
+    verification_deadline=$((SECONDS + 30))
+    while ((SECONDS < verification_deadline)); do
+        if python3 "$managed_helper" --verify-managed-setup "$pending_setup" --expected-generation "$generation" > "$verification_log" 2>&1; then
+            verified=true
+            break
+        fi
+        if python3 -B - "$managed_helper" "$pending_setup" "$generation" <<'PY'
+import importlib.util
+from pathlib import Path
+import sys
+spec = importlib.util.spec_from_file_location('frame_config', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+try:
+    receipt = module.read_managed_setup(Path(sys.argv[2]))
+    failed = receipt['phase'] == 'failed' or receipt['generation'] != sys.argv[3]
+except (OSError, module.ConfigError):
+    failed = True
+sys.exit(0 if failed else 1)
+PY
+        then
+            break
+        fi
+        sleep 0.25
+    done
+    cat -- "$verification_log"
+    if ! $verified; then
+        echo "error: automatic Steam setup is not verified; see $pending_setup and $verification_log; rerun setup to retry" >&2
+        exit 1
+    fi
+    echo 'Setup state: complete (Steam service applied and verified the launch options).'
 else
-    echo 'Check the Steam library for GloomhavenVR.'
+    rm -f -- "$pending_setup" "$legacy_pending_setup"
+    echo 'Setup state: complete (Steam was stopped); launch GloomhavenVR after starting Steam.'
 fi

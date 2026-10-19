@@ -474,9 +474,23 @@ internal static class SharedWindowSizeVectors
             ("src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs",
              "SharedWindowSizeLaw.ExtraScale",
              "the standalone movie window must cancel local canvas scale through the shared law"),
+            // Full-SBS contains two eyes in one texture. Both build and later texture updates
+            // use the decoded per-eye aspect; packed width would flatten the window to32:9.
             ("src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs",
-             "new Vector2(1280f, 1280f * source.texture.height / source.texture.width)",
-             "the movie design frame must derive from decoded movie aspect, never desktop resolution"),
+             "new Vector2(1280f, 1280f / DisplayAspect(source))",
+             "the movie's initial frame must use decoded per-eye aspect"),
+            ("src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs",
+             "float aspect = DisplayAspect(source)",
+             "prepared-texture updates must keep the same decoded per-eye aspect"),
+            ("src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs",
+             "Vector2 size = new(1280f, 1280f / aspect)",
+             "the live movie design frame must follow its decoded aspect, never desktop resolution"),
+            ("src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs",
+             "StereoVideoSurface.PerEyeAspect(source.texture.width, source.texture.height)",
+             "stereo dimensions must resolve to one eye before the shared size law"),
+            ("src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs",
+             "source.texture.width / (float)Mathf.Max(1, source.texture.height)",
+             "ordinary movies must retain their full decoded source aspect"),
             // Reward windows use the common authored-frame conversion. A late observer also
             // adopts the shared grab-size grid before reveal, rather than its local window dial.
             ("src/GloomhavenVR/WorldUI/Modal/RewardShowcasePlacement.cs",

@@ -94,7 +94,14 @@ internal sealed class CoreModule : IVRModule
         // environment owner validates its substitutes at the same native boundary.
         WorldMaterialBudget.Install(_hostGo);
         ScenarioEnvironmentBudget.ConfigureWorldMaterialIntegration(WorldMaterialBudget.QueueRoot,
-            WorldMaterialBudget.MaterialReady, WorldMaterialBudget.BeforeNativeRendererWrite,
+            renderer =>
+            {
+                // Placement can precede Addressables assigning a water material.
+                // Publish its existing native completion edge to the water owner:
+                // an already seeded tile otherwise never discovers the new film.
+                WaterTerrainVR.MaterialReady(renderer);
+                WorldMaterialBudget.MaterialReady(renderer);
+            }, WorldMaterialBudget.BeforeNativeRendererWrite,
             WorldMaterialBudget.BeforeNativeContentChange, WorldMaterialBudget.CanonicalMaterial,
             WorldMaterialBudget.IsOwnedVariant, () => PerfConfig.WorldMaterialQualityMode > 0);
         ScenarioTerrainBudget.ConfigureWorldMaterialIntegration(WorldMaterialBudget.VariantFor,
@@ -167,6 +174,7 @@ internal sealed class CoreModule : IVRModule
 
     public void Shutdown()
     {
+        SteamLink.SteamLinkSceneRuntime.Reset();
         NativeCameraRenderBudget.Shutdown();
         Loc.Dispose(); // detach the engine localization event (hot-reload teardown)
         ExceptionTraces.Shutdown(); // puts the game's own StackTraceLogType.None straight back

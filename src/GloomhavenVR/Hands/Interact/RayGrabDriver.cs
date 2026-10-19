@@ -68,7 +68,11 @@ internal sealed class RayGrabDriver
 
     internal void Tick()
     {
-        if (_hand.Grabber.Held is PanelGrabHandle) _lastCarryFrame = Time.frameCount;
+        if (_hand.Grabber.Held is PanelGrabHandle)
+        {
+            _lastCarryFrame = Time.frameCount;
+            _hand.Ray.ClaimTrigger("active window laser carry");
+        }
         // Dominant hand only (the off-hand holds the fan) and only while the ray is the
         // live effective state — Ray.Active is false while THIS hand already holds a
         // grabbable (including a laser-carry in progress), so we stop ray-testing and let
@@ -102,8 +106,8 @@ internal sealed class RayGrabDriver
             ClearHover();
             _hovered = best;
             best!.OnGrabHighlight(_hand, true);
-            _hand.SendHaptic(HapticPreset.HoverTick); // debounced: only on hover change
         }
+        _hand.SendHoverHaptic(best);
         // LABELLED as a panel hover (ModBuild 359, RayInteractor.SetPanelUiHit): like the uGUI
         // canvas raise, this happens on MERE HOVER of a floated window's drag bar — no press. It
         // is the second of the two menu-dependent producers that were vetoing near-hand figure
@@ -129,13 +133,14 @@ internal sealed class RayGrabDriver
             // as the hand sits inside a figure, the figure carries its own pre-grab glow saying
             // so, and dropping and restoring the bar's tint every time the hand brushes past a
             // card is the "grab flashes" defect class.
-            if (_hand.Grabber.TriggerGrabOffered)
+            if (_hand.Grabber.FigureGrabOffered || _hand.Grabber.TriggerGrabOffered)
             {
                 LogCarryYielded(best!);
                 return;
             }
             PanelGrabHandle target = best!;
             ClearHover();
+            _hand.Ray.ClaimTrigger("window laser carry start");
             target.BeginLaserCarry(_hand, bestDist, bestPoint);
             if (!_hand.Grabber.ForceGrab(target, releaseOnTriggerUp: true))
                 target.CancelLaserCarry();

@@ -7,6 +7,11 @@
 #   INSTALL.txt                                        <- packaging/INSTALL.txt.in
 #   INSTALL-DEUTSCH.txt                                <- packaging/INSTALL.de.txt.in
 #   BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll
+#   BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.mov
+#                                                         <- approved first-save intro;
+#                                                            original game movie stays intact
+#   BepInEx/plugins/GloomhavenVR/Movies/CP_Intro/GH_CP_Intro.sbs-v2.mov
+#                                                         <- stereo intro, outside DLL
 #   BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll     <- RuntimeDepsLoader.RuntimeDepsDir
 #                                                         (= <plugin dir>/RuntimeDeps)
 #   BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle   <- HandVisuals/WorldUIAssets probe
@@ -30,12 +35,17 @@
 # packaging/ stay plain UTF-8 + LF in git; the conversion happens here, at staging.
 #
 # Usage: scripts/package-release.sh
+# Debug package: GHVR_PACKAGE_CONFIGURATION=Debug scripts/package-release.sh
 # Developer local bundle opt-in: GHVR_USE_LOCAL_BUNDLE=1 scripts/package-release.sh
 # Refuses to package when libs/Natives or libs/RuntimeDeps are not populated.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG=Release
+CONFIG="${GHVR_PACKAGE_CONFIGURATION:-Release}"
+case "$CONFIG" in
+    Debug|Release) ;;
+    *) echo "error: GHVR_PACKAGE_CONFIGURATION must be Debug or Release" >&2; exit 1 ;;
+esac
 
 # An ignored Unity output can be older than the tracked asset set. Use the committed
 # bundle unless the developer explicitly requests their local build. Validate that
@@ -67,6 +77,23 @@ if [[ ! -f "$ENVIRONMENT_BUNDLE" ]]; then
     exit 1
 fi
 echo "Asset bundle source: $BUNDLE"
+MOVIE_ROOT="$ROOT/src/GloomhavenVR/Assets/Movies"
+MOVIE_MANIFEST="$ROOT/packaging/movie-files.txt"
+[[ -f "$MOVIE_MANIFEST" ]] || { echo "error: missing movie manifest: $MOVIE_MANIFEST" >&2; exit 1; }
+MOVIE_PATHS=()
+while IFS= read -r movie || [[ -n "$movie" ]]; do
+    movie="${movie%$'\r'}"
+    [[ -n "$movie" && "$movie" != \#* ]] || continue
+    if [[ ! "$movie" =~ ^(CP_Intro|Heroes|Ambient|Embedded)/[A-Za-z0-9_.-]+\.mov$ || "$movie" == *..* ]]; then
+        echo "error: invalid movie manifest path: $movie" >&2; exit 1
+    fi
+    for previous in "${MOVIE_PATHS[@]}"; do
+        [[ "$previous" != "$movie" ]] || { echo "error: duplicate movie manifest path: $movie" >&2; exit 1; }
+    done
+    [[ -f "$MOVIE_ROOT/$movie" ]] || { echo "error: missing required movie: $MOVIE_ROOT/$movie" >&2; exit 1; }
+    MOVIE_PATHS+=("$movie")
+done < "$MOVIE_MANIFEST"
+[[ ${#MOVIE_PATHS[@]} -gt 0 ]] || { echo "error: movie manifest is empty" >&2; exit 1; }
 
 # ---- version from the plugin csproj ------------------------------------------------------
 VERSION="$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' "$ROOT/src/GloomhavenVR/GloomhavenVR.csproj" | head -1)"
@@ -119,6 +146,10 @@ FRAMESETUP="$PLUGDIR/FrameSetup"
 mkdir -p "$PLUGDIR/RuntimeDeps" "$PATCHDIR/Natives" "$FRAMESETUP"
 
 cp "$PLUGIN" "$PLUGDIR/"
+for movie in "${MOVIE_PATHS[@]}"; do
+    mkdir -p "$PLUGDIR/Movies/$(dirname "$movie")"
+    cp "$MOVIE_ROOT/$movie" "$PLUGDIR/Movies/$movie"
+done
 cp "${RUNTIMEDEPS[@]}" "$PLUGDIR/RuntimeDeps/"
 [[ -f "$ROOT/libs/RuntimeDeps/versions.json" ]] && cp "$ROOT/libs/RuntimeDeps/versions.json" "$PLUGDIR/RuntimeDeps/"
 cp "$PRELOADER" "$PATCHDIR/"
@@ -271,6 +302,11 @@ for path in \
         echo "error: packaged zip is missing '$path'" >&2
         exit 1
     fi
+done
+
+for movie in "${MOVIE_PATHS[@]}"; do
+    path="BepInEx/plugins/GloomhavenVR/Movies/$movie"
+    [[ "$LISTING" == *"$path"* ]] || { echo "error: packaged zip is missing '$path'" >&2; exit 1; }
 done
 
 # Every text file in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and no

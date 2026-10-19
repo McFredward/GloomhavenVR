@@ -13,10 +13,32 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from town_run_retention import cleanup_completed_run
+
+
+def execute(command, log, timeout):
+    environment = os.environ.copy()
+    environment.update(DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER="1", MSBUILDDISABLENODEREUSE="1",
+                       UseSharedCompilation="false")
+    with log.open("w") as output:
+        process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
+                                   env=environment, start_new_session=True)
+        try:
+            return process.wait(timeout=timeout)
+        finally:
+            # Every fixture-owned process must stop before generated caches are removed.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
 
 
 def method(source, signature):
@@ -40,7 +62,7 @@ def main():
     row_path = args.source_root / "src/GloomhavenVR/WorldUI/Options/VROptionsTab.2.Rows.cs"
     loc_path = args.source_root / "src/GloomhavenVR/Core/Loc/Loc.cs"
     rows, loc = row_path.read_text(), loc_path.read_text()
-    note = method(rows, "private static void BuildNote(")
+    note = method(rows, "private static GameObject BuildNote(")
     literal = r'("(?:[^"\\]|\\.)*")'
     match = re.search(r'\["graphics_profile_note"\]\s*=\s*Pair\(\s*' + literal + r'\s*,\s*' + literal + r'\s*\)', loc)
     assert match, "Original EN/DE note binding drift"
@@ -62,6 +84,30 @@ def main():
         variants = [entry for entry in variants if entry[0] in args.case]
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
+    completion = run / "completion.log"
+    completion.write_text("evidence: " + str(run) + "\n")
+    print("Evidence: " + str(run), flush=True)
+    status = 1
+    result_text = ""
+
+    def interrupted(_signum, _frame):
+        raise KeyboardInterrupt
+
+    previous_handlers = {kind: signal.signal(kind, interrupted) for kind in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        result_text = run_fixture(args, run, variants, row_path, loc_path, english, german, original)
+        status = 0
+    finally:
+        (run / "result.json").write_text(json.dumps({"exit_code": status,
+            "coverage": "partial" if args.case else "production-and-three-causal-controls",
+            "cases": [entry[0] for entry in variants], "result_lines": result_text.splitlines()}, indent=2) + "\n")
+        cleanup = cleanup_completed_run("options-notes-runtime", status, completion, ROOT, process_reaped=True)
+        (run / "cache-cleanup.json").write_text(json.dumps(cleanup, indent=2) + "\n")
+        for kind, previous in previous_handlers.items():
+            signal.signal(kind, previous)
+
+
+def run_fixture(args, run, variants, row_path, loc_path, english, german, original):
     fixture = ROOT / "scripts/options-notes-runtime"
     managed = args.source_root / "ressources/GH_Data/Managed"
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
@@ -75,10 +121,10 @@ def main():
         project = build / "Notes.csproj"
         shutil.copyfile(fixture / "Notes.csproj", project)
         assembly = "OptionsNotes_" + name.replace("-", "_")
-        built = subprocess.run([dotnet, "build", str(project), "-c", "Release", "--nologo", "--verbosity", "quiet", "-p:CaseName=" + assembly, "-p:FixtureDir=" + str(fixture), "-p:ProductionDir=" + str(production), "-p:UnityManaged=" + str(args.unity.parent / "Data/Managed"), "-p:GameManaged=" + str(managed.resolve())], capture_output=True, text=True)
-        (build / "build.log").write_text(built.stdout + built.stderr)
-        if built.returncode:
-            raise SystemExit(built.stdout + built.stderr + "\nCompilation failure is not a valid causal control")
+        build_log = build / "build.log"
+        built = execute([dotnet, "build", str(project), "-c", "Release", "--nologo", "--verbosity", "quiet", "-p:UseSharedCompilation=false", "-p:CaseName=" + assembly, "-p:FixtureDir=" + str(fixture), "-p:ProductionDir=" + str(production), "-p:UnityManaged=" + str(args.unity.parent / "Data/Managed"), "-p:GameManaged=" + str(managed.resolve())], build_log, 120)
+        if built:
+            raise SystemExit(build_log.read_text() + "\nCompilation failure is not a valid causal control")
         manifest["cases"].append({"name": name, "dll": str(build / "bin/Release/netstandard2.1" / (assembly + ".dll")), "expected": expected})
     project = run / "unity"
     for name in ("Assets/Editor", "Assets/Plugins", "Packages", "ProjectSettings"):
@@ -96,16 +142,12 @@ def main():
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     path = run / "manifest.json"
     path.write_text(json.dumps(manifest, indent=2) + "\n")
-    bound = [row_path, loc_path, *fixture.glob("*.cs"), fixture / "Editor/NotesRunner.cs", fixture / "Notes.csproj", managed / "GH.Runtime.dll", managed / "GH.Shared.dll"]
+    bound = [Path(__file__).resolve(), row_path, loc_path, *fixture.glob("*.cs"), fixture / "Editor/NotesRunner.cs", fixture / "Notes.csproj", managed / "GH.Runtime.dll", managed / "GH.Shared.dll"]
     (run / "source-hashes.json").write_text(json.dumps({"sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in bound}, "original_note": {"en": english, "de": german}, "coverage": "partial" if args.case else "production-and-three-causal-controls", "limits": ["Complete production BuildNote executes unchanged; authored clone and external caption-style seams are explicit and perform no note sizing.", "Actual original GH extended LayoutElement/LayoutGroup classes and actual Unity/TMP glyph layout execute; editor-compatible uGUI/TMP 3.0.6 essentials font/rendering replaces the game row art and original Windows font shader.", "No game menu prefab, VR headset, multiplayer image or FPS is asserted."]}, indent=2) + "\n")
     command = [str(args.unity), "-batchmode", "-force-glcore", "-projectPath", str(project), "-executeMethod", "NotesRunner.Start", "-notesManifest", str(path), "-logFile", str(run / "unity.log")]
     if not os.environ.get("DISPLAY"):
         command = ["xvfb-run", "-a"] + command
-    try:
-        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=240)
-    finally:
-        for name in ("Library", "Temp"):
-            shutil.rmtree(project / name, ignore_errors=True)
+    result = execute(command, run / "unity-launch.log", 240)
     native_layout = {}
     for name in ("GH.Runtime.dll", "GH.Shared.dll"):
         source_hash = hashlib.sha256((managed / name).read_bytes()).hexdigest()
@@ -117,9 +159,10 @@ def main():
     report = Path(manifest["result"])
     if report.is_file():
         print(report.read_text(), end="")
-    if result.returncode or not report.is_file():
+    if result or not report.is_file():
         raise SystemExit("FAIL Unity: " + str(run / "unity.log"))
     print(("PARTIAL PASS" if args.case else "PASS") + ": " + str(len(variants)) + " native note variants; " + str(run))
+    return report.read_text()
 
 
 if __name__ == "__main__":

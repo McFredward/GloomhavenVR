@@ -73,6 +73,10 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     private static readonly List<FigureGrabbable> Gliding = new();
 
     private readonly ActorBehaviour _actor;
+    // The game's permission-bearing collider stays distinct from the taller diagnostic/reach
+    // volume. Remember that one was supplied even after Unity destroys its native object.
+    private readonly Collider? _gameCollider;
+    private readonly bool _hasGameCollider;
 
     /// <summary>
     /// The PICK VOLUME this figure was adopted on — the SAME collider the driver measures the
@@ -320,6 +324,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     {
         _actor = actor;
         _collider = collider;
+        _gameCollider = collider;
+        _hasGameCollider = !ReferenceEquals(collider, null);
     }
 
     /// <summary>
@@ -344,6 +350,10 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             if (!FigureGrabConfig.GrabFigures.Value || _holder != null)
                 return false;
             if (_actor == null || Root == null)
+                return false;
+            // The driver also checks this during election, but it can change before the hand's
+            // own tick. A usable mod reach extension may never resurrect a native disabled pick.
+            if (_hasGameCollider && !VRInteractables.IsUsablePickShape(_gameCollider))
                 return false;
             // MP grab-lock: a figure a REMOTE player currently holds behaves as if it does not exist
             // for the local grab (proximity + laser both consult CanGrab) until they release it.

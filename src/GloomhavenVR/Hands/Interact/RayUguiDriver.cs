@@ -368,10 +368,8 @@ internal sealed class RayUguiDriver
         VRCard? selectedCard = null;
         bool nativeAreaHit = hit
             && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(_canvas, top.gameObject, out selectedCard);
-        GameObject? previous = _pointer.Hovered;
         _pointer.SetHovered(hit ? top.gameObject : null);
-        if (_pointer.Hovered != null && !ReferenceEquals(_pointer.Hovered, previous))
-            _hand.SendHaptic(HapticPreset.HoverTick); // debounced: only on hover change
+        _hand.SendHoverHaptic(HoverHapticTargets.Ui(_pointer.Hovered));
 
         TickStickScroll(); // task #8: pointing hand's thumbstick scrolls a hovered ScrollRect
 
@@ -399,20 +397,18 @@ internal sealed class RayUguiDriver
             // clamps, so the board far-click and the game's own picking stay suppressed exactly
             // as before.
             //
-            // The flag is last frame's (Grabber ticks after this driver — VRHand.UpdateBody
-            // .interactors, a LOCKED order). That is the right lag: a highlight is established
-            // by the hand ARRIVING and is held by a 0.20 s hover tail, so by the time a trigger
-            // is pulled it has stood for many frames. The only unreachable-in-practice hole is a
-            // highlight born in the very same 11 ms as the pull.
-            if (_hand.Grabber.TriggerGrabOffered
-                && !(nativeAreaHit && _hand.Grabber.TriggerGrabOfferedFor(selectedCard!)))
+            // The ordinary card/panel offer retains its existing prior-frame arbitration.
+            // Figures additionally validate the visible offer against current policy, shape
+            // and reach, because a zoom may have changed those since the preceding hand Tick.
+            if (_hand.Grabber.FigureGrabOffered || (_hand.Grabber.TriggerGrabOffered
+                && !(nativeAreaHit && _hand.Grabber.TriggerGrabOfferedFor(selectedCard!))))
             {
                 LogPressYielded();
                 return;
             }
             // The subsequent proximity-grabber tick must see a real UI press claim,
             // rather than the weaker canvas-hover clamp, or it takes this same card.
-            if (nativeAreaHit) _hand.Ray.SuppressFarClick();
+            _hand.Ray.ClaimTrigger("uGUI pointer press");
             _pressing = true;
             _pointer.Press(screenPos);
             _hand.SendHaptic(HapticPreset.ClickPulse);
@@ -575,10 +571,9 @@ internal sealed class RayUguiDriver
         point = t.TransformPoint(local);
 
         HasHit = true;
-        // NOT SetPanelUiHit: a press/drag is IN FLIGHT on this panel, so the panel is no longer
-        // merely hovered — it genuinely owns this pull, and ProximityGrabber must keep deferring
-        // to it exactly as it did before. Only the hover raise in Tick carries the panel label.
-        _hand.Ray.UiHitOverride = point;
+        // A press/drag is in flight. A later hover writer must not erase its ownership.
+        _hand.Ray.SetWorldUiHit(point, "active uGUI pointer drag");
+        _hand.Ray.ClaimTrigger("active uGUI pointer drag");
 
         Vector2 screenPos = ToScreen(canvas, point);
         bool hit = _pointer.TryRaycast(canvas, screenPos, out RaycastResult top);

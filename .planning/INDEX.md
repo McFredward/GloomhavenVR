@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-11 for Build667: pre-1.1.0 review and bounded edge-case repairs.
+Updated 2026-10-18: Build704 direct MR comparison and host-source preparation boundary.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,17 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [STEAM-LINK-704-COMPARISON.md](STEAM-LINK-704-COMPARISON.md) | Actual703 A/B and delivered video, host preparation repair, remaining quality and native-menu transport constraints |
+| [STEAM-LINK-703-LIVE-RESOLUTION.md](STEAM-LINK-703-LIVE-RESOLUTION.md) | Actual702 delivered-video evidence, live PCVR slider repair, chosen game/menu/camera behavior and explicit remaining transport work |
+| [STEREO-VIDEO-LIBRARY-2026-10-17.md](STEREO-VIDEO-LIBRARY-2026-10-17.md) | Headset-accepted20-subject/22-file library;696 automatic studio admission and Cheats-gated spoiler reviews, composed evidence and trailer exclusion |
+| [../docs/stereo-video-library.md](../docs/stereo-video-library.md) | Native media authorities, pinned conversion and encoder policies, original clocks/audio and verification boundaries |
+| [STEAM-LINK-694-PRESENTATION.md](STEAM-LINK-694-PRESENTATION.md) | Retained published loading continuity and UI-effect bounds repair, focused source/raster evidence and residual headset-softness limit |
+| [STEREO-VIDEO-MENU-685.md](STEREO-VIDEO-MENU-685.md) | Build683 missing-file evidence, repeatable Advanced menu action and separate-media build/install/ZIP repair |
+| [../docs/stereo-video-intro.md](../docs/stereo-video-intro.md) | Approved GloomhavenVR intro, stronger-wordmark revision, model/media pins, native playback and verification scope |
+| [STEREO-VIDEO-683.md](STEREO-VIDEO-683.md) | Historical calibration, embedded-video census and GPU/lifecycle evidence; runtime test retired after685 success |
+| [TRAILER-3D-VIDEO-HANDOFF.md](TRAILER-3D-VIDEO-HANDOFF.md) | Accepted staged stereo-video direction, media authorities and later conversion/integration scope |
+| [WATER-673-REVIEW.md](WATER-673-REVIEW.md) | Exact native water publication, owned slots/queues, final compiled scope and focused validation limits |
+| [WATER-673-ASSET-AUDIT.md](WATER-673-ASSET-AUDIT.md) | All native water materials/renderer bindings, asynchronous provenance and exact property/queue evidence |
 | [RELEASE110-REVIEW.md](RELEASE110-REVIEW.md) | Pre-1.1.0 integrated findings, repair scope, multiplayer parity and validation limits |
 | [RELEASE110-NET-REVIEW.md](RELEASE110-NET-REVIEW.md) | Shared NPC author convergence, grant precedence, session cleanup and source-bound controls |
 | [RELEASE110-FLOW-REVIEW.md](RELEASE110-FLOW-REVIEW.md) | Original map-state eligibility and protected native continuation during pointer cleanup |

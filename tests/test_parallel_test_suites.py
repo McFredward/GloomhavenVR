@@ -271,20 +271,52 @@ class ParallelSuitesTests(unittest.TestCase):
         npc665_local = {"npc665-offered-yaw", "npc665-native-summon-overlay", "npc665-offered-return-identity"}
         npc666_local = {"npc666-native-summon-selection", "npc666-native-offered-ring", "npc666-native-offered-hover"}
         npc669_local = {"town-native-bank-lifecycle"}
+        # Executes native Unity 2021.3.5 renderer/material lifetimes, shader pixels
+        # and the installed game's water asset catalog; hosted refs cannot run it.
+        water673_local = {"water-terrain-runtime"}
         release110_shared = {"map-navigation", "town-presentation-election", "self-update-archive"}
-        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-service-lighting", "town-residents", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600 | frame601_local | town602_local | frame603_shared | frame603_local | frame604_local | frame605_local | frame606_local | frame606_shared | frame607_shared | quest609_shared | frame608_local | frame610_local | npc611_shared | npc611_local | frame612_local | npc614_local | frame615_local | frame617_local | frame617_shared | frame618_local | frame619_shared | frame619_local | frame620_shared | frame620_local | frame621_local | npc622_local | npc623_local | onboarding624_shared | frame625_local | npc629_local | frame630_shared | npc631_local | npc632_local | material635_shared | material635_local | npc638_local | npc638_shared | npc639_local | npc639_shared | crossplay641_shared | npc645_local | npc646_local | bugfix651_local | frame652_shared | frame652_local | frame653_local | npc655_local | flat657_local | npc658_local | npc660_local | npc661_local | npc665_local | npc666_local | npc669_local | release110_shared)
-        self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio", "town-native-veil"} | frame600 | frame603_shared | frame606_shared | frame607_shared | quest609_shared | npc611_shared | frame617_shared | frame619_shared | frame620_shared | onboarding624_shared | frame630_shared | material635_shared | npc638_shared | npc639_shared | crossplay641_shared | frame652_shared | release110_shared)
+        # Native interaction/physics suites require the real game and Unity editor;
+        # scenario controls still require the installed native runtime.
+        build675_local = {"haptics675-runtime", "tile-hover-runtime"}
+        # Synthetic mask suites retired at the maintainer's explicit request (2026-10-17).
+        # Original GH.Runtime/SRL callbacks and the complete presence codec require
+        # the installed native runtime; hosted metadata references cannot execute them.
+        build680_local = {"card-selection-runtime", "card-selection-remote-runtime"}
+        # The interactive calibration owner was removed at the maintainer's request.
+        steamlink_shared = {"steamlink-connection", "steamlink-availability"}
+        steamlink694_shared = set()
+        steamlink694_local = {"steamlink-loading-source"}
+        steamlink699_local = set()
+        steamlink700_shared = set()
+        steamlink701_shared = {"steamlink-scene-startup"}
+        steamlink702_shared = set()
+        steamlink705_shared = set()
+        steamlink706_shared = set()
+        steamlink706_local = set()
+        stereo683_shared = set()
+        # Recorded-movie raster also executes the installed native Unity renderer.
+        stereo683_local = {"stereo-video-render", "stereo-video-tools", "stereo-movie-render"}
+        # Portable production pickup/ownership slices use explicit tracking and callback boundaries.
+        figure711_shared = {"near-figure-grab-runtime"}
+        # Exact native initiative geometry needs the installed game and Unity renderer.
+        backing713_local = {"mr-backing-depth-runtime"}
+        menu714_local = {"menu-rig-lifecycle"}
+        self.assertEqual(local, LOCAL_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-service-lighting", "town-residents", "town-face", "town-activity", "town-voice", "town-native-audio", "town-native-veil"} | physical_town | frame600 | frame601_local | town602_local | frame603_shared | frame603_local | frame604_local | frame605_local | frame606_local | frame606_shared | frame607_shared | quest609_shared | frame608_local | frame610_local | npc611_shared | npc611_local | frame612_local | npc614_local | frame615_local | frame617_local | frame617_shared | frame618_local | frame619_shared | frame619_local | frame620_shared | frame620_local | frame621_local | npc622_local | npc623_local | onboarding624_shared | frame625_local | npc629_local | frame630_shared | npc631_local | npc632_local | material635_shared | material635_local | npc638_local | npc638_shared | npc639_local | npc639_shared | crossplay641_shared | npc645_local | npc646_local | bugfix651_local | frame652_shared | frame652_local | frame653_local | npc655_local | flat657_local | npc658_local | npc660_local | npc661_local | npc665_local | npc666_local | npc669_local | water673_local | release110_shared | build675_local | build680_local | stereo683_shared | stereo683_local | steamlink_shared | steamlink694_shared | steamlink694_local | steamlink699_local | steamlink700_shared | steamlink701_shared | steamlink702_shared | steamlink705_shared | steamlink706_shared | steamlink706_local | figure711_shared | backing713_local | menu714_local)
+        self.assertEqual(ci, CI_INVENTORY | map_hotfix | story_continuation | {"town-service-setting", "town-service-warmup", "town-residents", "town-service-lighting", "town-activity-portable", "town-native-audio", "town-native-veil"} | frame600 | frame603_shared | frame606_shared | frame607_shared | quest609_shared | npc611_shared | frame617_shared | frame619_shared | frame620_shared | onboarding624_shared | frame630_shared | material635_shared | npc638_shared | npc639_shared | crossplay641_shared | frame652_shared | release110_shared | stereo683_shared | steamlink_shared | steamlink694_shared | steamlink700_shared | steamlink701_shared | steamlink702_shared | steamlink705_shared | steamlink706_shared | figure711_shared)
         self.assertEqual({s['id'] for s in runner.selected_suites(suites, 'source', (0, 1))}, SOURCE_INVENTORY | material635_shared | {"desync-surface-parser"})
-        self.assertEqual(len(local), 216)
-        self.assertEqual(len(ci), 98)
-        self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town | frame601_local | town602_local | frame603_local | frame604_local | frame605_local | frame606_local | frame608_local | frame610_local | npc611_local | frame612_local | npc614_local | frame615_local | frame617_local | frame618_local | frame619_local | frame620_local | frame621_local | npc622_local | npc623_local | frame625_local | npc629_local | npc631_local | npc632_local | material635_local | npc638_local | npc639_local | npc645_local | npc646_local | bugfix651_local | frame652_local | frame653_local | npc655_local | flat657_local | npc658_local | npc660_local | npc661_local | npc665_local | npc666_local | npc669_local)
+        self.assertEqual(len(local), 231)
+        self.assertEqual(len(ci), 102)
+        self.assertEqual(local-ci, {'presentation-send', 'town-face', 'town-activity', 'town-voice'} | physical_town | frame601_local | town602_local | frame603_local | frame604_local | frame605_local | frame606_local | frame608_local | frame610_local | npc611_local | frame612_local | npc614_local | frame615_local | frame617_local | frame618_local | frame619_local | frame620_local | frame621_local | npc622_local | npc623_local | frame625_local | npc629_local | npc631_local | npc632_local | material635_local | npc638_local | npc639_local | npc645_local | npc646_local | bugfix651_local | frame652_local | frame653_local | npc655_local | flat657_local | npc658_local | npc660_local | npc661_local | npc665_local | npc666_local | npc669_local | water673_local | build675_local | build680_local | stereo683_local | steamlink694_local | steamlink699_local | steamlink706_local | backing713_local | menu714_local)
         self.assertEqual(ci-local, {'self-update-dialog', 'banner-pose', 'town-activity-portable'})
         self.assertEqual(len(runner.selected_suites(suites, 'source', (0, 1))), 16)
         partition = [s['id'] for i in range(4) for s in runner.selected_suites(suites, 'ci', (i, 4))]
         self.assertEqual(len(partition), len(set(partition)))
         self.assertEqual(set(partition), ci)
         for suite in suites:
-            self.assertTrue((ROOT / suite['command'][1]).is_file())
+            # Python flags such as -B can precede the script. Keep validating the
+            # actual suite file rather than interpreting a switch as its path.
+            script = next(arg for arg in suite['command'][1:] if not arg.startswith('-'))
+            self.assertTrue((ROOT / script).is_file(), suite['id'])
 
     def test_evidence_rejects_missing_duplicate_failed_and_modified_logs(self):
         suites = [self.suite('first', 'print("12 assertions")'), self.suite('second', 'print("13 assertions")')]
@@ -519,6 +551,25 @@ if {wait!r}: time.sleep(60)
 
 
 class SurfaceRetirementTests(unittest.TestCase):
+    def test_explicit_pattern_withdrawal_is_limited_to_its_original_owners(self):
+        spec = importlib.util.spec_from_file_location('pattern_surface_guard', ROOT/'scripts/check-surface.py')
+        surface = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(surface)
+        approved = {
+            'configKeys': {'[SteamLink] PayloadTestEnabled': 'src/GloomhavenVR/Core/SteamLink/SteamLinkMaskConfig.cs'},
+            'harmonyPatches': {},
+            'logTokens': {
+                'GVR-SP1': 'src/GloomhavenVR/Core/SteamLink/PresenterSource.cs',
+                'PNG CRC': 'src/GloomhavenVR/Core/SteamLink/ProbeTextures.cs',
+                'PNG IDAT': 'src/GloomhavenVR/Core/SteamLink/ProbeTextures.cs'}}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(surface.diff(approved, {}), 0)
+            for kind, values in approved.items():
+                for key in values:
+                    self.assertEqual(surface.diff({kind: {key: 'other.cs'}}, {}), 1)
+            self.assertEqual(surface.diff({'configKeys': {
+                '[MixedReality] Enabled': 'src/GloomhavenVR/Core/MixedReality.cs'}}, {}), 1)
+
     def test_explicit_idle_withdrawal_cannot_hide_an_unrelated_removal(self):
         spec = importlib.util.spec_from_file_location('surface_guard', ROOT/'scripts/check-surface.py')
         surface = importlib.util.module_from_spec(spec)

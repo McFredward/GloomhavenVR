@@ -70,7 +70,10 @@ def main():
     for source in sources['meshes']:
         data=(native/source['file']).read_bytes();assert hashlib.sha256(data).hexdigest()==source['sha256']
         variants=[]
-        for tier in (100,50,0):
+        # Pillar LOD is retired. Exact100 streams remain shared by the
+        # independent environment chunk owner; no reduced pillar stream ships.
+        tiers = (100,) if "pillar" in source["signature"]["name"].casefold() else (100,50,0)
+        for tier in tiers:
             generated=data;receipt=None
             if tier!=100:
                 generated,receipt=simplify(data,tier)

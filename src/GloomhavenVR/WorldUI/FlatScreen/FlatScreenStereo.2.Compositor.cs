@@ -133,8 +133,8 @@ internal sealed partial class FlatScreenStereo
         leftRt != null
         && VRSession.IsRunning
         && Rig.VRRigDriver.HeadCamera != null
-        && (s_stereoScreen?.Value ?? false)
-        && DepthStrength > 0f;
+        && (((s_stereoScreen?.Value ?? false) && DepthStrength > 0f)
+            || NativeVideoMovies.CameraPlaneSource != null);
 
     // ---- lifecycle -------------------------------------------------------------------------
 
@@ -150,6 +150,7 @@ internal sealed partial class FlatScreenStereo
         _leftRt = leftRt;
         _quadMaterial = quadRenderer != null ? quadRenderer.sharedMaterial : null;
         _introGuard = introActive;
+        SyncStereoMovie();
 
         // Before anything else this tick: if the 3D map room has taken the parchment, release the
         // flat map render (materials included) instead of running both against one renderer.
@@ -262,6 +263,7 @@ internal sealed partial class FlatScreenStereo
             _active = false;
             _videoSuspended = false;
             _videoShift = false;
+            _stereoMovie = null;
             _shiftRtFailed = false;
             VRLog.Info("WorldUI", $"Stereo screen deactivated ({reason}) — mirrors destroyed, " +
                                   "right RT released, quad back on the mono RT.");
@@ -514,7 +516,14 @@ internal sealed partial class FlatScreenStereo
         bool shift = false;
         bool suspend = false;
         string? suspendWhy = null;
-        if (_introGuard)
+        SyncStereoMovie();
+        if (_stereoMovie != null)
+        {
+            // Baked stereo is already complete. Do not add the legacy uniform
+            // depth shift, overscan or scene camera parallax to recorded views.
+            EnsureShiftRt();
+        }
+        else if (_introGuard)
         {
             suspend = true;
         }
@@ -590,7 +599,7 @@ internal sealed partial class FlatScreenStereo
             MirrorEntry entry = _mirrors[i];
             // Map (ISSUE 1): both eyes are mono from the base RT, so the per-eye mirrors are
             // pointless here — keep them off (the map albedo camera owns the base RT).
-            bool want = entry.SourceOn && !suspend && !shift && !_mapBaseCapture;
+            bool want = entry.SourceOn && !suspend && !shift && !_mapBaseCapture && _stereoMovie == null;
             if (entry.Mirror.enabled != want)
                 entry.Mirror.enabled = want;
             if (want)

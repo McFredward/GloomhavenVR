@@ -1,0 +1,24 @@
+# Complete separate movie set required by normal deployment and archive packaging.
+# Paths are relative to src/GloomhavenVR/Assets/Movies. Gameplay trailer is excluded.
+CP_Intro/GH_CP_Intro.mov
+CP_Intro/GH_CP_Intro.sbs-v2.mov
+Heroes/Doomstalker.sbs-v1.mov
+Heroes/Soothsinger.sbs-v1.mov
+Heroes/Berserker.sbs-v1.mov
+Heroes/Summoner.sbs-v1.mov
+Heroes/BeastTyrant.sbs-v1.mov
+Heroes/Quartermaster.sbs-v1.mov
+Heroes/Nightshroud.sbs-v1.mov
+Heroes/Elementalist.sbs-v1.mov
+Heroes/Sunkeeper.sbs-v1.mov
+Heroes/Sawbones.sbs-v1.mov
+Heroes/Plagueherald.sbs-v1.mov
+Ambient/Ambient_03_Forest_01.sbs-v1.mov
+Ambient/Ambient_Crypt_01.sbs-v1.mov
+Ambient/Amibient_07_Dungeon_01.sbs-v1.mov
+Ambient/Ambient_05_Corpsewood_01.sbs-v1.mov
+Ambient/Ambient_06_Town_01.sbs-v1.mov
+Ambient/Ambient_02_Cave_01.sbs-v1.mov
+Ambient/Ambient_04_Cave_02.sbs-v1.mov
+Embedded/TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.sbs-v1.mov
+Embedded/TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.mov

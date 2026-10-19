@@ -18,10 +18,8 @@ public static partial class TerrainProgram
     private static void NativeCoverage(Camera camera)
     {
         ProceduralWall.m_WallCache.Clear();
-        Check(TerrainCoverageData.Entries.Length == 10, "all ten captured structural definitions execute source-bound coverage");
-        Check(PillarCoverageData.Entries.Length == 10, "all ten admitted crypt cave city pillar definitions execute source-bound radial coverage");
-        foreach (TerrainCoverageData.Entry data in TerrainCoverageData.Entries.Concat(
-            PillarCoverageData.Entries.Where(pillar => !TerrainCoverageData.Entries.Any(entry => entry.Name == pillar.Name))))
+        Check(TerrainCoverageData.Entries.Length == 5, "all five captured ordinary wall definitions execute source-bound coverage");
+        foreach (TerrainCoverageData.Entry data in TerrainCoverageData.Entries)
         {
             var host = new GameObject("GloomhavenVR.SourceBoundTerrain");
             var scenario = new GameObject("Scenario"); scenario.AddComponent<ProceduralScenario>();
@@ -105,11 +103,6 @@ public static partial class TerrainProgram
             renderer.enabled = false; PerfConfig.CheapWallShadingOn = false; Morph(host);
             Check(SameCoverage(nativePixels, Pixels(camera)), "source-bound cloned native structural original retains original camera silhouette pixels");
             Object.DestroyImmediate(clone); renderer.enabled = true;
-            if (data.Name.Contains("Pillar"))
-            {
-                NativePillarRadius(host, renderer, camera);
-                NativeIndependentPillarRadius(host, renderer, camera);
-            }
             ScenarioTerrainBudget.Shutdown(); Object.DestroyImmediate(host); Object.DestroyImmediate(scenario);
             ProceduralWall.m_WallCache.Clear(); Bank.Remove(original);
             Object.DestroyImmediate(original); Object.DestroyImmediate(exact); Object.DestroyImmediate(coarse); Object.DestroyImmediate(material);

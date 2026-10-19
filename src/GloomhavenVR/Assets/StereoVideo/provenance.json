@@ -1,0 +1,14 @@
+{
+  "unity": "2021.3.5f1",
+  "target": "StandaloneWindows64",
+  "graphics_apis": [
+    "Direct3D11",
+    "OpenGLCore",
+    "Vulkan"
+  ],
+  "shader_source": "scripts/stereo-video-render/StereoVideoUI.shader",
+  "shader_sha256": "34393de6efa16c4d920facf7217b15e13b6a51ed34c3a73353c3dd0a975b4d3e",
+  "bundle_sha256": "9830e459d04f13f34479a4e41e30b97fefbcf601a9cde8d033e8de38cce377b5",
+  "build_options": "None; TypeTrees enabled",
+  "resource": "GloomhavenVR.StereoVideo.ui-sbs.bundle"
+}

@@ -99,6 +99,19 @@ if (-not (Test-Path -LiteralPath $townVoicesBundle -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $environmentBundle -PathType Leaf)) {
     Write-Error "Missing environment asset bundle: $environmentBundle"
 }
+$movieSourceRoot = Join-Path $root "src\GloomhavenVR\Assets\Movies"
+$movieManifest = Join-Path $root "packaging\movie-files.txt"
+if (-not (Test-Path -LiteralPath $movieManifest -PathType Leaf)) { Write-Error "Missing movie manifest: $movieManifest" }
+$moviePaths = @(Get-Content -LiteralPath $movieManifest -Encoding UTF8 | ForEach-Object { $_.Trim() } |
+    Where-Object { $_ -and -not $_.StartsWith('#') })
+$seenMovies = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+if ($moviePaths.Count -eq 0) { Write-Error "Movie manifest is empty: $movieManifest" }
+foreach ($movie in $moviePaths) {
+    if ($movie -cnotmatch '^(CP_Intro|Heroes|Ambient|Embedded)/[A-Za-z0-9_.-]+\.mov$' -or
+        $movie.Contains('..') -or -not $seenMovies.Add($movie)) { Write-Error "Invalid or duplicate movie manifest path: $movie" }
+    $movieSource = Join-Path $movieSourceRoot $movie
+    if (-not (Test-Path -LiteralPath $movieSource -PathType Leaf)) { Write-Error "Missing required movie: $movieSource" }
+}
 # Prepared native figure derivatives ship as independently indexed parts. Verify this
 # complete set before deployment, including without Python on a Windows developer PC.
 $figureFolder = Join-Path $root "prebuilt"
@@ -350,11 +363,24 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Build failed." }
 # --- 7. deploy into the game ------------------------------------------------
 # Everything lands where the runtime probes it:
 #   plugin      -> BepInEx\plugins\GloomhavenVR\GloomhavenVR.dll
+#   movies      -> BepInEx\plugins\GloomhavenVR\Movies\<manifest relative path>
 #   RuntimeDeps -> BepInEx\plugins\GloomhavenVR\RuntimeDeps\*.dll
 #   bundle      -> BepInEx\plugins\GloomhavenVR\gloomhavenvr.bundle
 #   preloader   -> BepInEx\patchers\GloomhavenVR\GloomhavenVR.Preload.dll
 #   natives     -> BepInEx\patchers\GloomhavenVR\Natives\*.dll
 Step "Deploying into game"
+# Retire only the known diagnostic files and the superseded intro revision:
+# foreign movies/notes and their directories must survive. The installed-tree call
+# runs after all deployment/package steps succeed; staging owns its separate copy.
+function Remove-RetiredCalibrationMovies([string]$PluginRoot) {
+    foreach ($oldMovie in @('Calibration/calibration-sbs.mp4', 'Calibration/calibration-mono.mp4',
+                            'CP_Intro/GH_CP_Intro.sbs-v1.mov')) {
+        $oldPath = Join-Path $PluginRoot ("Movies/" + $oldMovie)
+        if (Test-Path -LiteralPath $oldPath -PathType Leaf) {
+            Remove-Item -LiteralPath $oldPath -Force
+        }
+    }
+}
 $plugin    = Join-Path $root "src\GloomhavenVR\bin\$Configuration\net472\GloomhavenVR.dll"
 $preloader = Join-Path $root "src\GloomhavenVR.Preload\bin\$Configuration\net472\GloomhavenVR.Preload.dll"
 foreach ($artifact in @($plugin, $preloader)) {
@@ -362,14 +388,20 @@ foreach ($artifact in @($plugin, $preloader)) {
 }
 
 $pluginDir      = Join-Path $GamePath "BepInEx\plugins\GloomhavenVR"
+$movieDir       = Join-Path $pluginDir "Movies"
 $runtimeDepsDst = Join-Path $pluginDir "RuntimeDeps"
 $patcherDir     = Join-Path $GamePath "BepInEx\patchers\GloomhavenVR"
 $nativesDst     = Join-Path $patcherDir "Natives"
-foreach ($dir in @($pluginDir, $runtimeDepsDst, $patcherDir, $nativesDst)) {
+foreach ($dir in @($pluginDir, $movieDir, $runtimeDepsDst, $patcherDir, $nativesDst)) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
 }
 
 Copy-Item $plugin    -Destination $pluginDir  -Force
+foreach ($movie in $moviePaths) {
+    $destination = Join-Path $movieDir $movie
+    New-Item -ItemType Directory -Force -Path (Split-Path $destination) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $movieSourceRoot $movie) -Destination $destination -Force
+}
 Copy-Item $preloader -Destination $patcherDir -Force
 Get-ChildItem (Join-Path $runtimeDepsDir "*.dll") | Copy-Item -Destination $runtimeDepsDst -Force
 Get-ChildItem (Join-Path $nativesDir     "*.dll") | Copy-Item -Destination $nativesDst     -Force
@@ -603,6 +635,7 @@ if (-not $NoPackage) {
 
     Copy-Item -Recurse -Force $pluginDir  (Join-Path $stage "BepInEx\plugins\GloomhavenVR")
     Copy-Item -Recurse -Force $patcherDir (Join-Path $stage "BepInEx\patchers\GloomhavenVR")
+    Remove-RetiredCalibrationMovies (Join-Path $stage "BepInEx\plugins\GloomhavenVR")
     # A Frame-only marker may exist in the installed game tree. It must never
     # propagate into a cross-platform archive, where it would opt PC users out.
     $frameMarker = Join-Path $stage "BepInEx\patchers\GloomhavenVR\frame-launch-opt-in.marker"
@@ -695,6 +728,7 @@ if (-not $NoPackage) {
     # byte, U+00E2 from a dash's). The same four rules as scripts/check-package-text.py, which
     # package-release.sh runs on its zip; a zip that renders "raumgroA~Yes" is not a release.
     $textProblems = @()
+    $required += @($moviePaths | ForEach-Object { "BepInEx/plugins/GloomhavenVR/Movies/" + $_ })
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
     try {
         $entries = $archive.Entries | ForEach-Object { $_.FullName }
@@ -755,6 +789,7 @@ if (-not $NoPackage) {
 }
 
 Write-Host ""
+Remove-RetiredCalibrationMovies $pluginDir
 Write-Host "Deployed commit $builtHash [$builtBranch] `"$builtSubject`" - this exact stamp appears in LogOutput.log at startup." -ForegroundColor Green
 Write-Host "Done. Launch Gloomhaven and check BepInEx\LogOutput.log." -ForegroundColor Green
 Write-Host "If something fails, drop LogOutput.log + openxr-diagnostics.log + Player.log into .planning/debug/."

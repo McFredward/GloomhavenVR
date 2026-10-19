@@ -1,0 +1,160 @@
+{
+  "schema": 1,
+  "subject": "Ambient/Ambient_05_Corpsewood_01.mov",
+  "source_sha256": "b1afff9cd1c5741bb371e7709077f1b6cedf33c268dd8cb2b31059ca4633ef52",
+  "source_kind": "external",
+  "source_relative": "StreamingAssets/Movies/Ambient/Ambient_05_Corpsewood_01.mov",
+  "stereo_file": "Ambient_05_Corpsewood_01.sbs-v1.mov",
+  "stereo_sha256": "6f83bdb0076cb092296b290f9aa564cdabefd0fad1b9945f8d09d8f611d2d42e",
+  "stereo_bytes": 39415332,
+  "packing": "full-SBS-left-first",
+  "per_eye_size": [
+    1920,
+    1080
+  ],
+  "fps": 60,
+  "frames": 1125,
+  "duration_seconds": 18.75,
+  "body_rows": [
+    0,
+    1080
+  ],
+  "shots": [
+    {
+      "id": "black-00",
+      "start": 0,
+      "end": 43,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-01",
+      "start": 43,
+      "end": 433,
+      "mode": "depth"
+    },
+    {
+      "id": "black-01",
+      "start": 433,
+      "end": 454,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-03",
+      "start": 454,
+      "end": 750,
+      "mode": "depth"
+    },
+    {
+      "id": "black-02",
+      "start": 750,
+      "end": 770,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-05",
+      "start": 770,
+      "end": 1083,
+      "mode": "depth"
+    },
+    {
+      "id": "black-03",
+      "start": 1083,
+      "end": 1125,
+      "mode": "screen"
+    }
+  ],
+  "profile": {
+    "cpu_dtype": "float32",
+    "model_input": 392,
+    "temporal_window": 32,
+    "temporal_overlap": 10,
+    "saved_depth_size": [
+      640,
+      360
+    ],
+    "shot_normalization_percentiles": [
+      2,
+      98
+    ],
+    "depth_disparity_px": [
+      -4,
+      12
+    ],
+    "code_revision": "4f5ae23172ba60fd7bc11ef671cca678842c7072",
+    "model_revision": "256875362cff76724b920335dfb4b29dd611f66e",
+    "checkpoint_sha256": "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609"
+  },
+  "left": "Native decoded YUV directly hstacked before final H264 encoding",
+  "right": "shot-wide temporal inverse-depth horizontal forward reprojection for depth scenes; uniform+8px original studio plane; screen-plane protected titles",
+  "disocclusion_fill": "Farther adjoining source background; no generative inpainting",
+  "render_source_sha256": "5f5f1f6aadb142ca0479f4bb3cb9aab10aca551e5dd5ebaa2fde3671ee143db2",
+  "geometry_source_sha256": "6342441acf34e0e6c35855ae316d8241941addd3d4ca2761da0d606d804a219a",
+  "verification": {
+    "status": "passed",
+    "movie": "Ambient/Ambient_05_Corpsewood_01.mov",
+    "source_sha256": "b1afff9cd1c5741bb371e7709077f1b6cedf33c268dd8cb2b31059ca4633ef52",
+    "stereo_sha256": "6f83bdb0076cb092296b290f9aa564cdabefd0fad1b9945f8d09d8f611d2d42e",
+    "stereo_bytes": 39415332,
+    "video": {
+      "frames": 1125,
+      "fps": 60,
+      "dimensions": [
+        3840,
+        1080
+      ],
+      "sample_aspect_ratio": "1:1",
+      "every_original_timestamp": true
+    },
+    "identical_aac_packets": 0,
+    "left_comparison": {
+      "frames": 1125,
+      "minimum_psnr_db": 40.06
+    },
+    "depth_shots_validated": 3,
+    "encoded_right_witness_frames": 21,
+    "minimum_right_witness_psnr_db": 42.545783402516705,
+    "native_loop_endpoints": {
+      "0": {
+        "original_rgb_mean": 0.0,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 999.0
+      },
+      "1124": {
+        "original_rgb_mean": 0.006816325874485597,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 84.41385515523307
+      }
+    },
+    "verification_source_sha256": "ec136e59c6410aad529517bd136aa708208a9752441a1ad8bfcbdad97b15556e",
+    "manifest_sha256": "1362c6e7240d44ac72e2af58be44199168e987b521a1643544d4089966fc7321",
+    "decoded_cue_frames": [
+      238,
+      602,
+      926
+    ],
+    "decoded_cue_receipt_sha256": "9ac78502bf063117ac6b9abdf18bf6c7f99864ffd628b12344f1ec1281f94d85",
+    "manual_visual_review": "pending",
+    "hardware_result": "unverified"
+  },
+  "hardware_result": "unverified",
+  "static_decoded_review": {
+    "status": "reviewed",
+    "movie": "Ambient/Ambient_05_Corpsewood_01.mov",
+    "stereo_sha256": "6f83bdb0076cb092296b290f9aa564cdabefd0fad1b9945f8d09d8f611d2d42e",
+    "frames": [
+      238,
+      602,
+      926
+    ],
+    "capture_receipt_sha256": "9ac78502bf063117ac6b9abdf18bf6c7f99864ffd628b12344f1ec1281f94d85",
+    "reviewed_utc": "2026-10-17T14:14:42.580651+00:00",
+    "observations": "Three actual encoded cue pairs inspected: full corpsewood statue/skeleton clearing, close tree/statue view and tilted luminous mushrooms/skeleton view. No obvious missing scene content, squashed aspect or vertical registration defect at these static cues. Foreground trees/mushrooms and background structures retain bounded horizontal separation.",
+    "limit": "Static decoded-image inspection only; headset fusion, comfort, temporal motion and decoder behavior remain unverified."
+  }
+}

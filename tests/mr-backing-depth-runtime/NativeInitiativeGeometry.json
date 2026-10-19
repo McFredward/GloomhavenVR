@@ -1,0 +1,213 @@
+{
+  "source": "sharedassets6.assets",
+  "sourceSHA256": "a3a8e35f77def2253658f999daaa0967055b492fd2063a7ee64a45c6872f18b5",
+  "rootRectPathID": 6107,
+  "visibleRectPath": "InitiativeTrackPlayer_new/UIActor/ActorContent/AvatarMask/Avatar",
+  "nodes": [
+    {
+      "path": "InitiativeTrackPlayer_new",
+      "pathID": 6107,
+      "parent": "",
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 1.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "anchorMin": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "anchorMax": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "anchoredPosition": {
+        "x": -651.9000244140625,
+        "y": 465.5
+      },
+      "sizeDelta": {
+        "x": 0.0,
+        "y": 130.0
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "path": "InitiativeTrackPlayer_new/UIActor",
+      "pathID": 6110,
+      "parent": "InitiativeTrackPlayer_new",
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": -0.0,
+        "y": -0.0,
+        "z": -0.0,
+        "w": 1.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "anchorMin": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "anchorMax": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "anchoredPosition": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "sizeDelta": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "path": "InitiativeTrackPlayer_new/UIActor/ActorContent",
+      "pathID": 6866,
+      "parent": "InitiativeTrackPlayer_new/UIActor",
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": -0.0,
+        "y": -0.0,
+        "z": -0.0,
+        "w": 1.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "anchorMin": {
+        "x": 0.0,
+        "y": 1.0
+      },
+      "anchorMax": {
+        "x": 0.0,
+        "y": 1.0
+      },
+      "anchoredPosition": {
+        "x": 60.0,
+        "y": -65.0
+      },
+      "sizeDelta": {
+        "x": 120.0,
+        "y": 130.0
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "path": "InitiativeTrackPlayer_new/UIActor/ActorContent/AvatarMask",
+      "pathID": 6076,
+      "parent": "InitiativeTrackPlayer_new/UIActor/ActorContent",
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 1.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "anchorMin": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "anchorMax": {
+        "x": 1.0,
+        "y": 1.0
+      },
+      "anchoredPosition": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "sizeDelta": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "path": "InitiativeTrackPlayer_new/UIActor/ActorContent/AvatarMask/Avatar",
+      "pathID": 6881,
+      "parent": "InitiativeTrackPlayer_new/UIActor/ActorContent/AvatarMask",
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": -0.0,
+        "y": -0.0,
+        "z": -0.0,
+        "w": 1.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "anchorMin": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "anchorMax": {
+        "x": 1.0,
+        "y": 1.0
+      },
+      "anchoredPosition": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "sizeDelta": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "pivot": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    }
+  ]
+}

@@ -108,11 +108,11 @@ Pausenmenü. Änderungen wirken sofort und werden gespeichert.
 | Reiter | Was drinsteht |
 |---|---|
 | **Komfort** | Drehen, Fortbewegung, Welt greifen und zoomen, Hände, Zielen |
-| **Bild** | Darstellung, Fenster & Tafeln, Mixed Reality, der Desktop-Monitor |
+| **Grafik** | Grafikprofile, Auflösung und Details, Fenster & Tafeln, der Desktop-Monitor |
 | **Brett & Karten** | Kontrollbrett, Figuren, Karten, Stapel & Hinweise |
 | **Tafeln** | Tafeln & Anzeigen, Lebensbalken, der 2D-Bildschirm, Zeigen, Texteingabe |
 | **Avatar & Mehrspieler** | Dein Handstil und deine Kopfmaske, und das Zusammenspielen |
-| **Umgebung & Ton** | Umgebung, die Erscheinungen, Ton, Sichtbarkeit, die Kampagnenkarte |
+| **Umgebung** | Schauplatz und Mixed Reality, Erscheinungen, Ton, Sichtbarkeit, die Kampagnenkarte |
 | **Erweitert** | Der tiefe Zwilling von allem oben, dazu jede einzelne Einstellung |
 
 Der Text der Mod folgt der Sprache des Spiels: **Englisch und Deutsch**; alles andere fällt auf
@@ -159,3 +159,11 @@ Diese hier sind optional und tun ohne die Mod nichts: `GH_Data/Plugins/x86_64/Un
 </p>
 
 Eine Kurzfassung dieser Seite liegt als `INSTALL-DEUTSCH.txt` im Release-Zip.
+
+## Steam Frame über Steam Link
+
+Für natives Passthrough beim Streaming brauchst du zusätzlich die experimentelle
+[gekoppelte Einrichtung für PC und Frame](https://github.com/McFredward/steam-link-native-passthrough#readme)
+(Windows/NVIDIA/HEVC). Sie ist von der Mod-Installation getrennt. Der frühere reine
+Frame-Empfänger ist eingestellt. Steam Frame standalone nutzt sein eigenes
+natives Passthrough und benötigt diese Komponenten nicht.

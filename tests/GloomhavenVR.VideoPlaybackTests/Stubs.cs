@@ -7,7 +7,11 @@ namespace UnityEngine
     {
         public bool Destroyed;
         public static void DontDestroyOnLoad(Object value) { }
-        public static void Destroy(Object value) => value.Destroyed = true;
+        public static void Destroy(Object value)
+        {
+            value.Destroyed = true;
+            if (value is GameObject root) foreach (Component component in root.Components) component.Destroyed = true;
+        }
         private static bool Null(Object? value) => ReferenceEquals(value, null) || value.Destroyed;
         public static bool operator ==(Object? a, Object? b) => Null(a) && Null(b) || ReferenceEquals(a, b);
         public static bool operator !=(Object? a, Object? b) => !(a == b);
@@ -16,8 +20,12 @@ namespace UnityEngine
     }
     public sealed class GameObject : Object
     {
+        public readonly List<Component> Components = new();
         public GameObject(string name) { }
-        public T AddComponent<T>() where T : Component, new() => new() { gameObject = this };
+        public T AddComponent<T>() where T : Component, new()
+        {
+            var component = new T { gameObject = this }; Components.Add(component); return component;
+        }
     }
     public class Component : Object { public GameObject gameObject = null!; }
     public sealed class AudioSource : Object { public bool mute; }
@@ -46,6 +54,7 @@ namespace UnityEngine.Video
         public event Action<VideoPlayer, string>? errorReceived;
         public void Prepare() { }
         public void Prepared() { isPrepared = true; prepareCompleted?.Invoke(this); }
+        public Action CapturePrepared() { var callback = prepareCompleted; return () => { isPrepared = true; callback?.Invoke(this); }; }
         public void End() { isPlaying = false; loopPointReached?.Invoke(this); }
         public void Fail() => errorReceived?.Invoke(this, "injected decoder failure");
         public void Play() { PlayCalls++; isPlaying = true; isPaused = false; }
@@ -63,7 +72,11 @@ public static class AudioController { public static float GetGlobalVolume() => 0
 
 namespace GloomhavenVR.Core
 {
-    internal static class VRLog { internal static void Note(string scope, string line) { } }
+    internal static class VRLog
+    {
+        internal static readonly List<string> Notes = new();
+        internal static void Note(string scope, string line) { Notes.Add(line); }
+    }
 }
 
 namespace GloomhavenVR.WorldUI
@@ -76,16 +89,53 @@ namespace GloomhavenVR.WorldUI
         internal static bool Online = true;
         internal static bool ParticipatesHere(SharedWindowKind kind) => Online;
     }
+    internal static class NativeVideoReview
+    {
+        internal static bool ContextAvailable = true;
+        internal static bool TryCloseOwnedKey(string key)
+        {
+            if (!ContextAvailable || NativeVideoWindow.ReviewPlayer == null || NativeVideoWindow.ReviewKey != key) return false;
+            CancelForNativePlayback(); return true;
+        }
+        internal static void CancelForNativePlayback()
+        {
+            if (NativeVideoWindow.ReviewPlayer != null) NativeVideoWindow.ReviewPlayer.Stop();
+            NativeVideoWindow.ReviewPlayer = null;
+        }
+    }
     internal static class NativeVideoWindow
     {
         internal static VideoPlayer? NativePlayer, Remote;
         internal static uint NativePlaybackGeneration;
+        internal static VideoPlayer? ReviewPlayer;
+        internal static uint ReviewGeneration;
+        internal static string ReviewKey = string.Empty;
+        internal static uint OriginatingPlaybackGeneration => NativePlayer != null ? NativePlaybackGeneration : ReviewGeneration;
+        internal static VideoPlayer? OriginatingPlayer => NativePlayer ?? ReviewPlayer;
         internal static bool Suppressed, AssetAvailable = true;
-        internal static string PlaybackKey => NativePlayer != null ? "Heroes/A.mov" : string.Empty;
-        internal static void SetRemoteSource(VideoPlayer? player) => Remote = player;
+        internal static string NativeKey = "Heroes/A.mov", ResolvedKey = string.Empty;
+        internal static string PlaybackKey => NativePlayer != null ? NativeKey : ReviewPlayer != null ? ReviewKey : string.Empty;
+        internal static string RemoteKey = string.Empty;
+        internal static void SetRemoteSource(VideoPlayer? player, string selectedKey = "")
+        { if (player != null) NativeVideoReview.CancelForNativePlayback(); Remote = player; RemoteKey = selectedKey; }
         internal static void SetNativePresentationSuppressed(bool suppressed) => Suppressed = suppressed;
         internal static void SetRemotePose(Vector3 pos, Quaternion rot, float size) { }
-        internal static bool TryResolvePlaybackKey(string key, out string url) { url = key; return AssetAvailable; }
+        internal static bool TryResolvePlaybackKey(string key, out string url) { url = ResolvedKey.Length == 0 ? key : ResolvedKey; return AssetAvailable; }
+    }
+    internal static class NativeVideoMovies
+    {
+        internal const string StereoIntroKey = "CP_Intro/GH_CP_Intro.sbs-v2.mov";
+        internal const string NativeIntroKey = "CP_Intro/GH_CP_Intro.native.mov";
+        internal static bool IsStereoKey(string? key) => key != null && (key.EndsWith(".sbs-v1.mov", StringComparison.Ordinal) || key.EndsWith(".sbs-v2.mov", StringComparison.Ordinal));
+        internal static bool IsStereoUrl(string url) => IsStereoKey(url);
+        private static string? Canonical(string? key)
+        {
+            if (GloomhavenVR.Net.VideoMovieKeys.TryUnwrapReview(key, out string selected)) key = selected;
+            return key == StereoIntroKey || key == NativeIntroKey ? "CP_Intro/GH_CP_Intro.mov" : key;
+        }
+        internal static bool SamePresentation(string? first, string? second) =>
+            GloomhavenVR.Net.VideoMovieKeys.IsReview(first) == GloomhavenVR.Net.VideoMovieKeys.IsReview(second)
+            && Canonical(first) == Canonical(second);
     }
 }
 

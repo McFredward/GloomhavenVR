@@ -26,7 +26,7 @@ namespace GloomhavenVR.Net;
 /// local converted dock; other mirrors keep their existing source/layout policy. The fitted
 /// original envelope also drives the same MrBacking treatment used by local converted panels.
 /// </summary>
-internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, WorldUI.MrBacking.ISampledBacking, WorldUI.MrBacking.IFadedBacking
+internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, WorldUI.MrBacking.ISampledBacking, WorldUI.MrBacking.IFadedBacking, WorldUI.MrBacking.IDepthBacking
 {
     /// <summary>Which mechanism a mirrored section is currently drawing with — reported per section
     /// in the <c>Remote board content</c> diagnostic so a hardware log PROVES parity instead of
@@ -350,6 +350,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     private readonly WorldUI.ConvertedPanel _mrInkPanel = new();
     private readonly HashSet<Transform> _mrExcluded = new();
     private Rect _mrFrame, _mrBounds;
+    private float _mrBackZ;
     private readonly WorldUI.MrBackingVisibility _mrVisibility = new();
     private bool _mrBoundsVisible;
     private int _mrSampleFrame = -1;
@@ -384,6 +385,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
             {
                 // A missing holder/clone is not permission to back the full-screen parent.
                 _mrBounds = default;
+                _mrBackZ = 0f;
                 _mrBoundsVisible = false;
                 _mrVisibility.Reset();
                 return;
@@ -396,6 +398,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         if (!_mrBoundsVisible)
         {
             _mrBounds = default;
+            _mrBackZ = 0f;
             return;
         }
         Rect bounds = WorldUI.MrBackingLayout.WindowRect(frame, ink.Rect,
@@ -405,9 +408,12 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         Vector3 center = _host.transform.InverseTransformPoint(
             _mrInkPanel.HostRect.TransformPoint(new Vector3(bounds.center.x, bounds.center.y, 0f)));
         _mrBounds = new Rect(new Vector2(center.x, center.y) - bounds.size * 0.5f, bounds.size);
+        _mrBackZ = _host.transform.InverseTransformPoint(_mrInkPanel.HostRect.TransformPoint(
+            new Vector3(bounds.center.x, bounds.center.y, ink.BackZ))).z;
     }
 
     int WorldUI.MrBacking.ISampledBacking.BackingSampleFrame => _mrSampleFrame;
+    float WorldUI.MrBacking.IDepthBacking.BackingDepth => _mrBackZ;
 
     /// <summary>
     /// The AUTHORED PIXEL SIZE the last applied fit measured — the number <see cref="Fit"/> divides
@@ -1409,6 +1415,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         }
         _cloneRect = null;
         _cloneFitter = null;
+        _mrBackZ = 0f;
         _mrFrame = default;
         _mrBounds = default;
         _mrSampleFrame = -1;

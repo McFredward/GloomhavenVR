@@ -563,6 +563,9 @@ internal static partial class Loc
 
             // ---- [MixedReality] / [Stereo] / [RenderQuality] — picture ----------------------
             ["MixedReality/Enabled"] = Pair("Mixed Reality", "Mixed Reality an"),
+            ["MixedReality/SteamLinkNative"] = Pair("Steam Link native passthrough", "Steam Link: natives Passthrough"),
+            ["MixedReality/SteamLinkEdgeQuality"] = Pair("Steam Link edge quality", "Steam-Link-Kantenqualität"),
+            ["MixedReality/SteamLinkEncodeWidth"] = Pair("Steam Link encoding width (px)", "Steam-Link-Übertragungsbreite (px)"),
             ["MixedReality/KeyColor"] = Pair("Key colour", "Key-Farbe"),
             // THE FOUR FOG-OF-WAR BACKING DIALS, NAMED BY THE 2026-08-22 SETTINGS AUDIT (§3.4).
             // Seven [MixedReality] entries had no line here and showed a spaced-out English key in
@@ -732,10 +735,10 @@ internal static partial class Loc
             ["Optimize/ScenarioTerrainSubstitution"] = Pair("Prepared 3D wall substitutes", "Vorbereiteter 3D-Wandersatz"),
             ["Optimize/WorldMaterialQualityModeCount"] = Pair("World materials (0 original / 1 simple light / 2 textured)", "Umgebungsmaterialien (0 Original / 1 einfaches Licht / 2 texturiert)"),
             ["Optimize/WorldMaterialAmbientPercent"] = Pair("Ambient light for textured world materials (%)", "Umgebungslicht für texturierte Umgebungsmaterialien (%)"),
-            ["Optimize/ScenarioTerrainDetailPercent"] = Pair("3D wall and pillar detail (%)", "3D-Wand- und Säulendetails (%)"),
+            ["Optimize/ScenarioTerrainDetailPercent"] = Pair("3D wall detail (%)", "3D-Wanddetails (%)"),
             ["Optimize/ScenarioDistantTerrainDetailPercent"] = Pair("Distant 3D wall detail (%)", "Entfernte 3D-Wanddetails (%)"),
             ["Optimize/ScenarioTerrainDistanceMeters"] = Pair("Distant wall detail threshold (m)", "Abstand für entfernte Wanddetails (m)"),
-            ["Optimize/ScenarioTerrainPillarDistanceLod"] = Pair("Figure-style distance LOD for pillars", "Säulen-Distanz-LOD wie bei Figuren"),
+            ["Optimize/ScenarioTerrainPillarDistanceLod"] = Pair("Retired pillar LOD", "Entferntes Säulen-LOD"),
             ["Optimize/ScenarioTerrainCameraSourceLimitCount"] = Pair("3D wall substitutes per eye (0 = unlimited)", "3D-Wandersatzflächen pro Auge (0 = unbegrenzt)"),
             ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] = Pair("Scenario ambient effects (%)", "Szenario-Umgebungseffekte (%)"),
             ["Optimize/ReduceScenarioGenerationDetail"] = Pair("Reduced scenario generation", "Sparsame Szenario-Erzeugung"),

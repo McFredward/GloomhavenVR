@@ -345,6 +345,8 @@ internal static class PanelInkBounds
 
         internal bool Valid;
         internal Rect Rect;
+        // Furthest admitted painted plane in host-local pixels, for physical MR seating.
+        internal float BackZ;
         internal int Graphics;
         // Diagnostic-only witnesses from the actual clipped MR union, never a second measure.
         internal Graphic? MrTop, MrBottom, MrLeft, MrRight;
@@ -579,7 +581,7 @@ internal static class PanelInkBounds
                 family = TransientFamilies.Self(t);
             if (rt != null)
             {
-                if (TryHostLocalBounds(host, rt, out Rect bounds))
+                if (TryHostLocalBounds(host, rt, out Rect bounds, out float backZ))
                 {
                     if (ClipsChildren(t) && !Intersect(clip, bounds, out clip))
                         continue; // fully clipped away: neither this nor anything under it draws
@@ -686,6 +688,7 @@ internal static class PanelInkBounds
                                     ink.BottomName = t.name;
                                 }
                             }
+                            if (backingGeometry) ink.BackZ = Mathf.Max(ink.BackZ, backZ);
                             ink.Graphics++;
                             visibleWitnesses?.Add(graphic!);
                             if (backingGeometry)
@@ -791,9 +794,10 @@ internal static class PanelInkBounds
     /// <summary>Axis-aligned bounds of <paramref name="rt"/> in <paramref name="host"/>'s local space,
     /// in uGUI px. World corners rather than the raw rect, so a child under any chain of scales or
     /// rotations is measured where it actually lands.</summary>
-    private static bool TryHostLocalBounds(RectTransform host, RectTransform rt, out Rect bounds)
+    private static bool TryHostLocalBounds(RectTransform host, RectTransform rt, out Rect bounds, out float backZ)
     {
         bounds = default;
+        backZ = 0f;
         Rect local = rt.rect;
         if (local.width <= 0f && local.height <= 0f)
             return false;
@@ -801,9 +805,11 @@ internal static class PanelInkBounds
         Matrix4x4 toHost = host.worldToLocalMatrix;
         Vector3 first = toHost.MultiplyPoint3x4(Corners[0]);
         float minX = first.x, maxX = first.x, minY = first.y, maxY = first.y;
+        backZ = first.z;
         for (int i = 1; i < 4; i++)
         {
             Vector3 p = toHost.MultiplyPoint3x4(Corners[i]);
+            if (p.z > backZ) backZ = p.z;
             if (p.x < minX) minX = p.x;
             if (p.x > maxX) maxX = p.x;
             if (p.y < minY) minY = p.y;

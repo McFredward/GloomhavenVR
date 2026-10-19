@@ -90,8 +90,10 @@ public static class NotesProgram
         group.childForceExpandHeight = false; group.childForceExpandWidth = true;
         group.childAlignment = TextAnchor.UpperLeft;
         VROptionsTab.Configure(Template(host.transform));
-        VROptionsTab.Note(content, value, multiline);
+        GameObject created = VROptionsTab.Note(content, value, multiline, minLines: 1);
         var row = (RectTransform)content.GetChild(0);
+        Check(ReferenceEquals(created, row.gameObject),
+            "production note returns the exact authored row placed in the content");
         var text = row.Find("Title").GetComponent<TMP_Text>();
         var layout = row.GetComponent<LayoutElementExtended>();
         var next = Rect("Next original native setting row", content, new Vector2(600, 44));

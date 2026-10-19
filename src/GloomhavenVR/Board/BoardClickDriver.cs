@@ -664,6 +664,9 @@ internal static class BoardClickDriver
         if (hand.TriggerDown
             && BoardPick.HasHit
             && hand.Grabber.Held == null
+            // A board Update before the hand's grab tick must not spend the lit figure's pull.
+            // The existing Held check protects the opposite Update order after pickup.
+            && !hand.Grabber.FigureGrabOffered
             && hand.Poke.HoveredUi == null
             // P6: while the beam is clamped to a UI surface (world panel via
             // RayUguiDriver, fan card, flat screen) the trigger belongs to that

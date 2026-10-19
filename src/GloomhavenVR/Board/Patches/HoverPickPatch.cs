@@ -142,8 +142,10 @@ namespace GloomhavenVR.Board.Patches;
 /// the same ray the original casts (see <see cref="TryPickHoverTarget"/> for why it can no longer
 /// be the single-hit overload),
 /// with the same mask and the same length (1000 m for the laser; a few centimetres for the
-/// fingertip pick, which is <c>BoardPick</c>'s near-ray budget). Nothing is added: the original
-/// method does not run. The per-frame allocation the original had is removed —
+/// fingertip pick, which is <c>BoardPick</c>'s near-ray budget). Build675 adds one native
+/// hex-mask ray after a laser hits a prop, so that elevated collider overhang cannot admit
+/// a hint on another tile or beyond the board. The original method does not run.
+/// The per-frame component-array allocation the original had is removed —
 /// <c>GetComponents&lt;IHoverable&gt;()</c> returned a fresh array every hit frame; the
 /// list-filling overload writes into the game's own <c>m_CurrentRaycastTargets</c> instead. No
 /// throttle: hover latency is what the user is complaining about, and there is no extra work to
@@ -273,6 +275,23 @@ internal static class HoverPickPatch
         {
             ExitAll(cursorTargets, miss);
             return false;
+        }
+
+        // Build675: an elevated prop collider can answer while the actual laser lands on
+        // a neighbouring hex or misses the board. Tooltip admission follows the native
+        // picked hex, never that collider's overhang. Keep fingertip reach and all game
+        // targeting/clicks unchanged; this gate owns only the laser's IHoverable dispatch.
+        if (BoardPick.Source == BoardPick.PickSource.Far)
+        {
+            Controller? controller = Controller.Instance;
+            // Match WorldspaceStarHexDisplay's own hex mask, not Controller's potentially
+            // different active-selection mask cached by BoardPick during another phase.
+            if (controller == null || !TileHoverAdmission.Allows(origin, direction, maxDistance,
+                    controller.m_HexSelectionRaycastLayer, hitObject))
+            {
+                ExitAll(cursorTargets, "the laser does not point at a native hex containing this prop");
+                return false;
+            }
         }
 
         // HoverRegisterer.cs:39 uses GetComponents on the HIT GameObject — NOT

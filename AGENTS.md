@@ -50,6 +50,15 @@ to Codex and record the user's instructions of 2026-09-08.
 - Keep player documentation and release highlights focused on installation from release archives,
   controls and visible changes. Installer scripts, CI/build details and pending hardware tests
   belong in developer documentation or `.planning/`, not in player instructions.
+- The maintainer's 2026-10-18 video review ruling places every deliberate movie
+  test action under Advanced > Cheats, behind the existing default-off Cheats
+  configuration gate. These movies contain major spoilers. Do not expose their
+  names/actions on the ordinary Test triggers page; recheck permission when a
+  stale action is pressed. Normal game-authored movie playback is independent
+  of this test-only gate.
+- Release text and `packaging/release-highlights/<version>.md` are English-only,
+  as requested by the maintainer on 2026-10-11. This exception does not change
+  the English/German player guides or product localization.
 - The maintainer always tests at Debug. Ordinary players use the normal log level, which
   must remain useful for bug reports: retain build/version, important lifecycle and flow
   context, failures, and bounded reports of significant anomalies. Deduplicate or rate-limit
@@ -107,6 +116,18 @@ The build 500 hardware ruling (2026-09-14) requires immediate return of a held f
 its board position before any non-idle action starts, locally and for remote observers.
 This supersedes the older forced-release glide ruling; ordinary idle manual releases keep
 their usual glide. Native movement must never derive its start from a hand-held transform.
+
+The user's 2026-10-19 figure-grab clarification requires every visible figure pickup
+highlight to represent a live pickup offer. A world-laser hover yields to that offer;
+an established press/gesture or genuine native permission loss must revoke the competing
+figure glow. Never retain a visual-only figure hover tail after pickup becomes invalid.
+Keep original busy/dead/remote-held, tracking, mode and geometry gates intact.
+
+The user's 2026-10-19 chest-Continue report requires explicit VR continuation to
+follow the original pointer callback's permission. An independently open ESC window
+must not import a gamepad-only blocker into rewards or level-up Continue buttons.
+Keep native reveal/readiness, input-latch and actor/network authority gates; never
+auto-confirm or hide a mandatory window to recover progression.
 
 The user's 2026-09-17 window-placement request permits necessary, animated opening-time
 room making when a new window would overlap an existing visible window. Keep affected

@@ -71,6 +71,9 @@ internal static partial class MixedReality
 
     /// <summary>MR mode master (settings-panel toggle binds this).</summary>
     internal static ConfigEntry<bool> Enabled = null!;
+    internal static ConfigEntry<bool> SteamLinkNative = null!;
+    internal static ConfigEntry<bool> SteamLinkEdgeQuality = null!;
+    internal static ConfigEntry<int> SteamLinkEncodeWidth = null!;
 
     /// <summary>Chroma key color the sky/background clears to (default solid green).</summary>
     internal static ConfigEntry<Color> KeyColor = null!;
@@ -436,7 +439,8 @@ internal static partial class MixedReality
     /// </summary>
     internal static bool BackingsWanted =>
         _file != null && Enabled.Value && VRSession.IsRunning
-        && (!FrameNativePassthrough.Required || FrameNativePassthrough.IsActive);
+        && (!FrameNativePassthrough.Required || FrameNativePassthrough.IsActive)
+        && (!SteamLink.SteamLinkSceneRuntime.Requested || SteamLink.SteamLinkSceneRuntime.Active);
 
     /// <summary>
     /// No-op (kept for its ModalFallback call sites). The floated-menu-vs-sky occlusion is now fixed
@@ -460,10 +464,29 @@ internal static partial class MixedReality
         Enabled = _file.Bind("MixedReality", "Enabled", Defaults.MixedReality_Enabled,
             "Place the game table in your real room. Steam Frame standalone uses native " +
             "passthrough when the active Proton/OpenXR/SteamVR combination supports alpha " +
-            "composition; otherwise this choice is unavailable. PC streaming keeps the " +
-            "selected solid KeyColor for compatible chroma-key software such as Virtual " +
-            "Desktop. Sky backgrounds are hidden, game geometry stays visible and floated " +
+            "composition; otherwise this choice is unavailable. PC streaming normally uses " +
+            "the selected solid KeyColor for compatible software such as Virtual Desktop. " +
+            "The native Steam Link choice requires matching PC and Frame companions. " +
+            "Sky backgrounds are hidden, game geometry stays visible and floated " +
             "UI gets readable backing plates. Turning off restores the previous environment.");
+        SteamLinkNative = _file.Bind("MixedReality", "SteamLinkNative", Defaults.SteamLinkNative,
+            "Experimental native passthrough while streaming to Steam Frame over Steam Link. " +
+            "Available only on an identified Steam Frame/vrlink connection, enabled by default. " +
+            "Other headsets and streaming transports retain ordinary output even if this saved preference is on. " +
+            "Requires compatible PC and Frame companions. Without them the normal game image remains visible. " +
+            "Streams the real game image with separate opacity instead of replacing a colour. " +
+            "Changes apply immediately, including while VR Options is open. " +
+            "Disable this choice or mixed reality to stop it; no automatic timer is used. " +
+            "Currently requires MultiPass stereo, SDR and Gamma colour space. " +
+            "Does not change eye resolution, video quality settings or Steam Frame standalone passthrough.");
+        SteamLinkEdgeQuality = _file.Bind("MixedReality", "SteamLinkEdgeQuality", Defaults.SteamLinkEdgeQuality,
+            "INERT — since build 710. Former atlas edge-quality override retained only for " +
+            "configuration compatibility. Native passthrough never changes encoder settings.");
+        SteamLinkEncodeWidth = _file.Bind("MixedReality", "SteamLinkEncodeWidth", Defaults.SteamLinkEncodeWidth,
+            new ConfigDescription("INERT — since build 702. Native Steam Link MR follows the actual XR " +
+                "eye target dimensions automatically; this former separate encoding-width override " +
+                "is kept only for configuration compatibility and is never used for rendering.",
+                new AcceptableValueRange<int>(1024, 4096)));
         KeyColor = _file.Bind("MixedReality", "KeyColor", Defaults.KeyColor,
             "The solid chroma-key color the sky/background clears to in mixed-reality mode " +
             "(default pure green RGBA 0,1,0,1). The in-VR settings panel cycles the presets " +
@@ -596,7 +619,9 @@ internal static partial class MixedReality
     internal static void Tick()
     {
         Bind();
-
+        SteamLink.SteamLinkConnectionLifecycle.Tick();
+        SteamLink.SteamLinkCoverageBridge.Tick(SteamLink.SteamLinkSceneRuntime.Requested
+            && Enabled.Value && VRSession.IsRunning && SteamLink.SteamLinkSceneRuntime.SourceProfileSupported, Time.unscaledTime);
         // ELEMENT MOOD IS TICKED HERE, not from SkyAlternative.Tick, because this is the only
         // per-frame call that runs on BOTH branches below. The user's requirement is that the
         // elements reach the player under every presentation — a bundled room, the game's own sky,
@@ -608,14 +633,44 @@ internal static partial class MixedReality
 
         bool requested = Enabled.Value && VRSession.IsRunning;
         bool native = FrameNativePassthrough.Required;
+        bool stream = SteamLink.SteamLinkSceneRuntime.Requested;
+        // A pending identity query is not a request for chroma key. Keep the
+        // ordinary image until admission completes, including a real HMD
+        // reconnect; never flash the saved green key during that transition.
+        bool checkingStream = !native && SteamLinkNative.Value
+            && SteamLink.SteamLinkConnectionLifecycle.Checking;
+        bool streamReady = false;
+        // Only a compatible paired companion can admit native stream coverage.
+        // Until then the unmodified game image stays visible; there is no atlas
+        // or chroma-key fallback for an identified Steam Link connection.
+        bool streamHostPrepared = SteamLink.SteamLinkSceneRuntime.TransportPrepared();
+        if (!native && stream && requested && streamHostPrepared)
+        {
+            Camera? streamHead = VRCameraPolicy.AllowedHead;
+            if (streamHead != null)
+            {
+                // Save the ordinary camera BEFORE preparing the same-depth eye
+                // commands. A failed preparation restores these changes below.
+                Record(streamHead);
+                MrNativeCamera.Apply(streamHead);
+                ForceSolid(streamHead, Color.clear);
+                streamReady = SteamLink.SteamLinkSceneRuntime.TryEnter(streamHead);
+            }
+        }
+        else
+        {
+            if (!requested || !stream) SteamLink.SteamLinkSceneRuntime.Reset();
+            else SteamLink.SteamLinkSceneRuntime.Exit();
+            if (!native) MrNativeCamera.RestoreAll();
+        }
         // Unity applies a blend request asynchronously. Keep the ordinary environment
         // until the actual running session accepts AlphaBlend, rather than exposing
         // an opaque black/green background or treating the pending write as a failure.
-        bool want = requested && (!native || (VRCameraPolicy.AllowedHead != null
-            && FrameNativePassthrough.TryEnter()));
+        bool want = requested && (native ? VRCameraPolicy.AllowedHead != null
+            && FrameNativePassthrough.TryEnter() : !checkingStream && (!stream || streamReady));
         if (!want)
         {
-            if (_active)
+            if (_active || CamOriginals.Count != 0)
                 RestoreAll();
             else if (!requested)
                 FrameNativePassthrough.Exit();
@@ -644,8 +699,8 @@ internal static partial class MixedReality
         // (restores the renderer/material first, so HideSkyGeometry disables a clean renderer).
         SkyBackdrop.Tick(skyOwnedElsewhere: true);
 
-        Color key = native ? Color.clear : KeyColor.Value;
-        if (!native)
+        Color key = native || stream ? Color.clear : KeyColor.Value;
+        if (!native && !stream)
             key.a = 1f; // The PC chroma key stays fully opaque.
 
         // 1) Kill the global skybox (ambient/reflection contributions + any Skybox clear).
@@ -663,7 +718,7 @@ internal static partial class MixedReality
         if (head != null)
         {
             Record(head);
-            if (native)
+            if (native || stream)
                 MrNativeCamera.Apply(head);
             ForceSolid(head, key);
         }
@@ -698,7 +753,10 @@ internal static partial class MixedReality
         {
             _loggedActive = true;
             _loggedColor = key;
-            if (native)
+            if (stream)
+                VRLog.Info("Core", "Mixed reality ON — Steam Link scene-contribution source; " +
+                    "native composition requires the enabled Frame receiver.");
+            else if (native)
                 VRLog.Info("Core", "Mixed reality ON — native OpenXR AlphaBlend; " +
                     "transparent background, diorama geometry stays visible.");
             else
@@ -2447,6 +2505,7 @@ internal static partial class MixedReality
     /// <summary>Restore every recorded camera + the skybox material (MR off / VR stop / hot reload).</summary>
     internal static void RestoreAll()
     {
+        SteamLink.SteamLinkSceneRuntime.Exit();
         int restored = 0;
         foreach (KeyValuePair<Camera, (CameraClearFlags Flags, Color Bg)> pair in CamOriginals)
         {

@@ -69,6 +69,25 @@ static class Program
         Check(AnnouncementContinue.TryConfirm(), "controller focus alone does not strand VR announcement");
 
         owner = Fresh(); Ready(owner);
+        Singleton<ESCMenu>.Instance.IsOpen = true;
+        owner.nextCardTracker.enabled = false;
+        AnnouncementContinue.Tick(true);
+        Check(AnnouncementContinue.CanConfirm && AnnouncementContinueView.Interactable,
+            "an independently open ESC menu cannot veto a ready native announcement");
+        Check(AnnouncementContinue.TryConfirm() && owner.nextCardTracker.Clicks == 1
+            && !owner.enableTracker && !owner.inventory.Interactive,
+            "ESC-open Continue preserves the native tracker and animation handoff");
+        Time.frameCount++;
+        Check(!AnnouncementContinue.TryConfirm(), "ESC-open cannot bypass native unhighlight readiness");
+        owner.cardHolder.FinishUnhighlight(); Ready(owner); Time.frameCount++;
+        Check(AnnouncementContinue.TryConfirm(), "ESC-open next reveal retains native continuation");
+        owner.cardHolder.FinishUnhighlight(); AnnouncementContinue.Tick(true);
+        Check(owner.inventory.Added == 2 && owner.inventory.Interactive && owner.myWindow.IsOpen
+            && !AnnouncementContinue.CanConfirm,
+            "ESC-open native completion reaches card selection without generic dismissal");
+
+        owner = Fresh(); Ready(owner);
+        Singleton<ESCMenu>.Instance.IsOpen = true;
         owner.isPlayingOpenAnimation = true;
         Check(!AnnouncementContinue.TryConfirm(), "opening animation gates Continue");
         owner.isPlayingOpenAnimation = false; owner.isOpenConfirmationBox = true;
@@ -84,9 +103,7 @@ static class Program
         owner.nextCardTracker.gameObject.activeInHierarchy = true; owner.character.IsUnderMyControl = false;
         FFSNetwork.IsOnline = true;
         Check(!AnnouncementContinue.TryConfirm(), "observer cannot advance another player's level-up");
-        owner.character.IsUnderMyControl = true; Singleton<ESCMenu>.Instance.IsOpen = true;
-        Check(!AnnouncementContinue.TryConfirm(), "pause menu gates Continue");
-        Singleton<ESCMenu>.Instance.IsOpen = false; FlatScreen.ManualScreenActive = true;
+        owner.character.IsUnderMyControl = true; FlatScreen.ManualScreenActive = true;
         Check(!AnnouncementContinue.TryConfirm(), "desktop view does not receive duplicate VR input");
         FlatScreen.ManualScreenActive = false; WorldUIConfig.ConversionActive = false;
         Check(!AnnouncementContinue.TryConfirm(), "disabled conversion rejects VR input");

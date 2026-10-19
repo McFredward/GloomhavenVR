@@ -1,4 +1,2274 @@
+**Release1.2.0 candidate, Build715, 2026-10-19.**
+The maintainer requests publication from the current dev frontier, with
+English-only highlights for native Steam Link passthrough and stereoscopic
+videos. Source implementation remains the fully CI-passed ebb6116d5 frontier;
+the release changes its semantic version to1.2.0 and the distributed handshake
+to715, without gameplay/presentation/default/asset/wire implementation changes.
+The exact release candidate must pass its own full hosted dev CI before the
+normal dev→main PR and release workflow. Local validation, asset/companion audit
+and provenance are recorded in `.planning/RELEASE-1.2.0.md` and ignored
+`.planning/debug/release120/`. No new hardware acceptance is claimed.
+
+**Structural pillar LOD retired, 2026-10-19.**
+The maintainer explicitly requested removing the shared PC/Steam Frame and Quest
+pillar LOD, active settings and reduced distribution meshes. History was recorded
+first in f15e66459; removal and actual bank qualification follow in28f5371df and
+ceef048f8. Native pillar geometry/visibility is retained. The hidden old config key
+is inert; figure LOD and ordinary wall detail are unchanged. All261 reduced streams
+and261metadata files (14,396,885rawbytes) are removed; the actual rebuilt Windows
+bank shrinks4,496,780bytes to52,361,903. Its2,909streams decode successfully;
+1,139exactoriginals, including those shared with independent chunk rendering,
+remain. Focused terrain370 assertions/four causal controls, profiles328,
+help2,314, producer guards9 and strict Release0warnings/errors pass. The integrator
+also reran the source group16/16. No new complete local gameplay gate or headset
+visual acceptance is claimed. See `.planning/retired-PILLAR-LOD-20261019.md`.
+
 # State — where the project stands
+
+
+**Menu source continuity and paired handoff, Build714 / patch0.2.11, 2026-10-19.**
+The prerelease game713/patch0.2.10 paired audit proves that a disabled native
+intro/menu anchor tears down the still-valid owned head and closes requested MR
+coverage. Keep that same tracked menu head/root/pose through native-anchor gaps;
+rebind a live successor without re-centering or replacing MR-owned camera state.
+Real kind changes, explicit rebuilds, VR-off and owned-object loss still teardown.
+No previous eye/mask, foreign-source permission or image-resolution change.
+
+New actual Unity lifecycle/GPU-source fixture exercises12 anchor replacements,
+1,126 assertions/110 render callbacks and three compiling causal controls: old
+teardown genuinely closes the source, forced rebind pose and clear-owner mutation
+fail independently. It does not execute the full MR owner, real XR or receiver.
+The local suite is registered with its inventory (231 local,102 CI,16 source).
+Focused scene-startup/render-quality/frame-order plus worker strict Debug/Release
+pass. Integrated source16/16 and strict Debug/Release0W0E pass. The private compiled
+713-to714 review confines behavior to VRRigDriver, plus eight version consumers
+and three build metadata files. New local inventory231/CI102/source16 is checked.
+Evidence and exact pins: `.planning/debug/menu745/`. No new complete local or
+headset acceptance claimed; unchanged wire300598 evidence is inherited. The prior
+CI inventory repair's complete39309987419 run now passes all jobs.
+
+Native patch0.2.11 repairs proven missing worker requeue wake and optional decoder
+waiting for exact permanently rejected OUTPUT tokens. Full current lease checks,
+authenticated positive Ready, camera/GPU ownership and emergency deadline remain.
+Process305, Runtime2739, Local197 plus sanitizer/causal evidence is retained in
+`.planning/debug/steamlink-sender745/`. Aggregate hardware timeouts do not prove
+which rejected token caused either event. No Frame mutation/restart was performed.
+Developer API/wire/build docs and historical-route warnings are now current in
+the native repository. The previous CI inventory repair's full runtime run is
+tracked separately; focused success is not relabeled a new full gate.
+
+
+**Release preflight test inventory, 2026-10-19 (Build713 unchanged).**
+CI39305984255 passed all four runtime shards but its source job rejected the newly
+registered local-only `mr-backing-depth-runtime` suite: the expected local inventory
+still counted229. Add the genuine native-render suite to the explicit local and
+local-minus-CI sets and update only that count to230; CI102/source16 remain unchanged.
+The original focused parallel-runner failure is reproduced, then its19 tests pass
+(two platform-dependent skips). No production, configuration, wire, build number or
+runner/policy change. Existing runtime evidence is inherited rather than rerun locally.
+Evidence: `.planning/debug/steamlink-release-review-20261019/ci-inventory-*.log`.
+
+
+**Initiative MR backing, Build713; paired patch0.2.10, 2026-10-19.**
+
+The fresh game710/patch0.2.9 run is the maintainer's best streamed passthrough run,
+with a remaining brief activation blackout. Read-only Frame capture verifies the
+installed0.2.9 binary and active LZ4; the first black interval coincides with native
+FEC/backtrack reset after93 valid masks. Earlier native retries predate MR. Patch
+0.2.10 removes a duplicate compositor decompression and full-image min/max pass,
+sharing authenticated transient samples without retained-mask substitution. New
+bounded decoder handoff latency counters identify shorter stalls. This proves less
+CPU work, not elimination of the hardware reset; no headset changes were made.
+Native evidence/delivery: `.planning/debug/steamlink-sender740/` and the separate
+patch repository's `docs/development/FRAME-CONTINUITY.md`.
+
+The supplied initiative screenshot shows front/back occlusion by the MR plate.
+Native world-X reorder under the rotated VR dock can move symbols behind a fixed
+host-plane plate; actual Unity reproduces this with original hierarchy metadata.
+The existing clipped visible-ink walk now retains actual depth, seating the same
+opaque backing behind all admitted content with its original2mm physical gap,
+including materialisation and remote mirrors. No native transform, UI size/order,
+shader, wire, image resolution or camera setting is changed. The photographed
+instance's exact per-graphic Z was not logged; new bounded diagnostics record it.
+
+Focused evidence: panel ink511/31+1controls, backing258/13, animation578/6+2,
+materialise35833/10, actual Unity96 assertions plus two compiling causal controls.
+Integrated14 source/fixture pins match; source16/16 and strict Release/Debug0W0E
+pass. Private712-to713 compiled review confines behavior to MrBacking, PanelInkBounds
+and RemoteWidgetMirror, plus eight version consumers/three metadata files.
+Unchanged actual wire300598 and unrelated712 evidence are inherited; no new complete
+local gameplay gate or headset visual acceptance is claimed. See
+`.planning/debug/initiative740/{review.md,validation.json,compiled-scope/verdict.json}`.
+Own stopped worker worktrees and generated Unity caches are removed; current binary,
+source, input, screenshot, hardware and validation evidence are retained.
+
+
+**Visible Continue beside independent menus, Build712, 2026-10-19.**
+
+Fresh local710/a3b7ed777 hardware shows a chest reward opened during EndTurnLoot,
+48 RewardContinue pointer-click deliveries, but canContinue=False and no forwarded
+native input. The scenario ESC window remained open across the reward and reports
+native OPEN at shutdown. VR incorrectly imported the ESC gamepad blocker into an
+explicit pointer button; original ProcessRewards mouse/latch input has no such
+predicate. Remove that extra veto from RewardShowcase and the same source-proven
+case in AnnouncementContinue. UIRewardsManager also follows its actual MEC process,
+not Behaviour.enabled; that second mismatch is source-proven rather than a measured
+hardware operand. Original pending input, window, reveal, actor/network authority
+and native callbacks remain. No automatic dismissal, menu closure or progression.
+
+The adjacent source audit covers Campaign and shared postquest rewards, unlocks,
+UIMessage queue continuation, DialogPopup/confirmation surfaces and host-routed
+enemy-information Continue. No further concrete matching defect was found there;
+their genuine native restrictions remain. New bounded normal diagnostics identify
+the disabled reward gate; routine queued input remains Debug.
+
+Focused verification: RewardShowcase3275 assertions/27 compiling causal controls,
+including120 context/input/manager/role cases against the exact original native
+mouse coroutine, startup and EndProcess. Announcement349/seven controls covers
+native tracker, animation, next card and final selection with ESC open. All33
+relevant worker source/script/fixture/native input hashes match the integrated
+checkout. Source16/16, strict Debug/Release0W0E, docs i18n and private711-to712
+compiled scope pass: two behavior types, eight version consumers, three metadata
+files. Preserve669 config keys/241 Harmony bindings and all4806 old log tokens;
+one bounded BLOCKED token is added. Existing229 local/102 CI registration is intact.
+Unchanged figure, native UI geometry and actual wire300598 evidence are inherited;
+no new complete local gameplay gate or headset/network result is claimed.
+
+All three own stopped worker worktrees were removed after byte-verified archives
+and exact input comparison. Canonical cleanup retained failed attempts, native
+source and verdicts while removing their generated caches and root build obj.
+Debug712 deliverables, frozen hardware, audit, input hashes and receipts remain
+under `.planning/debug/continue712/`; see `CONTINUE-712-COORDINATION.md`.
+
+**Figure highlight/pickup agreement, Build711, 2026-10-19.**
+
+Fresh local710 logs show26 elected-figure trigger refusals plus20 explicitly
+counted suppressed refusals. A16mm Elementalist contact within40mm pinch reach
+was refused by a generic beam claim. The logs establish the arbitration defect,
+not stale zoom geometry or the exact unlabelled hover publisher. Old remote logs
+are not paired710 evidence. The maintainer explicitly requires every highlighted
+figure to be grabbable.
+
+Named world hover now yields to the same live highlighted figure; actual presses,
+drags and stretch captures retain ownership. Their starts yield before callbacks,
+including early flat-screen fingertip entry and the native board-click bridge.
+Invalid offers immediately revoke figure glow, including after grip-bar pickup.
+Original native collider permission remains distinct from a mod reach extension;
+switching dwell retains an old winner only while eligible in the current sweep.
+Native busy/dead/remote-held rules, hold/release, geometry and frame order remain.
+
+Verification: portable production2789 assertions/13 compiling causal controls;
+integrated production rerun2789 with all15 worker input hashes matched. Existing
+focused figure-hold1440/6 controls, native enhancement1515/78, town interaction
+7915/73, semantic haptics32/8, native seated raycast transfer/nine controls and
+map navigation205/two controls pass. The seated test's old beam sink initially
+failed compilation against the new named API; only that boundary was adapted and
+its suite rerun. Retain the original non-green aggregate and separate repair pass.
+Source16/16, runner unit19 (two intentional skips), strict Debug/Release0W0E and
+private710-to711 compiled scope pass:16 owned behavior types, eight version-only
+consumers, three metadata files. All669 config keys,241 Harmony bindings and4806
+log tokens remain. New portable suite is registered local+CI (229/102); unchanged
+wire300598 evidence is inherited from710, with no new complete local gate claimed.
+
+Own stopped caches were cleaned through the canonical API. All three completed
+worker worktrees were removed only after byte-verified evidence archives and
+source integration; unrelated worktrees were untouched. Debug711 delivery, frozen
+hardware, raw failed attempts, source inputs and receipts remain under
+`.planning/debug/figure-grab711/` and `figure-grab710-zoom/`. Implementation and
+focused software behavior are established; headset glow/pickup after real zoom
+and live multiplayer ownership remain hardware outcomes to verify. See
+`.planning/FIGURE-GRAB-711-COORDINATION.md`.
+
+Build711 CI follow-up: the already-red710 CI39291974849 failed solely because
+`mirror-wall-signature-unconditional` now reaches the earlier exact terrain-owner
+assertion rather than the historical mirror assertion. Change only the shell
+counter's expected first failure; production19515 assertions and all30 compiling
+causal controls pass. Preserve raw prior CI logs, script/source hashes and the
+focused CI-group result under `figure-grab711/ci-wall-counter/`. Runtime remains711;
+no new build or broad local rerun is needed for this test-only expectation repair.
+
+**Steam Link paired-only transport, Build710, 2026-10-19.**
+
+The maintainer explicitly retired the Frame-only atlas method. The game no longer
+contains an atlas source/shader, quality/resolution/foveation override, old helper
+binary or projection test UI. Missing paired source authority keeps the ordinary
+image. Standalone native MR and Virtual Desktop chroma key are unchanged. Existing
+configuration bindings remain inert where required for saved-setting compatibility.
+The native receiver ships only independent coverage, preserving the original RGB
+pipeline/handle and strict source/session/frame/eye association. Its installer
+removes exact owned obsolete bridge artifacts; changed files stop the update.
+Legacy installation/enable/publication paths refuse, while receipt-owned removal
+and explicit Undo remain available. New and historical documentation is published
+in both repositories; the old method is archived in native docs/history/ATLAS-RECEIVER.md.
+
+The latest immutable paired hardware capture proves the earlier writable D3D
+context facade works. It exposes the next concrete admission defect: the game's
+4040x4040/f27 DirectMode swap descriptor uses raw shape word9. The pinned native
+implementation decodes samples=max(1,word&7), slices=max(1,word>>3); the former
+validator rejected9 as an invalid sample count. The normalized decoder now covers
+registry, cold shared import and exact SRV matching, retaining the unchanged raw
+native call and owner/PID/generation/alpha-witness gates. Actual Windows CI verifies
+56 DirectMode,45 metadata and16 shared D3D resource checks; the old admission
+control fails at ownership check29. No receiver extent gate was loosened based on
+an unproven alignment hypothesis.
+
+Verification: integrated native168/168 CTest pass; actual receiver26860 normal and
+sanitizer checks, four causal controls, and real cold loader31 checks. Setup23,
+workflow36, actual remote/maintenance43, retired helper17, bootstrap35+one local
+PowerShell skip, and artifact pin2 checks pass. Game710 strict Release0W0E and
+focused actual Unity/GPU/material/presentation/observer checks pass; see
+`.planning/debug/steamlink-sender710/ordinary-only/review.md`. All669 config keys,
+241 Harmony bindings and4806 log tokens remain. Integrated source checks16/16 and
+actual golden wire300598 assertions pass. The broad local presentation runner was
+interrupted once its wrapper was found to select all228 suites; that is NOT a
+complete-gate pass. Unchanged unrelated presentation evidence is inherited, not
+repeated. The emitted compiled source is identical to the worker's strict build.
+
+Native dev209de95 and public main68c9c22 contain the paired-only implementation.
+The public archive SHA256 begins cce0f5fbb2d686c7; it requires game710 or newer
+for this hardware candidate. Public download, extracted bootstrap/engine and main
+EN/DE documentation/history were verified against the committed source. Native software evidence does not establish final headset
+sharpness, both-eye appearance or simultaneous game/menu MR. No Frame file,
+setting, service or restart was changed during this delivery. Retained hardware
+capture: `.planning/debug/steamlink-live-20261019-081525/`; native delivery/reviews:
+`.planning/debug/steamlink-sender724/`. Old pending quality lease recovery records
+are preserved; the new runtime never executes them or writes their settings.
+
+**Steam Link dispatch repair and menu containment, Build709, 2026-10-19.**
+
+The fresh paired logs confirm that the orphan UNIX endpoint is repaired and the
+real PC/Frame handshake plus coded-AU roundtrip succeeds. Native D3D draw hooks
+are still absent, so ordinary-RGBA admission never happens and the legacy atlas
+continues to explain the sharpness loss. A real Windows/WARP production-boundary
+fixture now reproduces runtime replacement of all four hooked dispatch slots.
+The native fix now uses a complete writable object-local forwarding table that
+follows the runtime's current entries without modifying its original table or
+picture geometry. Actual Windows production checks pass119753 assertions,
+including cold first Draw, repeated real rendering/readback and safe restoration;
+the stale-target control fails exactly as intended. The independent ABI
+experiment passes3665 checks and native integration CI passes168 tests. This
+establishes the demonstrated dispatch repair, not a new headset-success claim.
+
+The separate game SafeHandle cancellation exception is fixed by off-thread
+observer retirement with immediate authority revocation and owned callback
+completion. Legacy atlas also pauses on unknown/lost native XR focus, restores
+ordinary presentation without chroma key, and resumes with a fresh stereo pair.
+The new independent-RGBA route stays active for combined game/menu MR. Current
+hardware evidence proves full-dashboard focus loss, not every quick-menu variant.
+
+Focused lifecycle, real Unity rendering/callback checks and strict Release build
+pass; all669 config keys,241 Harmony bindings and4806 log tokens remain. There
+is no repeated complete gate. See [the scoped review](STEAM-LINK-709-OBSERVER-MENU.md)
+and `.planning/debug/steamlink-sender721/`. Native dev a3db3c1 and the updated
+`stream-bridge-preview-v1` archive are published; actual bootstrap extraction,
+packaged-engine checking and unauthenticated public-download verification pass.
+Archive SHA256 starts a04602e3c264. Use game709 and choose Update in the existing
+preview assistant. Both-eye sharpness, live resolution changes and combined
+game/Steam-menu/camera remain the next visual hardware checks. No Frame writes
+or restarts were performed; own worker checkouts/caches were cleaned. Native
+and game EN/DE READMEs now present both routes and link their current instructions.
+
+**Paired full-resolution Steam Link preview, Build708, 2026-10-18.**
+
+The Windows/NVIDIA HEVC sender and exact-version Frame receiver are integrated
+on native dev at bdca521. The mod negotiates an ordinary full-frame RGB+A source
+through the paired sender, releasing the legacy resolution/foveation lease only
+after admission. Independently certified coverage travels in the same HEVC access
+unit; the original colour output and native reconstruction remain intact. Missing
+or mismatched associations retain opaque rendering. This is the first combined
+hardware candidate, not a new verified headset result.
+
+Native CI39146832939 and setup CI39146832958 pass, including actual Windows
+bootstrap execution. Installer transactions preserve existing settings and owned
+receipts, generate native shaders locally, and check fresh SteamVR startup evidence
+plus the user's visible-picture verdict. Failure offers explicit Undo; no automatic
+restart or timed rollback. The actual preview ZIP also passes the bootstrap parser
+and its own isolated packaged --check entry without contacting the Frame.
+
+Integrated mod evidence: strict Release build (zero warnings/errors), source guard
+16/16, EN/DE documentation check, all15 affected SteamLink suites, and300598 real
+network golden assertions pass. One source-loading fixture needed its extraction
+boundary and owned256x256 XR metadata updated; only that suite was rerun after the
+fixture repair. The additional general239-suite run was deliberately interrupted
+and is not reported as a complete gate. Renderer validation includes16896 actual
+production-port assertions in both normal and sanitizer configurations; GPU source,
+coverage and lossless access-unit checks remain separately scoped in the evidence.
+
+Evidence and the current installable archive remain under
+`.planning/debug/steamlink-sender712/`. The explicit preview bootstrap installs
+the Windows PC/Frame candidate; the ordinary public release is unchanged. No Frame
+files or services were changed during this delivery. First hardware checks must
+compare sharpness, both-eye consistency, resolution changes and the local Steam
+menu using Build708 or newer. Native Linux PC sender installation remains unsupported.
+
+**Guided maintenance v1 published, 2026-10-18; runtime remains707.**
+
+The maintainer's actual v2 report now matches both Windows reference files,
+including vrpathreg.exe (840856 bytes, no hardlink). The Frame is reachable at
+its confirmed address and has the enabled legacy public patch; the new PC
+provider is absent. This is setup prerequisite evidence, not a new MR result.
+
+Native setup now has width-aware spaced EN/DE sections, separate wrapped path
+lines and numbered actions. The same preview entry point now requests the separate public
+setup-manager-v1 maintenance package, offering Check / Uninstall / Exit.
+It does not ship or install the unfinished full-resolution two-sided bridge.
+Actual removal uses a canonical byte-pinned helper and the exact owned receipt;
+all artifacts and the receipt are checked before staging and again after the
+native lock is acquired. Altered/foreign files are preserved. A running SteamVR
+or unresolved camera restoration returns pending with disabled activation and
+recovery files retained. After the user manually stops SteamVR, another pass
+can restore the original camera baseline and finish. No PC component, pairing,
+Steam service or headset restart is silently changed.
+
+Focused integration evidence:39 presentation cases;26 bootstrap cases (the
+PowerShell-specific case is covered in actual Windows CI);8 management cases including one
+using the real numbered presentation, and4 worker causal mutation controls.
+The actual packaged engine runs management --check under an isolated interpreter
+without Frame contact. Source/result evidence is under
+`.planning/debug/steamlink-sender711/`. Windows/Linux setup CI39138239216 passes
+at native99699b5, including actual bundled Python, OpenSSH, archive parser and
+management --check execution without Frame contact. The new menu pipe fixture
+normalizes Windows CRLF before checking for cursor-control CR; no product change
+was needed for that failed fixture. The public unauthenticated download and both
+raw preview entry points match the reviewed bytes. Package14140107 bytes,
+SHA256 2d30259b4db9adf52243d4ab3f953431326f813a0f28b67a324ca184be27d484.
+No Frame files or services were changed. Actual native runtime control work
+is separate; install remains unavailable until the full source-AU,
+selected eye/extent, mask/renderer and provider integration chain is established.
+
+The native dev branch also integrates6abfc86: explicit default-off private
+credential loading, OS randomness and bounded actual TCP reverse control wired
+to the existing authenticated SEI sender/receiver ports.202 actual private-file,
+loopback and handshake checks pass normally and under ASan/UBSan;4 causal
+controls fail as intended, Win64/AArch64 production-module cross-links pass,
+and the integrator's one affected CTest passes. The unchanged native gate is
+green at23d0dc5 (CI39138159183); the new native CI runs independently. This
+library is uninstalled and is not part of the maintenance asset. Installed
+provider event-loop wiring, actual complete-AU/source authority and exact GPU
+selection/coverage association still prevent a new full-resolution MR claim.
+All three worker worktrees are removed after patch-identity/clean checks;
+current native build caches and two superseded generated inspection ZIPs
+(26717556 bytes) are removed. Source archives, source/capture evidence, results,
+hardware inputs, public release records and the current manager archive remain.
+
+**Friendly setup inspection v2 published, 2026-10-18; runtime remains707.**
+
+The maintainer's actual v1 report reaches the AArch64 Frame, finds its enabled
+legacy public patch and matching runtime, and matches the PC Steam Link driver.
+The new sender is correctly absent. `vrpathreg.exe` was reported unreadable.
+The actual Windows portable-runtime fixture reproduced a separate concrete EXE
+identity defect: CPython path stat invents executable bits from `.exe`, but
+fstat does not (33279 versus33206). Only those synthetic cross-API Windows bits
+are normalized; same-API mutation checks remain. Public reference inspection
+also supports stable hardlinks, retains strict private-file rules, and reports
+fixed reason codes rather than swallowing failures.
+
+Native `dev` at56cfde6 publishes `setup-inspection-v2` behind the same
+`get-preview.ps1` / `.sh` entry points. It adds automatic bounded local Frame
+discovery, successful-host reuse in the existing PC report, EN/DE guidance,
+ASCII header and terminal-only progress that pauses for input. No subnet prompt.
+Windows packages private Python and an official pinned OpenSSH fallback, tested
+by actual execution without OS-feature changes. Linux automatically prepares a
+pinned private Python if needed (normal OS SSH is still used). The real x64
+fallback executes with SSL; a corrupted archive is refused before execution and
+both cases clean their temporary runtime. Windows/Linux setup CI39136455056
+passes; native gate39136099820 passes at001ca10, with subsequent setup-only
+repairs covered by their affected checks. No Frame action or new MR result.
+
+The native branch also now contains the uninstalled, exact-process-pinned V4L2
+coded-input ownership provider: actual QUERYBUF/mmap/QBUF/DQBUF lifecycle and
+an AArch64 tail-forward preserving unknown ioctl calls.260 checks pass on host,
+under sanitizers and AArch64 emulation, plus8 actual assembly checks and four
+causal controls. Current native payload reassembly up to QBUF is traced; exact
+HEVC AU, source/selected-picture/eye/UV identity and coverage remain unproved.
+This component is not shipped or activated by the inspection package. See the
+native `docs/research/receiver-coded-provider-20261018.md`. Own four integrated
+worker worktrees and completed build/review caches are removed; current archive,
+source pins, compact evidence and hardware inputs are retained.
+
+**Published read-only setup preview, 2026-10-18; runtime remains707.**
+
+Native `dev` now publishes the separate `setup-inspection-v1` prerelease and
+the pinned `get-preview.ps1` / `get-preview.sh` one-line entry points. This is
+an explicit PC/Frame inventory test, not a released two-sided bridge or a
+sharpness fix. It cannot install, pair, change Frame files/settings, or restart
+anything. It can save only its own non-secret PC inspection report; OpenSSH
+may update the normal PC known-hosts file after the user accepts a fingerprint.
+Windows includes verified official portable Python3.14.8. Actual Windows
+PowerShell5.1 archive extraction, the bundled interpreter's inspection CLI,
+and actual Windows private-file create/update/read now pass CI atc0b2102
+(run39133860727). This caught and fixed CPython's Windows stat/fstat ctime
+semantic mismatch and a still-open descriptor blocking atomic publication.
+Content/replacement guards remain, including same-API ctime checks. The native
+gate passed atf1c5e74 (run39133534648); later changes only repair setup files.
+The published archive contains no native patch or Valve binaries. No device
+was contacted or changed during these checks. Own worker worktrees are removed;
+current archive, source pin and small results remain in ignored debug evidence.
+The complete-AU/reverse-control/selected-frame/coverage-renderer work described
+below remains required before a real new image-path headset test.
+
+**Negotiated sender companion authorized, 2026-10-18; runtime remains707.**
+
+The maintainer now permits a PC sender modification and selects the ordinary
+Steam Link RGB plus frame-bound compressed coverage architecture. This explicitly
+supersedes the earlier no-PC-sender-change constraint for this work. Both modified
+ends must recognize and mutually confirm a compatible fresh session. Missing or
+incompatible counterparts must preserve ordinary Steam Link and give the user
+appropriate status; no passthrough activation follows from local API readiness
+or an unconfirmed HELLO. Masks remain on the existing video transport; reverse
+control/authentication, actual coded-AU interception and selected-frame binding
+must be established separately before installation or renderer activation.
+Portable protocol/SEI and lifecycle adapters now pass focused software checks.
+An actual four-frame libx265/FFmpeg round trip retains every original NAL and
+identical decoded frame hashes/cadence; Linux, Windows and AArch64 portable builds
+pass. This is not proof of Steam Link preservation or an installed sender.
+The maintainer's current-PC SHA-256 readback now matches the privately reviewed
+Windows driver (`1e846be041039798580a91452371f6288c614fb4c152126b137e2c693fb77eef`).
+Guided CMD/SH setup and SSH pairing are in development. SSH establishes a private
+per-installation secret; no secret is carried in video, logs or process arguments.
+The installer must distinguish legacy public receiver installations from the
+new negotiated bridge and refuse live installation of incomplete prototypes.
+No new hardware-quality result is claimed. Frame writes and restarts still
+require coordinated readiness; no timer/restart is added.
+
+The native repository's `dev` now also contains guided CMD/SH launchers,
+PowerShell/Bash online bootstraps and release packaging with a
+release-pinned portable Windows Python runtime. The source-pinned Windows
+NVENC provider builds but deliberately has no live negotiation start. Other
+codecs and source changes retain ordinary output and revoke old authority.
+The actual paired sender -> signed SEI -> receiver bootstrap passes283 checks
+with an independently encoded HEVC AU and sanitizer/causal controls; this is a
+software fixture, not a real Steam Link transmission. Setup executes its actual
+remote agent only in temporary fixture homes; no Frame installation is changed.
+There is no complete released two-sided bundle yet, and the online installers
+must refuse an old Frame-only/prototype package. Linux host inventory works;
+native Linux sender support is not established by the portable cross-build.
+Actual Frame coded-AU interception, reverse control, selected-frame/UV association
+and new coverage rendering remain required before user installation/testing.
+
+Official narrowly downloaded Steam host references are now available privately.
+The Windows registration-tool revision comes with the exact maintainer-reported
+driver hash. The Linux x86-64 source uses Vulkan Video, not the Windows NVENC
+table path; its complete-AU borrow/transmit boundary remains unimplemented.
+The native repository records the exact depot/manifests and pins in
+`docs/research/linux-host-reference-20261018.md`; no Valve binaries are published.
+Native CI is green at060a862 and Linux/Windows PowerShell5.1 setup CI is green
+at8e7debf; finalfffd799 only adds source-provenance documentation. All six own
+worker worktrees and transient build/download tools have been removed after
+integration; small source/capture/result evidence and current deliverables remain.
+
+**Larger same-stream RGB/coverage carrier review, 2026-10-18; runtime remains707.**
+
+The maintainer proposes a larger actual Steam Link video to retain the selected
+scene raster plus mask. The99/64 per-axis budget calculation is valid, but the
+retained host's manual request and later layout fitter reduce every square
+input to at most3200 in all three layouts. The layouts' larger complete-image
+maxima pay for their own packing, not a larger scene input. Min/max settings and
+GPU capability queries do not raise that internal bound. This is exact static
+evidence for the pinned2026-10-11 PE, not proved identity with the current PC;
+the actual constant3264x6400 decode despite increasing4040/5050/6060 sources is
+independently consistent. Do not ship another width-only purported fix or ask
+for a repeat of that headset test. See [the bounded decision record](STEAM-LINK-LARGER-CARRIER-20261018.md).
+No runtime, shader, helper or Frame installation changes in this research.
+
+**Application-only quality route review, 2026-10-18; runtime remains707.**
+
+The707 preview logs local overlay visibility1 twice, but the maintainer sees no
+surface. Do not equate this with remote delivery or repeat that hardware branch.
+The user permits only game/mod and Frame receiver changes; no PC Steam sender
+hooks, binary changes or replacement display driver. Preserve ordinary RGB and
+investigate a separate app-owned coverage channel with a same-selected-image
+token plus independently proved source-ray/composition mapping. Both contracts
+are required; current protocol/lifetime foundations do not yet supply them.
+The alternative is an explicitly owned RGB+coverage streaming renderer, with
+larger tracking/codec/composition scope. See [the decision and exact current
+pixel budget](STEAM-LINK-APP-ONLY-QUALITY-20261018.md). No new runtime/device fix
+or hardware test is claimed by this research.
+
+**Immediate non-destructive delivery preview, 2026-10-18: Build707.**
+
+The actual706 test reports local API readiness for both charts, but the
+maintainer sees only camera passthrough and kills the game. The automatic
+constant-zero source substitution wrongly trusted local readiness as remote
+delivery. Remove that path entirely. The test starts directly on its button,
+closes options automatically and ends on reopening, with the real game source
+always preserved and no timer. A common forward test surface replaces the
+UV-centred asymmetric charts; their forward rays missed both visible interiors
+in the actual log. This is a delivery preview, not a claimed quality/menu fix.
+
+The same run's ordinary dashboard transitions retain zero foreground fade and
+grid alpha; scene dimming is explicitly unavailable. No public fade-reset fix
+is justified by these records. Build706 CI also exposes a missing unrelated
+action port in the movie-only fixture; repair that boundary and inherit the
+unchanged passing shards. See [the correction record](STEAM-LINK-707-PROJECTION-DELIVERY.md).
+
+Final focused evidence:65 managed owner/UI and44 actual callback checks, nine
+causal controls,156 native checks/four controls, and the repaired movie fixture's
+915 assertions/25 controls. Strict Release is0 warnings/errors; the actual
+Mono-loaded707 DLL matches the rebuilt210432byte helper and contains no zero
+image/substitution/latch path. Both independent source reviews report no
+blocker. Own worktrees/caches are cleaned; no Frame action or full-gate claim.
+
+**Combined quality-route witness and menu observation, 2026-10-18: Build706.**
+
+The maintainer prioritizes image quality and requests both remaining issues in
+the next single run. The new explicit Advanced > Cheats projection test uses
+an actually prepared v3 stereo source, a constant zero contribution/coverage
+base and central public per-eye RGBA overlays. Inner opaque-black versus
+transparent lanes distinguish independent alpha from simple RGB flattening.
+It changes no XR size, FOV, Steam settings, sender binary or Frame installation.
+Opening options restores the game; no automatic expiry/restart is introduced.
+This is a transport witness, not a claimed quality/menu fix or full4K proof.
+
+Real Unity source packing passes257 focused checks; the native helper passes204
+core checks with scoped causal controls and a strict identical Win64 rebuild.
+Software evidence cannot establish independent Steam Link alpha carriage.
+After the witness ends, the same normal Debug run can record menu state through
+the read-only705 observer. See [the combined record](STEAM-LINK-706-COMBINED-TRANSPORT-WITNESS.md).
+
+**Per-route Frame result and Debug-only host observation, 2026-10-18: Build705.**
+
+The fresh separately authorized capture has12 populated central records across
+both active companions/selectors and guarded closed/open/closed contexts. Both
+paths independently lose the v3 header while the menu is open and regain it
+afterward: first raw-G128/1023 ->52/1023 ->128/1023. This removes the old shared
+first-winner ambiguity for these routes. Both original source alpha fields are
+exactly1 throughout; copying them cannot fix this path. R1/flags/tint do not
+change. The single-cell ratio is not a proved global fade or gamma law. All32
+files passed checksum checks; public installation and normal UI are restored.
+
+Build705 adds a bounded, read-only public host OpenVR observer at Debug only
+for requested native Frame/Steam Link MR. It runs off Unity's thread, writes no
+settings or render state, and changes nothing on the Frame. It checks whether
+an actual public fade/grid/focus state accompanies the observed input change.
+No source/receiver/quality/menu fix or new headset result is claimed. See
+[the scoped observation record](STEAM-LINK-705-COMPOSITOR-OBSERVATION.md).
+
+**Completed native menu capture, 2026-10-18; game remains Build704.**
+
+The corrected isolated diagnostic completed all three manual UI contexts and
+both consumed selectors, with0 refusal and fenced collection. The open first
+winner is an exact-original fallback with first guard0.05083088949; closed
+winners decode v3 with0.1251221895. R1/flags/tint remain unchanged in these
+samples. Both accepted companions continue to be submitted in every context:
+the shared first-winner slots do not prove which entire pass changed or the
+final layer order. Do not loosen/normalize the guard from one value. The next
+bounded observation is per-companion and copies only already executed original
+sample values; no further Frame action is authorized by its preparation.
+All31 files were checksum-verified locally, the public activation/library were
+exactly restored, and the maintainer confirmed normal UI and may use standby.
+Private evidence is `native/dashboard-census-v3-20261018-092222-47ccaf/` beneath
+the Build704 debug record. No production quality/menu repair is claimed.
+
+That per-companion follow-up is now locally prepared, not installed:307 focused
+generator/parser assertions,303 actual fake-native lifecycle assertions also
+under ASan/UBSan, strict host/ARM builds and3330 real owned GPU assertions pass.
+The GPU shared-slot negative control fails the exact second-route assertion;
+the distinct color-output control fails its raster comparison. No source image
+reads, original color stores or shipping-preprocessed bytes change. All75 ARM
+imports inherit verified actual providers. Native output stays below64KiB with
+a12544byte record buffer. The GPU-only raw report's inherited hardcoded control
+list is explicitly corrected by `integrator-review.json`; unchanged core/session
+evidence is inherited. The reporting-only runner repair was AST/diff checked.
+No full gate or product sharpness/menu repair is claimed; another device
+attachment still requires the maintainer's explicit readiness and permission.
+
+**Direct native-MR comparison and host preparation, 2026-10-18: Build704.**
+
+The maintainer directly confirms sharp Off / soft On in703. Actual PC targets
+now change4040/5050/6060, but read-only Frame logs show constant3264x6400 MR video.
+The extra v3 RGB/coverage packing loss remains; no further width-only quality
+claim. Host source admission now waits for the matching current live settings
+lease and revokes on resize/Off/helper completion, retaining ordinary output
+while pending. This closes a proven source/acquisition race, not native encoder
+readiness or the entire reported one-second edge transition. No receiver change.
+
+The clean local dashboard episode has no decoder-format change; the first one
+also includes tracking loss and must not be generalized. Game + menu + camera
+remains open native work. Focused114/138/47 evidence with ten affected causal
+controls is composed with unchanged earlier evidence, not a complete gate.
+See [the current comparison record](STEAM-LINK-704-COMPARISON.md).
+
+The first explicitly authorized isolated dashboard diagnostic actually loaded,
+but its cold QueueProfile guard refused before recording. No stream/menu test
+or capture followed; the public installation was exactly restored and the user
+confirmed normal UI. Counts1/1 do not prove the missing queue flags/extension
+and graphics-query predicates, and family0 on that refusal was only a default.
+The old successful transaction already supported a typed global-priority
+scheduling node; that narrow contract and precise cold evidence must be reused
+before another attachment. This is diagnostic repair work, not a menu/quality
+fix or a new hardware-success claim.
+
+A second attachment admitted the actual priority1024 graphics queue, then hit
+an optional startup-summary capacity before capture. The source now separates
+bounded optional truncation from strict8-companion/resource gates and reserves
+accepted identities. An old-fail/new-pass GPU startup replay (45 checks,
+6 slots, zero validation errors),290 focused checks plus ASan/UBSan and4 causal
+controls cover this repair. Public Frame activation is restored/user-confirmed;
+no menu-picture or full-quality fix is claimed. Fullscreen minimization opens
+Steam UI while replying, so future phase context requires actual logged UI
+show/hide events, not the reply alone.
+
+**Live PCVR eye resolution and native dashboard assessment, 2026-10-18: Build703.**
+
+Actual Frame702 video is3264x6400 despite an acknowledged4096 request; the v3
+atlas also retains its2048/3168 scene fraction. No settings-only full-quality
+correction is claimed. PCVR eye-slider edits now resize the running display at
+the existing safe Update boundary after slider quiet, independently of MR.
+Standalone retains the existing allocation containment; profile detection is
+cached at the session boundary. Readbacks are not headset-picture evidence.
+
+The Steam button opens the local Frame menu. The user chose live game + menu +
+camera together; the prepared focus-pause fallback is reverted. Native menu
+coordinate/background repair and full-quality coverage transport remain separate
+open tasks. No Frame writes, restart or new headset test in this round. See
+[the scoped record](STEAM-LINK-703-LIVE-RESOLUTION.md) for actual input evidence,
+focused verification and the implementation assessment.
+
+**Native Steam Link adaptive transport size, 2026-10-18: Build702.**
+
+The maintainer accepts Build701's edges, but reports markedly degraded picture
+quality. Its actual log shows4040x4040 eye/carrier sources and the newly applied
+fixed3072 uniform video request. Remove that extra ceiling: derive the request
+from current actual XR dimensions, rounding upward to64 (4040→4096), never writing
+XR allocation, viewport or render scale. Remove the independent MR-width row in
+both options menus; retain its saved key inert. A transient unknown extent keeps
+only the current eligible generation, avoiding load-time release/reacquisition.
+
+The verified helper now accepts64..16384 aligned requests and refuses/restores
+immediately observed smaller readbacks. Existing larger manual widths, absence,
+ownership and rollback controls remain. These arithmetic bounds/readbacks are
+not demonstrated decoder capabilities or proof of negotiated video resolution.
+The accepted v3 bank, receiver, masks and startup cohort remain unchanged. Its
+existing2048/3168 scene fraction is a separate residual spatial budget; removing
+the added3072 ceiling does not make that atlas pixel-lossless. No Frame update.
+
+Focused evidence and final build/artifact records are in
+[the correction record](STEAM-LINK-702-ADAPTIVE-RESOLUTION.md). Inventory is now
+236local/105CI/16source; no new complete-gate or headset-picture claim.
+
+**Native Steam Link admission and stereo startup, 2026-10-18: Build701.**
+
+Fresh Build700 hardware logs show all three quality leases refused at snapshot;
+the proposed uniform/no-sharpening policy never ran. This explains why its image
+change was not observed. The exact old failing key/API code was not recorded.
+The helper now supports the public, legitimate no-value/no-default state without
+inventing an effective baseline, restores original absence through typed
+RemoveKeyInSection, preserves manual edits and reports other failures precisely.
+
+Source startup requires the current Both-eye stereo attachment and observes a
+complete explicitly-labelled Left+Right frame before starting atlas output on
+a new frame boundary. Temporary Mono closes without a permanent fault latch;
+real rendering faults remain refusals. No previous-eye image, timer, new format,
+source prefilter, bank, receiver or Frame action. Native encoder transition
+atomicity remains separate from this source-proven boundary.
+
+Focused proof:18271native ASan/UBSan/rollback/absence/negative controls with
+identical PE rebuild;85managed checks and real Ctranscripts/net4720W/0E;
+100callback/cohort checks/six mutants/net4720W/0E;499actual GPU loading checks,
+27renders,6resumes,96headercells and the rejected old-owner control. CI fixture
+ports and suite census are corrected without weakened production predicates.
+The inventory is235local/104CI/16source. No whole-gate repeat or headset success
+is inferred. See [the scoped record](STEAM-LINK-701-ADMISSION-AND-STARTUP.md).
+
+**Native Steam Link edge-quality correction, 2026-10-18: Build700.**
+
+The maintainer accepts Build699 stereo but rejects its remaining shimmering
+passthrough silhouettes. Four current screenshots and both current PC logs are
+pinned. Direct standalone submits RGBA without a video atlas/codec. Actual 699
+carrier rasters show subpixel colour/coverage phase differences; retained native
+foveation metadata additionally reconstructs central colour at 3.507 times the
+peripheral mask's linear density. This is a demonstrated mechanism, not a new
+measurement of the current hardware weights. No unjustified opacity cutoff,
+window tag, limited-range correction or source/receiver rewrite is introduced.
+
+Build700 adds an optional, default-on stream-quality lease for genuine native
+Frame/Steam Link MR: uniform encoding, no sharpening, configurable requested
+width (3072 default). An isolated pinned public OpenVR child snapshots all values
+before writing and cooperatively restores still-owned values on Off/game exit.
+Observed manual edits survive; unconfirmed restoration blocks reacquisition.
+No active expiry, Frame action or binary sender patch. Higher video cost is an
+explicit compromise; settings readback is not negotiated video-resolution proof.
+
+Focused worker evidence: 76 managed lifecycle/protocol checks with strict net472
+0W/0E, 3747 native API/rollback/EOF controls under ASan/UBSan and byte-identical PE
+rebuild, plus 69 availability assertions and six semantic mutants. Independent
+review resolved ownership, readback, post-start cleanup and abandoned-mutex
+faults. All 699 image/bank/receiver files remain identical, inheriting their GPU,
+codec and wire evidence rather than repeating those tests. Inventory now has
+234 local / 103 CI / 16 source suites. Final integrated builds and produced DLL
+checks are recorded in the scoped evidence directory; this is not a new complete
+gate or a claim that headset edge quality has been verified. See
+[the correction record](STEAM-LINK-700-EDGE-QUALITY.md).
+
+**Robust full-resolution native Steam Link follow-up, 2026-10-18: Build699.**
+
+V3 restores equal2048-square contribution RGB and independent coverage, retaining
+v2's3168-square windmill geometry. Only the format header changes: twelve128-square
+separated four-level cells, ±16-code recognition windows, no coverage threshold.
+V1/v2 profiles and all18 pre-existing compiled shaders remain unchanged. The
+updated receiver recognizes v3 or legacy v1, preserving12/13/2 guard-fetch budgets,
+original native image/R1 binding and opaque ordinary fallback. No tags, extra
+camera, descriptor, old-eye queue or Steam sender modification is introduced.
+
+The actual compiled producer passes227 checks with two independent4040-square,
+actual8xMSAA sources. Thirty source/scene/mask probes and24 header cells match
+exactly; all retained shader banks pass109 comparison checks. The new end-to-end
+fixture then sends those actual PNGs through lossy H264/HEVC QP23/32 at1152/576
+chart sizes and executes the exact31384-byte native candidate on both charts in
+one decoded texture. All eight v3 conditions preserve both eyes; maximum guard
+error3.909 codes and source RGBA error0.013006. The same actual v2 inputs reproduce
+one accepted/one refused eye, which the coupled valid-stream criterion correctly
+rejects. This closes the old ideal-header/lossless-only test gap; it does not
+measure the failing hardware frame's R1/codec or establish a new headset result.
+
+Focused native contract/package/session/admission checks,77 guard-vector GPU
+checks, stopped-upgrade preference controls and real host/AArch64 release builds
+pass. Strict GH Debug/Release have zero warnings/errors; actual Mono DLL and
+embedded-bank identities are checked separately. New suite registration brings
+the local inventory to232; CI101/source16 are unchanged. Unrelated696 movie/UI/
+wire evidence is inherited, not a repeated full gate. See [the scoped record](STEAM-LINK-699-ROBUST-COVERAGE.md).
+
+After fresh explicit approval, the public receiver82fb122 is now installed on
+the Frame with its exact31384-byte candidate and preserved enabled preference.
+One approved SteamVR restart completed; the loaded installed library, unchanged
+runtime cohort and complete native UI startup evidence are verified. An initial
+health observation mistook systemd's zero-to-populated main PID for a restart;
+read-only replay of the full original startup evidence passes the unchanged gate
+in the same invocation with no restart-counter increase. Backup/manual rollback
+are retained; no pixel capture, automatic timer or second restart was introduced.
+The maintainer now confirms the699 stream is running and both eyes are correct.
+That is visible stereo evidence; the separate specific window-edge comparison
+is still pending and is not inferred from the logs.
+
+**Native Steam Link stereo regression containment, 2026-10-18: Build698.**
+
+The maintainer rejects697 in hardware: eye scale/depth differs and passthrough
+can be present in only one eye. Fresh PC logs show five v2 preparations with
+both4040-square8xMSAA eyes; the Frame runs the exact correct dual receiver with
+six replacements, no source/history failure or service restart. Neither log
+records the GPU's per-eye format verdict. A controlled lossy-codec reproduction
+demonstrates asymmetric v2 guard acceptance; the actual shipping native fragment
+then reproduces different scale and an opaque eye in40 checks/four cases.
+Same-codec v1 controls remain matched. Actual hardware guard samples/encoder
+parameters remain unknown; this is a reproduced mechanism, not a claimed exact
+measurement of the failing streamed frame.
+
+Restore the retained v1 production shader. Keep v2 assets/profile and its earlier
+software evidence quarantined, with the original soft-edge issue still open.
+The installed dual receiver supports v1 without a new Frame change/restart.
+Frame investigation here only reads existing logs. Focused containment checks
+and the real codec/native reproduction replace repeating unrelated passed gates.
+See [the bounded review](STEAM-LINK-698-EYE-DIVERGENCE.md).
+
+**Native Steam Link equal-resolution coverage, 2026-10-18: Build697.**
+
+The maintainer rejects a window-classification channel and authorizes a general
+full-resolution mask. New v2 samples RGB and opacity from the same current source
+at equal2048-square spatial resolution, removing the old dedicated four-sample
+alpha box and C1 reconstruction. The neutral-grey mask uses four non-overlapping,
+globally haloed windmill strips around central RGB in a3168-square canvas. Both
+fields have identical video density; true glass/fades, source MSAA and additive
+RGB at zero alpha are retained. No new semantic tags, threshold, camera or mask
+RT. Existing standalone MR, connection/lifecycle admission and multiplayer state
+are unchanged. A matching updated Frame receiver is required; it retains v1
+support for older mods. No Frame installation or hardware outcome is claimed.
+See [the scoped record](STEAM-LINK-697-FULL-COVERAGE.md) for exact geometry, source
+pins, cost and focused verification boundaries. The independent movie handover696
+must remain integrated; this bounded renderer change does not replace it.
+
+**Build696 automatic studio startup and spoiler reviews, 2026-10-18.**
+
+The maintainer reports all movie review actions successfully tested in the headset.
+Only the studio logo at application startup before the main menu shows both
+packed SBS halves side by side; later deliberate playback is correct. The user's
+explicit clarification excludes the longer GloomhavenVR campaign intro. This
+accepts the delivered695 movie artwork and deliberate review presentation.
+Build696 repairs startup source admission/ownership; its corrected automatic
+headset picture remains unverified.
+The maintainer also requires every video review action under Advanced > Cheats,
+behind the existing default-off gate, because the films contain major spoilers.
+Ordinary Test triggers must expose no movie names/actions. Native game-authored
+playback remains independent of this test-only permission.
+
+Two disjoint workers from dev60296ac29 are integrated. Startup prepares the real
+capture owner before native Play, reserves alpha only for the exact created
+replacement surface, reconciles late sources at first render and releases on
+continuation/loss/error. Failed or throwing readiness selects original mono
+before Play; original4s continuation/audio and subsequent sprite logos remain.
+All20 deliberate actions now live in Advanced > Cheats behind the existing
+default-off gate, rechecked on stale callbacks. Shared cosmetic previews remain
+available in multiplayer; save-changing cheats retain offline refusals.
+
+Focused proof: options7339/21 controls, movie UI915/25, scenario-win65/two,
+native-video474/33 plus actual packaging192Python/209PowerShell, desktop145/33,
+and movie GPU193/21 across38 variants (original44/eight plus startup149/13).
+All16 source suites and fresh unchanged wire goldens300597 pass. Exact UI source
+pins inherit its real net472 Release0W/0E. Final clean696 Debug/Release identities,
+all30 embedded resources and actual22-file copies are checked separately in
+`.planning/debug/stereo696/`; any artifact failure blocks handover. This bounded
+composition is not a new230-suite complete-gate pass. Earlier frozen692 FAIL
+and its eight focused continuations remain recorded below.
+
+Startup GPU proof supplies decoder URL metadata/readiness/pixels and XR eye input;
+actual source parsing, capture/split/stereo lifecycle, config binder, alpha and
+GPU rendering run. A minimal FlatScreen constructor supplies its pinned owner
+assignment. Real Linux MOV decoding is unavailable; a separate VP8 baseline
+shows no native plane pixels, so platform alpha-latch timing is inconclusive.
+The placeholder's empty real URL getter has no assigned cause. These boundaries
+are not Windows/HMD evidence. Main691 and older remote inputs cannot establish
+the new report's cause. All22 media/geometry/clocks/audio and independent694
+production remain byte-identical; no new model, wire, receiver or Frame action.
+
+**Native stereo library and scenario review, 2026-10-17: Build695.**
+
+The maintainer's headset-approved GloomhavenVR intro keeps its exact 21 scenic
+depth fields; only the two existing wordmark appearances move farther forward.
+All 20 authorized subjects are complete: intro, 11 hero unlock films, seven
+ambient films and the original TwinSails studio clip. The explicitly excluded
+gameplay trailer keeps its native promotional behavior and has no converted
+companion or review action. Native source/serialized evidence identifies it as
+a retained menu promotion with showAtStart=false, not an ordinary scenario film.
+
+Advanced > Test triggers > Videos offers all 20 films inside a loaded scenario,
+plus Close. Review uses the common movable/shared movie window, clock and pose,
+with its own cosmetic decoder and no unlock/save/native-continuation callback.
+Genuine native videos take priority; leaving the scene/camera or an error cancels
+owned preparation/playback. Existing record72 retains its exact byte layout.
+
+The normal installer handles all 22 separate MOV files beside the DLL. Source,
+Content, installer roster and actual Debug/Release copies match byte-for-byte:
+896,738,250 bytes, 21,528 original video frames, 9,978 AAC packets and 708 encoded
+right-eye witnesses. Global picture minima are 35.32/36.05552 dB against the
+unchanged 34 dB floor; every movie is below 100 MiB. All seven ambient loop
+endpoints retain zero disparity. Timed source-specific print protection includes
+the native oversized emblem/banner reveals; lossless hero AAC finalization keeps
+the exact native presentation end. Future hero-only encoder headroom was raised
+after a correctly refused low-quality Doomstalker candidate, without changing
+geometry, native clocks, picture floors or accepted earlier files. All failures,
+recovery receipts and actual neural fields remain retained.
+
+Strict Debug and Release pass with zero warnings/errors; produced DLL metadata
+confirms695/dev and no embedded movie. Fresh final golden-only execution passes
+300597 assertions from the unchanged copied project linked to final sources.
+All 18 movie runtime C# inputs remain byte-identical to frozen692; seven retained
+independent694 inputs match published a1ee28cd9 exactly. ModBuild/comments are the
+only other production source difference from that composed boundary.
+
+Validation is composed honestly: the full frozen692 attempt records all 226
+local suites, 218 pass/eight fail, and all 16 source suites pass. Its authoritative
+result remains FAIL. Six tests-only boundary repairs have focused passing proof.
+Both deferred original suites now pass unchanged: NPC639 has4492 assertions and
+four controls, cold895 atlas0.550132s against1s; figure packaging passes all20
+cases with actual PowerShell and all22 real media. An earlier invocation skipped
+11 PowerShell cases and is retained separately. The independently checked694
+additions bring the current inventory to230 local/101 CI/16 source; their exact
+unchanged evidence is inherited rather than rerun. This is not a new full-gate
+pass. Frozen gate and completed fixture/runtime/UI evidence are archived with
+independent hashes; all media evidence remains retained. Completed-run cleanup
+preserves results/captures/source/model and borrowed inputs.
+
+Actual encoded cue pairs were inspected by worker and integrator for every new
+film; the intro has separate logo/approved-scene evidence. These were static
+desktop checks at695 handover. The maintainer now accepts all20 deliberate reviews
+in the headset; only the automatic studio path requires696 hardware verification.
+The separate694 residual
+window-softness report remains open. See
+[the library record](STEREO-VIDEO-LIBRARY-2026-10-17.md) and
+[the media contract](../docs/stereo-video-library.md).
+
+**Native Steam Link loading continuity and window effect bounds, 2026-10-17: Build694.**
+
+The maintainer confirms693 native MR works, then reports green flashes during
+loading and soft window edges. Connection admission incorrectly followed the
+temporary scene head camera. Retain a proven active-session/HMD identity across
+camera absence, disable/re-enable and replacement. Actual HMD events/session stop
+still invalidate, stale async results remain rejected, and an initial/reconnect
+identity check keeps ordinary output instead of flashing green. Normally closed
+scene-output resources reprepare; actual render faults keep their refusal.
+
+Focused lifecycle111 checks plus old-camera semantic mutant pass. Actual Unity
+presentation42 plus pending-key mutant pass. Whole SceneHeadOutput with real
+coverage/packing/material callbacks passes436 checks,11 renders/five resumes;
+the previous owner fails specifically at same-camera re-enable. Named XR/session
+ports are not real headset evidence. Source instrumentation1/1 is green.
+
+MR window geometry also now includes the actually visible stock Image/RawImage
+Shadow/Outline footprint instead of only the pre-modifier DrawingRect. Actual
+Unity meshes/raster prove4,032 visible pixels could extend past the former opaque
+backing in the large-shadow cases; the corrected bounds contain them. Preserve
+byte-alpha/component order, zero-alpha resurrection through later modifiers,
+native hide, aspect and clipping gates without native game mesh rebuilds or a
+new cadence. Actual geometry/raster16 cases plus focused aspect/zero-alpha25
+checks pass; the old path fails the exact shadow bound. PanelInk499 plus31
+mutations pass. These source fixes do not establish the specific693 Story cause.
+
+The rebuilt source coverage bank uses continuous spatial C1 interpolation with
+no extra reads/RTs. Actual GPU571 checks and clipping126 pass; constant glass,
+fades, materialisation and RGB remain covered. Measured average10–90% edge width
+only improves5.52%: DO NOT mark the reported window softness fully fixed.
+Stronger nearest/unsharp variants caused more moving-edge error and remain
+test-only. A clarification on narrow outer blur versus broad inner transparency
+is pending; current hardware logs are still691, not the successful693 run.
+See `.planning/STEAM-LINK-694-PRESENTATION.md` for scoped receipts/boundaries.
+
+Only this bounded694 repair is published over693, then merged into shared dev.
+The unfinished independent stereo catalogue stays local; its delivery advances
+to695+. No new receiver installation, Frame write or restart is required.
+
+**Observed Steam Frame / Steam Link profile admission, 2026-10-17: Build693.**
+
+New691/de978 PC hardware completes extraction, child launch and native public
+HMD metadata lookup. The actual result is tracking=cv, model=Deckard MP,
+registered empty; only Classify returns WrongHeadset. This is live Windows
+confirmation that691's path/native-query repair works, not another cache failure.
+The maintainer confirms this is Frame over Steam Link, not Virtual Desktop or
+standalone. Earlier canonical Steam Frame/vrlink assumptions did not describe
+this device's exposed profile.
+
+Admit exactly Deckard MP+cv with empty or explicit vrlink registration. Preserve
+canonical behavior and reject generic cv, other/partial models, VD transports,
+contradictory registration, disconnected/controllers and invalid metadata. This
+is empirical cooperative-profile recognition, never receiver/transport attestation.
+No helper/SDK bytes, path, shader, setting/default, wire or Frame change occurs.
+Replay the actual public identity and extend the actual produced-artifact probe;
+final693 DLL with real GH.Runtime under UnityMono passes23 controls, including11
+identity cases. The Core source SHA c4f97f35... matches the tested fixture. Focused
+connection checks pass187 managed/203 native, the preserved old-path-call mutant
+refusal and net472 typecheck; strict Release0W/0E and source instrumentation1/1.
+Unchanged691 availability37/4 and other native/wire/raster evidence are inherited.
+
+Publish only this bounded693 repair over public691, then merge it into shared
+local dev; the independent unfinished692 stereo checkpoint advances to694+.
+Receipts, paired input pins, scoped checks and cleanup live under
+`.planning/debug/steamlink-693-frame-profile/`; see
+`.planning/STEAM-LINK-693-FRAME-PROFILE.md`. Proton streaming and the final headset
+picture after this admission remain hardware boundaries.
+
+**Proven produced-artifact Steam Link path repair, 2026-10-17: Build691.**
+
+New689/f71 logs explicitly stop at openvr_api.dll:cache-folder. The actual
+shipping DLL's IL invokes GLOBAL GH.Runtime.StringExtensions.Skip, whose
+count-minus-one semantics leave the drive colon in path.Skip(2). Thus every
+ordinary drive path fails, regardless of correct environment/known-folder inputs.
+Actual Unity2021 Mono with that exact DLL and readonly real GH.Runtime reproduces
+it. Earlier isolated source fixtures omitted the game assembly and compiled a
+different Enumerable.Skip call; their passing results did not cover production.
+The previous folder-input hypothesis is not the established cause.
+
+Use explicit System.Linq.Enumerable.Skip. No further folder fallback, native
+helper/resource change, receiver update or Frame action is needed. The corrected
+actual691 DLL passes12 real-Mono/game-library controls; the same artifact probe
+reproduces689's refusal with9 controls. The focused connection suite passes124
+managed and203 native checks, net472 typecheck and the expected old-call mutant
+refusal; source instrumentation passes1/1 and strict Release is0W/0E. Add a test-only conflicting global
+extension and a causal mutation that restores the actual bad call and must fail
+at path admission. These protect the compiled dependency-scope difference.
+
+This bounded handover advances beyond the independent unreleased690 stereo
+checkpoint; its later media delivery will use692+. Preserve the unfinished media
+checkpoints locally; publish only the identity repair over public689. Detailed
+scoped checks and cleanup: `.planning/STEAM-LINK-691-PATH-BINDING.md` and
+`.planning/debug/steamlink-691-binding-fix/`. Actual Windows/Proton HMD lookup is
+still a hardware boundary; a correct path probe is not receiver attestation.
+
+**Steam Link identity cache and Proton follow-up, 2026-10-17: Build689.**
+
+The688/fc5c954e7 hardware still refuses SDK preparation before any HMD read.
+The maintainer verified the installed resource name,826688-byte size and exact
+SDK SHA256 in PowerShell; the Local cache directory does not exist. This narrows
+it to pre-directory preparation but does not prove a particular Mono HRESULT.
+Prefer inherited LOCALAPPDATA, normalize directory separators, retain the
+known-folder fallback and exact PE/hash/local-ancestor checks. Finite diagnostics
+now distinguish folder/resource/directory/file/cached-pin and child/API failure.
+
+Linux hosts use the same Windows game/helper under Proton. Remove the Windows
+vrserver.exe/vrcompositor.exe census; public Background=3 initialization is the
+no-server guard, with121 mapped to not_running. Preserve Proton/OpenVR runtime
+and prefix variables so Valve's SDK selects its existing C:\vrclient bridge.
+The rebuilt42496B helper has SHAcec82e68...; the official SDK stays unchanged.
+No Unity OpenVR initialization, Frame write/restart or receiver update occurs.
+
+Focused integrated connection/availability suites pass2/2:118 managed checks,
+98 native metadata+105 production Background-query checks,37 availability
+assertions and4 causal controls. Native203 also pass ASan/UBSan and byte-identical
+PE rebuild; four affected source checks pass. Strict Release0W/0E and actual DLL
+reflection confirm689 and both pinned resources. The first private inspector
+had a one-byte expected-length typo; only it was corrected and repeated. An
+initial runner launch refused a nonempty output directory before testing; the
+fresh scoped launch passes. Full prior wire/raster evidence is inherited for
+unchanged areas, not a new complete gate. Actual Windows/Proton HMD lookup is
+unconfirmed. Receipts/cleanup: `.planning/debug/steamlink-689-followup/`.
+
+**Steam Frame / Steam Link availability repair, 2026-10-17: Build688.**
+
+The new687 PC logs show `RuntimePath` before any public HMD metadata is read,
+so the native passthrough row stays hidden despite a Frame/Link stream. The
+maintainer supplied a valid single-runtime registry and confirmed the runtime's
+SDK DLL exists; its exact rejected guard cannot be established from that old
+coarse diagnostic. Remove the whole unnecessary lookup instead of guessing a
+path exception: embed the official OpenVR1.26.7 public Windows x64 SDK loader,
+826688B/SHA5e591aa3..., with exact source/blob provenance and BSD3 notice. Only
+the existing isolated bounded child loads it. Valve's SDK resolves the runtime,
+ordered path history and public overrides; Unity keeps its existing OpenXR
+session. Exact connected Steam Frame/vrlink admission and unsupported-headset
+fallback remain unchanged. Stage-specific bounded failures improve future logs.
+
+This small source repair precedes the independent extended stereo-video batch;
+that batch should rebase on688 and reserve689 or later. Read the shared
+`.planning/STEAM-LINK-688-COORDINATION.md` ownership note before overlapping edits.
+Focused connection/availability suites pass2/2:101 managed connection checks,
+98 native public-metadata checks,37 availability assertions and4 causal
+controls. Four affected source suites pass; strict integrated Release is0W/0E.
+Actual built-DLL reflection confirms both exact embedded payloads and688.
+The initial private reflection probe had nullable compile errors, corrected and
+rerun alone; production and passing unrelated checks were not repeated. Worker
+payload/provenance/license checks pass30+4. No new complete gate or live Windows
+headset result is claimed. Receipts and completed-cache cleanup are under
+`.planning/debug/steamlink-688-integrated/` and `steamlink-688-loader-worker/`.
+
+**Stereo library and scenario review in progress, 2026-10-17: reserved Build695+.**
+
+The maintainer explicitly approves687's actual headset intro as perfect except
+that the GloomhavenVR wordmark should protrude slightly more. Both supplied logs
+identify687/9f48730df, select the exact SBSv1 movie and report3840x1080/stereo
+routing. Snapshot/review: `.planning/debug/stereo-library688/hardware687/`.
+This is the user's visual approval, not a measured timing/fusion benchmark.
+
+The next authorized scope is modest original-wordmark foreground depth and all
+remaining movies, plus individual scenario-usable actions under Advanced > Test
+triggers in the existing grabbable movie window. Review must never invoke an
+unlock, native progression callback, promotion counter or save mutation, and must
+preserve shared content/clock/pose/skip and genuine native movie priority.
+
+The latest explicit steering EXCLUDES `gameplay_trailer` from conversion and
+review. The byte-level census found that retained216.67s promotional film and an
+8s TwinSails startup clip beyond19 external subjects. Both native main-menu
+PromotionVideoHandler instances serialize showAtStart=false; no ordinary C# or
+serialized menu PlayVideo caller was found. Its original path remains untouched.
+The resulting catalogue is20 subjects: approved intro,11 heroes,7 ambience and
+the studio clip. Preserve native60fps external/30fps studio frame addresses and
+all original audio packets. Actual startup shows only the first4s before native
+sprite animation; keep its timer, while deliberate review may play the full8s.
+
+Separate initialized workers from dev9f48730df own offline media, native/shared
+runtime and localized review UI. Local pinned Small/FP32 inference has started;
+no paid inference is used. Root's foreground-wordmark renderer and real22-file
+installer/archive fixture checks pass. The stronger-wordmark intro, original
+studio companion/stereo clip, two cave films, forest and Corpsewood are integrated
+locally;14 conversions remain. Disjoint ambient and hero neural producers run locally.
+Source review has addressed decoder teardown, native priority and observer review
+closure. Runtime and UI worker evidence is independently hash/size verified and
+archived before their worktrees were removed. A full gate on frozen692 passes
+16 source suites; its226 local suites continue. An older town-options fixture
+compile failure is repaired by tests-only0796670ba and passes173 assertions plus
+9 causal controls separately. Two further desktop/notes fixture boundaries are
+being repaired independently. The unchanged NPC639 packed-atlas proof fails its
+1s cold-resolution budget under concurrent load; retain that failure and rerun
+only the affected suite after neural producers stop, without assigning a cause
+or relaxing its bound. Exact wire vectors300597, bundle/surface checks and the
+reviewed compiled delta are covered separately; preserve initial failures and
+compose evidence honestly. Timed native hero printed-panel protection now passes
+129 geometry/inventory checks plus33 refusal controls, preserving original zoom
+reveals, preceding scenery and all existing ambient/neural inputs. No692 binary
+or completed library is handed over yet. The independent window/loading repair
+reserves694, so final stereo uses695+. No additional ZIP/HTTP delivery: the normal installation script
+continues to create its archive. No Frame write/restart occurs in this work.
+The independent published688/689/691/693 identity fixes are retained through the shared
+dev merge; this unfinished media batch remains unpublished until completion.
+
+To retain storage headroom, completed unpinned687 fixture evidence was archived
+byte-for-byte into `.planning/debug/stereo-video-intro687/frozen-worker/completed-suite-evidence.tar.zst`.
+Logs/results/source/captures/symbolic links are preserved; pinned directories,
+the actively borrowed model/depth inputs and current deliverables remain unpacked.
+The verified compression/cleanup receipt is under `.planning/debug/stereo-library688/`.
+
+**Approved VR intro in stereo, 2026-10-17: Build687.**
+
+The maintainer confirmed the685 chart test, then explicitly retired its film and
+menu action and requested the already replaced, currently flat **GloomhavenVR
+intro** first. The three-sample plan is superseded; all other films wait for the
+maintainer's actual intro result. Pinned685 hardware logs and review remain in
+`.planning/debug/stereo-video-menu685/hardware-success-20261017/`.
+
+The completed full-SBS-left-first intro is3840x1080,60fps,2931frames/48.85s,
+93,329,919 bytes, SHA256
+`6929a4ad75df7ab7ea77cfed9630338110984e14d05b048b0fdf7c54709db93c`.
+Only the approved mod-local2D intro (SHA22fc9f48...) was used. Original frame
+addresses, edits, ending, titles/logos and all2291 AAC packet payloads/timestamps
+are retained. Local CPU Video Depth Anything Small provides the reprojected
+right view; no paid inference, other movie conversion or model ships in-game.
+The native player retains audio/clock/skip/continuation, and unchanged72 carries
+the selected explicit movie revision. Test media/action/localization are removed.
+Both intro movies remain separate Content beside the DLL; the normal installer
+builds its regular archive. The maintainer explicitly rejects an additional ZIP
+handover. No separate archive/HTTP publication is part of this delivery.
+
+Offline verification passes every frame address and left picture,21 depth-shot
+receipts and78 encoded right witnesses (native-YUV420 minimum35.33dB left,
+36.06dB sampled right). Geometry has10 physical checks and12 negative controls.
+Static decoded-image review is retained. These checks do not establish headset
+depth, motion, fusion, comfort, decoder performance or native first-save flow.
+The movable window carries a fixed stereo pair; there is no head-pose view
+synthesis or positional parallax inside the film. See `docs/stereo-video-intro.md`
+and its adjacent media provenance for exact source/model/tool/receipt pins.
+
+Validation is composed: the frozen complete223-suite attempt recorded221passes
+and2failures. The first was a prematurely started build without the completed
+SBS Content file; the second missed an unchanged1s NPC deadline during heavy
+conversion load. Both pass in a quiet, serial final-tree repeat (rules229/3,
+NPC production/deadline). Original failures remain retained. Final affected8/8
+includes both new Steam Link suites, native/video playback, options/help and MR;
+source checks pass15/16 plus the instrument-only repeat after a formatting-only
+warning reset. Inventory is225local/100CI/16source. Fresh final goldens pass
+300,540 assertions after replacing one obsolete mono-expression source contract
+with five decoded-per-eye aspect contracts; the initial300535/1 failure remains
+recorded. Strict final-candidate Release0W/0E and the compiled-form review use a
+private clean686 baseline; generic per-eye renderer/shader are byte-identical.
+The integrated dev tree also passes strict Debug and Release builds with zero
+warnings/errors, doc i18n and separate-output SHA checks for both real movies.
+Actual DLL resource inspection confirms no embedded video and the unchanged
+reviewed stereo shader. This is not a new complete225-suite gate. Evidence is archived under
+`.planning/debug/stereo-video-intro687/`.
+
+The combined source includes the independent visible686 Steam Link MR follow-up
+from8f5f3adc1: exact opaque UI/video alpha coverage and cached shader admission;
+native availability requires identified connected Steam Frame+vrlink. Saved false
+stays false, its preference defaults true, and the global MR master remains off.
+Other headsets/transports retain chroma-key controls. Public identity does not
+attest a receiver. No Frame write, restart or new receiver/hardware result occurs
+in this stereo task. Read `.planning/STEAM-LINK-687-AVAILABILITY.md` for scope.
+
+**Stereo calibration menu and separate films, 2026-10-17: Build685.**
+
+Both current hardware logs identify683 and recognize the exact old argv, then
+report the SBS movie missing. The new entry is VR Options > Advanced > Start
+stereo video test (German: Stereo-Videotest starten). It displays live EN/DE
+preparation/playback/mono/error/closure feedback and supports deliberate retry
+after close or failure without restarting the application. Active presses keep
+one decoder; old callbacks cannot affect a later attempt. Close VR Options to
+view the chart unobstructed. The launch parameter is now inert.
+
+The maintainer explicitly requires both movies beside the DLL in the regular
+installer ZIP, not embedded in the DLL. Reviewed identical separate Content
+now reaches Debug/Release output, Windows installation and both ZIP packagers;
+missing inputs fail preflight. There is no new setting or native-film behavior.
+Worker evidence: owner198 assertions/29 controls, existing options7339/21 plus
+menu25/8, packaging34Python/19PowerShell/15MSBuild-copy assertions. Final merged
+Release0W/0E, source16/16, affected local6/6 and fresh300,536 golden assertions
+pass after the exact nine-path shader registry repair. Handover receipts live in `.planning/debug/stereo-video-menu685/`.
+Read `.planning/STEREO-VIDEO-MENU-685.md` for scoped failures/inherited evidence.
+A fresh complete local gate or correct headset picture is not claimed.
+
+This handover includes the separately validated default-off684 real-scene source
+checkpoint below; no Frame receiver action is performed by this movie repair.
+
+**Real-image Steam Link MR source, 2026-10-17: Build684 source checkpoint.**
+
+The retired test pattern and its setting stay removed. Existing MR settings now
+offer default-off experimental native Steam Link streaming. The actual owned
+MultiPass head packs its current RGB contribution and coverage into one image;
+no previous-frame eye pair, CPU readback, duplicate scene camera or modified
+Steam sender. Opening VR Options restores ordinary output, without a timer.
+Same-eye opaque depth plus15 owned transparent shader derivatives preserve RGB;
+temporary material-slot borrowing excludes foreign cameras, preserves foreign
+writes and releases on off/stop. The embedded bank contains1 loadable AssetBundle
+and17 owned shaders. Its original missing-container build defect was caught by
+actual runtime loading and repaired before any device use.
+
+Focused evidence: depth24cases/69,849checks; actual shipping transparent bank
+6rastercases/6,198checks/41lifecycle, then31cold lifetime checks and0managedbytes
+in256warm head entry/exit cycles. Source packing has successful2048/3408 MSAA
+subcase evidence, a final actual shipping-bank202-check MSAA4 geometry witness,
+and75Linear-refusal checks; earlier failed aggregate fixture runs remain failed
+in their records. Frame/native decoder has separate Intel/Lavapipe correctness,
+OFF/seam/mutation controls, cold receiver252public/593scene/72retirement checks
+and ARM compilation. Source16/16 and affected options/menu/help suites pass,
+with only the overlong-help repair rerun. The existing complete stereo gate and
+300,518 goldens are inherited for unchanged areas; this is not a new full local
+gate or hardware result. Native unknown VFX/refraction/late draws and real XR
+timing remain unconfirmed. No Frame action is performed; its previous restoration
+is still in effect. Read `docs/STEAM-LINK-MASK.md` for scope and activation.
+
+Stereo685 is reserved for the independent calibration menu/media delivery repair.
+No684 binary has been handed to the user; a combined685 handover can include both.
+Own completed caches/worktrees are removed after preserving evidence and current
+deliverables; other agents' active work is untouched.
+
+**Opt-in stereo video calibration, 2026-10-17: Build683.**
+
+The trailer handoff's first stage is implemented: an independent silent9s
+Full-SBS chart, a fixed16:9 picture, actual MultiPass per-eye UI shader routing,
+mono preflight fallback and one-attempt offline main-menu lifecycle. Append
+`--ghvr-stereo-video-calibration` to the existing VR launch arguments; click the
+picture to close. Normal launches do not load its media or shader. Native films,
+audio, skip/completion, gameplay and wire behavior remain unchanged. No paid
+inference or film conversion has run. The next conversion stage is three5s
+samples after actual headset eye/orientation/depth/timing review.
+
+The complete pre-retirement gate passed226/226 local suites,16 source suites
+and300,518 golden assertions. After merging the separately authorized Steam Link
+retirement, Release0W/0E, source16/16, four affected suites,19 inventory unit tests
+and a fresh300,518 golden assertions pass. Current inventory224local/99CI/16source;
+this is composed evidence, not another complete224-suite pass. Compiled stereo
+types/bundle are unchanged from the complete gate. Specific proof includes31
+GPU/lifecycle assertions/10 controls,169 owner assertions/28 controls and measured
+decoded chart geometry; GL/Vulkan results do not establish headset fusion,
+D3D11 output or decoder timing. Read `.planning/STEREO-VIDEO-683.md` and
+`docs/stereo-video-calibration.md` for exact scope and retained failures.
+
+The Debug developer update contains the plugin and both small calibration movies;
+its handover/receipt is in ignored `.planning/debug/trailer/stereo-video-683/`.
+Main private evidence is `.planning/debug/stereo-video/`; completed test caches
+are cleaned while source/results/captures/pins and current deliverables remain.
+Real streamed MR stays separately assigned; its next handover remains684.
+
+**Synthetic Steam Link test removed, source checkpoint2026-10-17.**
+
+The maintainer explicitly requests removal of the test pattern and its setting.
+The shipped source now has no PayloadTestEnabled bind/default/localization,
+synthetic eye effect/driver, registration generator, embedded test images or
+menu escape hooks. Existing user files remain untouched. Two obsolete synthetic
+suites are removed from the manifest; normal options/menu tests remain. The
+exact path-bound surface ledger records the one approved key and three tokens.
+
+Focused actual menu1800 assertions/six causal native controls, Release0W/0E,
+assembled type/resource/key absence, source/order/help and inventory checks pass.
+An integrated strict Release also includes the new unhooked contribution-atlas
+draft; it is not attached to any camera and is not an exposed replacement test.
+Native streamed synthetic alpha was visibly confirmed before full manual Frame
+restoration, but **real game MR is not yet integrated**. Internal depth/MSAA,
+atlas and compiled-shader-bank evidence stays separately scoped in research
+docs; no Frame action or another synthetic-only headset round is requested.
+Evidence/cleanup: `.planning/debug/steamlink-pattern-removal-20261017/` and
+`steamlink-pattern-removal-integration-20261017/`. No new binary/package is handed
+over here; stereo683 remains reserved, next actual real-MR handover is684.
+
+**Fan audio follows actual visibility transitions, 2026-10-17: Build682.**
+
+Build680's Frost Armor short rest shows one2.013s original burn with eight
+throttled fan-close sound requests. CardFan correctly refused closing while
+the burn layout was held; UpdatePalmGate nevertheless retried audio every frame.
+The caller now checks the resulting IsOpen state before emitting either close
+or open audio. No new timer, state, audio choice or change to the burn barrier.
+
+The existing burn-layout suite passes its unchanged228 assertions and16 controls,
+plus737 audio assertions and two controls restoring the unconditional cues. It
+executes the exact driver branch and complete original CardFan.Open/Close methods
+with named hierarchy/helper/audio sinks; it does not prove audible headset output.
+The runner now preserves generated source/log/control evidence and removes stopped
+caches through the shared cleanup API. No new suite or inventory count change.
+Root source/build/compiled-scope/publication receipts are retained under ignored
+`.planning/debug/short-rest-audio682/`; coordination and scope are recorded in
+`.planning/SHORT-REST-AUDIO-682.md`. Unchanged680/681 native, remote, wire and
+synthetic-source evidence is inherited; no new complete local gate is claimed.
+
+**Synthetic Steam Link presenter source prepared, 2026-10-17: Build681.**
+
+The explicit existing test setting now emits a separately named v2 source with
+12 neutral footer cells. The old registration-v1 canonical generator, both
+numeric panels, all complete CRC headers and immutable stereo/fence ownership
+remain unchanged; Update adds the footer before either eye texture is published.
+No eye-callback source work, timer, sender modification, gameplay/wire/default
+or ordinary-rendering change is introduced. A compact marker recognizes format,
+not body integrity or liveness; disabling/menu removes the whole source as before.
+
+Source-bound worker evidence passes151 CPU checks/8 cases/24 causal mutations and
+actual Unity/net472 type checking. Final integrated Release build passes with
+zero warnings/errors; the old GPU runner's explicit compile list gains the new
+class without changing its v1 defaults or expectations. Two optional new Unity
+pool launches failed before Stamp; no new pool/GPU pass is claimed. Its original
+lifetime implementation inherits prior evidence. This is a bounded change, not
+a new full/wire gate. No native streamed passthrough is yet demonstrated.
+
+Fork offline guard now independently passes91 owned GPU cases per Intel/lavapipe,
+including same-recorded-command ON/OFF/ON and bit-exact original fallback; host
+cost is measured separately. The Frame remains fully restored and safe in standby.
+All further device changes require a fresh concrete approval after package checks.
+Details: docs/research/steamlink-presenter-source-v2-20261017.md and private
+.planning/debug/steamlink-presenter-source-integration-20261017/. Completed own
+caches are removed; captures, source pins and failure evidence are retained.
+
+**Unconfirmed card selection repaired, 2026-10-17: Build680.**
+
+The supplied local Build677 logs contain seven null-name withdrawal exceptions.
+Optional fan ordering threw after physical take-back but before native unselect;
+Guildmaster demonstrated the trigger in a shared scenario path. Unnamed actors
+now use a separate bounded native-GUID order domain. Missing identity never
+prevents the original native withdrawal callback.
+
+General review additionally reproduced intermediate replacement eviction, stale
+same-card completions, explicit take-back overtaken by an older select, and
+cross-actor/lost initiative on focus change. Two current-occupant presentation
+tokens preserve pending placements; deliberate withdrawal supersedes only its
+captured select. View release keeps native input, scene queue cancellation clears
+markers, and initiative uses the captured hand and its actual native round pair.
+Original game callbacks remain authoritative. Existing presence records4/18
+carry wanted/occupied/snap state and physical order; no wire/default/asset change.
+
+Original native callbacks pass3496 assertions/10 controls; complementary exact
+projection passes471/4. These are composed passes after repairing a projection
+source-read binding, with matching production/fixture hashes; no duplicate full
+native run is claimed. Debug/Release build with zero errors/warnings. Integrated
+16 source suites and seven affected existing local suites pass. Remote publication,
+codec and overlay application pass836/11 on stable integrated input. Its first
+attempt refused certification when the integrator edited build-note comments
+during execution; that failure is retained. New fixtures are local-only;
+inventory223 local /100 CI /16 source and the affected inventory test pass.
+Unchanged Build678 composed
+coverage and300,518 golden assertions are inherited, not a new complete local run.
+Private compiled comparison against the captured679 binary limits behavior
+changes to CardsDriver/PlayTray; eight other files contain version inlining only.
+Actual paired headset behavior remains unverified. Review and source-bound
+receipts: `.planning/CARD-SELECTION-680-REVIEW.md` and ignored
+`.planning/debug/card-selection680/`.
+
+**Steam Link original-invocation capture succeeded; Frame restored, 2026-10-17.**
+
+The separately approved r7 device run produced all four paired artifacts,
+including the previously absent 128-byte original-fragment record. Actual
+94-import resolution, isolated exact-provider load and chip7 KHR provider
+lease passed. Capture `4c5680d108a3fcf143722a05d94e02d8`, command22123/pool1/
+execution1, source image3329080/view3329082/memory3329081 agree. Fence and exact
+source-generation retirement completed; 32 deduplicated contexts/46 encounters
+have no overflow, contention or first refusal. All four copies are checksum
+verified on the workstation. The original expression reproduces the recorded
+RGBA bit-for-bit, not a framebuffer/display comparison.
+
+Current-pixel headers recover source session835dc49d01f049158280f6d714ff57df,
+app pair443/phase58, both encoded labels. Actual fragment R1=(0,.25,1,.5)
+supports the nominal full-canvas chart. A separate interior2x2 diagnostic
+footprint passes complete CRC headers; the old full4x4 reader still refuses
+edge ambiguity and is not relaxed. The raw tight-P010 interpretation remains
+inconsistent with the coherent native sampled lane; no cause is assigned.
+
+Separately approved manual rollback is complete: activation/run library absent,
+no loaded diagnostic mappings or uncertainty, original startup healthy, and the
+maintainer confirmed visible/usable UI. The Frame is safe in standby. No timer
+or automatic restart/rollback was added. Next work is offline direct-R1
+registration and same-invocation single-output panel reconstruction. Preserving
+the native eye route avoids a new CPU eye table; actual live source-mode/OFF,
+alpha consumer, all-view handling and real game coverage remain open. No native
+streaming passthrough is yet demonstrated, and no main runtime change is made
+by this round. Details: fork `docs/research/native-invocation-capture-20261017.md`;
+private captures/reviews stay in fork build/. Existing complete gates are reused.
+
+**Steam Link r7 software ready; Frame unchanged, 2026-10-17.**
+
+Fork dev16e7372 implements the source-backed zero-sRGB adapter guarded by the
+actual native device, saved downstream function pointers and a pinned exact
+driver lease. Original calls and payloads remain unchanged; callbacks add no
+file IO, resolver, allocation or wait. Unknown providers or wrappers refuse.
+Hosted CI39011995792 passes134 CTests in96.39s, optional diagnostic builds,
+Windows cross-build and protocol sanitizers. Focused normal/sanitized evidence
+and the compatible-mirror GPU proof retain their documented finite scopes.
+
+The final ARM526280B library and helpers total648443B. All five actual remote
+gate sites require native-provider Ready before stream request/manual arm;
+12 offline package controls pass. Fresh resolution of all94 actual native
+imports and exact-provider isolated loading remain prerequisites on the Frame.
+The software-ready private plan grants no device permission. No install,
+restart or other Frame write has occurred; it remains restored and safe in
+standby. Next is a separately approved original-invocation observation, not
+visible passthrough. Source-frame/eye/UV association and actual transparency
+composition remain unproven. Details: fork
+`docs/research/native-valve-srgb-lease-20261017.md`; private evidence in
+`build/private-native-r7-integration-20261017/` and
+`build/private-native-ssbo-run-20261017-r2/`.
+
+All own worker worktrees and completed regenerable caches are removed;
+evidence, current package and native references are retained. Main runtime679
+is unchanged; no main complete/wire rerun for this coordination-only update.
+
+**Steam Link r6 mirror proof pushed; exact Valve sRGB contract recovered, 2026-10-17.**
+
+Fork dev03ef204 contains the compatible one-set mirror and restoration repair.
+Both pinned native stages prove binding8 unused; seven original bindings are
+copied once into an owned set, with fresh post-copy proof, immediate original
+pipeline/Set0/full admitted offset restoration and unchanged later native draws.
+Uncopied dynamic bindings refuse before Vulkan creation. Fresh merged eight
+CTests and strict host/ARM builds pass. The separately inherited clone-contract
+pass and private focused normal/sanitizer evidence are explicitly distinguished.
+The new owned Intel/software GPU oracle passes36 cases+2 causal mutations and
+3981 checks per device, zero validation/sync errors. Its finite8-binding raster
+call-pattern scope is not production Clone/nativeVS/frame/eye execution.
+
+A user-ready, read-only acquisition saved the current mapped18,850,240B ICD,
+SHA dfed0652b592b263a400ba0a64fbdd421870a938abed4d447a9aafa6a4ad789a,
+GNU ID b7e5995d0b202f06e81cd5a0f809ec1b744a0cb8. No remote files or services
+changed; the maintainer was immediately told standby is safe. Exact Valve
+source abc426bb62351045a9dcf7fa0a113e6dd810c303 now confirms1000109099 is a
+private subpass sRGB-mask override, consumed by Begin/Next and reset per pass.
+Its payload0 disables per-attachment hardware conversion. The old generic
+upstream no-read comparison is not the actual driver. Original pointers and
+payload must remain unchanged; no numeric-only admission is justified.
+
+Next is offline r7: an opaque actual-next-PFN/provider/device lease, bounded
+source-backed private decoding and unchanged original call-through. Unknown
+wrappers/providers/shapes stay refused. No new headset test is ready or running;
+no native streaming passthrough is demonstrated. Main runtime679 is unchanged.
+Details: fork docs/research/native-compatible-mirror-20261017.md; evidence in
+fork build/private-native-r6-integration-20261017/ and related private manifests.
+All own completed caches removed, including1.18GB source archive/repository.
+No main full/wire rerun for this documentation-only coordination change.
+
+**Campaign intro notice removed at the maintainer's request, 2026-10-17: Build 679.**
+
+Only the game intro loses the on-picture unofficial/fan-made notice. Its former
+lower-letterbox text region is restored from actual normalized original pixels;
+all 2566 body regions contain only native black. Title/ending omit their overlay.
+All 2931 frames keep the accepted scene clock and 48.85s duration; all 2291 AAC
+packet payloads/timestamps exactly match Build 678. Root's 15 Watch cues and the
+worker's 16 cues show no residual notice. The wider footer is black in all frames.
+The full trailer retains its notice. No new generation or paid inference occurred.
+
+Fresh focused native-video validation passes 93 assertions, ten controls,
+actual packaging and both installer paths. Debug/Release builds have zero
+errors/warnings. Build 678's unchanged runtime coverage below is inherited;
+no new complete local/wire pass is claimed. Headset playback remains unverified.
+Current review, media/package receipts and cleanup evidence are under
+`.planning/debug/trailer/remake-v1/game-intro-v2/`. The former review link leads
+to this version. See `docs/trailer/game-intro.md` for exact media provenance.
+
+**Steam Link native header identified; fully restored, offline r6 review, 2026-10-17.**
+
+Approved fork r5 package loaded successfully against all82 actual native imports
+and exact-provider isolated loading. The maintainer confirmed the moving PC-VR
+pattern. CaptureID724593dd48cb378cea4215552344fc67, source4a7146d/CI38975977337.
+Actual selected pipeline281472362934688/generation143 becomes ready; adopted
+command generation22775/pool1 follows learned22769. No observer draw runs.
+
+The new first-refusal record identifies CmdBeginRenderPass2KHR, sequence3,
+RecordingOutsidePass, None→UnknownRoute17. Decoder UnknownExtension4 is at
+SubpassBegin chain1/index0: root VkSubpassBeginInfo1000109005, inline contents,
+one pNext header1000109099. RenderPassBegin chain is empty. Twenty contexts,
+41 attempts, no overflow/truncation/contention. Later selected pipeline/indexed
+draw encounters are retained, but deduplicated first/count/last evidence is not
+a complete per-call timeline or proof of missing payload/layout semantics.
+Do not whitelist the numeric tag, invent/read its payload or strip it from the
+original call. Public registry/native-origin research is now offline.
+
+Three source artifacts are saved and checksum verified (P01015,925,248B,
+sampled component codes21,233,664B, metadata4,129B). Optional128B SSBO is absent;
+there is no original-invocation, source-frame/eye/UV or passthrough proof. Exact
+protected evidence and consumed plan: fork
+`build/private-native-ssbo-run-20261017-r1/`. Fork665089f documents the result in
+`docs/research/native-subpass-refusal-20261017.md`.
+
+Separately agreed rollback is complete: activation/run library absent, no loaded
+diagnostic mappings or uncertainty, healthy original startup and maintainer
+confirmed normally visible/usable interface. Standby is safe. No automatic timer
+or restart occurred. No further Frame contact is authorized by this note.
+
+Three isolated r6 workers from current fork dev665089f now investigate the exact
+public/header contract, existing private native writer/consumer, and complete
+command descriptor-state preservation. The last review found a genuine further
+risk: ordinary tracker layout-change clearing is stronger than Vulkan binding
+compatibility, so an empty modeled Set1 is not evidence it was never bound.
+LaterDraw publication refusal alone cannot undo an earlier observer Set1 bind.
+No broader substitution/state exception is approved yet. Solve the complete
+route before another headset request. Main runtime/Build678 stays outside scope;
+no main full/wire gate is repeated for these coordination-only changes.
+
+**Approved campaign intro delivered, 2026-10-17: Build 678.**
+
+The accepted trailer opening now ships as the plugin-local first-save movie.
+The existing GloomhavenVR artwork replaces the opening rating/title card;
+approved O01/E01/E02 shots keep their original clock and speed. The game's
+native closing fade/tail preserves the 48.85s / 2931-frame completion duration.
+The approved name patch and unofficial fan-mod label remain. No new paid calls.
+Game StreamingAssets and the provisional full-trailer gameplay edit are unchanged.
+
+The registered native transpiler replaces its existing URL assignment before
+the first Play, preserving native volume, skip, completion and continuation.
+Remote cosmetic players resolve the same canonical key to their installed movie.
+Missing optional media falls back to the game file. Both installers and release
+packaging include the asset. The Debug update and desktop/mobile review are at
+`.planning/debug/trailer/remake-v1/game-intro-v1/REVIEW.html`; developer details
+and exact media provenance are in `docs/trailer/game-intro.md`.
+
+Root and independent media/browser/download review pass. All 2566 retained body
+frames match their original source addresses; native ending and audio checks
+pass. Integrated playback has 93/466/35 assertions with 10/5 mutation controls.
+Debug and Release builds have zero errors/warnings; docs i18n and all 16 source
+suites pass. The complete local run passed 218/221 suites. A seven-line missing
+logging stub in the unrelated native-atlas fixture was repaired; the three
+atlas/recovery/scenery suites pass serially with unchanged deadlines and controls.
+This composes 221-suite coverage with the unchanged 218 earlier passes; it is
+not a fresh complete-gate pass. Wire golden vectors pass 300,518 assertions.
+Remaining bundle/surface checks pass. Compiled comparison against historical
+Build601 baseline 98fba1a8d is nonempty (202 changed, 160 added/removed), not an
+intro-only equivalence proof; no baseline was overwritten. Failed attempts,
+scope proofs and cleanup receipts are retained beside `verification.json`.
+Actual headset first-save/skip and paired viewing remain unverified.
+
+**Steam Link r5 complete offline; exact CI green, fresh device permission pending, 2026-10-17.**
+
+Fork dev 4a7146d is pushed. Exact hosted CI 38975977337 succeeds: 130 CTests
+in 94.09 seconds, both optional diagnostic builds, Windows cross-build and
+protocol sanitizer step. The complete bounded recording-route review is recorded
+in fork `docs/research/native-recording-route-review-20261017.md`.
+
+All former direct UnknownRoute adapters now retain exact operation/core-KHR,
+complete bounded public header census, generations and phase. Portable original
+Begin/Next/End shapes are preserved without rewriting native arguments. Six
+additional core/KHR forwarding pairs retain the exact queried entry. These are
+source-proven repairs; the actual r4 callback remains unknown until new evidence.
+Unknown/vendor/secondary semantics, later-draw and source/lifetime protections
+remain refused. Independent review closes false first-cause attribution under
+contention. There are no new callback allocations, file I/O, logs or waits.
+
+Evidence: decoder 131, transaction contexts 95, Bridge contexts 58, actual-TU
+public hooks 766 and complete recording-route hooks 1615 checks, each normal
+and ASan/UBSan/leak. Private pinned definitions plus fake dispatch are explicitly
+not native GPU execution. Root's seven merged CTests and three actual host loader
+cases pass. Existing unchanged r4 GPU proofs are inherited, not repeated or
+relabelled. Exact final ARM 460,736B SHA256
+abd099d50de47d09158a3fe531b855acf872f2113c2a62379c24fddb76345ea0
+has three exports, RELRO/NOW/nonexecstack and 82 imports (new basic_ios::clear at
+GLIBCXX_3.4). Actual provider resolution/isolated load remains mandatory before
+activation. Exact-byte private staging, inode/byte idempotence, unarmed state and
+rollback pass. The initial staging fixture correctly refused shared writable
+project ancestry; only the fixture's private source copy was repaired.
+
+Unique inert prepared plan: fork
+`build/private-native-ssbo-run-20261017-r1/next-run-plan.json`. Payload 580,317B;
+payload plus staged library 1,041,053B. Same one paired source capture, combined
+64MiB plus 128B record. Progress remains 512KiB/256 events; ordinary JSON 16KiB.
+Manual arm, agreed loading restart and separately agreed rollback only; no auto
+expiry/restart. Fresh concrete device permission/readiness is still required.
+No Frame contact occurred this round. The prior original UI remains confirmed
+normal; standby is safe. This is not working native streaming passthrough.
+
+All three r5 worktrees are removed after exact source comparison. Completed
+compile caches are removed; small logs/results/source pins, native references,
+captures and current ARM package survive. Root evidence is in fork
+`build/private-native-r5-integration-20261017/`. Existing Build677 registration/
+test-pattern protocol is unchanged; unrelated main Build678 intro work is not
+part of this receiver repair. Main full/wire gates are not repeated for these
+coordination edits. This documentation checkpoint is not independently pushed
+while unrelated main fixture commit 3d8ef95a1 awaits its owner's focused timing
+validation; do not accidentally publish it with a skip-CI head. Receiver runtime
+source and its exact CI are already published on fork dev.
+
+**Steam Link r4 native clone admitted; recording refused and fully restored, 2026-10-17.**
+
+The approved r4 hardware run is complete and manually rolled back. Native
+imports, isolated load, sampler/device/UI gates and the moving PC-VR pattern
+succeed. For the first time the selected native pipeline clone is ready, and
+actual command generation 25175 is adopted. Recording then refuses
+`unknown_route` (transaction 17) before any observer draw substitution; no
+original-invocation SSBO record is produced. The existing scalar reason cannot
+identify the exact callback or public recording header. Do not label a guessed
+Begin extension or original Vulkan failure as the cause.
+
+All six exact target observations select subpass 0 with the same nine dynamic
+states; recipe receipts use two-subpass RP2/KHR passes. Three available capture
+artifacts are saved and SHA256-verified (raw P010, sampled component codes,
+metadata). They are not reconstructed native RGB or source-frame/eye mapping.
+Fork dev 5cdbe48 records the actual result in
+`docs/research/native-recording-r4-20261017.md`; private evidence and consumed
+operators remain in `build/private-native-ssbo-run-20261016-r4/`.
+
+Rollback confirms no activation, run library or loaded diagnostic mappings,
+healthy original startup and the maintainer's normally visible/usable UI.
+Standby is safe. No timer, automatic rollback or additional device action is
+active. The r4 plan is consumed. Offline r5 workers audit the whole recording
+route with bounded exact operation/header/phase provenance and portable
+Begin/Next/End support; unknown semantics stay refused. Fresh device permission
+will be requested only after the complete next package is reviewed and checked.
+Registration Build677 needs no change. Unrelated main Build678 intro work stays
+outside this task; main runtime gates are not repeated for these docs-only edits.
+
+**Steam Link receiver r4 prepared and checked offline, 2026-10-17.**
+
+The Frame remains restored and user-confirmed normally visible/usable; standby
+is safe. No device contact occurred in this preparation round. Registration
+Build677 requires no change for this receiver repair; unrelated main-runtime
+work remains outside this task.
+
+Fork dev b897155 integrates complete bounded legacy/RP2 pass cohorts, exact
+selected-subpass recording, owned extended graphics/dynamic state and bounded
+per-target metadata. Independent review also found a separate core/KHR dispatch
+issue: a nonnull promoted core PFN is not negotiated API authority. Both original
+callbacks and owned factory now retain the exact original command name. This is
+a source-proven repair, not a claimed cause of an earlier native startup failure.
+
+Host GPU pass proofs succeed on Intel/Lavapipe: 866 checks each, eight cases,
+bit-identical original/observer/restored color and128B records, zero Vulkan/sync
+errors. Separate real-driver cold-factory EDS3 proofs pass154 checks each; Intel
+includes the actual r3 SAMPLE_LOCATIONS_ENABLE_EXT refusal. These are host
+proofs with explicit limits, not native Frame mapping/passthrough success.
+Focused CPU, sanitizer, ARM and actual exported-hook checks pass. Root's initial
+12-case subset retained two obsolete fixture expectations; only those bounded
+repairs/affected factory checks were repeated, inheriting the other passing areas.
+Exact hosted CI38972790160 is green:127 CTests/96.61s, both optional diagnostic
+builds, Windows sender and8,482 protocol sanitizer checks. Main full/wire gates
+are not repeated for these coordination-only edits.
+
+Final ARM510,752B SHA dc9fa04aa9d7da4e559b00c614e73378c4243dac43e457ff7367db91ab06c494
+has three exports, RELRO/NOW/nonexecstack and81 imports (two additional GLIBCXX3.4
+locale functions; actual provider/isolated-load checks precede any activation).
+Exact-artifact local staging/idempotence/unarmed/rollback and three real host
+loader cases pass. Package630,333B; package plus staged library1,141,085B. Cold
+progress is separately bounded to512KiB/256 events; ordinary JSON stays16KiB.
+One paired source capture remains64MiB combined plus128B SSBO, manual arm and
+manual agreed rollback only, with no automatic timer/restart or live mask.
+
+Fresh concrete device permission/readiness is still required. Unique prepared
+plan: fork build/private-native-ssbo-run-20261016-r4/next-run-plan.json. All three
+completed worker checkouts and own compile/VVL caches are removed; exact source
+comparisons, failed attempts, results, native references and the current package
+are retained. Fork build/private-native-r4-integration-20261016/ is the evidence
+root; see docs/research/native-renderpass-graphics-admission-20261016.md.
+
+**r3 native admission refused before arm; fully restored, 2026-10-16: Build677 unchanged.**
+
+The maintainer approved the562,379B r3 package and one restart. Native79 imports,
+isolated load, device contract and original UI health pass. The moving PC-VR
+pattern is confirmed. No complete recipe is admitted, so no arm/shader bind or
+image/SSBO acquisition occurs. CaptureID0974d7797d6f09aae2f8925d0a18b180.
+
+New detailed evidence confirms105 qualifying layouts retained within256, one
+shared Set fact and no Capacity refusal: the old retention bottleneck is gone.
+Actual RP2 shapes include2/3 subpasses and1-3 attachments. The one-subpass-only
+decoder rejects them; one admitted single-pass route lets an actual pinned
+target reach DynamicState refusal1000455017, SAMPLE_LOCATIONS_ENABLE_EXT.
+Other dynamic enums and subordinate native payloads were not captured and must
+not be invented. Old grouped shape reporting emitted its first sample only,
+so later targets sharing a shape cannot always be correlated by object handle.
+
+Manual agreed rollback is complete: activation/run library absent, no loaded
+diagnostic mappings/uncertainty, fresh original UI health and maintainer visible/
+usable confirmation pass. Standby is safe. Private exact completion/consumed
+plan: fork build/private-native-ssbo-run-20261016-r3/. No timer was introduced.
+
+Next work is offline and comprehensive: bounded exact legacy/RP2 subpass cohort,
+original RP2 creation retained rather than lossy lowering of input aspects,
+target subpass provenance/inline recording across the whole pass, and owned
+extended dynamic-state/static-state representation with ignored pointers handled
+correctly. Three disjoint fork workers start atdcdbd34; no further Frame access
+or headset request until that entire route and meaningful GPU proofs are reviewed.
+
+**Full-startup receiver repair pushed and checked offline, 2026-10-16: Build677 unchanged.**
+
+Fork devb609bde integrates the r2 follow-up: separate small layout identities and
+shared immutable Set0 facts,128 Set/256 Layout/256 Pass instances,384 fact slots,
+strict legacy-equivalent RP2 creation and original core/KHR Begin/End2 forwarding.
+Journal1,066,816B; no live-object eviction or extra native-lifetime authority.
+The synthetic107-layout/107-RP2/108-pipeline startup model retains all six late
+targets; the old16-limit negative control fails. Actual archived107 layouts are
+not claimed all qualifying, and missing native full payloads are not replayed.
+Affected Journal2,883 and new RP2 contract42 checks pass normal/sanitized/ARM.
+
+Actual Intel/lavapipe RP2-to-owned-legacy compatibility proof passes197 checks
+each, two cases/six indexed draws, complete128B record, bit-identical color and
+zero active Vulkan/sync errors. Actual Snapshot exported core/KHR callback tests
+pass99 public/989 with private pins, normally and sanitized; these are fake
+dispatch, separate from GPU proof. Independent review found a pre-existing cold
+Boundary-to-Bridge cancellation gap (not the r2 cause); sticky DefinitionHistory
+closes it with219 focused normal/sanitized controls across five phases.
+
+Progress now preserves64 keyed rejection contexts, exact inventory/fact occupancy
+and16 top-level creation shapes.11 preflight/32 session tests pass; actual r2
+now reports the capacity/unknown-layout evidence without inventing nested cause.
+Separate progress cap256KiB/256 events keeps ordinary JSON16KiB. Two phases stay
+explicit: no streamed target is required before requesting a stream; canonical
+profile, actual queue and complete recipe are mandatory before manual arm.
+
+Final ARM442,936B SHA146dc3e5da9b9e208442dc15b69888bb1207f0f060a3f4050467fde9915c89e3
+retains79 imports and exact three exports. Three real host-loader controls and
+exact-artifact isolated staging/idempotence/unarmed/rollback pass. Exact hosted
+CI38968827113 is green:125CTest/98.87s, both optional builds/Windows and8,482
+protocol sanitizer controls included.
+Evidence: fork build/private-native-definition-repair-integration-20261016/.
+Prepared r3 payload562,379B, source+staged-copy1,005,315B, one paired source capture
+plus128B SSBO; no live mask/color/UV change. Frame stays original, restored and
+user-confirmed usable. Fresh concrete permission/readiness remains required.
+All completed own worker checkouts/caches are removed; sources, failures,
+hardware records, pins and current deliverables remain. No main runtime gate
+is repeated for these coordination-only changes.
+
+**Second receiver run refused before arming and restored, 2026-10-16: Build677 unchanged.**
+
+The maintainer approved the corrected r2 package and one SteamVR restart. All79
+native imports, exact-provider isolated loading, native UI health and the full
+12-header device contract pass. The maintainer confirms the moving test pattern
+in the PC-VR stream. The pre-arm gate then refuses
+`no_complete_pipeline_definition_observed`: the canonical profile and actual
+queue are present, but no complete recipe is recorded. No arm file is created,
+no observer pipeline is bound and no image/SSBO acquisition occurs.
+
+Actual final refusal bits1152 mean Capacity plus UnknownLayout; the19 retained
+objects do not identify which inventory is full. The earlier bounded report also
+contains Contract and UnsupportedRoute. Its global firstRefusal remains NoReady,
+so it cannot identify the later nested causes. A source/archived-startup review
+proves16 layout slots cannot cover107 distinct layout handles before/among the
+six late distortion variants. RP2 creation and recording are also blanket
+unsupported; actual target RP2 usage is not established by the old archive.
+Fix the full bounded cold-definition route and its evidence before another
+headset request; do not solve this by removing the pre-arm gate.
+
+Manual rollback is complete: activation and owned run library absent, no loaded
+diagnostic mappings or uncertainty, fresh original native UI healthy. The user
+confirms visible/usable original UI; standby is safe. Exact results and consumed
+plan: fork `build/private-native-ssbo-run-20261016-r2/completion.json`. No timer,
+automatic restart or main runtime change was introduced. Workers now investigate
+offline in isolated fork worktrees; the Frame needs no further action meanwhile.
+
+**Steam Link receiver run refused before arming and restored, 2026-10-16: Build677 unchanged.**
+
+The maintainer approved the441,496B library/551,042B user-home package and one
+SteamVR restart. Current native79 imports and exact-provider isolated loading
+pass; compositor/browser/renderer UI health is ready. The cold definition profile
+stops at known HostQueryReset header1000261000, index5, despite enabled fragment
+storage. No stream is requested, no capture is armed, and no observer is bound.
+This is our admission refusal, not a native Vulkan create or startup failure.
+
+Manual rollback is complete, no activation or diagnostic mappings remain, and
+fresh original UI health plus the user's visible/usable confirmation pass. The
+Frame is safe for standby. Exact audit/results: fork
+build/private-native-ssbo-run-20261016-r1/completion.json; do not redeploy that plan.
+
+This run supplies the first verified full12-header native census; the previous
+native library reported only the first timeline-feature refusal. Review all12
+together before another device request. The old operator
+also incorrectly treated healthy UI/sampler as receiver readiness; its stored
+ready=true result is explicitly superseded by activation-audit.json. The new cold
+gate rejects that exact preserved receipt and has five focused Python tests.
+The complete device-chain repair is integrated in forkdevb525bd1:1,192 focused
+normal/sanitized controls plus ARM compilation. Independent readiness gating has
+six Python tests, including the exact recorded healthy-UI/refused-device case.
+
+Further read-only review found a separate deterministic selector defect: the
+native archive creates six distinct distortion variants/layouts and12 shader
+modules, but294 draw_recorded events use only the final two variants. First-ready
+recipe and first candidate command could disagree, and4-slot inventories/report
+coupling could discard the used variants. Exact selected-draw pipeline identity
+now reaches a cold, generation-checked lookup after manual arm. All inventories
+have16 slots (Journal558,576B), independent of the unchanged4-receipt log budget.
+No clone is required before arm: canonical profile/actual queue/one complete
+recipe are required, then exact candidate selection prepares its clone off-thread
+and only the next actual Begin can instrument.228 tracker controls pass normally
+and sanitized; affected bridge511 plus final selector227 controls, journal scope
+and a second independent source review cover the new flow without repeating
+unchanged GPU proofs or main gate.
+
+Corrected ARM441,880B SHA1c94f6f75cf0309cb5cf5fee961fe55d4e5d41bb54e656b78256446d83e42dd8,
+same79 imports, exact three exports, local exact-artifact prepare/idempotence/
+unarmed/rollback, three actual optional-loader cases and the CMake readiness
+entry pass. New payload556,232B, staged package+library998,112B; plan in fork
+build/private-native-ssbo-run-20261016-r2/. Exact hosted CI38942752089 is green:
+124CTest/99.35s, both optional builds, Windows and8,482 sanitizer controls. Fresh
+actual restart readiness remains required before another device action. All completed
+own workers/caches are removed; source/results/originals and ARM package remain.
+
+**Steam Link original-invocation receiver assembled offline, 2026-10-16: Build677 unchanged.**
+
+Forkdev278e7a5 integrates the owned count1/Sparse32 original-output observer,
+actual creation-generation tracker tickets, direct/indexed original draws and
+same-generation reusable source-copy pairing. The original pipeline is restored
+immediately; unknown routes refuse publication. This is not live passthrough.
+The Frame remains restored and user-confirmed usable; no contact this round.
+Exact hosted CI38938224108 succeeds:123CTest/100.57s, both optional diagnostic
+builds, Windows cross-build and8,482 protocol sanitizer checks.
+
+The receiver passes281 private fake-dispatch callback checks normally and under
+ASan/UBSan; these are not GPU proofs.162 tracker checks and the earlier factory/
+transaction controls are inherited. Five new public registrations pass; after a
+bounded harness-profile repair, three actual optional host-loader cases pass.
+Original shader color/sparse-record proofs remain valid on Intel/lavapipe. A
+separate actual Intel2304² cost control found full-fragment election13.784ms
+versus baseline2.264ms/Sparse32 2.270ms; these are not Frame timings.
+
+The exact ARM candidate is441,496B SHA73576094c073b477bc63d5885d785eaf5b770a2f35091845f3facb34fcd9e9c8,
+with exact three private exports and the same79 dynamic imports as the last
+successful native package. Local exact-artifact prepare/idempotence/unarmed/
+rollback passes in an isolated host fixture. It does not establish native loading.
+The next reviewed operator package totals551,042B and transfers FOUR immutable
+files, including the new128B original-invocation record. Plan/evidence live in
+fork build/private-native-ssbo-run-20261016-r1/ and
+build/private-native-transaction-integration-20261016/. It requires fresh concrete
+permission because it first binds an owned original-output shader, unlike the
+earlier source-only approval. No automatic expiry/restart/rollback is added.
+
+Next: actual native admission and matching invocation/source values, followed by
+changing-source chart/eye/frame validation, live alpha presentation and real game
+coverage export. Software proofs and timestamps are not those authorities.
+Own completed caches/worktrees are removed after reaping; captures, source,
+failures/results and the ARM deliverable remain. No main runtime or gate changed.
+
+**Steam Link native definition run restored; composed output proved offline, 2026-10-16: Build677 unchanged.**
+
+The maintainer approved the 330,320 B package (SHA256 prefix034defdc) and its one SteamVR restart.
+Actual current-provider79 imports/isolated load and native UI health pass. After
+explicit visible moving-pattern confirmation, one paired acquisition completes:
+15,925,248 B P010 +21,233,664 B sampled components +2,505 B metadata, all SHA-verified.
+Capture d22946257c69859d2b165ad50324bf3a lives in fork
+build/private-native-definitions-run-20261016-r1/. Actual fragmentStoresAndAtomics
+is enabled through Features2; optional definitions stop at chain index4,
+VkPhysicalDeviceTimelineSemaphoreFeatures1000207000. This is our strict profile's
+refusal, not a native create failure. No native shader/pipeline was changed.
+
+Manual rollback is complete: activation/config/arm and owned run library absent,
+no owned/foreign mappings or uncertainty, fresh original native UI health ready.
+The user confirmed visible usable original UI and was told standby is safe.
+No automatic expiry/rollback/restart, main-mod source change or live passthrough occurred.
+
+The acquired binding9 has sampled-image type2/count1/stages2147483647. Both exact
+pinned fragment accesses use constant0, but actual Intel/lvp validation rejects
+an unmodified declared array3 with count1 (VUID07991). An attempted cold-profile
+relaxation is REVERTED before deployment. The original profile still requires3.
+A separate explicit owned count1 module-interface adapter is now GPU-proven; it
+changes only the owned B9 variable type and adds three fresh declarations after
+full original-pin/use checks. Native layouts and executed image accesses stay unchanged.
+
+The new single-attachment premultiplied-output proof composes both native cones,
+independent color/coverage weights and original aperture exactly once. Each of
+Intel/lvp passes64 asymmetric stereo cases for each ordinary3 and specialized1
+variant, including16 actual GPU overlapping-transparency sources/64 original-PS
+color oracles per enabled run. Maxerror7.45e-8; positive VVL/sync errors0; original/
+off recovery bit-identical. Missing RGB premultiplication and double-aperture
+mutants fail precisely. Five Python methods pass. Exact private proof/initial
+failures/source pins remain in fork build/private-packed-output-20261016/.
+
+Fork355ca86 is pushed; exact hosted CI38929648477 is green, including the
+new registrations, optional diagnostic compilation, Windows cross-build and
+protocol sanitizer checks. Affected23 raw-fact/700 journal/154 initial definition
+controls pass normal/sanitized/ARM, followed only by156 final definition controls
+for the restored strict extent. Three affected real-loader cases pass; only the
+new CMake Python entry and owned fixture compilation repeat after integration.
+The raw observer now copies all up-to32 device headers and four ordinary Set9
+shapes independently of admission (2724B); unsupported fields remain refused,
+never a recipe/lifetime authority. Full main-mod gate is not repeated.
+
+The user explicitly rejected endless small native diagnostic rounds. Do not ask
+for another headset action before the remaining integration is coherently ready.
+Owned output/linear RGBA32F fixtures are NOT native P010/eye/ray/frame proof. The
+next work must resolve native compatible creation/state/lifetime admission,
+original same-invocation coordinate binding and source chart/eye/frame validity,
+then the actual alpha presenter and real Gloomhaven coverage exporter. No native
+output or sender hook is enabled, and the Frame remains original/restored.
+Own completed caches/executables/validation extraction and worker checkout are
+removed after reaping (~65 MB this round), preserving captures and small evidence.
+
+**Steam Link cold definition integration, 2026-10-16: Build677 unchanged.**
+
+Forkdev f3d335b is pushed; hosted CI38925547452 is green on that exact source:
+116 CTests/96.54s, optional uniform+definition-observer compilation, Windows
+cross-build and8,482 sanitizer checks. No main-mod code/build/full gate changed.
+Local integration runs only new CPU entries, the unchanged-default loader smoke,
+three optional-observer loader cases and new helper compilation. Initial compiler,
+validation and assertion failures remain separate from repaired focused evidence.
+
+The owned reused-CB proof passes3cohorts/1005checks per Intel/llvmpipe; its legal
+no-reset control reproduces FIRST128Brecord/LASTsource on the second execution.
+Distinct identically-defined Set0 objects plus identical push ranges pass
+2cases/222checks per driver: bind ONLYSet1 for the probe, immediately restore
+original pipeline, no Set0/push/dynamic rewrite; original/restored output bitexact.
+Initial incoming-RP transition WAR and its narrow tested repair are retained.
+
+Cold definitions own22,664B and the per-device creation journal120,136B. Exact
+module pins/full supported arrays/push/RP/state are captured before call inputs
+expire; native handles are diagnostic provenance, never cold operational leases.
+Epoch/generation/entry-destroy cancellation survive reuse. Definition controls
+142public/171private plus final3; journal688public/778private plus final5 have
+normal/sanitizer/ARM evidence. JournalTSAN fails at runtime startup, not a pass.
+
+The production cold factory has2338 current fake-dispatch lifecycle checks,
+inheriting2326 sanitizer controls before a test-only mapping assertion addition.
+Both actual drivers additionally pass1case/154checks: create exact original
+VS/PS/pipeline, capture recipe, destroy originals/overwrite inputs, then successfully
+create/release the actual owned factory. No draws/submits/waits; coherent memory
+only. The native-VS extension rejection and fixture-only repair remain recorded.
+
+Optional FRAME_PIXEL_SSBO_DEFINITION_JOURNAL observes successful native creates
+and entry-time destruction only. OFF by default; no clone/factory linkage or
+native shader/draw/submit change. ABI exceptions make the history sticky-ineligible.
+Bounded private background receipts expose actual enabled features/definition
+refusals; existing acquisition metadata now includes original descriptor type,
+count and stages. Native compatibility is still unknown, especially the actual
+binding9 definition versus the private fragment's declared image array.
+
+The current offline ARM candidate is330,320B, SHA034defdc829cecf32ed8e2f8787f33f2ec42b03152887f128cc3e2475626ac68,
+definition journalON/uniform companionOFF, exact three private exports. Its
+prepare/idempotent-prepare/unarmed/manual-rollback succeeds in an isolated host
+fixture; native execution is NOT claimed. Source/CI/artifact/cleanup evidence is
+in fork build/private-definition-layer-integration-20261016/. Five completed
+worker checkouts (30,020,631B) and completed private build caches are removed.
+Captures, originals, source pins, failures, reviews and current deliverables stay.
+The final bounded f3d335b delta retains offending index/type/kind in background
+refusals, so native unknown definitions have actionable context. Only its three
+affected optional loader cases/native artifact staging are repeated locally;
+earlier CPU/GPU evidence is unchanged. The superseded joint ARM compile binary
+is also removed (3,048,912B including its generated manifest). Next-run scope,
+permission requirement and exact manual rollback are pinned in next-run-plan.json.
+
+No Frame/SSH access, install, restart or timer occurs. The headset stays restored
+and safe for standby. A fresh concrete agreement is required for the next native
+definition/source observation, after the package is fully ready; no passive
+agreement is treated as permission for a shader override or live passthrough.
+
+**Steam Link current-image registration and buffer observation, 2026-10-16: Build677 unchanged.**
+
+Forkdev ef2ea0d is pushed and hosted CI38918802046 is green on that exact source:
+112 CTests, optional uniform build, Windows cross-build and8,482 sanitizer checks.
+The new locator's full hosted entry passes in95.73s. Locally only the two new/
+changed Python CMake entries run (14 methods); the locator reuses composed6+4
+controls and both final actual CLI records. Its CMake registration is checked
+without a duplicate full local replay. The new SSBO host target compiles; no
+previous original-GPU experiments or full main-mod gate are repeated.
+
+Without historical fit inputs, current sampled-G header edges recover both
+encoded source-eye labels in captureb5ff764e7af8867a94aff07a56c555db: independent
+sessiona0bff9cdfd7e4deda4181c33a88df645, pair682/phase41. All six full headers
+match canonical C# source/DLL/artifact provenance. Each eye passes221background
+and220color held-out marker cells. Six source-selected7x7 homogeneous coverage
+levels have >=846 samples/level, maxcodeerror0left/1right. Header-only fit ranges
+are finite sampled uncertainty, not exactB/nativeouter/physical-eye/temporal proof.
+An initial grid failure, failed heldout candidate and240s synthetic-test timeout
+remain. A bounded exact-header-byte cache repairs test overhead without merging
+candidates or changing the strict reader; it does not make this offline locator
+real-time. Source4e57ba9/8837a47 integrates as44fad90/2b512d6.
+
+Original-invocation buffer prototype73bdfe1 integrates ascee2fcd: one128-byte
+owned SSBO, one actual color attachment, no new native descriptors and one input
+FragCoord load. Each driver passes36/8124 normal and36/4848 unselected-pixel
+checks, originalRGBA36/36bit-exact, Khronos/sync errors0. Actual feature-OFF
+refuses before pipeline creation. R1/rawflag/legalcanary mutants and module
+exception teardown are causal. Review has no inert-contract blocker.
+
+No Frame access, installation or restart occurs. The headset stays restored.
+Completed worker worktrees, Unity projects, compiler caches and private validation
+packages are removed after reaping; source pins, original inputs and results stay.
+Next offline work covers the reusable-CB first-SSA/last-image gap via ordered
+per-execution GPU reset and a bounded owned cold-clone definition contract. No
+native override, real game-alpha exporter or streamed passthrough is enabled.
+
+**Steam Link packed-coordinate and game-coverage prototypes, 2026-10-16: Build677 unchanged.**
+
+The direct packed-u prototype now targets Pc=B Tc B^-1 and Pa=B Ta B^-1 from
+originalu538. It reuses native R1/other already consumed values in the same
+invocation instead of joining a CPU-copied uniform. Strict q/W entry behavior is
+unchanged: four original binary/record before/after comparisons agree. Ten focused
+Python methods pass. Intel and llvmpipe each pass48ON/48OFF plus two24-case q
+comparisons,10,700 positive checks/driver with active Khronos validation/zero
+errors. Packed originaloutput0 is48/48 bit-identical; the q comparisons retain
+previously documented Intel rounding within2e-6. Actual direct color oracles
+number44 (four zero-panel-aperture exclusions); raw-G oracles48. Valid wrong-chart
+and shared-weight mutants fail causally. Worker21eb396 integrates as fork2c61102.
+
+An independent inert Unity fixture copies four actual owned shader families into
+disposable projects; it changes no production shader or enabled runtime path.
+Unity2021.3.5/Vulkan/Intel passes36 cases/319 checks each in Gamma and Linear,
+with admittedARGBFloat1/2/4/8MSAA. Original half-opacity layers actually accumulate
+alpha.25/.375; private corrected variants produce.5/.75 with retained RGB and
+additive emission atA0. These are interior pixels only: noMSAAedge, subsequent
+stencil test, softmaskedge, D3D11, unknown game shader or whole-game alpha proof.
+Fixture source forkda29ac3; detailed limits in GAME-COVERAGE-PROTOTYPE-20261016.
+
+An independent review accepts both inert contracts. New native registration and
+same-invocation buffer observation remain separate work. No Frame connection,
+shader installation, service change, live alpha or Steam sender modification
+occurs. Owned temporary Unity projects and the51MB validation package are removed
+after reaping/cleanup; source pins, failures and small results remain private.
+
+**Steam Link inert atlas reconstruction, 2026-10-16: Build677 unchanged.**
+
+The fork now reconstructs separate scene and raw component-G panels using
+explicit diagnostic W/Tc/Ta and two independent native sample/reconstruction
+cones. Original selected values are reused without second native descriptor
+loads; original instruction bodies and output0 expression remain intact.
+This does not infer native W or enable a Frame shader, game coverage or alpha.
+
+Intel and llvmpipe each pass48 enabled cases/3677 checks and48 disabled cases/
+3341 checks with Khronos validation active/zero errors. Each enabled run has48
+direct original-shader color and48 inverse-decoder raw-G oracles,22 unequal
+weights and16 partial original-aperture cases. Swapped panels, a reused mask
+weight and duplicate aperture all causally fail on both drivers without Vulkan
+errors. Independent final source/evidence review finds no inert-contract blocker.
+
+Intel stock/atlas output0 is bit-identical in40/48 cases (llvmpipe48/48). A
+neutral source isolates original aperture rounding rather than sample/decoder
+changes. The explicitly revised INERT comparison caps absolute error at2e-6;
+observed maximum1.35601e-6/98ULPs is recorded, not called bit identity. Computed
+clamped UNORM8 codes agree; this is CPU quantization, not another GPU-format or
+headset test. Disabled MRT1 equals the same module's MRT0 bit-for-bit. A future
+live OFF path must use the stock module rather than this diagnostic variant.
+
+All six focused Python methods pass via the new CMake entry; only the two new
+owned C++ helpers are compiled. Unchanged mod/wire suites are inherited, not
+rerun. Private evidence lives in fork build/private-atlas-{splice,gpu,integration}-
+20261016/. Completed package/compiler caches are removed after process reaping;
+source pins, failed controls, original captures and reviews remain. No Frame
+connection, installation or restart occurs; it remains restored and usable.
+
+
+Forkdev e73e7cd is pushed; hosted CI38913134977 succeeds on that exact source
+(110 CTest entries, optional uniform build, Windows cross-build and8,482 protocol
+sanitizer checks). Both byte-identical clean worker worktrees are removed after
+process reaping. Integration receipts and actual CI/source identities are retained.
+
+**Steam Link changing-source receiver recovery, 2026-10-16: Build677 unchanged.**
+
+The newly supplied PC logs independently select app session
+a0bff9cdfd7e4deda4181c33a88df645. The approved native one-shot acquisition
+recovers app pair682/phase41 for both encoded source-eye labels. All six complete
+headers, including both declared source-plane digests, match exact regeneration
+through the previously pinned production C# emitter. The strict existing reader,
+actual invocation provenance and independent recovery review pass. All882 dense
+coordinate-marker observations match at the unchanged fitted coordinates;
+minimum observed complementary contrast52. This is one captured encoded pair,
+not native video-frame/physical-eye/application-ray mapping authority.
+
+Homogeneous5x5 coverage interiors differ by at most one8-bit code; this applies
+to8,138 of61,440 source pixels per eye. Full-plane MAE2.97/2.88 and maximum
+173/170 remain at transitions and cannot be advertised as an exact mask. The
+complete PC run records4,746 CPU pairs, no skipped cohorts and two fallback
+callbacks; the detailed fallback is mono with XR already exiting and inactive.
+Do not rewrite the fallback count as zero or infer a live XR image failure.
+
+Manual restoration is complete: no activation files, owned library or uncertain/
+foreign/owned diagnostic mappings remain. Native UI health is ready and the
+maintainer confirms visible usable UI; standby is safe. No further Frame access
+is needed for current offline work. Original inputs and all reviewed receipts
+remain in the fork's build/private-registration-source-run-20261016-r1/.
+The inert offscreen SSA-observation prototype is integrated from two separate
+fork worktrees and independently reviewed. It preserves original shader bodies
+and output0 while exporting already-consumed values without new UBO loads.
+Private Khronos validation found and prompted repair of an undersized fixture
+image array and partial shader-module cleanup. Corrected Intel and llvmpipe runs
+each pass36 cases/671 checks with validation enabled/zero errors; a valid wrong
+R0 export and the old cleanup leak are causally detected. Six private-input
+Python methods plus the owned vertex validation pass through the new two-test
+CMake subset; existing unrelated evidence is inherited, not rerun. No live
+shader replacement, mask presenter, game coverage export, PC sender modification
+or new mod build is enabled. No Frame access follows from this offline work.
+Forkdev931c99e contains the source, CMake registration and developer evidence.
+ForkCI38896812394 is green:109 CTest entries, optional native-uniform build,
+Windows cross-build and protocol sanitizer step. This is not a new main-mod gate.
+Both worker worktrees and completed private package/compiler caches are removed
+after reaping; originals, failed controls, source pins and final reviews remain.
+
+**Build677 changing Steam Link registration source, 2026-10-16: dev1.1.1.**
+
+The maintainer now confirms visibly moving output on the actual PC. Its new
+paired logs show Direct3D11/OpenXR MultiPass with CPU graphics fences supported,
+4040x4040 eye targets,757 completed source pairs,757 callbacks per eye,zero
+fallbacks and zero skipped cohorts. Opening VR Options manually stops the source
+and restores ordinary output. The eight bounded source records regenerate
+byte-exactly through the production C# generator, including every manifest
+field and both plane/header digests. Independent log review finds no source-test
+failure. This is actual PC-source evidence, not a decoded native-frame/UV or
+streamed-passthrough proof. Original inputs and checks are retained under
+`.planning/debug/steamlink677/hardware-20261016/`.
+
+The approved676 native capture now includes exact final-draw GPU-copied uniform
+bytes; its four artifacts and all digests independently match. Native lookup
+algebra is checked against the original fragment instructions. This proves no
+physical eye/application-ray/video-frame association and enables no passthrough.
+The diagnostic is removed, original UI health is verified and the maintainer
+confirms a normal usable Frame. The headset is no longer needed for offline work.
+See STEAM-LINK-676-COORDINATION and the fork's native-uniform capture report.
+
+The mod's existing opt-in test now prepares fresh app sessions, changing stereo
+pair IDs and deterministic dense asymmetric synthetic coverage in Update. Both
+actual eye callbacks consume one frozen cohort. Three fixed GPU texture pairs
+cannot be uploaded again before their following-Update CPU fence passes. Whole
+cohorts may skip under pool pressure; a begun incomplete pair stops. Providers
+without CPU fences explicitly keep the already tested static profile. No backend
+name is treated as proof of D3D11 capability. Menu/switch/boot-off behavior and
+camera/session/ownership guards remain; no timer or native sender/Frame mutation.
+
+CPU evidence: existing1,225 lifecycle controls, new64,789 pair/pattern controls,
+167 independent unchanged-header/CRC/SHA controls and actual Unity-reference
+typing pass. Actual Debug and Release builds are0 warnings/0 errors. Surface
+667 config keys/236 Harmony patches/4,797 tokens and options coverage pass.
+Independent production review found and repaired partial-texture cleanup and
+unnecessary repeated metadata getters; Debug receipts stop after four pairs.
+The first integration runtime-typing failure was a new nullable annotation only;
+only that compile was repeated. Unchanged wire/native/menu/binder evidence is
+inherited676/675, not presented as another complete221-suite gate.
+
+Actual Unity2021.3.5/Intel Vulkan now passes Linear113/Gamma110 plus the isolated
+unrendered-cohort6 controls:48 exact original headers, zero RGB8 error, actual
+pending-resource guards and texture reuse after completed fences. Gamma inherited
+the exact successful compile; later bounded fixture-only repairs inherited those
+unchanged image methods. True flip, changed-source and corrupted reused-DLL
+controls refuse. That fixture alone claims no XR callback, Windows D3D11 or
+native decoded mapping; the later actual PC log evidence is recorded above.
+Evidence and cleanup are in the677 coordination record; the Frame stays
+restored, with no new connection/installation/restart authorized by these tests.
+
+**Build676 manual-only Steam Link source test, 2026-10-15: dev1.1.1.**
+
+The maintainer rejects the automatic30-second test expiry. Remove the complete
+clock/deadline API and runtime time sampling. Preserve the manual menu/options
+escape and switch, camera/eye/session/fault/ownership gates and boot-off behavior.
+English/German hints and the source-output checklist now describe manual stopping.
+No replacement timeout setting, Frame/sender mutation, gameplay or wire change.
+This still presents a diagnostic pattern, not working streamed passthrough.
+
+Focused validation under `.planning/debug/steamlink676/`: 1,225 production-policy
+controls and the Unity-reference runtime compile pass; actual Debug/Release builds
+finish with zero warnings/errors. Player-help lookup passes 2,308 assertions,
+options coverage and docs i18n pass, and all 667 config keys / 236 Harmony patches /
+4,797 log tokens remain unchanged. Independent source review passes. Reuse only
+unchanged675 native/wire/menu/binder evidence; this is not another full221-suite
+gate or a hardware/passthrough result. Unrelated trailer work and675 CI-preflight
+repairs remain preserved.
+
+**Build675 semantic hover and XR viewport repair, 2026-10-15: dev1.1.1.**
+
+The latest local hardware logs identify674. The maintainer confirms water and
+reports no recurrence of the empty NPC merchant so far; the older remote vanilla
+October11 log is not a paired674 session. Three new reports cover duplicate card
+and tooltip haptics, prop hover beyond its hex and collective healthbar hiding.
+
+The healthbar cause is source/log-proven: native OpenXR supplies normalized
+`(0,0,1,1)` for each3560x3560 eye, but the old capture consumed pixel units. It
+could collapse unrelated bars onto one depth sample. Convert that provider
+rectangle once for capture, camera restoration and shader mapping; retain the
+existing depth shaders/bundle/default. Native GL223/all12 controls and actual
+unchanged-bank D3D11:223/new control pass, with three simultaneous native glyph
+actors, moving card, both eye poses and reduced/offset viewports. Five production
+admission bindings and both disconnection controls pass. This still does not
+execute a headset XR provider.
+
+Card haptics now share per-hand physical-card/native-action encounters with150ms
+loss grace; tooltip children and passive laser tile hover stay silent. Preserve
+direct fingertip board feedback and its option, click/grab/confirm presets and
+distinct simultaneous card receipts. Native32/all8 controls and independent
+review pass. Prop hover uses the actual native hex-mask ray and current exact
+prop/spawner GUID membership; original picks/colliders/near reach/callbacks remain.
+Native289/all5 controls pass over three board scales/three yaws.
+
+A separate concurrent integration adds a default-off, bounded Steam Link source
+diagnostic to this same plugin. It is not working streamed passthrough. Its own
+policy/lifecycle tests and review remain distinct; no Frame installation/change
+is performed. See the integration coordination records for ownership.
+
+Final Release0/0, direct300518 goldens, docs/banks and667/236/4797 surfaces pass.
+Compiled1257 ->1273 adds four repair helpers/12 Steam Link types;30 changed types
+are reviewed with no removals. Ten existing focused suites pass plus the repaired
+enchantress handoff1515/all78: its explicit haptic boundary now accepts the new
+API without changing original tests/callbacks. Source15 initial passes plus the
+repaired instrument-write checker cover16;35 constructor regressions/all11
+old-seed controls retain real diagnostic escape detection, baseline61 unchanged.
+221 local/100 hosted/16 source inventory; Version3/next-free118 unchanged.
+
+This is focused/composed validation, not a new complete221-suite local gate.
+Actual final Debug and full hosted CI receipts follow in ignored evidence.
+First CI preflight required the strict expected inventory to be updated from
+217/98 to221/100 and command-script lookup to accept interpreter flags. Runner18
+(16 pass/two existing optional skips) and topology5 pass; this test/docs-only
+follow-up preserves all validated production sources and prior focused evidence.
+Source/evidence/captures and failed controls are retained under
+`.planning/debug/fix675/`; owned processes are reaped before cache cleanup.
+Unrelated trailer edits are preserved. See
+[FIX-675-REVIEW.md](FIX-675-REVIEW.md).
+
+**Build674 merchant preparation after extended sessions, 2026-10-15: dev1.1.1 repair.**
+
+October15 local hardware logs are still671/1.1.0; the remote vanilla log is older
+October11 evidence. Seven empty-message prepare failures follow scenario/map
+transitions and eventually leave the merchant cabinet without a public catalog.
+The exact hardware object is unobservable because the old catch discarded type
+and stack. Source/native probes establish optional Resources discovery can abort
+the whole bank on an unrelated partial TMP asset or retired mip original.
+
+Reject destroyed normalized originals before cached identity lookup; isolate
+recoverable per-object failures only in optional discovery. Required canonical
+originals and identity conflicts remain strict. Bound useful discovery summaries
+and retain publisher exception type/reason plus guarded Debug stacks. No stock,
+gold, model/callback, authority, presentation/default, wire or asset changes.
+
+The water fix is already on dev673 and remains byte-unchanged. Repair its prior
+CI registration: full native water proof stays in217 local suites, with98 hosted
+and16 source suites. Hosted metadata cannot execute the Unity/native-asset proof.
+Runner18 (16pass/two unchanged optional skips), topology5 and both controls pass.
+
+Merchant native-bank245/all25 controls and independent shipped-TMP9 pass; root
+native-peer45775/45862/all7, card-mip six variants and flame1156/all6 plus original
+billboard pass after narrow external-fixture updates. Source16, strict Debug and
+Release0/0, direct300518 goldens, docs/banks and666/236/4795 surfaces pass.
+Compiled1257 ->1257: two implementation types/eight674 consumers, no removals;
+generated project changes only decompiler-relative reference paths. Version3 and
+next-free118 remain unchanged. This is focused/composed local validation, not a
+new complete217-suite gate. Full hosted CI follows the final source-changing push;
+its ignored receipt avoids another unnecessary documentation-only CI cycle.
+
+Sources, failed attempts, native DLL/capture bindings and review evidence are
+hash-retained under `.planning/debug/npc674/`; owned processes are reaped before
+cache cleanup. Current Debug binaries and unrelated trailer work are preserved.
+Actual long-session recovery, water scenarios and HMD appearance await hardware.
+See [NPC-674-REVIEW.md](NPC-674-REVIEW.md).
+
+**Build673 asynchronous water replacement, 2026-10-14: dev1.1.1 repair.**
+
+Latest local logs are671, with WaterVR resolved but no actual water adoption.
+Build615's one-time empty placement seed missed later native Addressables material
+publication. The existing material-ready callback now queues exact renderers;
+late/inactive/replaced films adopt without recurring deep hierarchy scans.
+
+Read-only whole-game coverage checks380 native sources/57,915 renderers and7,527
+loaders: all45 terrain/pond/DLC films and14 high/LCM materials. Only water slots
+are replaced, with original tint/normals, unrelated slots and conditional restore
+preserved. Exact ownership keeps fountain wall protection; basin tuning stays
+terrain-only. Opaque original queues become3000 only on the private alpha film;
+authored transparent2900/3000 and native originals/restoration remain unchanged.
+
+Final Unity production488 and render17/old-queue control pass; eight unchanged
+causal lifetime controls are retained. Existing wall-read-facts19,511/all29 and
+native figure731/affected-water control pass. Source16 initial plus final affected
+three, strict Debug/Release0/0, retained direct300,518 goldens, docs and bundles
+pass. Surfaces666/236/4795; compiled1257 ->1257 with three implementation files,
+eight673 constant consumers and one private-baseline branch metadata difference.
+Version3/next-free118, existing bundle; no new configuration/wire/asset change.
+
+This is focused/composed evidence, not a fresh complete runtime gate. Actual
+Addressables/controller execution, shipped scenarios/headset/FPS and paired
+outcomes await hardware. Evidence is hash-archived; processes are reaped and
+generated caches cleaned while retaining original inputs/pins/current binaries.
+See [WATER-673-REVIEW.md](WATER-673-REVIEW.md) and
+[WATER-673-ASSET-AUDIT.md](WATER-673-ASSET-AUDIT.md).
+
+**Build672 Frame launch setup and healthbar foreground depth, 2026-10-12: dev1.1.1 repair.**
+
+Running Steam can overwrite a verified external launch-options edit from its
+cached configuration while the VR shortcut persists. Setup now edits the original
+app offline only. Live setup prepares the exact merged `%command%` line, retains
+a recoverable session receipt and directs completion through Steam's own save
+and Frame restart. The VR launcher validates options and the retired session
+before launching App780290 with the exact VR opt-in. Existing custom arguments,
+prefix, saves and the original flat-entry behavior remain authoritative.
+
+Optional through-wall bars now respect nearer solid VR cards, hands, boards and
+currently held native props/figures through their original visible depth passes.
+Four native UI/TMP derivatives preserve the whole widget and owned clones survive
+native text/sprite reparsing. Final native clip coordinates map into the actual
+eye viewport; missing capture/bank resources fall back to ordinary depth until
+recovery. Existing MR plates are registered without adding scenery geometry.
+The default was already correct on PC and Frame: BarsOccluded=true means
+**Hide bars behind walls** is on, through-wall visibility off. Saved choices stay.
+
+The main bundle is rebuilt with game-exact2021.3.5f1; install it with the plugin.
+Other banks are unchanged. Final source16, strict Debug/Release0/0, focused six
+existing suites, player-help2305/all8 controls, direct300518 goldens, docs and bank
+checks pass. Native GL depth90/all11 controls, independent GPU-subset19 and actual
+final-bank Windows/D3D11 depth90 pass, including reversed-Z rendering.
+Compiled1255 ->1257 adds only two depth helpers; all13 changed existing types
+are explained. Surfaces666/236/4795 and Version3/next-free118 remain unchanged.
+This is focused validation with inherited unchanged coverage, not a new complete
+runtime gate or another release. See [FIX-672-REVIEW.md](FIX-672-REVIEW.md) for final
+D3D/CI receipts and the separate actual Frame/headset verification boundary.
+Fresh full source-changing dev CI38275346337 passes all four runtime shards and
+source/build for exactd6f26b4e0 (98-suite inventory). See
+[FIX-672-CI.md](FIX-672-CI.md). Follow-up internal Markdown leaves implementation
+unchanged; its new review paths require another full hosted run under current policy.
+
+Owned processes are reaped and caches cleaned after runs. Sources, original
+inputs, failed controls, captures, manifests and current deliverables are retained.
 
 **Build671 approved 1.1.0 release source, 2026-10-11.**
 

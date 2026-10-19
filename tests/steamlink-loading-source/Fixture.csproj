@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>SteamLinkLoadingSourceFixture</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable><LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+    <FrameworkPathOverride>$(FrameworkReferenceDir)</FrameworkPathOverride>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FrozenSource)/*.cs" />
+    <Compile Include="$(FixtureDir)/Boundary.cs" />
+    <Compile Include="$(FixtureDir)/Fixture.cs" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(UnityManaged)/UnityEngine/UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.XRModule" HintPath="$(UnityManaged)/UnityEngine/UnityEngine.XRModule.dll" Private="false" />
+    <Reference Include="UnityEngine.VRModule" HintPath="$(UnityManaged)/UnityEngine/UnityEngine.VRModule.dll" Private="false" />
+    <Reference Include="UnityEngine.AssetBundleModule" HintPath="$(UnityManaged)/UnityEngine/UnityEngine.AssetBundleModule.dll" Private="false" />
+    <Reference Include="UnityEngine.JSONSerializeModule" HintPath="$(UnityManaged)/UnityEngine/UnityEngine.JSONSerializeModule.dll" Private="false" />
+  </ItemGroup>
+</Project>

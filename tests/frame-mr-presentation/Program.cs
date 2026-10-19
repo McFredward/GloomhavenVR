@@ -1,5 +1,6 @@
 using System;
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.SteamLink;
 using UnityEngine;
 
 public static class FrameMrPresentationProgram
@@ -87,6 +88,113 @@ public static class FrameMrPresentationProgram
             Check(face.b > .95f && face.a > .99f, "PC geometry presentation remains opaque");
             Check(MixedReality.BackingsWanted, "existing PC backings remain enabled");
             MixedReality.RestoreAll();
+
+            // A persisted-on preference must never pack a transport image for
+            // an unsupported/unidentified HMD or a Virtual Desktop connection.
+            head.enabled = true;
+            MixedReality.SteamLinkNative.Value = true;
+            GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = false;
+            MixedReality.Tick();
+            Check(!GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active
+                && !GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Requested,
+                "unsupported saved-on preference retains ordinary output");
+            Check(head.backgroundColor == Color.green && head.allowHDR,
+                "unsupported connection preserves chromakey and HDR");
+            MixedReality.RestoreAll();
+
+            GloomhavenVR.Core.SteamLink.SteamLinkConnectionLifecycle.Checking = true;
+            MixedReality.Tick();
+            Check(head.backgroundColor == original && head.allowHDR && sky.enabled,
+                "initial identity query never selects the saved green key");
+            Check(!GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active,
+                "pending identity never publishes an unadmitted carrier");
+            GloomhavenVR.Core.SteamLink.SteamLinkConnectionLifecycle.Checking = false;
+            GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = true;
+
+            // This calls the actual production Tick, camera restore and source
+            // owner. A pending source capability must never expose a transparent image or
+            // a green fallback. GPU pixels remain the ordinary opaque image.
+            GloomhavenVR.Core.SteamLink.SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = false;
+            MixedReality.Tick();
+            Check(!GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active
+                && head.backgroundColor == original && head.allowHDR && sky.enabled,
+                "pending paired capability preserves ordinary presentation without chromakey");
+            clear = Pixel(head, 2, 2);
+            Check(Mathf.Abs(clear.r - original.r) < .02f && clear.a > .99f,
+                "pending paired capability renders the original opaque image");
+            Check(MixedReality.Enabled.Value && MixedReality.SteamLinkNative.Value,
+                "pending paired capability retains both saved native preferences");
+            GloomhavenVR.Core.SteamLink.SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = true;
+
+            // Production Tick and the real source owner execute with settings
+            // open. Source preparation/XR stay named boundaries, not a pixel proof.
+            head.enabled = true;
+            GloomhavenVR.WorldUI.VROptionsTab.IsOpen = true;
+            MixedReality.SteamLinkNative.Value = true;
+            MixedReality.Tick();
+            Check(GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active,
+                "open settings applies native streaming immediately");
+            var offered = GloomhavenVR.Core.SteamLink.SceneHeadOutput.Last!;
+            Check(offered.IsOwned, "open settings retains live source ownership");
+            Check(head.backgroundColor == Color.clear && !head.allowHDR && !sky.enabled,
+                "open settings uses transparent native-stream background");
+            Check(MixedReality.BackingsWanted, "live settings retain MR readability backings");
+
+            SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = true;
+            MixedReality.Tick(); MixedReality.Tick(); offered = SceneHeadOutput.Last!;
+            foreach (bool? focus in new bool?[] { false, null })
+            {
+                VRSession.InputFocus = focus; MixedReality.Tick();
+                Check(offered.Ready && offered.IsOwned,
+                    "native independent-coverage source remains active beside the Steam menu");
+                Check(head.backgroundColor == Color.clear && !head.allowHDR && !sky.enabled,
+                    "native independent-coverage Steam menu does not restore an opaque environment");
+            }
+            VRSession.InputFocus = true;
+
+            GloomhavenVR.Core.SteamLink.SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = false;
+            MixedReality.Tick();
+            Check(!offered.Ready && head.backgroundColor == original && head.allowHDR && sky.enabled,
+                "host receipt loss restores ordinary camera and sky immediately");
+            GloomhavenVR.Core.SteamLink.SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = true;
+            MixedReality.Tick(); offered = GloomhavenVR.Core.SteamLink.SceneHeadOutput.Last!;
+            Check(offered.IsOwned && head.backgroundColor == Color.clear,
+                "current host receipt recovers native presentation without resetting preferences");
+            GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = false;
+            GloomhavenVR.Core.SteamLink.SteamLinkConnectionLifecycle.Checking = true;
+            MixedReality.Tick();
+            Check(!offered.Ready && head.backgroundColor == original && sky.enabled,
+                "real HMD revalidation releases carrier without flashing chromakey");
+            GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = true;
+            GloomhavenVR.Core.SteamLink.SteamLinkConnectionLifecycle.Checking = false;
+            MixedReality.Tick();
+            Check(head.backgroundColor == original && sky.enabled,
+                "validated identity alone does not admit coverage before renewed companion capability");
+            SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = true;
+            MixedReality.Tick();
+            offered = GloomhavenVR.Core.SteamLink.SceneHeadOutput.Last!;
+            Check(offered.IsOwned && head.backgroundColor == Color.clear,
+                "validated reconnect resumes native clear immediately");
+            GloomhavenVR.WorldUI.VROptionsTab.IsOpen = false; MixedReality.Tick();
+            GloomhavenVR.WorldUI.VROptionsTab.IsOpen = true; MixedReality.Tick();
+            Check(ReferenceEquals(offered, GloomhavenVR.Core.SteamLink.SceneHeadOutput.Last)
+                && offered.IsOwned, "opening settings does not recreate or close the source");
+            MixedReality.SteamLinkNative.Value = false; MixedReality.Tick();
+            Check(!offered.Ready && !GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active,
+                "native toggle off in open settings releases source immediately");
+            Check(head.backgroundColor == Color.green && head.allowHDR,
+                "native toggle off in open settings restores opaque chromakey and HDR");
+            MixedReality.SteamLinkNative.Value = true; MixedReality.Tick();
+            SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = true; MixedReality.Tick();
+            Check(GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active,
+                "native toggle on retries immediately without closing settings");
+            MixedReality.Enabled.Value = false; MixedReality.Tick();
+            Check(!GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active
+                && head.backgroundColor == original && head.allowHDR && sky.enabled,
+                "master MR off in open settings restores ordinary presentation immediately");
+            MixedReality.SteamLinkNative.Value = false;
+            MixedReality.Enabled.Value = true;
+            GloomhavenVR.WorldUI.VROptionsTab.IsOpen = false;
 
             FrameNativePassthrough.Required = true; FrameNativePassthrough.Ready = true;
             MixedReality.Tick(); VRSession.IsRunning = false; MixedReality.Tick();

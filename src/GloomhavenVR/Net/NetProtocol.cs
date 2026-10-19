@@ -612,7 +612,712 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 671;
+    public const ushort ModBuild = 715;
+
+    // ModBuild715 — publish the reviewed 1.2.0 release candidate.
+    // The maintainer requested the current dev tree as 1.2.0, highlighting native
+    // Steam Link passthrough with the separate paired PC/Frame companion and the
+    // approved stereoscopic movie library. Release highlights are English-only.
+    // Gameplay, presentation, defaults, assets and wire implementation retain714;
+    // this increment identifies the distributed release in the existing handshake.
+    // Preserve Version3/next-free118. Exact-source hosted CI, direct real-runtime
+    // golden vectors and the published package provenance are recorded separately
+    // in .planning/RELEASE-1.2.0.md and its retained release120 evidence.
+
+    // ModBuild714 — preserve the owned tracked menu head across native anchor swaps.
+    // A disabled/destroyed native intro/menu camera is not loss of our still-valid
+    // rig. Keep the same head, pose and current source while resolving a live anchor;
+    // do not copy over MR-owned camera settings or re-arm recenter on rebind. Real
+    // context changes, explicit rebuilds and owned-object loss still tear down.
+    // Actual Unity lifecycle and GPU source callbacks cover anchor gaps and causal
+    // regressions; no cached eye/mask, source-authority or wire change is introduced.
+    // Paired patch0.2.11 separately repairs exact decoder wait completion; its new
+    // hardware outcome remains to be checked with this build.
+
+    // ModBuild713 — keep mixed-reality initiative backing behind its actual symbols.
+    // The native initiative reorder writes world-X coordinates. At the rotated VR dock
+    // this can move portraits beyond the old host-plane backing, hiding them from the
+    // front. Carry the existing visible-ink sample's furthest local depth into plate
+    // seating, including materialisation and remote board mirrors. Keep the original
+    // opaque depth write, content order/size, native animation and 2mm world clearance.
+    // Actual Unity rendering covers the native transform chain, local/remote scopes,
+    // scales and compiling causal regressions. Wire, scene coverage and sender image
+    // resolution are unchanged; final headset acceptance remains a hardware check.
+
+    // ModBuild712 — preserve native pointer continuation with an unrelated ESC window open.
+    // Hardware710 reaches RewardContinue repeatedly while its permission is false;
+    // the ESC window remains open across that chest reward. The native reward loop
+    // accepts mouse input independently of the ESC blocker attached to gamepad keys.
+    // Remove that extra VR pointer veto from rewards and level-up announcements.
+    // UIRewardsManager readiness follows its live MEC reward process rather than
+    // Behaviour.enabled. Keep original reveal, latch, window, actor/network authority
+    // and native callback gates. Explicit clicks forward original input/callbacks;
+    // there is no automatic continuation or window dismissal.
+    // Bounded disabled-control diagnostics name the actual gate; routine pending
+    // input remains Debug. Native-loop and pointer regressions cover ESC-open,
+    // repeated rewards, genuine disablement and exact single continuation.
+    // Wire layout, native game state, escape-menu state and figure pickup are unchanged.
+
+    // ModBuild711 — make a visible near-figure highlight a live pickup offer.
+    // Hardware710 logs prove elected figure pulls refused by generic beam hover;
+    // they do not establish stale zoom geometry or the exact hover publisher.
+    // Separate named world hover from committed presses/gestures. Hover producers
+    // yield before starting a competing action, while an actual active action
+    // suppresses the figure offer. Revalidate the same highlighted figure's live
+    // policy, pose, native collider and registered reach before accepting it.
+    // Remove figure-only visual afterglow when no pickup is possible, including
+    // grip fallthrough; preserve ordinary card/panel hysteresis. Retain a previous
+    // election winner through switching dwell only while eligible in this sweep.
+    // Preserve native busy/dead/remote-held gates, hold/release behavior, geometry,
+    // frame order and wire layout. Focused executable regressions cover competing
+    // input orders and single dispatch; final headset behavior remains unverified.
+
+    // ModBuild710 — use the paired ordinary-RGBA Steam Link bridge exclusively.
+    // Remove the image/mask atlas and its encoder quality/resolution overrides,
+    // auxiliary projection preview and retired helper resources. Before a
+    // compatible PC companion admits this source, keep the normal game image.
+    // Preserve exact same-eye RGB dimensions, depth/fractional coverage and
+    // current stereo-cohort authority; no new XR or encoder quality settings.
+    // Existing saved transport keys remain bound and inert. Standalone native
+    // passthrough and other transports' chroma-key presentation are unchanged.
+    // Hardware appearance remains subject to the paired Windows/Frame test.
+    //
+    // ModBuild709 — preserve XR progress during Steam Link observer retirement
+    // and contain the legacy atlas while the Steam dashboard owns input focus.
+    // The708 hardware log shows a synchronous cancellation callback throwing
+    // SafeHandle/AggregateException into the XR tick. Revoke source authority
+    // immediately, but cancel and dispose the observer off the render thread;
+    // retain ownership until both its body and cancellation callbacks finish.
+    // Legacy atlas now requires explicit current XR focus at entry and both
+    // rendering seams. Focus loss restores ordinary presentation without
+    // chroma key, clearing the stereo epoch but retaining the user's request
+    // and quality/coverage observation. Regain needs a fresh complete eye pair.
+    // The independent ordinary-RGBA route remains active beside a Steam menu;
+    // its headset/menu composition is a separate pending hardware check.
+    // No protocol, mask geometry, eye resolution, retry policy or standalone
+    // passthrough change. Focused production lifecycle, actual Unity callback/
+    // pixel and net472 checks establish software behavior, not headset output.
+
+    // ModBuild708 — negotiate ordinary full-frame RGB+A with the paired Steam Link bridge.
+    // The new sender reports readiness through a bounded same-user/PID-checked
+    // SBN1 pipe only after native encoder/source admission and authenticated
+    // receiver roundtrip. Ordinary colour and true coverage share the original
+    // app eye surface; the sender carries its independently certified mask in
+    // the same HEVC access unit. No RGB atlas/resolution or foveation lease is
+    // used while this route is selected. Missing/disconnected peers preserve
+    // the established legacy source. Source negotiation alone does not prove
+    // headset output; first combined runtime hardware test is still pending.
+    // Renderer, source/generation changes and both-eye lifecycle revoke a stale
+    // source instead of borrowing a current image from a different session.
+    // Native setup includes explicit startup health + user-confirmed recovery;
+    // no automatic device restart or timeout-based uninstall is introduced.
+
+    // ModBuild707 — start the projection preview on the click; never blank the game.
+    // The real706 helper reports successful local API setup, but the maintainer
+    // sees only passthrough. Local READY never proved remote delivery; selecting
+    // a constant-zero scene at that point hid the game without a visible test.
+    // Remove diagnostic source substitution/RT/latch altogether. Start the owned
+    // child directly, close options automatically, and stop on later reopening;
+    // retain explicit Stop if the initial programmatic close fails. No timer.
+    // Native preview geometry uses one common forward square surface instead of
+    // asymmetric UV-centred per-eye charts, whose visible interiors missed both
+    // forward rays in the actual706 log. Flush owned texture uploads before
+    // sleeping and retain bounded local visibility/extent observations without
+    // treating them as remote pixel proof. The actual game source, XR/FOV,
+    // ordinary MR carrier and public Frame installation remain unchanged.
+    // This is delivery-preview containment, not a production sharpness/menu fix.
+    // Port the unrelated new Cheats action in the movie-only CI fixture rather
+    // than weakening its spoiler, permission or lifecycle assertions.
+
+    // ModBuild706 — explicit independent-alpha transport witness, not a quality fix.
+    // The accepted v3 carrier spends RGB area on coverage and the actual uniform
+    // video stays3264x6400 despite larger real XR targets. Another width increase
+    // cannot repair that loss. Only through Advanced > Cheats, at Debug during
+    // genuine native Frame/Steam Link MR, explicitly test public projection RGBA.
+    // After closing options and both helper overlays becoming ready, pack only
+    // an owned constant-zero input through the unchanged v3 shader. A central
+    // high-resolution static overlay includes opaque black and interior alpha
+    // lanes: ordinary flattening inside RGB cannot make its unchanged zero
+    // coverage occlude the camera. A positive headset witness is still required.
+    // Latch zero-input choice per frame, preserve actual-source admission and
+    // fallback, restore the game on reopening options or ending eligibility.
+    // No automatic expiry, Frame install/restart, sender patch, XR resize or
+    // ordinary MR behavior change. Public overlay publication is not atomic;
+    // the temporary witness is not full-scene stereo/quality/transport proof.
+
+    // ModBuild705 — bounded, read-only PC compositor context for native MR.
+    // Real route-separated Frame observations show both active companions
+    // lose the v3 header when the local dashboard opens and regain it afterward.
+    // R1/flags/tint are unchanged; existing YUV samples have opaque alpha.
+    // These samples do not prove a global fade law or identify its exact stage.
+    // Only at Debug, with genuine Frame/Steam Link native MR requested, run one
+    // isolated Background OpenVR observer off the Unity thread. It reads public
+    // fade/grid/dashboard context; it never writes settings or compositor state,
+    // starts/stops SteamVR, changes scene rendering or patches a sender binary.
+    // Bound/deduplicate its reports and stop on owned EOF when no longer wanted.
+    // Ordinary users and standalone perform no observation. This is diagnosis,
+    // not a fix for menu composition, source transition or remaining RGB loss.
+
+    // ModBuild704 — prepare host stream settings before native MR source admission.
+    // Fresh703 hardware A/B: ordinary output is sharp; MR output is soft. Actual
+    // PC eye targets now change4040->5050->6060, but Frame uniform video remains
+    //3264x6400. The old2048/3168 RGB atlas fraction still spends image detail on
+    // coverage. This bounded correction does NOT restore that lost RGB budget.
+    // Source preparation previously raced the asynchronous stream-settings task,
+    // allowing an atlas before its current host policy was acquired. Require a
+    // matching width/current epoch and live helper task before cold preparation,
+    // again at callback ownership, and for the actual current source extent.
+    // Pending/failed policy keeps the ordinary image, never the green chroma
+    // fallback. Off/resize/completion revoke immediately; explicit quality-Off
+    // retains the prior no-lease source path. No timer or Off prewarming.
+    // A host receipt is NOT proof of native encoder reconfiguration. The entire
+    // reported one-second edge transition remains unverified. No shader, bank,
+    // receiver or XR/projection change. Game+local-menu+camera is still the target;
+    // the clean current local dashboard episode has no video-format change.
+    // The earlier dashboard episode includes separate tracking loss; do not
+    // assign its Synchronized transition to all ordinary menu openings.
+
+    // ModBuild703 — restore the PCVR eye-resolution control's live allocation.
+    // Build702 hardware edits above1.0 were deferred because Frame standalone's
+    // allocation containment also governed the PC. Classify the existing native
+    // standalone marker at a cold session boundary, then on PC apply the settled
+    // slider request to the running XRDisplay allocation in the existing Update
+    // resource phase. Clear legacy viewport reduction; never multiply allocation
+    // and viewport, change camera rect/FOV, or add an MR-only resolution factor.
+    // Preserve standalone's stable allocation/viewport/capacity behavior. Refused
+    // PC requests do not become an automatic native-resource retry loop. Getter
+    // acknowledgment is not proof of actual rendered or streamed pixel dimensions.
+    // Actual Frame702 video is3264x6400 despite a4096 settings readback; the v3
+    // atlas also retains its2048/3168 RGB fraction. This repair is NOT a claim
+    // that native-MR source quality is restored. No shader/bank/receiver change.
+    // The user chose simultaneous game+local Frame menu+camera, so the prepared
+    // XR-focus-pause fallback is reverted, not shipped as that solution. The
+    // dashboard route needs a separate native context/coordinate repair. No Frame
+    // install, restart, capture, automatic timer or wire change in this build.
+
+    // ModBuild702 — remove the accepted edge policy's extra fixed video ceiling.
+    // The maintainer accepts701 edges but reports degraded picture quality. Its
+    // hardware log shows4040x4040 actual XR sources and a3072 uniform video request.
+    // Derive the request from actual current carrier dimensions, rounded UP to64;
+    // never alter XR allocation, viewport, render scale or camera targets here.
+    // Retire the independent MR-width control, keeping its saved key inert.
+    // A transient unknown extent retains only the current requested generation;
+    // Off/session end/Reset cannot invent or reuse an old initial allocation.
+    // Extend the verified helper's request bounds without silently accepting an
+    // observed smaller driver readback. Preserve existing larger manual widths
+    // and all ownership/absence/rollback/EOF controls. Driver settings are not
+    // proof of negotiated video dimensions or a safe maximum for every decoder.
+    // Keep701's accepted no-foveation/no-sharpening policy and stereo-startup
+    // gates. The v3 bank/receiver/2048-of3168 scene budget remains unchanged;
+    // removing the additional3072 ceiling does NOT make that atlas pixel-lossless.
+    // No native patch update, new shader, Frame action, active timer or wire change.
+
+    // ModBuild701 — actually admit the stream-quality policy and gate XR startup.
+    // Fresh700 hardware logs show all three leases refused at generic snapshot:
+    // no requested quality setting was applied, so unchanged edges do not test
+    // that policy. The old helper falsely treated a legitimate missing setting
+    // (public error5, UnsetSettingHasNoDefault) as an API failure. Snapshot exact
+    // absence separately from effective false/zero, explicitly write the requested
+    // policy and restore an absent key with public RemoveKeyInSection + readback.
+    // Never fabricate old values; all other API errors remain refusals and now
+    // name the bounded key/error code. The old log lacks that exact key/code,
+    // so the repaired absence mechanism is not claimed as measured old error5.
+    // Native and managed negative controls restore the old defect and reject it.
+    // Startup only arms on a real Both-eye XR attachment; transient mono closes
+    // without permanently poisoning the head. Observe an explicit Left+Right
+    // frame before publishing a new atlas at the next frame boundary. Metadata
+    // only: no stale eye/source texture, prior mask, extra camera or timer.
+    // This prevents source admission mid-pair, not all possible codec transitions.
+    // Keep the accepted v3 bank, masks, receiver and all partial opacity unchanged.
+    // Distant contours expose the same video-edge footprint more strongly; do
+    // not conceal it with opacity thresholds, semantic tags or added source blur.
+    // Standalone, non-Link transport, movie content and wire layout stay intact.
+
+    // ModBuild700 — common transmission quality for native Steam Link MR edges.
+    // Build699's stereo picture is accepted, but the maintainer still sees a
+    // shimmering silhouette unlike direct standalone composition. Equal virtual
+    // RGB/A grids did not guarantee equal physical raster phase, YUV filtering
+    // or native foveation. Retained real metadata reconstructs central colour
+    // at3.507 times the mask's linear density; older flat-interior checks missed
+    // that boundary mismatch. The current hardware's exact weights are unknown.
+    // An isolated Background OpenVR child now owns a reversible, user-visible
+    // driver-settings lease only during requested native Frame streaming MR:
+    // uniform encoding, no CAS, explicit configurable video width. Snapshot all
+    // typed old values before writing; partial failure restores owned settings,
+    // later manual edits survive, and stdin EOF/game exit releases the lease.
+    // The width is a request with a bandwidth/decoder tradeoff, not a negotiated
+    // safe client maximum or a verified live video size. No duration/expiry,
+    // opacity threshold, window tag, new atlas, camera, decoder or wire change.
+    // Keep all699 source/receiver RGBA semantics, full-resolution masks, glass,
+    // emission and both-eye guards unchanged. Standalone/VD/non-MR are inert.
+    // Focused lifecycle/helper/actual-artifact controls do not certify the HMD
+    // boundary picture; the visible stream remains a separate hardware check.
+
+    // ModBuild699 — robust recognition for equal-resolution Steam Link coverage.
+    // Build697's first real stream showed different scale/passthrough per eye.
+    // A lossy-codec plus exact-native-fragment reproduction exposes its fragile
+    // small header, but the hardware's actual guard/encoder values are unknown.
+    // New frozen v3 keeps the same2048-square RGB and coverage, windmill geometry,
+    // source transfer and global halos. Twelve separated128-square grey cells
+    // replace v2's32-square signature, with four spaced levels and explicit
+    // sixteen-code admission windows. These identify the format, never threshold
+    // coverage or prove frame/eye/UV registration. Preserve genuine glass/MSAA
+    // and additive contribution at A0, without window classification or tags.
+    // The matching updated Frame receiver selects v3 or legacy v1 with the same
+    // guard-fetch budget and exact native ordinary-image fallback. Historical
+    // v1/v2 contracts and transform bytes remain retained. No new descriptor,
+    // camera, sticky verdict, prior-eye queue or Steam sender patch is added.
+    // Update both PC producer and Frame receiver before testing: an older patch
+    // cannot decode v3. Software source/codec/GPU evidence is not a headset pass.
+    // Existing standalone MR,694 lifecycle,696 movie/Cheats and wire stay intact.
+
+    // ModBuild698 — contain the observed v2 native Steam Link stereo regression.
+    // The maintainer reports different eye scale and one-sided passthrough after
+    // 697. Both first-draw PC eye receipts show equal4040-square v2 sources and
+    // the Frame has the correct dual receiver. Its per-fragment format verdict
+    // was not logged. A refused v2 guard presents the unchanged packed image,
+    // directly explaining a scale/MR split when only one eye accepts the format.
+    // Controlled lossy-codec reproduction establishes v2 guard fragility; it
+    // does not establish the actual hardware guard samples or codec settings.
+    // Restore the retained v1 production packer, keeping v2 assets and focused
+    // evidence quarantined for investigation. The installed dual receiver keeps
+    // v1 support, so this source containment needs no Frame write or restart.
+    // Genuine transparency, existing694 lifecycle and independent696 movies/UI
+    // remain unchanged. This is regression containment, not a claim that the
+    // original soft-edge request is complete. See STEAM-LINK-698-EYE-DIVERGENCE.md.
+
+    // ModBuild697 — equal-resolution native Steam Link scene coverage.
+    // The maintainer rejects window-classification tags and authorizes fixing the
+    // general mask instead. V2 packs RGB and coverage at the same2048-square grid,
+    // without v1's four-sample alpha reduction or extra C1 reconstruction. Four
+    // haloed windmill strips give both fields equal video density; genuine glass,
+    // gradients, native MSAA and additive RGB at A0 remain continuous. The shipped
+    // bank retains v1 for comparisons, but production selects the explicit v2 packer
+    // and logs its actual profile. A matching dual-profile Frame receiver update
+    // is required; the mod never writes headset files or alters the Steam sender.
+    // No window/object metadata, second scene camera, auxiliary mask RT, native
+    // gameplay or multiplayer wire change. See STEAM-LINK-697-FULL-COVERAGE.md for
+    // targeted raster/native proof and the remaining hardware/codec boundary.
+
+    // ModBuild696 — prepare the automatic studio movie and conceal spoiler review actions.
+    // The maintainer accepts all20 deliberate695 movie reviews, but the studio
+    // logo before the main menu shows the packed SBS pair during automatic play.
+    // IntroPlayer.ShowVideo now prepares the existing capture/split/stereo owner
+    // before native Play. Reserve its packed plane only with the exact decoder,
+    // created eye/glass RTs and a live owned backdrop; retain original alpha for
+    // the eye compositor. Known cameras reconcile a late source at first render.
+    // Restore the reservation on native continuation, source/camera/surface loss,
+    // decoder error or VR shutdown. Unavailable/throwing presentation falls back
+    // before Play without skipping the original4s timer or subsequent sprite logos.
+    // This addresses source-proven admission/ownership gaps; native platform
+    // plane-latch timing and the corrected headset picture still need hardware.
+    // Advanced/Cheats/Videos now owns all20 spoiler actions behind the existing
+    // default-off config, checked on page build and every stale Play callback.
+    // Public Test triggers exposes no movie names/status. Permission revocation
+    // hides retained rows; Close/All-off remain usable. Shared cosmetic reviews
+    // stay available in multiplayer; save-changing cheats retain their refusals.
+    // All22 media, native clocks/audio, shader geometry, record72 and the
+    // independently published694 behavior remain unchanged. Normal installer
+    // archive creation is unchanged; movies remain separate Content beside DLL.
+
+    // ModBuild695 — complete the approved stereo library and scenario review controls.
+    // Deliver all20 subjects: stronger GloomhavenVR intro lettering,11 original
+    // hero films,7 native ambient films and the original8s TwinSails studio clip.
+    // Keep gameplay_trailer excluded by the maintainer's explicit instruction;
+    // its native promotional behavior is unchanged. The normal installer handles
+    // all22 separate movie files beside the DLL, never embedded or in an extra ZIP.
+    // Every original frame/PTS and AAC packet is retained. Source-specific timed
+    // protection keeps printed banners/emblems rigid through their original zoom
+    // reveals. A lossless hero audio remux preserves the native presentation end;
+    // higher hero-only encoder headroom meets the unchanged picture/size floors.
+    // These offline repairs do not change runtime model/inference dependencies.
+    // Advanced/Test triggers/Videos offers each film inside a loaded scenario,
+    // using the normal movable/shared movie window with native films taking
+    // priority and no unlock, save or native continuation callback. Existing72
+    // byte layout remains unchanged. See690/692 for exact lifecycle/close rules.
+    // Retain the separately published694 loading/UI-effect-bounds repair. Native
+    // frame/audio/reprojection checks and actual decoded cue inspections pass;
+    // the new logo/library's headset playback remains a separate hardware check.
+
+    // ModBuild694 — retain native Steam Link MR through scene loading and sharpen coverage.
+    // The maintainer confirms693 successfully enables Frame/Steam Link MR, but
+    // reports green flashes while loading and overly soft window edges. Head
+    // camera lifetime was incorrectly treated as XR-session/HMD identity lifetime.
+    // Keep admission across missing/disabled/replaced scene cameras; true HMD
+    // events, runtime/session stop and unsupported transports still revoke it.
+    // Pending identity checks preserve ordinary output rather than selecting
+    // the saved chromakey colour. Normally closed head-output resources can
+    // reprepare after camera activation; actual failures retain their refusal.
+    // MR window bounds now include visible stock Image/RawImage Shadow/Outline
+    // geometry, preserving component order/byte alpha and existing clipping.
+    // Previously their visible pixels could extend beyond the opaque backing.
+    // Inactive/alpha-zero effects cannot grow it; no game mesh rebuild is called.
+    // Improve the spatial coverage reconstruction without binarizing alpha,
+    // changing scene RGB, adding cameras/readbacks or changing the receiver's
+    // atlas/guard layout. Continuous glass and materialisation remain supported.
+    // Source-linked lifecycle and actual Unity rendering tests retain old-code
+    // counterexamples. No Frame write/restart or new receiver install is needed.
+    // Publish this bounded repair only; incomplete independent stereo catalogue
+    // stays local and its completed handover advances to695 or later.
+
+    // ModBuild693 — admit the Frame/Link profile actually exposed by SteamVR.
+    // New691/de978 Windows hardware completes the owned SDK/child/public HMD
+    // query, proving the previous path repair works. Its connected HMD0/class1
+    // reports tracking=cv, model=Deckard MP, registered empty, then Classify
+    // incorrectly returns WrongHeadset. Canonical Steam Frame/vrlink strings from
+    // earlier static review did not describe this observed device profile.
+    // Add only exact Deckard MP+cv with empty or explicitly vrlink registration.
+    // Retain canonical behavior; generic cv, other models/transports, contradictory
+    // registration, partial names and unsafe metadata never gain availability.
+    // This is ordinary cooperative profile recognition, not transport/receiver
+    // attestation. Replay the observed public metadata and test the actual built
+    // consumer with the real game library. No helper, SDK, path, MR renderer,
+    // setting/default, Frame write or wire change.692 is an unreleased stereo
+    // checkpoint; that independent completed handover advances to694 or later.
+
+    // ModBuild692 — integrate the native stereo library after the published691 repair.
+    // The full movie/review contract is recorded under the unreleased690 source
+    // checkpoint below. Keep691's explicit public-LINQ path guard and actual-DLL
+    // regression evidence. Finite movie/stereo/review identities are cached;
+    // exact selected native URLs use their captured identity before path parsing.
+    // Deliberate mono fallback reports its requested stereo key and finite reason.
+    // Native-player-shaped lifecycle/Harmony checks, shared review-close priority
+    // controls and real Unity raster/alpha witnesses remain separate from headset
+    // confirmation. Publish this batch only with its complete22-file media roster.
+
+    // ModBuild691 — fix the actual produced Steam Link path guard, not its inputs.
+    // Hardware689/f71 stops at cache-folder. Actual689 IL binds path.Skip(2) to
+    // GLOBAL GH.Runtime.StringExtensions.Skip, which starts at count-1 and leaves
+    // the drive colon. Every normal local Windows path therefore fails the guard.
+    // Actual UnityMono+shipping DLL+real GH.Runtime reproduces it. Prior isolated
+    // source fixtures omitted that assembly and bound Enumerable.Skip instead;
+    // their green result did not exercise the production binding. Use an explicit
+    // System.Linq.Enumerable.Skip call, cover the hostile global overload in the
+    // focused fixture and verify the produced DLL against the real game library.
+    // Keep folder resolution, resource/native pins, refusal boundaries, bounded
+    // child/session lifetime, exact Steam Frame/vrlink and Proton behavior intact.
+    // No Frame reinstall/write, new shader, movie or wire change.690 remains an
+    // unreleased internal stereo checkpoint; its later public handover is692+.
+
+    // ModBuild690 — extend the headset-approved intro to the native movie library.
+    // The maintainer approved687 and requested only slightly stronger foreground
+    // GloomhavenVR lettering plus every remaining film and scenario review actions.
+    // IntroSBSv2 reuses all21 exact scenic depth arrays/geometry; only its two
+    // existing wordmark appearances gain a rigid source-pixel foreground plane.
+    // The finite20-subject catalogue covers that intro,11 heroes,7 ambience and
+    // the original TwinSails clip. Explicitly exclude gameplay_trailer from media
+    // conversion, shipped companions and review; leave its native promo untouched.
+    // Preserve original60fps external/30fps studio clocks, endings and AAC packets.
+    // Movies remain separate Content; the normal installer packages the22-file
+    // roster. No model, inference runtime or video is embedded in this DLL.
+    // Native URL/clip seams select explicit revisions before original Play/Prepare.
+    // Camera-plane ambience/studio use recorded eye pictures, per-eye aspect,
+    // original RGB/alpha and live native UI; scoped alpha leases restore without
+    // decoder mode/target changes. Keep the studio's original4s continuation.
+    // Advanced/Test triggers offers EN/DE actions inside a scenario. Their owned
+    // cosmetic decoder uses the normal movable/shared video window without any
+    // unlock, promotion counter, save mutation or native continuation. Real game
+    // videos outrank reviews; cancellation reaps pending/playing owned decoders.
+    // Existing72 retains its byte layout. Finite Review/ aliases distinguish the
+    // exact selected revision from genuine native playback and peer mirrors.
+    // An explicit observer review-close request uses Native=false/Closed=true,
+    // exact alias/token and the author/opening pose key, with bounded retries;
+    // stale review intent cannot skip a replacement or genuine native movie.
+    // Decoder/root destruction, scene/camera loss, errors and retry clear owned
+    // subscriptions/materials/audio. A missing peer SBS uses only its matching
+    // original mono content; mono selections never gain local stereo silently.
+    // Retain the separately published688/689 Steam Link identity repairs. No
+    // Frame device action or additional archive/HTTP delivery belongs to this work.
+
+    // ModBuild689 — complete owned Steam Link identity preparation and support Proton.
+    // The688 installed SDK resource has the correct name,826688 bytes and exact
+    // public SHA256, but no Local cache directory exists. Its coarse diagnostic
+    // cannot prove the precise pre-directory guard. Prefer Windows LOCALAPPDATA
+    // before the Mono known-folder wrapper and normalize separators before the
+    // local-drive guard, retaining exact PE/hash and no-reparse validation. Cover
+    // actual extraction/reuse/corrupt-cache refusal and expose finite failure
+    // stages so path, embedded bytes, filesystem and child/API failures differ.
+    // Linux users run this Windows game/helper under Proton. Remove the erroneous
+    // Windows vrserver.exe/vrcompositor.exe census; native Linux SteamVR is reached
+    // through Proton's inherited runtime/prefix environment and C:\vrclient bridge.
+    // The public SDK Background=3 initialization supplies the no-server guard;
+    // error121 returns not_running. Test the actual init/get022/read/shutdown path
+    // and rebuild/pin the PE. Unity's OpenXR session, connected Steam Frame/vrlink
+    // requirement, bounded async attempts and receiver-unverified status remain.
+    // No Frame write, source packing/shader, movie or multiplayer wire changes.
+
+    // ModBuild688 — repair hidden native Steam Link passthrough on a live Frame stream.
+    // The687 Windows hardware logs stop at RuntimePath before the HMD reader runs.
+    // The supplied OpenVR registry is valid and its runtime-side SDK DLL exists;
+    // the coarse old refusal does NOT prove which path/JSON/PE guard rejected it.
+    // Remove the unnecessary search chain altogether: openvr_api.dll is an app
+    // SDK loader, not SteamVR's runtime/provider. Embed Valve's exact public
+    // v1.26.7 Windows x64 redistributable with its BSD3 notice; extract it by hash
+    // alongside the separately pinned owned reader. Only the bounded child loads
+    // OpenVR, leaving Unity's existing OpenXR lifetime untouched. Let Valve resolve
+    // ordered registry history and its public environment overrides itself.
+    // Preserve connected HMD0/class + exact Steam Frame/vrlink classification,
+    // async finite attempts, cancellation and pure cached UI/source predicates.
+    // Bounded stage-specific diagnostics now distinguish resource/extraction and
+    // actual child/API failures without logging arbitrary output or warning every
+    // tick. This identifies hardware/transport only; it never attests the receiver.
+    // No movie, material, frame format, wire layout, default or Frame write changes.
+
+    // ModBuild687 — the approved GloomhavenVR campaign intro becomes stereoscopic.
+    // The maintainer reports the685 chart test successful, then explicitly retires
+    // its movie/menu action and asks to convert the already replaced VR intro first.
+    // Preserve that exact notice-free approved film, every original frame address,
+    // title/logo, cut, native ending and AAC packet. A separate full-SBS-left-first
+    // H264 movie contains original left pixels and shot-wise temporal depth-based
+    // right reprojection; no other movie is converted before the user's intro result.
+    // Select the allowlisted asset before the native first Play, retaining its one
+    // decoder, audio, clock, render target, skip and continuation. The prepared UI
+    // surface uses actual MultiPass eye routing and the original per-eye aspect.
+    // Existing72 carries the selected revision; peers never locally upgrade mono.
+    // Explicit bounded fallback reports preserve the selected left/approved picture
+    // or refuse a missing cosmetic asset without blocking native flow. A distinct
+    // native-original key prevents a broken owner's installation from publishing
+    // the approved-mod key for different movie content. No wire layout change.
+    // Ship both intro movies WITH the DLL in the normal installer archive, never
+    // embedded. Retire only the two known calibration clips after successful install.
+    // Automated geometry/clock/audio/runtime checks are separate from the pending
+    // headset judgment of converted depth, motion, fusion and native first-save flow.
+    // Combined bounded Steam Link source follow-up after the user's visible686
+    // real-game success: native streaming is effective only for an identified
+    // connected Steam Frame on vrlink. Its preference defaults true; saved false
+    // stays false and the global MR master stays off. Other headsets/transports
+    // retain chroma-key controls. A bounded isolated public identity helper never
+    // initializes OpenVR inside Unity and does not attest an installed receiver.
+    // Stamp exact visible owned opaque depthless backdrops after coverage reset,
+    // including the main-menu video; cache shader admission outside eye getters.
+    // Preserve RGB, actual geometry and hand occlusion. No new Frame installation,
+    // restart, capture, sender modification or hardware result is performed here.
+
+    // ModBuild686 — live native Steam Link MR settings in the World category.
+    // The685 trial kept the game visible but changed the expected camera area
+    // from green to black. Both supplied logs show legacy chromakey activation
+    // and no real-scene source/eye receipt. Three options-open gates inherited
+    // the retired full-screen pattern's pause policy: changing the native switch
+    // inside its own menu could not prepare or retain the real-image source.
+    // The maintainer explicitly requests immediate switching, including while
+    // settings are open. Remove those three gates; retain explicit off, head,
+    // session, epoch, format and failure ownership. Settings remain part of the
+    // real scene. Move native streaming/key colour beside the World scenery
+    // chooser, whose existing MR tile owns the master; remove the duplicate
+    // Graphics block and classify MR as Environment in Advanced as well.
+    // No atlas/shader/receiver/sender, native standalone, default, timer, gameplay
+    // or wire change. Focused source-owner/camera lifecycle and causal controls
+    // do not establish correct streamed alpha/codec/headset presentation.
+
+    // ModBuild685 — stereo calibration is a repeatable Advanced-menu action.
+    // Both supplied683 logs recognized the old argv but reported its separate SBS
+    // movie missing. The maintainer requested a menu button instead, and explicitly
+    // requires media WITH the DLL in the installer ZIP, never embedded in the DLL.
+    // Put the reviewed SBS/mono MP4s in normal Debug/Release content, Windows deploy
+    // and both regular ZIP layouts. Preflight and archive checks require both files.
+    // VR Options > Advanced now requests the independent silent test with live EN/DE
+    // preparing/playing/mono/closed/missing/failed feedback. Closing or a failure can
+    // be followed by another deliberate press; active presses never duplicate a
+    // decoder, old callbacks never affect a new one, and invalid-context requests
+    // are refused rather than queued. The old launch argument is inert.
+    // Preserve native movies/audio/continuations, fixed picture/fades and per-eye
+    // shader routing. No calibration config/default, inference, wire or gameplay
+    // change. Focused lifecycle/menu/install/ZIP evidence is not headset evidence.
+
+    // ModBuild684 — experimental real-image Steam Link contribution/coverage source.
+    // The retired synthetic test setting/assets stay removed. The normal MR page
+    // gains an explicit default-off native-streaming choice requiring the matching
+    // Frame receiver. Only the actual owned MultiPass head is packed; menu/off,
+    // unsupported formats and failed ownership retain ordinary output. A same-eye
+    // alpha-only depth prefix and head-scoped owned transparent shader derivatives
+    // leave RGB, original materials, native cameras and the PC sender unchanged.
+    // Fixed scene atlas contains real contribution RGB plus coverage, not a key
+    // colour. Native unknown VFX/refraction and real XR ordering remain explicitly
+    // unconfirmed; no new headset/panning/complete-transparency claim is made.
+    // No wire layout, multiplayer gameplay or standalone Frame MR change.
+
+    // ModBuild683 — opt-in stereoscopic movie calibration before offline conversion.
+    // The maintainer accepted the staged 3D-video plan: prove eye routing, judge three
+    // converted samples in a headset, then process the film library. Add a tiny embedded
+    // UI shader and an independent, silent full-SBS calibration decoder. The exact
+    // --ghvr-stereo-video-calibration launch token starts once in the offline main menu;
+    // the ordinary launch does not inspect media or load the shader. Native movies,
+    // audio, completion/skip callbacks, shared movie clocks and gameplay stay unchanged.
+    // Each actual MultiPass eye selects its own half of one decoder texture; mono
+    // cameras select the left picture. Preserve per-eye aspect, UI clipping and texel
+    // borders. Missing shader support selects the separate mono companion; invalid
+    // dimensions/errors stop the diagnostic. Closing, menu exit, external destruction
+    // and shutdown release its material, render callback and decoder without a restart.
+    // Offline media and focused lifecycle/GPU controls are finite software evidence;
+    // actual headset fusion, decoded-eye timing and hardware performance remain open.
+    // No game-data, inference, wire-schema, config/default or ordinary-film change.
+
+    // ModBuild682 — fan audio follows successful visibility transitions.
+    // Build680's Frost Armor short rest has one original two-second burn, while
+    // UpdatePalmGate repeatedly requests PlaySound_UICardTabSelect. CardFan.Close
+    // correctly refuses layout changes during that burn, leaving IsOpen=true;
+    // the caller nevertheless played the close cue every frame until completion.
+    // Play open/close cues only after the corresponding IsOpen transition succeeds.
+    // The same native-burn barrier can refuse Open, which must remain silent too.
+    // Keep original burn timing, geometry, fan animations, audio selection/suppression
+    // and configuration. No gameplay, default, asset or wire-schema change.
+    // Focused burn-layout/audio regression and causal controls distinguish blocked
+    // requests from actual transitions; heard headset playback remains unverified.
+
+    // ModBuild681 — explicitly versioned synthetic Steam Link presenter source.
+    // The future receiver must recognize the CURRENT consumed image before using
+    // its two numeric panels; a CPU toggle at command recording cannot disable
+    // an already reusable native command. PresenterSource adds a fixed twelve-cell
+    // footer to the existing app-owned stereo test output under a new profile.
+    // Canonical registration-v1 bytes/headers remain unchanged. Both eyes are still
+    // prepared/frozen together in Update and their actual graphics fences retain
+    // the existing pool; eye callbacks add no uploads, allocation or source work.
+    // The existing explicit test setting chooses v2; menu/off removes the entire
+    // image as before. This is synthetic format recognition, not body/liveness
+    // authentication, game opacity or native streaming passthrough. No sender,
+    // gameplay, wire, config, default, asset or ordinary rendering change.
+    // Focused pure C# controls and actual Unity-reference compilation pass; the
+    // new optional Unity-pool launch failed before Stamp, not a new GPU proof.
+
+    // ModBuild680 — unconfirmed card withdrawal, replacement and remote board parity.
+    // Build677 hardware records seven release exceptions: Guildmaster actors may have
+    // no CharacterName, and optional fan-order lookup threw after physical slot removal
+    // but before the native UnselectCard action was queued. Use bounded native-actor
+    // identity for unnamed hands and keep cosmetic ordering independent of withdrawal.
+    // Shared-path review also reproduced replacement eviction between native callbacks,
+    // stale same-card completion, a withdrawn drop being reselected by its older action,
+    // and cross-actor/lost initiative after focus changes. Keep at most two current-drop
+    // presentation tokens, suppress explicitly superseded selects, clear markers when
+    // the scene queue is cancelled, and retain the captured native hand/left-card input.
+    // Native selection and initiative callbacks remain authoritative in all modes.
+    // Focused regressions cover repeated take-back, slot exchanges and actor changes;
+    // owner wanted/occupied/snap state and physical slot order use the unchanged
+    // presence records on observers. No card identity disclosure, wire/default, asset
+    // or game-data change. Actual paired headset behavior remains hardware validation.
+
+    // ModBuild679 — campaign intro without the on-picture fan-mod notice.
+    // The maintainer explicitly requested removing the notice from the installed
+    // first-save movie. Reconstruct the accepted pictures from their clean source
+    // layers, preserving scene timing, the mod artwork, soundtrack and native fade.
+    // The full trailer keeps its existing notice. Playback, installers, config,
+    // gameplay and wire schema are unchanged; the build key identifies this media.
+    // Focused media/package checks inherit Build678's unchanged runtime evidence;
+    // actual headset first-save/skip remains unverified.
+
+    // ModBuild678 — approved first-save GloomhavenVR campaign intro.
+    // The maintainer approved the trailer opening and requested the same film in the
+    // first-save intro, with our native artwork instead of PEGI/original title. Ship
+    // a mod-local 48.85s movie; never modify game StreamingAssets. Replace only the
+    // native VideoPlayer URL assignment before its first Play; preserve its volume,
+    // completion/error/skip callbacks and canonical CP_Intro key. Shared cosmetic
+    // decoders resolve that same installed movie. Missing media keeps native playback.
+    // Keep the accepted AI shots at source tempo, both VR titles and approved name
+    // patch; retain the native closing fade and existing fan-mod mark. Installer and
+    // release packages include the movie. No gameplay, config/default or wire change.
+    // Focused playback/interception, media and build evidence is recorded in STATE;
+    // actual headset first-save/skip and paired viewing remain hardware verification.
+
+    // ModBuild677 — changing app-owned Steam Link registration source.
+    // The successful676 static source/native-uniform capture does not establish
+    // current video-frame or application-ray association. Add fresh sessions,
+    // monotonic pair IDs and asymmetric deterministic per-eye synthetic coverage.
+    // Reserve/upload both eyes in Update; actual distinct eye callbacks consume
+    // one frozen cohort. Three owned GPU slots retire through CPU graphics fences
+    // before reuse. Unsupported providers explicitly keep the tested static source;
+    // API faults or incomplete begun pairs stop, never imply dynamic success.
+    // Keep menu/switch/boot-off and camera/session/ownership guards, with no timer,
+    // native Steam sender modification, Frame installation or live game-alpha output.
+    // Bounded first-four-pair Debug receipts do not grant native eye/UV/frame rights.
+    // No gameplay, config-key/default, asset-bundle or wire-schema changes.
+
+    // ModBuild676 — manual-only Steam Link source test; no automatic expiry.
+    // The maintainer explicitly rejects Build675's30-second limit. Remove the
+    // clock/deadline API entirely; output stays active until the existing menu /
+    // options escape or switch stops it. Keep camera/eye/session/ownership/fault
+    // guards and boot-off behavior, with no replacement timer or timeout setting.
+    // Update English/German help and the developer hardware checklist accordingly.
+    // This remains a source-pattern diagnostic, not working streamed passthrough.
+    // No Frame or native Steam sender change, gameplay change, config-key/default
+    // change or wire-schema change. Focused proof and inherited675 evidence are
+    // recorded in STATE; unmodified native/wire suites are not repeated.
+
+    // ModBuild675 — semantic hover feedback, tile-scoped prop hover and XR healthbar viewport repair.
+    // The maintainer's Build674 hardware run confirms the water repair and reports no
+    // recurrence of the empty NPC merchant so far. It exposes three independent input /
+    // rendering defects: several hover drivers pulse for one physical card; laser child
+    // tooltip targets pulse within the same action; elevated prop colliders admit a hover
+    // outside their actual tile; and a normalized XR viewport is consumed as pixel units.
+    // In that final case the native log reports (0,0,1,1) for both 3560x3560 MultiPass
+    // eyes: capturing/restoring a one-pixel viewport makes unrelated bars share a depth
+    // sample. The repair covers actual provider units and spatially separate bars,
+    // retaining original depth shaders, native tile geometry and click/grab feedback.
+    // Version3 and the existing wire records stay unchanged. Focused runtime evidence,
+    // negative controls and the hardware verification boundary are recorded in STATE.
+    // Concurrent Steam Link integration adds a default-off, bounded source-carriage
+    // diagnostic inside this plugin's advanced measurement options. Saved requests reset
+    // at boot; admission starts after VR options close, ends within 30s and stops on an
+    // ordinary menu tap, options reopen, camera/VR loss or fault. Owned tiny fixture
+    // resources are embedded in this DLL. Standalone Frame refuses this PC diagnostic.
+    // This does not establish streamed native passthrough: actual XR/codec carriage,
+    // selected frame, eye/UV/foveation and fractional alpha remain hardware boundaries.
+    // Focused evidence: native haptics32/all8 controls, tile admission289/all5,
+    // foreground GL223/all12 plus actual-bank D3D11223/new XR control; eleven
+    // existing affected integration suites pass as composed evidence. Sixteen source
+    // suites compose15 initial passes with the repaired constructor-seed checker;
+    // 35 regressions/all11 old-seed controls retain actual diagnostic escape detection.
+    // Release0/0, original300518 goldens, docs/banks and667/236/4797 surfaces pass.
+    // Compiled1257->1273 is scoped/reviewed; this is not a new full221-suite gate.
+
+    // ModBuild674 — isolate optional town-asset discovery from required NPC originals.
+    // A long Build671 session repeatedly failed the complete town preparation after
+    // returning from scenarios, leaving an empty merchant cabinet. The old reporter
+    // retained only an empty exception message; it cannot identify the offending object.
+    // Resources discovery includes unrelated transient TMP assets and surviving mip
+    // copies whose native original may already be destroyed. A metadata getter failure
+    // there must not abort every resident's original bank. Required canonical originals,
+    // immutable identity conflicts and missing-source failures remain strict and retryable;
+    // no guessed artwork, inventory/model writes or native gameplay callbacks are added.
+    // Report bounded exception type/reason and guarded Debug context for future failures.
+    // Keep Build673 water code and its full native coverage unchanged. Its real-Unity
+    // fixture belongs in the local gate; hosted CI retains its portable 98-suite inventory.
+    // Version3/next-free118; implementation, focused evidence and hardware boundaries are
+    // recorded in NPC-674-REVIEW.md. This is a dev repair, not a new published release.
+
+    // ModBuild673 — restore asynchronous water adoption across the installed game.
+    // Native water prefabs begin with empty material slots. Build615's one-time tile
+    // seed removed recurring deep walks but did not observe the later Addressables
+    // assignment, leaving never-adopted films on the original VR-incompatible shader.
+    // Use the existing native material-ready publication to queue exact renderers;
+    // preserve bounded placement discovery and avoid steady-state hierarchy rescans.
+    // Audit all four native water shaders, fourteen high/LCM materials and forty-five
+    // original loader assignments, including decorative ponds and DLC sluice films.
+    // Replace only native water slots; preserve source tint, normals, transparent
+    // queues, unrelated slots, native rewrites and conditional restoration. Opaque
+    // native queues enter the transparent phase on the private alpha film only:
+    // actual Camera.Render proves later opaque/cutout ground otherwise erases it.
+    // Solid basin/probe tuning
+    // remains terrain-only. Exact live water ownership preserves fountain wall-fade
+    // protection after shader substitution, including the generic Overlay fallback.
+    // No gameplay/network state, shader asset, configuration default or TLV changes.
+    // Version3/next-free118. Focused source/runtime evidence and headset boundaries
+    // are recorded in WATER-673-REVIEW.md and WATER-673-ASSET-AUDIT.md.
+
+    // ModBuild672 — separate wall visibility from VR foreground and verify Frame launch setup.
+    // Through-wall native health/effect widgets now sample the original visible depth of
+    // solid VR hands, cards, boards and currently held native figures/props. Four original
+    // UI/TMP shader derivatives preserve glyph, sprite, mask and transparent presentation;
+    // owned material clones survive native text reparsing without changing shared assets.
+    // Native final clip coordinates map into each eye's actual capture viewport. Missing
+    // capture/bank data falls back to ordinary depth until recovery, never unconditional
+    // foreground visibility. Existing MR plates are registered without new room geometry.
+    // BarsOccluded=true already hides bars behind walls on both PC and standalone Frame;
+    // saved preferences remain authoritative. The updated main bundle is required.
+    // Running Steam can overwrite external launch-option edits from its cached config.
+    // Setup edits offline only; live setup persists recovery guidance for Steam's own save
+    // and Frame restart. The VR launcher checks options and the retired Steam session before
+    // App780290 --gloomhavenvr. Preserve the shared prefix and original flat-entry behavior.
+    // Version3/next-free118; focused/native-render evidence and hardware boundaries are in
+    // FIX-672-REVIEW.md. No new release or complete local gate is claimed.
 
     // ModBuild671 — publish the reviewed 1.1.0 release candidate.
     // The maintainer approved the completed NPC and Steam Frame work for release.

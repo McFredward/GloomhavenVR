@@ -7,7 +7,7 @@ if ! command -v dotnet >/dev/null 2>&1 && [[ -x "$HOME/.dotnet/dotnet" ]]; then
 fi
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 project="$repo_root/tests/GloomhavenVR.WallReadFactsTests/GloomhavenVR.WallReadFactsTests.csproj"
-mutations=(material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored selection-owner-broadened drawing-force-ignored masked-restitution-lost prepared-cross-frame prepared-label-unshared prepare-room-gate-omitted mirror-owner-ignored mirror-cache-ignored mirror-cache-unbounded mirror-wall-signature-unconditional mirror-death-reclassified root-selection-owner-broadened root-selection-owner-ignored waypoint-parent-broadened waypoint-owner-ignored action-prefab-broadened action-parked-omitted native-water-veto-omitted native-wall-veto-omitted native-live-owner-omitted)
+mutations=(material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored selection-owner-broadened drawing-force-ignored masked-restitution-lost prepared-cross-frame prepared-label-unshared prepare-room-gate-omitted mirror-owner-ignored mirror-cache-ignored mirror-cache-unbounded mirror-wall-signature-unconditional mirror-death-reclassified root-selection-owner-broadened root-selection-owner-ignored waypoint-parent-broadened waypoint-owner-ignored action-prefab-broadened action-parked-omitted native-water-veto-omitted native-wall-veto-omitted native-live-owner-omitted owned-water-veto-omitted terrain-private-wall-adoption)
 if (($#)); then
     mutations=()
     while (($#)); do
@@ -27,6 +27,7 @@ root, temporary = map(pathlib.Path, sys.argv[1:3])
 mutation = sys.argv[3]
 source = root / 'src/GloomhavenVR/Core/WallFade/WallSegmentFade.ReadFacts.cs'
 changes = {
+    'terrain-private-wall-adoption': ('if (ScenarioTerrainBudget.IsPrivateRenderer(renderer)) return;', '// injected second wall adoption'),
     'material-no-cache': ('if (_wallCacheMaterialFactsActive\n                && _wallCacheMaterialFacts.TryGetValue',
                           'if (bool.Parse("false")\n                && _wallCacheMaterialFacts.TryGetValue'),
     'material-retained': ('_wallCacheMaterialFactsActive = false;\n            _wallCacheMaterialFacts.Clear();',
@@ -65,8 +66,9 @@ changes = {
     'native-water-veto-omitted': ('shader.IndexOf("Water_Sh", System.StringComparison.OrdinalIgnoreCase) >= 0', 'bool.Parse("false")'),
     'native-wall-veto-omitted': ('IsWallFadeShaderName(shader)', 'bool.Parse("false")'),
     'native-live-owner-omitted': ('if (!cold && f.Particles) f.Mod = f.ModPresentation || IsNativeNonWallPresentation(r);', '// injected: immutable native pooled ownership'),
+    'owned-water-veto-omitted': ('water = WaterTerrainVR.IsOwnedWaterSurface(r)', 'water = false'),
 }
-if mutation in ('figure-retained', 'gate-inverted', 'phase-unbounded', 'figure-bypass-ignored', 'mirror-cache-unbounded', 'mirror-wall-signature-unconditional', 'mirror-death-reclassified', 'native-live-owner-omitted'):
+if mutation in ('figure-retained', 'gate-inverted', 'phase-unbounded', 'figure-bypass-ignored', 'mirror-cache-unbounded', 'mirror-wall-signature-unconditional', 'mirror-death-reclassified', 'native-live-owner-omitted', 'owned-water-veto-omitted'):
     source = root / 'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs'
 extra_sources = {
     'selection-owner-broadened': 'WallSegmentFade.SelectionFacts.cs',
@@ -103,6 +105,7 @@ else:
 PY
     property=ReadFactsSource
     case "$mutation" in
+        terrain-private-wall-adoption) expected='Owned terrain proxies never enter a second shader-wall decision or structural signature' ;;
         material-no-cache) expected='Repeated shared material inspection must not repeat native property probes' ;;
         material-retained) expected='The material memo must close and release references' ;;
         figure-no-cache) expected='Shared ancestor component lookups must run once per node per synchronous window' ;;
@@ -120,7 +123,9 @@ PY
         mirror-owner-ignored) property=SelectionFactsSource; expected='An inactive native-named mirror child is excluded from live wall adoption' ;;
         mirror-cache-ignored) property=SelectionFactsSource; expected='Repeated live adoption lanes query each exact mirror ancestor once per synchronous scope' ;;
         mirror-cache-unbounded) property=DriverSource; expected='Mirror ownership memo releases every renderer at the scope boundary' ;;
-        mirror-wall-signature-unconditional) property=DriverSource; expected='A mirror mesh with a real wall-fade shader retains its conservative signature' ;;
+        # Exact terrain ownership is now checked before the mirror case. Removing the
+        # shared wall-signature exception must fail that first conservative-adoption check.
+        mirror-wall-signature-unconditional) property=DriverSource; expected='A name-identical foreign wall renderer retains conservative native wall adoption' ;;
         mirror-death-reclassified) property=DriverSource; expected='A dead clone row retains its exact exemption without signature churn' ;;
         root-selection-owner-broadened) property=SelectionFactsSource; expected='Parent proximity never exempts a foreign selection-root emitter' ;;
         root-selection-owner-ignored) property=SelectionFactsSource; expected='Exact native root selection emitter is not wall scenery' ;;
@@ -131,6 +136,7 @@ PY
         native-water-veto-omitted) property=SelectionFactsSource; expected='Published waypoint water remains a protection input' ;;
         native-wall-veto-omitted) property=SelectionFactsSource; expected='Published waypoint with a real wall shader remains a table input' ;;
         native-live-owner-omitted) property=DriverSource; expected='Reparented unpublished waypoint fails conservative on warm ownership' ;;
+        owned-water-veto-omitted) property=DriverSource; expected='Exact owned water retains the fountain protection input' ;;
     esac
     if [[ "$mutation" == phase-unbounded ]]; then
         if python3 "$repo_root/tests/GloomhavenVR.WallReadFactsTests/extract-driver.py" \

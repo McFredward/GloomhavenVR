@@ -176,6 +176,9 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void UpdateFanLaser()
     {
+        // Build711: a live near-figure highlight is a pickup promise. All laser entry paths
+        // yield before hover or callbacks; their visual clamps no longer pretend to be active
+        // presses. Only the action edges below publish a committed trigger claim.
         VRHand? dom = VRHands.Primary;
         // Ray.ACTIVE, not Ray.Enabled, in this and every laser guard below (2026-08-08): Active is
         // the level-derived effective state — the mode mask AND a pose AND not holding AND not
@@ -184,7 +187,7 @@ internal sealed partial class CardsDriver
         // and reading it HERE is what makes "the hand is in a card" clear this path's hover
         // through the very same early-out a disabled ray already took.
         if (!_fan.IsOpen || dom == null || dom == _gateHand || !dom.HasPose
-            || !dom.Ray.Active || dom.Grabber.Held != null)
+            || !dom.Ray.Active || dom.Grabber.Held != null || dom.Grabber.FigureGrabOffered)
         {
             _fanHoverOwner = FanHoverOwner.None;
             ClearLaserHover();
@@ -248,9 +251,10 @@ internal sealed partial class CardsDriver
                     // however far the beam was swept off the card. SuppressFarClick keeps the
                     // board far-click + proximity double-path suppression (HasFreshUiHit) that
                     // the clamp used to provide, without inventing a hit.
-                    dom.Ray.SuppressFarClick();
+                    dom.Ray.SuppressWorldFarClick("fan card rescue hover");
                     if (dom.TriggerDown && rescue.CanGrab)
                     {
+                        dom.Ray.ClaimTrigger("fan card rescue pickup");
                         if (!s_loggedFanRescue)
                         {
                             s_loggedFanRescue = true;
@@ -276,16 +280,17 @@ internal sealed partial class CardsDriver
             ClearLaserHover();
             _laserHover = beam;
             beam.SetLaserHover(true);
-            dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
         }
+        dom.SendHoverHaptic(beam);
         _laserHoverGraceUntil = Time.unscaledTime + FanHoverGraceSeconds; // refresh the pull-jerk grace
 
         // Clamp the visible beam to the card — also raises Ray.HasFreshUiHit, which
         // suppresses the board far-click for this trigger press.
-        dom.Ray.UiHitOverride = point;
+        dom.Ray.SetWorldUiHit(point, "fan card laser hover");
 
         if (dom.TriggerDown && beam.CanGrab)
         {
+            dom.Ray.ClaimTrigger("fan card laser pickup");
             ClearLaserHover();
             dom.Grabber.ForceGrab(beam, releaseOnTriggerUp: true);
         }
@@ -1259,7 +1264,8 @@ internal sealed partial class CardsDriver
     {
         VRHand? dom = VRHands.Primary;
         if (!_tray.IsVisible || dom == null || dom == _gateHand || !dom.HasPose
-            || !dom.Ray.Active || dom.Grabber.Held != null || _laserHover != null)
+            || !dom.Ray.Active || dom.Grabber.Held != null || dom.Grabber.FigureGrabOffered
+            || _laserHover != null)
         {
             ClearBoardHover();
             return;
@@ -1361,10 +1367,11 @@ internal sealed partial class CardsDriver
             && Vector3.Dot(liftedHit - dom.Ray.Current.Origin, dom.Ray.Current.Direction) <= occluderSlack)
         {
             ClearBoardHover();
-            dom.Ray.UiHitOverride = liftedHit; // honest hit — beam lands ON the card
+            dom.Ray.SetWorldUiHit(liftedHit, "lifted slot card hover"); // honest hit
             LogLiftPriority(lifted, onCard: true);
             if (dom.TriggerDown && lifted.CanGrab)
             {
+                dom.Ray.ClaimTrigger("lifted slot card pickup");
                 VRLog.Info("Cards", "Board: hover-LIFTED slot card trigger-grabbed " +
                                     "(lift-priority accept — beam near-miss suppressed).");
                 dom.Grabber.ForceGrab(lifted, releaseOnTriggerUp: true);
@@ -1420,10 +1427,11 @@ internal sealed partial class CardsDriver
             // this now sits AFTER the scan, a beam that is actually on a button reaches the button.
             if (lifted != null)
             {
-                dom.Ray.SuppressFarClick();
+                dom.Ray.SuppressWorldFarClick("lifted slot card rescue hover");
                 LogLiftPriority(lifted, onCard: false);
                 if (dom.TriggerDown && lifted.CanGrab)
                 {
+                    dom.Ray.ClaimTrigger("lifted slot card rescue pickup");
                     // TAKE-BACK RESTORED (user report 2026-08-04: "die hingelegte Karte zum
                     // Verbrennen nicht mehr greifen"). The EVENT-DISCARD DEADLOCK FIX
                     // (b7bfb38, MP remote Player.log:11706ff) used to SUPPRESS this grab for a
@@ -1476,7 +1484,7 @@ internal sealed partial class CardsDriver
             if (!card!.CanGrab)
             {
                 ClearTrayCardHover();
-                dom.Ray.UiHitOverride = cardPoint;
+                dom.Ray.SetWorldUiHit(cardPoint, "locked slot card hover");
                 return;
             }
             if (!ReferenceEquals(card, _trayCardHover))
@@ -1484,12 +1492,13 @@ internal sealed partial class CardsDriver
                 ClearTrayCardHover();
                 _trayCardHover = card;
                 card.SetLaserHover(true);
-                dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on change
             }
-            dom.Ray.UiHitOverride = cardPoint;
+            dom.SendHoverHaptic(card);
+            dom.Ray.SetWorldUiHit(cardPoint, "slot card laser hover");
             _boardHoverDist = cardDist; // nearest-wins arbitration with the board-anchored fans
             if (dom.TriggerDown && !HandFanOwnsTrigger(dom))
             {
+                dom.Ray.ClaimTrigger("slot card laser pickup");
                 VRCard grab = card;
                 ClearTrayCardHover();
                 VRLog.Info("Cards", "Board: slotted card laser-plucked.");
@@ -1507,7 +1516,8 @@ internal sealed partial class CardsDriver
             _boardHoverHand = dom;
             best!.OnPokeEnter(dom); // elements do their own hover haptic/tint
         }
-        dom.Ray.UiHitOverride = bestPoint;
+        dom.SendHoverHaptic(HoverHapticTargets.Pokeable(best!));
+        dom.Ray.SetWorldUiHit(bestPoint, "control board laser hover");
         _boardHoverDist = bestDist; // nearest-wins arbitration with the board-anchored fans
         // HAND-FAN OWNERSHIP: a hand physically holding up a browse card / item chip already owns
         // this pull (see UpdateBoardFanHandTrigger — it ran first and normally grabbed, which this
@@ -1537,6 +1547,7 @@ internal sealed partial class CardsDriver
             }
             // The pull is spent HERE - a fan that takes the hover back this frame (nearest-wins,
             // see _boardConsumedTriggerFrame) must not spend it a second time.
+            dom.Ray.ClaimTrigger("control board laser press");
             _boardConsumedTriggerFrame = Time.frameCount;
             // Route through Press for buttons so the log carries source=laser and
             // rejected presses explain their gate (test #14); other pokeables (badge,
@@ -1678,7 +1689,8 @@ internal sealed partial class CardsDriver
         for (int h = 0; h < 2; h++)
         {
             VRHand? hand = h == 0 ? VRHands.Left : VRHands.Right;
-            if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
+            if (hand == null || !hand.HasPose || hand.Grabber.Held != null
+                || hand.Grabber.FigureGrabOffered)
                 continue;
             if (hand.RayUgui.HasHit)
                 continue; // genuinely nearer game UI wins the trigger, as everywhere else
@@ -1689,6 +1701,7 @@ internal sealed partial class CardsDriver
                 ClaimHandFanTrigger(hand);
                 if (hand.TriggerDown && card.CanGrab)
                 {
+                    hand.Ray.ClaimTrigger("physical browse card pickup");
                     VRLog.Info("Cards", $"Pile-browse: HAND owns the trigger — '{card.name}' is " +
                                         $"physically in contact with the {hand.Side} hand, so the pull " +
                                         "takes it instead of falling through to the board laser " +
@@ -1707,6 +1720,7 @@ internal sealed partial class CardsDriver
             // pluck does not.
             if (hand.TriggerDown && !_modalInputBlocked)
             {
+                hand.Ray.ClaimTrigger("physical item card pickup");
                 VRLog.Info("Cards", $"Item fan: HAND owns the trigger — '{chip.name}' is physically " +
                                     $"in contact with the {hand.Side} hand, so the pull takes it " +
                                     "instead of falling through to the board laser" +
@@ -1741,7 +1755,7 @@ internal sealed partial class CardsDriver
         // would only re-arm the "the laser owns this pull" flag the stand-down just dropped, and
         // that flag makes this hand's OWN ProximityGrabber defer the very trigger being claimed.
         if (hand.Ray.Enabled && !hand.Ray.CardContactStandDown)
-            hand.Ray.SuppressFarClick();
+            hand.Ray.SuppressWorldFarClick("physical board fan hover");
     }
 
     // ------------------------------------------------------------------ browse laser --
@@ -1772,7 +1786,7 @@ internal sealed partial class CardsDriver
         // behind it (root cause, see UpdateBoardLaser). The board is now arbitrated BY DISTANCE
         // below, after the pick, so the log always says which one was in front.
         if (!_browser.IsOpen || dom == null || dom == _gateHand || !dom.HasPose
-            || !dom.Ray.Active || dom.Grabber.Held != null
+            || !dom.Ray.Active || dom.Grabber.Held != null || dom.Grabber.FigureGrabOffered
             || _laserHover != null)
         {
             if (_browser.IsOpen && dom != null)
@@ -1816,9 +1830,10 @@ internal sealed partial class CardsDriver
             if (!dom.RayUgui.HasHit && _browseGraceCard != null && !_browseGraceCard.IsHeld
                 && _browser.Contains(_browseGraceCard) && Time.unscaledTime <= _browseGraceUntil)
             {
-                dom.Ray.SuppressFarClick();
+                dom.Ray.SuppressWorldFarClick("browse card rescue hover");
                 if (dom.TriggerDown && _browseGraceCard.CanGrab)
                 {
+                    dom.Ray.ClaimTrigger("browse card rescue pickup");
                     VRCard rescue = _browseGraceCard;
                     _browseGraceCard = null;
                     LogBrowseLaser(dom, $"DELIVERED (pull-jerk grace) — the trigger came down with the " +
@@ -1864,15 +1879,16 @@ internal sealed partial class CardsDriver
             ClearBrowseHover();
             _browseHover = card;
             card.SetLaserHover(true);
-            dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
         }
+        dom.SendHoverHaptic(card);
         // Refresh the pull-jerk grace on every hovered frame (see _browseGraceCard).
         _browseGraceCard = card;
         _browseGraceUntil = Time.unscaledTime + FanHoverGraceSeconds;
 
-        dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
+        dom.Ray.SetWorldUiHit(point, "browse card laser hover");
         if (dom.TriggerDown && card.CanGrab && !BoardAlreadySpentTrigger)
         {
+            dom.Ray.ClaimTrigger("browse card laser pickup");
             VRCard grab = card;
             LogBrowseLaser(dom, $"DELIVERED — trigger plucked '{grab.name}' out of the arc");
             ClearBrowseHover();
@@ -2086,7 +2102,7 @@ internal sealed partial class CardsDriver
         // UpdateBrowseLaser's: the item fan also floats ABOVE the board, so "the board hovered
         // something" was never evidence that the board is in FRONT. Arbitrated by distance below.
         if (!itemsReachable || dom == null || dom == _gateHand || !dom.HasPose
-            || !dom.Ray.Active || dom.Grabber.Held != null
+            || !dom.Ray.Active || dom.Grabber.Held != null || dom.Grabber.FigureGrabOffered
             || _laserHover != null
             || _browseHover != null)
         {
@@ -2130,12 +2146,13 @@ internal sealed partial class CardsDriver
                 && _itemChipGraceChip.Holder == null
                 && _itemChipGraceChip.gameObject.activeInHierarchy)
             {
-                dom.Ray.SuppressFarClick();
+                dom.Ray.SuppressWorldFarClick("item card rescue hover");
                 // COMMIT gate (laser ruling 2026-08): chip plucks are commits (an item chip
                 // dropped on the use slot spends the item — non-undoable); suppressed under a
                 // blocking modal while the SuppressFarClick above still claims the frame.
                 if (dom.TriggerDown && !_modalInputBlocked)
                 {
+                    dom.Ray.ClaimTrigger("item card rescue pickup");
                     ItemsPile.ItemChip rescue = _itemChipGraceChip;
                     _itemChipGraceChip = null;
                     VRLog.Info("Cards", "Item fan: pull-jerk grace pluck — the trigger came down with the " +
@@ -2187,13 +2204,14 @@ internal sealed partial class CardsDriver
             _itemChipHoverHand = dom;
             chip.OnPokeEnter(dom); // pop + hover haptic (debounced: only on chip change)
         }
+        if (chip.CanGrab) dom.SendHoverHaptic(chip);
         // Refresh the pull-jerk grace on every hovered frame (see _itemChipGraceChip): if the
         // trigger comes down within FanHoverGraceSeconds of the beam slipping off THIS chip,
         // the miss branch above plucks it instead of click-away-closing the fan.
         _itemChipGraceChip = chip;
         _itemChipGraceUntil = Time.unscaledTime + FanHoverGraceSeconds;
 
-        dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
+        dom.Ray.SetWorldUiHit(point, "item card laser hover");
         // COMMIT gate (laser ruling 2026-08): hover pop + beam clamp above stay live under a
         // blocking modal; the pluck itself is a commit (chip → use slot spends the item).
         // BoardAlreadySpentTrigger: the hover was taken back from the board this frame, but the
@@ -2217,6 +2235,7 @@ internal sealed partial class CardsDriver
                 return;
             }
             ItemsPile.ItemChip pluck = chip;
+            dom.Ray.ClaimTrigger("item card laser pickup");
             LogItemFanLaser(dom, $"DELIVERED — trigger plucked '{pluck.name}' into the hand");
             ClearItemFanHover();
             _itemChipGraceChip = null; // the promise is honoured — no stale grace after the pluck
@@ -2287,7 +2306,7 @@ internal sealed partial class CardsDriver
     {
         VRHand? dom = VRHands.Primary;
         if (!_active.IsShown || dom == null || dom == _gateHand || !dom.HasPose
-            || !dom.Ray.Active || dom.Grabber.Held != null
+            || !dom.Ray.Active || dom.Grabber.Held != null || dom.Grabber.FigureGrabOffered
             || _laserHover != null || _trayCardHover != null || _boardHover != null || _browseHover != null
             || _itemChipHover != null)
         {
@@ -2309,12 +2328,13 @@ internal sealed partial class CardsDriver
             ClearActiveHover();
             _activeHover = card;
             card.SetLaserHover(true);
-            dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
         }
 
-        dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
+        dom.SendHoverHaptic(card);
+        dom.Ray.SetWorldUiHit(point, "active card laser hover");
         if (dom.TriggerDown && card.CanGrab)
         {
+            dom.Ray.ClaimTrigger("active card laser pickup");
             VRCard grab = card;
             ClearActiveHover();
             dom.Grabber.ForceGrab(grab, releaseOnTriggerUp: true);

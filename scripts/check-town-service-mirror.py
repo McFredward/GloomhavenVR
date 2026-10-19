@@ -48,6 +48,8 @@ def sources(root):
     bound['NativePurse.cs'] = (root / 'scripts/town-purse-runtime/NativePurse.cs').read_text()
     bound['TownServicePursePresentation.cs'] = (base / 'WorldUI/TownServices/TownServicePursePresentation.cs').read_text()
     bound['BundleShaders.cs'] = (base / 'Core/BundleShaders.cs').read_text()
+    mip = (base / 'Cards/Art/CardFaceMipBake.cs').read_text()
+    bound['CardFaceMipOriginal674.cs'] = "using System.Collections.Generic; using UnityEngine; namespace GloomhavenVR.Cards; internal static partial class CardFaceMipBake {\n" + expression(mip, "private static readonly Dictionary<int, Sprite> s_originalByReplacement") + "\n" + expression(mip, "internal static Sprite OriginalFor(Sprite sprite)") + "\n}\n"
     vr = (base / "Cards/VRCard.cs").read_text()
     bound["CardCurve626.cs"] = "using UnityEngine; namespace GloomhavenVR.Cards; internal sealed partial class VRCard {\n" + method(vr, "internal static float SmootherStep(") + "\n" + expression(vr, "internal static Vector3 FlyArcOffset(") + "\n}"
     # The map's optional bundled backing is normally absent. Bind the actual
@@ -180,6 +182,7 @@ def sources(root):
     if town_neutralizer.exists():
         bound[town_neutralizer.name] = town_neutralizer.read_text()
         hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+        hashes["CardFaceMipBake.cs (full source)"] = hashlib.sha256(mip.encode()).hexdigest()
         claim_helper = root / "scripts/bind-town-public-claim.py"
         if claim_helper.exists():
             spec = importlib.util.spec_from_file_location("town_public_claim_binding", claim_helper)
@@ -195,6 +198,7 @@ def sources(root):
     scaffold += method(neutral, "private static bool IsSelfOrDescendant(") + "\n}\n"
     bound["Neutralize.cs"] = scaffold
     hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
+    hashes["CardFaceMipBake.cs (full source)"] = hashlib.sha256(mip.encode()).hexdigest()
     hashes["RemoteWidgetMirror.cs (full source)"] = hashlib.sha256(neutral.encode()).hexdigest()
     claim_helper = root / "scripts/bind-town-public-claim.py"
     if claim_helper.exists():
@@ -291,6 +295,10 @@ def main():
         variants = [("production", None, None, None, "")]
         if not args.no_negative_controls:
             variants += [
+                ("ambient-native-getter", "TownServiceAssets.cs", "error is NullReferenceException || error is MissingReferenceException || error is UnityException", "error is MissingReferenceException && Time.unscaledTime < 0f", "Object reference not set"),
+                ("retired-original-identity", "TownServiceAssets.cs", 'if (asset == null) throw new InvalidDataException("Original town-service asset has retired.");', "// ignore retired original identity", "required lookup rejects a retired original even when its old identity was cached"),
+                ("ambient-diagnostic-repeat", "TownServiceAssets.cs", " || !_discoveryFailures.Add(failure)", "", "repeated unrelated native failures produce one bounded discovery diagnostic per kind"),
+                ("publisher-empty-message", "PublisherDiagnostics669.cs", 'e.GetType().Name\n            + (detail.Length == 0 ? string.Empty : ": " + detail.Replace(\'\\r\', \' \').Replace(\'\\n\', \' \'))', 'detail', "empty native exception message retains its actionable publisher exception type"),
                 ("no-original-identity", "TownServiceAssets.cs", "_originalKeys.Add(id, key); _keys[id] = key; _assets[key] = asset;", "return;", "explicit original sprite replaces its previously cached descriptor key"),
                 ("last-window-wins", "TownServiceAssets.cs", "if (_originalKeys.ContainsKey(id)) return;", "if (_originalKeys.ContainsKey(id)) { _keys[id] = key; return; }", "shared original keeps merchant provenance"),
                 ("class-highlight-wrapper", "TownServiceAssets.cs", "KnownHeroHighlight(texture.name)",
@@ -299,7 +307,7 @@ def main():
                 ("same-backdrop-key", "TownServiceBackdropAssets.cs", '"native-town|backdrop|" + template + "|texture"', '"native-town|backdrop|same|texture"', "Conflicting original town-service provenance"),
                 # Retained instance provenance can alias the second lifetime before the
                 # later ambiguity scan. Bind the earliest actual reset defect.
-                ("retain-cleared-provenance", "TownServiceAssets.cs", "_originalKeys.Clear();", "", "different native backdrops retain distinct identities"),
+                ("retain-cleared-provenance", "TownServiceAssets.cs", "_originalKeys.Clear();", "", "scenario and menu registry rebuild survives an unrelated retired sprite"),
                 ("failed-bank-registry", "NativeInitialization669.cs", "TownServiceSync.Shutdown(resetDiagnostics: false); throw;", "Shutdown(); throw;", "failed preparation retires its immutable registry before native mode art changes"),
                 ("failed-bank-copy", "NativeInitialization669.cs", "TownServiceSync.Shutdown(resetDiagnostics: false); throw;", "TownServiceMirror.Shutdown(); throw;", "failed preparation leaves no partial bank or ready HUD"),
                 ("new-hud-registry", "NativeInitialization669.cs", "if (_bank != null || _hud != null) TownServiceSync.Shutdown(resetDiagnostics: false);", "// preserve retired HUD registry", "a replacement HUD retires all old mirror bindings before registering its own originals"),

@@ -95,11 +95,25 @@ namespace GloomhavenVR.WorldUI
     {
         internal bool Active, Suspended = false;
         internal int SyncCount;
+        // This construction port represents an ordinary menu with no movie.
+        // The separate stereo-movie-render fixture executes movie leases/pixels.
+        internal bool StereoMovieActive => false;
+        internal bool OwnsMoviePlane(Camera camera) => false;
+        internal bool NeedsMovieCaptureSync(Camera camera) => false;
         internal void Tick(RenderTexture rt, Renderer? renderer, bool preMenu) { }
         internal void BeginStackSync() => SyncCount = 0;
         internal void SyncCamera(Camera camera) => SyncCount++;
         internal void EndStackSync() { }
         internal void Deactivate(string reason) => Active = false;
         internal void ReleaseMirrors() => SyncCount = 0;
+    }
+    internal static class NativeMovieCameraPlane
+    {
+        // Capture invokes these unconditionally; this fixture owns no movie lease.
+        // Fail rather than silently simulate movie rendering if that scope changes.
+        internal static void RestoreAll() { }
+        internal static void BeforeRender(Camera camera) => throw new System.InvalidOperationException(
+            "Movie-plane rendering is outside the desktop capture fixture boundary.");
+        internal static void AfterRender(Camera camera) { }
     }
 }

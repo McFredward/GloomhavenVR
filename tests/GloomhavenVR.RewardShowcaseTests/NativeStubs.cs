@@ -78,6 +78,11 @@ namespace UnityEngine
         }
     }
     public static class Time { public static int frameCount; public static float unscaledTime; }
+    public static class Debug
+    {
+        public static void Log(string message) { }
+        public static void LogError(string message) { }
+    }
     public readonly record struct Vector3(float x, float y, float z)
     {
         public static Vector3 one => new(1, 1, 1);
@@ -117,10 +122,18 @@ namespace UnityEngine.UI
 {
     public class UIWindow : UnityEngine.MonoBehaviour
     {
+        public enum VisualState { Hidden }
         public bool IsOpen = true;
         public bool IsVisible = true;
         public int ID;
         public Action? NativeHide;
+        public Action? NativeInstantHide;
+        public void Show() => IsOpen = IsVisible = true;
+        public void Hide(bool instant)
+        {
+            IsOpen = IsVisible = false;
+            NativeInstantHide?.Invoke();
+        }
         public void Hide()
         {
             if (NativeHide == null) throw new Exception("Presentation must not hide the native reward window");
@@ -152,7 +165,7 @@ namespace UnityEngine.UI
         public void OnPointerExit() => Change(SelectionState.Normal);
         public void OnPointerDown() => Change(SelectionState.Pressed);
         public void OnPointerUp() => Change(SelectionState.Highlighted);
-        public void OnPointerClick() { if (IsInteractable()) onClick.Invoke(); }
+        public void OnPointerClick() { if (isActiveAndEnabled && IsInteractable()) onClick.Invoke(); }
     }
 }
 public class ExtendedButton : UnityEngine.UI.Button { }
@@ -199,8 +212,10 @@ public sealed class UICampaignRewardWindow : UnityEngine.MonoBehaviour
 }
 public sealed partial class UIRewardsManager : Singleton<UIRewardsManager>
 {
-    private bool processingRewards = true;
-    public bool networkProcessIfServer = true;
+    // Match CLR/native construction defaults. Legacy tests opt into an already
+    // running showcase explicitly; lifecycle tests execute the real native start.
+    private bool processingRewards;
+    public bool networkProcessIfServer;
     public Func<bool>? interactionChecker;
     private bool _inputLatch;
     public bool isConfirmPressed { get => _inputLatch; set { _inputLatch = value; if (value) NativeCalls++; } }
@@ -224,15 +239,6 @@ public sealed partial class UIRewardsManager : Singleton<UIRewardsManager>
     public void MoveToNextReward() => throw new Exception("Presentation must not bypass native reward input");
     public int CompletedProcesses;
     public Action? onProcessEnded;
-    private bool _nativeProcessStep;
-    private void EndProcess()
-    {
-        if (!_nativeProcessStep) throw new Exception("Presentation must not end native reward processing");
-        processingRewards = false;
-        myWindow.IsOpen = myWindow.IsVisible = false;
-        CompletedProcesses++;
-        onProcessEnded?.Invoke();
-    }
 }
 public sealed class ESCMenu : Singleton<ESCMenu>
 {
@@ -323,6 +329,7 @@ namespace GloomhavenVR.WorldUI
         internal static bool ModalWindowStyle = true;
     }
     internal static class FlatScreen { internal static bool ManualScreenActive; }
+    internal static class Loc { internal static string RewardContinue => "Continue"; }
     internal static class NativeButtonSkin
     {
         internal enum FaceState { Idle, Accent, Pressed, Disabled }
@@ -330,12 +337,38 @@ namespace GloomhavenVR.WorldUI
         internal static UnityEngine.Sprite SpriteFor(FaceState state) => Sprites[(int)state];
         internal static UnityEngine.Color ColorFor(FaceState state) => new((int)state, 1, 1, 1);
     }
-    internal sealed class RewardShowcaseButton
+    // Only geometry creation/placement is a substitute. Tick and Continue are
+    // extracted verbatim from production, and the real RewardContinueButton is
+    // exercised through its ordinary pointer event / Selectable dispatch.
+    internal sealed partial class RewardShowcaseButton
     {
         internal static UIRewardsManager? Owner;
-        internal static bool CanClick;
+        internal static bool CanClick => Current != null && Current.IsInteractable();
+        internal static RewardContinueButton? Current;
         internal static int Disposals;
-        internal void Tick(UIRewardsManager owner, bool canConfirm) { Owner = owner; CanClick = canConfirm; }
-        internal void Dispose() { Owner = null; CanClick = false; Disposals++; }
+        private UIRewardsManager? _owner;
+        private UnityEngine.Transform? _root;
+        private RewardContinueButton? _button;
+        private TestLabel? _label;
+        private void Build(UIRewardsManager owner)
+        {
+            Dispose();
+            _owner = Owner = owner;
+            var go = new UnityEngine.GameObject("RewardContinue");
+            go.transform.SetParent(owner.myWindow.transform);
+            _root = go.transform;
+            Current = _button = go.AddComponent<RewardContinueButton>();
+            _button.onClick.AddListener(Continue);
+            _label = new TestLabel();
+        }
+        private void ApplySkin() { }
+        private void Place(UIRewardsManager owner) { }
+        internal void Dispose()
+        {
+            Owner = null; Current = null;
+            _owner = null; _root = null; _button = null; _label = null;
+            Disposals++;
+        }
     }
+    internal sealed class TestLabel { internal string text = string.Empty; }
 }

@@ -1660,6 +1660,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         CancelBoardReFace();
         if (ReferenceEquals(Current, this))
             Current = null; // WorldUI mount consumers fall back to the floating layout
+        CancelPendingSelections();
         _occupants[0] = _occupants[1] = null;
         LaserTargets.Clear();
         if (_root != null)

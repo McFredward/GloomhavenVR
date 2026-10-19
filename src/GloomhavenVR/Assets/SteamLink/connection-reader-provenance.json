@@ -1,0 +1,37 @@
+{
+  "schema": "gloomhavenvr-steamlink-reader-provenance-v1",
+  "component": "Owned isolated read-only OpenVR Background identity reader",
+  "target": "Windows x64 PE; same PE is used by Windows-player Proton sessions",
+  "artifact": {
+    "path": "connection-reader.exe",
+    "bytes": 42496,
+    "sha256": "cec82e68968441902e717c6bc595ff0ae0b0b03ffe72bc5eb26cbfe19c40a30f",
+    "embedded_resource": "GloomhavenVR.SteamLink.connection-reader.exe"
+  },
+  "source_pins": {
+    "tools/steamlink-connection-reader.c": "3a9a2344e00b2c8c2cb7ef86b6de13ff4b6d64c705ebd1cc7b7148e9945c6c29",
+    "scripts/build-steamlink-connection-reader.sh": "f5da2e6d9562c388881c147ef81584a9954cbea620386e07dc7843af1ec3378a"
+  },
+  "build": {
+    "script": "scripts/build-steamlink-connection-reader.sh",
+    "compiler": "x86_64-w64-mingw32-gcc (GCC) 13-win32",
+    "flags": [
+      "-std=c11",
+      "-Os",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-municode",
+      "-Wl,--no-insert-timestamp,--nxcompat,--dynamicbase",
+      "-s"
+    ]
+  },
+  "public_contract": {
+    "openvr_commit": "751538d6cbde9d060e5906c1d45c8cedeaf0ee18",
+    "application_type": 3,
+    "no_server_error": 121,
+    "interface": "FnTable:IVRSystem_022",
+    "contract_header": "https://raw.githubusercontent.com/ValveSoftware/openvr/751538d6cbde9d060e5906c1d45c8cedeaf0ee18/headers/openvr.h"
+  },
+  "limits": "Portable fake exports exercise the production query sequence; no actual Windows/Proton runtime execution or receiver/device attestation."
+}

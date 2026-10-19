@@ -113,10 +113,22 @@ namespace GloomhavenVR.Cards
 namespace GloomhavenVR.Core
 {
     // Profiling is an inert external boundary; actual overlay renderer behavior runs below.
+    internal static class WaterTerrainVR
+    {
+        // No water owner runs in this native figure fixture. The separate water
+        // suite exercises true ownership and the portable wall fixture its input.
+        internal static bool IsOwnedWaterSurface(Renderer renderer) => false;
+    }
     internal static class PerfMonitor
     {
         internal readonly struct Marker : System.IDisposable { public void Dispose() { } }
         internal static Marker Scope(string label) => new();
+    }
+    // Exact private terrain ownership is exercised by the terrain Unity fixture.
+    // Figure clones here are foreign to that owner and retain wall-shader rules.
+    internal static class ScenarioTerrainBudget
+    {
+        internal static bool IsPrivateRenderer(Renderer renderer) => false;
     }
     internal static class ScenarioEnvironmentBudget
     {

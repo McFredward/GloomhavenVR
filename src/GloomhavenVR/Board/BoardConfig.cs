@@ -74,7 +74,7 @@ internal static class BoardConfig
             "center — steadies hover/tooltip anchoring on small hexes.");
         HoverHaptics = config.Bind(
             "Board", "HoverHaptics", Defaults.HoverHaptics,
-            "Haptic tick on the picking hand when the pick moves onto a new valid board target.");
+            "Haptic tick when direct fingertip targeting moves onto a new valid board target. Laser tooltip hover stays silent.");
         AutoFocusOnTurn = config.Bind(
             "Board", "AutoFocusOnTurn", Defaults.AutoFocusOnTurn,
             "When one of YOUR characters comes up, switch the view to it automatically instead of " +

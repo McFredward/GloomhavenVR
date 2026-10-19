@@ -1,0 +1,354 @@
+{
+  "schema": 1,
+  "subject": "Heroes/BeastTyrant.mov",
+  "source_sha256": "8f29f89dff9184c91b9b43fd2e579ce180ee56ca0ab56462c64bb645aee83687",
+  "source_kind": "external",
+  "source_relative": "StreamingAssets/Movies/Heroes/BeastTyrant.mov",
+  "stereo_file": "BeastTyrant.sbs-v1.mov",
+  "stereo_sha256": "a78e3a56178466f14b35892a83a5e066b08bfcf28679130816cf466929780f3d",
+  "stereo_bytes": 25224031,
+  "packing": "full-SBS-left-first",
+  "per_eye_size": [
+    1920,
+    1080
+  ],
+  "fps": 60,
+  "frames": 747,
+  "duration_seconds": 12.45,
+  "body_rows": [
+    128,
+    956
+  ],
+  "shots": [
+    {
+      "id": "native-opening-emblem",
+      "start": 0,
+      "end": 99,
+      "mode": "screen"
+    },
+    {
+      "id": "black-00",
+      "start": 99,
+      "end": 108,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-01",
+      "start": 108,
+      "end": 178,
+      "mode": "depth"
+    },
+    {
+      "id": "black-01",
+      "start": 178,
+      "end": 183,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-02",
+      "start": 183,
+      "end": 257,
+      "mode": "depth"
+    },
+    {
+      "id": "black-02",
+      "start": 257,
+      "end": 264,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-03",
+      "start": 264,
+      "end": 348,
+      "mode": "depth"
+    },
+    {
+      "id": "black-03",
+      "start": 348,
+      "end": 354,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-04",
+      "start": 354,
+      "end": 722,
+      "mode": "depth",
+      "screen_panels": [
+        {
+          "id": "name-banner",
+          "bounds": [
+            940,
+            442,
+            1785,
+            563
+          ],
+          "prepare": [
+            506,
+            518
+          ],
+          "last_clear_source_frame": 518,
+          "observed_onset_frame": 520,
+          "onset_bounds": [
+            0,
+            128,
+            1920,
+            956
+          ],
+          "onset_release": [
+            534,
+            546
+          ],
+          "source_witness_frames": [
+            522,
+            606,
+            685
+          ]
+        },
+        {
+          "id": "class-symbol",
+          "bounds": [
+            1110,
+            258,
+            1600,
+            706
+          ],
+          "prepare": [
+            590,
+            602
+          ],
+          "last_clear_source_frame": 602,
+          "observed_onset_frame": 604,
+          "onset_bounds": [
+            0,
+            128,
+            1920,
+            956
+          ],
+          "onset_release": [
+            624,
+            636
+          ],
+          "source_witness_frames": [
+            522,
+            606,
+            685
+          ]
+        }
+      ],
+      "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+    },
+    {
+      "id": "black-04",
+      "start": 722,
+      "end": 747,
+      "mode": "screen"
+    }
+  ],
+  "profile": {
+    "cpu_dtype": "float32",
+    "model_input": 392,
+    "temporal_window": 32,
+    "temporal_overlap": 10,
+    "saved_depth_size": [
+      640,
+      360
+    ],
+    "shot_normalization_percentiles": [
+      2,
+      98
+    ],
+    "depth_disparity_px": [
+      -4,
+      12
+    ],
+    "code_revision": "4f5ae23172ba60fd7bc11ef671cca678842c7072",
+    "model_revision": "256875362cff76724b920335dfb4b29dd611f66e",
+    "checkpoint_sha256": "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609"
+  },
+  "left": "Native decoded YUV directly hstacked before final H264 encoding",
+  "right": "Accepted687 temporal depth reprojection with original-frame timed rigid complete printed panels",
+  "disocclusion_fill": "Farther adjoining source background; no generative inpainting",
+  "render_source_sha256": "b8bca40d7fd45188bef5d8941be10e714efbc77f61e6e0bdab128ecb894469ea",
+  "geometry_source_sha256": "7068b8e6c0334f2bfbbf73779e2dd1ef1b89390d61c032ecec496a5be4c5c7cf",
+  "verification": {
+    "status": "passed",
+    "movie": "Heroes/BeastTyrant.mov",
+    "source_sha256": "8f29f89dff9184c91b9b43fd2e579ce180ee56ca0ab56462c64bb645aee83687",
+    "stereo_sha256": "a78e3a56178466f14b35892a83a5e066b08bfcf28679130816cf466929780f3d",
+    "stereo_bytes": 25224031,
+    "video": {
+      "frames": 747,
+      "fps": 60,
+      "dimensions": [
+        3840,
+        1080
+      ],
+      "sample_aspect_ratio": "1:1",
+      "every_original_timestamp": true
+    },
+    "identical_aac_packets": 584,
+    "native_audio_presentation": {
+      "duration_seconds": "249/20",
+      "original_time_base": "1/48000",
+      "stereo_time_base": "1/48000",
+      "original_presentation_window_preserved": true
+    },
+    "left_comparison": {
+      "frames": 747,
+      "minimum_psnr_db": 39.75
+    },
+    "depth_shots_validated": 4,
+    "encoded_right_witness_frames": 44,
+    "minimum_right_witness_psnr_db": 44.633392155151114,
+    "native_loop_endpoints": {
+      "0": {
+        "original_rgb_mean": 49.75871077674897,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 51.107902098694844
+      },
+      "746": {
+        "original_rgb_mean": 0.0024537037037037036,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 86.03466083153921
+      }
+    },
+    "verification_source_sha256": "1d317106038bd46d316bedfee6c579dfc102eb0d1a0744b8397e2821ffb6a409",
+    "manifest_sha256": "f10b245d398d81b311f3a3b7ca89d9a2a2b553815f2c87e81bf6f9b97e9a9759",
+    "decoded_cue_frames": [
+      143,
+      306,
+      662
+    ],
+    "decoded_cue_receipt_sha256": "edb91c6d5f789a6865587d8aa9108c36e1226cf7119e7ce6d6fcbc5046a1eac0",
+    "manual_visual_review": "pending",
+    "hardware_result": "unverified"
+  },
+  "hardware_result": "unverified",
+  "audio_finalization": {
+    "status": "passed",
+    "identical_aac_packets": 584,
+    "identical_encoded_video_packets": 747,
+    "audio_presentation_seconds": "249/20",
+    "video_presentation_seconds": "249/20",
+    "audio_time_base": "1/48000",
+    "video_time_base": "1/15360",
+    "audio_payload_pts_dts_durations_identical": true,
+    "video_payload_pts_dts_durations_identical": true,
+    "subject": "Heroes/BeastTyrant.mov",
+    "encoded_candidate_sha256": "304e45a8632e9b4060d50dfa7f718339ab6c81627ea2f5c1c91dfd1d9d1a20ae",
+    "native_source_sha256": "8f29f89dff9184c91b9b43fd2e579ce180ee56ca0ab56462c64bb645aee83687",
+    "finalized_sha256": "a78e3a56178466f14b35892a83a5e066b08bfcf28679130816cf466929780f3d",
+    "finalized_bytes": 25224031,
+    "native_presentation": {
+      "native_movie_timescale": 90000,
+      "native_edit_duration": 1120500,
+      "native_audio_edit_media_time": 0,
+      "copy_mux_audio_duration_before_native_window": 1121280,
+      "presentation_seconds": "249/20",
+      "changed_atoms_only": [
+        "moov/mvhd duration",
+        "audio trak/tkhd duration",
+        "audio trak/edts/elst segment duration"
+      ]
+    },
+    "copy_mux_source_sha256": "fd0e35935207e5eb69c99806c7761e12305427239cf3d3fd42bd9c7eab804cce",
+    "picture_reencoded": false
+  },
+  "static_decoded_review": {
+    "status": "reviewed",
+    "movie": "Heroes/BeastTyrant.mov",
+    "stereo_sha256": "a78e3a56178466f14b35892a83a5e066b08bfcf28679130816cf466929780f3d",
+    "frames": [
+      143,
+      306,
+      604,
+      606,
+      612,
+      662
+    ],
+    "capture_receipt_sha256": "edb91c6d5f789a6865587d8aa9108c36e1226cf7119e7ce6d6fcbc5046a1eac0",
+    "additional_oversized_symbol_cue": {
+      "movie": "Heroes/BeastTyrant.mov",
+      "stereo_sha256": "a78e3a56178466f14b35892a83a5e066b08bfcf28679130816cf466929780f3d",
+      "frame": 604,
+      "pts_time": 10.066667,
+      "file": "oversized-symbol-00604.png",
+      "image_sha256": "298a6a00bafd34096cdf56de718ed3ce85774bcc7dfbd1060426a5ff72037a8b",
+      "command": [
+        "ffmpeg",
+        "-hide_banner",
+        "-v",
+        "info",
+        "-nostdin",
+        "-threads",
+        "1",
+        "-i",
+        "/home/claw/gloomhaven_vr-workers/stereo-library-media/.planning/debug/stereo-library/first-hero-aac-recovery/render-BeastTyrant/BeastTyrant.sbs-v1.mov",
+        "-map",
+        "0:v:0",
+        "-an",
+        "-filter_threads",
+        "1",
+        "-vf",
+        "select=eq(n\\,604),showinfo,scale=in_color_matrix=bt709:in_range=tv",
+        "-frames:v",
+        "1",
+        "-fps_mode",
+        "passthrough",
+        "-pix_fmt",
+        "rgb24",
+        "-threads",
+        "1",
+        "/home/claw/gloomhaven_vr-workers/stereo-library-media/.planning/debug/stereo-library/first-hero-aac-recovery/verify-BeastTyrant/run-media001/oversized-symbol-00604.png"
+      ],
+      "status": "actual-decoded-cue-ready-for-manual-review",
+      "hardware_result": "unverified"
+    },
+    "reviewed_utc": "2026-10-17T15:00:04.370349+00:00",
+    "observations": "All three actual encoded normal cue pairs and the additional original oversized-symbol cue were inspected. The ground/skull opening, feather/claw close view and final bear/Beast Tyrant title retain original content and full per-eye aspect. The complete settled printed banner and class mark are rigid; the oversized native print at frame604 remains on a rigid plane. No obvious missing content or vertical registration defect at these static cues. Foreground scene features retain bounded horizontal separation outside the timed printed reveal.",
+    "limit": "Static decoded-image inspection only; headset fusion, comfort, temporal motion and decoder behavior remain unverified.",
+    "additional_source_bound_oversized_review": {
+      "receipt_sha256": "0fdab49a3d8fb7daabe22064b2ead4e635d87064aa60199b89d3e2a8042c2e68",
+      "native_source_sha256": "8f29f89dff9184c91b9b43fd2e579ce180ee56ca0ab56462c64bb645aee83687",
+      "stereo_sha256": "a78e3a56178466f14b35892a83a5e066b08bfcf28679130816cf466929780f3d",
+      "frames": [
+        {
+          "frame": 606,
+          "pts_time": 10.1,
+          "file": "stereo-01.png",
+          "image_sha256": "d35ff28d045847a9c0dce90a489d87e088ab5907c5d8f34be0610727e7609c4e"
+        },
+        {
+          "frame": 612,
+          "pts_time": 10.2,
+          "file": "stereo-02.png",
+          "image_sha256": "5dff6ebfbd3cfb5cffcb32eaf0d55c1cbdcba0f7395d4c1ed9b093c26b25ed7c"
+        }
+      ],
+      "review": {
+        "status": "reviewed",
+        "reviewed_utc": "2026-10-17T15:05:01.357883+00:00",
+        "frames": [
+          606,
+          612
+        ],
+        "observations": "Both actual decoded stereo pairs were compared with the source-bound original frames. Frame606 shows the original oversized translucent class emblem extending to the active picture boundaries; frame612 shows the clear emblem at its settling scale. Complete printed symbol and banner remain rigid between eyes, with native artwork, blur, glow and full per-eye aspect retained. These cues supplement the barely visible onset at frame604.",
+        "limit": "Static decoded images only; headset fusion, comfort and temporal playback remain unverified."
+      }
+    }
+  },
+  "picture_generation_recovery": {
+    "reason": "Strict original combined-encoder AAC check refused a candidate missing the last exposed native packet. The complete picture was preserved and losslessly copy-muxed with every original AAC packet and native presentation window.",
+    "failed_candidate": ".planning/debug/stereo-library/first-hero-batch/render-BeastTyrant/BeastTyrant.sbs-v1.mov",
+    "failed_candidate_sha256": "304e45a8632e9b4060d50dfa7f718339ab6c81627ea2f5c1c91dfd1d9d1a20ae",
+    "original_render_log": ".planning/debug/stereo-library/first-hero-batch/render.log",
+    "finalization_evidence": ".planning/debug/stereo-library/aac-finalization-audit/run-audio002",
+    "picture_reencoded": false
+  }
+}

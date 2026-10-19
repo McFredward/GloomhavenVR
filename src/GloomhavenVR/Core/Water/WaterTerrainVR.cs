@@ -41,7 +41,7 @@ namespace GloomhavenVR.Core;
 /// explanation: the pale sheet and the head-bound reflection are a TEXTURE or a CONSTANT compiled
 /// into <c>VFX/Water_Shd_Trans</c>, which no property name can reach. So the film draws on
 /// <c>GloomhavenVR/WaterVR</c> out of this mod's own bundle instead, in the tileset's own colour
-/// at the authored render queue, with the tileset's own normal map and a swell the shader's own
+/// in the authored transparent order (opaque films enter the transparent phase), with the tileset's own normal map and a swell the shader's own
 /// tessellator carries. ModBuild 162's flat sheet on <c>GloomhavenVR/Overlay</c> is the FALLBACK
 /// when the bundle yields nothing else, and the OWN SURFACE census block names which of the two is
 /// actually on the renderers rather than which was wanted.</para>
@@ -134,13 +134,21 @@ namespace GloomhavenVR.Core;
 /// climbs. The shared material is NEVER written. The batching cost is 17 quads plus their basin,
 /// which is negligible and was already <c>staticBatch=False</c>.</para>
 ///
+/// <para>THE 2026-10-14 WHOLE-GAME REVIEW found 45 native water film assignments across 380
+/// source assets: terrain, cave/forest ponds and DLC sluice-gate films. All begin with empty
+/// renderer slots. Native Addressables publication follows placement, so a one-time empty
+/// tile seed cannot discover them. The existing MaterialReady seam now queues the exact
+/// renderer and drains before submission, including inactive preview rooms. Only native
+/// water shader slots are cloned; opaque neighbors retain their original materials. Basin
+/// tuning and local probe footprints remain restricted to the original terrain family.</para>
+///
 /// <para>ONE KNOWN WRITER OF THESE RENDERERS EXISTS and it matters more now than it did for a
 /// property block: <c>MaterialLoaderData.CheckAllMaterialLoaded</c> swaps <c>sharedMaterials</c>
 /// on an Addressables callback (it is also the only unconditional <c>Renderer.enabled = true</c>
 /// in the whole game assembly). A swap would drop our instance on the floor. The per-frame
-/// enforcement is therefore a reference compare of <see cref="Renderer.sharedMaterial"/> against
-/// the instance we handed it — one native call per tracked renderer, no allocation — and a
-/// mismatch destroys the orphans and re-adopts from the NEW materials. Both count into
+/// enforcement compares all current slots against the instances we handed it, using one
+/// reusable material list. A mismatch conditionally restores only our surviving slots,
+/// preserves new native assignments and re-adopts that renderer directly. Both count into
 /// <c>UNDONE:</c> in the census.</para>
 ///
 /// <para>A NOTE FOR WHOEVER GREPS THE NEXT LOG: <c>WallSegmentFade</c>'s FLOOR CENSUS annotates a
@@ -150,13 +158,10 @@ namespace GloomhavenVR.Core;
 /// <c>WATER SURFACE STATE</c> line below is what says whether it ran.</para>
 ///
 /// <para>SCOPE. Two sets, both narrow, both logged individually. (1) THE FILM: renderers on the
-/// game's water shader family (the <c>Water_Sh</c> stem — the same key
-/// <see cref="WallSegmentFade"/>'s fountain exemption uses, so there is one definition of "this
-/// is water" in the mod) AND named for the terrain prop family
-/// (<see cref="TerrainWaterNameTokens"/>). The name term keeps DECORATIVE water out: the
-/// fountain/pond props of the <c>brunnen.png</c> ruling (<c>FR_SW_Pond_Small</c>,
-/// <c>P_Waterfall_Circle_Small</c>) are set dressing nobody stands on and are not what the report
-/// is about. (2) THE BASIN: renderers named for the water-feature family
+/// game's water shader family (the <c>Water_Sh</c> stem) in native procedural scenery.
+/// The whole-game review includes pond and DLC films that the historical terrain-name
+/// filter excluded. Particle renderers are excluded. Exact current ownership keeps the
+/// wall/fountain exemption valid after the native shader has been replaced. (2) THE BASIN: renderers named for the water-feature family
 /// (<see cref="BasinNameTokens"/>) whose bounds lie inside a tracked film's own footprint and do
 /// not rise above it. Both terms are load-bearing — the room's ordinary floor runs the same
 /// <c>Amp_Basic_N_MRAO</c> shader as the basin, so a shader-only rule would retune the whole
@@ -267,6 +272,16 @@ internal static class WaterTerrainVR
     internal static void NotifyContentPlaced(ProceduralBase entity) =>
         _driver?.QueueSubtree(entity);
 
+    /// <summary>The native asynchronous loader has assigned this renderer's final slots.
+    /// A placement seed may have seen empty placeholders before that callback. Queue the
+    /// exact renderer, including inactive preview rooms, for this frame's final adoption.</summary>
+    internal static void MaterialReady(Renderer renderer) => _driver?.QueueMaterialReady(renderer);
+
+    /// <summary>Exact live water ownership, including the Overlay fallback. Wall classification
+    /// must not infer this from a generic mod shader after native Water_Sh was replaced.</summary>
+    internal static bool IsOwnedWaterSurface(Renderer renderer) =>
+        _driver != null && _driver.OwnsWaterSurface(renderer);
+
     /// <summary>Install the driver (idempotent). No-op when VR isn't running — on a flat screen
     /// the game's water is exactly what its authors saw at the one camera pitch they authored it
     /// for, and nothing here applies.</summary>
@@ -296,12 +311,12 @@ internal static class WaterTerrainVR
         }
         VRLog.Info(Name,
             "WaterTerrainVR installed — the parts of the game's water FEATURE (the film "
-            + "'TERRAIN_Water_Plane' on shader family 'Water_Sh*' AND the basin bed/rim inside "
-            + "its own footprint) all KEEP RENDERING (user ruling 2026-08-18: hiding is not an "
+            + "on native shader family 'Water_Sh*' in procedural scenery, including terrain, "
+            + "pond and DLC films; basin bed/rim tuning remains terrain-only) all KEEP RENDERING (user ruling 2026-08-18: hiding is not an "
             + "option) and are retuned for a free camera. THE FILM does not run the game's "
             + "shader at all: WaterSettings.OwnSurface (default ON) gives it a material of the mod's "
             + "own on '" + WaterOwnSurface.FilmShaderName + "', in the tileset's own green at "
-            + "the WaterSettings.Opacity alpha, at the authored render queue, carrying the tileset's "
+            + "the WaterSettings.Opacity alpha, preserving authored transparent order and promoting opaque films, carrying the tileset's "
             + "own normal map and a tessellated swell — with no shoreline, no foam, no depth "
             + "read, nothing that translates, and NO VIEW DIRECTION ANYWHERE IN IT (no cube "
             + "sample, no reflect(), no Fresnel, no half-vector specular, because a half-vector "
@@ -360,14 +375,35 @@ internal static class WaterTerrainVR
         return false;
     }
 
-    /// <summary>Is this renderer one of the game's water TERRAIN quads — the FILM? Shader family
-    /// AND name family; see the class header for why the name term is there.</summary>
+    /// <summary>Is this a native procedural water film? The material's water shader is
+    /// mandatory; neither a water-themed name nor a stone texture is sufficient.</summary>
     private static bool IsTerrainWater(Renderer r, List<Material> matScratch)
     {
-        if (r == null)
+        if (r == null || r is ParticleSystemRenderer || !IsWaterShader(r, matScratch))
             return false;
-        return NameHasAny(r.name, TerrainWaterNameTokens) && IsWaterShader(r, matScratch);
+        // The 2026-10-14 whole-game ruling includes the authored pond and DLC films,
+        // not just hex terrain. Their native loader assignments use the same four water
+        // shaders. Positive procedural ancestry prevents adopting unrelated UI/preview art.
+        for (Transform? node = r.transform; node != null; node = node.parent)
+            if (node.GetComponent<ProceduralBase>() != null || IsTerrainWaterName(node.name))
+                return true;
+        return false;
     }
+
+    private static bool IsTerrainWaterName(string name) => NameHasAny(name, TerrainWaterNameTokens)
+        || name.StartsWith("TERRAIN_", StringComparison.OrdinalIgnoreCase)
+        && name.IndexOf("Water", StringComparison.OrdinalIgnoreCase) >= 0;
+
+    private static bool IsTerrainFilm(Renderer renderer)
+    {
+        for (Transform? node = renderer.transform; node != null; node = node.parent)
+            if (IsTerrainWaterName(node.name)) return true;
+        return false;
+    }
+
+    private static bool IsNativeWaterMaterial(Material material) => material != null
+        && material.shader != null
+        && material.shader.name.IndexOf(WaterShaderStem, StringComparison.OrdinalIgnoreCase) >= 0;
 
     /// <summary>
     /// The water look, as CONSTANTS. There is no <c>[Water]</c> config section any more and no
@@ -654,6 +690,10 @@ internal static class WaterTerrainVR
         private readonly List<Transform> _pending = new(16);
 
         private const int PendingCap = 64;
+        private const int MaterialReadyCap = 256;
+        private readonly List<Renderer> _readyMaterials = new(32);
+        private readonly List<Material> _enforceScratch = new(4);
+        private readonly List<Material> _ownedQueryScratch = new(4);
 
         /// <summary>Set when <see cref="_pending"/> overflowed — the next tick sweeps every map
         /// tile once instead of trying to remember which ones moved.</summary>
@@ -817,6 +857,7 @@ internal static class WaterTerrainVR
             /// <summary>True for the transparent water FILM (which also gets the tint/foam
             /// treatment), false for the solid basin (reflection caps only).</summary>
             internal bool IsFilm;
+            internal bool IsTerrainFilm;
 
             /// <summary>The renderer's authored probe usage, restored on release. We only ever
             /// change it in one direction — Off → BlendProbes — and only while a local probe
@@ -844,13 +885,10 @@ internal static class WaterTerrainVR
             /// little every time it was measured.</summary>
             internal float FilmWidthWU;
 
-            /// <summary>Whether slot 0 held a real material when we adopted, i.e. whether the
-            /// per-frame reference compare has a key to compare against. False for a renderer
-            /// whose first slot is empty — comparing a null against a null would read as "the
-            /// game replaced our material" on every single frame, and would churn this renderer
-            /// through adopt/release forever while <c>UNDONE:</c> counted up a race that was
-            /// never happening.</summary>
-            internal bool EnforceFirstSlot;
+            /// <summary>The first cloned slot, used for diagnostic readback. Empty or
+            /// non-water slots may precede the film and are never used as an ownership key.</summary>
+            internal int FirstOwnedSlot;
+            internal bool[] OwnsSlot = Array.Empty<bool>();
         }
 
         /// <summary>One reflection-family property of one shader, classified once. See
@@ -952,7 +990,12 @@ internal static class WaterTerrainVR
             if (!want)
                 return;
 
+            // Resolve before draining either event queue: asynchronous material publication
+            // may be the first positive water discovery, even between slow discovery ticks.
+            if (_readyMaterials.Count != 0 || _pending.Count != 0)
+                MaintainOwnShader();
             EnforceEveryFrame();
+            DrainReadyMaterials();
             DrainPending();
 
             if (Time.unscaledTime < _next)
@@ -1022,11 +1065,9 @@ internal static class WaterTerrainVR
         }
 
         /// <summary>
-        /// The cheap per-frame guard. With a material INSTANCE there is no property block to be
-        /// cleared; the one way our retune can silently stop applying is the game assigning new
-        /// materials over ours — which <c>MaterialLoaderData.CheckAllMaterialLoaded</c> does on
-        /// an Addressables callback. A reference compare of the first slot answers that without
-        /// allocating the <c>sharedMaterials</c> array. Dead entries are pruned here, which is
+        /// The cheap per-frame guard. Native material publication or quality changes may
+        /// replace any slot or overwrite a private film's shader. Compare the full current
+        /// composition in a reusable list and re-adopt only a changed renderer. Dead entries are pruned here, which is
         /// also where the tracked count follows content going away AND where the instances of a
         /// destroyed renderer are released.
         /// </summary>
@@ -1035,33 +1076,71 @@ internal static class WaterTerrainVR
             for (int i = _tracked.Count - 1; i >= 0; i--)
             {
                 Renderer r = _tracked[i];
-                if (r == null)
-                {
-                    ReleaseAt(i, restore: false); // the renderer is gone; only the instances remain
-                    continue;
-                }
-                if (!_owned.TryGetValue(r, out Owned o))
-                {
-                    _tracked.RemoveAt(i);
-                    continue;
-                }
-                if (!o.EnforceFirstSlot)
-                    continue; // slot 0 was empty when we adopted; there is no key to compare
-                Material? first = o.Instances.Length > 0 ? o.Instances[0] : null;
-                if (ReferenceEquals(r.sharedMaterial, first) && first != null)
-                    continue;
-                // Something replaced the materials under us — MaterialLoaderData's Addressables
-                // callback is the one known writer. Hand nothing back (the array we recorded is
-                // no longer what the renderer wants), destroy our orphans and re-adopt from the
-                // NEW set. The re-adoption is forced onto the very next tick rather than left to
-                // the round-robin, because a lap of the tile registry is exactly the gap
-                // ModBuild 158's flicker lived in and this renderer is currently un-retuned.
+                if (r == null) { ReleaseAt(i, restore: false); continue; }
+                if (!_owned.TryGetValue(r, out Owned o)) { _tracked.RemoveAt(i); continue; }
+                _enforceScratch.Clear();
+                r.GetSharedMaterials(_enforceScratch);
+                bool unchanged = _enforceScratch.Count == o.Instances.Length;
+                for (int slot = 0; unchanged && slot < o.Instances.Length; slot++)
+                    unchanged = ReferenceEquals(_enforceScratch[slot], o.Instances[slot])
+                        && (!o.IsFilm || !o.OwnsSlot[slot] || !OwnSurfaceActive
+                            || o.Instances[slot] != null && o.Instances[slot].shader == _ownShader);
+                if (unchanged) continue;
+                // Native quality/loading may replace only a later slot. Release our remaining
+                // slots conditionally, preserve every new native assignment, then re-adopt this
+                // renderer directly. No recurring tile hierarchy sweep is needed.
                 _reasserts++;
-                ReleaseAt(i, restore: false);
-                _seenTiles.Clear();
-                _lastTileCount = -1;
-                _next = 0f;
+                ReleaseAt(i, restore: true);
+                ExamineReadyRenderer(r);
             }
+        }
+
+        internal bool OwnsWaterSurface(Renderer renderer)
+        {
+            if (renderer == null || !_owned.TryGetValue(renderer, out Owned owned) || !owned.IsFilm)
+                return false;
+            _ownedQueryScratch.Clear();
+            renderer.GetSharedMaterials(_ownedQueryScratch);
+            bool any = false;
+            for (int slot = 0; slot < owned.Instances.Length; slot++)
+            {
+                if (!owned.OwnsSlot[slot]) continue;
+                if (slot >= _ownedQueryScratch.Count || owned.Instances[slot] == null
+                    || !ReferenceEquals(_ownedQueryScratch[slot], owned.Instances[slot])
+                    || OwnSurfaceActive && owned.Instances[slot].shader != _ownShader) return false;
+                any = true;
+            }
+            return any;
+        }
+
+        internal void QueueMaterialReady(Renderer renderer)
+        {
+            if (renderer == null || !Want || !_owned.ContainsKey(renderer)
+                && !IsTerrainWater(renderer, _matScratch)) return;
+            for (int i = 0; i < _readyMaterials.Count; i++)
+                if (ReferenceEquals(_readyMaterials[i], renderer)) return;
+            // A bounded loader burst drains its exact members rather than dropping an event
+            // or invalidating all dry tile seeds. This overflow path runs only during writes.
+            if (_readyMaterials.Count == MaterialReadyCap)
+            {
+                MaintainOwnShader();
+                DrainReadyMaterials();
+            }
+            _readyMaterials.Add(renderer);
+        }
+
+        private void DrainReadyMaterials()
+        {
+            for (int i = 0; i < _readyMaterials.Count; i++)
+                ExamineReadyRenderer(_readyMaterials[i]);
+            _readyMaterials.Clear();
+        }
+
+        private void ExamineReadyRenderer(Renderer renderer)
+        {
+            if (renderer == null || _owned.ContainsKey(renderer)) return;
+            if (IsTerrainWater(renderer, _matScratch)) Adopt(renderer, isFilm: true);
+            else if (WantBasin && IsBasinCandidate(renderer)) Adopt(renderer, isFilm: false);
         }
 
         /// <summary>Seed each newly active tile once. Apparance reports later content rebuilds
@@ -1216,54 +1295,68 @@ internal static class WaterTerrainVR
         /// <summary>
         /// Take ownership of one renderer's materials and write the retune.
         ///
-        /// <para><see cref="Renderer.materials"/> is the whole point of this build: reading it
-        /// INSTANTIATES every slot and assigns the copies back to the renderer, so from here on
-        /// the renderer draws with materials nobody else shares and a write onto them cannot be
-        /// swallowed by instancing, by a batch, or by a property block that never reached the
-        /// shader. The price is ownership, which <see cref="ReleaseAt"/> pays.</para>
+        /// <para>Clone only the native water slots for a film; mixed opaque slots stay shared.
+        /// Basin retuning retains its separate private instances. Every clone is tracked,
+        /// conditionally restored and explicitly destroyed by <see cref="ReleaseAt"/>.</para>
         /// </summary>
         private void Adopt(Renderer r, bool isFilm)
         {
             Material[] shared;
-            Material[] instances;
+            Material[] instances = Array.Empty<Material>();
+            bool[] ownsSlot = Array.Empty<bool>();
+            int firstOwned = -1, made = 0;
             try
             {
                 shared = r.sharedMaterials;
-                if (shared == null || shared.Length == 0)
-                    return;
-                instances = r.materials; // instantiates AND assigns
+                if (shared == null || shared.Length == 0) return;
+                instances = (Material[])shared.Clone();
+                ownsSlot = new bool[shared.Length];
+                for (int i = 0; i < shared.Length; i++)
+                {
+                    Material material = shared[i];
+                    if (material == null || isFilm && !IsNativeWaterMaterial(material)) continue;
+                    instances[i] = new Material(material);
+                    ownsSlot[i] = true;
+                    made++;
+                    if (firstOwned < 0) firstOwned = i;
+                }
+                if (made == 0) return;
+                r.sharedMaterials = instances;
             }
             catch (Exception e)
             {
+                for (int slot = 0; slot < instances.Length; slot++)
+                    if (ownsSlot.Length > slot && ownsSlot[slot] && instances[slot] != null)
+                        Object.Destroy(instances[slot]);
                 VRLog.Info(Name,
                     "WATER SURFACE: could not take a material instance on '" + r.name + "' ("
                     + e.GetType().Name + ") — this renderer keeps the game's authored look and "
                     + "nothing else is affected.");
                 return;
             }
-            if (instances == null)
-                return;
-
             var o = new Owned
             {
                 Shared = shared,
                 Instances = instances,
+                OwnsSlot = ownsSlot,
+                FirstOwnedSlot = firstOwned,
                 IsFilm = isFilm,
+                IsTerrainFilm = isFilm && IsTerrainFilm(r),
                 AuthoredProbeUsage = r.reflectionProbeUsage,
-                EnforceFirstSlot = instances.Length > 0 && instances[0] != null,
             };
-            _instancesMade += instances.Length;
-            _liveInstances += instances.Length;
+            _instancesMade += made;
+            _liveInstances += made;
             _owned[r] = o;
             _tracked.Add(r);
-            if (isFilm && WantBasin)
+            if (o.IsTerrainFilm && WantBasin)
                 _newFilmNeedsBasinScan = true;
 
             // A renderer with probe usage OFF cannot see our local probe at all — it takes the
             // scene default, which is the skybox, which is the swimming mirror. Nudging it to
             // BlendProbes is the smallest change that lets mechanism four reach it, it is
             // recorded and restored, and it is only done while there is a probe to reach.
-            if (WantProbe && o.AuthoredProbeUsage == ReflectionProbeUsage.Off)
+            if (WantProbe && (!isFilm || o.IsTerrainFilm)
+                && o.AuthoredProbeUsage == ReflectionProbeUsage.Off)
             {
                 r.reflectionProbeUsage = ReflectionProbeUsage.BlendProbes;
                 o.ProbeUsageWasForced = true;
@@ -1300,7 +1393,7 @@ internal static class WaterTerrainVR
             for (int i = 0; i < _tracked.Count; i++)
             {
                 Renderer r = _tracked[i];
-                if (r == null || !_owned.TryGetValue(r, out Owned o) || !o.IsFilm)
+                if (r == null || !_owned.TryGetValue(r, out Owned o) || !o.IsTerrainFilm)
                     continue;
                 Bounds b = r.bounds;
                 // A film with a degenerate AABB would put a match rect AT THE WORLD ORIGIN, and
@@ -1449,7 +1542,7 @@ internal static class WaterTerrainVR
             {
                 Material inst = o.Instances[i];
                 Material shared = i < o.Shared.Length ? o.Shared[i] : null!;
-                if (inst == null || shared == null || shared.shader == null)
+                if (!o.OwnsSlot[i] || inst == null || shared == null || shared.shader == null)
                     continue;
 
                 // Our instance is unique to this renderer, so no instancing batch can form over
@@ -1517,14 +1610,18 @@ internal static class WaterTerrainVR
         /// out of it. See <see cref="WaterOwnSurface"/> for the second, independent reason it could
         /// not be used here.</para>
         ///
-        /// <para>The instance keeps the AUTHORED render queue, so the film draws exactly where the
-        /// water drew. No <c>_MainTex</c> is bound: it declares a <c>"white"</c> default, so
+        /// <para>The instance keeps an already-transparent authored queue. Native opaque film
+        /// queues instead enter the transparent phase because the owned film does not write depth;
+        /// otherwise later opaque/cutout ground can erase it. The original material is unchanged. No <c>_MainTex</c> is bound: it declares a <c>"white"</c> default, so
         /// clearing it leaves the tint alone on screen — and a texture compiled into the game's
         /// shader is the surviving suspect for the pale sheet, so binding one would be the one move
         /// guaranteed to keep that question open. The RIPPLE normal map is a different thing
         /// entirely and IS bound: it is the tileset's own, it is read off the game material, and it
         /// carries no colour into the frame — only slope.</para>
         /// </summary>
+        private static int FilmRenderQueue(int authored) =>
+            authored <= (int)RenderQueue.GeometryLast ? (int)RenderQueue.Transparent : authored;
+
         private void OwnFilmOne(Owned o, Material shared, Material inst)
         {
             Shader? own = _ownShader;
@@ -1558,7 +1655,10 @@ internal static class WaterTerrainVR
                     WaterOwnSurface.SrcBlendProperty, WaterOwnSurface.SrcBlendSrcAlpha);
                 inst.SetFloat(
                     WaterOwnSurface.DstBlendProperty, WaterOwnSurface.DstBlendOneMinusSrcAlpha);
-                inst.renderQueue = shared.renderQueue;
+                // Native opaque water wrote depth in the <=2500 phase. Our alpha film does
+                // not: keeping it there lets later opaque/cutout geometry erase the water.
+                // Existing transparent terrain order (2900) stays exactly as authored.
+                inst.renderQueue = FilmRenderQueue(shared.renderQueue);
                 if (_ownIsWater)
                     AnimateFilmOne(o, shared, inst);
             }
@@ -1947,15 +2047,16 @@ internal static class WaterTerrainVR
                 return _ownShader;
             }
 
-            // THE BUNDLE CAN ARRIVE LATE. A miss is not cached, so this retries four times a
-            // second — and a film adopted while the lookup was still missing is sitting on the
-            // game's material with no event that would ever bring it back here. Release the whole
-            // tracked set the moment the shader turns up; RestoreAll clears the tile-count memo, so
-            // the Discover() immediately after this call re-adopts every one of them onto our
-            // shader in the SAME tick.
+            // A late bundle arrival re-bases retained private instances against their native
+            // originals in this same tick. It must not discard queued Addressables publications
+            // or require a deep whole-map rediscovery to install the newly available shader.
             if (_ownShader != null && _tracked.Count > 0)
             {
-                RestoreAll();
+                // Re-base our private instances against their retained native originals.
+                // Clearing ownership here would also discard pending async-ready events.
+                for (int i = 0; i < _tracked.Count; i++)
+                    if (_tracked[i] != null && _owned.TryGetValue(_tracked[i], out Owned owned))
+                        Apply(_tracked[i], owned);
                 _nextCensus = 0f;
             }
             return _ownShader;
@@ -2352,14 +2453,27 @@ internal static class WaterTerrainVR
             {
                 try
                 {
-                    r.sharedMaterials = o.Shared;
+                    _enforceScratch.Clear();
+                    r.GetSharedMaterials(_enforceScratch);
+                    bool changed = false;
+                    for (int slot = 0; slot < _enforceScratch.Count && slot < o.Instances.Length; slot++)
+                        if (o.OwnsSlot[slot] && ReferenceEquals(_enforceScratch[slot], o.Instances[slot]))
+                        {
+                            _enforceScratch[slot] = o.Shared[slot];
+                            changed = true;
+                        }
+                    if (changed) r.sharedMaterials = _enforceScratch.ToArray();
                     if (o.ProbeUsageWasForced)
                         r.reflectionProbeUsage = o.AuthoredProbeUsage;
                 }
                 catch { /* the renderer went away between the null check and here */ }
             }
             if (o.ProbeUsageWasForced)
+            {
+                if (!restore && r != null)
+                    r.reflectionProbeUsage = o.AuthoredProbeUsage;
                 _probeUsageForced--;
+            }
             DestroyInstances(o);
         }
 
@@ -2367,6 +2481,7 @@ internal static class WaterTerrainVR
         {
             for (int i = 0; i < o.Instances.Length; i++)
             {
+                if (!o.OwnsSlot[i]) continue;
                 Material m = o.Instances[i];
                 // Decrement whatever the slot holds: once this record is dropped we no longer
                 // hold the reference either way, and a slot the engine already collected must
@@ -2406,6 +2521,11 @@ internal static class WaterTerrainVR
             _owned.Clear();
             _filmBounds.Clear();
             _pending.Clear();
+            _readyMaterials.Clear();
+            _seenTiles.Clear();
+            _activeTiles.Clear();
+            _retiredTiles.Clear();
+            _newFilmNeedsBasinScan = false;
             _pendingOverflow = false;
             _lastTileCount = -1;
             _cursor = 0;
@@ -2907,7 +3027,7 @@ internal static class WaterTerrainVR
                 if (r == null || !_owned.TryGetValue(r, out Owned o) || !o.IsFilm)
                     continue;
                 filmTracked++;
-                Material? inst = o.Instances.Length > 0 ? o.Instances[0] : null;
+                Material? inst = o.FirstOwnedSlot >= 0 ? o.Instances[o.FirstOwnedSlot] : null;
                 if (inst != null && ReferenceEquals(inst.shader, _ownShader))
                     filmOwned++;
             }
@@ -2918,8 +3038,8 @@ internal static class WaterTerrainVR
                       + "deliberately NOT swapped — it is opaque ground, not a film, and keeps the "
                       + "property retune. DERIVED FROM THE TILESET'S OWN VALUES: ")
               .Append(_ownNote)
-              .Append("; render queue kept at the authored value so the film draws exactly where "
-                      + "the water drew; no _MainTex bound (it defaults to \"white\", and a texture "
+              .Append("; authored transparent order is retained; opaque film queues enter the transparent phase "
+                      + "so later opaque ground cannot erase the alpha film; no _MainTex bound (it defaults to \"white\", and a texture "
                       + "compiled into the game's shader is the prime SUSPECT for the pale sheet, "
                       + "so binding one would keep the question open); blend "
                       + "SrcAlpha/OneMinusSrcAlpha, ZWrite off, two-sided.");
@@ -3001,8 +3121,8 @@ internal static class WaterTerrainVR
                           + "back — check the tracked count at the head of this line.");
                 return;
             }
-            Material? shared = o.Shared.Length > 0 ? o.Shared[0] : null;
-            Material? inst = o.Instances.Length > 0 ? o.Instances[0] : null;
+            Material? shared = o.FirstOwnedSlot >= 0 ? o.Shared[o.FirstOwnedSlot] : null;
+            Material? inst = o.FirstOwnedSlot >= 0 ? o.Instances[o.FirstOwnedSlot] : null;
             if (shared == null || inst == null)
             {
                 sb.Append("the film sample has no material pair to compare.");
@@ -3123,7 +3243,7 @@ internal static class WaterTerrainVR
         /// </summary>
         private void LogWaterSurfaceOnce(Renderer r, Owned o)
         {
-            Material? mat = o.Shared.Length > 0 ? o.Shared[0] : null;
+            Material? mat = o.FirstOwnedSlot >= 0 ? o.Shared[o.FirstOwnedSlot] : null;
             string matName = mat != null ? mat.name : "<null>";
             string shaderName = mat != null && mat.shader != null ? mat.shader.name : "<null>";
             if (_censused.Count >= 4 || !_censused.Add(matName + "|" + shaderName))
@@ -3147,7 +3267,7 @@ internal static class WaterTerrainVR
             sb.Append(" | REFLECTION CAPS: ");
             try
             {
-                Material? inst = o.Instances.Length > 0 ? o.Instances[0] : null;
+                Material? inst = o.FirstOwnedSlot >= 0 ? o.Instances[o.FirstOwnedSlot] : null;
                 if (mat == null || mat.shader == null || inst == null)
                     sb.Append("<no material>");
                 else
@@ -3168,7 +3288,7 @@ internal static class WaterTerrainVR
                 sb.Append(" | EDGE BAND WRITES: ");
                 try
                 {
-                    Material? inst = o.Instances.Length > 0 ? o.Instances[0] : null;
+                    Material? inst = o.FirstOwnedSlot >= 0 ? o.Instances[o.FirstOwnedSlot] : null;
                     if (mat == null || inst == null)
                         sb.Append("<no material>");
                     else if (OwnSurfaceActive)

@@ -3,7 +3,7 @@
     <TargetFramework>net472</TargetFramework>
     <AssemblyName>GloomhavenVR</AssemblyName>
     <RootNamespace>GloomhavenVR</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Description>Demeo-style room-scale VR mod for Gloomhaven (digital).</Description>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Consumed by BepInEx.PluginInfoProps -> MyPluginInfo -->
@@ -11,7 +11,70 @@
     <BepInExPluginName>GloomhavenVR</BepInExPluginName>
   </PropertyGroup>
 
+  <Target Name="RemoveRetiredMovieOutputs" AfterTargets="CopyFilesToOutputDirectory">
+    <!-- A Content removal alone leaves stale previous versions in an existing bin tree. -->
+    <Delete Files="$(TargetDir)Movies\CP_Intro\GH_CP_Intro.sbs-v1.mov;$(TargetDir)Movies\Calibration\calibration-sbs.mp4;$(TargetDir)Movies\Calibration\calibration-mono.mp4" />
+  </Target>
+
   <ItemGroup>
+    <!-- Movies remain separate Content, never DLL resources. Source-only builds can
+         exercise the explicit mono fallbacks without offline conversions; both packagers
+         require every path in packaging/movie-files.txt before touching an installation. -->
+    <Content Include="Assets\Movies\CP_Intro\GH_CP_Intro.mov"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\CP_Intro\GH_CP_Intro.mov" />
+    <Content Include="Assets\Movies\CP_Intro\GH_CP_Intro.sbs-v2.mov" Condition="Exists('Assets\Movies\CP_Intro\GH_CP_Intro.sbs-v2.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\CP_Intro\GH_CP_Intro.sbs-v2.mov" />
+    <Content Include="Assets\Movies\Heroes\Doomstalker.sbs-v1.mov" Condition="Exists('Assets\Movies\Heroes\Doomstalker.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Heroes\Doomstalker.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Heroes\Soothsinger.sbs-v1.mov" Condition="Exists('Assets\Movies\Heroes\Soothsinger.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Heroes\Soothsinger.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Heroes\Berserker.sbs-v1.mov" Condition="Exists('Assets\Movies\Heroes\Berserker.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Heroes\Berserker.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Heroes\Summoner.sbs-v1.mov" Condition="Exists('Assets\Movies\Heroes\Summoner.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Heroes\Summoner.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Heroes\BeastTyrant.sbs-v1.mov" Condition="Exists('Assets\Movies\Heroes\BeastTyrant.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Heroes\BeastTyrant.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Heroes\Quartermaster.sbs-v1.mov" Condition="Exists('Assets\Movies\Heroes\Quartermaster.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Heroes\Quartermaster.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Heroes\Nightshroud.sbs-v1.mov" Condition="Exists('Assets\Movies\Heroes\Nightshroud.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Heroes\Nightshroud.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Heroes\Elementalist.sbs-v1.mov" Condition="Exists('Assets\Movies\Heroes\Elementalist.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Heroes\Elementalist.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Heroes\Sunkeeper.sbs-v1.mov" Condition="Exists('Assets\Movies\Heroes\Sunkeeper.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Heroes\Sunkeeper.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Heroes\Sawbones.sbs-v1.mov" Condition="Exists('Assets\Movies\Heroes\Sawbones.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Heroes\Sawbones.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Heroes\Plagueherald.sbs-v1.mov" Condition="Exists('Assets\Movies\Heroes\Plagueherald.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Heroes\Plagueherald.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Ambient\Ambient_03_Forest_01.sbs-v1.mov" Condition="Exists('Assets\Movies\Ambient\Ambient_03_Forest_01.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Ambient\Ambient_03_Forest_01.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Ambient\Ambient_Crypt_01.sbs-v1.mov" Condition="Exists('Assets\Movies\Ambient\Ambient_Crypt_01.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Ambient\Ambient_Crypt_01.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Ambient\Amibient_07_Dungeon_01.sbs-v1.mov" Condition="Exists('Assets\Movies\Ambient\Amibient_07_Dungeon_01.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Ambient\Amibient_07_Dungeon_01.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Ambient\Ambient_05_Corpsewood_01.sbs-v1.mov" Condition="Exists('Assets\Movies\Ambient\Ambient_05_Corpsewood_01.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Ambient\Ambient_05_Corpsewood_01.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Ambient\Ambient_06_Town_01.sbs-v1.mov" Condition="Exists('Assets\Movies\Ambient\Ambient_06_Town_01.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Ambient\Ambient_06_Town_01.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Ambient\Ambient_02_Cave_01.sbs-v1.mov" Condition="Exists('Assets\Movies\Ambient\Ambient_02_Cave_01.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Ambient\Ambient_02_Cave_01.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Ambient\Ambient_04_Cave_02.sbs-v1.mov" Condition="Exists('Assets\Movies\Ambient\Ambient_04_Cave_02.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Ambient\Ambient_04_Cave_02.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Embedded\TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.sbs-v1.mov" Condition="Exists('Assets\Movies\Embedded\TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.sbs-v1.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Embedded\TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.sbs-v1.mov" />
+    <Content Include="Assets\Movies\Embedded\TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.mov" Condition="Exists('Assets\Movies\Embedded\TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.mov')"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\Embedded\TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.mov" />
+    <!-- The small, explicitly loaded stereo UI shader does not replace the main asset bank. -->
+    <EmbeddedResource Include="Assets\StereoVideo\ui-sbs.bundle"
+                      LogicalName="GloomhavenVR.StereoVideo.ui-sbs.bundle" />
+    <EmbeddedResource Include="Assets\SteamLink\scene.bundle"
+                      LogicalName="GloomhavenVR.SteamLink.scene.bundle" />
+    <!-- Isolated public OpenVR identity reader: never initialize another VR client in the game. -->
+    <EmbeddedResource Include="Assets\SteamLink\connection-reader.exe"
+                      LogicalName="GloomhavenVR.SteamLink.connection-reader.exe" />
+    <!-- Public Valve SDK loader for that isolated reader; immutable pin and BSD notice ship with the source. -->
+    <EmbeddedResource Include="Assets\SteamLink\openvr_api.dll"
+                      LogicalName="GloomhavenVR.SteamLink.openvr_api.dll" />
     <!-- Shared with the preloader: both stages must agree on Frame's explicit VR opt-in. -->
     <Compile Include="..\GloomhavenVR.Preload\FrameLaunchOptIn.cs" Link="Core\Startup\FrameLaunchOptIn.cs" />
     <!--

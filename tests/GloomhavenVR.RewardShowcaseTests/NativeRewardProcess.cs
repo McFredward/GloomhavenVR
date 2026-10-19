@@ -21,12 +21,7 @@ public sealed partial class UIRewardsManager
         foreach (int[] rewards in groups) list.Add(new RewardGroup(rewards));
         return ProcessRewards(list);
     }
-    public bool StepNativeRewards(IEnumerator<float> process)
-    {
-        _nativeProcessStep = true;
-        try { return process.MoveNext(); }
-        finally { _nativeProcessStep = false; }
-    }
+    public bool StepNativeRewards(IEnumerator<float> process) => process.MoveNext();
     public void ReceiveNativeProcessNextReward() => nextRewardOverride = true;
 
 	private IEnumerator<float> ProcessRewards(List<RewardGroup> rewardGroups)
@@ -108,6 +103,7 @@ public sealed class KeyActionHandler
 public sealed class KeyActionHandlerController : Singleton<KeyActionHandlerController>
 {
     public void AddHandler(KeyActionHandler handler) { }
+    public void RemoveHandler(KeyAction key, Action callback) { }
 }
 public sealed class InputManager : Singleton<InputManager>
 {

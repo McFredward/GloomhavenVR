@@ -566,6 +566,16 @@ internal sealed class HalfSelection
         if (hitFull == null)
             hitCard = null; // face not adopted (rebuild frame) - nothing to highlight
 
+        // The half is stable while native tooltip/icon hit objects change. This geometry path
+        // also covers generated content without a FullCardEventPusher; default plates retain
+        // their independent identity through RayUguiDriver's semantic target resolver.
+        object? uiRegion = HoverHapticTargets.Ui(dom?.RayUgui.Hovered);
+        bool standardAction = hitFull != null && uiRegion != null
+            && (ReferenceEquals(uiRegion, hitFull.topActionButton?.defaultActionButton)
+                || ReferenceEquals(uiRegion, hitFull.bottomActionButton?.defaultActionButton));
+        if (hitCard != null && hitFull != null && !standardAction)
+            dom?.SendHoverHaptic(hitTop ? hitFull.topActionButton : hitFull.bottomActionButton);
+
         bool unchanged = ReferenceEquals(hitCard, _laserCard)
                          && (hitCard == null
                              || (hitTop == _laserTop && ReferenceEquals(hitFull, _laserFull)));
@@ -878,12 +888,16 @@ internal sealed class HalfSelection
     /// black semi-transparent sheet over the cards). Validity is still tracked so an
     /// invalid half's poke is a no-op, but it is never visualised.
     /// </summary>
-    private sealed class HalfZone : PokeableBehaviour
+    private sealed class HalfZone : PokeableBehaviour, IHoverHapticTarget
     {
         private VRCard _card = null!;
         private CBaseCard.ActionType _type;
         private HalfSelection _owner = null!;
         private bool _playable;
+
+        public object? HoverHapticTarget => !_playable || _card.FullCard == null ? null :
+            _type == CBaseCard.ActionType.TopAction
+                ? _card.FullCard.topActionButton : _card.FullCard.bottomActionButton;
 
         internal static HalfZone Create(Transform parent, VRCard card, CBaseCard.ActionType type,
             Vector3 localPos, Vector2 size, HalfSelection owner)
@@ -920,7 +934,7 @@ internal sealed class HalfSelection
         public override void OnPokeEnter(VRHand hand)
         {
             if (_playable)
-                hand.SendHaptic(HapticPreset.HoverTick);
+                hand.SendHoverHaptic(HoverHapticTarget);
         }
 
         /// <summary>

@@ -2184,7 +2184,7 @@ internal sealed class MapButtonRail
     {
         VRHand? hand = VRHands.Primary;
         if (hand == null || !hand.HasPose || !hand.Ray.Active || hand.Grabber.Held != null
-            || hand.RayGrab.OwnsPointerFrame)
+            || hand.RayGrab.OwnsPointerFrame || hand.Grabber.FigureGrabOffered)
         {
             ClearLaserHover();
             return;
@@ -2237,11 +2237,11 @@ internal sealed class MapButtonRail
             AddHover(hit, "laser");
             hand.SendHaptic(HapticPreset.HoverTick);
         }
-        hand.Ray.UiHitOverride = hitPoint;
+        hand.Ray.SetWorldUiHit(hitPoint, "map button rail hover");
 
         if (hand.TriggerDown)
         {
-            hand.Ray.SuppressFarClick();
+            hand.Ray.ClaimTrigger("map button rail press");
             PressCap(hit, $"{hand.Side} trigger", hand);
         }
     }

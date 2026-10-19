@@ -334,9 +334,11 @@ internal sealed class PokeInteractor
             if (_hovered != null)
             {
                 _hovered.OnPokeEnter(_hand);
-                _hand.SendHaptic(HapticPreset.HoverTick);
             }
         }
+
+        if (_hovered != null)
+            _hand.SendHoverHaptic(HoverHapticTargets.Pokeable(_hovered));
 
         // Contact (press) with re-arm hysteresis.
         if (_hovered != null)
@@ -520,10 +522,8 @@ internal sealed class PokeInteractor
         Vector2 screenPos = RectTransformUtility.WorldToScreenPoint(cam, onPlane);
 
         bool hit = _pointer.TryRaycast(_activeCanvas, screenPos, out RaycastResult top);
-        GameObject? previousHover = _pointer.Hovered;
         _pointer.SetHovered(hit ? top.gameObject : null);
-        if (hit && previousHover == null && _pointer.Hovered != null)
-            _hand.SendHaptic(HapticPreset.HoverTick);
+        _hand.SendHoverHaptic(HoverHapticTargets.Ui(_pointer.Hovered));
 
         // PUSH-IN press (user #12; supersedes the user #3/#7b instant click, which
         // remains as the PokePressDepthMm = 0 mode). Plane contact only ARMS the press:
@@ -579,7 +579,7 @@ internal sealed class PokeInteractor
                         _pressPending = true;
                         _pressDeliberate = deliberate;
                         _pointer.Press(screenPos);
-                        _hand.SendHaptic(HapticPreset.HoverTick); // light arming tick
+                        _hand.SendHoverHaptic(HoverHapticTargets.Ui(_pointer.Hovered)); // same region, no second hover tick
                     }
                     else
                     {

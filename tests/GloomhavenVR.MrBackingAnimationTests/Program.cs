@@ -14,6 +14,13 @@ internal static class Program
     private static void Main()
     {
         MrBacking.ResetTest();
+        PanelInkBounds.BackZ=31.51f;
+        var depthPanel=Start(true,out var depthRunner);depthRunner.Frame(.3f);
+        Near(MrBacking.SeatedDepth,31.51f,"opening seats backing behind original row depth");
+        PanelInkBounds.BackZ=900;depthRunner.Frame(.5f);
+        Near(MrBacking.SeatedDepth,31.51f,"opening retains original depth with its native geometry snapshot");
+        depthRunner.Finish("completed",true);
+        MrBacking.ResetTest();
         var p=new ConvertedPanel();var runner=new WindowMaterialiseRunner(p,true,()=>{});
         bool measuredBeforeAlpha=false;PanelInkBounds.OnMeasure=()=>measuredBeforeAlpha=runner.Alpha==1;
         MrBacking.BeginWindowMaterialise(p);runner.Frame(0);

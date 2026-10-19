@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only independent native/source-stream proof for ten captured structural definitions."""
+"""Read-only independent native/source-stream proof for five captured structural definitions."""
 import argparse
 import hashlib
 import importlib.util
@@ -10,9 +10,7 @@ import UnityPy
 NAMES = (
     'CR_INT_Stone_Int_Wall_01', 'CR_INT_Stone_Int_Wall_02',
     'CR_INT_Stone_Int_Wall_03', 'CR_INT_Stone_Int_Wall_04',
-    'CR_INT_Stone_Int_Wall_02_Narrow', 'CR_INT_Stone_Pillar_04',
-    'CR_INT_Wooden_Int_Pillar_Single', 'CR_INT_Wooden_Hut_Pillars_01',
-    'CR_INT_Wooden_Hut_Pillars_02', 'CR_INT_Wooden_Hut_Pillars_03',
+    'CR_INT_Stone_Int_Wall_02_Narrow',
 )
 
 def main():
@@ -26,7 +24,7 @@ def main():
     index = json.loads((prepared/'index.json').read_text())
     entries = {entry['signature']['name']: entry for entry in index['entries']
                if entry['signature']['name'] in NAMES}
-    assert len(entries) == len(NAMES), 'ten unambiguous captured structural originals'
+    assert len(entries) == len(NAMES), 'five unambiguous captured structural originals'
     relative = 'pcg_databases_assets_assets/pcg/pcg_city.asset.bundle'
     original = root/'ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64'/relative
     bundle_sha = hashlib.sha256(original.read_bytes()).hexdigest()
@@ -80,6 +78,6 @@ def main():
         'limits': ['Prefab reference counts are authored asset references, not scene instances.',
                    'Captured log names establish occurrence, not a complete renderer census.']}
     (output/'native-coverage.json').write_text(json.dumps(receipt, indent=2)+'\n')
-    print('PASS independent native structural coverage: 10 exact definitions, every original channel/index byte and coarse digest verified')
+    print('PASS independent native structural coverage: 5 exact definitions, every original channel/index byte and coarse digest verified')
 
 if __name__ == '__main__': main()

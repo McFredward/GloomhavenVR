@@ -8,7 +8,17 @@ namespace UnityEngine
     {
         public static readonly List<Object> Instances = new();
         public static T[] FindObjectsOfType<T>() => Instances.OfType<T>().ToArray();
-        public static void Destroy(Object o) { }
+        public bool Destroyed;
+        public static void Destroy(Object o)
+        {
+            o.Destroyed = true;
+            if (o is GameObject root) foreach (Component component in root.Components) component.Destroyed = true;
+        }
+        private static bool Null(Object? value) => ReferenceEquals(value, null) || value.Destroyed;
+        public static bool operator ==(Object? a, Object? b) => Null(a) && Null(b) || ReferenceEquals(a, b);
+        public static bool operator !=(Object? a, Object? b) => !(a == b);
+        public override bool Equals(object? other) => ReferenceEquals(this, other);
+        public override int GetHashCode() => base.GetHashCode();
         public static void DontDestroyOnLoad(Object o) { ((GameObject)o).Persistent = true; }
     }
     public class MonoBehaviour : Component { }
@@ -61,7 +71,7 @@ namespace UnityEngine
         public void SetActive(bool active) { activeSelf = active; }
     }
     public struct Scene { public bool isLoaded => true; }
-    public sealed class Camera : Component { }
+    public sealed class Camera : Component { public float depth; }
     public sealed class Canvas : Component { public RenderMode renderMode; public Camera? worldCamera; }
     public sealed class CanvasGroup : Component { }
     public enum RenderMode { WorldSpace }
@@ -69,6 +79,7 @@ namespace UnityEngine
     public static class Application { public static RuntimePlatform platform; public static string dataPath = "/game"; }
     public sealed class Texture { public int width = 1920; public int height = 1080; }
     public readonly record struct Vector2(float x, float y);
+    public readonly record struct Rect(float x, float y, float width, float height);
     public struct Vector3
     {
         public float x, y, z;
@@ -77,6 +88,7 @@ namespace UnityEngine
     }
     public struct Quaternion { }
     public struct Color { public static Color white => new(); }
+    public static class Time { public static float unscaledTime; }
     public static class Mathf { public static int Max(int a, int b) => Math.Max(a, b); }
 }
 namespace UnityEngine.UI
@@ -88,18 +100,45 @@ namespace UnityEngine.UI
         public UnityEngine.Texture texture = null!;
         public UnityEngine.Color color;
         public bool raycastTarget;
+        public UnityEngine.Rect uvRect = new(0, 0, 1, 1);
     }
 }
 namespace UnityEngine.Video
 {
+    public enum VideoSource { VideoClip, Url }
+    public enum VideoRenderMode { APIOnly, CameraNearPlane, CameraFarPlane }
+    public enum VideoAudioOutputMode { Direct }
+    public sealed class VideoClip { public string name = string.Empty; }
     public sealed class VideoPlayer : UnityEngine.Component
     {
+        public VideoSource source;
+        public VideoClip? clip;
+        public UnityEngine.Camera targetCamera = null!;
+        public float targetCameraAlpha = 1;
+        public VideoRenderMode renderMode;
+        public VideoAudioOutputMode audioOutputMode;
+        public bool playOnAwake, isLooping;
+        public ushort audioTrackCount;
+        public event Action<VideoPlayer>? prepareCompleted, loopPointReached;
+        public event Action<VideoPlayer, string>? errorReceived;
+        public int StopCalls, PrepareCalls;
+        public void Prepare() { PrepareCalls++; }
+        public void Prepared() { isPrepared = true; prepareCompleted?.Invoke(this); }
+        public Action CapturePrepared() { var queued = prepareCompleted; return () => { isPrepared = true; queued?.Invoke(this); }; }
+        public void Ended() { isPlaying = false; loopPointReached?.Invoke(this); }
+        public void Failed() => errorReceived?.Invoke(this, "injected failure");
+        public void Stop() { StopCalls++; isPlaying = isPaused = false; }
+        public void SetDirectAudioVolume(ushort track, float volume) { }
+
         public event Action<VideoPlayer>? started;
         public void StartPlayback() => started?.Invoke(this);
         public bool isPlaying, isPaused, isPrepared;
         public long frame = -1;
         public UnityEngine.Texture texture = null!;
-        public string url = string.Empty;
+        public string url { get; set; } = string.Empty;
+        public string PlayedUrl = string.Empty;
+        public int PlayCalls;
+        public void Play() { PlayCalls++; PlayedUrl = url; isPlaying = true; started?.Invoke(this); }
     }
 }
 namespace UnityEngine.EventSystems
@@ -125,6 +164,20 @@ public sealed class VideoCamera : UnityEngine.Component
     public int Completions;
     public bool RewardInputLocked;
     public Action? Completed;
+    public string OriginalUrl = string.Empty;
+    public int NativeSetupCalls;
+    // Controlled native-shaped caller: execute the actual Harmony patch, not the helper
+    // in isolation. This setter is followed by native setup and exactly one initial Play.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public bool PlayFullscreenVideo(string name, Action onCompletedCallback, bool reenableDisabledObjects)
+    {
+        Completed = onCompletedCallback;
+        m_VideoPlayer.url = OriginalUrl;
+        NativeSetupCalls++;
+        RewardInputLocked = reenableDisabledObjects;
+        m_VideoPlayer.Play();
+        return true;
+    }
     public void Stop() { m_VideoPlayer.isPlaying = false; }
     private void EndReached(UnityEngine.Video.VideoPlayer player)
     {
@@ -137,9 +190,12 @@ public sealed class VideoCamera : UnityEngine.Component
 }
 namespace GloomhavenVR.Core
 {
+    internal static class VRSession { internal static bool IsRunning = true; }
     internal static class VRLayers { internal static void Apply(UnityEngine.GameObject go) { } }
-    internal static class VRLog { internal static void Note(string a, string b) { }
-        internal static void Warn(string a, string b) { } }
+    internal static class VRLog { internal static readonly List<string> Notes = new();
+        internal static void Note(string a, string b) { Notes.Add(b); }
+        internal static readonly List<string> Warnings = new();
+        internal static void Warn(string a, string b) { Warnings.Add(b); } }
 }
 namespace GloomhavenVR.Hands.Interact
 {
@@ -153,8 +209,31 @@ namespace GloomhavenVR.Hands.Interact
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal sealed class StereoVideoSurface : IDisposable
+    {
+        internal static bool Available = true;
+        internal static int Attaches, Disposes;
+        internal static bool IsAvailable(out string reason) { reason = Available ? string.Empty : "injected unsupported renderer"; return Available; }
+        internal static bool TryAttach(UnityEngine.UI.RawImage image, out StereoVideoSurface? surface, out string reason)
+        {
+            surface = null;
+            if (!IsAvailable(out reason)) return false;
+            Attaches++; surface = new StereoVideoSurface(); return true;
+        }
+        internal static float PerEyeAspect(int width, int height) => width / (2f * height);
+        public void Dispose() { Disposes++; }
+    }
     internal sealed class ConfigValue { internal float Value = 1; }
     internal static class WorldUIConfig { internal static bool ConversionActive = true; internal static ConfigValue CanvasScaleMm = new(); }
+    // The automatic movie GPU fixture executes the real screen readiness owner.
+    // This native-flow fixture supplies only that explicit acceptance result.
+    internal static class FlatScreen
+    {
+        internal static bool StartupSurfaceReady = true;
+        internal static int StartupPrepareCalls;
+        internal static bool TryPrepareStartupMovie(UnityEngine.Video.VideoPlayer player)
+        { StartupPrepareCalls++; return StartupSurfaceReady; }
+    }
     internal static class CanvasConversion
     {
         internal static UnityEngine.Camera? WorldCamera;
@@ -228,5 +307,60 @@ namespace GloomhavenVR.WorldUI.MapRoom
         internal static GloomhavenVR.WorldUI.GrabbableModal? OwnedGrab;
         internal static bool OwnsGrab(GloomhavenVR.WorldUI.GrabbableModal holder) =>
             ReferenceEquals(holder, OwnedGrab);
+    }
+}
+
+public static class AudioController { public static float GetGlobalVolume() => .8f; }
+public sealed class BackgroundView
+{
+    public UnityEngine.Video.VideoPlayer Player = null!;
+    public string OriginalUrl = string.Empty;
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public void Update() { Player.url = OriginalUrl; Player.Play(); }
+}
+public sealed class IntroPlayer
+{
+    private readonly UnityEngine.Video.VideoPlayer _player;
+    public int TimerStarts;
+    public IntroPlayer(UnityEngine.Video.VideoPlayer player) { _player = player; }
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private void ShowVideo() { TimerStarts++; _player.Play(); }
+    public void Show() => ShowVideo();
+}
+public sealed class PromotionVideoHandler { public void PlayVideo() { } }
+namespace GloomhavenVR.Core.Events
+{
+    internal readonly struct SceneLoadedEvent { }
+    internal static class VREvents
+    {
+        internal static event Action<SceneLoadedEvent>? SceneLoaded;
+        internal static void LoadScene() => SceneLoaded?.Invoke(default);
+        internal static int SubscriberCount => SceneLoaded?.GetInvocationList().Length ?? 0;
+    }
+    internal static class VRModeStateMachine { internal static bool ScenarioBoardExists = true; }
+}
+
+namespace GloomhavenVR.Net
+{
+    internal struct RigPose { public UnityEngine.Vector3 Position { get; set; } public UnityEngine.Quaternion Rotation { get; set; } }
+    internal struct SharedWindowEntry { public uint ContentKey; public byte Flags, PoseStamp, SizeCode, Frame; public RigPose Pose; }
+    internal static class RemoteVideoPlayback
+    {
+        internal static bool CanCloseReview;
+        internal static int CloseCalls;
+        internal static bool RequestCloseReview(out string selected)
+        {
+            CloseCalls++; selected = "Review/Heroes/Summoner.sbs-v1.mov";
+            if (CanCloseReview) GloomhavenVR.WorldUI.NativeVideoWindow.SetRemoteSource(null);
+            return CanCloseReview;
+        }
+    }
+    internal static class NetProtocol { internal const byte ExtIdVideoWindow = 72, SharedPoseBit = 4, SharedFrameMax = 1, StorySizeMinCode = 1, StorySizeMaxCode = 255; }
+    internal static class AvatarSerializer
+    {
+        internal static void WriteU32(byte[] buffer, ref int i, uint value) => throw new NotSupportedException();
+        internal static uint ReadU32(byte[] buffer, ref int i) => throw new NotSupportedException();
+        internal static void WritePoseShared(byte[] buffer, ref int i, in RigPose pose) => throw new NotSupportedException();
+        internal static void ReadPoseShared(byte[] buffer, ref int i, out RigPose pose) => throw new NotSupportedException();
     }
 }

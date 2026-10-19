@@ -117,3 +117,5 @@ PY
     fi
     echo "VR options negative control: $mutation rejected."
 done
+
+python3 "$repo_root/scripts/video-review-options-tests.py"

@@ -110,12 +110,13 @@ Datei in ihrem Ordner markiert.
   <img src="../img/frame-install/05-setup.jpg" width="640" alt="GloomhavenVR-Setup.desktop ist in BepInEx/plugins/GloomhavenVR/FrameSetup/ in Dolphin markiert.">
 </p>
 
-Das Setup richtet BepInEx für das ursprüngliche Steam-Spiel ein und fügt einen separaten
-Eintrag **GloomhavenVR** mit Bildern zur VR-Bibliothek hinzu. Steam startet eventuell neu,
-damit der Eintrag erscheint. Der ursprüngliche Eintrag **Gloomhaven** bleibt für Flat-Spiel
-verfügbar; beide verwenden dieselbe Spielinstallation und dieselben Spielstände. Die
-Frame-Anzeige kann mit Steam kurz neu starten; das Setup hat seine Änderungen dann bereits
-abgeschlossen. Es schlägt zudem 3408 Pixel pro Auge in SteamVR vor und behält
+Das Setup fügt einen separaten Eintrag **GloomhavenVR** mit Bildern zur VR-Bibliothek hinzu
+und setzt die benötigten Startoptionen automatisch. Bereits vorhandene weitere Startoptionen
+bleiben erhalten. Falls Steam läuft, startet das Setup es neu. Das Frame-Bild und das
+Setup-Terminal können dabei kurz verschwinden. Warte, bis die Bibliothek wieder da ist, und
+starte dann **GloomhavenVR**. Der ursprüngliche Eintrag **Gloomhaven** bleibt für Flat-Spiel
+verfügbar; beide verwenden dieselbe Spielinstallation und dieselben Spielstände.
+Das Setup schlägt zudem 3408 Pixel pro Auge in SteamVR vor und behält
 vorhandene Vorgaben oder eine von dir in SteamVR gewählte Auflösung bei. SteamVR liest eine
 neue vorgeschlagene Auflösung nach einem Neustart ein.
 
@@ -160,15 +161,23 @@ Frame beginnt mit weniger Figurendetails, ausgeschalteter Stoffsimulation und sp
 Erzeugung. Alle Regler funktionieren auch auf PC; gespeicherte Werte bleiben erhalten.
 
 Neue Frame-Konfigurationen nutzen die ursprünglichen Fenster statt immersiver NPCs.
-Bei aktiver 3D-Karte kannst du **Immersive Stadt-NPCs** unter **VR-Optionen → Umgebung & Ton** ändern.
+Bei aktiver 3D-Karte kannst du **Immersive Stadt-NPCs** unter **VR Optionen → Umgebung → Kampagnenkarte** ändern.
 
 ## Mixed Reality
 
-Wähle **Mixed Reality** unter **VR-Optionen → Umgebung & Ton**, um den Tisch in deinem Zimmer
-darzustellen. Standalone nutzt das native Passthrough der Frame, wenn die aktive Laufzeit
-es unterstützt. Ist die Auswahl grau, zeigt dir das Drüberzeigen den Grund. Aktualisiere
+Wähle **Mixed Reality** unter **VR-Optionen → Umgebung → Schauplatz**, um den Tisch
+in deinem Zimmer darzustellen. Standalone nutzt ohne zusätzlichen Patch das native
+Passthrough der Frame, wenn die aktive Laufzeit es unterstützt. Ist die Auswahl grau, zeigt dir das Drüberzeigen den Grund. Aktualisiere
 **SteamVR** und die **für Gloomhaven ausgewählte Proton-Version**, starte das Spiel
 erneut und prüfe die Auswahl noch einmal.
+
+Beim **PC-Streaming über Steam Link** brauchst du dagegen die gekoppelte Einrichtung
+[Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#readme) auf PC und Frame.
+Das ist eine andere Einrichtung als die Standalone-Installation in dieser Anleitung.
+
+Der experimentelle Streaming-Patch unterstützt aktuell Windows, NVIDIA und HEVC.
+Der alte reine Frame-Empfänger ist eingestellt; nutze den dort beschriebenen
+Assistenten für beide Geräte. Standalone-Passthrough bleibt davon unabhängig.
 
 ## Updates
 
@@ -184,7 +193,8 @@ und Kampagnen bleiben erhalten. Im Mehrspieler brauchen alle VR-Spieler denselbe
 | GloomhavenVR fehlt in Steam | Starte `GloomhavenVR-Setup.desktop` erneut. Steam muss eventuell neu starten. |
 | Dolphin bietet kein **Execute** an | Nutze den Terminal-Befehl aus Schritt 5. |
 | Die Mod wird nicht geladen | Prüfe die beiden grünen Mod-Ordner in der Grafik und starte das Setup erneut. |
-| GloomhavenVR startet flat oder schließt sich | Bewahre `BepInEx/LogOutput.log` dieses Starts auf und melde das Problem. |
+| GloomhavenVR fordert den Abschluss des Setups | Speichere die komplette Startoptionen-Zeile beim ursprünglichen Gloomhaven wie in Schritt 5 und starte die Frame neu. |
+| GloomhavenVR startet flat oder schließt sich | Prüfe die ursprünglichen Gloomhaven-Startoptionen aus Schritt 5, bewahre dann `BepInEx/LogOutput.log` dieses Starts auf und melde das Problem. |
 | Das Spiel startet gar nicht mehr | Stelle `GH_Data/boot.config` aus `GH_Data/boot.config.gloomhavenvr-backup` wieder her. |
 
 Bewahre bei einem Setup-Problem

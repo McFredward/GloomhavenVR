@@ -75,7 +75,6 @@ public static partial class TerrainProgram
     public static int Run()
     {
         PerfConfig.SharedEnvironmentMaterialReadsOn=false; PerfConfig.TerrainCameraSourceLimit=0; PerfConfig.TerrainSubstitutionOn=true;
-        PerfConfig.PillarDistanceLodEnabled=false; PerfConfig.FigureDistanceLodEnabled=true;
         _checks=0; Bank.Clear(); ProceduralWall.m_WallCache.Clear(); VRLog.Faults.Clear(); BundleShaders.Throw=false;
         PerfConfig.CheapWallShadingOn=true; PerfConfig.TerrainDetailPercent=100; PerfConfig.DistantTerrainDetailPercent=100;
         var host=new GameObject("GloomhavenVR.TerrainOwner"); var scenario=new GameObject("Scenario"); scenario.AddComponent<ProceduralScenario>();
@@ -115,6 +114,7 @@ public static partial class TerrainProgram
         Check(!ScenarioTerrainBudget.OwnsRenderSubstitute(tileWall),"audited wall name under map tile without ProceduralWall stays native");
         Check(ScenarioTerrainBudget.OwnsRenderSubstitute(wall)&&!ScenarioTerrainBudget.HasCurrentRenderLease(wall),
             "prepared terrain ownership is distinct from a current unacquired camera lease");
+        TerrainProxyWallOwnership(host, wall);
         Check(DuringRender(camera,()=>ScenarioTerrainBudget.HasCurrentRenderLease(wall)),
             "terrain current lease is observable during its actual camera draw");
         Check(!ScenarioTerrainBudget.HasCurrentRenderLease(wall),
@@ -320,7 +320,7 @@ public static partial class TerrainProgram
         Check(wall.GetComponent<MeshFilter>().sharedMesh==foreign&&!ScenarioTerrainBudget.OwnsRenderSubstitute(wall)
             &&!DuringRender(camera,()=>wall.forceRenderingOff),"foreign native mesh replacement is retained and owned proxy retired");
         Object.DestroyImmediate(foreign);
-        var exactOnly=Surface(scenario,"CV_Pillar_Generic_01",new Vector3(8,1,0),material);
+        var exactOnly=Surface(scenario,"CV_Wall_Generic_01",new Vector3(8,1,0),material);
         Mesh exactOnlySource=exactOnly.GetComponent<MeshFilter>().sharedMesh;
         Object.DestroyImmediate(Bank[exactOnlySource][1]); Bank[exactOnlySource][1]=Object.Instantiate(Bank[exactOnlySource][0]);
         PerfConfig.CheapWallShadingOn=false; PerfConfig.TerrainDetailPercent=0;
@@ -338,7 +338,7 @@ public static partial class TerrainProgram
         ShaderPixels(camera);
         NoisePixels(camera);
         Check(VRLog.Faults.FindAll(text=>text.Contains("presentation failed")).Count==1,"optional failure reports once with useful normal-level context");
-        scenario.SetActive(false); HiddenWallWork(camera); RadialPillars(camera); NativeCoverage(camera); IndependentPillarLifecycle(camera);
+        scenario.SetActive(false); HiddenWallWork(camera); NativeCoverage(camera); RetiredPillars(camera);
         Object.DestroyImmediate(host); Object.DestroyImmediate(scenario); Object.DestroyImmediate(camera.targetTexture); Object.DestroyImmediate(cameraGo); Object.DestroyImmediate(material); DisposeBank();
         return _checks;
     }
@@ -558,6 +558,48 @@ public static partial class TerrainProgram
             Object.DestroyImmediate(variant); Object.DestroyImmediate(alias);
         }
     }
+    private static void TerrainProxyWallOwnership(GameObject host, MeshRenderer source)
+    {
+        var proxy=Proxies(host)[0];
+        Check(ScenarioTerrainBudget.IsPrivateRenderer(proxy)&&!ScenarioTerrainBudget.IsPrivateRenderer(source),
+            "actual private terrain renderer is exempt from detached wall adoption without exempting its native source");
+        var previous=proxy.sharedMaterials;
+        var canonical=source.sharedMaterial;
+        var variant=new Material(canonical);
+        proxy.sharedMaterial=variant;
+        TerrainWallMaterialReads.Canonical=material=>material==variant?canonical:material;
+        var materials=new List<Material>{variant};
+        TerrainWallMaterialReads.ReadFadeMaterials(proxy,materials);
+        Check(materials.Count==0,"actual detached terrain proxy never publishes its canonical wall material to wall adoption");
+        TerrainWallMaterialReads.ReadFadeMaterials(source,materials);
+        Check(materials.Count==1&&materials[0]==canonical,
+            "original terrain source retains exact native fade material input");
+        // Measure the executed Unity material-reader fast path after warmup. This
+        // is a scoped CPU cost, not complete LOD cost, GPU time or Quest FPS.
+        const int reads=10000;
+        TerrainWallMaterialReads.ReadFadeMaterials(proxy,materials);
+        var watch=System.Diagnostics.Stopwatch.StartNew();
+        for(int i=0;i<reads;i++) TerrainWallMaterialReads.ReadFadeMaterials(proxy,materials);
+        watch.Stop(); double ownedMs=watch.Elapsed.TotalMilliseconds;
+        watch.Restart();
+        for(int i=0;i<reads;i++) TerrainWallMaterialReads.ReadFadeMaterials(source,materials);
+        watch.Stop();
+        string evidence=Environment.GetEnvironmentVariable("GHVR_TERRAIN_EVIDENCE");
+        if(!string.IsNullOrEmpty(evidence)) File.WriteAllText(Path.Combine(evidence,"private-material-read-cost.txt"),
+            "Actual Unity material reads="+reads+" privateMs="+ownedMs.ToString("F3",System.Globalization.CultureInfo.InvariantCulture)
+            +" nativeMs="+watch.Elapsed.TotalMilliseconds.ToString("F3",System.Globalization.CultureInfo.InvariantCulture)
+            +"; exact production reader/ownership; canonical resolver is an explicit boundary; host CPU, not complete LOD/GPU/Quest FPS.\n");
+        var clone=Object.Instantiate(proxy.gameObject);
+        var cloneRenderer=clone.GetComponent<MeshRenderer>();
+        Check(!ScenarioTerrainBudget.IsPrivateRenderer(cloneRenderer),"native clone cannot inherit private renderer ownership through its name, material or layer");
+        TerrainWallMaterialReads.ReadFadeMaterials(cloneRenderer,materials);
+        Check(materials.Count==1&&materials[0]==canonical,"name-identical foreign geometry retains canonical wall material classification");
+        Object.DestroyImmediate(clone);
+        TerrainWallMaterialReads.Canonical=material=>material;
+        proxy.sharedMaterials=previous;
+        Object.DestroyImmediate(variant);
+    }
+
     private static void PropertyBridgeChannels(GameObject host,GameObject scenario,Material material)
     {
         // Floors are intentionally never admitted by the production owner. Directly
@@ -585,7 +627,10 @@ public static partial class TerrainProgram
         finally
         {
             var privateObject=(GameObject)type.GetField("_proxy",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(surface)!;
+            var retiredRenderer=privateObject.GetComponent<MeshRenderer>();
             type.GetMethod("Dispose",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(surface,null);
+            Check(!ScenarioTerrainBudget.IsPrivateRenderer(retiredRenderer),
+                "disposed terrain renderer releases exact private ownership before native destruction");
             Object.DestroyImmediate(privateObject); floor.gameObject.SetActive(false);
         }
     }

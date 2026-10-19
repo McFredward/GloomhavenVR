@@ -50,6 +50,17 @@ namespace GloomhavenVR.Core
     }
     internal static class VRLog { internal static void Warn(string module, string message) => throw new Exception(message); }
     internal static class VRSession { internal static bool IsRunning { get; set; } }
+    // The complete production dependency table reads the native-MR preference
+    // for its stream-width child. Preserve the bool configuration port even
+    // though connection discovery is unavailable in these town-option cases.
+    internal static class MixedReality
+    {
+        internal static readonly WorldUI.Entry<bool> SteamLinkNative = new(true);
+    }
+    internal static class TickGuard
+    {
+        internal static void Run(string key, Action action, string module) => action();
+    }
     // XR capability is an explicit port; native Frame availability is tested
     // by its own runtime suite, while this fixture exercises town option binding.
     internal enum FrameNativePassthroughStatus { Checking, Available }
@@ -59,6 +70,12 @@ namespace GloomhavenVR.Core
         internal static bool IsAvailable => true;
         internal static FrameNativePassthroughStatus Status => FrameNativePassthroughStatus.Available;
     }
+}
+namespace GloomhavenVR.Core.SteamLink
+{
+    // Connection discovery is a capability port, covered by the dedicated identity
+    // suites. Town option binding retains its ordinary unavailable fallback here.
+    internal static class SteamLinkConnection { internal static bool Available => false; }
 }
 namespace GloomhavenVR.Cards
 {
@@ -189,6 +206,7 @@ namespace GloomhavenVR.WorldUI
             RenderOrder.Clear(); Toggles.Clear(); Titles.Clear(); Hints.Clear(); GenericRows = 0;
             BuildCurated();
         }
+        private static void Rebuild() => RebuildFixture();
         internal static void Run()
         {
             Cards.CardsConfig.CurrentBoard = Cards.ControlBoard.Oak;
@@ -214,6 +232,16 @@ namespace GloomhavenVR.WorldUI
             Check(mode.Value && speech.Value && effects.Value, "fresh installation enables NPCs and both local audio settings");
             _curated = Array.FindIndex(Curated, c => c.LocKey == "cat_environment");
             Check(_curated >= 0, "environment category exists");
+            CuratedSection scenery = Curated[_curated].Sections.Single(s => s.LocKey == "sec_environment");
+            Check(scenery.Entries.Take(3).Select(e => e.Section + "/" + e.Key).SequenceEqual(new[]
+                { "Sky/Style", "MixedReality/SteamLinkNative", "MixedReality/KeyColor" }),
+                "native Steam Link and chroma colour immediately follow the World environment chooser");
+            Check(!Curated.Single(c => c.LocKey == "cat_graphics").Sections.Any(s =>
+                    s.LocKey == "mixed_reality" || s.Entries.Any(e => e.Section == "MixedReality")),
+                "Graphics has no redundant mixed-reality section or controls");
+            Check(!Curated.SelectMany(c => c.Sections).SelectMany(s => s.Entries)
+                    .Any(e => e.Section == "MixedReality" && e.Key == "Enabled"),
+                "the existing environment MR tile is the only curated master switch");
             CuratedSection map = Curated[_curated].Sections.Single(s => s.LocKey == "sec_map3d");
             string[] keys = map.Entries.Where(e => !e.IsAction).Select(e => e.Key).ToArray();
             int mapSwitch = Array.IndexOf(keys, "Vanilla2DMap");

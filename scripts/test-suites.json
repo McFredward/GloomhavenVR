@@ -608,6 +608,12 @@
       "weight": 153
     },
     {
+      "id": "mr-backing-depth-runtime",
+      "command": ["python3", "scripts/check-mr-backing-depth-runtime.py", "--all"],
+      "groups": ["local"],
+      "weight": 70
+    },
+    {
       "id": "mr-backing-materialise",
       "command": [
         "bash",
@@ -798,6 +804,18 @@
         "ci"
       ],
       "weight": 68
+    },
+    {
+      "id": "near-figure-grab-runtime",
+      "command": [
+        "python3",
+        "scripts/check-near-figure-grab-runtime.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 25
     },
     {
       "id": "presentation-send",
@@ -1752,6 +1770,28 @@
         "local"
       ],
       "weight": 90
+    },
+    {
+      "id": "haptics675-runtime",
+      "command": [
+        "python3",
+        "scripts/check-haptics675-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "tile-hover-runtime",
+      "command": [
+        "python3",
+        "scripts/check-tile-hover-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 70
     },
     {
       "id": "player-settings-help",
@@ -2715,6 +2755,148 @@
         "ci"
       ],
       "weight": 3
+    },
+    {
+      "id": "water-terrain-runtime",
+      "command": [
+        "python3",
+        "scripts/check-water-terrain-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "card-selection-runtime",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/check-card-selection-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "card-selection-remote-runtime",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/check-card-selection-remote-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 3
+    },
+    {
+      "id": "stereo-video-render",
+      "command": [
+        "bash",
+        "scripts/stereo-video-render-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "stereo-movie-render",
+      "command": [
+        "bash",
+        "scripts/stereo-movie-render-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "stereo-video-tools",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/stereo-video-tools-tests.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "steamlink-connection",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-connection/run.py",
+        "--output",
+        ".planning/debug/steamlink-connection"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "steamlink-availability",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-availability/run.py",
+        "--output",
+        ".planning/debug/steamlink-availability"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
+    },
+    {
+      "id": "steamlink-scene-startup",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-scene-startup/run.py",
+        "--output",
+        ".planning/debug/steamlink-scene-startup"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
+    },
+    {
+      "id": "menu-rig-lifecycle",
+      "command": [
+        "python3",
+        "-B",
+        "tests/menu-rig-lifecycle/run.py",
+        "--output",
+        ".planning/debug/menu-rig-lifecycle"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "steamlink-loading-source",
+      "command": [
+        "python3",
+        "-B",
+        "tests/steamlink-loading-source/run.py",
+        "--output",
+        ".planning/debug/steamlink-loading-source"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
     }
   ]
 }

@@ -10,6 +10,31 @@ internal static class Program
     }
     private static void Main()
     {
+        var menuToggle = new OptionsToggle();
+        Plugin.DevMode.Value = false;
+        NonDominantHold.Consumed = false;
+        GloomhavenVR.Core.VRSession.IsRunning = true;
+        NonDominantHold.ShortTapThisFrame = true;
+        menuToggle.Tick();
+        Check(!NonDominantHold.Consumed && menuToggle.DroppedMissingMenu,
+            "missing pause menu leaves input unconsumed and drops its stale open state");
+        menuToggle.Menu = new ESCMenu();
+        menuToggle.Tick();
+        Check(menuToggle.ReachedNormalMenu,
+            "available pause menu reaches ordinary handling without consuming the tap");
+        NonDominantHold.ShortTapThisFrame = false;
+        menuToggle.ReachedNormalMenu = false;
+        menuToggle.Tick();
+        Check(menuToggle.ReachedNormalMenu && !NonDominantHold.Consumed,
+            "idle tick retains the normal menu state path without consuming input");
+        GloomhavenVR.Core.VRSession.IsRunning = false;
+        NonDominantHold.ShortTapThisFrame = true;
+        menuToggle.ReachedNormalMenu = false;
+        menuToggle.Tick();
+        Check(!menuToggle.ReachedNormalMenu,
+            "ordinary flat session retains the VR-only gate");
+        GloomhavenVR.Core.VRSession.IsRunning = true;
+
         var old = new UISubmenuGOWindow();
         var pane = new UISubmenuGOWindow();
         VROptionsTab.Bind(old);

@@ -17,11 +17,12 @@ internal sealed partial class TownServiceAssets
     private readonly HashSet<string> _ambiguous = new(StringComparer.Ordinal);
     private readonly Dictionary<int, string> _keys = new();
     private readonly Dictionary<int, string> _originalKeys = new();
+    private readonly HashSet<string> _discoveryFailures = new(StringComparer.Ordinal);
     private float _nextScan;
     internal uint Generation { get; private set; }
 
     internal void Clear()
-    { ClearPackedSprites(); _assets.Clear(); _keys.Clear(); _originalKeys.Clear(); _ambiguous.Clear(); _nextScan = 0; Generation++; }
+    { ClearPackedSprites(); _assets.Clear(); _keys.Clear(); _originalKeys.Clear(); _ambiguous.Clear(); _discoveryFailures.Clear(); _nextScan = 0; Generation++; }
 
     /// <summary>Immutable native-template provenance, installed in deterministic order before
     /// descriptor discovery. Reusing one original retains its first published identity, but
@@ -54,6 +55,10 @@ internal sealed partial class TownServiceAssets
         if (asset == null) return string.Empty;
         if (asset is Texture textureAsset) asset = GloomhavenVR.WorldUI.PanelMipBake.OriginalFor(textureAsset);
         if (asset is Sprite spriteAsset) asset = CardFaceMipBake.OriginalFor(spriteAsset);
+        // A live baked sprite can retain a managed reverse reference to a retired native
+        // original. Check after unwrapping, before even a cached instance-ID lookup:
+        // returning that cached identity would conceal the loss of required provenance.
+        if (asset == null) throw new InvalidDataException("Original town-service asset has retired.");
         if (_keys.TryGetValue(asset.GetInstanceID(), out string? cached)) return cached;
         string key;
         switch (asset)
@@ -137,7 +142,26 @@ internal sealed partial class TownServiceAssets
         foreach (Shader shader in Resources.FindObjectsOfTypeAll<Shader>()) TryKey(shader);
     }
     private void TryKey(Object asset)
-    { try { Key(asset); } catch (InvalidDataException) { /* Unrelated transient assets are not part of this service. */ } }
+    {
+        try { Key(asset); }
+        catch (InvalidDataException) { /* Unrelated or ambiguous assets are not required originals. */ }
+        catch (Exception error) when (error is NullReferenceException || error is MissingReferenceException || error is UnityException)
+        {
+            // Resources includes every loaded game asset, including partial TMP assets and
+            // baked sprites whose native originals have retired. A getter on one unrelated
+            // object used to abort InitializeBank before Ready, leaving the whole merchant
+            // empty after scenario/menu transitions. Only this best-effort census is isolated:
+            // Key, RegisterOriginal and the required native template bindings remain strict.
+            string failure = asset.GetType().Name + "/" + error.GetType().Name;
+            if (_discoveryFailures.Count >= 4 || !_discoveryFailures.Add(failure)) return;
+            string detail = error.Message ?? string.Empty;
+            if (detail.Length > 200) detail = detail.Substring(0, 200);
+            detail = detail.Replace('\r', ' ').Replace('\n', ' ');
+            VRLog.Note("TownServices", "Original town artwork discovery skipped a transient " + failure
+                + (detail.Length == 0 ? "." : ": " + detail));
+            if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Original town artwork discovery failure detail: " + error);
+        }
+    }
     internal static bool SameKnownNativeIdentity(Texture2D texture)
     {
         // The game's resources.assets contains exactly one source object for each

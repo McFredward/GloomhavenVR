@@ -3,8 +3,26 @@
 set -euo pipefail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-scratch="$(mktemp -d)"
-trap 'rm -rf -- "$scratch"' EXIT
+mkdir -p -- "$root/.planning/debug/frame672-installer"
+scratch="$(python3 -c 'import sys,tempfile; print(tempfile.mkdtemp(prefix="run-", dir=sys.argv[1]))' "$root/.planning/debug/frame672-installer")"
+echo "evidence: $scratch"
+finish() {
+    local status=$?
+    python3 -B - "$root" "$scratch" "$status" <<'PY'
+import json
+from pathlib import Path
+import sys
+root, run = Path(sys.argv[1]), Path(sys.argv[2])
+sys.path.insert(0, str(root / "scripts"))
+from town_run_retention import cleanup_completed_run
+log = run / "completion.log"
+log.write_text("evidence: " + str(run) + "\nSteam Frame installer smoke completed.\n")
+receipt = cleanup_completed_run("frame-installer-smoke", int(sys.argv[3]), log, root, process_reaped=True)
+(run / "cleanup.json").write_text(json.dumps(receipt, indent=2) + "\n")
+PY
+    return "$status"
+}
+trap finish EXIT
 
 export HOME="$scratch/home with spaces"
 export XDG_DATA_HOME="$HOME/.local/share"
@@ -96,10 +114,10 @@ import sys
 assert json.loads(Path(sys.argv[1]).read_text()) == {"steam_frame": {"preferResolution": 3408}}
 PY
 for ((attempt = 0; attempt < 50; attempt++)); do
-    rg -q 'Steam configuration before restart needs repair: no' "$setup/steam-frame-setup.log" 2>/dev/null && break
+    rg -q 'Setup state: complete' "$setup/steam-frame-setup.log" 2>/dev/null && break
     sleep 0.1
 done
-rg -q 'Steam configuration before restart needs repair: no' "$setup/steam-frame-setup.log"
+rg -q 'Selected Steam files need repair: no' "$setup/steam-frame-setup.log"
 rg -q 'GloomhavenVR shortcut before this check: current' "$setup/steam-frame-setup.log"
 [[ -f "$setup/steam-frame-setup.log.previous" ]]
 for obsolete in "${legacy[@]}"; do
@@ -155,68 +173,67 @@ for pair in "library_600x900.png:${shortcut_appid}p.png" \
     cmp -s "$setup/SteamArtwork/$source_name" "$account/grid/$grid_name"
 done
 
-# A changed Steam shortcut requires a client restart. The Frame reboot can
-# terminate every setup process, so the VDF must already be correct at shutdown.
-cat > "$scratch/bin/pgrep" <<'EOF'
-#!/usr/bin/env bash
-[[ -f "$HOME/fake-steam-running" && " $* " == *' -x steam '* ]]
-EOF
+# The generated launcher keeps the original AppID, while the required override
+# stays on the original app and VR opt-in remains exclusive to the shortcut.
 cat > "$scratch/bin/steam" <<'EOF'
 #!/usr/bin/env bash
-case "$1" in
-    -shutdown)
-        [[ -s "$GHVR_TEST_SHORTCUTS" ]] || exit 41
-        rg -q 'Steam configuration before restart needs repair: no' "$GHVR_TEST_SETUP_LOG" || exit 42
-        printf 'shutdown\n' >> "$HOME/steam-setup-calls"
-        rm -f -- "$HOME/fake-steam-running"
-        if [[ -f "$HOME/fake-steam-kill-installer" ]]; then
-            kill -TERM "$PPID"
-        fi
-        ;;
-    -silent)
-        printf 'restart\n' >> "$HOME/steam-setup-calls"
-        : > "$HOME/fake-steam-running"
-        ;;
-    *)
-        printf '%s\n' "$@" > "$HOME/steam-args"
-        ;;
-esac
+printf '%s\n' "$@" > "$HOME/steam-args"
 EOF
-chmod +x "$scratch/bin/pgrep" "$scratch/bin/steam"
-export GHVR_TEST_SHORTCUTS="$shortcuts"
-export GHVR_TEST_SETUP_LOG="$setup/steam-frame-setup.log"
-rm -f -- "$shortcuts"
-: > "$HOME/fake-steam-running"
-PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/update.log"
-[[ -s "$shortcuts" ]]
-rg -q 'Steam configuration before restart needs repair: no' "$setup/steam-frame-setup.log"
-rg -q 'All setup changes and readback checks are complete' "$setup/steam-frame-setup.log"
-for ((attempt = 0; attempt < 30; attempt++)); do
-    if [[ -f "$HOME/steam-setup-calls" ]] && rg -q '^restart$' "$HOME/steam-setup-calls"; then
-        break
-    fi
-    sleep 0.1
-done
-printf 'shutdown\nrestart\n' > "$scratch/expected-setup-calls"
-cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
-
-cp -- "$boot" "$scratch/boot-before"
-cp -- "$shortcuts" "$scratch/shortcuts-before"
+cat > "$scratch/bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+printf 'unexpected user-bus call\n' >> "$HOME/user-bus-calls"
+exit 1
+EOF
+chmod +x "$scratch/bin/steam" "$scratch/bin/systemctl"
 cp -- "$account/localconfig.vdf" "$scratch/localconfig-before"
+cp -- "$boot" "$scratch/boot-before"
 cp -- "$vr_preferences" "$scratch/vr-preferences-before"
-PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/again.log"
+PATH="$scratch/bin:$PATH" "$launcher"
+printf '%s\n' -applaunch 780290 --gloomhavenvr > "$scratch/expected-args"
+cmp -s "$HOME/steam-args" "$scratch/expected-args"
+! rg -q -- '--gloomhavenvr' "$account/localconfig.vdf"
+[[ ! -e "$HOME/user-bus-calls" ]]
+
+# Native Steam may preserve harmless whitespace or single-quoted assignment
+# values. The generated launcher must accept them without rewriting the file.
+python3 - "$account/localconfig.vdf" "$root/scripts/steam-frame-config.py" <<'STEAMPY'
+import importlib.util
+from pathlib import Path
+import sys
+spec = importlib.util.spec_from_file_location('frame_config_test', sys.argv[2])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+p = Path(sys.argv[1])
+s = p.read_text()
+tokens = module.tokenize_text(s)
+value = next(t for i, t in enumerate(tokens) if i and tokens[i-1].value == 'LaunchOptions')
+options = "  WINEDLLOVERRIDES='winhttp=n,b' MANGOHUD=1 %command%  "
+p.write_text(s[:value.start] + module.quoted(options) + s[value.end:])
+STEAMPY
+cp -- "$account/localconfig.vdf" "$scratch/equivalent-localconfig"
+PATH="$scratch/bin:$PATH" "$launcher"
+cmp -s "$HOME/steam-args" "$scratch/expected-args"
+cmp -s "$account/localconfig.vdf" "$scratch/equivalent-localconfig"
+cp -- "$scratch/localconfig-before" "$account/localconfig.vdf"
+
+# An offline rerun is idempotent and leaves no pending launch guard.
+cp -- "$shortcuts" "$scratch/shortcuts-before"
+PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/again-offline.log"
+[[ ! -e "$setup/steam-launch-options.pending.json" ]]
+rg -q 'Setup state: complete' "$setup/steam-frame-setup.log"
 cmp -s "$boot" "$scratch/boot-before"
 cmp -s "$shortcuts" "$scratch/shortcuts-before"
 cmp -s "$account/localconfig.vdf" "$scratch/localconfig-before"
 cmp -s "$vr_preferences" "$scratch/vr-preferences-before"
-cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
+PATH="$scratch/bin:$PATH" "$launcher"
+cmp -s "$HOME/steam-args" "$scratch/expected-args"
 
-# An existing valid file gains only the missing Frame default. Other publisher
-# fields survive, and a byte-exact one-time backup is retained.
+# Publisher JSON retains all unrelated fields and an exact first backup.
 printf '{"publisher":{"mode":"custom"},"steam_frame":{"preferMinRefreshRate":72}}\n' > "$vr_preferences"
 cp -- "$vr_preferences" "$scratch/vr-preferences-publisher"
 PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/merge-preferences.log"
-python3 - "$vr_preferences" <<'PY'
+python3 - "$vr_preferences" <<'STEAMPY'
 import json
 from pathlib import Path
 import sys
@@ -224,56 +241,18 @@ assert json.loads(Path(sys.argv[1]).read_text()) == {
     "publisher": {"mode": "custom"},
     "steam_frame": {"preferMinRefreshRate": 72, "preferResolution": 3408},
 }
-PY
+STEAMPY
 cmp -s "$setup/vrpreferences.json.gloomhavenvr-backup" "$scratch/vr-preferences-publisher"
-rg -q 'CHANGED: Steam Frame per-eye resolution default' "$setup/steam-frame-setup.log"
-for ((attempt = 0; attempt < 30; attempt++)); do
-    [[ "$(rg -c '^restart$' "$HOME/steam-setup-calls" || true)" == 2 ]] && break
-    sleep 0.1
-done
-printf 'shutdown\nrestart\nshutdown\nrestart\n' > "$scratch/expected-setup-calls"
-cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
-
-# A pre-existing per-eye choice is never replaced.
 printf '{"steam_frame":{"preferResolution":2500,"preferMinRefreshRate":72}}\n' > "$vr_preferences"
 PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/existing-preferences.log"
 rg -q '"preferResolution":2500' "$vr_preferences"
-cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
-
-# Invalid publisher JSON must be left untouched and clearly reported.
 printf '{invalid json\n' > "$vr_preferences"
 PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/invalid-preferences.log"
 [[ "$(cat "$vr_preferences")" == '{invalid json' ]]
 rg -q 'invalid JSON.*no changes made' "$setup/steam-frame-setup.log"
-cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
-
-# Provisioning only the missing preference must also request a final restart:
-# Valve reads app-provided preferences when SteamVR starts, even if the Steam
-# shortcut itself was already up to date.
 rm -f -- "$vr_preferences"
 PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/preferences-only.log"
 rg -q '"preferResolution": 3408' "$vr_preferences"
-rg -q 'Restarting Steam as the final step' "$setup/steam-frame-setup.log"
-for ((attempt = 0; attempt < 30; attempt++)); do
-    [[ "$(rg -c '^restart$' "$HOME/steam-setup-calls" || true)" == 3 ]] && break
-    sleep 0.1
-done
-printf 'shutdown\nrestart\nshutdown\nrestart\nshutdown\nrestart\n' > "$scratch/expected-setup-calls"
-cmp -s "$HOME/steam-setup-calls" "$scratch/expected-setup-calls"
-
-# A Frame-like restart terminates the installer immediately. The shortcut and
-# all expected fields must already be durable before that last command.
-rm -f -- "$shortcuts"
-: > "$HOME/fake-steam-kill-installer"
-{ PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" || true; } > "$scratch/reboot.log" 2>&1
-[[ -s "$shortcuts" ]]
-rg -q 'Steam configuration before restart needs repair: no' "$setup/steam-frame-setup.log"
-rg -q '^shutdown$' "$HOME/steam-setup-calls"
-rm -f -- "$HOME/fake-steam-kill-installer"
-
-PATH="$scratch/bin:$PATH" "$launcher"
-printf '%s\n' -applaunch 780290 --gloomhavenvr > "$scratch/expected-args"
-cmp -s "$HOME/steam-args" "$scratch/expected-args"
 
 [[ -f "$setup/steam-frame-setup.log.previous" ]]
 
@@ -283,4 +262,7 @@ if bash "$setup/install-steam-frame.sh" > /dev/null 2>&1; then
     exit 1
 fi
 
-echo 'Steam Frame setup: desktop launch, Steam entry, boot config and rerun passed.'
+# Keep helper and cache/service regressions on the existing hosted smoke-test seam.
+python3 "$root/tests/test-steam-frame-config.py" -v
+
+echo 'Steam Frame setup: desktop/offline setup, managed automatic repair, guarded AppID launch, publisher defaults and rerun passed.'

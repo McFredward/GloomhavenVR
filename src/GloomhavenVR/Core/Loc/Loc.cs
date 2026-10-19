@@ -1428,6 +1428,9 @@ internal static partial class Loc
         // not be aligned with its Erweitert name ("Mixed Reality an") without renaming three
         // other things. The German states the EFFECT of ON, as the naming rules require.
         ["vr_o_mrenabled"] = Pair("Mixed Reality", "Mixed Reality an"),
+        ["vr_o_steamlinknative"] = Pair("Steam Link native passthrough", "Steam Link: natives Passthrough"),
+        ["vr_o_steamlinkedgequality"] = Pair("Steam Link edge quality", "Steam-Link-Kantenqualität"),
+        ["vr_o_steamlinkencodewidth"] = Pair("Steam Link encoding width (px)", "Steam-Link-Übertragungsbreite (px)"),
         ["key_color"] = Pair("Key colour", "Key-Farbe"),
         // The Debug pane's FIRST navigation level. It was a hardcoded German literal — the one
         // caption in the panel that an English player got in German, and the caption that has to be

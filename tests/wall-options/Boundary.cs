@@ -1,3 +1,5 @@
+// The extracted dependency members retain the production Core name lookup.
+global using GloomhavenVR.Core;
 using System;
 using System.Collections.Generic;
 using BepInEx.Configuration;
@@ -54,7 +56,17 @@ namespace GloomhavenVR.Core
 {
     internal static partial class PerfConfig
     {
-        internal static void BindFixture(ConfigFile file) => BindFrameRendering(file);
+        internal static void BindFixture(ConfigFile file)
+        {
+            BindFrameRendering(file);
+            MixedReality.SteamLinkNative = file.Bind("MixedReality", "SteamLinkNative", true);
+        }
+    }
+    // Compile the entire original dependency table against a real bool entry;
+    // Steam Link identity itself remains an unavailable capability in this suite.
+    internal static class MixedReality
+    {
+        internal static ConfigEntry<bool> SteamLinkNative = null!;
     }
     internal static class VRLog { internal static void Warn(string area, string message) => throw new Exception(message); }
     internal static class Loc
@@ -63,6 +75,15 @@ namespace GloomhavenVR.Core
         // Source-bound original Pair literals are generated alongside the fixture.
         internal static string Mod(string key) => Labels[key][German ? 1 : 0];
         internal static readonly Dictionary<string, string[]> Labels = OriginalWallLabels.All;
+    }
+}
+namespace GloomhavenVR.Core.SteamLink
+{
+    // Wall cases vary the Frame/legacy configuration inputs without a Steam Link
+    // identity. Discovery and native-MR capability have separate runtime proofs.
+    internal static class SteamLinkConnection
+    {
+        internal static bool Available => false;
     }
 }
 namespace GloomhavenVR.WorldUI

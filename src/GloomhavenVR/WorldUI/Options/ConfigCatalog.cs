@@ -924,7 +924,6 @@ internal static class ConfigCatalog
                                      || key == "ScenarioTerrainDetailPercent"
                                      || key == "ScenarioDistantTerrainDetailPercent"
                                      || key == "ScenarioTerrainDistanceMeters"
-                                     || key == "ScenarioTerrainPillarDistanceLod"
                                      || key == "ScenarioTerrainCameraSourceLimitCount"
                                      || key == "WallVisibilityModeCount"
                                      || key == "WallAutoHideBelowFpsCount"
@@ -983,6 +982,7 @@ internal static class ConfigCatalog
             case "EnvSound":
                 return ConfigTopic.Sound;
             case "Sky":
+            case "MixedReality":
             case "Elements":
             case "Haunt":
                 return ConfigTopic.Environment;
@@ -1048,7 +1048,8 @@ internal static class ConfigCatalog
             "buttons" => ConfigTopic.Buttons,
             "board" or "hexhighlight" or "selectionready" => ConfigTopic.BoardTargeting,
             "worldui" or "bars" => ConfigTopic.Panels,
-            "rig" or "mixedreality" or "stereo" or "wallfade" => ConfigTopic.Visual,
+            "mixedreality" => ConfigTopic.Environment,
+            "rig" or "stereo" or "wallfade" => ConfigTopic.Visual,
             // "boardfade" IS MULTIPLAYER. [PeerBoardFade] is what a MITSPIELER's control board does
             // while it blocks your view of the field, and until the 2026-08-22 audit it had no line
             // here at all — so all six dials fell through to "Sonstiges", the collector that exists
@@ -1058,7 +1059,7 @@ internal static class ConfigCatalog
             // switch is curated in Avatar & Mehrspieler ▸ Zusammen spielen and its five thresholds
             // now sit one level down under the same subject.
             "net" or "boardfade" => ConfigTopic.Network,
-            "perf" => ConfigTopic.Diagnostics,
+            "perf" or "steamlink" => ConfigTopic.Diagnostics,
             _ => ConfigTopic.Other,
         };
     }

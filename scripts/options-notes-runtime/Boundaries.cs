@@ -12,7 +12,8 @@ namespace GloomhavenVR.WorldUI
         // Explicit native row skeleton/clone and caption-style seams. The production
         // BuildNote is extracted unchanged; this boundary performs no note sizing.
         internal static void Configure(GameObject template) => _toggleTemplate = template;
-        internal static void Note(Transform parent, string text, bool multiline) => BuildNote(parent, text, multiline);
+        internal static GameObject Note(Transform parent, string text, bool multiline, int minLines = 1) =>
+            BuildNote(parent, text, multiline, minLines);
         private static GameObject StampRow(GameObject? template, Transform parent,
             out TMP_Text? title, out Transform? option)
         {

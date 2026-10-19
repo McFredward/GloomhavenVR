@@ -690,7 +690,10 @@ internal sealed partial class TownServiceSync
     private void Report(string scope, Exception e)
     {
         float now = Time.unscaledTime;
-        string key = scope + ": " + e.Message;
+        string detail = e.Message ?? string.Empty;
+        if (detail.Length > 200) detail = detail.Substring(0, 200);
+        string key = scope + ": " + e.GetType().Name
+            + (detail.Length == 0 ? string.Empty : ": " + detail.Replace('\r', ' ').Replace('\n', ' '));
         if (now - _reportWindow >= 30f) { _reportWindow = now; _reportCount = 0; }
         if (_reportCount >= 8)
         {
@@ -700,5 +703,6 @@ internal sealed partial class TownServiceSync
         if (Failures.TryGetValue(key, out float then) && now - then < 30) return;
         if (Failures.Count > 32) Failures.Clear(); Failures[key] = now; _reportCount++;
         VRLog.Note("TownServices", "Original widget publisher unavailable: " + key);
+        if (VRLog.WantsDebug) VRLog.Debug("TownServices", "Original widget publisher failure detail: " + e);
     }
 }

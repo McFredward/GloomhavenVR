@@ -42,11 +42,11 @@ namespace UnityEngine
     public static class Time { public static float unscaledTime; }
     public static class Mathf
     {
-        public static float Abs(float a) => MathF.Abs(a);
-        public static float Round(float a) => MathF.Round(a);
-        public static float Clamp(float a, float min, float max) => Math.Clamp(a,min,max);
-        public static float Min(float a, float b) => MathF.Min(a,b);
-        public static float Max(float a, float b) => MathF.Max(a,b);
+        public static float Abs(float a) => (float)Math.Abs(a);
+        public static float Round(float a) => (float)Math.Round(a);
+        public static float Clamp(float a, float min, float max) => Math.Min(max,Math.Max(min,a));
+        public static float Min(float a, float b) => Math.Min(a,b);
+        public static float Max(float a, float b) => Math.Max(a,b);
         public static int Max(int a, int b) => Math.Max(a,b);
     }
     public static class QualitySettings
@@ -112,19 +112,34 @@ namespace UnityEngine.XR
             ResourceWritesBeforeInitialization++;
             throw new InvalidOperationException("native render resource touched before provider initialization");
         }
-        public static void AcceptDisplayAllocation(float value) => _allocation=value;
+        public static void AcceptDisplayAllocation(float value)
+        { _allocation=value; eyeTextureWidth=eyeTextureHeight=(int)Math.Round(3408*value); }
         public static void AcceptDisplayViewport(float value) => _viewport=value;
         public static void Reset()
-        { _allocation=1; _viewport=1; Live=false; RefuseViewport=false; ProviderInitialized=false; ResourceWritesBeforeInitialization=0; AllocationWrites=LiveAllocationWrites=ViewportWrites=0; QualitySettings.ResetAntiAliasing(); }
+        { _allocation=1; _viewport=1; eyeTextureWidth=eyeTextureHeight=3408; Live=false; RefuseViewport=false; ProviderInitialized=false; ResourceWritesBeforeInitialization=0; AllocationWrites=LiveAllocationWrites=ViewportWrites=0; QualitySettings.ResetAntiAliasing(); }
     }
     public sealed class XRDisplaySubsystem
     {
         public bool running;
-        public bool RejectStartupAllocation;
-        public int AllocationWrites, MsaaWrites, ViewportWrites;
+        public bool RejectStartupAllocation, AllowLiveAllocation, RejectLiveAllocation, IgnoreLiveAllocation;
+        public int AllocationWrites, LiveAllocationWrites, MsaaWrites, ViewportWrites;
         private float _allocation=1, _viewport=1;
         public float scaleOfAllRenderTargets
-        { get => _allocation; set { XRSettings.RecordResourceWrite(); AllocationWrites++; if(running) throw new InvalidOperationException("live display allocation setter reached"); if(RejectStartupAllocation) throw new InvalidOperationException("startup display allocation rejected"); _allocation=value; XRSettings.AcceptDisplayAllocation(value); } }
+        {
+            get => _allocation;
+            set
+            {
+                XRSettings.RecordResourceWrite(); AllocationWrites++;
+                if (running)
+                {
+                    LiveAllocationWrites++; XRSettings.LiveAllocationWrites++;
+                    if (!AllowLiveAllocation || RejectLiveAllocation) throw new InvalidOperationException("live display allocation refused");
+                    if (IgnoreLiveAllocation) return;
+                }
+                else if (RejectStartupAllocation) throw new InvalidOperationException("startup display allocation rejected");
+                _allocation=value; XRSettings.AcceptDisplayAllocation(value);
+            }
+        }
         public float scaleOfAllViewports { get => _viewport; set { XRSettings.RecordResourceWrite(); ViewportWrites++; _viewport=value; XRSettings.AcceptDisplayViewport(value); } }
         public int Samples;
         public void SetMSAALevel(int value) { XRSettings.RecordResourceWrite(); MsaaWrites++; Samples=value; }
@@ -145,7 +160,7 @@ namespace GloomhavenVR.Core
     internal static class PerfTextureCensus { }
     internal static class PerfMonitor { internal static void MarkChange(string reason) { } }
     internal static class ModuleConfig { internal static BepInEx.Configuration.ConfigFile Create(string module) => new(); }
-    internal static class VRSession { internal static bool IsRunning; }
+    internal static class VRSession { internal static bool IsRunning = false; }
     internal static class VRLog
     {
         internal static readonly List<string> Lines = new();

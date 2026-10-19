@@ -1,0 +1,161 @@
+{
+  "schema": 1,
+  "subject": "Ambient/Ambient_Crypt_01.mov",
+  "source_sha256": "2f9c08cc4cc4da163e96bb073a45450b077884ec254ba972e9ef0a5fa988f3ee",
+  "source_kind": "external",
+  "source_relative": "StreamingAssets/Movies/Ambient/Ambient_Crypt_01.mov",
+  "stereo_file": "Ambient_Crypt_01.sbs-v1.mov",
+  "stereo_sha256": "14514d91483db0145ce145492cc852fe2f8cbe39696eb1a898e8ca9c3c67b05c",
+  "stereo_bytes": 72213469,
+  "packing": "full-SBS-left-first",
+  "per_eye_size": [
+    1920,
+    1080
+  ],
+  "fps": 60,
+  "frames": 2252,
+  "duration_seconds": 37.53333333333333,
+  "body_rows": [
+    0,
+    1080
+  ],
+  "shots": [
+    {
+      "id": "black-00",
+      "start": 0,
+      "end": 93,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-01",
+      "start": 93,
+      "end": 865,
+      "mode": "depth"
+    },
+    {
+      "id": "black-01",
+      "start": 865,
+      "end": 905,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-03",
+      "start": 905,
+      "end": 1507,
+      "mode": "depth"
+    },
+    {
+      "id": "black-02",
+      "start": 1507,
+      "end": 1575,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-05",
+      "start": 1575,
+      "end": 2155,
+      "mode": "depth"
+    },
+    {
+      "id": "black-03",
+      "start": 2155,
+      "end": 2252,
+      "mode": "screen"
+    }
+  ],
+  "profile": {
+    "cpu_dtype": "float32",
+    "model_input": 392,
+    "temporal_window": 32,
+    "temporal_overlap": 10,
+    "saved_depth_size": [
+      640,
+      360
+    ],
+    "shot_normalization_percentiles": [
+      2,
+      98
+    ],
+    "depth_disparity_px": [
+      -4,
+      12
+    ],
+    "code_revision": "4f5ae23172ba60fd7bc11ef671cca678842c7072",
+    "model_revision": "256875362cff76724b920335dfb4b29dd611f66e",
+    "checkpoint_sha256": "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609"
+  },
+  "left": "Native decoded YUV directly hstacked before final H264 encoding",
+  "right": "shot-wide temporal inverse-depth horizontal forward reprojection for depth scenes; uniform+8px original studio plane; screen-plane protected titles",
+  "disocclusion_fill": "Farther adjoining source background; no generative inpainting",
+  "render_source_sha256": "9029f012fbb06ebc87bf5c3025ff2e9bb346ec51f53387875c468d76a0fe2547",
+  "geometry_source_sha256": "7068b8e6c0334f2bfbbf73779e2dd1ef1b89390d61c032ecec496a5be4c5c7cf",
+  "verification": {
+    "status": "passed",
+    "movie": "Ambient/Ambient_Crypt_01.mov",
+    "source_sha256": "2f9c08cc4cc4da163e96bb073a45450b077884ec254ba972e9ef0a5fa988f3ee",
+    "stereo_sha256": "14514d91483db0145ce145492cc852fe2f8cbe39696eb1a898e8ca9c3c67b05c",
+    "stereo_bytes": 72213469,
+    "video": {
+      "frames": 2252,
+      "fps": 60,
+      "dimensions": [
+        3840,
+        1080
+      ],
+      "sample_aspect_ratio": "1:1",
+      "every_original_timestamp": true
+    },
+    "identical_aac_packets": 0,
+    "native_audio_presentation": null,
+    "left_comparison": {
+      "frames": 2252,
+      "minimum_psnr_db": 43.46
+    },
+    "depth_shots_validated": 3,
+    "encoded_right_witness_frames": 21,
+    "minimum_right_witness_psnr_db": 45.075982526180994,
+    "native_loop_endpoints": {
+      "0": {
+        "original_rgb_mean": 0.0,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 999.0
+      },
+      "2251": {
+        "original_rgb_mean": 6.17283950617284e-05,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 96.24655367597998
+      }
+    },
+    "verification_source_sha256": "1d317106038bd46d316bedfee6c579dfc102eb0d1a0744b8397e2821ffb6a409",
+    "manifest_sha256": "f10b245d398d81b311f3a3b7ca89d9a2a2b553815f2c87e81bf6f9b97e9a9759",
+    "decoded_cue_frames": [
+      479,
+      1206,
+      1865
+    ],
+    "decoded_cue_receipt_sha256": "f76ec0ee406f899a72059da998ce28e5085c2ab0cdfe257b7863b7bf52d78211",
+    "manual_visual_review": "pending",
+    "hardware_result": "unverified"
+  },
+  "hardware_result": "unverified",
+  "static_decoded_review": {
+    "status": "reviewed",
+    "movie": "Ambient/Ambient_Crypt_01.mov",
+    "stereo_sha256": "14514d91483db0145ce145492cc852fe2f8cbe39696eb1a898e8ca9c3c67b05c",
+    "frames": [
+      479,
+      1206,
+      1865
+    ],
+    "capture_receipt_sha256": "f76ec0ee406f899a72059da998ce28e5085c2ab0cdfe257b7863b7bf52d78211",
+    "reviewed_utc": "2026-10-17T15:42:48.347170+00:00",
+    "observations": "All three actual decoded stereo cue pairs were inspected at native frames479/1206/1865. The wide bone-lined chamber, closer skull column/torch view and tilted hooded-statue view preserve original content, brightness and full per-eye aspect. Foreground floor bones, columns and the hooded statue show bounded horizontal separation relative to the rear walls and cage bars. No obvious missing artwork or vertical registration defect is visible at these static cues. The original tilted third camera view is retained in both eyes.",
+    "limit": "Static decoded-image inspection only; headset fusion, comfort, temporal motion and native decoder behavior remain unverified."
+  }
+}

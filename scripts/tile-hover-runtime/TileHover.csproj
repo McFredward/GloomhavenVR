@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><GenerateDocumentationFile>false</GenerateDocumentationFile><EnableDefaultCompileItems>false</EnableDefaultCompileItems><AssemblyName>$(CaseName)</AssemblyName></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FixtureDir)/*.cs;$(ProductionDir)/*.cs" />
+    <Reference Include="$(UnityManaged)/UnityEngine/*.dll" />
+    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.3" PrivateAssets="all" ExcludeAssets="runtime" />
+    <Reference Include="GH.Runtime" HintPath="$(GameManaged)/GH.Runtime.dll" Publicize="true" />
+    <Reference Include="$(GameManaged)/GH.Runtime.FirstPass.dll;$(GameManaged)/ScenarioRuleLibrary.dll;$(GameManaged)/MapRuleLibrary.dll;$(GameManaged)/SharedLibrary.dll" />
+    <Reference Include="$(HarmonyPath)" />
+  </ItemGroup>
+</Project>

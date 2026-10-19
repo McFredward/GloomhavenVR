@@ -1,4 +1,8 @@
-# Steam Frame: separate local VR entry (Build 588 candidate)
+# Steam Frame: separate local VR entry
+
+Current automatic setup lifecycle: see the October 19 repair in
+[FRAME-OPTIONS-AUTO-REVIEW.md](FRAME-OPTIONS-AUTO-REVIEW.md). Dated follow-ups
+below retain the earlier approaches and their hardware limitations as history.
 
 The Frame installation needs two launch identities over one installed Gloomhaven
 copy. The original Steam entry should remain flat; a local library shortcut named
@@ -20,11 +24,16 @@ copies the art and a small launcher into the user's data directory; and creates
 `BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker`. As of the
 2026-09-30 setup revision, `steam-frame-config.py` also updates the active
 account's local Steam launch option and creates or repairs its non-Steam
-`GloomhavenVR` shortcut with `OpenVR=1`, icon and logo. The user no longer has
-to perform those Steam UI steps. The helper backs up changed VDF files, writes
-them atomically and leaves unrelated keys and shortcuts intact. It requests a
-graceful Steam shutdown and restart only when the files actually need changes.
-It does not change the game's publisher-controlled Steamworks metadata.
+`GloomhavenVR` shortcut with `OpenVR=1`, icon and logo. The helper backs up changed
+VDF files, writes them atomically and leaves unrelated keys and shortcuts intact.
+With Steam stopped it applies these changes directly. With Steam running, the
+current installer queues a persistent job in the actual user `steam.service`:
+its bounded, nonfatal pre-start hook runs after the old client's final flush and
+before the replacement client loads the configuration. The installer requests
+that service's restart and verifies the exact applied generation. A terminal
+closed with the Frame UI cannot cancel the manager-owned job. The earlier manual
+Steam Properties completion is superseded; the publisher-controlled Steamworks
+metadata remains unchanged.
 
 The launcher invokes `steam -applaunch 780290 --gloomhavenvr`. Forwarding to the
 original app ID is deliberate: launching `GH.exe` directly as a new non-Steam

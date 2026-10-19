@@ -1,0 +1,160 @@
+{
+  "schema": 1,
+  "subject": "Ambient/Ambient_06_Town_01.mov",
+  "source_sha256": "5fa890cd4bb3e90e3f515b4d25e55184442504db97e0c39aef099678f2292c05",
+  "source_kind": "external",
+  "source_relative": "StreamingAssets/Movies/Ambient/Ambient_06_Town_01.mov",
+  "stereo_file": "Ambient_06_Town_01.sbs-v1.mov",
+  "stereo_sha256": "7f43d918dbb44cc497bd54e888fa95e1375a922bd4705eb28b42b02b7140c09f",
+  "stereo_bytes": 39436277,
+  "packing": "full-SBS-left-first",
+  "per_eye_size": [
+    1920,
+    1080
+  ],
+  "fps": 60,
+  "frames": 1126,
+  "duration_seconds": 18.766666666666666,
+  "body_rows": [
+    0,
+    1080
+  ],
+  "shots": [
+    {
+      "id": "black-00",
+      "start": 0,
+      "end": 43,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-01",
+      "start": 43,
+      "end": 435,
+      "mode": "depth"
+    },
+    {
+      "id": "black-01",
+      "start": 435,
+      "end": 452,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-03",
+      "start": 452,
+      "end": 754,
+      "mode": "depth"
+    },
+    {
+      "id": "black-02",
+      "start": 754,
+      "end": 769,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-05",
+      "start": 769,
+      "end": 1084,
+      "mode": "depth"
+    },
+    {
+      "id": "black-03",
+      "start": 1084,
+      "end": 1126,
+      "mode": "screen"
+    }
+  ],
+  "profile": {
+    "cpu_dtype": "float32",
+    "model_input": 392,
+    "temporal_window": 32,
+    "temporal_overlap": 10,
+    "saved_depth_size": [
+      640,
+      360
+    ],
+    "shot_normalization_percentiles": [
+      2,
+      98
+    ],
+    "depth_disparity_px": [
+      -4,
+      12
+    ],
+    "code_revision": "4f5ae23172ba60fd7bc11ef671cca678842c7072",
+    "model_revision": "256875362cff76724b920335dfb4b29dd611f66e",
+    "checkpoint_sha256": "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609"
+  },
+  "left": "Native decoded YUV directly hstacked before final H264 encoding",
+  "right": "shot-wide temporal inverse-depth horizontal forward reprojection for depth scenes; uniform+8px original studio plane; screen-plane protected titles",
+  "disocclusion_fill": "Farther adjoining source background; no generative inpainting",
+  "render_source_sha256": "b8bca40d7fd45188bef5d8941be10e714efbc77f61e6e0bdab128ecb894469ea",
+  "geometry_source_sha256": "7068b8e6c0334f2bfbbf73779e2dd1ef1b89390d61c032ecec496a5be4c5c7cf",
+  "verification": {
+    "status": "passed",
+    "movie": "Ambient/Ambient_06_Town_01.mov",
+    "source_sha256": "5fa890cd4bb3e90e3f515b4d25e55184442504db97e0c39aef099678f2292c05",
+    "stereo_sha256": "7f43d918dbb44cc497bd54e888fa95e1375a922bd4705eb28b42b02b7140c09f",
+    "stereo_bytes": 39436277,
+    "video": {
+      "frames": 1126,
+      "fps": 60,
+      "dimensions": [
+        3840,
+        1080
+      ],
+      "sample_aspect_ratio": "1:1",
+      "every_original_timestamp": true
+    },
+    "identical_aac_packets": 0,
+    "left_comparison": {
+      "frames": 1126,
+      "minimum_psnr_db": 39.61
+    },
+    "depth_shots_validated": 3,
+    "encoded_right_witness_frames": 21,
+    "minimum_right_witness_psnr_db": 40.31283728081104,
+    "native_loop_endpoints": {
+      "0": {
+        "original_rgb_mean": 0.0,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 999.0
+      },
+      "1125": {
+        "original_rgb_mean": 0.02263888888888889,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 74.31878901850317
+      }
+    },
+    "verification_source_sha256": "d073e43124d37eb97f62e64a9f6f1398e74c068206925e7fa782174e73bfb025",
+    "manifest_sha256": "f10b245d398d81b311f3a3b7ca89d9a2a2b553815f2c87e81bf6f9b97e9a9759",
+    "decoded_cue_frames": [
+      239,
+      603,
+      926
+    ],
+    "decoded_cue_receipt_sha256": "41880ade7ccaa6f94a90821a63ef264c4f83a4728d3077ec5bbd0b3f93e2303f",
+    "manual_visual_review": "pending",
+    "hardware_result": "unverified"
+  },
+  "hardware_result": "unverified",
+  "static_decoded_review": {
+    "status": "reviewed",
+    "movie": "Ambient/Ambient_06_Town_01.mov",
+    "stereo_sha256": "7f43d918dbb44cc497bd54e888fa95e1375a922bd4705eb28b42b02b7140c09f",
+    "frames": [
+      239,
+      603,
+      926
+    ],
+    "capture_receipt_sha256": "41880ade7ccaa6f94a90821a63ef264c4f83a4728d3077ec5bbd0b3f93e2303f",
+    "reviewed_utc": "2026-10-17T14:43:05.009557+00:00",
+    "observations": "Three actual encoded cue pairs inspected: full timber/cobblestone courtyard, close hooded statue/gate view and tilted statue/window/candle view. No obvious missing scene content, squashed aspect or vertical registration defect at these static cues. Foreground timber/statues and background buildings retain bounded horizontal separation.",
+    "limit": "Static decoded-image inspection only; headset fusion, comfort, temporal motion and decoder behavior remain unverified."
+  }
+}

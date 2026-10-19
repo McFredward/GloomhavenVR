@@ -77,16 +77,19 @@ namespace GloomhavenVR.Rig;
 ///
 /// RESOLUTION LEVER ([RenderQuality] EyeResolutionScale): startup chooses an allocation of
 /// the saved value, without reserving a larger target for a possible slider move.
-/// During play only XRSettings.renderViewportScale changes, after a short slider quiet period
-/// in Update. This preserves the XR projection/compositor sub-rect contract and avoids live
-/// swapchain recreation. A request above the session allocation is saved for the next VR start;
-/// the current effective scale remains capped, and player help/readback state that limit.
+/// PCVR applies the chosen value to the running XRDisplaySubsystem's actual allocation after
+/// a short slider quiet period in Update, in either direction. Its viewport stays full-sized;
+/// no MR mode, camera crop, projection change or reserved transport scale is involved.
+/// Standalone Frame retains allocation-free viewport changes within its startup capacity;
+/// an increase above that capacity remains saved for the next VR start.
 ///
 /// Build628 Frame evidence (2026-10-06): 1.00 -> 0.80 recreated both eye textures, then
 /// 0.80 -> 0.85 requested/recreated both again before Player.log stopped without a managed
 /// exception. This locates the hazardous transition, not the native crash mechanism. Catching
-/// managed exceptions cannot make native graphics-resource recreation safe. Do not restore
-/// the old allocation-first runtime path or reinterpret an API getter as rendered-pixel proof.
+/// managed exceptions cannot make native graphics-resource recreation safe. Never restore
+/// live allocation on Frame standalone. Build703 restores it only for PCVR: the Frame-only
+/// containment had unintentionally removed the PC's working immediate resolution control.
+/// Do not reinterpret an allocation getter as rendered-pixel or driver-stability proof.
 /// Unity2021 documents viewport updates as allocation-free, applied on the next frame, and
 /// rejected during camera rendering or in deferred rendering. Unsupported providers/path remain
 /// explicit refusals; no cropped Camera.rect/projection workaround or live allocation fallback.
@@ -296,6 +299,9 @@ internal static class RenderQuality
 
     /// <summary>Allocation capacity belongs to the OpenXR session, not to a scene/rig rebuild.</summary>
     private static bool _sessionPrepared;
+    // FrameDefaults.Active checks a marker on disk. Classify at the cold session
+    // boundary, never by filesystem reads in Update or recurring diagnostics.
+    private static bool _standaloneSession;
     private static float _sessionAllocationScale = 1f;
     private static float _pendingEyeScale = -1f;
     private static float _pendingEyeScaleSince;
@@ -304,6 +310,8 @@ internal static class RenderQuality
     private static int _committedMsaa = -1;
     private static float _nextMsaaApplyTime;
     private static float _lastEyeRefusal = -1f;
+    private static float _lastPcEyeScaleAttempt = -1f;
+    private static float _lastPcEyeScaleWaiting = -1f;
     private const float SliderQuietSeconds = 0.35f;
     private const float MsaaResourceQuietSeconds = 1f;
     private const float ViewportRepairIntervalSeconds = 1f;
@@ -417,11 +425,11 @@ internal static class RenderQuality
             + "below 1 is often still above panel resolution — check the [Rig] EYE-TARGET DIAG line "
             + "for the actual pixel count. Above 1 is the only lever against SHADER/TEXTURE shimmer "
             + "(specular sparkle, sub-pixel detail) that geometry-edge MSAA cannot touch; below 1 "
-            + "softens texture detail before it softens edges. Live changes are coalesced and use "
-            + "the allocated eye viewport without recreating XR textures. Startup allocates "
-            + "the saved resolution; a live request above that session capacity is "
-            + "saved for the next VR restart and remains capped until then. Deferred rendering "
-            + "and providers that refuse viewport scaling cannot apply live resolution changes. "
+            + "softens texture detail before it softens edges. PCVR changes resize the actual "
+            + "eye targets after a short slider pause, without restarting VR. Standalone uses "
+            + "the existing eye viewport to avoid live resource recreation; an increase above "
+            + "its starting capacity applies after restarting VR. Provider refusals are logged "
+            + "without an automatic allocation retry loop. "
             + "WHAT IT CANNOT BUY, measured rather than assumed (ModBuild 226 hardware log, the "
             + "[Perf] SPLIT ZOOM axis): with this row and the MSAA row held CONSTANT, one window of "
             + "that session ran 10.97 ms per frame with 23 renderers visible and 71.28 ms with 4841 "
@@ -937,6 +945,7 @@ internal static class RenderQuality
 
     private static void ResetSessionState()
     {
+        _standaloneSession = FrameDefaults.Active;
         _sessionPrepared = false;
         _sessionAllocationScale = 1f;
         _pendingEyeScale = -1f;
@@ -948,6 +957,8 @@ internal static class RenderQuality
         _lastPushedDisplayMsaa = -1;
         _lastLoggedEyeScale = -1f;
         _lastEyeRefusal = -1f;
+        _lastPcEyeScaleAttempt = -1f;
+        _lastPcEyeScaleWaiting = -1f;
         _baseEyeWidth = 0;
         _baseMegaSamples = 0;
         _eyeScaleAnnounced = false;
@@ -1004,9 +1015,9 @@ internal static class RenderQuality
     }
 
     /// <summary>
-    /// Called only from the existing Update tail. Coalesce the row, then scale the entire eye's
-    /// rendered sub-rect within its stable allocation. Camera/FOV/rect stay native. Returning to
-    /// 1 means native effective resolution, including when startup allocated a larger target.
+    /// Coalesce at the existing safe frame boundary. PCVR changes actual allocation; Frame
+    /// standalone only changes the sub-rect within its stable allocation. Camera/FOV/rect stay
+    /// native. A value of1 means the runtime's requested scene resolution on either path.
     /// </summary>
     private static void ApplyEyeScale(bool canWriteRenderResources)
     {
@@ -1020,7 +1031,9 @@ internal static class RenderQuality
             VRLog.Info("Rig", $"Eye resolution row [RenderQuality] EyeResolutionScale reads " +
                               $"{wanted:F2}x; session allocation scale {_sessionAllocationScale:F2}x, " +
                               $"eye target {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight}. " +
-                              "Live changes use the viewport; values above capacity apply next VR restart. " +
+                              (_standaloneSession
+                                  ? "Standalone live changes use the viewport; values above capacity apply next VR restart. "
+                                  : "PCVR live changes resize the actual XR allocation after a short slider pause. ") +
                               "IT IS THE ONLY RESOLUTION THE MOD CAN MOVE: game/SteamVR resolution " +
                               "changes are upstream and appear in the allocated size above.");
         }
@@ -1030,6 +1043,11 @@ internal static class RenderQuality
             _pendingEyeScaleSince = Time.unscaledTime;
         }
         if (Time.unscaledTime - _pendingEyeScaleSince < SliderQuietSeconds || !canWriteRenderResources) return;
+        if (!_standaloneSession)
+        {
+            ApplyPcEyeScale(wanted);
+            return;
+        }
         Camera? head = VRRigDriver.HeadCamera;
         bool deferred = head != null && (head.actualRenderingPath == RenderingPath.DeferredShading
             || head.actualRenderingPath == RenderingPath.DeferredLighting);
@@ -1097,9 +1115,93 @@ internal static class RenderQuality
         RequestEyeTargetDiagnostics($"live resolution viewport → {viewport:F2}");
     }
 
+    // The Frame628/638 crash/reset workaround must not silently govern a PC's
+    // unrelated graphics driver. The user explicitly requires the PC resolution
+    // control to change the image immediately, with MR using the very same path.
+    // Only this already initialized/running display is written, at the existing
+    // Update resource boundary, once per distinct settled request. No fallback
+    // allocation, automatic retry, pre-loader write or rendering callback setter.
+    private static void ApplyPcEyeScale(float wanted)
+    {
+        if (Mathf.Abs(_lastPcEyeScaleAttempt - wanted) < 0.0005f) return;
+        SubsystemManager.GetInstances(Displays);
+        int running = 0;
+        bool accepted = true;
+        float observed = _sessionAllocationScale;
+        int beforeWidth = XRSettings.eyeTextureWidth, beforeHeight = XRSettings.eyeTextureHeight;
+        foreach (XRDisplaySubsystem display in Displays)
+        {
+            if (!display.running) continue;
+            // A session may be marked running before its display is ready.
+            // No actual attempt has happened until a running display is found;
+            // leave the same settled request eligible across that brief gap.
+            if (running == 0) _lastPcEyeScaleAttempt = wanted;
+            running++;
+            try
+            {
+                // Clear a legacy viewport reduction only when needed. Scaling
+                // both allocation and viewport would apply the requested value
+                // twice and make returning to1 retain an invisible soft cap.
+                if (Mathf.Abs(display.scaleOfAllViewports - 1f) >= 0.005f)
+                    display.scaleOfAllViewports = 1f;
+                if (Mathf.Abs(display.scaleOfAllRenderTargets - wanted) >= 0.0005f)
+                    display.scaleOfAllRenderTargets = wanted;
+                observed = display.scaleOfAllRenderTargets;
+                accepted &= ValidScale(observed) && Mathf.Abs(observed - wanted) < 0.0005f;
+            }
+            catch (System.Exception e) when (e is System.ArgumentException
+                || e is System.InvalidOperationException)
+            {
+                accepted = false;
+                VRLog.Warn("Rig", $"PC eye allocation request refused: {wanted:F2}x; "
+                    + $"{e.GetType().Name}: {e.Message}. No automatic allocation retry; "
+                    + "a new resolution request or VR session can try again.");
+            }
+        }
+        if (running == 0)
+        {
+            if (Mathf.Abs(_lastPcEyeScaleWaiting - wanted) >= 0.0005f)
+                VRLog.Note("Rig", $"PC eye allocation request refused: {wanted:F2}x; "
+                    + "no running XR display. No resources were changed; waiting for display readiness.");
+            _lastPcEyeScaleWaiting = wanted;
+            return;
+        }
+        _lastPcEyeScaleWaiting = -1f;
+        // Older versions used this compatibility viewport setter. Its getter
+        // may be separate from the display property on a provider, so remove an
+        // observed old reduction once, never as a persistent correction loop.
+        if (Mathf.Abs(XRSettings.renderViewportScale - 1f) >= 0.005f)
+            ReleaseViewportScale();
+        _viewportScaleApplied = XRSettings.renderViewportScale;
+        _viewportScaleAccepted = Mathf.Abs(_viewportScaleApplied - 1f) < 0.005f;
+        _viewportResetRepairs = 0;
+        if (ValidScale(observed)) _sessionAllocationScale = observed;
+        _lastLoggedEyeScale = wanted;
+        VRLog.Note("Rig", $"Eye resolution live change requested: PCVR {wanted:F2}x; "
+            + $"actual allocation readback {observed:F2}x on {running} running display(s), "
+            + $"viewport {_viewportScaleApplied:F2}; "
+            + (accepted && _viewportScaleAccepted ? "ACCEPTED by engine API. " : "REFUSED or limited by provider. ")
+            + $"Eye target {beforeWidth}x{beforeHeight} -> {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight}; "
+            + "native dimensions may settle on the next frame; no VR restart was requested.");
+        RequestEyeTargetDiagnostics($"PC live allocation → {wanted:F2}");
+    }
+
     private static string VerifyEyeScaleBound()
     {
         float wanted = WantedEyeScale();
+        if (!_standaloneSession)
+        {
+            float observed = XRSettings.eyeTextureResolutionScale;
+            SubsystemManager.GetInstances(Displays);
+            foreach (XRDisplaySubsystem display in Displays)
+                if (display.running) { observed = display.scaleOfAllRenderTargets; break; }
+            return $"resolution scale {wanted:F2} requested; PC live allocation {observed:F2} readback; "
+                + $"viewport {XRSettings.renderViewportScale:F2}; actual eye target "
+                + $"{XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight}. "
+                + (Mathf.Abs(observed - wanted) < 0.0005f ? "ACCEPTED by engine API. " : "REFUSED or limited by provider. ")
+                + "The actual dimensions/render parameters, not the saved request or API acknowledgment alone, "
+                + "establish delivered render size; headset pixels and native driver stability require hardware.";
+        }
         float expectedViewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);
         float actualViewport = XRSettings.renderViewportScale;
         bool accepted = Mathf.Abs(actualViewport - expectedViewport) < 0.005f;

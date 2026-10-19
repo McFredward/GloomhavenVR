@@ -1013,6 +1013,9 @@ internal sealed class CardFan
             }
         }
 
+        if (target != null && target.CanGrab && target.AllowsHand(dom!))
+            dom!.SendHoverHaptic(target);
+
         if (ReferenceEquals(target, _pokeHoverCard))
             return;
 
@@ -1029,7 +1032,6 @@ internal sealed class CardFan
                 Core.VRLog.Info("Cards", "Fingertip card hover ACTIVE (test #9): the free hand's " +
                                          "index tip now pops a fan card on contact (no palm-deep reach needed).");
             }
-            dom!.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
         }
         // Split the fan around the poke-hovered card when the driver isn't driving one.
         if (index != _pokeHoveredIndex)

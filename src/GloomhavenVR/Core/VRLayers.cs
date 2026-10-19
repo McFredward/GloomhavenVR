@@ -135,6 +135,7 @@ internal static class VRLayers
         if (go == null || !VRSession.IsRunning)
             return;
         SetLayerRecursive(go.transform, ModLayer);
+        WorldUI.HealthbarForegroundDepth.Register(go.transform);
     }
 
     private static void SetLayerRecursive(Transform t, int layer)

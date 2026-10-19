@@ -614,6 +614,18 @@ NAME_DIFFERS_ON_PURPOSE = {
 # joining a curated family with no row and no line here. Added by hand rather than by --bless, so
 # that every addition had to be argued instead of blessed in a batch.
 KNOWN_ORPHANS = {
+    # 2026-10-19 maintainer ruling: pillar LOD is removed on every platform.
+    # The key is hidden by the catalog's INERT marker and retained only to read
+    # existing files; no active selector or profile may consume its value.
+    ("Optimize", "ScenarioTerrainPillarDistanceLod"),
+    # Build702, maintainer's explicit rejection of an independent MR resolution
+    # limit: keep the persisted key only as INERT compatibility storage. The
+    # production filter hides it in curated and Advanced views; actual eye
+    # resolution now owns sizing. This is one retired key, not a family exemption.
+    ("MixedReality", "SteamLinkEncodeWidth"),
+    # Maintainer 2026-10-19: remove the atlas/quality lease entirely, retain its
+    # saved binding inert and hidden rather than silently deleting user config.
+    ("MixedReality", "SteamLinkEdgeQuality"),
     # Build652: the new everyday wall-policy keys share only the "Wall" prefix with
     # this pre-existing expert sampling cadence. Its regular-fade alias remains
     # [WallFade] EvalIntervalSeconds; the legacy fallback stays reachable in Advanced.
@@ -845,6 +857,25 @@ def main():
     loc = loc_ids()
 
     failures = []
+
+    # Mixed reality selects the player's world, including its entire Advanced
+    # family; it must not acquire a second Graphics home after source changes.
+    scenery = [(section, key) for _c, cat, _s, sec, section, key, _cap in curated
+               if cat == "cat_environment" and sec == "sec_environment"]
+    if scenery[:3] != [("Sky", "Style"), ("MixedReality", "SteamLinkNative"),
+                       ("MixedReality", "KeyColor")]:
+        failures.append("Steam Link native passthrough and key colour must directly follow World / Scenery's environment choice.")
+    if any(cat == "cat_graphics" and section == "MixedReality"
+           for _c, cat, _s, _sec, section, _key, _cap in curated):
+        failures.append("Mixed Reality must not have redundant controls under Graphics.")
+    with open(os.path.join(OPTIONS, "ConfigCatalog.cs"), encoding="utf-8") as fh:
+        catalog = strip_comments(fh.read())
+    topic = catalog[catalog.index("private static ConfigTopic TopicOf("):
+                    catalog.index("private static bool HasBoardSuffix(")]
+    if not re.search(r'case\s+"MixedReality"\s*:(?:\s*case\s+"[^"]+"\s*:)*\s*return\s+ConfigTopic\.Environment\s*;', topic):
+        failures.append("The complete MixedReality section must classify as Environment in Advanced.")
+    if not re.search(r'"mixedreality"\s*=>\s*ConfigTopic\.Environment', topic):
+        failures.append("The mixedreality module fallback must classify as Environment in Advanced.")
 
     # ---- 1. advertised but absent -----------------------------------------------------------
     for cat, _ck, sec, _sk, section, key, _cap in curated:

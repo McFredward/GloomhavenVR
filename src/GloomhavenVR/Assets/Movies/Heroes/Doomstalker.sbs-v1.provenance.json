@@ -1,0 +1,307 @@
+{
+  "schema": 1,
+  "subject": "Heroes/Doomstalker.mov",
+  "source_sha256": "d66a2ab1bba17f22ed503d70da70f5f4aaf953f81ff790860763834a601f94e0",
+  "source_kind": "external",
+  "source_relative": "StreamingAssets/Movies/Heroes/Doomstalker.mov",
+  "stereo_file": "Doomstalker.sbs-v1.mov",
+  "stereo_sha256": "d0f716eb8199d7a636115182ea3f29cf19fe90608107c989d348a2da1f763558",
+  "stereo_bytes": 51891734,
+  "packing": "full-SBS-left-first",
+  "per_eye_size": [
+    1920,
+    1080
+  ],
+  "fps": 60,
+  "frames": 868,
+  "duration_seconds": 14.466666666666667,
+  "body_rows": [
+    128,
+    956
+  ],
+  "shots": [
+    {
+      "id": "native-opening-emblem",
+      "start": 0,
+      "end": 100,
+      "mode": "screen"
+    },
+    {
+      "id": "black-00",
+      "start": 100,
+      "end": 105,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-01",
+      "start": 105,
+      "end": 183,
+      "mode": "depth"
+    },
+    {
+      "id": "black-01",
+      "start": 183,
+      "end": 192,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-02",
+      "start": 192,
+      "end": 295,
+      "mode": "depth"
+    },
+    {
+      "id": "black-02",
+      "start": 295,
+      "end": 302,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-03",
+      "start": 302,
+      "end": 417,
+      "mode": "depth"
+    },
+    {
+      "id": "black-03",
+      "start": 417,
+      "end": 426,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-04",
+      "start": 426,
+      "end": 865,
+      "mode": "depth",
+      "screen_panels": [
+        {
+          "id": "name-banner",
+          "bounds": [
+            792,
+            457,
+            1895,
+            618
+          ],
+          "prepare": [
+            620,
+            632
+          ],
+          "last_clear_source_frame": 632,
+          "observed_onset_frame": 634,
+          "onset_bounds": [
+            0,
+            128,
+            1920,
+            956
+          ],
+          "onset_release": [
+            648,
+            660
+          ],
+          "source_witness_frames": [
+            642,
+            726,
+            821
+          ]
+        },
+        {
+          "id": "class-symbol",
+          "bounds": [
+            1020,
+            216,
+            1662,
+            870
+          ],
+          "prepare": [
+            704,
+            716
+          ],
+          "last_clear_source_frame": 716,
+          "observed_onset_frame": 718,
+          "onset_bounds": [
+            0,
+            128,
+            1920,
+            956
+          ],
+          "onset_release": [
+            738,
+            750
+          ],
+          "source_witness_frames": [
+            642,
+            726,
+            821
+          ]
+        }
+      ],
+      "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+    },
+    {
+      "id": "black-04",
+      "start": 865,
+      "end": 868,
+      "mode": "screen"
+    }
+  ],
+  "profile": {
+    "cpu_dtype": "float32",
+    "model_input": 392,
+    "temporal_window": 32,
+    "temporal_overlap": 10,
+    "saved_depth_size": [
+      640,
+      360
+    ],
+    "shot_normalization_percentiles": [
+      2,
+      98
+    ],
+    "depth_disparity_px": [
+      -4,
+      12
+    ],
+    "code_revision": "4f5ae23172ba60fd7bc11ef671cca678842c7072",
+    "model_revision": "256875362cff76724b920335dfb4b29dd611f66e",
+    "checkpoint_sha256": "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609"
+  },
+  "left": "Native decoded YUV directly hstacked before final H264 encoding",
+  "right": "shot-wide temporal inverse-depth horizontal forward reprojection for depth scenes; uniform+8px original studio plane; screen-plane protected titles",
+  "disocclusion_fill": "Farther adjoining source background; no generative inpainting",
+  "render_source_sha256": "6d8d19f3fb024e568308e62bb6c90238855aee82fd3898b426e8def6d5cbcb9f",
+  "geometry_source_sha256": "7068b8e6c0334f2bfbbf73779e2dd1ef1b89390d61c032ecec496a5be4c5c7cf",
+  "verification": {
+    "status": "passed",
+    "movie": "Heroes/Doomstalker.mov",
+    "source_sha256": "d66a2ab1bba17f22ed503d70da70f5f4aaf953f81ff790860763834a601f94e0",
+    "stereo_sha256": "d0f716eb8199d7a636115182ea3f29cf19fe90608107c989d348a2da1f763558",
+    "stereo_bytes": 51891734,
+    "video": {
+      "frames": 868,
+      "fps": 60,
+      "dimensions": [
+        3840,
+        1080
+      ],
+      "sample_aspect_ratio": "1:1",
+      "every_original_timestamp": true
+    },
+    "identical_aac_packets": 679,
+    "native_audio_presentation": {
+      "duration_seconds": "217/15",
+      "original_time_base": "1/48000",
+      "stereo_time_base": "1/48000",
+      "original_presentation_window_preserved": true
+    },
+    "left_comparison": {
+      "frames": 868,
+      "minimum_psnr_db": 38.66
+    },
+    "depth_shots_validated": 4,
+    "encoded_right_witness_frames": 44,
+    "minimum_right_witness_psnr_db": 41.82009197993636,
+    "native_loop_endpoints": {
+      "0": {
+        "original_rgb_mean": 49.936612011316875,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 52.70542139400597
+      },
+      "867": {
+        "original_rgb_mean": 0.05002893518518518,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 67.12344727429152
+      }
+    },
+    "verification_source_sha256": "1d317106038bd46d316bedfee6c579dfc102eb0d1a0744b8397e2821ffb6a409",
+    "manifest_sha256": "f10b245d398d81b311f3a3b7ca89d9a2a2b553815f2c87e81bf6f9b97e9a9759",
+    "decoded_cue_frames": [
+      144,
+      359,
+      805
+    ],
+    "decoded_cue_receipt_sha256": "9e56b02b0c5ce40cebedaa2ef5d752f40811e4a7dca295f51c8d8093643e7fea",
+    "manual_visual_review": "pending",
+    "hardware_result": "unverified"
+  },
+  "hardware_result": "unverified",
+  "audio_finalization": {
+    "status": "passed",
+    "identical_aac_packets": 679,
+    "identical_encoded_video_packets": 868,
+    "audio_presentation_seconds": "217/15",
+    "video_presentation_seconds": "217/15",
+    "audio_time_base": "1/48000",
+    "video_time_base": "1/15360",
+    "audio_payload_pts_dts_durations_identical": true,
+    "video_payload_pts_dts_durations_identical": true,
+    "subject": "Heroes/Doomstalker.mov",
+    "encoded_candidate_sha256": "9b488f8dec008022c1e5d6e4edb2193e3c61ca37825006a8bee400b68929eeec",
+    "native_source_sha256": "d66a2ab1bba17f22ed503d70da70f5f4aaf953f81ff790860763834a601f94e0",
+    "finalized_sha256": "d0f716eb8199d7a636115182ea3f29cf19fe90608107c989d348a2da1f763558",
+    "finalized_bytes": 51891734,
+    "native_presentation": {
+      "native_movie_timescale": 90000,
+      "native_edit_duration": 1302000,
+      "native_audio_edit_media_time": 0,
+      "copy_mux_audio_duration_before_native_window": 1303680,
+      "presentation_seconds": "217/15",
+      "changed_atoms_only": [
+        "moov/mvhd duration",
+        "audio trak/tkhd duration",
+        "audio trak/edts/elst segment duration"
+      ]
+    },
+    "copy_mux_source_sha256": "fd0e35935207e5eb69c99806c7761e12305427239cf3d3fd42bd9c7eab804cce",
+    "picture_reencoded": false
+  },
+  "encoding": {
+    "codec": "libx264",
+    "preset": "fast",
+    "crf": 17,
+    "profile": "high",
+    "level": "5.1",
+    "threads": 3,
+    "maximum_video_bitrate_mbps": 34,
+    "video_buffer_mbits": 68,
+    "gop_frames": 60,
+    "video_track_timescale": 15360
+  },
+  "static_decoded_review": {
+    "status": "reviewed",
+    "movie": "Heroes/Doomstalker.mov",
+    "stereo_sha256": "d0f716eb8199d7a636115182ea3f29cf19fe90608107c989d348a2da1f763558",
+    "frames": [
+      144,
+      359,
+      805
+    ],
+    "capture_receipt_sha256": "9e56b02b0c5ce40cebedaa2ef5d752f40811e4a7dca295f51c8d8093643e7fea",
+    "reviewed_utc": "2026-10-17T15:58:35.445049+00:00",
+    "observations": "All three actual decoded cue pairs were inspected: the flaming-arrow close view, overhead arrows and cavern-floor view, and complete Doomstalker title/actor view retain original artwork, framing, cinematic bars and full per-eye aspect. Foreground arrows and scene features have bounded horizontal separation. The complete printed name, thin banner edges and shield/exclamation emblem remain rigid; the actor outside the settled panels retains depth. No obvious holes or vertical registration defect is visible at these static cues.",
+    "limit": "Static decoded-image inspection only; headset fusion, comfort, temporal motion and native decoder behavior remain unverified."
+  },
+  "quality_recovery": {
+    "reason": "The original17Mbps maximum saturated and failed the unchanged34dB native-left floor. A fresh encode of the identical source/depth/geometry at CRF17 with34Mbps maximum/68Mbit buffer passes every original frame and all unchanged independent gates.",
+    "previous_candidate_sha256": "8ee41f1e41fc935edbac488d6fd335a27c8b576d88995a6e385257d1f98b96b1",
+    "previous_minimum_left_psnr_db": 33.09,
+    "previous_failed_native_frames": [
+      360,
+      361,
+      362
+    ],
+    "current_same_frames_left_psnr_db": {
+      "360": 38.66,
+      "361": 39.49,
+      "362": 39.44
+    },
+    "current_minimum_left_psnr_db": 38.66,
+    "failed_candidate_and_all_sources_preserved": true,
+    "depth_recomputed": false
+  }
+}

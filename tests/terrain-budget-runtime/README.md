@@ -5,14 +5,13 @@ compiles the actual three `ScenarioTerrainBudget` production source files and
 imports the actual `ScenarioCheapTerrain.shader` into an isolated Unity 2021.3.5f1
 project. Its CPU-side boundaries are explicit substitutes for native scene types,
 configuration, held props/hands, logging, shader loading and bank lookup.
-The original synthetic cases remain; ten additional cases read independently
+The original synthetic cases remain; five additional wall cases read independently
 verified native structural streams through the actual production mesh decoder. Actual Unity meshes, transforms, renderers, materials, MPBs, cloning,
 command buffers and `Camera.Render` callbacks execute; there is no simulated
 renderer or pixel oracle substituted for the production fragment.
 
-The production case makes 7,021 assertions. One hundred six independently compiled
-negative variants each corrupt a production statement and must fail at a named
-assertion. Shader compilation failures and unrelated exceptions never count as
+The pillar-retirement production case makes370 assertions. Retired combinatorial pillar selectors are removed rather than counted as current behavior. Independently compiled negative
+variants each corrupt a production statement and must fail at a named assertion. Shader compilation failures and unrelated exceptions never count as
 passing negative controls. `--production-only` and repeatable `--case NAME` are
 partial development runs; selected cases always retain the production baseline.
 Use `UNITY_PATH` or `--unity` for an editor override.
@@ -65,11 +64,31 @@ Terminal failure clears discovery, preserves native continuation and reports
 one bounded ordinary-level fallback. A later ready bank reseeds the scene.
 A shader-resolver failure restores originals and reports once.
 
+## Detached LOD renderer ownership
+
+The wall material reader is extracted directly from `WallSegmentFade.ReadFacts.cs`.
+Real prepared terrain proxies publish no canonical material to the wall collectors:
+the source renderer remains their sole decision/fade/visibility owner. Otherwise a
+world shader resolving back to `Amp_Basic_WallFade` can enroll those detached
+proxies as another shared wall under the mod host, independently of the native
+wall that is actually clear. This applies to desktop and standalone alike.
+
+Exact registry membership is tested for a live actual proxy, its native source,
+a name/material/layer-identical foreign clone and removal before deferred Unity
+destruction. No hierarchy scan or name-based exemption is introduced. The two
+`terrain-proxy-ledger-*` controls remove registration or disposal respectively.
+The complementary wall-read-facts suite executes the real cold classifier,
+shader-adoption input and structural signature; removing the exact-owner guard
+must fail its named duplicate-adoption assertion. Ten thousand private reads
+perform no native material-list query in that counted fixture. A separate actual
+Unity reader microbenchmark records host CPU time without using it as a speed
+assertion or a complete LOD/GPU/headset FPS claim.
+
 ## Independently verified captured structural definitions
 
 `verify-native-coverage.py` reads the original read-only `pcg_city.asset.bundle`,
 checks its committed SHA-256 and mesh metadata, and independently exports every
-original channel/index byte for ten CR_INT wall/pillar definitions occurring in
+original channel/index byte for five CR_INT ordinary wall definitions occurring in
 the Build627 PC capture. The exact bank streams must match byte for byte; the
 coarse streams must match the committed full digests. Authored prefab references
 prove structural uses and also reveal identical meshes inside under-wall and
@@ -86,10 +105,9 @@ captured coverage, source-template boundaries or completion-counter revocation
 and must fail their named assertions. Native material/art are explicit fixture
 boundaries; original geometry/provenance is independently native-source-bound.
 
-The new ten asset definitions total 3,472/2,088/1,180 triangles at 100/50/0.
-These are asset-definition counts, not scene-instance coverage or FPS. The
-allowlist grows from fifteen identities/twelve present bank definitions to
-twenty-five identities/twenty-two present definitions, without changing assets.
+The earlier mixed10-definition totals are historical; current admission excludes
+all pillar identities. The original audit history is preserved in
+[the retirement record](../../.planning/retired-PILLAR-LOD-20261019.md).
 
 ## Pixel evidence and independent native samples
 
@@ -141,70 +159,18 @@ Frame GPU costs, multiplayer performance or a correct headset picture. The
 integrator must run the affected integration checks required by AGENTS.md and the maintainer must compare
 the independently adjustable controls on hardware with every room revealed.
 
-## Radial pillar proximity
+## Retired pillar LOD
 
-All ten positively admitted crypt/cave/city pillar definitions are independently
-read from their native bundles by `verify-pillar-coverage.py`, in addition to the
-original ten captured city structural cases. Every original channel/index byte
-and complete exact/coarse digest is checked. Eight orbit angles per pillar
-execute the actual private owner and compare exact endpoint topology and rendered
-silhouette pixels. Synthetic cases separately reproduce the former square-AABB
-distance defect, retained near/far settings, head yaw, offset bounds, tilted and
-nonuniform source parents, late cap-deferred native fallback and foreign masks.
-Existing wall-hide/recovery, animation and camera-lifecycle cases remain.
+`RetiredPillars.cs` runs all10 formerly admitted native pillar definitions through
+the actual terrain owner with zero detail caps and cheap-wall shading enabled.
+No private proxy may be prepared or acquire a camera lease. Native meshes,
+materials, colliders, enabled visibility and foreign masks remain unchanged.
+The `retired-pillar-admission-restored` control restores one former allowlist
+entry and must fail the actual proxy-count assertion.
 
-The correction reads a pillar's current source matrix during the existing Update.
-Without tracked hands this replaces the native bounds getter; tracked hands keep
-their unchanged native bounds touch guard as well. Actual primitive observers
-verify these counts. A warm paired primitive benchmark binds the actual proximity
-method once outside timing and compares 21 alternating batches of 512 calls with
-the former Unity bounds/closest-point path. Delegate/observer overhead is included
-in this diagnostic. The separate two-source complete Update timer is diagnostic
-only. Neither timer establishes Steam Frame frame rate or GPU cost. Native LOD
-controllers and far source-cap/frustum selection are unchanged.
-
-## Independent size-based pillar LOD
-
-Each admitted pillar uses its own original full enclosing-cylinder radius and
-its own radial VR-camera distance. The fixture additionally compiles the pure
-production `FigureDistanceLodPolicy.FirstReductionDistances` and the unchanged
-`Select`, alongside the source-extracted actual figure mesh-bank tier selector.
-All ten native crypt/cave/city pillar definitions compare actual settled topology
-with the same effective tier bands at caps 0, 66, 67 and 100. Probes immediately
-inside/outside the entry and exit edges distinguish even modest differences
-between original sizes; eight radial orbit positions, head yaw and two board/head
-scales retain their own size-derived result. Nonempty native/private shader
-readbacks preserve the selected silhouette, and distant endpoints must save
-actual original triangles. A fixed common radius is rejected independently of
-the former fixed .75m distance and horizontal-thickness controls.
-
-No actual figure, player configuration or party-published reference supplies a
-pillar threshold. Runtime cases enable/disable figure LOD and add/remove an
-unrelated actor without changing the selected pillar detail. The complete
-CoreModule source is bound to the receipt and checked for the absence of the
-former proposed provider bridge. Ordinary walls and native ownership remain
-unchanged. Manual mode retains the saved viewing radius, with live mode and cap
-edits. Original-size rotation/nonuniform scale, exact binary entry/exit equality,
-invalid captured original bounds, and fully hidden/native-disabled sources are
-covered. Invalid original radii preserve exact geometry and clear the far latch.
-
-Actual primitive observers establish one current source matrix during Update,
-zero extra native bounds reads for an untracked pillar and zero geometry/radius
-reads during either camera callback. The full radius uses that same existing
-matrix; the manual path skips its optional scalar square root. Original geometry
-and the existing shader/bank lookup are explicit fixture boundaries; headset
-presentation and GPU/FPS effects remain unverified. The twelve added controls
-must fail their exact named runtime assertions, retaining all 94 prior controls.
-`--figure-source-root` and `--integration-root` support frozen worker input;
-their exact bytes are hashed and checked for stability with every other input.
-
-The initial 106-variant independent run passed production and 104 of 105 controls.
-Its new figure-toggle coupling control escaped because the selected far position
-was coarse under both manual and independent modes. The final positive compares
-inside the pillar's own near band and outside the manual radius, distinguishing
-the two policies. That control is rerun alongside the new zero-height fallback
-control and the existing invalid-size control, with complete final production.
-The original stable receipt is retained; combined coverage is composed, not a
-claim of an uninterrupted final 107-variant run. Zero native height retains the
-existing manual distance fallback but supplies no size radius, preserving exact
-geometry in independent mode instead of borrowing an angle-dependent world AABB.
+`verify-pillar-coverage.py` independently verifies each original stream against
+its native read-only bundle and requires that only tier100 remains. That exact
+stream is still shared by the independent environment chunk renderer. No pillar
+50/0 derivative remains in the prepared bank or actual packaged bank. The older
+radial/size-selection tests are retired together with their implementation;
+[their recorded proof and failures remain in history](../../.planning/retired-PILLAR-LOD-20261019.md).

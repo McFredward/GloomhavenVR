@@ -5631,7 +5631,11 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void ClassifyMaterialsAndName(Renderer r, ref RendererFact f)
         {
-            bool wallFade = false, foliage = false, water = false;
+            // The VR film no longer carries the native Water_Sh shader. Retain
+            // water-feature protection through its exact live owner, including
+            // decorative/DLC children without a water-specific renderer name.
+            // Generic Overlay materials are never sufficient evidence of water.
+            bool wallFade = false, foliage = false, water = WaterTerrainVR.IsOwnedWaterSurface(r);
             ReadFadeMaterials(r, _matScratch);
             for (int mi = 0; mi < _matScratch.Count; mi++)
             {

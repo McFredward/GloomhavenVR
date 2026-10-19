@@ -114,14 +114,12 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///   <item>The HELD figure itself can never be steal-grabbed: <c>FigureGrabbable.CanGrab</c> is
 ///   false while <c>_holder != null</c>, and both the <c>ProximityGrabber</c> highlight walk and
 ///   <c>FigureGrabDriver.TryLaserGrab</c> gate on CanGrab.</item>
-///   <item>OTHER board figures behind/near the held mini: while a hand is captured (or
+///   <item>A highlighted, eligible board figure keeps its pickup promise when a hand first
+///   enters the stretch zone. Capture yields to that offer. Once captured (or
 ///   mid-gesture) <c>FigureGrabDriver.SelectByOffsetAnchor</c> elects NOBODY for it and vetoes
 ///   every adopted figure (<c>ApplySuppression(hand, null)</c>), and <c>TryLaserGrab</c> skips
-///   the hand outright — so neither the near pick nor the far pluck can fire. The veto is read by
-///   the grabber one frame in arrears (its standing property): on the single frame a hand ENTERS
-///   the zone with the trigger already going down, an ALREADY-HIGHLIGHTED board figure may still
-///   win — which is the affordance the player is literally looking at, so the highlight never
-///   lies.</item>
+///   the hand outright. The capture and active gesture publish a committed trigger claim, so
+///   near election cannot offer a rival while the existing gesture owns the hand.</item>
 ///   <item>OTHER board PROPS near either hand (ModBuild 362): a prop is not elected centrally —
 ///   <c>GrabbableProp.AllowsHand</c> runs its own per-prop reach test, so there is no
 ///   <c>ApplySuppression</c> seam to lean on. The veto is therefore published where the decision
@@ -283,18 +281,19 @@ internal static class FigureStretch
             return; // a full hand cannot gesture (this also covers "one figure per hand" holds)
         }
 
-        // A hovered CARD keeps its trigger — its highlight is a promise the player is looking at.
-        // A hovered FIGURE does not block: the capture veto clears that highlight one frame later
-        // (see the class doc's collision story).
+        // A hovered CARD keeps its trigger. A live FIGURE offer also keeps its promise on entry
+        // (user, 2026-10-19: every highlighted figure must be grabbable). An existing capture or
+        // active gesture keeps ownership; it has already prevented a rival figure offer.
         // MAP ITEMS ARE ON THIS LIST TOO (2026-09-03). A hovered GrabbableProp used to fall into
         // the "keeps its own trigger" branch and silently refuse every capture — which would have
         // made the prop resize unreachable exactly where props are, i.e. everywhere the gesture
-        // hand is likely to be. It joins the figure for the same reason the figure is exempt: the
-        // capture veto clears that highlight, and for props that veto is published by
-        // GrabbableProp.AllowsHand's own FigureStretch.Engaged early-out.
-        if (hand.Grabber.Highlighted != null
+        // hand is likely to be. Props retain that capture exception: GrabbableProp.AllowsHand's
+        // FigureStretch.Engaged early-out removes their hover once captured. The newer live-figure
+        // offer rule above supersedes the old figure exception specifically on capture entry.
+        if ((!wasCaptured && hand.Grabber.FigureGrabOffered)
+            || (hand.Grabber.Highlighted != null
             && hand.Grabber.Highlighted is not FigureGrabbable
-            && hand.Grabber.Highlighted is not GrabbableProp)
+            && hand.Grabber.Highlighted is not GrabbableProp))
         {
             if (wasCaptured) StretchCaptureWatch.NoteReleased(hand.Side);
             return;
@@ -378,7 +377,8 @@ internal static class FigureStretch
         // far-click defer to us — and because the driver's own clamp-frame bookkeeping is NOT
         // updated here, TryLaserGrab reads the hit as foreign and defers as well (belt to its
         // explicit Engaged() early-out).
-        hand.Ray.UiHitOverride = center;
+        hand.Ray.SetWorldUiHit(center, "held figure stretch capture");
+        hand.Ray.ClaimTrigger("held figure stretch capture");
 
         if (hand.TriggerDown)
         {
@@ -443,7 +443,8 @@ internal static class FigureStretch
         // Keep owning the trigger while the gesture runs — the drag may leave the capture radius
         // (moving OUT is the growing half of the gesture) and must keep the beam clamped so a
         // trigger re-press race can never fall through to a board click mid-hold.
-        hand.Ray.UiHitOverride = center;
+        hand.Ray.SetWorldUiHit(center, "held figure stretch gesture");
+        hand.Ray.ClaimTrigger("held figure stretch gesture");
         st.Captured = true;
 
         float distReal = Mathf.Max(RealDistance(hand, center), MinGestureDistanceRealMeters);

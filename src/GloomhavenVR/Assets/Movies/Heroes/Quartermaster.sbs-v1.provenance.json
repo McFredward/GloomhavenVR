@@ -1,0 +1,289 @@
+{
+  "schema": 1,
+  "subject": "Heroes/Quartermaster.mov",
+  "source_sha256": "db1868e301cd7e6d887e352ede31c19d3aa205625bbf341babec92711c8a9224",
+  "source_kind": "external",
+  "source_relative": "StreamingAssets/Movies/Heroes/Quartermaster.mov",
+  "stereo_file": "Quartermaster.sbs-v1.mov",
+  "stereo_sha256": "ea2a363d9e57709bd9378ddcfefe6ba4ae4de602d5e4f79f0b1592c0071c7a60",
+  "stereo_bytes": 23878937,
+  "packing": "full-SBS-left-first",
+  "per_eye_size": [
+    1920,
+    1080
+  ],
+  "fps": 60,
+  "frames": 704,
+  "duration_seconds": 11.733333333333333,
+  "body_rows": [
+    128,
+    956
+  ],
+  "shots": [
+    {
+      "id": "native-opening-emblem",
+      "start": 0,
+      "end": 99,
+      "mode": "screen"
+    },
+    {
+      "id": "black-00",
+      "start": 99,
+      "end": 104,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-01",
+      "start": 104,
+      "end": 178,
+      "mode": "depth"
+    },
+    {
+      "id": "black-01",
+      "start": 178,
+      "end": 186,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-02",
+      "start": 186,
+      "end": 257,
+      "mode": "depth"
+    },
+    {
+      "id": "black-02",
+      "start": 257,
+      "end": 263,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-03",
+      "start": 263,
+      "end": 348,
+      "mode": "depth"
+    },
+    {
+      "id": "black-03",
+      "start": 348,
+      "end": 360,
+      "mode": "screen"
+    },
+    {
+      "id": "scene-04",
+      "start": 360,
+      "end": 664,
+      "mode": "depth",
+      "screen_panels": [
+        {
+          "id": "name-banner",
+          "bounds": [
+            792,
+            547,
+            1895,
+            708
+          ],
+          "prepare": [
+            456,
+            468
+          ],
+          "last_clear_source_frame": 468,
+          "observed_onset_frame": 470,
+          "onset_bounds": [
+            0,
+            128,
+            1920,
+            956
+          ],
+          "onset_release": [
+            484,
+            496
+          ],
+          "source_witness_frames": [
+            480,
+            564,
+            633
+          ]
+        },
+        {
+          "id": "class-symbol",
+          "bounds": [
+            1174,
+            280,
+            1520,
+            926
+          ],
+          "prepare": [
+            540,
+            552
+          ],
+          "last_clear_source_frame": 552,
+          "observed_onset_frame": 554,
+          "onset_bounds": [
+            0,
+            128,
+            1920,
+            956
+          ],
+          "onset_release": [
+            574,
+            586
+          ],
+          "source_witness_frames": [
+            480,
+            564,
+            633
+          ]
+        }
+      ],
+      "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+    },
+    {
+      "id": "black-04",
+      "start": 664,
+      "end": 704,
+      "mode": "screen"
+    }
+  ],
+  "profile": {
+    "cpu_dtype": "float32",
+    "model_input": 392,
+    "temporal_window": 32,
+    "temporal_overlap": 10,
+    "saved_depth_size": [
+      640,
+      360
+    ],
+    "shot_normalization_percentiles": [
+      2,
+      98
+    ],
+    "depth_disparity_px": [
+      -4,
+      12
+    ],
+    "code_revision": "4f5ae23172ba60fd7bc11ef671cca678842c7072",
+    "model_revision": "256875362cff76724b920335dfb4b29dd611f66e",
+    "checkpoint_sha256": "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609"
+  },
+  "left": "Native decoded YUV directly hstacked before final H264 encoding",
+  "right": "shot-wide temporal inverse-depth horizontal forward reprojection for depth scenes; uniform+8px original studio plane; screen-plane protected titles",
+  "disocclusion_fill": "Farther adjoining source background; no generative inpainting",
+  "render_source_sha256": "6d8d19f3fb024e568308e62bb6c90238855aee82fd3898b426e8def6d5cbcb9f",
+  "geometry_source_sha256": "7068b8e6c0334f2bfbbf73779e2dd1ef1b89390d61c032ecec496a5be4c5c7cf",
+  "verification": {
+    "status": "passed",
+    "movie": "Heroes/Quartermaster.mov",
+    "source_sha256": "db1868e301cd7e6d887e352ede31c19d3aa205625bbf341babec92711c8a9224",
+    "stereo_sha256": "ea2a363d9e57709bd9378ddcfefe6ba4ae4de602d5e4f79f0b1592c0071c7a60",
+    "stereo_bytes": 23878937,
+    "video": {
+      "frames": 704,
+      "fps": 60,
+      "dimensions": [
+        3840,
+        1080
+      ],
+      "sample_aspect_ratio": "1:1",
+      "every_original_timestamp": true
+    },
+    "identical_aac_packets": 550,
+    "native_audio_presentation": {
+      "duration_seconds": "176/15",
+      "original_time_base": "1/48000",
+      "stereo_time_base": "1/48000",
+      "original_presentation_window_preserved": true
+    },
+    "left_comparison": {
+      "frames": 704,
+      "minimum_psnr_db": 45.23
+    },
+    "depth_shots_validated": 4,
+    "encoded_right_witness_frames": 44,
+    "minimum_right_witness_psnr_db": 45.05662529593444,
+    "native_loop_endpoints": {
+      "0": {
+        "original_rgb_mean": 51.721375707304524,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 51.00827631170931
+      },
+      "703": {
+        "original_rgb_mean": 0.0017952674897119341,
+        "disparity_bounds_px": [
+          0.0,
+          0.0
+        ],
+        "right_psnr_db": 84.23372085938398
+      }
+    },
+    "verification_source_sha256": "1d317106038bd46d316bedfee6c579dfc102eb0d1a0744b8397e2821ffb6a409",
+    "manifest_sha256": "f10b245d398d81b311f3a3b7ca89d9a2a2b553815f2c87e81bf6f9b97e9a9759",
+    "decoded_cue_frames": [
+      141,
+      305,
+      604
+    ],
+    "decoded_cue_receipt_sha256": "ddd9db4cc6d1b6f1cceed5edfdbedefad788040e76e90065d397e185195a9785",
+    "manual_visual_review": "pending",
+    "hardware_result": "unverified"
+  },
+  "hardware_result": "unverified",
+  "audio_finalization": {
+    "status": "passed",
+    "identical_aac_packets": 550,
+    "identical_encoded_video_packets": 704,
+    "audio_presentation_seconds": "176/15",
+    "video_presentation_seconds": "176/15",
+    "audio_time_base": "1/48000",
+    "video_time_base": "1/15360",
+    "audio_payload_pts_dts_durations_identical": true,
+    "video_payload_pts_dts_durations_identical": true,
+    "subject": "Heroes/Quartermaster.mov",
+    "encoded_candidate_sha256": "96c9c70f678b9af62b6cc8a50d9b4d3eca5dc32f71aab75b39d0d9d2b2e66d13",
+    "native_source_sha256": "db1868e301cd7e6d887e352ede31c19d3aa205625bbf341babec92711c8a9224",
+    "finalized_sha256": "ea2a363d9e57709bd9378ddcfefe6ba4ae4de602d5e4f79f0b1592c0071c7a60",
+    "finalized_bytes": 23878937,
+    "native_presentation": {
+      "native_movie_timescale": 90000,
+      "native_edit_duration": 1056000,
+      "native_audio_edit_media_time": 0,
+      "copy_mux_audio_duration_before_native_window": 1056000,
+      "presentation_seconds": "176/15",
+      "changed_atoms_only": [
+        "moov/mvhd duration",
+        "audio trak/tkhd duration",
+        "audio trak/edts/elst segment duration"
+      ]
+    },
+    "copy_mux_source_sha256": "fd0e35935207e5eb69c99806c7761e12305427239cf3d3fd42bd9c7eab804cce",
+    "picture_reencoded": false
+  },
+  "encoding": {
+    "codec": "libx264",
+    "preset": "fast",
+    "crf": 17,
+    "profile": "high",
+    "level": "5.1",
+    "threads": 3,
+    "maximum_video_bitrate_mbps": 34,
+    "video_buffer_mbits": 68,
+    "gop_frames": 60,
+    "video_track_timescale": 15360
+  },
+  "static_decoded_review": {
+    "status": "reviewed",
+    "movie": "Heroes/Quartermaster.mov",
+    "stereo_sha256": "ea2a363d9e57709bd9378ddcfefe6ba4ae4de602d5e4f79f0b1592c0071c7a60",
+    "frames": [
+      141,
+      305,
+      604
+    ],
+    "capture_receipt_sha256": "ddd9db4cc6d1b6f1cceed5edfdbedefad788040e76e90065d397e185195a9785",
+    "reviewed_utc": "2026-10-17T16:18:35.013307+00:00",
+    "observations": "All three actual decoded stereo pairs were inspected. The close armor/weapon view, back and quiver view, and complete Quartermaster actor/title view preserve original detail, warm lighting, blur, cinematic bars and full per-eye aspect. Armor, quiver and actor features have bounded horizontal separation. The complete three-point class emblem, initial Q and thin banner edges remain rigid while actor geometry outside the panels retains depth. No obvious missing artwork, exposed holes or vertical registration defect is visible at these static cues.",
+    "limit": "Static decoded-image inspection only; headset fusion, comfort, temporal motion and native decoder behavior remain unverified."
+  }
+}

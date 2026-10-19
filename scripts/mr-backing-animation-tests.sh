@@ -50,6 +50,7 @@ print('Window materialization switch: 4 production entry-point bindings passed.'
 # Mutations prove runtime cases detect the two original classes of regression.
 src=(out/'MrBackingAnimation.cs').read_text()
 for name,needle,replacement in (
+    ('depth','        SeatBehindContent(entry.Plate, entry.BackZ);',''),
     ('tail','visible &= MrBackingLayout.ReadyForSample(true, rect) && entry.Animation.Progress < 1f;',
      'visible &= MrBackingLayout.ReadyForSample(true, rect);'),
     ('settle','entry.Layout.Settle(entry.Animation.Bounds, Time.unscaledTime);','entry.Layout.Reset();'),
@@ -69,7 +70,7 @@ assert frame.count(needle)==1
 PY
 dotnet run --project "$test_dir/GloomhavenVR.MrBackingAnimationTests.csproj" --configuration Release --verbosity quiet
 cp "$test_dir/MrBackingAnimation.cs" "$test_dir/original.fixture"
-for mutation in tail settle callback capture pending; do
+for mutation in depth tail settle callback capture pending; do
     cp "$test_dir/$mutation.fixture" "$test_dir/MrBackingAnimation.cs"
     if dotnet run --project "$test_dir/GloomhavenVR.MrBackingAnimationTests.csproj" --configuration Release --verbosity quiet >"$test_dir/$mutation.log" 2>&1; then
         echo "ERROR: MR backing animation accepted mutation $mutation" >&2
@@ -80,7 +81,7 @@ for mutation in tail settle callback capture pending; do
         exit 1
     fi
 done
-echo 'MR backing animation: 5 negative controls rejected.'
+echo 'MR backing animation: 6 negative controls rejected.'
 cp "$test_dir/original.fixture" "$test_dir/MrBackingAnimation.cs"
 cp "$test_dir/SwitchProduction.cs" "$test_dir/switch-original.fixture"
 cp "$test_dir/FrameDefaults.cs" "$test_dir/frame-original.fixture"

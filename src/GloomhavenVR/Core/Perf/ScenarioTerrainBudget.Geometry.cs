@@ -31,8 +31,6 @@ internal static partial class ScenarioTerrainBudget
         private readonly MeshRenderer _proxyRenderer;
         private readonly MeshFilter _proxyFilter;
         private readonly Transform _sourceTransform, _proxyTransform, _owner;
-        internal readonly bool Pillar;
-        private readonly Bounds _originalBounds;
         private Matrix4x4 _sourcePose, _ownerPose;
         private bool _hasPose, _hasRendererState, _materialsDirty = true;
         private bool _hasPropertyDefaults, _copiedNativeProperties;
@@ -44,58 +42,14 @@ internal static partial class ScenarioTerrainBudget
         {
             Renderer = renderer; Identity = renderer.GetInstanceID(); Filter = filter; Original = filter.sharedMesh;
             Floor = FloorIdentity(Original);
-            // Membership has already passed the exact structural/bank admission.
-            // This classification only changes the proximity metric of those sources.
-            Pillar = AuthoredName(Original.name).IndexOf("Pillar", StringComparison.OrdinalIgnoreCase) >= 0;
-            _originalBounds = Original.bounds;
             OriginalTriangles = TriangleCount(Original);
             _proxy = new GameObject("GloomhavenVR.TerrainProxy");
             _proxy.transform.SetParent(owner, false);
             _sourceTransform = renderer.transform; _proxyTransform = _proxy.transform; _owner = owner;
             _proxyFilter = _proxy.AddComponent<MeshFilter>();
             _proxyRenderer = _proxy.AddComponent<MeshRenderer>();
+            PrivateRenderers.Add(_proxyRenderer);
             _proxyRenderer.enabled = false;
-        }
-        internal float HeadDistance(Vector3 position, Bounds currentBounds)
-            => HeadDistanceAndRadius(position, currentBounds, false, out _);
-        internal float HeadDistanceAndRadius(Vector3 position, Bounds currentBounds, bool measureRadius, out float originalRadius)
-        {
-            originalRadius = 0f;
-            if (!Pillar) return Vector3.Distance(position, currentBounds.ClosestPoint(position));
-            // The Frame pillar report exposed an angle-dependent *distance* before
-            // any camera admission: a square world AABB is closer at its corners.
-            // Walking around one column at a fixed radius could cross the
-            // original-detail radius (and near/far boundary) without approaching it.
-            // Use its authored enclosing cylinder instead. Current source axes keep
-            // this radial metric valid through diorama tilt/nonuniform scale. Read
-            // the matrix only in the existing Update, never in either eye's loop.
-            Matrix4x4 native = _sourceTransform.localToWorldMatrix;
-            Vector3 y = native.MultiplyVector(Vector3.up);
-            float heightScale = y.magnitude;
-            if (heightScale < .0001f)
-            {
-                // Degenerate native scale keeps the original distance fallback.
-                // Its original cylindrical radius is undefined: leave it zero so
-                // independent LOD preserves native geometry, never an AABB-based band.
-                Bounds fallback = Renderer.bounds;
-                return Vector3.Distance(position, fallback.ClosestPoint(position));
-            }
-            Vector3 axis = y / heightScale;
-            Vector3 offset = position - native.MultiplyPoint3x4(_originalBounds.center);
-            float along = Vector3.Dot(offset, axis);
-            Vector3 x = native.MultiplyVector(Vector3.right * _originalBounds.extents.x);
-            Vector3 z = native.MultiplyVector(Vector3.forward * _originalBounds.extents.z);
-            float xAlong = Vector3.Dot(x, axis), zAlong = Vector3.Dot(z, axis);
-            float halfHeight = heightScale * _originalBounds.extents.y + Mathf.Abs(xAlong) + Mathf.Abs(zAlong);
-            float vertical = Mathf.Max(0f, Mathf.Abs(along) - halfHeight);
-            x -= axis * xAlong; z -= axis * zAlong;
-            float radius = Mathf.Sqrt(Mathf.Max((x + z).sqrMagnitude, (x - z).sqrMagnitude));
-            // The enclosing original cylinder's diagonal is rotation invariant,
-            // uses all original extents and remains conservative under native shear.
-            // Compute it only for the optional independent size policy, never per eye.
-            if (measureRadius) originalRadius = Mathf.Sqrt(radius * radius + halfHeight * halfHeight);
-            float radial = Mathf.Max(0f, (offset - axis * along).magnitude - radius);
-            return Mathf.Sqrt(radial * radial + vertical * vertical);
         }
         internal bool Validate(Dictionary<Mesh, bool> meshes)
         {
@@ -323,6 +277,7 @@ internal static partial class ScenarioTerrainBudget
         {
             Unmask();
             if (_morph != null) UnityEngine.Object.Destroy(_morph);
+            PrivateRenderers.Remove(_proxyRenderer);
             if (_proxy != null) UnityEngine.Object.Destroy(_proxy);
             _morph = null; _current = null; _target = null; _exact = null;
             _from = null; _to = null; _vertices = null;

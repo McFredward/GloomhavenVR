@@ -98,6 +98,12 @@ internal static partial class VROptionsTab
     /// </summary>
     private static readonly Dictionary<string, DependencyRule> DependentRows = new(StringComparer.Ordinal)
     {
+        // A saved true preference is inert on Virtual Desktop and other HMDs.
+        // Keep chroma-key controls available until the actual Frame/vrlink
+        // connection is proven; the global preference is enabled by default.
+        ["MixedReality/KeyColor"] = new("MixedReality", "SteamLinkNative",
+            static v => !Core.SteamLink.SteamLinkConnection.Available || Off(v)),
+        ["MixedReality/SteamLinkEdgeQuality"] = new("MixedReality", "SteamLinkNative", On),
         // ---- Komfort ▸ Drehen: the two speed dials belong to their mode, the hand to any ------
         ["Comfort/SnapTurnDegrees"] = new("Comfort", "TurnMode", Named("Snap")),
         ["Comfort/SmoothTurnSpeed"] = new("Comfort", "TurnMode", Named("Smooth")),
@@ -445,8 +451,17 @@ internal static partial class VROptionsTab
     /// </summary>
     private static bool IsRowVisible(ConfigCatalog.ConfigItem item) =>
         !HasItsOwnPage(item)
+        // Build702: MR must follow the actual eye resolution, never a separate
+        // quality dial. Preserve the old config key as inert storage and hide it
+        // in both the curated and catalog-generated Advanced paths.
+        && !(item.Section == "MixedReality" && item.Key == "SteamLinkEncodeWidth")
         // Native alpha passthrough uses no chroma-key color. Keep its saved value
         // for PC streaming without offering an ineffective Frame-only control.
-        && !(FrameNativePassthrough.Required && item.Section == "MixedReality" && item.Key == "KeyColor")
+        && !(FrameNativePassthrough.Required && item.Section == "MixedReality"
+            && (item.Key == "KeyColor" || item.Key == "SteamLinkNative"
+                || item.Key == "SteamLinkEdgeQuality"))
+        && !(item.Section == "MixedReality"
+            && (item.Key == "SteamLinkNative" || item.Key == "SteamLinkEdgeQuality")
+            && !Core.SteamLink.SteamLinkConnection.Available)
         && IsShownForCurrentVariant(item) && DependencyMet(item);
 }

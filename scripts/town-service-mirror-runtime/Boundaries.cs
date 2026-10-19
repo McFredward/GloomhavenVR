@@ -21,7 +21,11 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.Rig
 { internal static class VRRigDriver { internal static Camera? HeadCamera; } }
 namespace GloomhavenVR.Cards
-{ internal static class CardFaceMipBake { internal static Sprite OriginalFor(Sprite sprite) => sprite; internal static Sprite? PresentationFor(Sprite? sprite) => sprite; } }
+{ internal static partial class CardFaceMipBake {
+    internal static void SeedOriginal674(Sprite replacement, Sprite original) => s_originalByReplacement[replacement.GetInstanceID()] = original;
+    internal static void ClearOriginals674() => s_originalByReplacement.Clear();
+    internal static Sprite? PresentationFor(Sprite? sprite) => sprite;
+} }
 namespace GloomhavenVR.WorldUI
 {
     internal static class PanelMipBake { internal static Texture OriginalFor(Texture texture) => texture; }

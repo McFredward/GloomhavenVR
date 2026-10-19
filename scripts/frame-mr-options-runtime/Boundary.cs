@@ -5,8 +5,8 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-// OpenXR lifecycle/capability and configuration persistence are tested separately.
-// This fixture varies those explicit inputs and executes production UI policy,
+// OpenXR lifecycle/capability, Steam Link identity and configuration persistence are tested separately.
+// This fixture controls those explicit inputs and executes production UI policy,
 // callbacks, tint and native tooltip attachment with actual Unity/uGUI/TMP objects.
 namespace GloomhavenVR.Core
 {
@@ -41,11 +41,30 @@ namespace GloomhavenVR.Core
         internal static void Warn(string area, string message) => throw new InvalidOperationException(message);
         internal static void Debug(string area, string message) { }
     }
-    internal static class TickGuard { internal static void Run(string name, Action action, string area) => action(); }
+    internal static class TickGuard
+    {
+        internal static void Run(string name, Action action, string area)
+        {
+            // Ordinary edit rebuilds are the existing construction boundary.
+            // Do not silently simulate a Steam Link identity transition or a new path.
+            if (name != "VROptionsTab.VariantTiles" && name != "VROptionsTab.RebuildAfterEdit")
+                throw new InvalidOperationException("Unsupported Frame MR option fixture dispatch: " + name);
+            action();
+        }
+    }
     internal static class WallFadeTuning
     {
         internal static float RescanIntervalSeconds => 4;
         internal static float EffectiveEvalIntervalSeconds => 1;
+    }
+}
+namespace GloomhavenVR.Core.SteamLink
+{
+    // These cases vary direct Frame capability and ordinary PC chromakey inputs.
+    // No Steam Link identity is admitted; its discovery/rebuild has separate proof.
+    internal static class SteamLinkConnection
+    {
+        internal static bool Available => false;
     }
 }
 namespace GloomhavenVR.WorldUI

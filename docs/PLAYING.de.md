@@ -101,6 +101,15 @@ Mit beiden Händen an der Stange die Größe ändern; über das **X** das Fenste
 **Truhenbelohnungen:** im Belohnungsfenster **Weiter** drücken. Im Multiplayer sehen alle
 die Belohnung; der Spieler des betroffenen Characters bestätigt für die Gruppe.
 
+**3D-Videos:** Intro, Charakterfilme, Umgebungsfilme und Studio-Logo haben Tiefe im
+beweglichen Videofenster. Mit aktivierten Cheats kannst du im Szenario unter **VR Optionen ▸
+Erweitert ▸ Cheats ▸ Videos** jeden Film einzeln abspielen. Der Katalog enthält Spoiler
+und ist standardmäßig ausgeblendet. Schließe VR Optionen für freie
+Sicht; **Testvideo schließen** beendet die Vorschau. Mitspieler sehen sie ebenfalls.
+Die Vorschauen schalten keine Klassen frei und ändern keinen Fortschritt; ein Spielvideo
+hat Vorrang. Kopfbewegungen ändern deinen Blick auf das Fenster, während der Film seine
+aufgezeichnete Kameraperspektive behält.
+
 | Zeichen am Fenster | Wer sieht es? |
 |---|---|
 | <img src="img/net-shared.svg" width="22" height="16" alt="Blaues Zwei-Personen-Symbol für geteilte Fenster"> **Geteilt** (im Spiel blau pulsierend) | Alle. Geteilte Fenster und die Seiten der Geschichte bleiben synchron. Das Symbol sitzt oben rechts, unter dem Schließen-**X**, sofern vorhanden. |

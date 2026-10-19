@@ -21,6 +21,8 @@ static partial class Program
         PostQuestRewardSync.Reset();
         Singleton<InputManager>.Instance = Component<InputManager>("Input");
         Singleton<KeyActionHandlerController>.Instance = Component<KeyActionHandlerController>("Key actions");
+        Singleton<UIBlackOverlay>.Instance = Component<UIBlackOverlay>("Overlay");
+        InputManager.GamePadInUse = false;
         Synchronizer.Sent = ActionProcessor.HaltRequests = 0;
         Singleton<ScenarioRewardManager>.Instance = null!;
         Singleton<CampaignRewardsManager>.Instance = null!;
@@ -88,15 +90,20 @@ static partial class Program
         internal readonly UIRewardsManager Rewards = Component<UIRewardsManager>("Native guild rewards");
         internal readonly UIWindow Window;
 
-        internal Guild()
+        internal Guild(bool running = true)
         {
             Reset();
             Window = Rewards.gameObject.AddComponent<UIWindow>();
             Rewards.Window = Window;
+            Window.NativeInstantHide = () => Rewards.CompletedProcesses++;
+            // Existing permission/identity cases intentionally begin mid-process.
+            // Lifecycle regressions leave the real native defaults untouched.
+            if (running) Rewards.ProcessingRewards = Rewards.NetworkProcess = true;
             Singleton<ScenarioRewardManager>.Instance = Scenario;
             Singleton<UIRewardsManager>.Instance = Rewards;
             ModalFallback.PollRewardsForTest(true);
-            Check(ReferenceEquals(ModalFallback.PolledWindow, Window), "actual modal poll enrolls original guild window");
+            Check(running ? ReferenceEquals(ModalFallback.PolledWindow, Window) : ModalFallback.PolledWindow == null,
+                running ? "actual modal poll enrolls original guild window" : "idle native manager has no reward window to enroll");
         }
 
         internal void Denied(Action disable, Action restore, string reason)
@@ -290,7 +297,7 @@ static partial class Program
         campaign.Denied(() => campaign.Rewards.ContinueAction = null, () => campaign.Rewards.ContinueAction = () => campaign.Completions++, "completed reward callback cannot confirm");
         campaign.Denied(() => WorldUIConfig.ConversionActive = false, () => WorldUIConfig.ConversionActive = true, "disabled VR conversion cannot confirm campaign");
         campaign.Denied(() => FlatScreen.ManualScreenActive = true, () => FlatScreen.ManualScreenActive = false, "manual desktop mode gates campaign bridge");
-        campaign.Denied(() => Singleton<ESCMenu>.Instance.IsOpen = true, () => Singleton<ESCMenu>.Instance.IsOpen = false, "ESC modal gates campaign bridge");
+
         FFSNetwork.IsOnline = FFSNetwork.IsClient = true;
         Check(RewardShowcase.CanConfirm, "controlled campaign client follows native button authority rather than host-only rule");
         campaign.Rewards.ContinueAction = () => { campaign.Completions++; campaign.Rewards.ContinueAction = null; };
@@ -484,8 +491,8 @@ static partial class Program
         guild.Denied(() => guild.Rewards.ProcessingRewards = false, () => guild.Rewards.ProcessingRewards = true, "idle guild manager cannot confirm");
         guild.Denied(() => WorldUIConfig.ConversionActive = false, () => WorldUIConfig.ConversionActive = true, "disabled VR conversion cannot confirm guild");
         guild.Denied(() => FlatScreen.ManualScreenActive = true, () => FlatScreen.ManualScreenActive = false, "manual desktop mode gates guild bridge");
-        guild.Denied(() => Singleton<ESCMenu>.Instance.IsOpen = true, () => Singleton<ESCMenu>.Instance.IsOpen = false, "ESC modal gates guild bridge");
-        guild.Denied(() => guild.Rewards.enabled = false, () => guild.Rewards.enabled = true, "disabled guild component cannot confirm");
+
+
 
         // Cross native network processing and actor authority independently. The game permits
         // non-networked showcases locally; networked chest rewards use the actor predicate.
@@ -703,6 +710,9 @@ static partial class Program
         NativeRewardCompletion();
         MapRewardContinuation();
         ContinueHoverAndClick();
+        NativePointerMenuAndAuthority();
+        RepeatedNativePointerSessions();
+        CampaignNativePointerWithMenu();
         GuildGatesAndAuthority();
         IdentityAndInitialPlacement();
         SharedRevealHandoff();

@@ -61,6 +61,15 @@ public static class InteractionProgram
     }
     private static int Count(Component driver, string field) => ((ICollection)driver.GetType().GetField(field, Private)!.GetValue(driver)!).Count;
     private static int Value(Component driver, string field) => (int)driver.GetType().GetField(field, Private)!.GetValue(driver)!;
+    private static string PreparationState(Component driver) =>
+        "preparing="+ScenarioSceneryBudget.IsPreparingPresentation
+        +", pending="+Count(driver,"_pending")+", nodes="+Count(driver,"_nodes")
+        +", material="+Count(driver,"_materialNodes")+", retune="+Value(driver,"_retuneIndex")
+        +", walking="+(driver.GetType().GetField("_walkingTile",Private)!.GetValue(driver)!=null)
+        +", dirty="+((HashSet<int>)driver.GetType().GetField("_dirtyIds",Private)!.GetValue(driver)!).Count
+        +", records="+Count(driver,"_records")
+        +", watch="+Value(driver,"_watchIndex")+", projectorWatch="+Value(driver,"_projectorWatchIndex")
+        +", clock="+SceneryClock.Now;
     private static bool HasQueuedDiscovery(Component driver) => Count(driver,"_pending")!=0
         ||Count(driver,"_nodes")!=0||Count(driver,"_materialNodes")!=0
         ||driver.GetType().GetField("_walkingTile",Private)!.GetValue(driver)!=null;
@@ -826,9 +835,16 @@ public static class InteractionProgram
             ScenarioSceneryBudget.ContentPlaced(tile);Tick(driver,100);
             Check(!originalJugs.forceRenderingOff,"native controller activation restores a previously masked shelf mesh");
             jugAnimator.runtimeAnimatorController=null;UnityEngine.Object.DestroyImmediate(activeController);
-            ScenarioSceneryBudget.ContentPlaced(tile);Tick(driver,100);
+            ScenarioSceneryBudget.ContentPlaced(tile);
+            Debug.Log("Scenery final rediscovery before fixed ticks: "+PreparationState(driver));
+            Tick(driver,100);
+            string preparationState=PreparationState(driver);
+            Debug.Log("Scenery final rediscovery after fixed ticks: "+preparationState);
             Check(originalJugs.forceRenderingOff,"clearing native inert shelf controller permits bounded remasking");
-            Check(!ScenarioSceneryBudget.IsPreparingPresentation,"drained loading work does not include ongoing ancestry monitoring or diagnostics");
+            DrainQueuedDiscovery(driver);
+            preparationState=PreparationState(driver);
+            Debug.Log("Scenery final rediscovery after queue drain: "+preparationState);
+            Check(!ScenarioSceneryBudget.IsPreparingPresentation,"drained loading work does not include ongoing ancestry monitoring or diagnostics: "+preparationState);
             PerfConfig.ScenarioSceneryDensityPercentValue=100;PerfConfig.ScenarioVegetationDensityPercentValue=100;PerfConfig.ScenarioDecorationDensityPercentValue=100;
             Tick(driver,100);
             Check(allBiome.All(r=>!r.forceRenderingOff),"original all-biome and DLC cosmetics restore at full detail");

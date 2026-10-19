@@ -167,6 +167,7 @@ static partial class Program
         TestRewardHeading();
         TestMirrorBackingInk();
         TestScopedBoardBacking();
+        TestBackingDepth();
         TestBackingVisibility();
         TestPaintedBacking();
         TestMrVisualRootIsolation();

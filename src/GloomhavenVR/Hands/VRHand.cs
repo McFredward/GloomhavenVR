@@ -136,7 +136,8 @@ internal sealed class VRHand : MonoBehaviour
     private int _velHead;
     private int _velCount;
 
-    private float _lastHoverHapticTime;
+    private float _lastHoverHapticTime = float.NegativeInfinity;
+    private float _lastSemanticHoverHapticTime = float.NegativeInfinity;
 
     /// <summary>
     /// How long a hand keeps its last pose after the device stops reporting one, before it is
@@ -327,7 +328,26 @@ internal sealed class VRHand : MonoBehaviour
         }
     }
 
-    /// <summary>Fire a haptic preset on this hand's controller (rate-limited for HoverTick).</summary>
+    private readonly HoverHapticGate _hoverHaptics = new();
+
+    /// <summary>Refresh the semantic hover and tick once per encounter, across all this hand's drivers.</summary>
+    internal void SendHoverHaptic(object? target)
+    {
+        if (_hoverHaptics.Enter(target, Time.unscaledTime))
+        {
+            // Legacy pokeable callbacks may still request an unscoped tick on entry. Share its
+            // same-frame receipt without applying the old 50 ms cooldown to different cards in
+            // a fast sweep. Commit presets never read or write this hover-only timestamp.
+            bool legacyPulsed = _lastHoverHapticTime == Time.unscaledTime
+                && _lastSemanticHoverHapticTime != Time.unscaledTime;
+            _lastHoverHapticTime = Time.unscaledTime;
+            _lastSemanticHoverHapticTime = Time.unscaledTime;
+            if (!legacyPulsed)
+                VRHaptics.Play(_device, HapticPreset.HoverTick);
+        }
+    }
+
+    /// <summary>Fire a haptic preset on this hand's controller (rate-limited for unscoped HoverTick).</summary>
     public void SendHaptic(HapticPreset preset)
     {
         if (preset == HapticPreset.HoverTick)

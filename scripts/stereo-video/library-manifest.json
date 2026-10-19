@@ -1,0 +1,2255 @@
+{
+  "schema": 1,
+  "authority": "Read-only native Windows Movies/60fps and complete Unity VideoClip census; native embedded30fps preserved. Actual decoded stream frame count outranks Unity metadata.",
+  "profile": {
+    "packing": "full-SBS-left-first",
+    "per_eye_size": [
+      1920,
+      1080
+    ],
+    "inverse_depth_disparity_px": [
+      -4,
+      12
+    ],
+    "model_input_size": 392,
+    "depth_size": [
+      640,
+      360
+    ],
+    "inference_window": 32,
+    "temporal_overlap": 10,
+    "metric_floor_db": 34
+  },
+  "movies": [
+    {
+      "key": "Ambient/Ambient_02_Cave_01.mov",
+      "kind": "external",
+      "source_sha256": "22f5285ffb61afeb6d06d40bc8ef1178e3a0a6ed35e7365befa4afe9dce74238",
+      "source_bytes": 30464524,
+      "source_relative": "StreamingAssets/Movies/Ambient/Ambient_02_Cave_01.mov",
+      "fps": 60,
+      "frames": 1125,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        0,
+        1080
+      ],
+      "stereo_key": "Ambient/Ambient_02_Cave_01.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "black-00",
+          "start": 0,
+          "end": 44,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 44,
+          "end": 433,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 433,
+          "end": 451,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 451,
+          "end": 754,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 754,
+          "end": 770,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-05",
+          "start": 770,
+          "end": 1084,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 1084,
+          "end": 1125,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Ambient/Ambient_03_Forest_01.mov",
+      "kind": "external",
+      "source_sha256": "19ef760542420124ddfe43a1a6d51256cb1c66a14385fff1182568898a7c84e5",
+      "source_bytes": 30508058,
+      "source_relative": "StreamingAssets/Movies/Ambient/Ambient_03_Forest_01.mov",
+      "fps": 60,
+      "frames": 1126,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        0,
+        1080
+      ],
+      "stereo_key": "Ambient/Ambient_03_Forest_01.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "black-00",
+          "start": 0,
+          "end": 43,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 43,
+          "end": 432,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 432,
+          "end": 455,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 455,
+          "end": 751,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 751,
+          "end": 770,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-05",
+          "start": 770,
+          "end": 1082,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 1082,
+          "end": 1126,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Ambient/Ambient_04_Cave_02.mov",
+      "kind": "external",
+      "source_sha256": "aabef76bd63e31427725b00d728c4d3ccac0954cbc8f5239474007d610184ecb",
+      "source_bytes": 30507516,
+      "source_relative": "StreamingAssets/Movies/Ambient/Ambient_04_Cave_02.mov",
+      "fps": 60,
+      "frames": 1126,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        0,
+        1080
+      ],
+      "stereo_key": "Ambient/Ambient_04_Cave_02.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "black-00",
+          "start": 0,
+          "end": 53,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 53,
+          "end": 423,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 423,
+          "end": 458,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 458,
+          "end": 745,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 745,
+          "end": 781,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-05",
+          "start": 781,
+          "end": 1078,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 1078,
+          "end": 1126,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Ambient/Ambient_05_Corpsewood_01.mov",
+      "kind": "external",
+      "source_sha256": "b1afff9cd1c5741bb371e7709077f1b6cedf33c268dd8cb2b31059ca4633ef52",
+      "source_bytes": 30448554,
+      "source_relative": "StreamingAssets/Movies/Ambient/Ambient_05_Corpsewood_01.mov",
+      "fps": 60,
+      "frames": 1125,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        0,
+        1080
+      ],
+      "stereo_key": "Ambient/Ambient_05_Corpsewood_01.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "black-00",
+          "start": 0,
+          "end": 43,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 43,
+          "end": 433,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 433,
+          "end": 454,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 454,
+          "end": 750,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 750,
+          "end": 770,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-05",
+          "start": 770,
+          "end": 1083,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 1083,
+          "end": 1125,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Ambient/Ambient_06_Town_01.mov",
+      "kind": "external",
+      "source_sha256": "5fa890cd4bb3e90e3f515b4d25e55184442504db97e0c39aef099678f2292c05",
+      "source_bytes": 30510016,
+      "source_relative": "StreamingAssets/Movies/Ambient/Ambient_06_Town_01.mov",
+      "fps": 60,
+      "frames": 1126,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        0,
+        1080
+      ],
+      "stereo_key": "Ambient/Ambient_06_Town_01.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "black-00",
+          "start": 0,
+          "end": 43,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 43,
+          "end": 435,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 435,
+          "end": 452,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 452,
+          "end": 754,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 754,
+          "end": 769,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-05",
+          "start": 769,
+          "end": 1084,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 1084,
+          "end": 1126,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Ambient/Ambient_Crypt_01.mov",
+      "kind": "external",
+      "source_sha256": "2f9c08cc4cc4da163e96bb073a45450b077884ec254ba972e9ef0a5fa988f3ee",
+      "source_bytes": 59880475,
+      "source_relative": "StreamingAssets/Movies/Ambient/Ambient_Crypt_01.mov",
+      "fps": 60,
+      "frames": 2252,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        0,
+        1080
+      ],
+      "stereo_key": "Ambient/Ambient_Crypt_01.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "black-00",
+          "start": 0,
+          "end": 93,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 93,
+          "end": 865,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 865,
+          "end": 905,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 905,
+          "end": 1507,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 1507,
+          "end": 1575,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-05",
+          "start": 1575,
+          "end": 2155,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 2155,
+          "end": 2252,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Ambient/Amibient_07_Dungeon_01.mov",
+      "kind": "external",
+      "source_sha256": "423ec63430da3b0a737d4b9234e854540f373f562b9411f5d95725b1e4e8b0c3",
+      "source_bytes": 30489199,
+      "source_relative": "StreamingAssets/Movies/Ambient/Amibient_07_Dungeon_01.mov",
+      "fps": 60,
+      "frames": 1126,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        0,
+        1080
+      ],
+      "stereo_key": "Ambient/Amibient_07_Dungeon_01.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "black-00",
+          "start": 0,
+          "end": 42,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 42,
+          "end": 430,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 430,
+          "end": 452,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 452,
+          "end": 747,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 747,
+          "end": 774,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-05",
+          "start": 774,
+          "end": 1079,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 1079,
+          "end": 1126,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "CP_Intro/GH_CP_Intro.mov",
+      "kind": "external",
+      "source_sha256": "22fc9f48d4da6783fed379122e8c5675c4149afd9c0bc90550a9e4e22696fec5",
+      "source_bytes": 56456385,
+      "fps": 60,
+      "frames": 2931,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        0,
+        1080
+      ],
+      "stereo_key": "CP_Intro/GH_CP_Intro.sbs-v2.mov",
+      "shots": [
+        {
+          "id": "opening-title",
+          "start": 0,
+          "end": 180,
+          "mode": "screen"
+        },
+        {
+          "id": "approved-opening",
+          "start": 180,
+          "end": 420,
+          "mode": "depth"
+        },
+        {
+          "id": "fire-title",
+          "start": 420,
+          "end": 543,
+          "mode": "screen"
+        },
+        {
+          "id": "native-battle-pan",
+          "start": 543,
+          "end": 801,
+          "mode": "depth"
+        },
+        {
+          "id": "black-forest-entry",
+          "start": 801,
+          "end": 851,
+          "mode": "screen"
+        },
+        {
+          "id": "forest",
+          "start": 851,
+          "end": 953,
+          "mode": "depth"
+        },
+        {
+          "id": "blue-cavern",
+          "start": 953,
+          "end": 1074,
+          "mode": "depth"
+        },
+        {
+          "id": "skeleton",
+          "start": 1074,
+          "end": 1188,
+          "mode": "depth"
+        },
+        {
+          "id": "purple-tomb",
+          "start": 1188,
+          "end": 1309,
+          "mode": "depth"
+        },
+        {
+          "id": "wheel",
+          "start": 1309,
+          "end": 1395,
+          "mode": "depth"
+        },
+        {
+          "id": "dungeon",
+          "start": 1395,
+          "end": 1521,
+          "mode": "depth"
+        },
+        {
+          "id": "candle",
+          "start": 1521,
+          "end": 1664,
+          "mode": "depth"
+        },
+        {
+          "id": "black-party-entry",
+          "start": 1664,
+          "end": 1717,
+          "mode": "screen"
+        },
+        {
+          "id": "party",
+          "start": 1717,
+          "end": 1805,
+          "mode": "depth"
+        },
+        {
+          "id": "spell",
+          "start": 1805,
+          "end": 1914,
+          "mode": "depth"
+        },
+        {
+          "id": "forest-heroes",
+          "start": 1914,
+          "end": 2010,
+          "mode": "depth"
+        },
+        {
+          "id": "brute-fire",
+          "start": 2010,
+          "end": 2078,
+          "mode": "depth"
+        },
+        {
+          "id": "ice-summon",
+          "start": 2078,
+          "end": 2153,
+          "mode": "depth"
+        },
+        {
+          "id": "ice-formation",
+          "start": 2153,
+          "end": 2202,
+          "mode": "depth"
+        },
+        {
+          "id": "green-spell",
+          "start": 2202,
+          "end": 2292,
+          "mode": "depth"
+        },
+        {
+          "id": "spider-party-dissolve",
+          "start": 2292,
+          "end": 2503,
+          "mode": "depth"
+        },
+        {
+          "id": "brute-green",
+          "start": 2503,
+          "end": 2546,
+          "mode": "depth"
+        },
+        {
+          "id": "demon",
+          "start": 2546,
+          "end": 2591,
+          "mode": "depth"
+        },
+        {
+          "id": "boulders",
+          "start": 2591,
+          "end": 2634,
+          "mode": "depth"
+        },
+        {
+          "id": "tinkerer-ending",
+          "start": 2634,
+          "end": 2764,
+          "mode": "depth"
+        },
+        {
+          "id": "native-black-tail",
+          "start": 2764,
+          "end": 2931,
+          "mode": "screen"
+        }
+      ],
+      "root_owned": true,
+      "native_source_sha256": "589d421dc23d9733df8092f1042de527179ed9b52e37f18ae5bd50c8b49f4a20",
+      "source_origin": "Already approved, mod-local GloomhavenVR intro; root-owned revision.",
+      "native_source_relative": "StreamingAssets/Movies/CP_Intro/GH_CP_Intro.mov",
+      "source_root": "repository",
+      "source_relative": "src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov",
+      "native_source_bytes": 115673514
+    },
+    {
+      "key": "Heroes/BeastTyrant.mov",
+      "kind": "external",
+      "source_sha256": "8f29f89dff9184c91b9b43fd2e579ce180ee56ca0ab56462c64bb645aee83687",
+      "source_bytes": 22897804,
+      "source_relative": "StreamingAssets/Movies/Heroes/BeastTyrant.mov",
+      "fps": 60,
+      "frames": 747,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        128,
+        956
+      ],
+      "stereo_key": "Heroes/BeastTyrant.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "native-opening-emblem",
+          "start": 0,
+          "end": 99,
+          "mode": "screen"
+        },
+        {
+          "id": "black-00",
+          "start": 99,
+          "end": 108,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 108,
+          "end": 178,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 178,
+          "end": 183,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-02",
+          "start": 183,
+          "end": 257,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 257,
+          "end": 264,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 264,
+          "end": 348,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 348,
+          "end": 354,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-04",
+          "start": 354,
+          "end": 722,
+          "mode": "depth",
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                940,
+                442,
+                1785,
+                563
+              ],
+              "prepare": [
+                506,
+                518
+              ],
+              "last_clear_source_frame": 518,
+              "observed_onset_frame": 520,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                534,
+                546
+              ],
+              "source_witness_frames": [
+                522,
+                606,
+                685
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1110,
+                258,
+                1600,
+                706
+              ],
+              "prepare": [
+                590,
+                602
+              ],
+              "last_clear_source_frame": 602,
+              "observed_onset_frame": 604,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                624,
+                636
+              ],
+              "source_witness_frames": [
+                522,
+                606,
+                685
+              ]
+            }
+          ],
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+        },
+        {
+          "id": "black-04",
+          "start": 722,
+          "end": 747,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Heroes/Berserker.mov",
+      "kind": "external",
+      "source_sha256": "5654f2f4246d0d1c1165cdd43eadd311a0f3ad441c7d4c311aa9031a2d5e3f8d",
+      "source_bytes": 27581011,
+      "source_relative": "StreamingAssets/Movies/Heroes/Berserker.mov",
+      "fps": 60,
+      "frames": 917,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        128,
+        956
+      ],
+      "stereo_key": "Heroes/Berserker.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "native-opening-emblem",
+          "start": 0,
+          "end": 99,
+          "mode": "screen"
+        },
+        {
+          "id": "black-00",
+          "start": 99,
+          "end": 103,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 103,
+          "end": 192,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 192,
+          "end": 195,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-02",
+          "start": 195,
+          "end": 277,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 277,
+          "end": 280,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 280,
+          "end": 375,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 375,
+          "end": 377,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-04",
+          "start": 377,
+          "end": 857,
+          "mode": "depth",
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                523,
+                1895,
+                684
+              ],
+              "prepare": [
+                619,
+                631
+              ],
+              "last_clear_source_frame": 631,
+              "observed_onset_frame": 633,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                647,
+                659
+              ],
+              "source_witness_frames": [
+                641,
+                725,
+                809
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1080,
+                192,
+                1586,
+                820
+              ],
+              "prepare": [
+                707,
+                719
+              ],
+              "last_clear_source_frame": 719,
+              "observed_onset_frame": 721,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                741,
+                753
+              ],
+              "source_witness_frames": [
+                641,
+                725,
+                809
+              ]
+            }
+          ],
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+        },
+        {
+          "id": "black-04",
+          "start": 857,
+          "end": 917,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Heroes/Doomstalker.mov",
+      "kind": "external",
+      "source_sha256": "d66a2ab1bba17f22ed503d70da70f5f4aaf953f81ff790860763834a601f94e0",
+      "source_bytes": 24253527,
+      "source_relative": "StreamingAssets/Movies/Heroes/Doomstalker.mov",
+      "fps": 60,
+      "frames": 868,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        128,
+        956
+      ],
+      "stereo_key": "Heroes/Doomstalker.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "native-opening-emblem",
+          "start": 0,
+          "end": 100,
+          "mode": "screen"
+        },
+        {
+          "id": "black-00",
+          "start": 100,
+          "end": 105,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 105,
+          "end": 183,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 183,
+          "end": 192,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-02",
+          "start": 192,
+          "end": 295,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 295,
+          "end": 302,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 302,
+          "end": 417,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 417,
+          "end": 426,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-04",
+          "start": 426,
+          "end": 865,
+          "mode": "depth",
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                457,
+                1895,
+                618
+              ],
+              "prepare": [
+                620,
+                632
+              ],
+              "last_clear_source_frame": 632,
+              "observed_onset_frame": 634,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                648,
+                660
+              ],
+              "source_witness_frames": [
+                642,
+                726,
+                821
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1020,
+                216,
+                1662,
+                870
+              ],
+              "prepare": [
+                704,
+                716
+              ],
+              "last_clear_source_frame": 716,
+              "observed_onset_frame": 718,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                738,
+                750
+              ],
+              "source_witness_frames": [
+                642,
+                726,
+                821
+              ]
+            }
+          ],
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+        },
+        {
+          "id": "black-04",
+          "start": 865,
+          "end": 868,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Heroes/Elementalist.mov",
+      "kind": "external",
+      "source_sha256": "c138e05c95400cabe49ef5b1c3e4b5752b8638d93a8859ebb63c8bc99b7921a0",
+      "source_bytes": 26683521,
+      "source_relative": "StreamingAssets/Movies/Heroes/Elementalist.mov",
+      "fps": 60,
+      "frames": 882,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        128,
+        956
+      ],
+      "stereo_key": "Heroes/Elementalist.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "native-opening-emblem",
+          "start": 0,
+          "end": 99,
+          "mode": "screen"
+        },
+        {
+          "id": "black-00",
+          "start": 99,
+          "end": 103,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 103,
+          "end": 178,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 178,
+          "end": 188,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-02",
+          "start": 188,
+          "end": 298,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 298,
+          "end": 301,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 301,
+          "end": 438,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 438,
+          "end": 441,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-04",
+          "start": 441,
+          "end": 830,
+          "mode": "depth",
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                55,
+                457,
+                935,
+                593
+              ],
+              "prepare": [
+                633,
+                645
+              ],
+              "last_clear_source_frame": 645,
+              "observed_onset_frame": 647,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                661,
+                673
+              ],
+              "source_witness_frames": [
+                657,
+                741,
+                791
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                220,
+                298,
+                770,
+                781
+              ],
+              "prepare": [
+                719,
+                731
+              ],
+              "last_clear_source_frame": 731,
+              "observed_onset_frame": 733,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                753,
+                765
+              ],
+              "source_witness_frames": [
+                657,
+                741,
+                791
+              ]
+            }
+          ],
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+        },
+        {
+          "id": "black-04",
+          "start": 830,
+          "end": 882,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Heroes/Nightshroud.mov",
+      "kind": "external",
+      "source_sha256": "e2bb14c125bd3436fee1f44c4d651e050e49d469090d072fa8dd0786ad03da2f",
+      "source_bytes": 25408793,
+      "source_relative": "StreamingAssets/Movies/Heroes/Nightshroud.mov",
+      "fps": 60,
+      "frames": 839,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        128,
+        956
+      ],
+      "stereo_key": "Heroes/Nightshroud.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "native-opening-emblem",
+          "start": 0,
+          "end": 99,
+          "mode": "screen"
+        },
+        {
+          "id": "black-00",
+          "start": 99,
+          "end": 109,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 109,
+          "end": 178,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 178,
+          "end": 184,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-02",
+          "start": 184,
+          "end": 284,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 284,
+          "end": 291,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 291,
+          "end": 346,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 346,
+          "end": 355,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-04",
+          "start": 355,
+          "end": 800,
+          "mode": "depth",
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                457,
+                1895,
+                618
+              ],
+              "prepare": [
+                571,
+                583
+              ],
+              "last_clear_source_frame": 583,
+              "observed_onset_frame": 585,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                599,
+                611
+              ],
+              "source_witness_frames": [
+                595,
+                679,
+                755
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1044,
+                246,
+                1638,
+                830
+              ],
+              "prepare": [
+                657,
+                669
+              ],
+              "last_clear_source_frame": 669,
+              "observed_onset_frame": 671,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                691,
+                703
+              ],
+              "source_witness_frames": [
+                595,
+                679,
+                755
+              ]
+            }
+          ],
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+        },
+        {
+          "id": "black-04",
+          "start": 800,
+          "end": 839,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Heroes/Plagueherald.mov",
+      "kind": "external",
+      "source_sha256": "093bccfbfe51f971b0b7863e5f1514d2ea3f644d74a695a034631a23f7eda5ef",
+      "source_bytes": 27200380,
+      "source_relative": "StreamingAssets/Movies/Heroes/Plagueherald.mov",
+      "fps": 60,
+      "frames": 906,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        128,
+        956
+      ],
+      "stereo_key": "Heroes/Plagueherald.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "native-opening-emblem",
+          "start": 0,
+          "end": 99,
+          "mode": "screen"
+        },
+        {
+          "id": "black-00",
+          "start": 99,
+          "end": 108,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 108,
+          "end": 253,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 253,
+          "end": 260,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-02",
+          "start": 260,
+          "end": 366,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 366,
+          "end": 372,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 372,
+          "end": 487,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 487,
+          "end": 493,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-04",
+          "start": 493,
+          "end": 898,
+          "mode": "depth",
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                40,
+                492,
+                995,
+                637
+              ],
+              "prepare": [
+                631,
+                643
+              ],
+              "last_clear_source_frame": 643,
+              "observed_onset_frame": 645,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                659,
+                671
+              ],
+              "source_witness_frames": [
+                649,
+                733,
+                857
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                350,
+                256,
+                670,
+                825
+              ],
+              "prepare": [
+                715,
+                727
+              ],
+              "last_clear_source_frame": 727,
+              "observed_onset_frame": 729,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                749,
+                761
+              ],
+              "source_witness_frames": [
+                649,
+                733,
+                857
+              ]
+            }
+          ],
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+        },
+        {
+          "id": "black-04",
+          "start": 898,
+          "end": 906,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Heroes/Quartermaster.mov",
+      "kind": "external",
+      "source_sha256": "db1868e301cd7e6d887e352ede31c19d3aa205625bbf341babec92711c8a9224",
+      "source_bytes": 21205592,
+      "source_relative": "StreamingAssets/Movies/Heroes/Quartermaster.mov",
+      "fps": 60,
+      "frames": 704,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        128,
+        956
+      ],
+      "stereo_key": "Heroes/Quartermaster.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "native-opening-emblem",
+          "start": 0,
+          "end": 99,
+          "mode": "screen"
+        },
+        {
+          "id": "black-00",
+          "start": 99,
+          "end": 104,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 104,
+          "end": 178,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 178,
+          "end": 186,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-02",
+          "start": 186,
+          "end": 257,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 257,
+          "end": 263,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 263,
+          "end": 348,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 348,
+          "end": 360,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-04",
+          "start": 360,
+          "end": 664,
+          "mode": "depth",
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                547,
+                1895,
+                708
+              ],
+              "prepare": [
+                456,
+                468
+              ],
+              "last_clear_source_frame": 468,
+              "observed_onset_frame": 470,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                484,
+                496
+              ],
+              "source_witness_frames": [
+                480,
+                564,
+                633
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1174,
+                280,
+                1520,
+                926
+              ],
+              "prepare": [
+                540,
+                552
+              ],
+              "last_clear_source_frame": 552,
+              "observed_onset_frame": 554,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                574,
+                586
+              ],
+              "source_witness_frames": [
+                480,
+                564,
+                633
+              ]
+            }
+          ],
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+        },
+        {
+          "id": "black-04",
+          "start": 664,
+          "end": 704,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Heroes/Sawbones.mov",
+      "kind": "external",
+      "source_sha256": "4b5011abe596f63f970c6b4e0380af7f98942d61c738c1ce3f3df9beb6f24d4e",
+      "source_bytes": 29128288,
+      "source_relative": "StreamingAssets/Movies/Heroes/Sawbones.mov",
+      "fps": 60,
+      "frames": 1046,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        128,
+        956
+      ],
+      "stereo_key": "Heroes/Sawbones.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "native-opening-emblem",
+          "start": 0,
+          "end": 100,
+          "mode": "screen"
+        },
+        {
+          "id": "black-00",
+          "start": 100,
+          "end": 106,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 106,
+          "end": 375,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 375,
+          "end": 391,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-02",
+          "start": 391,
+          "end": 609,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 609,
+          "end": 624,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 624,
+          "end": 706,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 706,
+          "end": 726,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-04",
+          "start": 726,
+          "end": 1044,
+          "mode": "depth",
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                457,
+                1895,
+                618
+              ],
+              "prepare": [
+                820,
+                832
+              ],
+              "last_clear_source_frame": 832,
+              "observed_onset_frame": 834,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                848,
+                860
+              ],
+              "source_witness_frames": [
+                846,
+                930,
+                1012
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1008,
+                360,
+                1675,
+                725
+              ],
+              "prepare": [
+                906,
+                918
+              ],
+              "last_clear_source_frame": 918,
+              "observed_onset_frame": 920,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                940,
+                952
+              ],
+              "source_witness_frames": [
+                846,
+                930,
+                1012
+              ]
+            }
+          ],
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+        },
+        {
+          "id": "black-04",
+          "start": 1044,
+          "end": 1046,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Heroes/Soothsinger.mov",
+      "kind": "external",
+      "source_sha256": "d53fb2e17c1dabc2b3c9ed05d8abd5a2d83b7f8d1f4e87464ecde136322966af",
+      "source_bytes": 23161858,
+      "source_relative": "StreamingAssets/Movies/Heroes/Soothsinger.mov",
+      "fps": 60,
+      "frames": 758,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        128,
+        956
+      ],
+      "stereo_key": "Heroes/Soothsinger.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "native-opening-emblem",
+          "start": 0,
+          "end": 99,
+          "mode": "screen"
+        },
+        {
+          "id": "black-00",
+          "start": 99,
+          "end": 104,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 104,
+          "end": 159,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 159,
+          "end": 163,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-02",
+          "start": 163,
+          "end": 238,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 238,
+          "end": 241,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 241,
+          "end": 329,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 329,
+          "end": 333,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-04",
+          "start": 333,
+          "end": 725,
+          "mode": "depth",
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                464,
+                1895,
+                626
+              ],
+              "prepare": [
+                509,
+                521
+              ],
+              "last_clear_source_frame": 521,
+              "observed_onset_frame": 523,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                537,
+                549
+              ],
+              "source_witness_frames": [
+                525,
+                609,
+                685
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                995,
+                254,
+                1620,
+                872
+              ],
+              "prepare": [
+                595,
+                607
+              ],
+              "last_clear_source_frame": 607,
+              "observed_onset_frame": 609,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                629,
+                641
+              ],
+              "source_witness_frames": [
+                525,
+                609,
+                685
+              ]
+            }
+          ],
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+        },
+        {
+          "id": "black-04",
+          "start": 725,
+          "end": 758,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Heroes/Summoner.mov",
+      "kind": "external",
+      "source_sha256": "66a617cf4c1fe1498009d058b08cb791d8ea9d69e682b0c91ab214a2b683d2c4",
+      "source_bytes": 22020277,
+      "source_relative": "StreamingAssets/Movies/Heroes/Summoner.mov",
+      "fps": 60,
+      "frames": 729,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        128,
+        956
+      ],
+      "stereo_key": "Heroes/Summoner.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "native-opening-emblem",
+          "start": 0,
+          "end": 100,
+          "mode": "screen"
+        },
+        {
+          "id": "black-00",
+          "start": 100,
+          "end": 105,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 105,
+          "end": 178,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 178,
+          "end": 185,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-02",
+          "start": 185,
+          "end": 257,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 257,
+          "end": 264,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 264,
+          "end": 348,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 348,
+          "end": 355,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-04",
+          "start": 355,
+          "end": 723,
+          "mode": "depth",
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                792,
+                457,
+                1895,
+                618
+              ],
+              "prepare": [
+                541,
+                553
+              ],
+              "last_clear_source_frame": 553,
+              "observed_onset_frame": 555,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                569,
+                581
+              ],
+              "source_witness_frames": [
+                559,
+                643,
+                686
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1005,
+                207,
+                1675,
+                875
+              ],
+              "prepare": [
+                625,
+                637
+              ],
+              "last_clear_source_frame": 637,
+              "observed_onset_frame": 639,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                659,
+                671
+              ],
+              "source_witness_frames": [
+                559,
+                643,
+                686
+              ]
+            }
+          ],
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+        },
+        {
+          "id": "black-04",
+          "start": 723,
+          "end": 729,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Heroes/Sunkeeper.mov",
+      "kind": "external",
+      "source_sha256": "7cbf2355cb64068bc7a77cdd0b0fb909a69a44e71d345aed18d9a30c19620265",
+      "source_bytes": 28737196,
+      "source_relative": "StreamingAssets/Movies/Heroes/Sunkeeper.mov",
+      "fps": 60,
+      "frames": 955,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        128,
+        956
+      ],
+      "stereo_key": "Heroes/Sunkeeper.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "native-opening-emblem",
+          "start": 0,
+          "end": 99,
+          "mode": "screen"
+        },
+        {
+          "id": "black-00",
+          "start": 99,
+          "end": 113,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-01",
+          "start": 113,
+          "end": 173,
+          "mode": "depth"
+        },
+        {
+          "id": "black-01",
+          "start": 173,
+          "end": 185,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-02",
+          "start": 185,
+          "end": 446,
+          "mode": "depth"
+        },
+        {
+          "id": "black-02",
+          "start": 446,
+          "end": 450,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-03",
+          "start": 450,
+          "end": 541,
+          "mode": "depth"
+        },
+        {
+          "id": "black-03",
+          "start": 541,
+          "end": 545,
+          "mode": "screen"
+        },
+        {
+          "id": "scene-04",
+          "start": 545,
+          "end": 925,
+          "mode": "depth",
+          "screen_panels": [
+            {
+              "id": "name-banner",
+              "bounds": [
+                990,
+                539,
+                1895,
+                675
+              ],
+              "prepare": [
+                723,
+                735
+              ],
+              "last_clear_source_frame": 735,
+              "observed_onset_frame": 737,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                751,
+                763
+              ],
+              "source_witness_frames": [
+                737,
+                833,
+                887
+              ]
+            },
+            {
+              "id": "class-symbol",
+              "bounds": [
+                1170,
+                335,
+                1710,
+                875
+              ],
+              "prepare": [
+                807,
+                819
+              ],
+              "last_clear_source_frame": 819,
+              "observed_onset_frame": 821,
+              "onset_bounds": [
+                0,
+                128,
+                1920,
+                956
+              ],
+              "onset_release": [
+                841,
+                853
+              ],
+              "source_witness_frames": [
+                737,
+                833,
+                887
+              ]
+            }
+          ],
+          "screen_panel_reason": "Original printed names, complete banner borders and class emblems are source-specific screen planes. Smooth preparation ends at the last clear native source sample. The brief original oversized zoom/blur has a conservative active-picture envelope, released smoothly after print settles; earlier scenery and the actor outside settled print retain accepted687 neural depth."
+        },
+        {
+          "id": "black-04",
+          "start": 925,
+          "end": 955,
+          "mode": "screen"
+        }
+      ]
+    },
+    {
+      "key": "Embedded/TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.mov",
+      "kind": "embedded",
+      "source_sha256": "cc1c21c2ecc65ce03533dbd26f673810fc552ce72ab7071c776beb25ea9b12a6",
+      "source_bytes": 758298,
+      "asset": "sharedassets12.assets",
+      "path_id": 8,
+      "resource": "sharedassets12.resource",
+      "resource_offset": 0,
+      "resource_size": 758298,
+      "unity_declared_frames": 240,
+      "fps": 30,
+      "frames": 240,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "body_rows": [
+        0,
+        1080
+      ],
+      "stereo_key": "Embedded/TWINSAILS_GFX_ANIMATION_LOGO_2K_30FPS_H264_best.sbs-v1.mov",
+      "shots": [
+        {
+          "id": "original-logo",
+          "start": 0,
+          "end": 240,
+          "mode": "logo"
+        }
+      ]
+    }
+  ],
+  "excluded": [
+    {
+      "key": "Embedded/gameplay_trailer.mov",
+      "reason": "Maintainer explicitly excluded the gameplay trailer on2026-10-17; retained native original and no conversion, companion or review trigger.",
+      "source_sha256": "304431bb0f5014fc1b84966fb2e38cef59c3d3faa64b63503b747a4ff193bcc6",
+      "frames": 6500,
+      "fps": 30
+    }
+  ],
+  "review": "Ambient scene boundaries are original near-black separators. Hero opening emblem is screen-plane; final native name/symbol panel is protected on its observed left/right side. All remaining frames retain native-clock shot-wise depth."
+}
