@@ -18,6 +18,7 @@ internal static partial class RewardShowcase
     private static readonly RewardShowcaseButton GuildButton = new();
     private static UIWindow? _loggedWindow;
     private static bool? _loggedPermission;
+    private static ContinueBlock? _loggedBlock;
     private static bool _enabled;
     private static int _lastConfirmFrame = -1;
     private static UIRewardsManager? _pendingNativeInput;
@@ -61,26 +62,55 @@ internal static partial class RewardShowcase
         }
     }
 
-    internal static bool CanConfirm
+    private enum ContinueBlock
     {
-        get
+        None,
+        BridgeInactive,
+        ConversionInactive,
+        ManualScreen,
+        MissingWindow,
+        PostQuestNativeControl,
+        CampaignNativeControl,
+        NativeProcessInactive,
+        NativeInputPending,
+        NativeAuthority,
+    }
+
+    internal static bool CanConfirm => ConfirmBlock() == ContinueBlock.None;
+
+    private static ContinueBlock ConfirmBlock()
+    {
+        if (!_enabled) return ContinueBlock.BridgeInactive;
+        if (!WorldUIConfig.ConversionActive) return ContinueBlock.ConversionInactive;
+        if (FlatScreen.ManualScreenActive) return ContinueBlock.ManualScreen;
+        UIWindow? window = Window;
+        if (window == null) return ContinueBlock.MissingWindow;
+
+        // Build 712: a chest's visible Continue was disabled throughout the supplied
+        // 710 session while the unrelated native ESC window remained open. This is an
+        // explicit uGUI/mouse-equivalent action: ProcessRewards accepts MouseClickLeft
+        // independently of ESC. Only its GAMEPAD key handler uses the ESC blocker.
+        // Do not import that blocker into a pointer button or close either window here.
+        if (PostQuestRewardSync.Owns(window))
+            return PostQuestRewardSync.CanConfirm ? ContinueBlock.None : ContinueBlock.PostQuestNativeControl;
+        UICampaignRewardWindow? rewards = CampaignWindow;
+        if (rewards != null && ReferenceEquals(window, rewards.window))
         {
-            if (!_enabled || !WorldUIConfig.ConversionActive || FlatScreen.ManualScreenActive || Window == null
-                || (Singleton<ESCMenu>.IsInitialized && Singleton<ESCMenu>.Instance.IsOpen)) return false;
-            if (PostQuestRewardSync.Owns(Window)) return PostQuestRewardSync.CanConfirm;
-            UICampaignRewardWindow? rewards = CampaignWindow;
-            if (rewards != null && ReferenceEquals(Window, rewards.window))
-            {
-                ExtendedButton? button = rewards?.continueButton;
-                return rewards != null && rewards.isActiveAndEnabled && !rewards.isRevealing && rewards.continueAction != null
-                    && button != null && button.gameObject.activeInHierarchy && button.enabled
-                    && ((Selectable)button).IsInteractable();
-            }
-            UIRewardsManager? guild = Guildmaster;
-            return guild != null && guild.isActiveAndEnabled && guild.ProcessingRewards && !guild.isConfirmPressed
-                && (!guild.networkProcessIfServer
-                    || (guild.interactionChecker != null ? guild.interactionChecker() : !FFSNetwork.IsClient));
+            ExtendedButton? button = rewards.continueButton;
+            return rewards.isActiveAndEnabled && !rewards.isRevealing && rewards.continueAction != null
+                && button != null && button.gameObject.activeInHierarchy && button.enabled
+                && ((Selectable)button).IsInteractable()
+                ? ContinueBlock.None : ContinueBlock.CampaignNativeControl;
         }
+        UIRewardsManager? guild = Guildmaster;
+        // ProcessRewards runs in MEC, not the manager's Update. Disabling that
+        // Behaviour does not stop its live process or remove native mouse permission.
+        // Keep the real process, input-latch and native actor/network authority gates.
+        if (guild == null || !guild.ProcessingRewards) return ContinueBlock.NativeProcessInactive;
+        if (guild.isConfirmPressed) return ContinueBlock.NativeInputPending;
+        return !guild.networkProcessIfServer
+            || (guild.interactionChecker != null ? guild.interactionChecker() : !FFSNetwork.IsClient)
+            ? ContinueBlock.None : ContinueBlock.NativeAuthority;
     }
 
     internal static void Tick(bool enabled)
@@ -102,8 +132,11 @@ internal static partial class RewardShowcase
             _wiredCampaign = null;
             _loggedWindow = null;
             _loggedPermission = null;
+            _loggedBlock = null;
             return;
         }
+        ContinueBlock block = ConfirmBlock();
+        bool permission = block == ContinueBlock.None;
         UICampaignRewardWindow? rewards = CampaignWindow;
         if (rewards != null && ReferenceEquals(window, rewards.window))
         {
@@ -121,8 +154,8 @@ internal static partial class RewardShowcase
         else if (PostQuestRewardSync.Owns(window))
             GuildButton.Dispose(); // Adventure rewards retain their original close button.
         else if (Guildmaster != null)
-            GuildButton.Tick(Guildmaster, CanConfirm);
-        bool permission = CanConfirm;
+            GuildButton.Tick(Guildmaster, permission);
+        bool changedWindow = _loggedWindow != window;
         if (_loggedWindow != window || _loggedPermission != permission)
         {
             _loggedWindow = window;
@@ -131,6 +164,19 @@ internal static partial class RewardShowcase
                 + $"flow={(rewards != null && ReferenceEquals(window, rewards.window) ? "Campaign" : "UIRewardsManager")}, "
                 + $"canContinue={permission}; native reward continuation retains multiplayer authority.");
         }
+        if (!permission && (changedWindow || _loggedBlock != block))
+        {
+            // State changes only: disabled controls cannot call TryConfirm, so retain
+            // the actual failed term at normal log level without a per-frame trace.
+            UIRewardsManager? guild = Guildmaster;
+            VRLog.Info("WorldUI", $"REWARD SHOWCASE BLOCKED: reason={block}, window='{window.name}', "
+                + $"processing={guild?.ProcessingRewards}, nativeInput={guild?.isConfirmPressed}, "
+                + $"managerEnabled={guild?.enabled}, networkProcess={guild?.networkProcessIfServer}, "
+                + $"actorChecker={guild?.interactionChecker != null}, client={FFSNetwork.IsClient}, "
+                + $"escOpen={(Singleton<ESCMenu>.IsInitialized && Singleton<ESCMenu>.Instance.IsOpen)}; "
+                + "no automatic confirmation or window dismissal was performed.");
+        }
+        _loggedBlock = block;
     }
 
     internal static bool TryConfirm()
