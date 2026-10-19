@@ -159,3 +159,11 @@ These are optional and do nothing without the mod: `GH_Data/Plugins/x86_64/Unity
 </p>
 
 A short version of this page ships inside the release zip as `INSTALL.txt`.
+
+## Steam Frame over Steam Link
+
+Native streamed passthrough additionally needs the experimental
+[paired PC and Frame setup](https://github.com/McFredward/steam-link-native-passthrough#readme)
+(Windows/NVIDIA/HEVC). It is separate from installing this mod. The former
+Frame-only receiver is retired. Steam Frame standalone uses its own native
+passthrough and does not need these companions.

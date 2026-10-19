@@ -75,7 +75,7 @@ gleich macht. Leg sie zurück, dann setzt sie sich wieder auf ein Feld.
 - Zwei Umgebungen, die für die Mod gebaut wurden: ein Keller drinnen und ein Nachtwald draußen,
   beide reagieren auf die Elemente des Szenarios.
 - Mixed Reality. Der Himmel verschwindet, und der Tisch steht in deinem echten Zimmer, auch mit
-  nativem Passthrough auf Steam Frame standalone und über Steam Link mit dem zusätzlichen Headset-Patch.
+  nativem Passthrough auf Steam Frame standalone und über Steam Link mit dem passenden Komponenten auf PC und Frame.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -148,9 +148,10 @@ Spiels, gar kein Himmel und Mixed Reality. Wähle **Mixed Reality** unter
   Patch. Ist die Option grau, zeigt der Hinweis beim Drüberzeigen, ob SteamVR oder die Proton-Version
   des Spiels aktualisiert werden muss.
 - **Steam Frame über Steam Link:** Installiere zuerst [Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#readme),
-  dann aktiviere **Steam Link: natives Passthrough** unter der Umgebungsauswahl. Der bestätigte
-  Frame-Patch kann Bildschärfe kosten; die separate PC/Frame-Vorschau soll das vermeiden, ist aber
-  noch nicht im gemeinsamen Brillentest bestätigt. Beachte die dort unterstützte SteamVR-Version.
+  mit dessen Assistenten für PC und Frame. Aktiviere anschließend **Steam Link: natives Passthrough**
+  unter der Umgebungsauswahl. Dieser experimentelle Windows/NVIDIA/HEVC-Weg erhält das normale
+  Farbbild; endgültige Bildqualität und gleichzeitiges Steam-Menü werden noch auf der Brille geprüft.
+  Beachte die unterstützte SteamVR-Version. Der frühere reine Frame-Empfänger ist eingestellt.
 - **Virtual Desktop:** Nutze dessen Passthrough-Funktion, die den grünen Hintergrund der Mod ersetzt.
 
 <p align="center">

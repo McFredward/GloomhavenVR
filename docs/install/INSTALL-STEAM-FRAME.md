@@ -170,9 +170,13 @@ when the active runtime supports it.
 If the choice is grey, hover over it for the explanation. Update **SteamVR** and the
 **Proton version selected for Gloomhaven**, then restart the game and check again.
 
-**PC streaming through Steam Link** instead needs the separate
-[Steam Link passthrough companion](https://github.com/McFredward/steam-link-native-passthrough#readme).
+**PC streaming through Steam Link** instead needs the paired PC and Frame setup:
+[Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#readme).
 That is a different setup from the standalone installation covered here.
+
+The experimental streaming companion currently requires Windows, NVIDIA and HEVC.
+The former Frame-only receiver is retired; use its guided setup for both devices.
+Standalone passthrough is independent of this streaming companion.
 
 ## Updating
 

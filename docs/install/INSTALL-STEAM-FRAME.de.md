@@ -181,9 +181,13 @@ Passthrough der Frame, wenn die aktive Laufzeit es unterstützt. Ist die Auswahl
 **SteamVR** und die **für Gloomhaven ausgewählte Proton-Version**, starte das Spiel
 erneut und prüfe die Auswahl noch einmal.
 
-Beim **PC-Streaming über Steam Link** wird dagegen der separate
-[Steam-Link-Passthrough-Patch](https://github.com/McFredward/steam-link-native-passthrough#readme) benötigt.
+Beim **PC-Streaming über Steam Link** brauchst du dagegen die gekoppelte Einrichtung
+[Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#readme) auf PC und Frame.
 Das ist eine andere Einrichtung als die Standalone-Installation in dieser Anleitung.
+
+Der experimentelle Streaming-Patch unterstützt aktuell Windows, NVIDIA und HEVC.
+Der alte reine Frame-Empfänger ist eingestellt; nutze den dort beschriebenen
+Assistenten für beide Geräte. Standalone-Passthrough bleibt davon unabhängig.
 
 ## Updates
 

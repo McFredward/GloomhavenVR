@@ -159,3 +159,11 @@ Diese hier sind optional und tun ohne die Mod nichts: `GH_Data/Plugins/x86_64/Un
 </p>
 
 Eine Kurzfassung dieser Seite liegt als `INSTALL-DEUTSCH.txt` im Release-Zip.
+
+## Steam Frame über Steam Link
+
+Für natives Passthrough beim Streaming brauchst du zusätzlich die experimentelle
+[gekoppelte Einrichtung für PC und Frame](https://github.com/McFredward/steam-link-native-passthrough#readme)
+(Windows/NVIDIA/HEVC). Sie ist von der Mod-Installation getrennt. Der frühere reine
+Frame-Empfänger ist eingestellt. Steam Frame standalone nutzt sein eigenes
+natives Passthrough und benötigt diese Komponenten nicht.

@@ -10,15 +10,16 @@ The production entry is `MixedReality.Tick` → `SteamLinkCoverageBridge.Tick` a
 `SteamLinkSceneRuntime.TryEnter`. The existing same-attachment depth prefix and
 transparent-material variants still construct coverage. A negotiated source
 uses `SceneEyeOutput.TryRenderOrdinary` in the actual head `OnRenderImage`;
-otherwise the explicitly requested legacy receiver keeps its existing atlas.
+otherwise it preserves ordinary opaque output. The retired atlas is not an
+output alternative or a missing-peer fallback.
 The source mode is immutable for one prepared camera epoch. A mode change retires
 that epoch at the cold boundary and primes another complete stereo cohort.
 Capability loss revokes authority and retains the ordinary same-callback image.
 
-The legacy uniform-width/foveation lease is released before the ordinary-RGBA
-source is admitted. A pending or unconfirmed restoration cannot count as restored
-normal settings. The full-resolution route does not acquire another quality
-lease or write the user's resolution, MSAA, FOV or native video dimensions.
+The source does not acquire a uniform-width/foveation quality lease or write
+the user's resolution, MSAA, FOV or native video dimensions. The former packed
+source and its quality controls are retired; their history is recorded in the
+[companion archive](https://github.com/McFredward/steam-link-native-passthrough/blob/main/docs/history/ATLAS-RECEIVER.md).
 
 ## Live source capability protocol
 

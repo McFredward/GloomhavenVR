@@ -42,7 +42,7 @@
 </p>
 
 > **Native mixed reality on Steam Frame:** built in for standalone; PC streaming
-> through Steam Link needs the [separate passthrough companion](https://github.com/McFredward/steam-link-native-passthrough#readme).
+> through Steam Link needs the [paired PC and Frame companions](https://github.com/McFredward/steam-link-native-passthrough#readme).
 > It uses real transparency, not colour replacement. [Setup and limits](https://github.com/McFredward/steam-link-native-passthrough/blob/dev/docs/COMPATIBILITY.md).
 
 > **Recommended: play the first tutorial.** It explains the gameplay basics and many VR-specific controls and interactions.
@@ -75,7 +75,7 @@ Drop it and it settles back onto a hex.
 - Two environments built for the mod: an indoor cellar and an outdoor night forest, both reacting
   to the scenario's elements.
 - Mixed reality. The sky drops away and the table stands in your actual room, including native
-  passthrough on Steam Frame standalone and over Steam Link with the additional headset patch.
+  passthrough on Steam Frame standalone and over Steam Link with the matching PC and Frame companions.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -145,9 +145,10 @@ table in your room.
 - **Steam Frame standalone:** native passthrough is built in and needs no additional patch.
   If unavailable, hover over the option for guidance on updating SteamVR and the game's Proton version.
 - **Steam Frame over Steam Link:** first install [Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#readme),
-  then enable **Steam Link native passthrough** below the environment choices. The confirmed
-  Frame-only patch can reduce sharpness; a separate PC/Frame preview aims to avoid that tradeoff,
-  but has not yet been confirmed in a combined headset test. Check its supported SteamVR version.
+  using its paired setup assistant, then enable **Steam Link native passthrough** below the
+  environment choices. This experimental Windows/NVIDIA/HEVC route keeps the ordinary colour
+  image; final headset quality and simultaneous Steam-menu composition are still being validated.
+  Check its supported SteamVR version. The former Frame-only receiver is retired.
 - **Virtual Desktop:** use its passthrough colour replacement with the mod's green background.
 
 <p align="center">
