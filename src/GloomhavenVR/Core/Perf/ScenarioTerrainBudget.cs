@@ -280,7 +280,7 @@ internal static partial class ScenarioTerrainBudget
         }
 
         // Read only when the existing bounded Debug hardware snapshot asks. This
-        // separates prepared pillar geometry from actually paired camera leases;
+        // separates prepared wall geometry from actually paired camera leases;
         // neither a ready bank nor structural batching proves LOD submission.
         internal string DescribeConsumers()
         {
