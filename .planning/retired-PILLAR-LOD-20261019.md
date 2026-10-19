@@ -91,3 +91,18 @@ If the old configuration key remains bound for save-file compatibility, it must
 be explicitly inert and hidden: no profile, UI or runtime branch may reactivate
 pillar LOD. Distribution checks must inspect the actual rebuilt bank, not just
 an edited index, and preserve non-pillar stream bytes and source provenance.
+
+## New B712 capture received during removal
+
+The later `quest-capture-20261019T165519Z-f0b6a59c.zip` capture was bound by the integrator
+to actual B712 while this removal was in progress. Its bounded terrain sample
+reported68 prepared surfaces,56 classified as pillars and27 selected as reduced.
+The last paired camera draw had15 surfaces,14 pillars, but only one reduced
+pillar; original/submitted triangle totals28,676/28,582 saved94 triangles in
+that draw. Across64 captured samples, terrain Update averaged0.289ms with1.541ms
+maximum; pre-cull averaged1.043ms with1.639ms maximum. Prepared membership is not
+actual per-eye savings. The last draw can reflect a paused state and cannot be
+generalized into an entire-game cost or a Frame comparison. These observations
+support measuring the full substitution path rather than crediting every
+prepared reduced mesh as an active benefit; removal still follows the explicit
+user decision.

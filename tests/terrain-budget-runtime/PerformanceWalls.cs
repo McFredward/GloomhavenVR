@@ -77,7 +77,7 @@ public static partial class TerrainProgram
                 && TerrainReadObserver.HandPositions == 0,
                 "all exact hidden terrain skips even shared head and tracked detail reads");
 
-            var arriving = Surface(scenario, "CV_Pillar_Generic_01", new Vector3(-1.4f, 1, 0), material);
+            var arriving = Surface(scenario, "CV_Wall_Generic_01", new Vector3(-1.4f, 1, 0), material);
             arriving.gameObject.layer = 27; hidden.Add(arriving); arriving.forceRenderingOff = true;
             TerrainWorkObserver.Reset(arriving); ScenarioTerrainBudget.QueueRoot(arriving.gameObject); Tick(host);
             Check(TerrainWorkObserver.FilterReads == 0 && TerrainWorkObserver.Preparations == 0

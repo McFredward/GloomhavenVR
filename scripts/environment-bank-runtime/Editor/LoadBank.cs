@@ -18,7 +18,7 @@ public static class LoadEnvironmentBank
             AssetBundle bank = AssetBundle.LoadFromFile(path);
             if (bank == null) throw new InvalidOperationException("Actual packaged environment bank did not load.");
             string[] names = bank.GetAllAssetNames();
-            if (names.Length != 3173) throw new InvalidOperationException("Actual packaged asset count drift: " + names.Length);
+            if (names.Length != 2912) throw new InvalidOperationException("Actual packaged asset count drift: " + names.Length);
             int count = 0; long vertices = 0, triangles = 0;
             foreach (string name in names.Where(name => name.EndsWith(".bytes", StringComparison.Ordinal)))
             {
@@ -43,7 +43,7 @@ public static class LoadEnvironmentBank
             Shader world = bank.LoadAsset<Shader>("Assets/Bundle/Environments/WorldSimpleMaterial.shader");
             if (world == null || world.name != "GloomhavenVR/WorldSimpleMaterial")
                 throw new InvalidOperationException("Actual packaged world material shader unavailable.");
-            if (count != 3170 || index == null || shader == null || shader.name != "GloomhavenVR/ScenarioCheapTerrain")
+            if (count != 2909 || index == null || shader == null || shader.name != "GloomhavenVR/ScenarioCheapTerrain")
                 throw new InvalidOperationException("Actual packaged environment content unavailable.");
             Debug.Log("PASS packaged environment bank load: " + count + " production-decoded streams, " + vertices
                 + " vertex slots, " + triangles + " triangles; index and both shaders; Unity " + Application.unityVersion);

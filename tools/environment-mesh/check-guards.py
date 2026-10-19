@@ -42,6 +42,42 @@ def main():
         count += 1
 
     entries = json.loads((ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json').read_text())['entries']
+    # Use an actual previously reduced pillar and a warm prepared directory:
+    # a new generator pass must remove its obsolete streams and meta files.
+    pillar = next(entry for entry in entries if entry['signature']['name'] == 'EN_CR_Pillar_Thin')
+    prepared_root = ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes'
+    exact = next(variant for variant in pillar['variants'] if variant['tier'] == 100)
+    with tempfile.TemporaryDirectory(prefix='ghvr-retired-pillar-') as temporary:
+        root = Path(temporary); native = root / 'generation/native'; native.mkdir(parents=True)
+        target = root / 'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes'; target.mkdir(parents=True)
+        data = (prepared_root / exact['file']).read_bytes()
+        (native / (pillar['key'] + '.bytes')).write_bytes(data)
+        source = {**pillar, 'file': pillar['key'] + '.bytes', 'sha256': exact['sha256']}
+        (native / 'sources.json').write_text(json.dumps({'format': 1, 'meshes': [source],
+            'ambiguousRejected': [], 'unitypy': 'source-bound-retirement-probe'}))
+        stale = [target / (pillar['key'] + '-' + str(tier) + '.bytes') for tier in (50, 0)]
+        for path in stale:
+            path.write_bytes(data); path.with_name(path.name + '.meta').write_text('obsolete-meta')
+        generator = ROOT / 'scripts/generate-environment-meshes.py'
+        arguments = ['--source-root', str(root), '--output-dir', str(root / 'generation'), '--skip-extract']
+        result = subprocess.run([sys.executable, str(generator), *arguments], capture_output=True, text=True)
+        assert result.returncode == 0, 'retired pillar preparation failed: ' + result.stderr
+        packed = json.loads((target / 'index.json').read_text())['entries'][0]
+        assert [v['tier'] for v in packed['variants']] == [100], 'retired pillar generator must keep only shared exact geometry'
+        assert (target / exact['file']).read_bytes() == data, 'retired pillar exact bytes must remain unchanged'
+        assert all(not path.exists() and not path.with_name(path.name + '.meta').exists() for path in stale), 'warm preparation must prune obsolete pillar streams and metadata'
+        count += 1
+        # The original behavior must be observable, rather than this check
+        # merely agreeing with a zero-geometry or malformed-source shortcut.
+        text = generator.read_text()
+        binding = 'tiers = (100,) if "pillar" in source["signature"]["name"].casefold() else (100,50,0)'
+        assert text.count(binding) == 1, 'pillar retirement producer binding drift'
+        control = root / 'old-generator.py'; control.write_text(text.replace(binding, 'tiers = (100,50,0)'))
+        result = subprocess.run([sys.executable, str(control), *arguments], capture_output=True, text=True)
+        assert result.returncode == 0, 'old producer control failed for an unrelated reason: ' + result.stderr
+        old = json.loads((target / 'index.json').read_text())['entries'][0]
+        assert any(v['tier'] != 100 for v in old['variants']), 'pillar retirement probe must reject the former reduced producer'
+        count += 1
     entry = entries[0]
     original = ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes' / next(v['file'] for v in entry['variants'] if v['tier'] == 100)
     data = original.read_bytes(); check.check_original(entry, data); count += 1

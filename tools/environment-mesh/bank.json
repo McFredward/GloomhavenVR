@@ -3,9 +3,9 @@
   "editor": "2021.3.5f1",
   "target": "StandaloneWindows64",
   "file": "ghvr-environment.bundle",
-  "sha256": "f64bd5813d4c587ae848d6291d6de4d0a3b66ce15babab0953cfbf45119895f9",
-  "bytes": 56858683,
-  "textAssets": 3171,
+  "sha256": "1e95caed4ca1614e95b39f51e165d3ae3087b17fa8b562491df68cbdeee2609f",
+  "bytes": 52361903,
+  "textAssets": 2910,
   "shaderAssets": 2,
   "builder": "unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentBank.cs",
   "sourceSha256": {

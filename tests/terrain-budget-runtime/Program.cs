@@ -75,7 +75,6 @@ public static partial class TerrainProgram
     public static int Run()
     {
         PerfConfig.SharedEnvironmentMaterialReadsOn=false; PerfConfig.TerrainCameraSourceLimit=0; PerfConfig.TerrainSubstitutionOn=true;
-        PerfConfig.PillarDistanceLodEnabled=false; PerfConfig.FigureDistanceLodEnabled=true;
         _checks=0; Bank.Clear(); ProceduralWall.m_WallCache.Clear(); VRLog.Faults.Clear(); BundleShaders.Throw=false;
         PerfConfig.CheapWallShadingOn=true; PerfConfig.TerrainDetailPercent=100; PerfConfig.DistantTerrainDetailPercent=100;
         var host=new GameObject("GloomhavenVR.TerrainOwner"); var scenario=new GameObject("Scenario"); scenario.AddComponent<ProceduralScenario>();
@@ -321,7 +320,7 @@ public static partial class TerrainProgram
         Check(wall.GetComponent<MeshFilter>().sharedMesh==foreign&&!ScenarioTerrainBudget.OwnsRenderSubstitute(wall)
             &&!DuringRender(camera,()=>wall.forceRenderingOff),"foreign native mesh replacement is retained and owned proxy retired");
         Object.DestroyImmediate(foreign);
-        var exactOnly=Surface(scenario,"CV_Pillar_Generic_01",new Vector3(8,1,0),material);
+        var exactOnly=Surface(scenario,"CV_Wall_Generic_01",new Vector3(8,1,0),material);
         Mesh exactOnlySource=exactOnly.GetComponent<MeshFilter>().sharedMesh;
         Object.DestroyImmediate(Bank[exactOnlySource][1]); Bank[exactOnlySource][1]=Object.Instantiate(Bank[exactOnlySource][0]);
         PerfConfig.CheapWallShadingOn=false; PerfConfig.TerrainDetailPercent=0;
@@ -339,7 +338,7 @@ public static partial class TerrainProgram
         ShaderPixels(camera);
         NoisePixels(camera);
         Check(VRLog.Faults.FindAll(text=>text.Contains("presentation failed")).Count==1,"optional failure reports once with useful normal-level context");
-        scenario.SetActive(false); HiddenWallWork(camera); RadialPillars(camera); NativeCoverage(camera); IndependentPillarLifecycle(camera);
+        scenario.SetActive(false); HiddenWallWork(camera); NativeCoverage(camera); RetiredPillars(camera);
         Object.DestroyImmediate(host); Object.DestroyImmediate(scenario); Object.DestroyImmediate(camera.targetTexture); Object.DestroyImmediate(cameraGo); Object.DestroyImmediate(material); DisposeBank();
         return _checks;
     }

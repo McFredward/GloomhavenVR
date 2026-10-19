@@ -37,6 +37,12 @@ for owner, (rel, namespace, module) in owners.items():
     if owner == 'PerfConfig':
         original += (source / 'Core/Perf/PerfConfig.FrameRendering.cs').read_text()
     names = sorted(set(re.findall(r'\b'+owner+r'\.([A-Za-z]+)', profile)) - {'Bind'})
+    if owner == 'PerfConfig':
+        # The profile must not write the retired binding, but existing files still
+        # bind it inertly. Include that source-bound compatibility boundary here.
+        assert 'ScenarioTerrainPillarDistanceLod' not in profile, 'profile must not reactivate retired pillar LOD'
+        assert '"INERT — pillar LOD' in original, 'retired compatibility entry must be hidden by the real catalog marker'
+        names.append('ScenarioTerrainPillarDistanceLod')
     fields = []
     for name in names:
         m = re.search(r'(?:internal|public) static ConfigEntry<(\w+)>\?? '+name+r'\b', original)

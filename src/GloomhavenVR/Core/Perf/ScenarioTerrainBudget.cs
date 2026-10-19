@@ -117,29 +117,17 @@ internal static partial class ScenarioTerrainBudget
         AuthoredName(mesh.name).IndexOf("Floor", StringComparison.OrdinalIgnoreCase) >= 0;
     private static bool StructuralIdentity(Mesh mesh)
     {
-        // Positively audited wall bodies/pillars from pcg_crypt/cave/city, in addition
-        // to immutable bank provenance AND live ProceduralWall ownership below.
-        // The bank also contains floors, props, foundations and anonymous meshes:
-        // membership alone cannot authorize a coarse terrain representation.
-        return AuthoredName(mesh.name) is "EN_CR_Pillar_Thin" or "EN_CR_Pillar_Large"
-            or "EN_CR_Pillar_Large_02" or "EN_CR_Wall_Basic_Tall" or "EN_CR_Wall_TrimBasic_01"
-            or "CV_Pillar_Generic_01" or "CV_Pillar_Generic_02"
+        // Pillar substitutes were retired by the maintainer on 2026-10-19.
+        // Keep only the previously audited ordinary wall identities. Exact
+        // original pillar rendering and native visibility remain authoritative.
+        return AuthoredName(mesh.name) is "EN_CR_Wall_Basic_Tall" or "EN_CR_Wall_TrimBasic_01"
             or "CV_Wall_Generic_01" or "CV_Wall_Generic_02" or "CV_Wall_Generic_03"
             or "CV_Wall_Generic_04" or "CV_Wall_Generic_05"
             or "CV_Wall_Generic_Thin_01" or "CV_Wall_Generic_Thin_Narrow_01"
             or "CV_Wall_Generic_Thin_Narrow_02"
-            // Build627's three-room PC capture contains these ten exact definitions.
-            // Their original pcg_city prefabs and existing bank streams were audited;
-            // wall shelves/candles/tapestries, bases and arbitrary CR_INT names are
-            // deliberately absent. A matching mesh inside an under-wall or doorway
-            // template is still native (StructuralBoundary below), even when that
-            // template is itself nested under a ProceduralWall.
             or "CR_INT_Stone_Int_Wall_01" or "CR_INT_Stone_Int_Wall_02"
             or "CR_INT_Stone_Int_Wall_03" or "CR_INT_Stone_Int_Wall_04"
-            or "CR_INT_Stone_Int_Wall_02_Narrow" or "CR_INT_Stone_Pillar_04"
-            or "CR_INT_Wooden_Int_Pillar_Single"
-            or "CR_INT_Wooden_Hut_Pillars_01" or "CR_INT_Wooden_Hut_Pillars_02"
-            or "CR_INT_Wooden_Hut_Pillars_03";
+            or "CR_INT_Stone_Int_Wall_02_Narrow";
     }
     private static bool StructuralBoundary(string name)
     {
@@ -451,7 +439,6 @@ internal static partial class ScenarioTerrainBudget
         {
             internal readonly Vector3 Position;
             internal readonly float Scale, Distance;
-            internal readonly bool PillarDistanceLod;
             internal readonly int Near, Distant;
             internal readonly HandProximity Left, Right;
             internal DetailState(Camera camera)
@@ -462,42 +449,15 @@ internal static partial class ScenarioTerrainBudget
                 Left = new HandProximity(VRHands.Left); Right = new HandProximity(VRHands.Right);
                 Near = PerfConfig.TerrainDetailPercent; Distant = PerfConfig.DistantTerrainDetailPercent;
                 Distance = PerfConfig.TerrainDistanceMeters;
-                PillarDistanceLod = PerfConfig.PillarDistanceLodEnabled;
             }
         }
         private static int DetailFor(Surface surface, DetailState detail)
         {
             if (surface.Floor) return 100;
-            // The cylinder needs the current source matrix instead of a world AABB.
-            // Preserve the existing native bounds read only for ordinary surfaces
-            // or a tracked hand's exact, unchanged closest-bounds touch guard.
-            Bounds bounds = !surface.Pillar || detail.Left.Tracked || detail.Right.Tracked
-                ? surface.Renderer.bounds : default;
-            float metres = surface.HeadDistanceAndRadius(detail.Position, bounds, detail.PillarDistanceLod,
-                out float radius) / detail.Scale;
-            // Small hysteresis keeps a parked threshold from repeatedly morphing the same mesh.
+            Bounds bounds = surface.Renderer.bounds;
+            float metres = Vector3.Distance(detail.Position, bounds.ClosestPoint(detail.Position)) / detail.Scale;
             float edge = detail.Distance + (surface.Distant ? -.04f : .04f);
             bool protectedNear = metres < .18f || NearHand(detail.Left, bounds) || NearHand(detail.Right, bounds);
-            if (surface.Pillar)
-            {
-                // The 2026-10-10 report rejects the fixed .75m viewing radius: use
-                // figure-comparable size bands, independently for each pillar. The
-                // original full radius includes its height; horizontal thickness alone
-                // would reduce thin columns much earlier than figures. The same source
-                // matrix supplies both radius and radial camera distance during Update.
-                // No current figure, actor cap, party size or figure LOD toggle is read.
-                if (detail.PillarDistanceLod)
-                {
-                    if (!(radius > 0f) || float.IsInfinity(radius))
-                    { surface.Distant = false; return 100; }
-                    Vector2 distances = FigureDistanceLodPolicy.FirstReductionDistances(detail.Near, radius / detail.Scale);
-                    // Match the pure figure boundaries, including equality and hysteresis.
-                    if (surface.Distant) { if (metres < distances.y) surface.Distant = false; }
-                    else if (metres > distances.x) surface.Distant = true;
-                }
-                else surface.Distant = metres > edge;
-                return protectedNear || !surface.Distant ? 100 : Mathf.Min(detail.Near, detail.Distant);
-            }
             // Other scenery keeps its existing leaning/touch guard and near/far caps.
             // Interactive and held objects are excluded separately.
             if (protectedNear) return 100;

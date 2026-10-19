@@ -614,6 +614,10 @@ NAME_DIFFERS_ON_PURPOSE = {
 # joining a curated family with no row and no line here. Added by hand rather than by --bless, so
 # that every addition had to be argued instead of blessed in a batch.
 KNOWN_ORPHANS = {
+    # 2026-10-19 maintainer ruling: pillar LOD is removed on every platform.
+    # The key is hidden by the catalog's INERT marker and retained only to read
+    # existing files; no active selector or profile may consume its value.
+    ("Optimize", "ScenarioTerrainPillarDistanceLod"),
     # Build702, maintainer's explicit rejection of an independent MR resolution
     # limit: keep the persisted key only as INERT compatibility storage. The
     # production filter hides it in curated and Advanced views; actual eye
