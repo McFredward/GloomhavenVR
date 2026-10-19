@@ -6,12 +6,21 @@ root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 mkdir -p -- "$root/.planning/debug/frame672-installer"
 scratch="$(python3 -c 'import sys,tempfile; print(tempfile.mkdtemp(prefix="run-", dir=sys.argv[1]))' "$root/.planning/debug/frame672-installer")"
 echo "evidence: $scratch"
-fake_steam_pid=""
 finish() {
-    if [[ -n "$fake_steam_pid" ]]; then
-        kill "$fake_steam_pid" 2>/dev/null || true
-        wait "$fake_steam_pid" 2>/dev/null || true
-    fi
+    local status=$?
+    python3 -B - "$root" "$scratch" "$status" <<'PY'
+import json
+from pathlib import Path
+import sys
+root, run = Path(sys.argv[1]), Path(sys.argv[2])
+sys.path.insert(0, str(root / "scripts"))
+from town_run_retention import cleanup_completed_run
+log = run / "completion.log"
+log.write_text("evidence: " + str(run) + "\nSteam Frame installer smoke completed.\n")
+receipt = cleanup_completed_run("frame-installer-smoke", int(sys.argv[3]), log, root, process_reaped=True)
+(run / "cleanup.json").write_text(json.dumps(receipt, indent=2) + "\n")
+PY
+    return "$status"
 }
 trap finish EXIT
 
@@ -164,32 +173,8 @@ for pair in "library_600x900.png:${shortcut_appid}p.png" \
     cmp -s "$setup/SteamArtwork/$source_name" "$account/grid/$grid_name"
 done
 
-# Model a real Linux Steam process lifetime so the durable launch guard can
-# distinguish the setup client from a restarted client without a user bus.
-start_steam() {
-    rm -f -- "$HOME/fake-steam-ready"
-    python3 - "$HOME/fake-steam-ready" <<'STEAMPY' &
-import ctypes
-from pathlib import Path
-import signal
-import sys
-ctypes.CDLL(None).prctl(15, b"steam", 0, 0, 0)
-Path(sys.argv[1]).touch()
-signal.pause()
-STEAMPY
-    fake_steam_pid=$!
-    for ((attempt = 0; attempt < 50; attempt++)); do
-        [[ -f "$HOME/fake-steam-ready" ]] && return
-        sleep 0.02
-    done
-    echo 'error: synthetic Steam client did not start' >&2
-    exit 1
-}
-stop_steam() {
-    kill "$fake_steam_pid"
-    wait "$fake_steam_pid" 2>/dev/null || true
-    fake_steam_pid=""
-}
+# The generated launcher keeps the original AppID, while the required override
+# stays on the original app and VR opt-in remains exclusive to the shortcut.
 cat > "$scratch/bin/steam" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$HOME/steam-args"
@@ -199,87 +184,15 @@ cat > "$scratch/bin/systemctl" <<'EOF'
 printf 'unexpected user-bus call\n' >> "$HOME/user-bus-calls"
 exit 1
 EOF
-cat > "$scratch/bin/kdialog" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$@" >> "$HOME/setup-dialogs"
-if [[ -f "$HOME/fake-frame-session-kill" ]]; then
-    cp -- "$HOME/steam-cached-localconfig" "$GHVR_TEST_LOCALCONFIG"
-    kill -TERM "$PPID"
-fi
-EOF
-chmod +x "$scratch/bin/steam" "$scratch/bin/systemctl" "$scratch/bin/kdialog"
-export GHVR_TEST_LOCALCONFIG="$account/localconfig.vdf"
+chmod +x "$scratch/bin/steam" "$scratch/bin/systemctl"
 cp -- "$account/localconfig.vdf" "$scratch/localconfig-before"
 cp -- "$boot" "$scratch/boot-before"
 cp -- "$vr_preferences" "$scratch/vr-preferences-before"
-start_steam
-rm -f -- "$shortcuts"
-PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/live.log"
-[[ -s "$shortcuts" && -s "$setup/steam-launch-options.pending.json" ]]
-cmp -s "$account/localconfig.vdf" "$scratch/localconfig-before"
-rg -q 'native Steam launch-options confirmation required' "$setup/steam-frame-setup.log"
-! rg -q 'Setup state: complete' "$setup/steam-frame-setup.log"
-[[ ! -e "$HOME/steam-args" && ! -e "$HOME/user-bus-calls" ]]
-# Even a previously correct disk line does not prove the live Steam cache.
-if PATH="$scratch/bin:$PATH" "$launcher" > "$scratch/live-launch.log" 2>&1; then
-    echo 'error: VR launcher trusted live setup disk readback' >&2
-    exit 1
-fi
-rg -q 'native Steam save' "$scratch/live-launch.log"
-[[ ! -e "$HOME/steam-args" ]]
-
-# Flush exactly the user's observed old empty-options cache after setup and
-# kill the entire client lifetime. The guard survives, and a new client still
-# refuses to start flat until native UI options persist across its restart.
-python3 - "$account/localconfig.vdf" "$root/scripts/steam-frame-config.py" <<'STEAMPY'
-import importlib.util
-from pathlib import Path
-import sys
-spec = importlib.util.spec_from_file_location('frame_config_test', sys.argv[2])
-module = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = module
-spec.loader.exec_module(module)
-p = Path(sys.argv[1])
-s = p.read_text()
-tokens = module.tokenize_text(s)
-value = next(t for i, t in enumerate(tokens) if i and tokens[i-1].value == 'LaunchOptions')
-p.write_text(s[:value.start] + module.quoted('MANGOHUD=1 %command%') + s[value.end:])
-STEAMPY
-cp -- "$account/localconfig.vdf" "$HOME/steam-cached-localconfig"
-stop_steam
-start_steam
-if PATH="$scratch/bin:$PATH" "$launcher" > "$scratch/flushed-launch.log" 2>&1; then
-    echo 'error: VR launcher accepted old cache flushed after restart' >&2
-    exit 1
-fi
-rg -q 'missing or stale' "$scratch/flushed-launch.log"
-[[ ! -e "$HOME/steam-args" ]]
-
-# On Frame no service bus or detached continuation is assumed. Simulate loss
-# of the installer terminal at the native guidance dialog and a stale flush.
-rm -f -- "$shortcuts"
-: > "$HOME/fake-frame-session-kill"
-{ DISPLAY=:frame-test PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" || true; } > "$scratch/session-kill.log" 2>&1
-[[ -s "$shortcuts" && -s "$setup/steam-launch-options.pending.json" ]]
-cmp -s "$account/localconfig.vdf" "$HOME/steam-cached-localconfig"
-rg -q 'Properties &gt; General &gt; Launch options' "$HOME/setup-dialogs"
-[[ ! -e "$HOME/steam-args" && ! -e "$HOME/user-bus-calls" ]]
-rm -f -- "$HOME/fake-frame-session-kill"
-stop_steam
-start_steam
-if PATH="$scratch/bin:$PATH" "$launcher" > "$scratch/session-kill-launch.log" 2>&1; then
-    echo 'error: terminal/session loss bypassed pending setup' >&2
-    exit 1
-fi
-rg -q 'missing or stale' "$scratch/session-kill-launch.log"
-
-# A native UI save is modeled as the client writing its complete changed
-# option value. It is the existing canonical line, preserving MANGOHUD.
-cp -- "$scratch/localconfig-before" "$account/localconfig.vdf"
 PATH="$scratch/bin:$PATH" "$launcher"
 printf '%s\n' -applaunch 780290 --gloomhavenvr > "$scratch/expected-args"
 cmp -s "$HOME/steam-args" "$scratch/expected-args"
 ! rg -q -- '--gloomhavenvr' "$account/localconfig.vdf"
+[[ ! -e "$HOME/user-bus-calls" ]]
 
 # Native Steam may preserve harmless whitespace or single-quoted assignment
 # values. The generated launcher must accept them without rewriting the file.
@@ -304,18 +217,15 @@ cmp -s "$HOME/steam-args" "$scratch/expected-args"
 cmp -s "$account/localconfig.vdf" "$scratch/equivalent-localconfig"
 cp -- "$scratch/localconfig-before" "$account/localconfig.vdf"
 
-# A live rerun preserves all original options/config but again requires a
-# native UI check before restarting; offline rerun completes automatically.
+# An offline rerun is idempotent and leaves no pending launch guard.
 cp -- "$shortcuts" "$scratch/shortcuts-before"
-PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/again-live.log"
+PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/again-offline.log"
+[[ ! -e "$setup/steam-launch-options.pending.json" ]]
+rg -q 'Setup state: complete' "$setup/steam-frame-setup.log"
 cmp -s "$boot" "$scratch/boot-before"
 cmp -s "$shortcuts" "$scratch/shortcuts-before"
 cmp -s "$account/localconfig.vdf" "$scratch/localconfig-before"
 cmp -s "$vr_preferences" "$scratch/vr-preferences-before"
-stop_steam
-PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" > "$scratch/again-offline.log"
-[[ ! -e "$setup/steam-launch-options.pending.json" ]]
-rg -q 'Setup state: complete' "$setup/steam-frame-setup.log"
 PATH="$scratch/bin:$PATH" "$launcher"
 cmp -s "$HOME/steam-args" "$scratch/expected-args"
 
@@ -352,4 +262,7 @@ if bash "$setup/install-steam-frame.sh" > /dev/null 2>&1; then
     exit 1
 fi
 
-echo 'Steam Frame setup: desktop/offline setup, live native-UI handoff, stale flush, session kill, guarded AppID launch, publisher defaults and rerun passed.'
+# Keep helper and cache/service regressions on the existing hosted smoke-test seam.
+python3 "$root/tests/test-steam-frame-config.py" -v
+
+echo 'Steam Frame setup: desktop/offline setup, managed automatic repair, guarded AppID launch, publisher defaults and rerun passed.'
