@@ -14,6 +14,43 @@ visual acceptance is claimed. See `.planning/retired-PILLAR-LOD-20261019.md`.
 
 # State — where the project stands
 
+**Visible Continue beside independent menus, Build712, 2026-10-19.**
+
+Fresh local710/a3b7ed777 hardware shows a chest reward opened during EndTurnLoot,
+48 RewardContinue pointer-click deliveries, but canContinue=False and no forwarded
+native input. The scenario ESC window remained open across the reward and reports
+native OPEN at shutdown. VR incorrectly imported the ESC gamepad blocker into an
+explicit pointer button; original ProcessRewards mouse/latch input has no such
+predicate. Remove that extra veto from RewardShowcase and the same source-proven
+case in AnnouncementContinue. UIRewardsManager also follows its actual MEC process,
+not Behaviour.enabled; that second mismatch is source-proven rather than a measured
+hardware operand. Original pending input, window, reveal, actor/network authority
+and native callbacks remain. No automatic dismissal, menu closure or progression.
+
+The adjacent source audit covers Campaign and shared postquest rewards, unlocks,
+UIMessage queue continuation, DialogPopup/confirmation surfaces and host-routed
+enemy-information Continue. No further concrete matching defect was found there;
+their genuine native restrictions remain. New bounded normal diagnostics identify
+the disabled reward gate; routine queued input remains Debug.
+
+Focused verification: RewardShowcase3275 assertions/27 compiling causal controls,
+including120 context/input/manager/role cases against the exact original native
+mouse coroutine, startup and EndProcess. Announcement349/seven controls covers
+native tracker, animation, next card and final selection with ESC open. All33
+relevant worker source/script/fixture/native input hashes match the integrated
+checkout. Source16/16, strict Debug/Release0W0E, docs i18n and private711-to712
+compiled scope pass: two behavior types, eight version consumers, three metadata
+files. Preserve669 config keys/241 Harmony bindings and all4806 old log tokens;
+one bounded BLOCKED token is added. Existing229 local/102 CI registration is intact.
+Unchanged figure, native UI geometry and actual wire300598 evidence are inherited;
+no new complete local gameplay gate or headset/network result is claimed.
+
+All three own stopped worker worktrees were removed after byte-verified archives
+and exact input comparison. Canonical cleanup retained failed attempts, native
+source and verdicts while removing their generated caches and root build obj.
+Debug712 deliverables, frozen hardware, audit, input hashes and receipts remain
+under `.planning/debug/continue712/`; see `CONTINUE-712-COORDINATION.md`.
+
 **Figure highlight/pickup agreement, Build711, 2026-10-19.**
 
 Fresh local710 logs show26 elected-figure trigger refusals plus20 explicitly

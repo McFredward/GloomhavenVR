@@ -612,7 +612,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 711;
+    public const ushort ModBuild = 712;
+
+    // ModBuild712 — preserve native pointer continuation with an unrelated ESC window open.
+    // Hardware710 reaches RewardContinue repeatedly while its permission is false;
+    // the ESC window remains open across that chest reward. The native reward loop
+    // accepts mouse input independently of the ESC blocker attached to gamepad keys.
+    // Remove that extra VR pointer veto from rewards and level-up announcements.
+    // UIRewardsManager readiness follows its live MEC reward process rather than
+    // Behaviour.enabled. Keep original reveal, latch, window, actor/network authority
+    // and native callback gates. Explicit clicks forward original input/callbacks;
+    // there is no automatic continuation or window dismissal.
+    // Bounded disabled-control diagnostics name the actual gate; routine pending
+    // input remains Debug. Native-loop and pointer regressions cover ESC-open,
+    // repeated rewards, genuine disablement and exact single continuation.
+    // Wire layout, native game state, escape-menu state and figure pickup are unchanged.
 
     // ModBuild711 — make a visible near-figure highlight a live pickup offer.
     // Hardware710 logs prove elected figure pulls refused by generic beam hover;

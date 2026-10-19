@@ -123,6 +123,12 @@ an established press/gesture or genuine native permission loss must revoke the c
 figure glow. Never retain a visual-only figure hover tail after pickup becomes invalid.
 Keep original busy/dead/remote-held, tracking, mode and geometry gates intact.
 
+The user's 2026-10-19 chest-Continue report requires explicit VR continuation to
+follow the original pointer callback's permission. An independently open ESC window
+must not import a gamepad-only blocker into rewards or level-up Continue buttons.
+Keep native reveal/readiness, input-latch and actor/network authority gates; never
+auto-confirm or hide a mandatory window to recover progression.
+
 The user's 2026-09-17 window-placement request permits necessary, animated opening-time
 room making when a new window would overlap an existing visible window. Keep affected
 windows in view and use one author for shared movement. This narrowly supersedes the
