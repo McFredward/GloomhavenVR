@@ -22,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--owned-project', type=Path, required=True)
     parser.add_argument('--shader-overlay', type=Path)
-    parser.add_argument('--control', choices=('no-upload', 'no-restore', 'no-shader-gate', 'no-live-contract'))
+    parser.add_argument('--control', choices=('no-upload', 'no-restore', 'no-shader-gate', 'no-live-contract', 'baked-native-visibility'))
     args = parser.parse_args()
     base = ROOT / '.planning/debug/quest-ping-streams'; base.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=base)); project = run / 'unity'
@@ -62,10 +62,22 @@ def main():
         text = text.replace('  - component: {fileID: ' + key + '}\n', '')
     (resources / 'NativePing.prefab').write_text(text)
     production = ROOT / 'src/GloomhavenVR/Board/Patches/QuestPingStreams.cs'; code = production.read_text(); source_hashes = {str(production): hashlib.sha256(production.read_bytes()).hexdigest()}
-    if args.control == 'no-upload': code = code.replace('binding.Upload.SetColors(binding.Colors);', ';')
-    elif args.control == 'no-restore': code = code.replace('if (Claimed && Source != null) Source.forceRenderingOff = false;', ';')
-    elif args.control == 'no-shader-gate': code = code.replace('if (renderer.renderMode != ParticleSystemRenderMode.Billboard', 'if (false && renderer.renderMode != ParticleSystemRenderMode.Billboard').replace('|| (shader != "Particles/Priority Additive"', '|| (false && shader != "Particles/Priority Additive"')
-    elif args.control == 'no-live-contract': code = re.sub(r'if \(source.sharedMaterial.shader != binding.Shader.*?\{ binding.Release\(\); return; \}', 'if (false) { binding.Release(); return; }', code, count=1, flags=re.S)
+    mutations = {
+        'no-upload': ('binding.Renderer.SetActiveVertexStreams(Packed);', 'binding.Renderer.SetActiveVertexStreams(binding.Original);'),
+        'no-restore': ('if (Equal(_scratch, Packed)) binding.Renderer.SetActiveVertexStreams(binding.Original);', ';'),
+        'no-shader-gate': ('|| (shader != "Particles/Priority Additive"', '|| (false && shader != "Particles/Priority Additive"'),
+        'no-live-contract': (' || binding.Material.shader != binding.Shader', ' || false'),
+    }
+    if args.control in mutations:
+        before, after = mutations[args.control]
+        if code.count(before) != 1: raise RuntimeError('Ping causal control binding drift: ' + args.control)
+        code = code.replace(before, after, 1)
+    elif args.control == 'baked-native-visibility':
+        # Exact B712 production source, not an invented renderer surrogate.
+        # That revision passed paused/manual pixel probes while its visibility
+        # lease freezes both original Pause-culling simulation clocks on device.
+        code = subprocess.check_output(['git', 'show', '17cab93ae:src/GloomhavenVR/Board/Patches/QuestPingStreams.cs'], cwd=ROOT, text=True)
+    source_hashes['emittedProduction'] = hashlib.sha256(code.encode()).hexdigest()
     (project / 'Assets/QuestPingStreams.cs').write_text('#nullable enable\n' + code.replace('namespace GloomhavenVR.Board.Patches;', 'namespace GloomhavenVR.Board.Patches {') + '\n}\n')
     (project / 'Assets/Boundaries.cs').write_text('''using System.Collections.Generic;
 using UnityEngine;
@@ -76,7 +88,8 @@ internal class PingManager : MonoBehaviour {
 }
 namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { internal static bool Enabled=true; } internal static class VRSession { internal static bool IsRunning=true; } internal enum VRLogLevel { Debug } internal static class VRCameraPolicy { internal static Camera AllowedHead; } internal static class VRLog { internal static bool Wants(VRLogLevel level) => true; internal static void Warn(string category,string message) { Debug.LogWarning(message); } } }
 ''')
-    probe = ROOT / 'tests/QuestPingStreams.Tests/Probe.cs'; shutil.copyfile(probe, project / 'Assets/Probe.cs'); source_hashes[str(probe)] = hashlib.sha256(probe.read_bytes()).hexdigest()
+    for probe in (ROOT / 'tests/QuestPingStreams.Tests').glob('*.cs'):
+        shutil.copyfile(probe, project / 'Assets' / probe.name); source_hashes[str(probe)] = hashlib.sha256(probe.read_bytes()).hexdigest()
     (project / 'Packages').mkdir(); (project / 'ProjectSettings').mkdir()
     (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.particlesystem":"1.0.0","com.unity.modules.imageconversion":"1.0.0"}}\n')
     (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
@@ -87,19 +100,23 @@ namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { in
     if sys.platform.startswith('linux') and ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) != 0: raise OSError('Could not own fixture children')
     command = ['/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-vulkan', '-projectPath', str(project), '-executeMethod', 'QuestPingStreamsProbe.Run', '-logFile', str(run / 'unity.log')]
     if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a'] + command
-    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True); code = 1
+    environment = os.environ.copy()
+    if args.control == 'baked-native-visibility': environment['QUEST_PING_AUTOPLAY_ONLY'] = '1'
+    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=environment); code = 1
     try:
         code = process.wait(timeout=180)
         if args.control:
-            expected = {'no-upload': 'Owned ping upload has explicit floating-point COLOR', 'no-restore': 'Head completion releases original ping renderers', 'no-shader-gate': 'Foreign particle materials retain their authored streams', 'no-live-contract': 'Changed native contracts retain their original camera draw'}[args.control]
+            expected = {'no-upload': 'Original ping retains its exact consumed native streams', 'no-restore': 'Pooling restores exact original ping streams', 'no-shader-gate': 'Foreign particle materials retain their authored streams', 'no-live-contract': 'Changed native contracts retain authored streams', 'baked-native-visibility': 'AUTO_CLOCK_RESULT same=False'}[args.control]
             if code == 0 or expected not in (run / 'unity.log').read_text(): raise RuntimeError('Native ping control did not detect its targeted defect')
             (run / 'control.json').write_text(json.dumps({'control': args.control, 'expectedFailure': expected, 'observedExit': code, 'hardwareVerified': False}, indent=2) + '\n')
             print('PASS native ping causal control: ' + args.control, flush=True); code = 0; return
         if code: raise RuntimeError('Native ping fixture failed: ' + str(run / 'unity.log'))
         report = json.loads((project / 'ProbeOutput/results.json').read_text())
-        if report['assertions'] < 31 or report['visiblePixels'] < 50: raise RuntimeError('Incomplete native ping evidence')
-        (run / 'qualification.json').write_text(json.dumps({'sources': source_hashes, 'nativeInputs': inputs, 'results': report, 'hardwareVerified': False}, indent=2) + '\n')
-        print('PASS native ping owned upload: ' + str(report['assertions']) + ' assertions; headset outcome unverified', flush=True)
+        if report['assertions'] < 30 or report['visiblePixels'] < 50: raise RuntimeError('Incomplete native ping evidence')
+        clock = json.loads((project / 'ProbeOutput/auto-clock.json').read_text())
+        if not clock['sameNativeClock'] or clock['samples'] < 5 or clock['nativeClock'] < 1: raise RuntimeError('Incomplete native autoplay evidence')
+        (run / 'qualification.json').write_text(json.dumps({'sources': source_hashes, 'nativeInputs': inputs, 'results': report, 'autoPlay': clock, 'hardwareVerified': False}, indent=2) + '\n')
+        print('PASS native ping streams: ' + str(report['assertions']) + ' assertions and ' + str(clock['samples']) + ' actual autoplay observations; headset tile pixels unverified', flush=True)
     finally:
         if process.poll() is None: process.kill(); process.wait()
         pixels = project / 'ProbeOutput'
