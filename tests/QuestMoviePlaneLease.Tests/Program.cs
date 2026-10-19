@@ -26,6 +26,20 @@ internal static class Program
     }
     private static void Main()
     {
+        {
+            // Same ordering as the actual startup prefix, followed by a brief
+            // ordinary screen suppression. B711's one-shot prefix cannot rerun
+            // when that surviving decoder returns to its captured screen.
+            var state = Setup(true); VideoPlayer player = state.Player; player.targetCameraAlpha = 1f;
+            NativeMovieCameraPlane.ReserveStartup(player);
+            Check(player.targetCameraAlpha == 0f, "studio prefix reserves the packed plane before original Play");
+            state.Owner._visible = false; NativeMovieCameraPlane.RestoreAll();
+            Check(player.targetCameraAlpha == 1f, "startup owner loss restores its real native alpha one");
+            state.Owner._visible = true;
+            NativeMovieCameraPlane.BeforeRender(player.targetCamera); NativeMovieCameraPlane.AfterRender(player.targetCamera);
+            Check(player.targetCameraAlpha == 0f && NativeMovieCameraPlane.PresentationAlpha(player) == 1f,
+                "surviving packed studio source is suppressed across the next render without rerunning Play or prefix");
+        }
         foreach (bool ui in new[] { false, true })
         {
             var state = Setup(ui); VideoPlayer player = state.Player;
@@ -56,20 +70,6 @@ internal static class Program
             NativeMovieCameraPlane.RefreshQuestMovie();
             Check(Math.Abs(player.targetCameraAlpha - .41f) < .0001f && player.Subscribers == 0,
                 "failed unchanged decoder is not silently reacquired on the next capture");
-        }
-        {
-            // Same ordering as the actual startup prefix, followed by a brief
-            // ordinary screen suppression. B711's one-shot prefix cannot rerun
-            // when that surviving decoder returns to its captured screen.
-            var state = Setup(true); VideoPlayer player = state.Player; player.targetCameraAlpha = 1f;
-            NativeMovieCameraPlane.ReserveStartup(player);
-            Check(player.targetCameraAlpha == 0f, "studio prefix reserves the packed plane before original Play");
-            state.Owner._visible = false; NativeMovieCameraPlane.RefreshQuestMovie();
-            Check(player.targetCameraAlpha == 1f, "startup owner loss restores its real native alpha one");
-            state.Owner._visible = true;
-            NativeMovieCameraPlane.BeforeRender(player.targetCamera); NativeMovieCameraPlane.AfterRender(player.targetCamera);
-            Check(player.targetCameraAlpha == 0f && NativeMovieCameraPlane.PresentationAlpha(player) == 1f,
-                "surviving packed studio source is suppressed across the next render without rerunning Play or prefix");
         }
         foreach (string fault in new[] { "hidden", "vr", "conversion", "head", "head-disabled", "player", "camera", "foreign-target",
             "target-lost", "split", "material", "renderer", "hierarchy", "renderer-material", "decoder-identity", "compositor", "surface", "capture-owner", "capture-absent" })

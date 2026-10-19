@@ -51,8 +51,8 @@ def main():
     assert "captured.Owner != owner) return;" in prepare and "try { owner.CaptureStack(); }" in prepare
     cases = [("production", lease, ownership, "")]
     mutations = [
-        ("lost-persistent-admission", "lease", "if (!QuestStandalonePlatform.Enabled) return;", "if (QuestStandalonePlatform.Enabled) return;", "owned Quest movie reserves packed plane before native draw"),
-        ("early-post-render-release", "lease", "    internal static void AfterRender(Camera camera)\n    {", "    internal static void AfterRender(Camera camera)\n    {\n        RestoreAll();", "Quest native plane remains hidden between camera renders"),
+        ("lost-persistent-admission", "lease", "if (!QuestStandalonePlatform.Enabled) return;", "if (QuestStandalonePlatform.Enabled) return;", "surviving packed studio source is suppressed across the next render without rerunning Play or prefix"),
+        ("early-post-render-release", "lease", "    internal static void AfterRender(Camera camera)\n    {", "    internal static void AfterRender(Camera camera)\n    {\n        RestoreAll();", "surviving packed studio source is suppressed across the next render without rerunning Play or prefix"),
         ("foreign-target-admitted", "owner", "camera.targetTexture == owner.TargetFor(captured)", "true", "unsafe Quest movie ownership restores exact original alpha: foreign-target"),
         ("foreign-decoder-admitted", "owner", "owner._stereo.OwnsStartupMovie(player, owner._screenMaterial)", "true", "unsafe Quest movie ownership restores exact original alpha: decoder-identity"),
         ("source-revision-not-rebound", "lease", " || player.url != _startupUrl", "", "source revision is rebound before another native render"),

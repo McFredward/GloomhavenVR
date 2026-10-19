@@ -159,31 +159,7 @@ def main():
                 'post-render restores exact original native plane alpha'),
             ('nested-restore', movie, replace_once(lease, 'internal static void AfterRender(Camera camera)\n    {', 'internal static void AfterRender(Camera camera)\n    {\n        RestoreAll();'),
                 'nested foreign camera cannot restore enclosing packed plane early')]
-        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
-        fixture = ROOT / 'tests/GloomhavenVR.StereoMovieRenderTests'
-        dotnet = str(Path.home() / '.dotnet/dotnet')
-        for name, movie_code, lease_code, expected in cases:
-            case = run / name
-            production = case / 'production'
-            production.mkdir(parents=True)
-            (production / 'FlatScreenStereo.5.Movie.cs').write_text(movie_code)
-            (production / 'NativeMovieCameraPlane.cs').write_text(lease_code)
-            (production / 'StereoVideoSurface.cs').write_text(surface)
-            csproj = case / 'StereoMovieRender.csproj'
-            shutil.copyfile(fixture / 'StereoMovieRender.csproj', csproj)
-            assembly = 'StereoMovie_' + name.replace('-', '_')
-            if execute([dotnet, 'build', str(csproj), '-c', 'Release', '-v', 'quiet', '--nologo', '--disable-build-servers', '-nr:false', '-p:UseSharedCompilation=false',
-                    '-p:CaseName=' + assembly, '-p:FixtureDir=' + str(fixture), '-p:ProductionDir=' + str(production),
-                    '-p:UnityManaged=' + str(unity.parent / 'Data/Managed'),
-                    '-p:GameManaged=' + str(ROOT / 'ressources/GH_Data/Managed'),
-                    '-p:StereoBundle=' + str(ROOT / 'src/GloomhavenVR/Assets/StereoVideo/ui-sbs.bundle')], case / 'build.log', 120):
-                raise RuntimeError('Fixture compilation failure is not a negative-control pass: ' + str(case))
-            retained = run / 'assemblies' / (assembly + '.dll')
-            retained.parent.mkdir(exist_ok=True)
-            shutil.copyfile(case / 'bin/Release/net472' / retained.name, retained)
-            manifest['cases'].append({'name': name, 'dll': str(retained), 'expected': expected})
         startup = startup_sources(source_root, movie, lease, surface)
-        startup_fixture = fixture / 'Startup'
         variants = [
             ('startup-production', '', '', '', 'Run', ''),
             ('startup-unprepared', '', '', '', 'Unprepared', ''),
@@ -233,14 +209,46 @@ def main():
             ('startup-throw-escape', 'CaptureStack.cs', '            if (!owner._visible) owner.Tick();',
                 '            if (!owner._visible) throw new System.InvalidOperationException(\"injected readiness failure\");', 'ThrowingReadiness',
                 'throwing startup readiness cannot escape the prefix and skip native Play or continuation')]
+        # Qualify every source-bound mutation before any compilation. A drifted
+        # anchor must not spend a minute building unrelated controls first.
+        prepared_startup = []
         for name, filename, before, after, method, expected in variants:
+            code = dict(startup)
+            if filename:
+                code[filename] = replace_once(code[filename], before, after)
+                if name == 'startup-throw-escape':
+                    code[filename] = replace_once(code[filename],
+                        'catch (System.Exception error)\n        {\n            // This runs inside native ShowVideo',
+                        'catch (System.NotSupportedException error)\n        {\n            // This runs inside native ShowVideo')
+            prepared_startup.append((name, code, method, expected))
+        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
+        fixture = ROOT / 'tests/GloomhavenVR.StereoMovieRenderTests'
+        startup_fixture = fixture / 'Startup'
+        dotnet = str(Path.home() / '.dotnet/dotnet')
+        for name, movie_code, lease_code, expected in cases:
+            case = run / name
+            production = case / 'production'
+            production.mkdir(parents=True)
+            (production / 'FlatScreenStereo.5.Movie.cs').write_text(movie_code)
+            (production / 'NativeMovieCameraPlane.cs').write_text(lease_code)
+            (production / 'StereoVideoSurface.cs').write_text(surface)
+            csproj = case / 'StereoMovieRender.csproj'
+            shutil.copyfile(fixture / 'StereoMovieRender.csproj', csproj)
+            assembly = 'StereoMovie_' + name.replace('-', '_')
+            if execute([dotnet, 'build', str(csproj), '-c', 'Release', '-v', 'quiet', '--nologo', '--disable-build-servers', '-nr:false', '-p:UseSharedCompilation=false',
+                    '-p:CaseName=' + assembly, '-p:FixtureDir=' + str(fixture), '-p:ProductionDir=' + str(production),
+                    '-p:UnityManaged=' + str(unity.parent / 'Data/Managed'),
+                    '-p:GameManaged=' + str(ROOT / 'ressources/GH_Data/Managed'),
+                    '-p:StereoBundle=' + str(ROOT / 'src/GloomhavenVR/Assets/StereoVideo/ui-sbs.bundle')], case / 'build.log', 120):
+                raise RuntimeError('Fixture compilation failure is not a negative-control pass: ' + str(case))
+            retained = run / 'assemblies' / (assembly + '.dll')
+            retained.parent.mkdir(exist_ok=True)
+            shutil.copyfile(case / 'bin/Release/net472' / retained.name, retained)
+            manifest['cases'].append({'name': name, 'dll': str(retained), 'expected': expected})
+        for name, codes, method, expected in prepared_startup:
             case = run / name
             production = case / 'production'; production.mkdir(parents=True)
-            for filename_actual, code in startup.items():
-                if filename_actual == filename:
-                    code = replace_once(code, before, after)
-                    if name == 'startup-throw-escape':
-                        code = replace_once(code, 'catch (System.Exception error)', 'catch (System.NotSupportedException error)')
+            for filename_actual, code in codes.items():
                 (production / filename_actual).write_text(code)
             csproj = case / 'Startup.csproj'; shutil.copyfile(startup_fixture / 'Startup.csproj', csproj)
             assembly = 'StereoMovie_' + name.replace('-', '_')
