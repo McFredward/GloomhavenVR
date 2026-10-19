@@ -29,18 +29,29 @@ namespace GloomhavenVR.WorldUI
     {
         internal static bool ScreenVisible;
         private bool _visible;
+        private Renderer? _quadRenderer;
         private sealed class CapturedCamera { internal bool IsUi; internal RenderTexture? Target; }
         private static readonly System.Collections.Generic.Dictionary<Camera, CapturedCamera> CapturedSet = new();
         private RenderTexture? TargetFor(CapturedCamera camera) => camera.Target;
         internal void Setup(Camera camera, RenderTexture target, GameObject consumer)
         {
             _visible = ScreenVisible = true;
+            _quadRenderer = consumer.GetComponent<Renderer>();
             CapturedSet[camera] = new CapturedCamera { IsUi = true, Target = target };
             consumer.AddComponent<QuestMenuDrawWitness>().Owner = this;
             Camera.onPostRender += ObserveQuestMenuProducer;
         }
+        internal void FrameTick()
+        {
+#if QUEST_MENU_PIXEL_WITNESS
+            ObserveQuestMenuFrame();
+#endif
+        }
         internal void Stop()
         {
+#if QUEST_MENU_PIXEL_WITNESS
+            ReleaseQuestMenuReceipt();
+#endif
             Camera.onPostRender -= ObserveQuestMenuProducer;
             CapturedSet.Clear(); _visible = ScreenVisible = false;
         }

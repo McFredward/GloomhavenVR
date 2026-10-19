@@ -18,7 +18,7 @@ internal static class NativeOverlayComposition
     private static GameObject Visual(LoadingIndicator value) => (GameObject)typeof(LoadingIndicator).GetField("_root", Fields)!.GetValue(value)!;
     internal static IEnumerator Probe(Camera head, Func<GameObject> art, Action<Action?> setTick, Action<bool, string> check)
     {
-        RenderTexture saved = head.targetTexture; bool enabled = head.enabled;
+        RenderTexture saved = head.targetTexture; bool enabled = head.enabled; float savedAspect = head.aspect;
         LoadingIndicator? indicator = null;
         GameObject? owner = null, actor = null, unrelated = null, canvasHost = null;
         int callbacks = 0;
@@ -26,6 +26,10 @@ internal static class NativeOverlayComposition
         {
             EditorWindow.GetWindow(typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView"), false, "Game").Show();
             head.targetTexture = null; head.enabled = true; head.rect = new Rect(0, 0, 1, 1);
+            // The earlier lifecycle target is square. Let the actual GameView
+            // supply its aspect after this switch instead of stretching the
+            // original circular art into a wide ellipse in final-frame evidence.
+            head.ResetAspect();
             owner = Graph(art(), out Canvas canvas);
             Scene introScene = SceneManager.GetSceneByName("Intro");
             if (!introScene.IsValid() || !introScene.isLoaded) introScene = SceneManager.CreateScene("Intro");
@@ -170,7 +174,7 @@ internal static class NativeOverlayComposition
         finally
         {
             setTick(null); indicator?.Shutdown(); SceneController.Instance = null; WorldUIConfig.LoadingIndicator.Value = true; QuestStandalonePlatform.Enabled = true;
-            head.targetTexture = saved; head.enabled = enabled;
+            head.targetTexture = saved; head.enabled = enabled; head.aspect = savedAspect;
             if (owner != null) UnityEngine.Object.Destroy(owner);
             if (actor != null) UnityEngine.Object.Destroy(actor);
             if (unrelated != null) UnityEngine.Object.Destroy(unrelated);

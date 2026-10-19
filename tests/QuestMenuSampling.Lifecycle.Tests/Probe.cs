@@ -25,6 +25,7 @@ public static class LoadingLifecycleProgram
     public static int RenderedSamples => shownFrames;
     public static int MenuFrameSamples => MenuFrameTrace.Samples;
     public static bool OriginalBootCallbacks { get; private set; }
+    public static bool OriginalWindowShow { get; private set; }
     private static int checks, shownFrames;
     private static LoadingIndicator indicator = null!;
     private static LoadingLifecycleDriver driver = null!;
@@ -348,22 +349,26 @@ public static class LoadingLifecycleProgram
         while (Time.unscaledTime < until) yield return null;
         Check(!LoadingIndicator.FlatScreenSuppressed && Visual != null && Visual.activeSelf,
             "Actual Quest spinner covers native menu preparation after loading flags retire");
-        // Native platform/GUIAnimator callbacks are outside this render-readiness
-        // fixture. Keep the real component, original Initialised/IsOpen getters,
-        // CanvasGroup and camera callbacks; seed only their authored state.
+        // Native platform/menu controllers are a controlled boundary. UIWindow's
+        // own Awake/Start/Show and visual transition remain real: a manually
+        // seeded IsOpen value previously skipped the behavior being qualified.
+        // Only its unrelated global Escape registry is excluded from this graph.
         var harmony = new Harmony("fixture.quest.menu.readiness");
-        foreach (Type type in new[] { typeof(GLOOM.MainMenu.MainMenuUIManager), typeof(GLOOM.MainMenu.UIMainOptionsMenu), typeof(UIWindow) })
+        foreach (Type type in new[] { typeof(GLOOM.MainMenu.MainMenuUIManager), typeof(GLOOM.MainMenu.UIMainOptionsMenu) })
             foreach (string method in new[] { "Awake", "Start", "OnEnable", "OnDisable", "OnDestroy" })
             {
                 MethodInfo? callback = type.GetMethod(method, Fields | BindingFlags.DeclaredOnly);
                 if (callback != null) harmony.Patch(callback, prefix: new HarmonyMethod(typeof(LoadingLifecycleProgram), nameof(SkipNativeLifecycle)));
             }
+        foreach (string name in new[] { "RegisterEscapable", "UnregisterEscapable" })
+            harmony.Patch(typeof(UIWindowManager).GetMethod(name, BindingFlags.Static | BindingFlags.Public),
+                prefix: new HarmonyMethod(typeof(LoadingLifecycleProgram), nameof(SkipNativeLifecycle)));
         var root = new GameObject("native-readiness-menu", typeof(RectTransform), typeof(Canvas), typeof(CanvasGroup)); root.SetActive(false); root.layer = 5;
         var manager = root.AddComponent<GLOOM.MainMenu.MainMenuUIManager>(); manager.enabled = false;
         var optionsOwner = new GameObject("native-options", typeof(RectTransform)); optionsOwner.SetActive(false); optionsOwner.layer = 5;
         optionsOwner.transform.SetParent(root.transform, false);
         var options = optionsOwner.AddComponent<GLOOM.MainMenu.UIMainOptionsMenu>(); options.enabled = false;
-        UIWindow window = optionsOwner.AddComponent<UIWindow>(); window.enabled = false;
+        UIWindow window = optionsOwner.AddComponent<UIWindow>();
         CanvasGroup group = optionsOwner.GetComponent<CanvasGroup>() ?? optionsOwner.AddComponent<CanvasGroup>(); group.alpha = 1;
         manager.mainMenu = options;
         GLOOM.MainMenu.MainMenuUIManager.Instance = manager;
@@ -388,13 +393,21 @@ public static class LoadingLifecycleProgram
         material.SetFloat("_VertexColor", 0); material.SetFloat("_ZTest", 8);
         consumer.GetComponent<Renderer>().sharedMaterial = material;
         var screen = new FlatScreen(); screen.Setup(ui, capture, consumer);
+        bool previousHeadEnabled = head.enabled;
+        float previousHeadDepth = head.depth;
+        // WorldUIModule runs LoadingIndicator before FlatScreen. Keep that
+        // actual frame order while executing the production frame observer;
+        // the test never seeds its asynchronous proof fields.
+        driver.Tick = () => { if (!failed) { indicator.Tick(); screen.FrameTick(); } };
         try
         {
             ui.Render(); head.Render(); yield return null;
             Check(!FlatScreen.QuestMenuPresented && Visual != null && Visual.activeSelf,
                 "A menu state without original Show remains covered");
             NativeField(manager, "m_Initialised", true);
-            NativeField(window, "m_CurrentVisualState", UIWindow.VisualState.Shown);
+            window.Show(true);
+            Check(window.IsOpen && group.alpha == 1f, "Original UIWindow.Show controls its own native visual state and alpha");
+            OriginalWindowShow = true;
             graphicOwner.SetActive(false); ui.Render(); head.Render(); yield return null;
             Check(!FlatScreen.QuestMenuPresented && Visual != null && Visual.activeSelf,
                 "An opened native menu without a submitted Graphic remains covered");
@@ -412,6 +425,12 @@ public static class LoadingLifecycleProgram
             ui.Render(); head.Render(); yield return null;
             Check(!FlatScreen.QuestMenuPresented, "A head surface displaying another texture cannot acknowledge the menu capture");
             material.mainTexture = capture; UnityEngine.Object.DestroyImmediate(foreign);
+            // From this point exercise actual automatic producer/consumer draws
+            // on every PlayerLoop frame. A disabled head rendered only once per
+            // WaitForSecondsRealtime can miss a legitimate short-lived async
+            // proof in fast batchmode by thousands of frames.
+            ui.depth = 1; head.depth = 3;
+            ui.enabled = true; head.enabled = true;
             Image nativeImage = graphicOwner.GetComponent<Image>();
             var blankTexture = new Texture2D(4, 4, TextureFormat.RGBA32, false);
             blankTexture.SetPixels(new Color[16]); blankTexture.Apply();
@@ -437,6 +456,7 @@ public static class LoadingLifecycleProgram
                     var laterOwner = new GameObject("native-later-capture-writer");
                     Camera later = laterOwner.AddComponent<Camera>(); later.enabled = false;
                     later.targetTexture = capture; later.cullingMask = 0; later.clearFlags = CameraClearFlags.SolidColor; later.backgroundColor = Color.clear;
+                    later.depth = 2; later.enabled = true;
                     try
                     {
                         Canvas.ForceUpdateCanvases();
@@ -452,11 +472,41 @@ public static class LoadingLifecycleProgram
                     while (frames.MoveNext()) yield return frames.Current;
                     material.color = Color.white;
                 }
+                foreach (string role in new[] { "foreign-ui-only", "foreign-ui-authored-black" })
+                {
+                    if (!MenuFrameTrace.Includes(role)) continue;
+                    bool blackMaterial = role == "foreign-ui-authored-black";
+                    nativeImage.sprite = blackMaterial ? null : transparent;
+                    Material? authored = blackMaterial ? new Material(Shader.Find("Sprites/Default")) { color = Color.black } : null;
+                    if (authored != null) nativeImage.material = authored;
+                    var foreignUi = new GameObject("native-version-ui-outside-menu-window", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+                    foreignUi.layer = 5; foreignUi.transform.SetParent(root.transform, false);
+                    foreignUi.GetComponent<RectTransform>().sizeDelta = Vector2.one * 64;
+                    foreignUi.GetComponent<Image>().color = Color.white;
+                    try
+                    {
+                        Canvas.ForceUpdateCanvases();
+                        IEnumerator frames = MenuFrameTrace.Covered(role, ui, head, capture, target, Visual!, Check);
+                        while (frames.MoveNext()) yield return frames.Current;
+                    }
+                    finally
+                    {
+                        UnityEngine.Object.DestroyImmediate(foreignUi); nativeImage.sprite = null;
+                        nativeImage.material = null; if (authored != null) UnityEngine.Object.DestroyImmediate(authored);
+                    }
+                }
             }
             finally { UnityEngine.Object.DestroyImmediate(transparent); UnityEngine.Object.DestroyImmediate(blankTexture); }
-            ui.Render(); head.Render(); yield return null;
+            // Actual asynchronous GPU confirmation may complete on a following
+            // PlayerLoop turn. Never seed the proof or sleep until it is assumed
+            // ready: check the finished picture on each rendered handoff frame.
+            float presentedDeadline = Time.unscaledTime + 2f;
+            do
+            {
+                MenuFrameTrace.Visible("visible-native-menu", ui, head, capture, target, Visual!, Check);
+                yield return new WaitForSecondsRealtime(.02f);
+            } while (!FlatScreen.QuestMenuPresented && Time.unscaledTime < presentedDeadline);
             Check(FlatScreen.QuestMenuPresented, "Actual produced visible native UI reaches the real head consumer");
-            MenuFrameTrace.Visible("visible-native-menu", ui, head, capture, target, Visual!, Check);
             until = Time.unscaledTime + .5f;
             while (Time.unscaledTime < until) yield return null;
             Check(!LoadingIndicator.FlatScreenSuppressed && (Visual == null || !Visual.activeSelf),
@@ -469,6 +519,8 @@ public static class LoadingLifecycleProgram
         }
         finally
         {
+            head.enabled = previousHeadEnabled; head.depth = previousHeadDepth;
+            driver.Tick = () => { if (!failed) indicator.Tick(); };
             screen.Stop(); GLOOM.MainMenu.MainMenuUIManager.Instance = null;
             UnityEngine.Object.DestroyImmediate(root); UnityEngine.Object.DestroyImmediate(consumer);
             UnityEngine.Object.DestroyImmediate(cameraOwner); UnityEngine.Object.DestroyImmediate(material);
@@ -479,7 +531,7 @@ public static class LoadingLifecycleProgram
     private static GameObject IntroArtForComposition() => IntroArt();
     public static void Start(Action<int, Exception?> completion)
     {
-        checks = shownFrames = 0; ObservedBoundary = 0; OriginalBootCallbacks = false; failed = false; finish = completion;
+        checks = shownFrames = 0; ObservedBoundary = 0; OriginalBootCallbacks = OriginalWindowShow = false; failed = false; finish = completion;
         lifecycleEdges.Clear(); Application.logMessageReceived += ObserveLog;
         var owner = new GameObject("full-production-loading-tick-driver"); UnityEngine.Object.DontDestroyOnLoad(owner);
         driver = owner.AddComponent<LoadingLifecycleDriver>();

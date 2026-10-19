@@ -29,9 +29,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--owned-project", type=Path, required=True)
     parser.add_argument("--production-root", type=Path, default=ROOT, help="Read reviewed production sources from this checkout; fixture and runner remain this checkout's own files.")
-    parser.add_argument("--handoff-case", choices=("transparent-native-graphic", "offscreen-native-graphic", "later-target-overwrite", "black-head-consumer"), help="Isolate one final-frame handoff failure before the valid native menu.")
+    parser.add_argument("--handoff-case", choices=("transparent-native-graphic", "offscreen-native-graphic", "later-target-overwrite", "black-head-consumer", "foreign-ui-only", "foreign-ui-authored-black"), help="Isolate one final-frame handoff failure before the valid native menu.")
     parser.add_argument("--final-composition", action="store_true", help="Also qualify the native overlay in a real automatically rendered GameView (GL/Xvfb).")
-    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept", "intro-mode-assumption", "unified-mode-assumption", "intro-root-assumption", "unified-root-assumption", "intro-actor-assumption", "early-menu-hide", "menu-state-only", "menu-no-submission", "menu-empty-window", "menu-hidden-ancestor", "menu-foreign-capture"))
+    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept", "intro-mode-assumption", "unified-mode-assumption", "intro-root-assumption", "unified-root-assumption", "intro-actor-assumption", "early-menu-hide", "menu-state-only", "menu-no-submission", "menu-empty-window", "menu-hidden-ancestor", "menu-foreign-capture", "menu-native-image-proof-bypassed", "menu-consumer-proof-bypassed"))
     args = parser.parse_args()
     if args.control in ("native-overlay-kept", "native-loading-overlay-kept", "intro-root-assumption", "unified-root-assumption") and not args.final_composition:
         parser.error("The native overlay control requires --final-composition.")
@@ -103,8 +103,23 @@ def main():
         elif args.control == "menu-foreign-capture":
             readiness = replace_control(readiness, "renderer.sharedMaterial.mainTexture != owner._questProducedMenuTarget", "false", args.control)
             expected = "A head surface displaying another texture cannot acknowledge the menu capture"
+        elif args.control == "menu-native-image-proof-bypassed":
+            readiness = replace_control(readiness, "probe = sourceStep ? RenderQuestGraphicProbe(_questProducedMenuGraphic, _questProducedMenuCamera)",
+                "probe = sourceStep ? RenderQuestConsumerProbe(consumer, consumer.sharedMaterial, view, projection)", args.control)
+            expected = "Final composed foreign-ui-only cannot retire the spinner before real menu pixels"
+            args.handoff_case = "foreign-ui-only"
+        elif args.control == "menu-consumer-proof-bypassed":
+            readiness = replace_control(readiness, "                : RenderQuestConsumerProbe(consumer, consumer.sharedMaterial, view, projection);",
+                "                : RenderQuestGraphicProbe(_questProducedMenuGraphic, _questProducedMenuCamera);", args.control)
+            expected = "Final composed black-head-consumer cannot retire the spinner before real menu pixels"
+            args.handoff_case = "black-head-consumer"
+        has_frame_observer = "private void ObserveQuestMenuFrame()" in readiness
+        if has_frame_observer:
+            core = (production_root / "src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.1.Core.cs").read_text()
+            if core.count("        ObserveQuestMenuFrame();") != 1:
+                raise RuntimeError("Production menu frame observer has no unique live FlatScreen.Tick call before compilation")
         rows = {"LoadingIndicator.cs": loading, "QuestMenuReadiness.cs": readiness}
-        for path in ("Core/QuestTextureCopy.cs", "Core/QuestPrimitiveMesh.cs", "WorldUI/Sharpness/LoadingIconGeometry.cs"):
+        for path in ("Core/QuestTextureCopy.cs", "Core/QuestPrimitiveMesh.cs", "WorldUI/Sharpness/LoadingIconGeometry.cs", "WorldUI/FlatScreen/FlatScreen.7.QuestDrawProbe.cs"):
             rows[Path(path).name] = (production_root / "src/GloomhavenVR" / path).read_text()
         for name, text in rows.items(): (production / name).write_text(text)
         source_hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in rows.items()}
@@ -184,10 +199,12 @@ def main():
         (run / "input-preflight.json").write_text(json.dumps({"passed": True, "files": len(owned),
             "canonicalScenesImported": False, "nativeMenuLifecycleControlled": True,
             "usesActualOwnedSpriteMetadata": True, "xrProviderActive": False,
+            "actualProductionMenuFrameObserver": has_frame_observer,
             "productionRoot": str(production_root)}, indent=2) + "\n")
         result = subprocess.run([shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet"), "build", str(runtime_project), "-c", "Release", "--nologo", "--verbosity", "quiet",
             "-p:CaseName=QuestLoadingLifecycle", "-p:FixtureDir=" + str(fixture), "-p:ProductionDir=" + str(production),
             "-p:UnityManaged=" + str(unity.parent / "Data/Managed"), "-p:GameManaged=" + str(managed), "-p:Harmony=" + str(harmony),
+            "-p:DefineConstants=" + ("QUEST_MENU_PIXEL_WITNESS" if has_frame_observer else ""),
             "-p:UseSharedCompilation=false", "-nodeReuse:false"], capture_output=True, text=True)
         (run / "build.log").write_text(result.stdout + result.stderr)
         if result.returncode: raise RuntimeError(result.stdout + result.stderr + "\nCompilation failure is not a passing control")
@@ -236,8 +253,9 @@ public static class LoadingLifecycleRunner {
         bool control=!String.IsNullOrEmpty(input.expected), passed=control?error!=null&&error.Message.Contains(input.expected):error==null;
         Type program=fixture==null?null:fixture.GetType("LoadingLifecycleProgram"); int boundary=program==null?0:(int)program.GetProperty("ObservedBoundary").GetValue(null); int samples=program==null?0:(int)program.GetProperty("RenderedSamples").GetValue(null);
         bool originalBoot=program!=null&&(bool)program.GetProperty("OriginalBootCallbacks").GetValue(null);
+        bool originalWindow=program!=null&&(bool)program.GetProperty("OriginalWindowShow").GetValue(null);
         int menuFrames=program==null?0:(int)program.GetProperty("MenuFrameSamples").GetValue(null);
-        string value="{\"passed\":"+passed.ToString().ToLowerInvariant()+",\"assertions\":"+checks+",\"actualPlayerLoop\":true,\"observedBoundary\":"+boundary+",\"renderedSamples\":"+samples+",\"finalMenuFrameSamples\":"+menuFrames+",\"actualOriginalBootCallbacks\":"+originalBoot.ToString().ToLowerInvariant()+",\"actualSingleSceneLoad\":"+(originalBoot||boundary>=2).ToString().ToLowerInvariant()+",\"actualAssetCollection\":"+(boundary>=3).ToString().ToLowerInvariant()+",\"fullProductionTick\":true,\"actualXrProvider\":false,\"nativeMenuLifecycleControlled\":true,\"hardwareVerified\":false,\"control\":"+control.ToString().ToLowerInvariant()+"}";
+        string value="{\"passed\":"+passed.ToString().ToLowerInvariant()+",\"assertions\":"+checks+",\"actualPlayerLoop\":true,\"observedBoundary\":"+boundary+",\"renderedSamples\":"+samples+",\"finalMenuFrameSamples\":"+menuFrames+",\"actualOriginalBootCallbacks\":"+originalBoot.ToString().ToLowerInvariant()+",\"actualOriginalWindowShow\":"+originalWindow.ToString().ToLowerInvariant()+",\"actualSingleSceneLoad\":"+(originalBoot||boundary>=2).ToString().ToLowerInvariant()+",\"actualAssetCollection\":"+(boundary>=3).ToString().ToLowerInvariant()+",\"fullProductionTick\":true,\"actualXrProvider\":false,\"nativeMenuLifecycleControlled\":true,\"hardwareVerified\":false,\"control\":"+control.ToString().ToLowerInvariant()+"}";
         File.WriteAllText(input.result,value+"\n"); if(error!=null) Debug.LogException(error); EditorApplication.Exit(passed?0:1);
     }
 }''')
