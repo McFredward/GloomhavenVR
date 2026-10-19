@@ -95,7 +95,7 @@ internal static class NativeMovieBoundary
             // static substitution has no runtime hook body, but is not an unknown
             // empty class: retain its closed registration proof for the AOT
             // registry. Only the completely qualified pair may receive it.
-            model.StaticPatches.Add(new StaticPatchDefinition(entry.Patch, entry.Target, removedPatch));
+            model.StaticPatches.Add(new StaticPatchDefinition(entry.Patch, entry.Target, removedPatch, entry.Replacement));
             track(entry.Target.Module.Assembly);
         }
         report.StaticSubstitutions.Add("Native movies: two verified URL setter sites retain native decoder, Play order, callbacks and exception boundaries; reviewed desktop transpilers are removed before Quest AOT conversion and their exact static registration proofs remain available to the Quest registry.");

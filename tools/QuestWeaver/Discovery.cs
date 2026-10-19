@@ -29,7 +29,12 @@ public sealed record CallEvidence(string Caller, int IlOffset, string Api, strin
 public sealed record IntegrationIssue(string Code, string Subject, string Detail);
 public sealed record ReflectionRoot(string Assembly, string Type);
 internal sealed record HookDefinition(MethodDefinition Patch, MethodDefinition Target, string Kind, int Priority);
-internal sealed record StaticPatchDefinition(TypeDefinition PatchClass, MethodDefinition Target, string RemovedPatch);
+internal sealed record StaticPatchDefinition(TypeDefinition PatchClass, MethodDefinition Target, string RemovedPatch, MethodDefinition Replacement)
+{
+    // Capture the complete qualified body once. A later record copy which
+    // redirects Target must not silently certify that different method.
+    internal string TargetFingerprint { get; } = NativeMovieBoundary.Fingerprint(Target);
+}
 internal sealed record FieldHelper(MethodDefinition Caller, Instruction Call, Instruction Name, FieldDefinition Field, GenericInstanceMethod Factory);
 
 internal sealed class Discovery : IDisposable
