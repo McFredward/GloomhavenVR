@@ -632,14 +632,16 @@ internal sealed class LoadingIndicator
     // B711 proved that the boot renderer stayed admitted and fully opaque while
     // the headset reported a black gap. Four lifecycle edges alone sampled only
     // acquisition and retirement, so they could not distinguish the intervening
-    // native overlay/camera handoffs. Keep five bounded Debug snapshots through
-    // that exact initial window; no steady-state census, readback or timer exit.
+    // native overlay/camera handoffs. Keep five bounded Debug snapshots and tiny
+    // private consumer probes through that exact initial window. No steady-state
+    // census, full-eye readback, head-callback target binding, or timer exit.
     private void ReportQuestBootContinuity(Camera head)
     {
         if (!QuestStandalonePlatform.Enabled || !_questMenuHandoff || !VRLog.Wants(VRLogLevel.Debug)
             || _questBootVisualSample >= QuestBootVisualSampleSeconds.Length
             || Time.unscaledTime - _questMenuHandoffStartedAt < QuestBootVisualSampleSeconds[_questBootVisualSample]) return;
         int sample = ++_questBootVisualSample;
+        FlatScreen.ProbeQuestLoadingDraw(_baseQuad != null ? _baseQuad.GetComponent<Renderer>() : null, head, sample);
         SceneController? scene = SceneController.Instance;
         Canvas? canvas = scene == null || scene.GlobalCanvas == null ? null : scene.GlobalCanvas.GetComponent<Canvas>();
         UnityEngine.Debug.Log("[Quest startup] presentation spinner-continuity sample=" + sample

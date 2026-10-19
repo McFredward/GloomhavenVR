@@ -628,6 +628,7 @@ internal sealed partial class FlatScreen
     /// <summary>Undo everything <see cref="CaptureStack"/> did and drop all references.</summary>
     private void ReleaseStack()
     {
+        ReleaseQuestMenuReceipt();
         SetCaptureRenderGuard(false);
         // Mirrors shadow captured cameras — they die with the stack and are rebuilt
         // by the next capture sweep (the stereo RT/hook lifecycle stays with Hide).

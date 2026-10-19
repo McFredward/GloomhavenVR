@@ -612,8 +612,13 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 712;
+    public const ushort ModBuild = 713;
 
+    // ModBuild713 — Retire structural pillar LOD and its reduced asset streams.
+    // Preserve the original ping's autoplay/culling after the failed baked proxy.
+    // Qualify original menu art and actual consumer fragments before initial
+    // spinner retirement; retain bounded loading renderer evidence after Intro.
+    // Original Campaign, movie and procedural helper producers are unchanged.
     // ModBuild712 — Quest hardware follow-up after the confirmed B711 startup.
     // Retain exact-decoder camera-plane suppression for packed movies, qualify
     // actual visible menu content before spinner handoff, and prevent detached

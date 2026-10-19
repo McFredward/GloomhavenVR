@@ -1,3 +1,21 @@
+**Quest review and requested pillar retirement, 2026-10-19: feature / B713.**
+
+Capture165519 verifies actual B712. Shared history-before-removal and all pillar
+LOD removal/active settings/reduced meshes are integrated ondev and this branch.
+261reducedstreams +261metas removed; actual PC bank4,496,780bytes smaller; exact
+shared environment originals retained. Quest producer also drops reduced pillars.
+The B712 ping proxy froze original Pause-culled particle clocks; real automatic
+native playback proves the regression and restoration of native simulation/draw.
+Its separate tile artifact remains open for hardware. Initial spinner review
+reproduces false menu retirement under five real-rendered blank/foreign-content
+cases. Source-image eligibility and fresh actual consumer pixels now qualify the
+one initial handoff; bounded continuity/private-source probes survive log budget
+saturation. This does not establish final Quest eye pixels or resolve the entire
+reported black interval by assertion. Original Campaign/movie/helper producers
+remain unchanged; the update builds changed mod code and environment art only.
+See `QUEST713-LOADING-AND-PILLAR-REVIEW.md` and linked lane evidence. Focused
+checks and composed inherited evidence are distinguished from a full local gate.
+
 **Quest hardware follow-up, 2026-10-19: feature / B712.**
 
 Capture160527 verifies B711 startup and hardware-confirmed hit audio/both card

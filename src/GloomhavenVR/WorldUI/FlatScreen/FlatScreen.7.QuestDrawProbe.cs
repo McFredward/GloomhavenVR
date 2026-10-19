@@ -1,4 +1,6 @@
+using System.Reflection;
 using UnityEngine;
+using UnityEngine.UI;
 using UnityEngine.Rendering;
 
 namespace GloomhavenVR.WorldUI;
@@ -31,7 +33,7 @@ internal sealed partial class FlatScreen
                 {
                     if (request.hasError)
                     {
-                        Debug.LogWarning("[Quest startup] presentation menu-consumer-draw scene=" + scene
+                        UnityEngine.Debug.LogWarning("[Quest startup] presentation menu-consumer-draw scene=" + scene
                             + " role=" + role + " readback=failed");
                         return;
                     }
@@ -44,7 +46,7 @@ internal sealed partial class FlatScreen
                         if (pixel.r > 1 || pixel.g > 1 || pixel.b > 1) nonBlack++;
                         if (pixel.a > 1) alphaPixels++;
                     }
-                    Debug.Log("[Quest startup] presentation menu-consumer-draw scene=" + scene
+                    UnityEngine.Debug.Log("[Quest startup] presentation menu-consumer-draw scene=" + scene
                         + " role=" + role + " phase=update-offscreen eye=left width=48 height=32"
                         + " samples=" + pixels.Length + " rgbMax=" + rgbMax + " nonBlack=" + nonBlack
                         + " alphaPixels=" + alphaPixels + " finalXrPixelsObserved=false");
@@ -55,7 +57,7 @@ internal sealed partial class FlatScreen
         }
         catch (System.Exception error)
         {
-            Debug.LogWarning("[Quest startup] presentation menu-consumer-draw scene=" + scene
+            UnityEngine.Debug.LogWarning("[Quest startup] presentation menu-consumer-draw scene=" + scene
                 + " role=" + role + " readback=unavailable detail=" + error.Message);
         }
         finally
@@ -64,11 +66,94 @@ internal sealed partial class FlatScreen
         }
     }
 
+    internal static void ProbeQuestLoadingDraw(Renderer? renderer, Camera head, int sample)
+    {
+        if (!SystemInfo.supportsAsyncGPUReadback || renderer == null || renderer.sharedMaterial == null) return;
+        RenderTexture? target = null;
+        try
+        {
+            Matrix4x4 view = head.stereoEnabled ? head.GetStereoViewMatrix(Camera.StereoscopicEye.Left) : head.worldToCameraMatrix;
+            Matrix4x4 projection = head.stereoEnabled ? head.GetStereoProjectionMatrix(Camera.StereoscopicEye.Left) : head.projectionMatrix;
+            target = RenderQuestConsumerProbe(renderer, renderer.sharedMaterial, view, projection);
+            if (target == null) return;
+            RenderTexture retained = target;
+            int frame = Time.frameCount;
+            AsyncGPUReadback.Request(retained, 0, TextureFormat.RGBA32, request =>
+            {
+                try
+                {
+                    int visible = 0;
+                    if (!request.hasError)
+                    {
+                        var pixels = request.GetData<Color32>();
+                        for (int i = 0; i < pixels.Length; i++)
+                        {
+                            Color32 pixel = pixels[i];
+                            if (pixel.a > 1 && (pixel.r > 1 || pixel.g > 1 || pixel.b > 1)) visible++;
+                        }
+                    }
+                    UnityEngine.Debug.Log("[Quest startup] presentation spinner-final stage=spinner-source sample=" + sample
+                        + " frame=" + frame + " visiblePixels=" + visible + " failed=" + request.hasError
+                        + " width=48 height=32 finalXrPixelsObserved=false");
+                }
+                finally { retained.Release(); Object.Destroy(retained); }
+            });
+            target = null;
+        }
+        catch (System.Exception error)
+        {
+            UnityEngine.Debug.LogWarning("[Quest startup] presentation spinner-final stage=spinner-source sample=" + sample
+                + " unavailable=" + error.GetType().Name);
+        }
+        finally { if (target != null) { target.Release(); Object.Destroy(target); } }
+    }
+
     private static RenderTexture? RenderQuestConsumerProbe(Renderer? renderer, Material? material,
         Matrix4x4 view, Matrix4x4 projection)
     {
         Mesh? mesh = renderer != null ? renderer.GetComponent<MeshFilter>()?.sharedMesh : null;
         if (mesh == null || material == null) return null;
+        MaterialPropertyBlock? properties = null;
+        if (renderer!.HasPropertyBlock())
+        {
+            properties = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(properties);
+        }
+        return RenderQuestMenuMeshProbe(mesh, renderer.localToWorldMatrix, material, properties, view, projection);
+    }
+
+    private static readonly MethodInfo? PopulateMenuImage = typeof(Image).GetMethod("OnPopulateMesh",
+        BindingFlags.Instance | BindingFlags.NonPublic, null, new[] { typeof(VertexHelper) }, null);
+
+    private static RenderTexture? RenderQuestGraphicProbe(Graphic graphic, Camera? source)
+    {
+        if (source == null || graphic == null || graphic.GetType() != typeof(Image)
+            || graphic.materialForRendering == null || PopulateMenuImage == null) return null;
+        var mesh = new Mesh { name = "GloomhavenVR.QuestMenuGraphicProbe" };
+        try
+        {
+            // Unity2021 CanvasRenderer has no mesh getter. Ask the original
+            // Image implementation for its current Sprite geometry without
+            // changing its CanvasRenderer, state, texture, or authored material.
+            // This source eligibility check is separate from the real captured
+            // target/consumer proof; it cannot prove final XR composition.
+            using (var vertices = new VertexHelper())
+            {
+                PopulateMenuImage.Invoke(graphic, new object[] { vertices });
+                vertices.FillMesh(mesh);
+            }
+            if (mesh.vertexCount < 3) return null;
+            var properties = new MaterialPropertyBlock();
+            properties.SetTexture("_MainTex", graphic.mainTexture);
+            return RenderQuestMenuMeshProbe(mesh, graphic.transform.localToWorldMatrix,
+                graphic.materialForRendering, properties, source.worldToCameraMatrix, source.projectionMatrix);
+        }
+        finally { Object.Destroy(mesh); }
+    }
+
+    private static RenderTexture? RenderQuestMenuMeshProbe(Mesh mesh, Matrix4x4 localToWorld,
+        Material material, MaterialPropertyBlock? properties, Matrix4x4 view, Matrix4x4 projection)
+    {
         var target = new RenderTexture(48, 32, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
             { name = "GloomhavenVR.QuestMenuConsumerProbe", filterMode = FilterMode.Point };
         RenderTexture? previous = RenderTexture.active;
@@ -98,13 +183,7 @@ internal sealed partial class FlatScreen
             // unproven state boundary to the very defect being investigated.
             // This camera is disabled, has a private target and renders only at
             // Update, never nested inside a head-camera rendering callback.
-            MaterialPropertyBlock? properties = null;
-            if (renderer!.HasPropertyBlock())
-            {
-                properties = new MaterialPropertyBlock();
-                renderer.GetPropertyBlock(properties);
-            }
-            commands.DrawMesh(mesh, renderer.localToWorldMatrix, material, 0, 0, properties);
+            commands.DrawMesh(mesh, localToWorld, material, 0, 0, properties);
             probeCamera.AddCommandBuffer(CameraEvent.BeforeForwardAlpha, commands);
             probeCamera.Render();
             retained = true;

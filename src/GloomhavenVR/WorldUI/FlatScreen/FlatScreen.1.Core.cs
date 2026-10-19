@@ -544,6 +544,7 @@ internal sealed partial class FlatScreen
         TickQuestPresentationEvidence(want);
 
         FollowHead();
+        ObserveQuestMenuFrame();
         TickPointer();
         TickBackdropDepth();
     }
