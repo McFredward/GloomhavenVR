@@ -1,3 +1,14 @@
+**Quest startup registration repair, 2026-10-19: feature / B711.**
+
+Capture103413 proves B710 blocks original bootstrap when WorldUI registers the
+already-baked empty movie patch classes. Retain exact class/target/transpiler
+proofs for those static substitutions, validate them atomically at registry load,
+and preserve executable hook order and unknown-registration failures. Audit known
+live PatchAll type registrations before handoff. Reproduce the B710 failure and
+verify actual emitted B711 registry activation; compact code update retains
+original game conversion and all independent movie/asset results. Headset flow
+still needs verification. See `QUEST-STARTUP-REGISTRATION-103413-20261019.md`.
+
 **Quest Builder storage cleanup, 2026-10-19: host-only / game B710 unchanged.**
 
 Add one-click update-preserving cleanup for proven obsolete owned intermediates,
