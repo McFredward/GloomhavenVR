@@ -14,6 +14,17 @@ visual acceptance is claimed. See `.planning/retired-PILLAR-LOD-20261019.md`.
 
 # State — where the project stands
 
+**Release preflight test inventory, 2026-10-19 (Build713 unchanged).**
+CI39305984255 passed all four runtime shards but its source job rejected the newly
+registered local-only `mr-backing-depth-runtime` suite: the expected local inventory
+still counted229. Add the genuine native-render suite to the explicit local and
+local-minus-CI sets and update only that count to230; CI102/source16 remain unchanged.
+The original focused parallel-runner failure is reproduced, then its19 tests pass
+(two platform-dependent skips). No production, configuration, wire, build number or
+runner/policy change. Existing runtime evidence is inherited rather than rerun locally.
+Evidence: `.planning/debug/steamlink-release-review-20261019/ci-inventory-*.log`.
+
+
 **Initiative MR backing, Build713; paired patch0.2.10, 2026-10-19.**
 
 The fresh game710/patch0.2.9 run is the maintainer's best streamed passthrough run,
