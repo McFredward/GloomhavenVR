@@ -28,6 +28,8 @@ internal sealed class QuestPingStreams : MonoBehaviour
     {
         internal readonly ParticleSystemRenderer Source;
         internal readonly Material Material;
+        internal readonly Shader Shader;
+        internal readonly List<ParticleSystemVertexStream> Streams = new(4);
         internal readonly Mesh Snapshot = new() { name = "GloomhavenVR.Ping.Snapshot" };
         internal readonly Mesh Upload = new() { name = "GloomhavenVR.Ping.Upload" };
         internal readonly MeshRenderer Draw;
@@ -40,7 +42,7 @@ internal sealed class QuestPingStreams : MonoBehaviour
         internal bool Failed;
         internal Binding(ParticleSystemRenderer source)
         {
-            Source = source; Material = source.sharedMaterial;
+            Source = source; Material = source.sharedMaterial; Shader = Material.shader;
             var owner = new GameObject("GloomhavenVR.Ping.Upload") { layer = source.gameObject.layer };
             owner.transform.SetParent(source.transform, false);
             owner.AddComponent<MeshFilter>().sharedMesh = Upload;
@@ -100,13 +102,13 @@ internal sealed class QuestPingStreams : MonoBehaviour
             owner._bindings.Add(new Binding(renderer));
         }
         if (owner._bindings.Count == 0) { Destroy(owner); return; }
-        if (Live.Count == 0) Camera.onPreCull += BeforeCamera;
+        if (Live.Count == 0) { Camera.onPreCull += BeforeCamera; Camera.onPostRender += AfterCamera; }
         Live.Add(owner);
     }
 
     private static void BeforeCamera(Camera camera)
     {
-        if (camera != VRCameraPolicy.AllowedHead) return;
+        if (camera != VRCameraPolicy.AllowedHead) { ReleaseAll(); return; }
         foreach (QuestPingStreams owner in Live)
         {
             if (owner == null || !owner.isActiveAndEnabled) continue;
@@ -125,6 +127,12 @@ internal sealed class QuestPingStreams : MonoBehaviour
     private static void Upload(Binding binding, Camera camera)
     {
         ParticleSystemRenderer source = binding.Source;
+        source.GetActiveVertexStreams(binding.Streams);
+        if (source.sharedMaterial.shader != binding.Shader || source.renderMode != ParticleSystemRenderMode.Billboard
+            || binding.Streams.Count != 4 || binding.Streams[0] != ParticleSystemVertexStream.Position
+            || binding.Streams[1] != ParticleSystemVertexStream.Normal || binding.Streams[2] != ParticleSystemVertexStream.Color
+            || binding.Streams[3] != ParticleSystemVertexStream.UV)
+        { binding.Release(); return; }
         // Honor a visibility owner which already suppressed this native draw.
         if (!binding.Claimed && source.forceRenderingOff) return;
         source.BakeMesh(binding.Snapshot, camera, true);
@@ -164,6 +172,12 @@ internal sealed class QuestPingStreams : MonoBehaviour
         }
     }
 
+    private static void AfterCamera(Camera camera)
+    {
+        if (camera == VRCameraPolicy.AllowedHead) ReleaseAll();
+    }
+    private static void ReleaseAll() { foreach (QuestPingStreams owner in Live) if (owner != null) owner.Release(); }
+
     private static bool FiniteScale(float value) => !float.IsNaN(value) && !float.IsInfinity(value) && Mathf.Abs(value) > 0.000001f;
 
     private static void Report(Exception error)
@@ -175,7 +189,7 @@ internal sealed class QuestPingStreams : MonoBehaviour
 
     internal static void ResetAll()
     {
-        Camera.onPreCull -= BeforeCamera;
+        Camera.onPreCull -= BeforeCamera; Camera.onPostRender -= AfterCamera;
         foreach (QuestPingStreams owner in new List<QuestPingStreams>(Live))
         {
             owner.Release();
@@ -191,6 +205,6 @@ internal sealed class QuestPingStreams : MonoBehaviour
     {
         foreach (Binding binding in _bindings) binding.Dispose();
         Live.Remove(this);
-        if (Live.Count == 0) Camera.onPreCull -= BeforeCamera;
+        if (Live.Count == 0) { Camera.onPreCull -= BeforeCamera; Camera.onPostRender -= AfterCamera; }
     }
 }

@@ -79,7 +79,17 @@ public static class QuestPingStreamsProbe
         var managerOwner = new GameObject("exact-native-manager-boundary"); var manager = managerOwner.AddComponent<PingManager>(); manager.Assigned(ping);
         QuestPingStreams.OnPingShown(manager);
         Check(ping.GetComponent<QuestPingStreams>() != null, "Original assigned-ping owner admits its exact scoped consumer");
+        bool leaseObserved = false;
+        Camera.CameraCallback inspect = active => {
+            if (active != camera) return;
+            foreach (ParticleSystemRenderer renderer in renderers) Check(renderer.forceRenderingOff, "Only the head draw leases native ping visibility");
+            leaseObserved = true;
+        };
+        Camera.onPreCull += inspect;
         Color32[] after = Pixels(camera, target);
+        Camera.onPreCull -= inspect;
+        Check(leaseObserved, "The actual head callback submitted the owned ping");
+        foreach (ParticleSystemRenderer renderer in renderers) Check(!renderer.forceRenderingOff, "Head completion releases original ping renderers");
         var draws = ping.GetComponentsInChildren<MeshRenderer>(true);
         Check(draws.Length == 2, "Only the two original particle consumers have owned draws");
         foreach (MeshRenderer draw in draws)
@@ -90,7 +100,7 @@ public static class QuestPingStreamsProbe
         }
         for (int i = 0; i < 2; i++)
         {
-            Check(Streams(renderers[i], original.ToArray()) && renderers[i].forceRenderingOff, "The native simulation retains all streams without drawing twice");
+            Check(Streams(renderers[i], original.ToArray()) && !renderers[i].forceRenderingOff, "The native simulation retains all streams after its head lease");
             Check(renderers[i].sharedMaterial.GetInstanceID() == materialIds[i] && renderers[i].sharedMaterial.mainTexture == textures[i], "Original ping material and texture identity remain unchanged");
             Check(renderers[i].bounds == bounds[i] && systems[i].particleCount == particleCounts[i] && (!renderers[i].sharedMaterial.HasProperty("_TintColor") || renderers[i].sharedMaterial.GetColor("_TintColor") == colors[i]), "Original ping simulation, geometry bounds and tint remain unchanged");
         }
@@ -127,15 +137,43 @@ public static class QuestPingStreamsProbe
         ping.SetActive(true);
         foreach (ParticleSystem system in systems) system.Simulate(.5f, false, true, true);
         Pixels(camera, target);
-        foreach (ParticleSystemRenderer renderer in renderers) Check(Streams(renderer, original.ToArray()) && renderer.forceRenderingOff, "Pooled native ping reapplies its scoped upload");
+        foreach (ParticleSystemRenderer renderer in renderers) Check(Streams(renderer, original.ToArray()) && !renderer.forceRenderingOff, "Pooled native ping releases each head lease");
         MeshRenderer firstDraw = Array.Find(draws, draw => draw.transform.parent.GetComponent<ParticleSystemRenderer>() == renderers[0]);
         Material nativeMaterial = renderers[0].sharedMaterial;
         Material foreignMaterial = new Material(Shader.Find("Sprites/Default"));
         renderers[0].sharedMaterial = foreignMaterial; Pixels(camera, target);
         Check(!renderers[0].forceRenderingOff && !firstDraw.enabled, "A later material writer retains its native draw");
         renderers[0].sharedMaterial = nativeMaterial; Pixels(camera, target);
-        Check(renderers[0].forceRenderingOff && firstDraw.enabled, "Restoring the exact original material resumes the owned draw");
+        Check(!renderers[0].forceRenderingOff && !firstDraw.enabled, "Restoring the original material retains bounded head leases");
         UnityEngine.Object.DestroyImmediate(foreignMaterial);
+        Shader nativeShader = nativeMaterial.shader;
+        nativeMaterial.shader = Shader.Find("Sprites/Default");
+        bool contractObserved = false;
+        Camera.CameraCallback inspectContract = active => {
+            if (active != camera) return;
+            Check(!renderers[0].forceRenderingOff && !firstDraw.enabled, "Changed native contracts retain their original camera draw");
+            contractObserved = true;
+        };
+        Camera.onPreCull += inspectContract; Pixels(camera, target); Camera.onPreCull -= inspectContract;
+        Check(contractObserved, "Changed shader contract is observed during the actual draw");
+        nativeMaterial.shader = nativeShader;
+        ParticleSystemRenderMode nativeMode = renderers[0].renderMode;
+        renderers[0].renderMode = ParticleSystemRenderMode.Mesh;
+        Camera.onPreCull += inspectContract; Pixels(camera, target); Camera.onPreCull -= inspectContract;
+        renderers[0].renderMode = nativeMode;
+        renderers[0].SetActiveVertexStreams(new List<ParticleSystemVertexStream> { ParticleSystemVertexStream.Position });
+        Camera.onPreCull += inspectContract; Pixels(camera, target); Camera.onPreCull -= inspectContract;
+        Check(Streams(renderers[0], ParticleSystemVertexStream.Position) && !renderers[0].forceRenderingOff && !firstDraw.enabled, "A changed native stream contract retains original rendering");
+        renderers[0].SetActiveVertexStreams(original);
+        renderers[0].forceRenderingOff = true; Pixels(camera, target);
+        Check(renderers[0].forceRenderingOff && !firstDraw.enabled, "A foreign visibility mask is never claimed or cleared");
+        renderers[0].forceRenderingOff = false;
+        var foreignCameraOwner = new GameObject("foreign camera"); Camera foreignCamera = foreignCameraOwner.AddComponent<Camera>();
+        foreignCamera.enabled = false; foreignCamera.CopyFrom(camera); foreignCamera.targetTexture = target;
+        Pixels(foreignCamera, target);
+        foreach (MeshRenderer draw in draws) Check(!draw.enabled, "A foreign camera never consumes head-baked billboards");
+        foreach (ParticleSystemRenderer renderer in renderers) Check(!renderer.forceRenderingOff, "Foreign cameras retain native particle visibility");
+        UnityEngine.Object.DestroyImmediate(foreignCameraOwner);
         renderers[0].SetActiveVertexStreams(new List<ParticleSystemVertexStream> { ParticleSystemVertexStream.Position });
         QuestPingStreams.ResetAll();
         Check(Streams(renderers[0], ParticleSystemVertexStream.Position), "A later foreign vertex writer retains ownership during reset");

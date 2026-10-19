@@ -22,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--owned-project', type=Path, required=True)
     parser.add_argument('--shader-overlay', type=Path)
-    parser.add_argument('--control', choices=('no-upload', 'no-restore', 'no-shader-gate'))
+    parser.add_argument('--control', choices=('no-upload', 'no-restore', 'no-shader-gate', 'no-live-contract'))
     args = parser.parse_args()
     base = ROOT / '.planning/debug/quest-ping-streams'; base.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=base)); project = run / 'unity'
@@ -65,6 +65,7 @@ def main():
     if args.control == 'no-upload': code = code.replace('binding.Upload.SetColors(binding.Colors);', ';')
     elif args.control == 'no-restore': code = code.replace('if (Claimed && Source != null) Source.forceRenderingOff = false;', ';')
     elif args.control == 'no-shader-gate': code = code.replace('if (renderer.renderMode != ParticleSystemRenderMode.Billboard', 'if (false && renderer.renderMode != ParticleSystemRenderMode.Billboard').replace('|| (shader != "Particles/Priority Additive"', '|| (false && shader != "Particles/Priority Additive"')
+    elif args.control == 'no-live-contract': code = re.sub(r'if \(source.sharedMaterial.shader != binding.Shader.*?\{ binding.Release\(\); return; \}', 'if (false) { binding.Release(); return; }', code, count=1, flags=re.S)
     (project / 'Assets/QuestPingStreams.cs').write_text('#nullable enable\n' + code.replace('namespace GloomhavenVR.Board.Patches;', 'namespace GloomhavenVR.Board.Patches {') + '\n}\n')
     (project / 'Assets/Boundaries.cs').write_text('''using System.Collections.Generic;
 using UnityEngine;
@@ -90,7 +91,7 @@ namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { in
     try:
         code = process.wait(timeout=180)
         if args.control:
-            expected = {'no-upload': 'Owned ping upload has explicit floating-point COLOR', 'no-restore': 'Pooling releases the exact original ping renderer', 'no-shader-gate': 'Foreign particle materials retain their authored streams'}[args.control]
+            expected = {'no-upload': 'Owned ping upload has explicit floating-point COLOR', 'no-restore': 'Head completion releases original ping renderers', 'no-shader-gate': 'Foreign particle materials retain their authored streams', 'no-live-contract': 'Changed native contracts retain their original camera draw'}[args.control]
             if code == 0 or expected not in (run / 'unity.log').read_text(): raise RuntimeError('Native ping control did not detect its targeted defect')
             (run / 'control.json').write_text(json.dumps({'control': args.control, 'expectedFailure': expected, 'observedExit': code, 'hardwareVerified': False}, indent=2) + '\n')
             print('PASS native ping causal control: ' + args.control, flush=True); code = 0; return
