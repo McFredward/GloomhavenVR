@@ -1,3 +1,16 @@
+**Quest hardware follow-up, 2026-10-19: feature / B712.**
+
+Capture160527 verifies B711 startup and hardware-confirmed hit audio/both card
+recess overlays. Bind packed movie suppression to the exact owned decoder;
+qualify submitted native menu content before spinner handoff and preserve exact
+loading ownership across canvas nesting. Keep detached terrain proxies out of
+native wall-table inputs; native sources retain their real visibility/fade.
+Re-upload only the original ping billboards through reusable COLOR-bearing
+meshes after stream narrowing failed on hardware. Retain bounded actual terrain
+CPU/triangle evidence; current capture cannot establish an FPS regression.
+Compact code update preserves original conversion, art, helper and movie caches.
+Focused tests and remaining hardware gates: `QUEST-HARDWARE-160527-20261019.md`.
+
 **Quest startup registration repair, 2026-10-19: feature / B711.**
 
 Capture103413 proves B710 blocks original bootstrap when WorldUI registers the
