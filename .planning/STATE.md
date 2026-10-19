@@ -1,3 +1,14 @@
+**Release1.2.0 candidate, Build715, 2026-10-19.**
+The maintainer requests publication from the current dev frontier, with
+English-only highlights for native Steam Link passthrough and stereoscopic
+videos. Source implementation remains the fully CI-passed ebb6116d5 frontier;
+the release changes its semantic version to1.2.0 and the distributed handshake
+to715, without gameplay/presentation/default/asset/wire implementation changes.
+The exact release candidate must pass its own full hosted dev CI before the
+normal dev→main PR and release workflow. Local validation, asset/companion audit
+and provenance are recorded in `.planning/RELEASE-1.2.0.md` and ignored
+`.planning/debug/release120/`. No new hardware acceptance is claimed.
+
 **Structural pillar LOD retired, 2026-10-19.**
 The maintainer explicitly requested removing the shared PC/Steam Frame and Quest
 pillar LOD, active settings and reduced distribution meshes. History was recorded

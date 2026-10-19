@@ -612,7 +612,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 714;
+    public const ushort ModBuild = 715;
+
+    // ModBuild715 — publish the reviewed 1.2.0 release candidate.
+    // The maintainer requested the current dev tree as 1.2.0, highlighting native
+    // Steam Link passthrough with the separate paired PC/Frame companion and the
+    // approved stereoscopic movie library. Release highlights are English-only.
+    // Gameplay, presentation, defaults, assets and wire implementation retain714;
+    // this increment identifies the distributed release in the existing handshake.
+    // Preserve Version3/next-free118. Exact-source hosted CI, direct real-runtime
+    // golden vectors and the published package provenance are recorded separately
+    // in .planning/RELEASE-1.2.0.md and its retained release120 evidence.
 
     // ModBuild714 — preserve the owned tracked menu head across native anchor swaps.
     // A disabled/destroyed native intro/menu camera is not loss of our still-valid
