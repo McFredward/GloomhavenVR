@@ -20,7 +20,7 @@ internal static class NativeOverlayComposition
     {
         RenderTexture saved = head.targetTexture; bool enabled = head.enabled;
         LoadingIndicator? indicator = null;
-        GameObject? owner = null, actor = null, unrelated = null;
+        GameObject? owner = null, actor = null, unrelated = null, canvasHost = null;
         int callbacks = 0;
         try
         {
@@ -62,6 +62,14 @@ internal static class NativeOverlayComposition
                 && owner.GetComponentInChildren<AnimateLoadingIcon>().isActiveAndEnabled && callbacks == 1 && other.enabled,
                 "Quest admission retains native animator, callback, active owner and unrelated canvas");
             check(suppressed, "Exact Intro loading owner hands off after a native camera rebind");
+            indicator.Shutdown(); setTick(null);
+            canvasHost = NestCanvas(owner, introScene);
+            check(!canvas.isRootCanvas, "Original Intro loading ownership remains exact after native canvas nesting");
+            indicator = new LoadingIndicator(); setTick(indicator.Tick);
+            for (int i = 0; i < 12; i++) yield return null;
+            spinner = Visual(indicator).GetComponentInChildren<Renderer>();
+            suppressed = !canvas.enabled;
+            check(suppressed, "Nested exact Intro loading owner hands off without a root-canvas assumption");
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             // Causal old-graph observation: leave the same spinner/texture/pose
             // live, but temporarily reintroduce the authored flat overlay.
@@ -126,6 +134,15 @@ internal static class NativeOverlayComposition
             uncovered = Capture(head, spinner, "unified-native-loading-owned");
             check(canvas.enabled && covered < .01f && uncovered > .02f,
                 "Actual unified native loading overlay covers the admitted spinner until its exact widget hands off graphics");
+            WorldUIConfig.LoadingIndicator.Value = false;
+            float hiddenUntil = Time.unscaledTime + .5f; while (Time.unscaledTime < hiddenUntil) yield return null;
+            canvasHost = NestCanvas(owner, owner.scene);
+            check(!canvas.isRootCanvas && loading.GetComponent<Image>().enabled,
+                "Original unified widget returns native bits before nesting");
+            WorldUIConfig.LoadingIndicator.Value = true;
+            for (int i = 0; i < 12; i++) yield return null;
+            check(!loading.GetComponent<Image>().enabled && canvas.enabled,
+                "Nested exact unified loading owner hands off without a root-canvas assumption");
             typeof(SceneController).GetField("<IsLoading>k__BackingField", Fields)!.SetValue(controller, false);
             float release = Time.unscaledTime + .5f; while (Time.unscaledTime < release) yield return null;
             check(canvas.enabled && !loading.GetComponent<Image>().enabled && !hidden.GetComponent<Image>().enabled
@@ -157,7 +174,21 @@ internal static class NativeOverlayComposition
             if (owner != null) UnityEngine.Object.Destroy(owner);
             if (actor != null) UnityEngine.Object.Destroy(actor);
             if (unrelated != null) UnityEngine.Object.Destroy(unrelated);
+            if (canvasHost != null) UnityEngine.Object.Destroy(canvasHost);
         }
+    }
+
+    private static GameObject NestCanvas(GameObject owner, Scene scene)
+    {
+        var host = new GameObject("native-loading-canvas-host", typeof(RectTransform), typeof(Canvas));
+        SceneManager.MoveGameObjectToScene(host, scene);
+        Canvas canvas = host.GetComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay; canvas.sortingOrder = 999;
+        owner.transform.SetParent(host.transform, false);
+        RectTransform rect = owner.GetComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one; rect.sizeDelta = Vector2.zero;
+        owner.GetComponent<Canvas>().overrideSorting = true;
+        Canvas.ForceUpdateCanvases();
+        return host;
     }
 
     private static GameObject Graph(GameObject art, out Canvas canvas)

@@ -356,7 +356,7 @@ public static class LoadingLifecycleProgram
                 MethodInfo? callback = type.GetMethod(method, Fields | BindingFlags.DeclaredOnly);
                 if (callback != null) harmony.Patch(callback, prefix: new HarmonyMethod(typeof(LoadingLifecycleProgram), nameof(SkipNativeLifecycle)));
             }
-        var root = new GameObject("native-readiness-menu"); root.SetActive(false);
+        var root = new GameObject("native-readiness-menu", typeof(RectTransform), typeof(Canvas), typeof(CanvasGroup)); root.SetActive(false);
         var manager = root.AddComponent<GLOOM.MainMenu.MainMenuUIManager>(); manager.enabled = false;
         var optionsOwner = new GameObject("native-options", typeof(RectTransform)); optionsOwner.SetActive(false);
         optionsOwner.transform.SetParent(root.transform, false);
@@ -369,6 +369,13 @@ public static class LoadingLifecycleProgram
         var cameraOwner = new GameObject("native-readiness-ui-camera");
         Camera ui = cameraOwner.AddComponent<Camera>(); ui.enabled = false;
         var capture = new RenderTexture(64, 64, 0); capture.Create(); ui.targetTexture = capture;
+        Canvas nativeCanvas = root.GetComponent<Canvas>(); nativeCanvas.renderMode = RenderMode.ScreenSpaceCamera;
+        nativeCanvas.worldCamera = ui; nativeCanvas.planeDistance = .5f;
+        var graphicOwner = new GameObject("native-original-menu-graphic", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        graphicOwner.transform.SetParent(optionsOwner.transform, false);
+        graphicOwner.GetComponent<RectTransform>().sizeDelta = Vector2.one * 64;
+        graphicOwner.GetComponent<Image>().color = Color.white;
+        Canvas.ForceUpdateCanvases();
         var consumer = GameObject.CreatePrimitive(PrimitiveType.Quad);
         consumer.name = "native-readiness-capture-consumer"; consumer.layer = 29;
         consumer.transform.position = head.transform.TransformPoint(Vector3.forward);
@@ -383,11 +390,23 @@ public static class LoadingLifecycleProgram
                 "A menu state without original Show remains covered");
             NativeField(manager, "m_Initialised", true);
             NativeField(window, "m_CurrentVisualState", UIWindow.VisualState.Shown);
+            graphicOwner.SetActive(false); ui.Render(); head.Render(); yield return null;
+            Check(!FlatScreen.QuestMenuPresented && Visual != null && Visual.activeSelf,
+                "An opened native menu without a submitted Graphic remains covered");
+            graphicOwner.SetActive(true); Canvas.ForceUpdateCanvases();
             group.alpha = 0; ui.Render(); head.Render(); yield return null;
             Check(!FlatScreen.QuestMenuPresented, "An original opened menu with zero alpha remains covered");
+            group.alpha = 1; root.GetComponent<CanvasGroup>().alpha = 0;
+            Canvas.ForceUpdateCanvases(); ui.Render(); head.Render(); yield return null;
+            Check(!FlatScreen.QuestMenuPresented, "A hidden native menu ancestor cannot acknowledge a visible picture");
+            root.GetComponent<CanvasGroup>().alpha = 1; Canvas.ForceUpdateCanvases();
             group.alpha = 1; ui.Render(); yield return null;
             Check(!FlatScreen.QuestMenuPresented && Visual != null && Visual.activeSelf,
                 "A produced menu without actual head submission remains covered");
+            var foreign = new Texture2D(1, 1); material.mainTexture = foreign;
+            ui.Render(); head.Render(); yield return null;
+            Check(!FlatScreen.QuestMenuPresented, "A head surface displaying another texture cannot acknowledge the menu capture");
+            material.mainTexture = capture; UnityEngine.Object.DestroyImmediate(foreign);
             ui.Render(); head.Render(); yield return null;
             Check(FlatScreen.QuestMenuPresented, "Actual produced visible native UI reaches the real head consumer");
             until = Time.unscaledTime + .5f;

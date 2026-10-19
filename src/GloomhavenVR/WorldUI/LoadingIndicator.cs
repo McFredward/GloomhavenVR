@@ -334,6 +334,8 @@ internal sealed class LoadingIndicator
     private bool _questMenuHandoff;
     private bool _questMenuHandoffRetired;
     private float _questMenuHandoffStartedAt;
+    private int _questBootVisualSample;
+    private static readonly float[] QuestBootVisualSampleSeconds = { .5f, 3f, 10f, 25f, 50f };
 
     // Appear/disappear ramp: 0 = fully gone (root deactivated), 1 = fully shown.
     private float _fade;
@@ -471,6 +473,7 @@ internal sealed class LoadingIndicator
         }
 
         Animate();
+        ReportQuestBootContinuity(head);
     }
 
     /// <summary>Fully faded out: drop the visual and, if the art is the boot window's
@@ -624,6 +627,31 @@ internal sealed class LoadingIndicator
             return false;
         }
         return true;
+    }
+
+    // B711 proved that the boot renderer stayed admitted and fully opaque while
+    // the headset reported a black gap. Four lifecycle edges alone sampled only
+    // acquisition and retirement, so they could not distinguish the intervening
+    // native overlay/camera handoffs. Keep five bounded Debug snapshots through
+    // that exact initial window; no steady-state census, readback or timer exit.
+    private void ReportQuestBootContinuity(Camera head)
+    {
+        if (!QuestStandalonePlatform.Enabled || !_questMenuHandoff || !VRLog.Wants(VRLogLevel.Debug)
+            || _questBootVisualSample >= QuestBootVisualSampleSeconds.Length
+            || Time.unscaledTime - _questMenuHandoffStartedAt < QuestBootVisualSampleSeconds[_questBootVisualSample]) return;
+        int sample = ++_questBootVisualSample;
+        SceneController? scene = SceneController.Instance;
+        Canvas? canvas = scene == null || scene.GlobalCanvas == null ? null : scene.GlobalCanvas.GetComponent<Canvas>();
+        UnityEngine.Debug.Log("[Quest startup] presentation spinner-continuity sample=" + sample
+            + " frame=" + Time.frameCount + " elapsed=" + (Time.unscaledTime - _questMenuHandoffStartedAt)
+            + " fade=" + _fade + " handoff=" + _questMenuHandoff + " flatSuppressed=" + FlatScreenSuppressed
+            + " nativeOwner=" + (_questNativeLoadingOwner == null ? "none" : _questNativeLoadingOwner.name)
+            + " nativeGraphics=" + _questNativeLoadingGraphics.Count
+            + " nativeCanvas=" + (canvas == null ? "none" : canvas.name + ",root=" + canvas.isRootCanvas
+                + ",enabled=" + canvas.enabled + ",active=" + canvas.isActiveAndEnabled + ",mode=" + canvas.renderMode
+                + ",camera=" + (canvas.worldCamera == null ? "none" : canvas.worldCamera.name))
+            + " introSuppressed=" + _questIntroCanvasSuppressed + " cameras=" + QuestCameraOrderFacts()
+            + " baseDraw=" + QuestDrawFacts(_baseQuad, head) + " overlayDraw=" + QuestDrawFacts(_overlayQuad, head));
     }
 
     private bool TickTownReload()
@@ -1228,11 +1256,14 @@ internal sealed class LoadingIndicator
                 // not establish actor or mode state. Qualify both legitimate owner
                 // lifetimes through the exact native Intro animator; never take an arbitrary
                 // canvas or a later menu/error canvas. Canvas ownership is stable
-                // across native/modal camera rebinding; renderMode is not.
+                // across native/modal camera rebinding; renderMode and root-canvas
+                // status are not. A nested Canvas still submits its opaque loading
+                // backdrop. Its exact serialized owner, not current parenting,
+                // qualifies the narrow presentation handoff.
                 Canvas? canvas = loading != null ? loading.GetComponent<Canvas>()
                     : anim != null && anim.gameObject.scene.name == "Intro"
                         ? anim.GetComponentInParent<Canvas>() : null;
-                if (canvas != null && canvas.isRootCanvas
+                if (canvas != null
                     && baseGo != null && overlayGo != null && baseGo.transform.IsChildOf(canvas.transform)
                     && overlayGo.transform.IsChildOf(canvas.transform))
                 {
@@ -1308,9 +1339,11 @@ internal sealed class LoadingIndicator
             // Qualify the original serialized ownership edge, independently of
             // whether another presentation owner has rebound its Canvas to a
             // captured camera. The B691 mode predicate silently refuses that
-            // exact native loading widget after a legitimate mode change.
+            // exact native loading widget after a legitimate mode change. The
+            // same applies to isRootCanvas after native canvas reparenting: the
+            // already-qualified LoadingScreenGO edge remains authoritative.
             Canvas? canvas = scene!.GlobalCanvas == null ? null : scene.GlobalCanvas.GetComponent<Canvas>();
-            if (canvas == null || !canvas.isRootCanvas || !owner.transform.IsChildOf(canvas.transform)) return;
+            if (canvas == null || !owner.transform.IsChildOf(canvas.transform)) return;
             _questNativeLoadingOwner = owner;
             foreach (Graphic graphic in owner.GetComponentsInChildren<Graphic>(true))
                 if (graphic != null) _questNativeLoadingGraphics.Add((graphic, graphic.enabled));

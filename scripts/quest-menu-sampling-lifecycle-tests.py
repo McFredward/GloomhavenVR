@@ -22,9 +22,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--owned-project", type=Path, required=True)
     parser.add_argument("--final-composition", action="store_true", help="Also qualify the native overlay in a real automatically rendered GameView (GL/Xvfb).")
-    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept", "intro-mode-assumption", "unified-mode-assumption", "intro-actor-assumption", "early-menu-hide", "menu-state-only", "menu-no-submission"))
+    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept", "intro-mode-assumption", "unified-mode-assumption", "intro-root-assumption", "unified-root-assumption", "intro-actor-assumption", "early-menu-hide", "menu-state-only", "menu-no-submission", "menu-empty-window", "menu-hidden-ancestor", "menu-foreign-capture"))
     args = parser.parse_args()
-    if args.control in ("native-overlay-kept", "native-loading-overlay-kept") and not args.final_composition:
+    if args.control in ("native-overlay-kept", "native-loading-overlay-kept", "intro-root-assumption", "unified-root-assumption") and not args.final_composition:
         parser.error("The native overlay control requires --final-composition.")
     base = ROOT / ".planning/debug/quest-menu-lifecycle"; base.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=base.resolve()))
@@ -48,17 +48,25 @@ def main():
         }
         expected = ""
         controls["intro-mode-assumption"] = (
-            "if (canvas != null && canvas.isRootCanvas\n                    && baseGo != null",
-            "if (canvas != null && canvas.isRootCanvas && canvas.renderMode == RenderMode.ScreenSpaceOverlay\n                    && baseGo != null",
+            "if (canvas != null\n                    && baseGo != null",
+            "if (canvas != null && canvas.renderMode == RenderMode.ScreenSpaceOverlay\n                    && baseGo != null",
             "Exact Intro loading owner hands off after a native camera rebind")
+        controls["intro-root-assumption"] = (
+            "if (canvas != null\n                    && baseGo != null",
+            "if (canvas != null && canvas.isRootCanvas\n                    && baseGo != null",
+            "Nested exact Intro loading owner hands off without a root-canvas assumption")
         controls["intro-actor-assumption"] = (
             ': anim != null && anim.gameObject.scene.name == "Intro"',
             ': false && anim != null && anim.gameObject.scene.name == "Intro"',
             "Exact Intro loading owner hands off after a native camera rebind")
         controls["unified-mode-assumption"] = (
-            "if (canvas == null || !canvas.isRootCanvas || !owner.transform.IsChildOf(canvas.transform)) return;",
-            "if (canvas == null || !canvas.isRootCanvas || canvas.renderMode != RenderMode.ScreenSpaceOverlay || !owner.transform.IsChildOf(canvas.transform)) return;",
+            "if (canvas == null || !owner.transform.IsChildOf(canvas.transform)) return;",
+            "if (canvas == null || canvas.renderMode != RenderMode.ScreenSpaceOverlay || !owner.transform.IsChildOf(canvas.transform)) return;",
             "Exact native loading widget hands off after a native camera rebind")
+        controls["unified-root-assumption"] = (
+            "if (canvas == null || !owner.transform.IsChildOf(canvas.transform)) return;",
+            "if (canvas == null || !canvas.isRootCanvas || !owner.transform.IsChildOf(canvas.transform)) return;",
+            "Nested exact unified loading owner hands off without a root-canvas assumption")
         if args.control in controls:
             before, after, expected = controls[args.control]
             assert loading.count(before) == 1, "Control binding drift: " + args.control
@@ -71,9 +79,20 @@ def main():
             if args.control == "early-menu-hide":
                 loading = loading.replace("bool menuHandoff = indicatorEnabled && TickQuestMenuHandoff();", "bool menuHandoff = false;")
             elif args.control == "menu-state-only":
-                readiness = readiness.replace("!menu.Initialised || !VisibleNativeMenuWindow(menu)", "false")
+                readiness = readiness.replace("if (menu == null || !menu.Initialised) return;", "if (menu == null) return;")
+                readiness = readiness.replace("if (window == null || !window.IsOpen || group == null || group.alpha <= .01f) return null;", "if (window == null || group == null) return null;")
             else:
                 readiness = readiness.replace("_questProducedMenu = menu;", "_questPresentedMenu = menu;\n        _questProducedMenu = menu;")
+        if args.control == "menu-empty-window":
+            readiness = readiness.replace("if (graphic == null) return;", "if (graphic == null) { _questPresentedMenu = menu; return; }")
+            expected = "An opened native menu without a submitted Graphic remains covered"
+        elif args.control == "menu-hidden-ancestor":
+            readiness = readiness.replace("graphic.canvasRenderer.GetInheritedAlpha() <= .01f", "false")
+            readiness = readiness.replace("owner._questProducedMenuGraphic.canvasRenderer.GetInheritedAlpha() <= .01f", "false")
+            expected = "A hidden native menu ancestor cannot acknowledge a visible picture"
+        elif args.control == "menu-foreign-capture":
+            readiness = readiness.replace("renderer.sharedMaterial.mainTexture != owner._questProducedMenuTarget", "false")
+            expected = "A head surface displaying another texture cannot acknowledge the menu capture"
         rows = {"LoadingIndicator.cs": loading, "QuestMenuReadiness.cs": readiness}
         for path in ("Core/QuestTextureCopy.cs", "Core/QuestPrimitiveMesh.cs", "WorldUI/Sharpness/LoadingIconGeometry.cs"):
             rows[Path(path).name] = (ROOT / "src/GloomhavenVR" / path).read_text()
