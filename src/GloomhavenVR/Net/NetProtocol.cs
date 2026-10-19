@@ -612,7 +612,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 710;
+    public const ushort ModBuild = 711;
+
+    // ModBuild711 — retain the actual WorldUI startup registration after the
+    // two reviewed movie transpilers have been applied before Quest AOT.
+    // Capture103413 confirms B710 blocks native bootstrap when PatchAll reaches
+    // the now-empty NativeVideoMoviePatch. Bind those completed static edits
+    // to their exact compiled class/target closure; keep unknown registrations
+    // rejected and executable hook ordering unchanged. Compact code update,
+    // unchanged original Campaign assets, movie depth recipes and media caches.
+    // Automated startup/registry coverage is separate from headset validation.
 
     // ModBuild710 — rebase Quest standalone onto dev709, retaining B693 hardware
     // repairs and the current shared features, including native stereo movies.
