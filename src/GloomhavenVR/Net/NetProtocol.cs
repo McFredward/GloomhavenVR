@@ -612,7 +612,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 712;
+    public const ushort ModBuild = 713;
+
+    // ModBuild713 — keep mixed-reality initiative backing behind its actual symbols.
+    // The native initiative reorder writes world-X coordinates. At the rotated VR dock
+    // this can move portraits beyond the old host-plane backing, hiding them from the
+    // front. Carry the existing visible-ink sample's furthest local depth into plate
+    // seating, including materialisation and remote board mirrors. Keep the original
+    // opaque depth write, content order/size, native animation and 2mm world clearance.
+    // Actual Unity rendering covers the native transform chain, local/remote scopes,
+    // scales and compiling causal regressions. Wire, scene coverage and sender image
+    // resolution are unchanged; final headset acceptance remains a hardware check.
 
     // ModBuild712 — preserve native pointer continuation with an unrelated ESC window open.
     // Hardware710 reaches RewardContinue repeatedly while its permission is false;

@@ -14,6 +14,40 @@ visual acceptance is claimed. See `.planning/retired-PILLAR-LOD-20261019.md`.
 
 # State — where the project stands
 
+**Initiative MR backing, Build713; paired patch0.2.10, 2026-10-19.**
+
+The fresh game710/patch0.2.9 run is the maintainer's best streamed passthrough run,
+with a remaining brief activation blackout. Read-only Frame capture verifies the
+installed0.2.9 binary and active LZ4; the first black interval coincides with native
+FEC/backtrack reset after93 valid masks. Earlier native retries predate MR. Patch
+0.2.10 removes a duplicate compositor decompression and full-image min/max pass,
+sharing authenticated transient samples without retained-mask substitution. New
+bounded decoder handoff latency counters identify shorter stalls. This proves less
+CPU work, not elimination of the hardware reset; no headset changes were made.
+Native evidence/delivery: `.planning/debug/steamlink-sender740/` and the separate
+patch repository's `docs/development/FRAME-CONTINUITY.md`.
+
+The supplied initiative screenshot shows front/back occlusion by the MR plate.
+Native world-X reorder under the rotated VR dock can move symbols behind a fixed
+host-plane plate; actual Unity reproduces this with original hierarchy metadata.
+The existing clipped visible-ink walk now retains actual depth, seating the same
+opaque backing behind all admitted content with its original2mm physical gap,
+including materialisation and remote mirrors. No native transform, UI size/order,
+shader, wire, image resolution or camera setting is changed. The photographed
+instance's exact per-graphic Z was not logged; new bounded diagnostics record it.
+
+Focused evidence: panel ink511/31+1controls, backing258/13, animation578/6+2,
+materialise35833/10, actual Unity96 assertions plus two compiling causal controls.
+Integrated14 source/fixture pins match; source16/16 and strict Release/Debug0W0E
+pass. Private712-to713 compiled review confines behavior to MrBacking, PanelInkBounds
+and RemoteWidgetMirror, plus eight version consumers/three metadata files.
+Unchanged actual wire300598 and unrelated712 evidence are inherited; no new complete
+local gameplay gate or headset visual acceptance is claimed. See
+`.planning/debug/initiative740/{review.md,validation.json,compiled-scope/verdict.json}`.
+Own stopped worker worktrees and generated Unity caches are removed; current binary,
+source, input, screenshot, hardware and validation evidence are retained.
+
+
 **Visible Continue beside independent menus, Build712, 2026-10-19.**
 
 Fresh local710/a3b7ed777 hardware shows a chest reward opened during EndTurnLoot,
