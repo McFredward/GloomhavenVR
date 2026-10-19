@@ -699,9 +699,11 @@ def queue_managed_setup(path: Path, args: argparse.Namespace, root: Path, accoun
     processes = strict_steam_processes(args.proc_root)
     if not processes:
         raise ConfigError("Managed Steam setup requires the live client identified by the installer")
-    request = {name: str(getattr(args, name).expanduser().resolve()) for name in MANAGED_PATHS
+    # Keep the ordinary writer's launcher/art spelling. Resolving a symlinked
+    # XDG data directory would change the Exe used to identify an existing entry.
+    request = {name: str(getattr(args, name).expanduser().absolute()) for name in MANAGED_PATHS
                if name != "steam_root"}
-    request.update(steam_root=str(root), account_id=account.name)
+    request.update(game_path=str(args.game_path.expanduser().resolve()), steam_root=str(root), account_id=account.name)
     for name in ("launcher", "icon", "logo", "portrait", "header", "hero"):
         if not Path(request[name]).is_file():
             raise ConfigError(f"Required Frame launcher/artwork missing: {request[name]}")
