@@ -123,7 +123,9 @@ PY
         mirror-owner-ignored) property=SelectionFactsSource; expected='An inactive native-named mirror child is excluded from live wall adoption' ;;
         mirror-cache-ignored) property=SelectionFactsSource; expected='Repeated live adoption lanes query each exact mirror ancestor once per synchronous scope' ;;
         mirror-cache-unbounded) property=DriverSource; expected='Mirror ownership memo releases every renderer at the scope boundary' ;;
-        mirror-wall-signature-unconditional) property=DriverSource; expected='A mirror mesh with a real wall-fade shader retains its conservative signature' ;;
+        # Exact terrain ownership is now checked before the mirror case. Removing the
+        # shared wall-signature exception must fail that first conservative-adoption check.
+        mirror-wall-signature-unconditional) property=DriverSource; expected='A name-identical foreign wall renderer retains conservative native wall adoption' ;;
         mirror-death-reclassified) property=DriverSource; expected='A dead clone row retains its exact exemption without signature churn' ;;
         root-selection-owner-broadened) property=SelectionFactsSource; expected='Parent proximity never exempts a foreign selection-root emitter' ;;
         root-selection-owner-ignored) property=SelectionFactsSource; expected='Exact native root selection emitter is not wall scenery' ;;

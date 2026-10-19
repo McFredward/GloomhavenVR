@@ -53,6 +53,14 @@ focused software behavior are established; headset glow/pickup after real zoom
 and live multiplayer ownership remain hardware outcomes to verify. See
 `.planning/FIGURE-GRAB-711-COORDINATION.md`.
 
+Build711 CI follow-up: the already-red710 CI39291974849 failed solely because
+`mirror-wall-signature-unconditional` now reaches the earlier exact terrain-owner
+assertion rather than the historical mirror assertion. Change only the shell
+counter's expected first failure; production19515 assertions and all30 compiling
+causal controls pass. Preserve raw prior CI logs, script/source hashes and the
+focused CI-group result under `figure-grab711/ci-wall-counter/`. Runtime remains711;
+no new build or broad local rerun is needed for this test-only expectation repair.
+
 **Steam Link paired-only transport, Build710, 2026-10-19.**
 
 The maintainer explicitly retired the Frame-only atlas method. The game no longer

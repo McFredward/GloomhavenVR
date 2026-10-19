@@ -119,3 +119,18 @@ No fresh headset or live multiplayer outcome is asserted. Final hardware checks
 are repeated real zoom/body-height pickup, figure glow/pickup agreement, one action
 per trigger, and existing native/remote ownership exclusion. Software evidence
 establishes the corrected source paths rather than the actual rendered headset.
+
+## Inherited CI counter repair
+
+The baseline710 CI39291974849 already failed wall-read-facts only at its
+`mirror-wall-signature-unconditional` negative-control expectation. The mutation
+still compiles and exposes the intended shared conservative wall-adoption defect;
+new TerrainProxyOwnership coverage reaches its earlier exact-owner assertion
+before the old mirror assertion. Root coordinated the one-line expectation update
+with the other project-context primary, who confirmed no overlap. No production
+source or test oracle was relaxed. The complete affected suite passes19515
+production assertions plus all30 compiling causal controls in64.2s; original CI
+logs, exact script/fixture/source copies, hashes, passing result and canonical
+fixed-path cache cleanup receipt are retained. This test-only follow-up keeps711
+and inherits the unchanged Debug/Release, source16, compiled scope and other
+runtime evidence recorded above. No repeat complete local gate is claimed.
