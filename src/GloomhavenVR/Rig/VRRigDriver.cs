@@ -36,10 +36,11 @@ namespace GloomhavenVR.Rig;
 /// (<see cref="XRDevice.DisableAutoXRCameraTracking"/>).
 ///
 /// RIG LIFETIME: the health check in <see cref="Update"/> tears down and rebuilds
-/// when the ANCHOR camera is destroyed OR disabled on any frame (re-anchors to the
-/// next best camera; our own camera keeps rendering meanwhile), when our camera or
-/// rig root is destroyed externally, and — on scene load — when a better menu
-/// camera appeared. Every teardown/rebuild is logged with its trigger reason.
+/// on a rig-kind change, an explicit rebuild, or loss of our camera/root. Scenario
+/// and map anchors retain their existing rebuild policy. A MENU anchor is only a
+/// native vantage reference: its absence or replacement keeps the same owned head
+/// tracking/rendering at the current rig pose and rebinds a live successor in place.
+/// Every teardown/rebuild and menu-anchor transition is logged with its reason.
 /// Hands re-home automatically: HandsDriver polls <see cref="RigRoot"/> every frame.
 ///
 /// CAMERA OWNERSHIP: this driver is the pump for <see cref="VRCameraPolicy"/>
@@ -665,50 +666,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         bool sceneRecheck = _sceneRecheck;
         _sceneRecheck = false;
 
-        // Health check — tear down (and rebuild below) the frame anything breaks.
-        // Order matters: kind change > our camera/root destroyed > anchor destroyed >
-        // anchor disabled > a better camera appeared with a scene load.
-        string? teardownReason = null;
-        string? rebuildRequest = _pendingRebuildRequest;
-        _pendingRebuildRequest = null; // one-shot, consumed (or dropped while no rig exists)
-        if (_kind != RigKind.None)
-        {
-            if (rebuildRequest != null)
-                teardownReason = rebuildRequest;
-            else if (desired != _kind)
-                teardownReason = $"rig kind change {_kind} → {desired}";
-            else if (_camera == null)
-                teardownReason = "owned head camera destroyed externally";
-            else if (_rigRoot == null)
-                teardownReason = "rig root destroyed externally";
-            else if (_anchor == null)
-                teardownReason = "anchor camera destroyed";
-            else if (!_anchor.isActiveAndEnabled && (!_anchor.gameObject.activeInHierarchy || !NativeCameraRenderBudget.Owns(_anchor))
-                && (_kind == RigKind.Menu || _kind == RigKind.Map))
-                teardownReason = $"anchor camera '{_anchor.name}' disabled/deactivated";
-            else if (sceneRecheck && _kind == RigKind.Menu)
-            {
-                Camera? best = ResolveMenuCamera();
-                if (best != null && best != _anchor)
-                    teardownReason = $"scene '{_sceneRecheckName}' brought a better menu camera '{best.name}'";
-            }
-        }
-
-        if (teardownReason != null)
-        {
-            TearDownRig(teardownReason);
-            _rebuildTrigger = teardownReason;
-        }
-
-        if (_kind == RigKind.None)
-        {
-            if (desired == RigKind.Scenario)
-                BuildRig(controller!);
-            else if (desired == RigKind.Map)
-                BuildMapRig();
-            else if (desired == RigKind.Menu)
-                BuildMenuRig();
-        }
+        UpdateRigLifetime(desired, controller, sceneRecheck);
 
         // Map-room upkeep: hold the parchment override and keep the icon command buffer on the
         // head camera. Isolated + attributed like every other per-frame step — a throw in the map
@@ -776,6 +734,50 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         var tail = _tailSteps;
         for (int i = 0; i < tail.Length; i++)
             TickGuard.Run(tail[i].name, tail[i].fn);
+    }
+
+    /// <summary>Resolve real rig lifetime changes before per-frame camera/MR maintenance.</summary>
+    private void UpdateRigLifetime(RigKind desired, CameraController controller, bool sceneRecheck)
+    {
+        // The owned menu head outlives native camera swaps. Actual rig/context loss
+        // still tears down synchronously before the next kind is built.
+        string? teardownReason = null;
+        string? rebuildRequest = _pendingRebuildRequest;
+        _pendingRebuildRequest = null; // one-shot, consumed (or dropped while no rig exists)
+        if (_kind != RigKind.None)
+        {
+            if (rebuildRequest != null)
+                teardownReason = rebuildRequest;
+            else if (desired != _kind)
+                teardownReason = $"rig kind change {_kind} → {desired}";
+            else if (_camera == null)
+                teardownReason = "owned head camera destroyed externally";
+            else if (_rigRoot == null)
+                teardownReason = "rig root destroyed externally";
+            else if (_kind == RigKind.Menu)
+                RefreshMenuAnchor(sceneRecheck);
+            else if (_anchor == null)
+                teardownReason = "anchor camera destroyed";
+            else if (!_anchor.isActiveAndEnabled && (!_anchor.gameObject.activeInHierarchy || !NativeCameraRenderBudget.Owns(_anchor))
+                && _kind == RigKind.Map)
+                teardownReason = $"anchor camera '{_anchor.name}' disabled/deactivated";
+        }
+
+        if (teardownReason != null)
+        {
+            TearDownRig(teardownReason);
+            _rebuildTrigger = teardownReason;
+        }
+
+        if (_kind == RigKind.None)
+        {
+            if (desired == RigKind.Scenario)
+                BuildRig(controller!);
+            else if (desired == RigKind.Map)
+                BuildMapRig();
+            else if (desired == RigKind.Menu)
+                BuildMenuRig();
+        }
     }
 
     /// <summary>
@@ -969,25 +971,87 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     }
 
     /// <summary>
-    /// The camera to anchor to outside scenarios, best first: Camera.main (tag
-    /// MainCamera) → highest-depth enabled backbuffer camera that isn't the UICamera.
-    /// Null when the menu scene has no world camera (the rig then waits; the flat
-    /// screen is hidden anyway because it needs a world camera too).
+    /// A native disabled camera remains a valid reference only when our render-budget
+    /// owner suspended it; a native deactivation or destruction never does.
+    /// </summary>
+    private static bool IsLiveMenuAnchor(Camera? camera) => camera != null
+        && camera != HeadCamera && camera.gameObject.activeInHierarchy
+        && (camera.isActiveAndEnabled || NativeCameraRenderBudget.Owns(camera));
+
+    /// <summary>
+    /// The Build713 release review proves a source gap during Intro/MainMenu camera
+    /// replacement: the native anchor deactivates before its successor exists. The
+    /// old health check destroyed our still-valid tracked head, nulled AllowedHead
+    /// and made MixedReality.Tick close the current coverage source while MR remained
+    /// requested. An anchor is only a reference, not the owner of this persistent rig.
+    /// Keep that same head, tracking, source authority and physical pose through the
+    /// gap; resolve a live successor without a timer or any retained eye/image/mask.
+    /// Real kind changes, explicit rebuilds and owned-object loss still tear down.
+    ///
+    /// Rebinding updates native vantage metadata for a future deliberate recenter,
+    /// never moves/re-scales the rig or re-arms first-pose recenter. Camera clear, HDR,
+    /// target/stereo and other live MR-owned settings remain with their current owner.
+    /// Normal per-frame maintenance and fresh stereo-cohort admission keep running.
+    /// </summary>
+    private void RefreshMenuAnchor(bool sceneRecheck)
+    {
+        bool alive = IsLiveMenuAnchor(_anchor);
+        if (alive && !sceneRecheck)
+            return;
+
+        bool lostAnchor = !alive && !ReferenceEquals(_anchor, null);
+        if (!alive)
+            _anchor = null; // Never dereference or render from a dead/inactive native anchor.
+        Camera? successor = ResolveMenuCamera();
+        if (successor == null)
+        {
+            if (lostAnchor)
+                VRLog.Info("Rig", "Menu anchor unavailable — keeping the owned tracked head and current rig pose while awaiting a live native camera.");
+            return;
+        }
+        if (successor == _anchor)
+            return;
+
+        // All native reads and the reference replacement complete in this Update,
+        // before camera/MR maintenance; no consumer sees an unowned head in between.
+        Vector3 position = successor.transform.position;
+        Quaternion yaw = Quaternion.Euler(0f, successor.transform.eulerAngles.y, 0f);
+        float far = Mathf.Max(successor.farClipPlane, 100f);
+        float depth = successor.depth + 1f;
+        bool occlusion = successor.useOcclusionCulling;
+        _anchor = successor;
+        _menuAnchorPos = position;
+        _menuAnchorYaw = yaw;
+        _baseFarClip = far;
+        _camera!.depth = depth;
+        _camera.useOcclusionCulling = occlusion;
+
+        VRLog.Info("Rig", $"Menu anchor rebound to '{successor.name}' — trigger: {(sceneRecheck ? $"scene '{_sceneRecheckName}'" : "native anchor unavailable")}; kept the same owned tracked head, rig pose and live camera settings; native vantage saved for recenter.");
+        VRCameraPolicy.Sweep("menu anchor rebound");
+    }
+
+    /// <summary>
+    /// The camera to anchor to outside scenarios, best first: native MainCamera →
+    /// highest-depth live backbuffer camera that isn't the UICamera or our head.
+    /// Include native cameras whose automatic rendering our budget owner suspended.
+    /// Null before the first menu camera exists; an existing owned menu rig then
+    /// keeps tracking/rendering while its native anchor is absent.
     /// </summary>
     private static Camera? ResolveMenuCamera()
     {
         Camera? cam = NativeCameraRenderBudget.Main;
-        if (cam != null)
+        if (IsLiveMenuAnchor(cam))
             return cam;
 
-        // Cold path only (no-rig frames / scene-load recheck) — shared non-alloc buffer.
-        int count = VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] all);
+        // Cold path only (no-rig frames / missing anchor / scene-load recheck).
+        int count = NativeCameraRenderBudget.GetProjectionCamerasNonAlloc(out Camera[] all);
         Camera? best = null;
         for (int i = 0; i < count; i++)
         {
             Camera candidate = all[i];
-            if (candidate == null || !candidate.enabled || candidate.targetTexture != null
-                || candidate.CompareTag("UICamera") || candidate == HeadCamera)
+            if (!IsLiveMenuAnchor(candidate)
+                || (candidate.targetTexture != null && !NativeCameraRenderBudget.Owns(candidate))
+                || candidate.CompareTag("UICamera"))
                 continue;
             if (best == null || candidate.depth > best.depth)
                 best = candidate;
