@@ -1094,7 +1094,8 @@ def plan(state_root, mode="duplicates", progress=None, *, cancel=None):
                 skipped.append({"path": target.relative_to(root).as_posix(), "reason": getattr(error, "code", "unreadable")}); continue
             # Reject surplus files in duplicate snapshots: they are not part of
             # the proven immutable source owner, even if a valid receipt exists.
-            if target.parent.parent == build / "inputs" and target.parent.name in ("game", "mod", "probe", "startup"):
+            if (target.parent == build / "inputs/game" or (mode == "safe"
+                    and target.parent.parent == build / "inputs" and target.parent.name in ("mod", "probe", "startup"))):
                 expected = set(_rows(_read(target / ".snapshot.json", proofs)["files"])) | {".snapshot.json"}
                 observed = {path.relative_to(target).as_posix() for path, stamp in scan["nodes"] if stat.S_ISREG(stamp[2])}
                 if observed - expected or (mode != "safe" and expected != observed):

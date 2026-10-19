@@ -1,5 +1,6 @@
 """One-click cleanup uses the safe producer policy without a manual preview."""
 import sys
+import importlib.util
 from pathlib import Path
 import threading
 import unittest
@@ -58,6 +59,31 @@ class AutomaticStorageHttpTests(fixtures.StorageHttpTests):
         log = (self.store.root / "logs/storage-cleanup.log").read_text()
         self.assertIn('"event": "automatic-selection"', log)
         self.assertIn('"mode": "safe"', log)
+
+    def test_actual_http_auto_removes_an_old_apk_and_preserves_compiler_inputs(self):
+        spec = importlib.util.spec_from_file_location("actual_auto_cleanup", fixtures.ROOT / "tools/quest-wizard/cleanup.py")
+        actual = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(actual)
+        with mock.patch.dict(sys.modules, {"cleanup": actual}):
+            import test_update_storage
+            owner = test_update_storage.UpdateStorageTests()
+            owner.setUp()
+            self.addCleanup(owner.doCleanups)
+            old, _ = owner.update(1)
+            current, _ = owner.update(2, latest=True)
+            retained = owner.build / "updates/code-projects" / ("b" * 64) / "Library/Bee/native.o"
+            retained.parent.mkdir(parents=True)
+            retained.write_bytes(b"completed reusable object")
+            self.http.store = owner.store
+            with mock.patch.object(actual, "inventory", side_effect=AssertionError("No global size walk")):
+                self.assertEqual(self.request("/api/storage/auto", {})[0], 200)
+                result = self.wait_status("complete")["state"]["result"]
+            self.assertGreater(result["freedBytes"], 0)
+            self.assertEqual(result["deletedFiles"], 1)
+            self.assertEqual(result["fastUpdateImpact"]["status"], "preserved")
+            self.assertFalse(old.exists())
+            self.assertTrue(current.is_file())
+            self.assertEqual(retained.read_bytes(), b"completed reusable object")
 
     def test_auto_route_rejects_unauthenticated_or_client_selected_deletions(self):
         self.install_automatic_policy()

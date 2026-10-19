@@ -1,3 +1,13 @@
+**Quest Builder storage cleanup, 2026-10-19: host-only / game B710 unchanged.**
+
+Add one-click update-preserving cleanup for proven obsolete owned intermediates,
+duplicate snapshots, superseded update APKs and abandoned export temporaries.
+Retain current and resumable owners, compiler/independent asset caches, tools,
+keys, saves and logs. Manual previews show consequences and a visible explicit
+delete button above optional file details; cancellation keeps ownership useful
+for targeted retry. Focused filesystem/API/Chrome and extracted-delivery evidence
+is separate from inherited B710 runtime validation. See `QUEST-STORAGE-AUTO-20261019.md`.
+
 **Quest current-dev integration and review, 2026-10-19: feature / B710.**
 
 Rebase the published Quest adaptations onto dev709 while preserving existing
