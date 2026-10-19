@@ -73,6 +73,13 @@ internal sealed class RayInteractor : IPickProvider
             _uiHitOverrideFrame = Time.frameCount;
             _uiHitFromPanel = false;
             _uiHitLabel = UnlabelledUiHitSource;
+            // Unmigrated writers remain conservative. Known hover producers use the explicit
+            // SetWorldUiHit path; only those may yield to a near-field figure offer.
+            if (value.HasValue)
+            {
+                _triggerClaimFrame = Time.frameCount;
+                _triggerClaimLabel = UnlabelledUiHitSource;
+            }
         }
     }
 
@@ -102,7 +109,12 @@ internal sealed class RayInteractor : IPickProvider
     //       card laser, FigureGrabDriver's far-pluck clamp, FigureStretch, the flat screen, the
     //       pile browser, the combat-log cap, the map rail. Those are real rivals for the pull.
     //
-    // Deferring to (b) is right and is untouched. Deferring to (a) is the defect: a beam's
+    // Historically deferring to every (b) was considered right. Build710 hardware proves the
+    // missing distinction: those WORLD producers also clamp on mere HOVER, before they own any
+    // action. Build711 gives known hover writers SetWorldUiHit/SuppressWorldFarClick and real
+    // committed actions ClaimTrigger. A lit near-field figure outranks hover from either kind
+    // of surface, while committed controls retain ownership. Other grab classes keep their
+    // previous arbitration. Deferring to (a) is the original defect: a beam's
     // opinion about a panel metres away must not outrank a hand that is physically inside a
     // figure. So the raise now carries its PROVENANCE. HasFreshUiHit itself is unchanged for
     // every consumer (BoardClickDriver's far click, PickingPatches, FigureGrabDriver's foreignUi
@@ -111,7 +123,7 @@ internal sealed class RayInteractor : IPickProvider
     //
     // The plain property setter is the DEFAULT and is deliberately pessimistic: a producer that
     // does not label itself is treated as (b), so no unlabelled call site can be weakened by
-    // accident. Only the two drivers in this folder label themselves as panel hovers.
+    // accident. Known producers explicitly identify hover and committed action separately.
     private const string UnlabelledUiHitSource =
         "an unlabelled beam claim (a world laser: the card fan/board laser, FigureGrabDriver's "
         + "far-pluck clamp, FigureStretch, the flat screen, the pile browser, the combat-log cap "
@@ -119,6 +131,46 @@ internal sealed class RayInteractor : IPickProvider
 
     private bool _uiHitFromPanel;
     private string _uiHitLabel = UnlabelledUiHitSource;
+    private int _triggerClaimFrame = -10;
+    private string _triggerClaimLabel = "no committed trigger claim";
+    private string _farClickLabel = "SuppressFarClick()";
+
+    /// <summary>A known world surface under the beam, without committing its trigger action.
+    /// Build710 confused this hover with ownership and refused a highlighted miniature. Keep
+    /// the visual clamp/far-click protection, while allowing a live near-figure offer to win.
+    /// The producer must yield before starting an action and ClaimTrigger before committing it.
+    /// Labels are static caller descriptions, never per-frame object-name formatting.</summary>
+    internal void SetWorldUiHit(Vector3 point, string label)
+    {
+        _uiHitOverride = point;
+        _uiHitOverrideFrame = Time.frameCount;
+        _uiHitFromPanel = false;
+        _uiHitLabel = label;
+    }
+
+    /// <summary>Hover protection without a beam point. Card rescue paths intentionally have no
+    /// true ray hit; publishing a card centre here would create a phantom wall. This still blocks
+    /// a board click, but does not claim the trigger against a highlighted nearby figure.</summary>
+    internal void SuppressWorldFarClick(string label)
+    {
+        _farClickFrame = Time.frameCount;
+        _farClickLabel = label;
+    }
+
+    /// <summary>A committed action or active gesture owns this pull. Separate from hover because
+    /// multiple visual writers may run afterwards; none may erase this ownership. Like the
+    /// existing beam bus, the two-frame window supports either MonoBehaviour update order.</summary>
+    internal void ClaimTrigger(string label)
+    {
+        _triggerClaimFrame = Time.frameCount;
+        _triggerClaimLabel = label;
+        _farClickFrame = Time.frameCount;
+        _farClickLabel = label;
+    }
+
+    internal bool HasFreshTriggerClaim => Time.frameCount - _triggerClaimFrame <= 1;
+    internal string FreshTriggerClaimSource => HasFreshTriggerClaim
+        ? _triggerClaimLabel : "no committed trigger claim";
 
     /// <summary>
     /// Raise <see cref="UiHitOverride"/> and record that it was a UI PANEL HOVER that raised it
@@ -160,8 +212,9 @@ internal sealed class RayInteractor : IPickProvider
             if (!clamp && !farClick)
                 return "nothing (the beam is not claiming this frame)";
             if (!clamp)
-                return "SuppressFarClick() — a world laser claimed the trigger without clamping the beam";
-            return farClick ? _uiHitLabel + ", plus a SuppressFarClick() claim the same frame" : _uiHitLabel;
+                return _farClickLabel + " — far-click protection without a beam clamp";
+            string source = farClick ? _uiHitLabel + ", plus " + _farClickLabel : _uiHitLabel;
+            return HasFreshTriggerClaim ? source + "; committed trigger: " + _triggerClaimLabel : source;
         }
     }
 
@@ -179,7 +232,7 @@ internal sealed class RayInteractor : IPickProvider
     /// card (see CardsDriver's lift-priority branch). Callers that own the trigger but have no
     /// real hit point call this instead and leave the beam to the physics pick.
     /// </summary>
-    public void SuppressFarClick() => _farClickFrame = Time.frameCount;
+    public void SuppressFarClick() => ClaimTrigger("SuppressFarClick() — unlabelled committed action");
 
     private int _farClickFrame = -1;
 
@@ -701,6 +754,9 @@ internal sealed class RayInteractor : IPickProvider
                 _uiHitOverride = null;
                 _uiHitOverrideFrame = -1;
                 _farClickFrame = -1;
+                _triggerClaimFrame = -10;
+                _triggerClaimLabel = "no committed trigger claim";
+                _farClickLabel = "SuppressFarClick()";
                 // The provenance goes with the residue it describes — a stale "it was only a
                 // panel hover" left standing would answer a question about a beam that is down.
                 _uiHitFromPanel = false;

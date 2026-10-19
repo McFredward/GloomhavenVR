@@ -233,7 +233,7 @@ internal sealed class UguiPointer
             // set the flat point just before calling us; this same-frame override wins.
             RayInteractor? ray = VRHands.Get(_side)?.Ray;
             if (ray != null)
-                ray.UiHitOverride = portraitHit;
+                ray.SetWorldUiHit(portraitHit, "depth-aware uGUI portrait hover");
 
             topHit = default;
             topHit.gameObject = portrait;

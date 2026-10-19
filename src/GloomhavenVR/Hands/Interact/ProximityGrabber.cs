@@ -26,6 +26,8 @@ namespace GloomhavenVR.Hands.Interact;
 /// trigger-up release edge with the laser pluck (<see cref="ForceGrab"/>). While a
 /// trigger-taken card is held, the grip is ignored for it entirely — the hold loop
 /// reads only the button that grabbed.
+/// Build711: a highlighted FIGURE is a live grab offer, never a visual-only tail. Known world
+/// hovers yield to it; a committed pointer/gesture owns the pull and prevents that figure glow.
 /// </summary>
 internal sealed class ProximityGrabber
 {
@@ -96,7 +98,9 @@ internal sealed class ProximityGrabber
     /// affordance starts to read as stuck. It is the same 0.20 s <c>PeerBoardFade</c> uses for its
     /// enter dwell. Nothing about GRABBING is made stickier: see <see cref="Tick"/>'s hover-tail
     /// branch, which refuses a grab during the tail with exactly the gates that governed before
-    /// this hysteresis existed.</para>
+    /// this hysteresis existed. Build711 excludes figures from this visual-only tail:
+    /// the maintainer explicitly requires that every highlighted figure can be grabbed.
+    /// Their own valid election hysteresis remains in FigureGrabDriver.</para>
     /// </summary>
     private const float ExitDwellSeconds = 0.20f;
 
@@ -181,6 +185,48 @@ internal sealed class ProximityGrabber
     internal bool TriggerGrabOfferedFor(IGrabbable target) => _triggerGrabOffered
         && ReferenceEquals(_triggerCandidate, target);
 
+    /// <summary>The visible miniature offer owns a new trigger pull ahead of world lasers.
+    /// Build710 could light a figure and then refuse it because a distant hover had clamped the
+    /// beam. Check the SAME figure's live eligibility and registered shape here, not a cached
+    /// previous-frame distance: zoom and tracking can change between the producer and our Tick.
+    /// Invalid offers revoke their glow immediately. This does not elect a second candidate.</summary>
+    internal bool FigureGrabOffered
+    {
+        get
+        {
+            IGrabbable? figure = Highlighted;
+            if (!IsFigure(figure))
+                return false;
+            if (_highlightGrabbable && FigureOfferEligible(figure!))
+                return true;
+            SetHighlighted(null);
+            _triggerGrabOffered = false;
+            _triggerCandidate = null;
+            return false;
+        }
+    }
+
+    private static bool IsFigure(IGrabbable? target) =>
+        target is IBoardGrabTarget { BoardKind: BoardGrabKind.Figure };
+
+    private bool FigureTriggerBlocked => _hand.Ray.HasFreshTriggerClaim || _hand.RayUgui.IsPressing;
+
+    private bool FigureOfferEligible(IGrabbable target)
+    {
+        if (!_enabled || !_hand.HasPose || Held != null || FigureTriggerBlocked || !CanGrabNow(target)
+            || (target is IGrabbableHandFilter filter && !AllowsHandNow(filter, _hand)))
+            return false;
+        var entries = VRInteractables.Grabbables;
+        for (int i = 0; i < entries.Count; i++)
+        {
+            if (!ReferenceEquals(entries[i].Target, target))
+                continue;
+            return VRInteractables.IsUsablePickShape(entries[i].Collider)
+                && ReachDistance(entries[i], _hand.Rig.PalmCenter.position) <= ReachMeters * _hand.WorldScale;
+        }
+        return false;
+    }
+
     /// <summary>Fired when the highlight candidate changes (null = none).</summary>
     public event Action<VRHand, IGrabbable?>? HighlightChanged;
 
@@ -218,7 +264,11 @@ internal sealed class ProximityGrabber
             return;
         }
         if (!_hand.HasPose)
+        {
+            if (IsFigure(Highlighted))
+                SetHighlighted(null);
             return;
+        }
 
         if (Held != null && HealDeadHeld())
             return; // healed a stuck hold this frame; resume normal grabbing next Tick
@@ -475,6 +525,14 @@ internal sealed class ProximityGrabber
     {
         if (BeamOwnsTrigger(target))
             return false;
+        // Eligibility can change in a callback between election and this trigger edge. A lost
+        // figure offer must disappear, never become a hold through a stale highlight.
+        if (IsFigure(target) && !FigureOfferEligible(target))
+        {
+            if (ReferenceEquals(target, Highlighted))
+                SetHighlighted(null);
+            return false;
+        }
         BeginGrab(target, releaseOnTriggerUp: true, "trigger", source, clearHighlight);
         return true;
     }
@@ -518,6 +576,15 @@ internal sealed class ProximityGrabber
     /// </summary>
     private bool BeamOwnsTrigger(IGrabbable target)
     {
+        if (IsFigure(target))
+        {
+            if (!FigureTriggerBlocked)
+                return false;
+            LogTriggerRefused(target);
+            if (ReferenceEquals(target, Highlighted))
+                SetHighlighted(null);
+            return true;
+        }
         if (!_hand.Ray.HasFreshUiHit)
             return false;
         if (_hand.Ray.FreshUiHitIsPanelHoverOnly)
@@ -554,6 +621,7 @@ internal sealed class ProximityGrabber
         Core.VRLog.Note("Interact",
             $"{_hand.Side} TRIGGER REFUSED on the elected candidate '{DescribeGrabbable(target)}' — "
             + "the blocker is Ray.HasFreshUiHit, raised by " + _hand.Ray.FreshUiHitSource
+            + (IsFigure(target) ? "; committed owner: " + _hand.Ray.FreshTriggerClaimSource : "")
             + ". That is a real rival for this pull, so the grab defers to it by design. If this "
             + "line names a UI PANEL the arbitration is wrong and ModBuild 359's override did not "
             + "engage."
@@ -1001,7 +1069,8 @@ internal sealed class ProximityGrabber
     /// The current highlight now keeps the hover out to the wider EXIT ring, and survives a gap in
     /// the election for the exit dwell — long enough to cover FigureGrabDriver's own six-frame
     /// re-entry dwell — while <see cref="_highlightGrabbable"/> stays false throughout so the GRAB
-    /// keeps exactly the gates it had before.</para>
+    /// keeps exactly the gates it had before. Build711 retains this legacy visual tail only for
+    /// non-figures; figure eligibility loss now clears the glow immediately.</para>
     ///
     /// <para>Every exit also records WHICH gate ended it (<see cref="_highlightBlocker"/>). Three
     /// rounds were spent on this defect against a log that said only "CLEARED"; a bare event cannot
@@ -1047,6 +1116,15 @@ internal sealed class ProximityGrabber
                 sawDead = true;
                 if (isCurrent)
                     currentBlocker = "its collider was destroyed";
+                continue;
+            }
+            // A figure glow promises an actual trigger grab (maintainer, 2026-10-19).
+            // Hover-only beam clamps do not own the pull. A committed press/gesture does;
+            // suppress its competing figure affordance rather than lighting a refused grab.
+            if (IsFigure(target) && FigureTriggerBlocked)
+            {
+                if (isCurrent)
+                    currentBlocker = "a committed trigger action or active UI press owns this hand";
                 continue;
             }
             // ONE shared predicate (ModBuild 445) — see VRInteractables.IsUsablePickShape. It adds
@@ -1202,6 +1280,16 @@ internal sealed class ProximityGrabber
 
         if (Highlighted != null && nearest == null)
         {
+            // Figure election already has its own valid reach hysteresis. The generic visual
+            // tail used to retain a glow AFTER CanGrab/filter/range failed, offering nothing
+            // on trigger. It violates the explicit figure-highlight promise; cards and panels
+            // retain their existing visual tail unchanged.
+            if (IsFigure(Highlighted))
+            {
+                LogHighlightDrop(DescribeGrabbable(Highlighted), currentBlocker + "; figure offer ended immediately");
+                SetHighlighted(null);
+                return;
+            }
             // THE EXIT. Nothing is elected; hold the glow while the target is still inside the exit
             // ring and the dwell has not run out, but never offer the grab while doing so.
             _highlightGrabbable = false;
