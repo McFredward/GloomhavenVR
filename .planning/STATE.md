@@ -1,5 +1,50 @@
 # State — where the project stands
 
+**Steam Link paired-only transport, Build710, 2026-10-19.**
+
+The maintainer explicitly retired the Frame-only atlas method. The game no longer
+contains an atlas source/shader, quality/resolution/foveation override, old helper
+binary or projection test UI. Missing paired source authority keeps the ordinary
+image. Standalone native MR and Virtual Desktop chroma key are unchanged. Existing
+configuration bindings remain inert where required for saved-setting compatibility.
+The native receiver ships only independent coverage, preserving the original RGB
+pipeline/handle and strict source/session/frame/eye association. Its installer
+removes exact owned obsolete bridge artifacts; changed files stop the update.
+Legacy installation/enable/publication paths refuse, while receipt-owned removal
+and explicit Undo remain available. New and historical documentation is published
+in both repositories; the old method is archived in native docs/history/ATLAS-RECEIVER.md.
+
+The latest immutable paired hardware capture proves the earlier writable D3D
+context facade works. It exposes the next concrete admission defect: the game's
+4040x4040/f27 DirectMode swap descriptor uses raw shape word9. The pinned native
+implementation decodes samples=max(1,word&7), slices=max(1,word>>3); the former
+validator rejected9 as an invalid sample count. The normalized decoder now covers
+registry, cold shared import and exact SRV matching, retaining the unchanged raw
+native call and owner/PID/generation/alpha-witness gates. Actual Windows CI verifies
+56 DirectMode,45 metadata and16 shared D3D resource checks; the old admission
+control fails at ownership check29. No receiver extent gate was loosened based on
+an unproven alignment hypothesis.
+
+Verification: integrated native168/168 CTest pass; actual receiver26860 normal and
+sanitizer checks, four causal controls, and real cold loader31 checks. Setup23,
+workflow36, actual remote/maintenance43, retired helper17, bootstrap35+one local
+PowerShell skip, and artifact pin2 checks pass. Game710 strict Release0W0E and
+focused actual Unity/GPU/material/presentation/observer checks pass; see
+`.planning/debug/steamlink-sender710/ordinary-only/review.md`. All669 config keys,
+241 Harmony bindings and4806 log tokens remain. Integrated source checks16/16 and
+actual golden wire300598 assertions pass. The broad local presentation runner was
+interrupted once its wrapper was found to select all228 suites; that is NOT a
+complete-gate pass. Unchanged unrelated presentation evidence is inherited, not
+repeated. The emitted compiled source is identical to the worker's strict build.
+
+Native dev a555bab and the paired-only archive require game710 or newer for this
+hardware candidate. Native software evidence does not establish final headset
+sharpness, both-eye appearance or simultaneous game/menu MR. No Frame file,
+setting, service or restart was changed during this delivery. Retained hardware
+capture: `.planning/debug/steamlink-live-20261019-081525/`; native delivery/reviews:
+`.planning/debug/steamlink-sender724/`. Old pending quality lease recovery records
+are preserved; the new runtime never executes them or writes their settings.
+
 **Steam Link dispatch repair and menu containment, Build709, 2026-10-19.**
 
 The fresh paired logs confirm that the orphan UNIX endpoint is repaired and the
