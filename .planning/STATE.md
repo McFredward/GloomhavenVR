@@ -37,8 +37,10 @@ interrupted once its wrapper was found to select all228 suites; that is NOT a
 complete-gate pass. Unchanged unrelated presentation evidence is inherited, not
 repeated. The emitted compiled source is identical to the worker's strict build.
 
-Native dev a555bab and the paired-only archive require game710 or newer for this
-hardware candidate. Native software evidence does not establish final headset
+Native dev209de95 and public main68c9c22 contain the paired-only implementation.
+The public archive SHA256 begins cce0f5fbb2d686c7; it requires game710 or newer
+for this hardware candidate. Public download, extracted bootstrap/engine and main
+EN/DE documentation/history were verified against the committed source. Native software evidence does not establish final headset
 sharpness, both-eye appearance or simultaneous game/menu MR. No Frame file,
 setting, service or restart was changed during this delivery. Retained hardware
 capture: `.planning/debug/steamlink-live-20261019-081525/`; native delivery/reviews:
