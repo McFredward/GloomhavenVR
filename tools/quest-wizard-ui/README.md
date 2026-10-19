@@ -201,8 +201,23 @@ They show USB authorization and Wi-Fi setup instructions, retain observed device
 progress, and download captures only through an opaque server-issued ID.
 The storage card displays a cached read-only byte inventory by category. An
 explicit inventory request performs the first scan or refresh; ordinary polls do
-not enumerate or hash the workspace again. Cleanup still requires a scoped preview
-and a separate deletion click. Completed APKs and their required content banks
+not enumerate or hash the workspace again. With `autoStorageCleanup` capability,
+the prominent automatic-cleanup action posts one authenticated empty request to
+`/api/storage/auto`. The backend resolves its safe policy and deletes only that
+selection; no browser inventory or second confirmation is required. Fast-update
+data and resumable runs remain protected. The operation panel stays visible
+outside the advanced tools, including after cancellation or failure. A retry
+repeats the same automatic policy instead of opening a destructive cache preview.
+
+Manual cleanup remains under advanced tools. It requires a scoped preview and
+a separate deletion click. Each new preview focuses its visible heading once
+and presents the size/count and update consequences above its confirmation;
+the optional affected/protected file list is below the action. Collapsing the
+advanced tools cannot hide confirmation. Dismissing a preview suppresses that
+same plan on later polls; only a new explicit preview makes it actionable again.
+`storage-auto-browser.test.mjs` checks actual desktop/mobile visibility, EN/DE,
+automatic completion/failure/cancellation/retry and no implicit inventory scan.
+Completed APKs and their required content banks
 remain retained, including when installation is unfinished. Legacy rollback APK
 sizes are displayed separately from save/app-data archives where metadata exists.
 

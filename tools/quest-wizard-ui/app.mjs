@@ -16,8 +16,8 @@ let language = (preview ? new URLSearchParams(location.search).get('lang') : nul
 if (!['de','en'].includes(language)) language='de';
 let page=-1,selected=null,discovery=null,state=null,busy=false,after=0,log=[],loadedLog=null,pollTimer=null,canConnect=preview||Boolean(token),artworkKey='',artworkGeneration=0;
 let completedDiscoveryKey='',completedDiscoveryRequest=null;
-let storageInfo=null,storageBusy=false,storagePollTimer=null,storageCompletedShown=false,storageFailure=null,storageGeneration=0;
-let storageOperationId=null,storageFailureOperationId=null;
+let storageInfo=null,storageBusy=false,storagePollTimer=null,storageFailure=null,storageGeneration=0,storagePresentedPlan=null;
+let storageOperationId=null,storageFailureOperationId=null,storageFailureSelection=null,storageDismissedPlan=null;
 let stoppedRuns=null,runsBusy=false,runsFailure=null,runsGeneration=0,pendingRunSelection=null;
 let lastCleanupRefresh=null,supportBusy=false,supportResult=null,supportFailure=null;
 let runsRefreshAfterInventory=false;
@@ -188,13 +188,13 @@ async function refreshAfterRemoval(){
 function acceptStorage(result) {
   if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};
   const operationId=typeof result.state.operationId==='string'&&/^[a-f0-9]{32}$/.test(result.state.operationId)?result.state.operationId:null;
-  storageInfo=result;
+  storageInfo=result.state.status==='preview'&&result.state.plan?.id===storageDismissedPlan?{...result,state:{status:'idle'}}:result;
   if(result.state.status==='failed'){
-    storageFailure=result.state.error??{code:'unknownAction'};storageFailureOperationId=operationId;
+    storageFailure=result.state.error??{code:'unknownAction'};storageFailureOperationId=operationId;storageFailureSelection=result.state.selection??storageFailureSelection;
   }else if(storageFailure&&(operationId?operationId!==storageFailureOperationId:!storageFailureOperationId&&['planning','deleting'].includes(result.state.status))){
     // A lost POST response may still have started and completed a real job.
     // Only its new operation identity supersedes a failure from an old request.
-    storageFailure=null;storageFailureOperationId=null;
+    storageFailure=null;storageFailureOperationId=null;storageFailureSelection=null;
   }
   storageOperationId=operationId;
   reconcileRemovedRuns(result);
@@ -207,11 +207,11 @@ function failStorage(value) {
   // Its next inventory/status reply must not erase the cleanup explanation.
   // Keep the error separate so an actual job still locks conflicting actions.
   storageFailure=value?.message?{message:value.message}:{code:value?.code??'offline'};
-  storageFailureOperationId=storageOperationId;
+  storageFailureOperationId=storageOperationId;storageFailureSelection=storageInfo?.state?.selection??storageFailureSelection;
 }
-function beginStorage(status) {
-  storageGeneration++;storageFailure=null;storageFailureOperationId=null;storageBusy=true;clearTimeout(storagePollTimer);
-  storageInfo={...storageInfo,state:{status}};updateView();
+function beginStorage(status,selection) {
+  storageGeneration++;storageFailure=null;storageFailureOperationId=null;storageFailureSelection=null;storageBusy=true;clearTimeout(storagePollTimer);
+  storagePresentedPlan=null;storageDismissedPlan=null;storageInfo={...storageInfo,state:{status,...(selection?{selection}:{})}};updateView();
 }
 function storageSize(bytes) {
   const amount=Math.max(0,Number(bytes)||0),scale=amount>=1073741824?1073741824:amount>=1048576?1048576:amount>=1024?1024:1;
@@ -580,6 +580,8 @@ function renderStorage() {
     const pair=document.createElement('div'),label=document.createElement('dt'),size=document.createElement('dd');pair.className='storage-backup-detail';label.textContent=t(key);size.textContent=storageSize(bytes);pair.append(label,size);$('storage-categories').append(pair);
   }
   const locked=busy||isActive(state)||storageActive()||deviceActive()||packageActive();
+  $('storage-automatic').hidden=discovery?.capabilities?.autoStorageCleanup!==true;
+  $('storage-auto').disabled=locked||discovery?.capabilities?.autoStorageCleanup!==true;
   $('storage-attribution').hidden=!Array.isArray(inventory.runs)&&!Array.isArray(stoppedRuns?.runs);
   $('storage-ownership').replaceChildren();
   for(const [field,key] of [['exclusiveBytes','storageOwnershipExclusive'],['sharedBytes','storageOwnershipShared'],['unassignedBytes','storageOwnershipUnassigned']]){
@@ -594,10 +596,10 @@ function renderStorage() {
   $('storage-plan-updates').disabled=locked;
   const completed=storageInfo.canDeleteBuildCache===true||inventory.canDeleteBuildCache===true||state?.status==='complete'||state?.stages?.some(row=>row.id==='build'&&row.status==='complete');
   $('storage-plan-cache').hidden=!completed;$('storage-plan-cache').disabled=locked;
-  if(completed&&!storageCompletedShown){$('storage-details').open=true;storageCompletedShown=true;}
   $('storage-cache-consequence').hidden=plan?.mode!=='build-cache';
   const measured=current.phase==='cleanup-delete'&&Number.isFinite(current.done)&&Number.isFinite(current.total)&&current.total>0;
-  const count=['planning','deleting','cancelling','cancelled','failed'].includes(status)?storageCounters(current):'';
+  const terminal=['complete','cancelled','failed'].includes(status);
+  const count=['planning','deleting','cancelling','cancelled','failed'].includes(status)?storageCounters(terminal?{...current,currentPath:null,detail:null}:current):'';
   const files=plan?.files??0,parameters={files:new Intl.NumberFormat(language).format(files),size:storageSize(plan?.bytes)};
   const sessionPlan=plan?.mode==='session';
   const sessionEligible=sessionPlan&&plan.eligible===true;
@@ -610,30 +612,46 @@ function renderStorage() {
   const waiting=isActive(state)?t('storageWaitingBuild',{stage:buildStage?t('stage_'+buildStage):t('working')}):deviceActive()?t('storageWaitingDevice'):packageActive()?t('storageWaitingExport'):busy?t('storageWaitingSetup'):'';
   const skipped=status==='preview'&&plan?.skipped?.length?t('storageSkipped',{count:plan.skipped.length}):'';
   const phaseKey='storage_phase_'+current.phase,subphaseKey='storage_subphase_'+current.subphase;
-  const phase=[t(phaseKey)!==phaseKey?t(phaseKey):'',t(subphaseKey)!==subphaseKey?t(subphaseKey):''].filter(Boolean).join(' · ');
+  const phase=terminal?'':[t(phaseKey)!==phaseKey?t(phaseKey):'',t(subphaseKey)!==subphaseKey?t(subphaseKey):''].filter(Boolean).join(' · ');
   const partial=current.result??failure?.parameters?.result;
-  const freed=partial?.deletedFiles>0?t('storagePartialRemoval',{files:new Intl.NumberFormat(language).format(partial.deletedFiles),size:storageSize(partial.freedBytes)}):'';
+  const freed=['failed','cancelled'].includes(status)&&partial?.deletedFiles>0?t('storagePartialRemoval',{files:new Intl.NumberFormat(language).format(partial.deletedFiles),size:storageSize(partial.freedBytes)}):'';
+  const selection=current.selection??(failure?storageFailureSelection:null);
+  const automatic=current.automatic===true||selection?.mode==='safe';
+  $('storage-operation').hidden=(!status||status==='idle')&&!failure&&!waiting;
+  $('storage-operation').dataset.status=failure?'failed':status??'idle';
+  $('storage-operation-title').textContent=t(failure?'storageFailureTitle':status==='preview'?(files>0||sessionEligible?'storagePreviewTitle':'storageNoWorkTitle'):status==='complete'?'storageCompleteTitle':status==='cancelled'?'storageCancelledTitle':automatic?'storageAutoRunning':'storageManualRunning');
   $('storage-status').textContent=[failed,copy,phase,count,freed,skipped,waiting].filter(Boolean).join(' · ');$('storage-status').setAttribute('role',failure?'alert':'status');
   $('storage-progress').hidden=!['planning','deleting','cancelling'].includes(status);
   if(measured)$('storage-progress').value=Math.min(99.999,Math.max(0,current.done/current.total*100));else $('storage-progress').removeAttribute('value');
   $('storage-cancel').hidden=!['planning','deleting','cancelling'].includes(status)||discovery?.capabilities?.storageCancel!==true;
   $('storage-cancel').disabled=storageBusy||status==='cancelling'||!current.operationId;
-  $('storage-retry').hidden=!['failed','cancelled'].includes(status)||!current.selection?.mode;
+  $('storage-retry').hidden=!(failure||status==='cancelled')||!selection?.mode;
+  $('storage-retry').textContent=t(automatic?'storageAutoRetry':'storageRetry');
   $('storage-retry').disabled=locked;
   const previewing=status==='preview'&&!failure;$('storage-paths').hidden=!previewing;$('storage-paths').replaceChildren();
   if(previewing)for(const row of plan?.paths??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=row.path;detail.textContent=t('storagePlanSize',{size:storageSize(row.bytes),files:new Intl.NumberFormat(language).format(row.files??0)});li.append(path,detail);$('storage-paths').append(li);}
   $('storage-skipped').hidden=!previewing||!plan?.skipped?.length;$('storage-skipped').replaceChildren();
   if(previewing)for(const row of plan?.skipped??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=typeof row==='string'?row:row.path??'';const reason=typeof row==='object'?row.reason:'';detail.textContent=t('storageRetainedPath',{reason:reason==='shared'?t('storageRetainedShared'):reason==='shared_or_delivered'?t('storageRetainedSharedDelivered'):reason==='protected'?t('storageRetainedProtected'):t('storageRetainedUnknown')});li.append(path,detail);$('storage-skipped').append(li);}
   $('storage-confirmation').hidden=!previewing||sessionPlan&&!sessionEligible||files<=0&&!sessionEligible;$('storage-confirm-copy').textContent=t(sessionPlan?(plan.retired?'runRetiredConfirmCopy':'runConfirmCopy'):'storageConfirmCopy');
-  const impact=plan?.fastUpdateImpact;
-  const impactValid=previewing&&impact?.schema===1&&['preserved','slower','unknown'].includes(impact.status);
+  $('storage-confirm-summary').textContent=t(sessionPlan?(plan.retired?'runRetiredPreview':'runPreview'):'storagePreview', {...parameters,session:(plan?.session??'').slice(0,8)});
+  const impact=previewing?plan?.fastUpdateImpact:automatic&&status==='complete'?current.result?.fastUpdateImpact:null;
+  const impactValid=Boolean(impact?.schema===1&&['preserved','slower','unknown'].includes(impact.status));
   $('storage-fast-update-impact').hidden=!impactValid;
   $('storage-fast-update-impact').textContent=impactValid?message(impact.messages):'';
   $('storage-protected-paths').replaceChildren();
   $('storage-protected-paths').hidden=!impactValid||!impact.protectedPaths?.length;
   if(impactValid)for(const row of (impact.protectedPaths??[]).slice(0,32)){const li=document.createElement('li');li.textContent=typeof row==='string'?row:row.path??'';$('storage-protected-paths').append(li);}
+  $('storage-delete-list-title').hidden=!previewing||!plan?.paths?.length;
+  $('storage-retain-list-title').hidden=(!previewing||!plan?.skipped?.length)&&(!impactValid||!impact.protectedPaths?.length);
+  $('storage-preview-details').hidden=!previewing&&!impactValid;
   $('storage-clean').textContent=t(sessionPlan&&!plan.retired?'runConfirm':'storageConfirm');
   $('storage-clean').disabled=locked||!plan?.id||Boolean(failure)||sessionPlan&&!sessionEligible;$('storage-dismiss').disabled=locked;
+  if(page==='storage'&&previewing&&plan?.id!==storagePresentedPlan){
+    // Confirmation is independent of the collapsed advanced tools and file list.
+    // Move focus once per newly published preview, never again on status polls.
+    storagePresentedPlan=plan?.id;$('storage-operation-title').focus({preventScroll:true});
+    $('storage-operation').scrollIntoView({block:'nearest'});
+  }
 }
 function storageCounters(current){
   const parts=[],files=current.files??current.done;
@@ -666,9 +684,17 @@ async function refreshStorage() {
 }
 async function planStorage(mode,session,removeData=false) {
   if(storageActive()||deviceActive()||packageActive()||busy||isActive(state))return;
-  $('storage-details').open=true;beginStorage('planning');
+  $('storage-details').open=true;beginStorage('planning',{mode,...(session?{session,removeData}:{})});
   try{acceptStorage(await api.storagePlan(mode,session,removeData));}
-  catch(value){failStorage(value);storageInfo={...storageInfo,state:{status:'failed'}};}
+  catch(value){failStorage(value);storageInfo={...storageInfo,state:{...storageInfo?.state,status:'failed'}};}
+  finally{storageBusy=false;updateView();scheduleStoragePoll();}
+}
+async function autoStorage(){
+  if($('storage-auto').disabled||storageActive()||deviceActive()||packageActive()||busy||isActive(state))return;
+  beginStorage('planning',{mode:'safe'});
+  $('storage-operation-title').focus({preventScroll:true});$('storage-operation').scrollIntoView({block:'nearest'});
+  try{acceptStorage(await api.storageAuto());qualification=null;}
+  catch(value){failStorage(value);storageInfo={...storageInfo,state:{...storageInfo?.state,status:'failed'}};}
   finally{storageBusy=false;updateView();scheduleStoragePoll();}
 }
 async function cleanStorage() {
@@ -1437,13 +1463,14 @@ async function browsePackage(kind){
   catch(value){error(value);}finally{busy=false;updateView();}
 }
 document.querySelectorAll('[data-language]').forEach(node=>node.addEventListener('click',()=>setLanguage(node.dataset.language)));
+$('storage-auto').addEventListener('click',autoStorage);
 $('storage-plan-duplicates').addEventListener('click',()=>planStorage('duplicates'));
 $('storage-plan-cache').addEventListener('click',()=>planStorage('build-cache'));
 $('storage-plan-updates').addEventListener('click',()=>planStorage('update-history'));
 $('storage-refresh').addEventListener('click',inventoryStorage);
 $('storage-inventory-cancel').addEventListener('click',()=>void cancelStorage('inventory'));
 $('storage-cancel').addEventListener('click',()=>void cancelStorage('cleanup'));
-$('storage-retry').addEventListener('click',()=>{const value=storageInfo?.state?.selection;if(value?.mode)void planStorage(value.mode,value.session??undefined,value.removeData===true);});
+$('storage-retry').addEventListener('click',()=>{const value=storageInfo?.state?.selection??storageFailureSelection;if(value?.mode==='safe')void autoStorage();else if(value?.mode)void planStorage(value.mode,value.session??undefined,value.removeData===true);});
 $('storage-runs-refresh').addEventListener('click',()=>void refreshRuns());
 $('storage-run').addEventListener('change',()=>{$('storage-run-keep').checked=true;updateView();});
 $('storage-run-plan').addEventListener('click',()=>{
@@ -1452,7 +1479,7 @@ $('storage-run-plan').addEventListener('click',()=>{
   void planStorage('session',session,$('storage-run-remove-data').checked);
 });
 $('storage-clean').addEventListener('click',cleanStorage);
-$('storage-dismiss').addEventListener('click',()=>{if(storageActive())return;storageGeneration++;storageFailure=null;storageFailureOperationId=null;storageInfo={...storageInfo,state:{status:'idle'}};updateView();});
+$('storage-dismiss').addEventListener('click',()=>{if(storageActive())return;storageDismissedPlan=storageInfo?.state?.plan?.id??null;storageGeneration++;storageFailure=null;storageFailureOperationId=null;storageFailureSelection=null;storageInfo={...storageInfo,state:{status:'idle'}};updateView();});
 $('primary').addEventListener('click',primary);$('back').addEventListener('click',()=>{page=0;clearError();updateView();});
 function previousApkSelection(){
   // A typed/browsed or restored selection is the user's explicit override.

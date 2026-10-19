@@ -123,11 +123,32 @@
             <div class="storage-heading"><h2 id="storage-title" data-i18n="storageTitle">Arbeitsordner und Speicherplatz</h2><span id="storage-free"></span></div>
             <p id="storage-root" class="storage-root"></p>
             <p id="storage-volume" class="hint"></p>
+            <section id="storage-automatic" class="storage-automatic" aria-labelledby="storage-auto-title" hidden>
+              <div><p class="eyebrow" data-i18n="storageRecommended">Empfohlen</p><h3 id="storage-auto-title" data-i18n="storageAutoTitle">Speicher freigeben, schnelle Updates behalten</h3></div>
+              <p class="hint" data-i18n="storageAutoCopy">Entfernt alte Dateien und ungenutzte Duplikate automatisch. Daten für schnelle Updates, fortsetzbare Runs, die aktuelle APK, Spielinhalte und Signierschlüssel bleiben erhalten.</p>
+              <button id="storage-auto" class="primary" data-i18n="storageAuto">Automatisch aufräumen</button>
+            </section>
+            <section id="storage-operation" class="storage-operation" aria-labelledby="storage-operation-title" hidden>
+              <h3 id="storage-operation-title" tabindex="-1"></h3>
+              <p id="storage-status" class="hint" role="status" aria-live="polite"></p><progress id="storage-progress" max="100" aria-labelledby="storage-operation-title" hidden></progress>
+              <div class="storage-actions"><button id="storage-cancel" class="text-button" data-i18n="storageCancel" hidden>Bereinigung anhalten</button><button id="storage-retry" class="secondary" data-i18n="storageRetry" hidden>Vorschau erneut erstellen</button></div>
+              <p id="storage-cache-consequence" class="storage-consequence" data-i18n="storageCacheConsequence" hidden>Build-Zwischendaten löschen: APK, Spiel-Datenpakete, Signierschlüssel und heruntergeladene Werkzeuge bleiben erhalten. Vollständige Builds benötigen danach erneut Konvertierung und Unity-Import. APK-Updates bleiben möglich.</p>
+              <p id="storage-fast-update-impact" class="storage-consequence" role="status" hidden></p>
+              <div id="storage-confirmation" class="storage-confirmation" hidden>
+                <p id="storage-confirm-summary" class="storage-confirm-summary"></p><p id="storage-confirm-copy"></p>
+                <div class="storage-actions"><button id="storage-clean" class="primary" data-i18n="storageConfirm">Jetzt angezeigte Dateien löschen</button><button id="storage-dismiss" class="text-button" data-i18n="storageDismiss">Nichts löschen</button></div>
+              </div>
+              <details id="storage-preview-details" class="storage-preview-details" hidden><summary data-i18n="storagePreviewDetails">Betroffene und geschützte Dateien anzeigen</summary>
+                <h4 id="storage-delete-list-title" data-i18n="storageDeleteList" hidden>Wird gelöscht</h4><ul id="storage-paths" class="storage-paths" hidden></ul>
+                <h4 id="storage-retain-list-title" data-i18n="storageRetainList" hidden>Bleibt erhalten</h4><ul id="storage-skipped" class="storage-paths" hidden></ul><ul id="storage-protected-paths" class="storage-paths" hidden></ul>
+              </details>
+            </section>
+            <h3 class="storage-section-title" data-i18n="storageUsageTitle">Speicherbelegung</h3>
             <div class="storage-usage-heading"><strong id="storage-used"></strong><div class="storage-actions"><button id="storage-refresh" class="text-button" data-i18n="storageRefresh">Belegung aktualisieren</button><button id="storage-inventory-cancel" class="text-button" data-i18n="storageCancelInventory" hidden>Ermittlung anhalten</button></div></div>
             <p id="storage-fast-update-size" class="hint" hidden></p><p id="storage-inventory-status" class="hint" role="status"></p><dl id="storage-categories" class="storage-categories" hidden></dl>
             <section id="storage-attribution" class="run-overview" aria-labelledby="storage-attribution-title" hidden><h3 id="storage-attribution-title" data-i18n="storageAttributionTitle">Zuordnung der Speicherbelegung</h3><dl id="storage-ownership" class="storage-categories"></dl><p class="hint" data-i18n="storageSharedHint">Gemeinsame Daten werden insgesamt einmal gezählt. Sie können von mehreren Runs verwendet werden.</p><h4 data-i18n="runOverviewTitle">Gespeicherte Runs</h4><div id="storage-runs-list" class="run-list"></div><section id="storage-retired" hidden><h4 data-i18n="storageRetiredTitle">Daten gelöschter Runs</h4><p class="hint" data-i18n="storageRetiredHint">Diese Runs können nicht fortgesetzt werden. Behaltene Zwischendaten lassen sich nach einer Vorschau bereinigen.</p><div id="storage-retired-list" class="run-list"></div></section><p class="hint" data-i18n="storageUnassignedHint">Nicht zugeordnete und gemeinsame Build-Zwischendaten lassen sich über „Build-Zwischendaten prüfen“ bereinigen. Fertige APKs und Spieldatenpakete bleiben erhalten.</p></section>
-            <details id="storage-details" class="storage-details"><summary data-i18n="storageManage">Speicher freigeben</summary>
-              <p class="hint" data-i18n="storageDuplicatesHint">Eine Vorschau zeigt nicht mehr verwendete Duplikate. Aktuelle Ergebnisse und Fortsetzungsdaten bleiben erhalten.</p>
+            <details id="storage-details" class="storage-details"><summary data-i18n="storageManage">Erweiterte Bereinigung und Run-Verwaltung</summary>
+              <p class="hint" data-i18n="storageManualCopy">1. Eine Vorschau auswählen. 2. Die angezeigte Auswahl mit „Jetzt angezeigte Dateien löschen“ bestätigen. Ohne Bestätigung wird nichts gelöscht.</p>
               <div class="storage-actions"><button id="storage-plan-duplicates" class="secondary" data-i18n="storageFindDuplicates">Ungenutzte Duplikate suchen</button><button id="storage-plan-updates" class="secondary" data-i18n="storagePlanUpdates">Alte Update-APKs prüfen</button><button id="storage-plan-cache" class="secondary" data-i18n="storagePlanCache" hidden>Build-Zwischendaten prüfen</button></div>
               <section id="storage-runs" class="storage-runs" aria-labelledby="storage-runs-title" hidden>
                 <div class="storage-usage-heading"><h3 id="storage-runs-title" data-i18n="runRemovalTitle">Run oder behaltene Daten bereinigen</h3><button id="storage-runs-refresh" class="text-button" data-i18n="runsRefresh">Runs aktualisieren</button></div>
@@ -140,12 +161,7 @@
                 <p id="storage-run-consequence" class="storage-consequence" data-i18n="runRemovalConsequence">Der Run kann danach nicht mehr fortgesetzt werden. APKs, Spiel-Datenpakete, Signierschlüssel, Werkzeuge und von anderen Runs genutzte Daten bleiben erhalten. Gelöschte Zwischendaten müssen bei einem späteren vollständigen Build erneut erstellt werden.</p>
                 <button id="storage-run-plan" class="secondary" data-i18n="runReviewRemoval">Löschung prüfen</button>
               </section>
-              <p id="storage-cache-consequence" class="storage-consequence" data-i18n="storageCacheConsequence" hidden>Build-Zwischendaten löschen: APK, Spiel-Datenpakete, Signierschlüssel und heruntergeladene Werkzeuge bleiben erhalten. Vollständige Builds benötigen danach erneut Konvertierung und Unity-Import. APK-Updates bleiben möglich.</p>
-              <p id="storage-status" class="hint" role="status"></p><progress id="storage-progress" max="100" hidden></progress>
-              <div class="storage-actions"><button id="storage-cancel" class="text-button" data-i18n="storageCancel" hidden>Bereinigung anhalten</button><button id="storage-retry" class="secondary" data-i18n="storageRetry" hidden>Vorschau erneut erstellen</button></div>
-              <ul id="storage-paths" class="storage-paths" hidden></ul>
-              <ul id="storage-skipped" class="storage-paths" hidden></ul>
-              <p id="storage-fast-update-impact" class="storage-consequence" role="status" hidden></p><ul id="storage-protected-paths" class="storage-paths" hidden></ul><div id="storage-confirmation" class="storage-confirmation" hidden><p id="storage-confirm-copy"></p><button id="storage-clean" class="secondary" data-i18n="storageConfirm">Angezeigte Dateien löschen</button><button id="storage-dismiss" class="text-button" data-i18n="storageDismiss">Vorschau schließen</button></div>
+
             </details>
           </section>
           <div id="error-banner" class="error-banner" role="alert" hidden></div>

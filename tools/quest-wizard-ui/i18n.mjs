@@ -1378,6 +1378,38 @@ Object.assign(strings.en,{
   'phase_store-steam-launch':'Start Steam for game/account verification','phase_store-steam-ready':'Wait for the Steam account',
 });
 
+// Storage cleanup separates a one-click safe policy from explicit manual deletion.
+Object.assign(strings.de,{
+  storageRecommended:'Empfohlen',storageAutoTitle:'Speicher freigeben, schnelle Updates behalten',
+  storageAutoCopy:'Entfernt alte Dateien und ungenutzte Duplikate automatisch. Daten für schnelle Updates, fortsetzbare Runs, die aktuelle APK, Spielinhalte und Signierschlüssel bleiben erhalten.',
+  storageAuto:'Automatisch aufräumen',storageAutoRetry:'Erneut automatisch aufräumen',storageAutoRunning:'Automatische Bereinigung',
+  storageUsageTitle:'Speicherbelegung',storageManage:'Erweiterte Bereinigung und Run-Verwaltung',
+  storageUnassignedHint:'Unter „Erweiterte Bereinigung und Run-Verwaltung“ kannst du weitere Löschoptionen prüfen. Mögliche Auswirkungen auf spätere Builds und Updates stehen vor der Bestätigung.',
+  storageManualCopy:'1. Eine Vorschau auswählen. 2. Die angezeigte Auswahl mit „Jetzt angezeigte Dateien löschen“ bestätigen. Ohne Bestätigung wird nichts gelöscht.',
+  storagePreviewTitle:'Vorschau bereit – Löschung bestätigen',storageManualRunning:'Bereinigung vorbereiten',
+  storageCompleteTitle:'Bereinigung abgeschlossen',storageFailureTitle:'Bereinigung benötigt Aufmerksamkeit',storageCancelledTitle:'Bereinigung angehalten',
+  storagePreviewDetails:'Betroffene und geschützte Dateien anzeigen',storageConfirm:'Jetzt angezeigte Dateien löschen',storageDismiss:'Nichts löschen',
+  storageDeleteList:'Wird gelöscht',storageRetainList:'Bleibt erhalten',storageNoWorkTitle:'Keine löschbaren Dateien gefunden',
+  storageConfirmCopy:'Nur die Dateien dieser Vorschau werden gelöscht. Unter „Betroffene und geschützte Dateien anzeigen“ kannst du die Auswahl ansehen. Die Löschung lässt sich nicht rückgängig machen.',
+  runConfirmCopy:'Der ausgewählte Run wird entfernt und kann danach nicht mehr fortgesetzt werden. Diagnoseprotokolle bleiben erhalten. Nur die Dateien dieser Vorschau werden gelöscht. Geschützte und gemeinsam genutzte Daten bleiben erhalten.',
+  runRetiredConfirmCopy:'Nur die ungenutzten Zwischendaten dieser Vorschau des bereits gelöschten Runs werden entfernt. Geschützte und gemeinsam genutzte Daten sowie Diagnoseprotokolle bleiben erhalten.',
+});
+Object.assign(strings.en,{
+  storageRecommended:'Recommended',storageAutoTitle:'Free disk space and retain fast updates',
+  storageAutoCopy:'Automatically removes obsolete files and unused duplicates. Data for fast updates, resumable runs, the current APK, game content and signing keys are retained.',
+  storageAuto:'Clean up automatically',storageAutoRetry:'Retry automatic cleanup',storageAutoRunning:'Automatic cleanup',
+  storageUsageTitle:'Disk usage',storageManage:'Advanced cleanup and run management',
+  storageUnassignedHint:'Open “Advanced cleanup and run management” to review further deletion options. Any impact on later builds and updates is shown before confirmation.',
+  storageManualCopy:'1. Select a preview. 2. Confirm its selection with “Delete displayed files now”. Nothing is deleted without confirmation.',
+  storagePreviewTitle:'Preview ready – confirm deletion',storageManualRunning:'Preparing cleanup',
+  storageCompleteTitle:'Cleanup complete',storageFailureTitle:'Cleanup needs attention',storageCancelledTitle:'Cleanup stopped',
+  storagePreviewDetails:'Show affected and protected files',storageConfirm:'Delete displayed files now',storageDismiss:'Delete nothing',
+  storageDeleteList:'Will be deleted',storageRetainList:'Retained',storageNoWorkTitle:'No eligible files found',
+  storageConfirmCopy:'Only the files in this preview will be deleted. Open “Show affected and protected files” to review the selection. Deletion cannot be undone.',
+  runConfirmCopy:'The selected run will be removed and cannot be resumed. Only the files in this preview are deleted. Diagnostic logs and protected and shared data are retained.',
+  runRetiredConfirmCopy:'Only the unused intermediates in this preview from the already deleted run are removed. Protected and shared data and diagnostic logs are retained.',
+});
+
 export function translate(language, key, parameters = {}) {
   const value = strings[language]?.[key] ?? strings.en[key] ?? key;
   return value.replace(/\{([A-Za-z]+)\}/g, (_, name) => String(parameters[name] ?? ''));

@@ -31,6 +31,7 @@ export class LocalApi {
   packageExport(source,destination) { return this.request('/api/package/export',{source,destination}); }
   packageCancel() { return this.request('/api/package/cancel',{}); }
   storageInventory() { return this.request('/api/storage/inventory',{}); }
+  storageAuto() { return this.request('/api/storage/auto',{}); }
   storageCancel(target,operationId) {
     if(!['cleanup','inventory'].includes(target)||typeof operationId!=='string'||!/^[a-f0-9]{32}$/.test(operationId))throw {code:'invalidReply'};
     return this.request('/api/storage/cancel',{target,operationId});
@@ -84,6 +85,7 @@ export class PreviewApi {
   async packageCancel(){throw {code:'preview'};}
   async storage() {return {schema:1,event:'storage',workspaceRoot:'C:\\Users\\Preview\\.ghvrq',freeBytes:150*1073741824,state:this.storageState??{status:'idle'},inventory:{status:'complete',totalBytes:19*1073741824,categories:[{id:'apk-content',bytes:13*1073741824,files:2},{id:'unity-caches',bytes:6*1073741824,files:24000}]}};}
   async storageInventory(){return this.storage();}
+  async storageAuto(){this.storageState={status:'complete',automatic:true,selection:{mode:'safe'},result:{freedBytes:0,deletedFiles:0}};return this.storage();}
   async storageCancel(){throw {code:'preview'};}
   async storageRuns(){return {schema:1,event:'runs',runs:[],latestSession:null};}
   async deviceStatus(){return {schema:1,event:'device',state:{status:'idle',devices:[]}};}
@@ -103,7 +105,7 @@ export class PreviewApi {
   async installRestoreChoice() {throw {code:'preview'};}
   async installContentReinstall() {throw {code:'preview'};}
   constructor() { this.sequence=0; this.state=null; this.eventsList=[]; this.tick=0; }
-  async discover() { return {schema:1,event:'discovery',capabilities:{browse:false,artwork:false,deviceTools:true,storageInventory:true},games:[
+  async discover() { return {schema:1,event:'discovery',capabilities:{browse:false,artwork:false,deviceTools:true,storageInventory:true,autoStorageCleanup:true},games:[
     {id:'preview-owned-game',provider:'steam',gameRoot:'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Gloomhaven',
       displayName:'Gloomhaven',profileAvailable:true,ownedDlc:['jotl','solo'],ownershipComplete:true}],unityEditors:[],unityHubs:[],recentSessions:[]}; }
   async plan(choices) { this.state={session:'preview-local-build',choices,status:'ready',needsActions:[],lastEvent:0,

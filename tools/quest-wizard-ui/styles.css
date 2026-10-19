@@ -364,3 +364,16 @@ html{scroll-padding-top:calc(var(--topbar-height,94px) + 16px)}
 .skip{z-index:40}
 
 .home-active-progress>.unmeasured{font-size:12px;white-space:normal;max-width:60%;text-align:right}
+
+/* Safe cleanup stays prominent; manual previews never hide their confirmation. */
+.storage-automatic,.storage-operation{margin:20px 0;padding:20px;border:1px solid #d4ad6555;border-radius:10px;background:#d4ad6508;min-width:0}
+.storage-automatic .eyebrow{margin:0 0 9px}.storage-automatic h3,.storage-operation h3{font-size:17px;line-height:1.4;margin:0 0 12px}
+.storage-automatic .hint{font-size:13px;line-height:1.7;margin:0 0 18px}.storage-automatic>.primary{padding:12px 18px;white-space:normal}
+.storage-operation{border-color:var(--line);background:#10141866;scroll-margin-top:calc(var(--topbar-height,90px) + 20px)}
+.storage-operation[data-status=complete]{border-color:#a7c8a266}.storage-operation[data-status=complete]>h3{color:var(--green)}
+.storage-operation[data-status=failed]{border-color:#e6a59a66}.storage-operation[data-status=failed]>h3{color:var(--danger)}
+.storage-operation>.hint{font-size:12px;line-height:1.7;overflow-wrap:anywhere}.storage-operation h3:focus{outline:none}
+.storage-confirmation{border-top:1px solid #ffffff14;margin-top:16px;padding-top:12px}.storage-confirmation>.storage-confirm-summary{font-size:16px;font-weight:600;color:var(--text)}
+.storage-confirmation .primary{padding:12px 16px;white-space:normal}.storage-preview-details{margin-top:18px}.storage-preview-details summary{font-size:12px;color:var(--muted);cursor:pointer;line-height:1.6}
+.storage-section-title{font-size:15px;margin:30px 0 12px}.storage-details{margin-top:24px;padding:16px 0;border-top:1px solid var(--line)}.storage-details>summary{font-size:13px;line-height:1.6}.storage-details>.hint{margin-top:15px;font-size:12px;line-height:1.7}
+@media(max-width:600px){.storage-automatic,.storage-operation{padding:16px}.storage-confirmation .storage-actions{align-items:stretch;flex-direction:column}.storage-automatic>.primary{width:100%}}
