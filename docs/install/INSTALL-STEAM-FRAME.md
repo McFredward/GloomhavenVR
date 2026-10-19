@@ -105,20 +105,11 @@ file selected in its folder.
   <img src="../img/frame-install/05-setup.jpg" width="640" alt="GloomhavenVR-Setup.desktop selected in BepInEx/plugins/GloomhavenVR/FrameSetup/ in Dolphin.">
 </p>
 
-The setup adds a separate **GloomhavenVR** entry with artwork to the VR library. While Steam
-is running, one required step remains: open the original **Gloomhaven** entry's
-**Properties → General → Launch options** and save this complete line, including `%command%`:
-
-```text
-WINEDLLOVERRIDES="winhttp=n,b" %command%
-```
-
-If you already use other launch options, use the complete combined line saved in
-`BepInEx/plugins/GloomhavenVR/FrameSetup/steam-launch-options.txt` instead; it keeps those options.
-Do not add `--gloomhavenvr` to the original entry. After saving, restart Frame through its normal
-power menu, then launch **GloomhavenVR**. The original **Gloomhaven** entry remains available
-for flat play; both entries use the same installed game and saves. Setup keeps Steam open
-while you finish this step. If Steam was already stopped, setup applies the options automatically.
+The setup adds a separate **GloomhavenVR** entry with artwork to the VR library and sets the
+required launch options automatically, preserving any other launch options you already use.
+If Steam is running, setup restarts it. The Frame display and setup terminal may close briefly;
+wait for the library to return, then launch **GloomhavenVR**. The original **Gloomhaven** entry
+remains available for flat play; both entries use the same installed game and saves.
 It also suggests a 3408-pixel per-eye SteamVR resolution, preserving an existing preference
 or a resolution you have chosen in SteamVR. SteamVR reads a new suggested default after a restart.
 

@@ -110,23 +110,13 @@ Datei in ihrem Ordner markiert.
   <img src="../img/frame-install/05-setup.jpg" width="640" alt="GloomhavenVR-Setup.desktop ist in BepInEx/plugins/GloomhavenVR/FrameSetup/ in Dolphin markiert.">
 </p>
 
-Das Setup fügt einen separaten Eintrag **GloomhavenVR** mit Bildern zur VR-Bibliothek hinzu.
-Solange Steam läuft, bleibt ein notwendiger Schritt: Öffne beim ursprünglichen Eintrag
-**Gloomhaven** die **Eigenschaften → Allgemein → Startoptionen** und speichere diese komplette
-Zeile inklusive `%command%`:
-
-```text
-WINEDLLOVERRIDES="winhttp=n,b" %command%
-```
-
-Falls du bereits andere Startoptionen verwendest, nimm stattdessen die vollständige kombinierte
-Zeile aus `BepInEx/plugins/GloomhavenVR/FrameSetup/steam-launch-options.txt`; sie behält diese
-Optionen bei. Trage `--gloomhavenvr` nicht beim ursprünglichen Eintrag ein. Starte nach dem
-Speichern die Frame über ihr normales Power-Menü neu und starte dann **GloomhavenVR**.
-Der ursprüngliche Eintrag **Gloomhaven** bleibt für Flat-Spiel verfügbar; beide verwenden
-dieselbe Spielinstallation und dieselben Spielstände. Das Setup lässt Steam geöffnet,
-während du diesen Schritt abschließt. War Steam bereits beendet, trägt das Setup die Optionen
-automatisch ein. Es schlägt zudem 3408 Pixel pro Auge in SteamVR vor und behält
+Das Setup fügt einen separaten Eintrag **GloomhavenVR** mit Bildern zur VR-Bibliothek hinzu
+und setzt die benötigten Startoptionen automatisch. Bereits vorhandene weitere Startoptionen
+bleiben erhalten. Falls Steam läuft, startet das Setup es neu. Das Frame-Bild und das
+Setup-Terminal können dabei kurz verschwinden. Warte, bis die Bibliothek wieder da ist, und
+starte dann **GloomhavenVR**. Der ursprüngliche Eintrag **Gloomhaven** bleibt für Flat-Spiel
+verfügbar; beide verwenden dieselbe Spielinstallation und dieselben Spielstände.
+Das Setup schlägt zudem 3408 Pixel pro Auge in SteamVR vor und behält
 vorhandene Vorgaben oder eine von dir in SteamVR gewählte Auflösung bei. SteamVR liest eine
 neue vorgeschlagene Auflösung nach einem Neustart ein.
 
