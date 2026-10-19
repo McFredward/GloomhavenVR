@@ -112,6 +112,22 @@ errors survive unrelated build polls and idle inventory replies until retry or
 a genuinely new cleanup result. Each accepted utility job has an operation ID,
 allowing a lost POST response to reconcile with its completed actual result.
 
+The storage page's primary action is authenticated POST `/api/storage/auto`
+with an empty object. One asynchronous job selects the `safe` producer policy
+and executes its retained selection; it does not require a separate confirmation
+or a full disk-usage inventory first. The server refuses deletion unless that
+selection explicitly confirms that fast-update data is preserved. Current APKs,
+original content, compiler/update caches, unfinished-run dependencies, signing
+keys, tools, saves and logs remain protected. Unknown ownership is retained.
+Live selection/deletion counters, cancellation, actual reclaimed bytes and the
+retention summary use the existing `/api/storage` status. Starting the Wizard
+or opening the storage page alone never authorizes cleanup.
+
+Other deletion policies still require a preview and explicit confirmation. The
+preview's size/count, consequences and confirmation button are shown together
+outside the collapsed advanced tools; file details are optional. A destructive
+cache preview continues to warn that later updates may need additional work.
+
 Capture130723 also exposes a stale full-migration reserve during tools setup.
 Update setup uses its compact allowance; a full-build reserve is requested only
 after current inspect actually qualifies that route, immediately before build.

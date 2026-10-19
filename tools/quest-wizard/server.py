@@ -577,9 +577,16 @@ class LocalServer(ThreadingHTTPServer):
         try: self.request_failure(error)
         except (OSError, ImportError, RuntimeError, ValueError): pass
 
-    def manage_storage(self, *, mode=None, session=None, remove_data=False, plan_id=None):
-        """Keep previews and deletions responsive and separate from active builds."""
+    def manage_storage(self, *, mode=None, session=None, remove_data=False, plan_id=None, automatic=False):
+        """Run retained previews, or the explicitly authorized update-preserving cleanup."""
         import cleanup
+        if automatic:
+            # The one-click route cannot accept client-selected paths, a cached
+            # manual preview, or any policy which removes reusable build data.
+            if mode is not None or session is not None or remove_data or plan_id is not None:
+                raise WizardError("cleanup_mode", "Unsupported automatic cleanup selection.",
+                                  "Ungültige Auswahl für die automatische Bereinigung.")
+            mode = "safe"
         with self.jobs_lock:
             active_cleanup = bool(self.storage_job and self.storage_job.is_alive())
             if active_cleanup or self.operation_active():
@@ -599,7 +606,7 @@ class LocalServer(ThreadingHTTPServer):
                     raise error
                 selected = self.storage_plan
             else:
-                if mode not in ("duplicates", "build-cache", "update-history", "session"):
+                if mode not in ("duplicates", "build-cache", "update-history", "session") and not automatic:
                     raise WizardError("cleanup_mode", "Unsupported cleanup selection.", "Ungültige Auswahl für die Bereinigung.")
                 if mode == "session":
                     # Reconcile an abandoned console using the same Store
@@ -624,15 +631,17 @@ class LocalServer(ThreadingHTTPServer):
             with self.storage_lock:
                 self.storage_state = {"status": "deleting" if deleting else "planning", "phase": "inventory-pausing" if inventory else "starting",
                                       "done": 0, "total": None, "operationId": operation_id, "startedAt": time.time(),
+                                      "automatic": automatic,
                                       "selection": {"mode": selected["mode"] if deleting else mode,
                                                     "session": selected.get("session") if deleting else session,
                                                     "removeData": selected.get("removeData", False) if deleting else remove_data},
                                       **({"plan": selected} if selected else {})}
-            progress = self.storage_progress("storage_state", operation_id, "delete" if deleting else "preview")
+            action = "automatic" if automatic else "delete" if deleting else "preview"
+            progress = self.storage_progress("storage_state", operation_id, action)
             def work():
                 try:
                     self.storage_log("started", mode=selected["mode"] if deleting else mode, operationId=operation_id,
-                                     action="delete" if deleting else "preview", backgroundInventoryPaused=inventory is not None,
+                                     action=action, backgroundInventoryPaused=inventory is not None,
                                      **({"session": session, "removeData": remove_data} if mode == "session" else {}))
                     if inventory:
                         # This join owns only the cooperative metadata scanner;
@@ -642,21 +651,37 @@ class LocalServer(ThreadingHTTPServer):
                         inventory.join()
                         self.storage_log("inventory-paused", mode=selected["mode"] if deleting else mode)
                     if self.storage_stop.is_set(): raise Cancelled()
-                    if deleting:
-                        result = cleanup.execute(self.store.root, selected, progress=progress, cancel=self.storage_stop)
+                    planned = selected
+                    if not deleting:
+                        planned = (cleanup.plan_session(self.store.root, session, remove_data=remove_data, progress=progress, cancel=self.storage_stop)
+                                   if mode == "session" else cleanup.plan(self.store.root, mode, progress=progress, cancel=self.storage_stop))
+                        self.storage_log("automatic-selection" if automatic else "preview", mode=mode,
+                                         paths=planned["paths"], bytes=planned["bytes"], files=planned["files"])
+                    if automatic:
+                        if (planned.get("mode") != "safe"
+                                or planned.get("fastUpdateImpact", {}).get("status") != "preserved"):
+                            raise WizardError("cleanup_automatic_policy", "Automatic cleanup did not confirm retention of reusable update data. No files were deleted.",
+                                              "Die automatische Bereinigung konnte den Erhalt der Daten für schnelle Updates nicht bestätigen. Es wurden keine Dateien gelöscht.")
+                        if self.storage_stop.is_set(): raise Cancelled()
+                        with self.storage_lock:
+                            self.storage_state.update(status="deleting", phase="cleanup-starting", done=0, total=None, plan=planned)
+                    if deleting or automatic:
+                        result = cleanup.execute(self.store.root, planned, progress=progress, cancel=self.storage_stop)
+                        if automatic:
+                            result = {**result, "fastUpdateImpact": planned["fastUpdateImpact"],
+                                      "protectedPaths": planned.get("protectedPaths", []),
+                                      "skipped": planned.get("skipped", [])}
                         with self.jobs_lock:
                             for removed in result.get("sessionsRemoved", []):
                                 self.jobs.pop(removed, None)
                                 self.job_errors.pop(removed, None)
-                        self.storage_log("completed", mode=selected["mode"], **result)
+                        self.storage_log("completed", mode=planned["mode"], **result)
                         with self.storage_lock:
                             self.storage_plan = None
-                            self.storage_state = {"status": "complete", "result": result, "operationId": operation_id}
+                            self.storage_state = {"status": "complete", "result": result, "operationId": operation_id,
+                                                  "automatic": automatic, "selection": {"mode": planned["mode"]}}
                             self.inventory_state.update(status="stale" if self.inventory_state.get("completedAt") else "idle")
                     else:
-                        planned = (cleanup.plan_session(self.store.root, session, remove_data=remove_data, progress=progress, cancel=self.storage_stop)
-                                   if mode == "session" else cleanup.plan(self.store.root, mode, progress=progress, cancel=self.storage_stop))
-                        self.storage_log("preview", mode=mode, paths=planned["paths"], bytes=planned["bytes"], files=planned["files"])
                         with self.storage_lock:
                             self.storage_plan = planned
                             self.storage_state = {"status": "preview", "plan": planned, "operationId": operation_id}
@@ -811,7 +836,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = dict(self.server.discover(REPO, self.server.store))
                 result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "storageInventory": True,
                                           "portablePackages": True, "runRemoval": True, "runOverview": True, "workspaceSupport": True,
-                                          "storageCancel": True, "storeLaunchers": True, "updateHistoryCleanup": True}
+                                          "storageCancel": True, "storeLaunchers": True, "updateHistoryCleanup": True,
+                                          "autoStorageCleanup": True}
                 return result
             if parsed.path == '/api/gallery':
                 return {'schema': 1, 'event': 'gallery', 'artwork': self.server.promo.visible() if self.server.promo else []}
@@ -905,6 +931,10 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/storage/inventory":
                 if value: raise WizardError("request_body", "Unexpected storage inventory fields.")
                 return self.server.refresh_inventory()
+            if parsed.path == "/api/storage/auto":
+                if value: raise WizardError("request_body", "Automatic cleanup does not accept file selections.",
+                                            "Die automatische Bereinigung akzeptiert keine Dateiauswahl.")
+                return self.server.manage_storage(automatic=True)
             if parsed.path == "/api/storage/cancel":
                 if (set(value) != {"target", "operationId"} or value["target"] not in ("cleanup", "inventory")
                         or not isinstance(value["operationId"], str) or not re.fullmatch(r"[a-f0-9]{32}", value["operationId"])):
