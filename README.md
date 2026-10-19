@@ -145,11 +145,9 @@ table in your room.
 
 - **Steam Frame standalone:** native passthrough is built in and needs no additional patch.
   If unavailable, hover over the option for guidance on updating SteamVR and the game's Proton version.
-- **Steam Frame over Steam Link:** first install [Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#readme),
-  using its paired setup assistant, then enable **Steam Link native passthrough** below the
-  environment choices. This experimental Windows/NVIDIA/HEVC route keeps the ordinary colour
-  image; final headset quality and simultaneous Steam-menu composition are still being validated.
-  Check its supported SteamVR version. The former Frame-only receiver is retired.
+- **Steam Frame over Steam Link:** install [Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#installation)
+  on your PC and Frame, then enable **Steam Link native passthrough** below the environment
+  choices. Check the patch page for supported SteamVR versions and requirements.
 - **Virtual Desktop:** use its passthrough colour replacement with the mod's green background.
 
 <p align="center">
@@ -222,10 +220,6 @@ not yours.
 standalone · two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
 
 [→ Install](docs/install/INSTALL.md) · <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Install on Steam Frame (standalone)</a> · <a href="https://github.com/McFredward/steam-link-native-passthrough#installation"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Steam Frame: Steam Link native passthrough</a> · [→ Playing & controls](docs/PLAYING.md)
-
-For native mixed reality when streaming from a PC to Steam Frame, follow the separate
-[Steam Link passthrough setup](https://github.com/McFredward/steam-link-native-passthrough#readme)
-and check its supported SteamVR version. This patch is not needed for standalone play.
 
 On Steam Frame, setup adds a second library entry: launch **GloomhavenVR** for VR.
 The original **Gloomhaven** entry remains for flat play; both use the same saves.

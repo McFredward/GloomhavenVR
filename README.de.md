@@ -148,11 +148,9 @@ Spiels, gar kein Himmel und Mixed Reality. Wähle **Mixed Reality** unter
 - **Steam Frame standalone:** Natives Passthrough ist integriert und benötigt keinen zusätzlichen
   Patch. Ist die Option grau, zeigt der Hinweis beim Drüberzeigen, ob SteamVR oder die Proton-Version
   des Spiels aktualisiert werden muss.
-- **Steam Frame über Steam Link:** Installiere zuerst [Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough#readme),
-  mit dessen Assistenten für PC und Frame. Aktiviere anschließend **Steam Link: natives Passthrough**
-  unter der Umgebungsauswahl. Dieser experimentelle Windows/NVIDIA/HEVC-Weg erhält das normale
-  Farbbild; endgültige Bildqualität und gleichzeitiges Steam-Menü werden noch auf der Brille geprüft.
-  Beachte die unterstützte SteamVR-Version. Der frühere reine Frame-Empfänger ist eingestellt.
+- **Steam Frame über Steam Link:** Installiere [Steam Link Native Passthrough](https://github.com/McFredward/steam-link-native-passthrough/blob/main/README.de.md#installation)
+  auf PC und Frame. Aktiviere danach **Steam Link: natives Passthrough** unter der Umgebungsauswahl.
+  Die Patch-Seite nennt unterstützte SteamVR-Versionen und Voraussetzungen.
 - **Virtual Desktop:** Nutze dessen Passthrough-Funktion, die den grünen Hintergrund der Mod ersetzt.
 
 <p align="center">
@@ -227,10 +225,6 @@ standalone · zwei getrackte Controller · Room-Scale. Entwickelt wurde die Mod 
 über Virtual Desktop.
 
 [→ Installation](docs/install/INSTALL.de.md) · <a href="docs/install/INSTALL-STEAM-FRAME.de.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Installation auf Steam Frame (Standalone)</a> · <a href="https://github.com/McFredward/steam-link-native-passthrough/blob/main/README.de.md#installation"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Steam Frame: Natives Steam-Link-Passthrough</a> · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
-
-Für native Mixed Reality beim PC-Streaming auf Steam Frame folge der separaten
-[Steam-Link-Passthrough-Anleitung](https://github.com/McFredward/steam-link-native-passthrough#readme)
-und beachte die dort unterstützte SteamVR-Version. Für Standalone-Spiel brauchst du diesen Patch nicht.
 
 Auf Steam Frame fügt das Setup einen zweiten Bibliothekseintrag hinzu: Starte **GloomhavenVR** für VR.
 Der ursprüngliche Eintrag **Gloomhaven** bleibt für Flat-Spiel; beide nutzen dieselben Spielstände.
