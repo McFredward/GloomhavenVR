@@ -66,7 +66,7 @@ def startup_sources(source_root, movie, lease, surface):
         flat += member(core, signature)
     for signature in ('    private static bool IsPreMenuScene()\n', '    private bool WantVisible()\n', '    private void Show()\n'):
         flat += member(lifecycle, signature)
-    for signature in ('    internal static bool TryPrepareStartupMovie(', '    internal static bool OwnsStartupMovie(',
+    for signature in ('    internal static bool TryPrepareStartupMovie(', '    internal static bool OwnsStartupMovie(', '    internal static bool OwnsCapturedMoviePlane(', '    internal static void PrepareQuestMovie(',
                       '    private void CaptureStack()\n', '    private void SelectBases()\n', '    private void TickSplitLifecycle()\n',
                       '    private void EnsureBackQuad()\n', '    private void TeardownSplit(', '    private void SetSplitRouting(',
                       '    private void ClearUiRt()\n', '    private void TickNoUiWatchdog()\n', '    private void TickStackClears()\n',
@@ -212,13 +212,13 @@ def main():
             ('startup-persistent-lease-lost', 'NativeMovieCameraPlane.cs', '    internal static void AfterRender(Camera camera)\n    {',
                 '    internal static void AfterRender(Camera camera)\n    {\n        ReleaseStartup();', 'Run',
                 'persistent startup plane stays hidden between renders while replacement retains original alpha'),
-            ('startup-release-lost', 'NativeMovieCameraPlane.cs', '{ ReleaseStartup(); return; }', '{ return; }', 'Run',
+            ('startup-release-lost', 'NativeMovieCameraPlane.cs', '|| QuestStandalonePlatform.Enabled && FlatScreen.OwnsCapturedMoviePlane(player))) { ReleaseStartup(); return; }', '|| QuestStandalonePlatform.Enabled && FlatScreen.OwnsCapturedMoviePlane(player))) { return; }', 'Run',
                 'studio reservation restores current original alpha on native continuation or ownership loss: deactivate'),
             ('startup-native-alpha-lost', 'NativeMovieCameraPlane.cs', '_startupAlpha = player.targetCameraAlpha; // Preserve a later native fade.',
                 '/* injected: later native fade is discarded */', 'Run',
                 'later native alpha write updates replacement appearance without reopening packed plane'),
-            ('startup-error-release-lost', 'NativeMovieCameraPlane.cs', 'if (ReferenceEquals(player, _startupPlayer)) ReleaseStartup();',
-                '/* injected: failed native source retains the persistent reservation */', 'Error',
+            ('startup-error-release-lost', 'NativeMovieCameraPlane.cs', '_failedPlayer = player; _failedUrl = global::MovieSourceFixture.GetUrl(player);\n            ReleaseStartup();',
+                '_failedPlayer = player; _failedUrl = global::MovieSourceFixture.GetUrl(player);\n            /* injected: failed native source retains the persistent reservation */', 'Error',
                 'studio reservation restores current original alpha on native continuation or ownership loss: error'),
             ('startup-mono-fallback-lost', 'Movies.cs', '                    global::MovieSourceFixture.SetUrl(player, companion);',
                 '                    global::MovieSourceFixture.SetUrl(player, stereo);', 'IntroDisabled',

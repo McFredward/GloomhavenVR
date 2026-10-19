@@ -23,6 +23,7 @@ namespace GloomhavenVR.Core
     }
     internal static class VRLog
     {
+        internal static bool WantsDebug => true;
         internal static readonly List<string> Messages = new List<string>();
         internal static void Note(string scope, string text) => Messages.Add(text);
         internal static void Warn(string scope, string text) => Messages.Add(text);
@@ -41,6 +42,7 @@ namespace GloomhavenVR.WorldUI
 {
     internal static class FlatScreen
     {
+        internal static bool OwnsCapturedMoviePlane(VideoPlayer player) => throw new System.InvalidOperationException("Quest capture ownership belongs to its exact policy fixture.");
         internal static bool OwnsStartupMovie(VideoPlayer player) => throw new System.InvalidOperationException(
             "Persistent studio ownership belongs to the automatic startup fixture.");
     }

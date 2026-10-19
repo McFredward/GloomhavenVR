@@ -57,6 +57,41 @@ internal sealed partial class FlatScreen
             && owner._stereo.OwnsStartupMovie(player, owner._screenMaterial);
     }
 
+    /// <summary>The exact captured camera-plane source has a live per-eye consumer.</summary>
+    internal static bool OwnsCapturedMoviePlane(UnityEngine.Video.VideoPlayer player)
+    {
+        FlatScreen? owner = _coverageOwner;
+        Camera camera = player.targetCamera;
+        return owner != null && owner._visible && VRSession.IsRunning && WorldUIConfig.ConversionActive
+            && Rig.VRRigDriver.HeadCamera != null && Rig.VRRigDriver.HeadCamera.isActiveAndEnabled
+            && player.isActiveAndEnabled && camera != null && camera.isActiveAndEnabled
+            && CapturedSet.TryGetValue(camera, out CapturedCamera captured) && captured.Owner == owner
+            && owner._splitRouting && camera.targetTexture != null && camera.targetTexture.IsCreated()
+            && camera.targetTexture == owner.TargetFor(captured)
+            && owner._screenMaterial != null && owner._backRenderer != null && owner._backRenderer.enabled
+            && owner._backRenderer.gameObject.activeInHierarchy
+            && owner._backRenderer.sharedMaterial == owner._screenMaterial
+            && owner._stereo.OwnsStartupMovie(player, owner._screenMaterial);
+    }
+
+    // The ambient setter precedes native Play. Reconcile an already visible capture
+    // there, instead of letting Android latch an opaque packed plane for one frame.
+    // Hidden/unowned screens acquire no lease; the next complete capture can admit it.
+    internal static void PrepareQuestMovie(UnityEngine.Video.VideoPlayer player)
+    {
+        if (!QuestStandalonePlatform.Enabled) return;
+        FlatScreen? owner = _coverageOwner;
+        Camera camera = player.targetCamera;
+        if (owner == null || !owner._visible || camera == null
+            || !CapturedSet.TryGetValue(camera, out CapturedCamera captured) || captured.Owner != owner) return;
+        try { owner.CaptureStack(); }
+        catch (System.Exception error)
+        {
+            VRLog.Warn("WorldUI", "NATIVE MOVIE CAPTURE PREPARE FAILED: " + error.GetType().Name
+                + "; retaining native playback and retrying the ordinary capture lifecycle.");
+        }
+    }
+
     /// <summary>
     /// Redirect every backbuffer game camera into our RTs (I1, hardware test #5) —
     /// UI-classified cameras onto the glass RT while the split routes, everything
@@ -209,6 +244,7 @@ internal sealed partial class FlatScreen
                                       "the screen renders the single mono RT.");
             }
         }
+        NativeMovieCameraPlane.RefreshQuestMovie();
     }
 
     /// <summary>

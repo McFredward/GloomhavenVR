@@ -172,6 +172,7 @@ internal static class NativeVideoMovies
     {
         SetNativeUrl(player, originalUrl, KeyFromUrl(originalUrl).Replace(".mov", string.Empty));
         RegisterCameraPlane(player);
+        FlatScreen.PrepareQuestMovie(player);
     }
 
     internal static void SetEmbeddedSource(VideoPlayer player)

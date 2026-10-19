@@ -232,6 +232,8 @@ namespace GloomhavenVR.WorldUI
     {
         internal static bool StartupSurfaceReady = true;
         internal static int StartupPrepareCalls;
+        internal static int QuestPrepareCalls;
+        internal static void PrepareQuestMovie(UnityEngine.Video.VideoPlayer player) { QuestPrepareCalls++; }
         internal static bool TryPrepareStartupMovie(UnityEngine.Video.VideoPlayer player)
         { StartupPrepareCalls++; return StartupSurfaceReady; }
     }
