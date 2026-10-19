@@ -29,8 +29,12 @@ teardown genuinely closes the source, forced rebind pose and clear-owner mutatio
 fail independently. It does not execute the full MR owner, real XR or receiver.
 The local suite is registered with its inventory (231 local,102 CI,16 source).
 Focused scene-startup/render-quality/frame-order plus worker strict Debug/Release
-pass. Integrated checks and final scope are recorded under
-`.planning/debug/menu745/`; no new complete local or headset acceptance claimed.
+pass. Integrated source16/16 and strict Debug/Release0W0E pass. The private compiled
+713-to714 review confines behavior to VRRigDriver, plus eight version consumers
+and three build metadata files. New local inventory231/CI102/source16 is checked.
+Evidence and exact pins: `.planning/debug/menu745/`. No new complete local or
+headset acceptance claimed; unchanged wire300598 evidence is inherited. The prior
+CI inventory repair's complete39309987419 run now passes all jobs.
 
 Native patch0.2.11 repairs proven missing worker requeue wake and optional decoder
 waiting for exact permanently rejected OUTPUT tokens. Full current lease checks,
