@@ -37,7 +37,8 @@
 
 <p align="center">
   <a href="docs/install/INSTALL.de.md"><b>Installieren →</b></a> &nbsp;·&nbsp;
-  <a href="docs/install/INSTALL-STEAM-FRAME.de.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Auf Steam Frame installieren →</b></a> &nbsp;·&nbsp;
+  <a href="docs/install/INSTALL-STEAM-FRAME.de.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Auf Steam Frame installieren (Standalone) →</b></a> &nbsp;·&nbsp;
+  <a href="https://github.com/McFredward/steam-link-native-passthrough/blob/main/README.de.md#installation"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Steam Frame: Natives Steam-Link-Passthrough →</b></a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.de.md">Spielablauf &amp; Steuerung</a>
 </p>
 
@@ -225,7 +226,7 @@ behält dessen Stange, nicht deine.
 standalone · zwei getrackte Controller · Room-Scale. Entwickelt wurde die Mod auf einer Quest 3
 über Virtual Desktop.
 
-[→ Installation](docs/install/INSTALL.de.md) · <a href="docs/install/INSTALL-STEAM-FRAME.de.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Installation auf Steam Frame</a> · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
+[→ Installation](docs/install/INSTALL.de.md) · <a href="docs/install/INSTALL-STEAM-FRAME.de.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Installation auf Steam Frame (Standalone)</a> · <a href="https://github.com/McFredward/steam-link-native-passthrough/blob/main/README.de.md#installation"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Steam Frame: Natives Steam-Link-Passthrough</a> · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
 
 Für native Mixed Reality beim PC-Streaming auf Steam Frame folge der separaten
 [Steam-Link-Passthrough-Anleitung](https://github.com/McFredward/steam-link-native-passthrough#readme)

@@ -37,7 +37,8 @@
 
 <p align="center">
   <a href="docs/install/INSTALL.md"><b>Install →</b></a> &nbsp;·&nbsp;
-  <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Install on Steam Frame →</b></a> &nbsp;·&nbsp;
+  <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Install on Steam Frame (standalone) →</b></a> &nbsp;·&nbsp;
+  <a href="https://github.com/McFredward/steam-link-native-passthrough#installation"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Steam Frame: Steam Link native passthrough →</b></a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.md">Playing &amp; controls</a>
 </p>
 
@@ -220,7 +221,7 @@ not yours.
 **Gloomhaven (Digital)** from Steam, GOG, or Epic Games Store · Windows PC VR or Steam Frame
 standalone · two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
 
-[→ Install](docs/install/INSTALL.md) · <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Install on Steam Frame</a> · [→ Playing & controls](docs/PLAYING.md)
+[→ Install](docs/install/INSTALL.md) · <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Install on Steam Frame (standalone)</a> · <a href="https://github.com/McFredward/steam-link-native-passthrough#installation"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Steam Frame: Steam Link native passthrough</a> · [→ Playing & controls](docs/PLAYING.md)
 
 For native mixed reality when streaming from a PC to Steam Frame, follow the separate
 [Steam Link passthrough setup](https://github.com/McFredward/steam-link-native-passthrough#readme)
