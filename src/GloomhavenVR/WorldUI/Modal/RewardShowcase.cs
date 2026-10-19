@@ -167,14 +167,20 @@ internal static partial class RewardShowcase
         if (!permission && (changedWindow || _loggedBlock != block))
         {
             // State changes only: disabled controls cannot call TryConfirm, so retain
-            // the actual failed term at normal log level without a per-frame trace.
-            UIRewardsManager? guild = Guildmaster;
-            VRLog.Info("WorldUI", $"REWARD SHOWCASE BLOCKED: reason={block}, window='{window.name}', "
-                + $"processing={guild?.ProcessingRewards}, nativeInput={guild?.isConfirmPressed}, "
-                + $"managerEnabled={guild?.enabled}, networkProcess={guild?.networkProcessIfServer}, "
-                + $"actorChecker={guild?.interactionChecker != null}, client={FFSNetwork.IsClient}, "
-                + $"escOpen={(Singleton<ESCMenu>.IsInitialized && Singleton<ESCMenu>.Instance.IsOpen)}; "
-                + "no automatic confirmation or window dismissal was performed.");
+            // genuine failure context at normal level. A queued input is routine and
+            // stays at Debug (VRLog.Info), without constructing a detailed snapshot.
+            if (block == ContinueBlock.NativeInputPending)
+                VRLog.Info("WorldUI", "REWARD SHOWCASE BLOCKED: reason=NativeInputPending; awaiting the original reward coroutine.");
+            else
+            {
+                UIRewardsManager? guild = Guildmaster;
+                VRLog.Note("WorldUI", $"REWARD SHOWCASE BLOCKED: reason={block}, window='{window.name}', "
+                    + $"processing={guild?.ProcessingRewards}, nativeInput={guild?.isConfirmPressed}, "
+                    + $"managerEnabled={guild?.enabled}, networkProcess={guild?.networkProcessIfServer}, "
+                    + $"actorChecker={guild?.interactionChecker != null}, client={FFSNetwork.IsClient}, "
+                    + $"escOpen={(Singleton<ESCMenu>.IsInitialized && Singleton<ESCMenu>.Instance.IsOpen)}; "
+                    + "no automatic confirmation or window dismissal was performed.");
+            }
         }
         _loggedBlock = block;
     }
