@@ -10,15 +10,15 @@ internal static class ScenePayloadAssets
 {
     internal const string Resource = "GloomhavenVR.SteamLink.scene.bundle";
     private static AssetBundle? _bank;
-    private static Shader? _pack, _coverage;
+    private static Shader? _coverage;
     private static string? _failure;
     private static readonly Dictionary<string, Shader> Variants = new(StringComparer.Ordinal);
 
-    internal static bool TryGet(out Shader pack, out Shader coverage, out string reason)
+    internal static bool TryGet(out Shader coverage, out string reason)
     {
-        if (_pack != null && _coverage != null && _pack.isSupported && _coverage.isSupported)
+        if (_coverage != null && _coverage.isSupported)
         {
-            pack = _pack; coverage = _coverage; reason = string.Empty; return true;
+            coverage = _coverage; reason = string.Empty; return true;
         }
         if (_failure == null)
         {
@@ -31,13 +31,8 @@ internal static class ScenePayloadAssets
                 resource.CopyTo(bytes);
                 _bank = AssetBundle.LoadFromMemory(bytes.ToArray());
                 if (_bank == null) throw new InvalidDataException("Steam Link scene shader bank could not be loaded.");
-                // Build697 exposed a lossy-stream blind spot in v2's tiny,
-                // closely spaced format cells. V3 retains its full scene/mask
-                // geometry with a separately frozen robust format header. The
-                // updated receiver is required; v1/v2 remain untouched assets.
-                _pack = _bank.LoadAsset<Shader>("assets/steamlink/steamlinkscenerobustatlas.shader");
                 _coverage = _bank.LoadAsset<Shader>("assets/steamlink/steamlinkscenecoverage.shader");
-                if (_pack == null || _coverage == null || !_pack.isSupported || !_coverage.isSupported)
+                if (_coverage == null || !_coverage.isSupported)
                     throw new NotSupportedException("Steam Link scene shaders are unavailable on this graphics API.");
                 foreach (Shader shader in _bank.LoadAllAssets<Shader>())
                 {
@@ -48,14 +43,14 @@ internal static class ScenePayloadAssets
             }
             catch (Exception ex)
             {
-                _pack = _coverage = null;
+                _coverage = null;
                 if (_bank != null) _bank.Unload(true);
                 _bank = null;
                 Variants.Clear();
                 _failure = ex.Message;
             }
         }
-        pack = _pack!; coverage = _coverage!; reason = _failure ?? string.Empty;
+        coverage = _coverage!; reason = _failure ?? string.Empty;
         return _failure == null;
     }
 

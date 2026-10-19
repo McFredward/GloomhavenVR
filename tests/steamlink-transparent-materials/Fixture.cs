@@ -63,7 +63,7 @@ public static class TransparentMaterialFixture
             result.colorSpace=QualitySettings.activeColorSpace.ToString();Check(result.backend!="Null" && result.colorSpace=="Gamma","Actual Gamma GPU");
             bank=AssetBundle.LoadFromFile(args[Array.IndexOf(args,"-transparentBank")+1]);
             Shader[] loaded=bank!=null?bank.LoadAllAssets<Shader>():new Shader[0];
-            Check(loaded.Length==17,"Actual frozen shipping shader bank loads");
+            Check(loaded.Length==16,"Exact coverage shader and fifteen shipping material variants load");
             foreach(Shader item in loaded)bankShaders.Add(item.name,item);
             head=CameraFor("Owned head");foreign=CameraFor("Foreign capture");
             helper=new SceneTransparentMaterials(name=>Variant(name));Life(helper.BindHead(head),"Explicit cold head binding");

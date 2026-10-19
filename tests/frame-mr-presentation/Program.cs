@@ -112,19 +112,19 @@ public static class FrameMrPresentationProgram
             GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = true;
 
             // This calls the actual production Tick, camera restore and source
-            // owner. A pending host receipt must never expose the old atlas or
+            // owner. A pending source capability must never expose a transparent image or
             // a green fallback. GPU pixels remain the ordinary opaque image.
-            GloomhavenVR.Core.SteamLink.SteamLinkStreamQuality.Prepared = false;
+            GloomhavenVR.Core.SteamLink.SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = false;
             MixedReality.Tick();
             Check(!GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active
                 && head.backgroundColor == original && head.allowHDR && sky.enabled,
-                "pending host policy preserves ordinary presentation without chromakey");
+                "pending paired capability preserves ordinary presentation without chromakey");
             clear = Pixel(head, 2, 2);
             Check(Mathf.Abs(clear.r - original.r) < .02f && clear.a > .99f,
-                "pending host policy renders the original opaque image");
+                "pending paired capability renders the original opaque image");
             Check(MixedReality.Enabled.Value && MixedReality.SteamLinkNative.Value,
-                "pending host policy retains both saved native preferences");
-            GloomhavenVR.Core.SteamLink.SteamLinkStreamQuality.Prepared = true;
+                "pending paired capability retains both saved native preferences");
+            GloomhavenVR.Core.SteamLink.SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = true;
 
             // Production Tick and the real source owner execute with settings
             // open. Source preparation/XR stay named boundaries, not a pixel proof.
@@ -140,46 +140,23 @@ public static class FrameMrPresentationProgram
                 "open settings uses transparent native-stream background");
             Check(MixedReality.BackingsWanted, "live settings retain MR readability backings");
 
-            foreach (bool? focus in new bool?[] { false, null })
-            {
-                int observerTicks = SteamLinkCoverageBridge.Ticks;
-                VRSession.InputFocus = focus; MixedReality.Tick();
-                Check(!offered.Ready && !SteamLinkSceneRuntime.Active,
-                    "legacy Steam menu or unknown focus temporarily closes the real source owner");
-                Check(head.backgroundColor == original && head.allowHDR && sky.enabled,
-                    "legacy Steam menu restores the ordinary camera and sky instead of chromakey");
-                clear = Pixel(head, 2, 2);
-                Check(Mathf.Abs(clear.r - original.r) < .02f && clear.a > .99f,
-                    "actual legacy menu fallback pixels are the original opaque background");
-                Check(MixedReality.Enabled.Value && MixedReality.SteamLinkNative.Value
-                    && SteamLinkSceneRuntime.Requested && SteamLinkStreamQuality.Prepared,
-                    "legacy menu fallback preserves user intent and the independent quality lease");
-                Check(SteamLinkCoverageBridge.Ticks == observerTicks + 1 && SteamLinkCoverageBridge.Wanted,
-                    "legacy menu fallback keeps the native coverage observer ticking");
-                VRSession.InputFocus = true; MixedReality.Tick();
-                var restored = SceneHeadOutput.Last!;
-                Check(!ReferenceEquals(offered, restored) && restored.IsOwned && head.backgroundColor == Color.clear,
-                    "legacy menu close immediately prepares a fresh source owner without a fault latch");
-                offered = restored;
-            }
             SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = true;
             MixedReality.Tick(); MixedReality.Tick(); offered = SceneHeadOutput.Last!;
             foreach (bool? focus in new bool?[] { false, null })
             {
                 VRSession.InputFocus = focus; MixedReality.Tick();
-                Check(offered.Ready && offered.OrdinaryRgba && offered.IsOwned,
+                Check(offered.Ready && offered.IsOwned,
                     "native independent-coverage source remains active beside the Steam menu");
                 Check(head.backgroundColor == Color.clear && !head.allowHDR && !sky.enabled,
                     "native independent-coverage Steam menu does not restore an opaque environment");
             }
-            VRSession.InputFocus = true; SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = false;
-            MixedReality.Tick(); MixedReality.Tick(); offered = SceneHeadOutput.Last!;
+            VRSession.InputFocus = true;
 
-            GloomhavenVR.Core.SteamLink.SteamLinkStreamQuality.Prepared = false;
+            GloomhavenVR.Core.SteamLink.SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = false;
             MixedReality.Tick();
             Check(!offered.Ready && head.backgroundColor == original && head.allowHDR && sky.enabled,
                 "host receipt loss restores ordinary camera and sky immediately");
-            GloomhavenVR.Core.SteamLink.SteamLinkStreamQuality.Prepared = true;
+            GloomhavenVR.Core.SteamLink.SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = true;
             MixedReality.Tick(); offered = GloomhavenVR.Core.SteamLink.SceneHeadOutput.Last!;
             Check(offered.IsOwned && head.backgroundColor == Color.clear,
                 "current host receipt recovers native presentation without resetting preferences");
@@ -190,6 +167,10 @@ public static class FrameMrPresentationProgram
                 "real HMD revalidation releases carrier without flashing chromakey");
             GloomhavenVR.Core.SteamLink.SteamLinkConnection.Available = true;
             GloomhavenVR.Core.SteamLink.SteamLinkConnectionLifecycle.Checking = false;
+            MixedReality.Tick();
+            Check(head.backgroundColor == original && sky.enabled,
+                "validated identity alone does not admit coverage before renewed companion capability");
+            SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = true;
             MixedReality.Tick();
             offered = GloomhavenVR.Core.SteamLink.SceneHeadOutput.Last!;
             Check(offered.IsOwned && head.backgroundColor == Color.clear,
@@ -204,6 +185,7 @@ public static class FrameMrPresentationProgram
             Check(head.backgroundColor == Color.green && head.allowHDR,
                 "native toggle off in open settings restores opaque chromakey and HDR");
             MixedReality.SteamLinkNative.Value = true; MixedReality.Tick();
+            SteamLinkCoverageBridge.CanAcceptOrdinaryRgba = true; MixedReality.Tick();
             Check(GloomhavenVR.Core.SteamLink.SteamLinkSceneRuntime.Active,
                 "native toggle on retries immediately without closing settings");
             MixedReality.Enabled.Value = false; MixedReality.Tick();

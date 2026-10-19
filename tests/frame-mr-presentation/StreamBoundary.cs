@@ -43,29 +43,12 @@ namespace GloomhavenVR.Core.SteamLink
         internal static void Tick(bool wanted, double now) { Wanted = wanted; Ticks++; }
         internal static void Reset() { CanAcceptOrdinaryRgba = false; Wanted = false; }
     }
-    internal static class SteamLinkProjectionProbe
-    {
-        internal static void Tick() { }
-        internal static void Stop() { }
-    }
-    // The full async authority executes separately in stream-quality. This
-    // boundary controls only its current host receipt, not native encoder state.
-    internal static class SteamLinkStreamQuality
-    {
-        internal static bool Prepared = true, LegacyReleased = true;
-        internal static bool Requested(bool enabled) => enabled && VRSession.IsRunning
-            && !FrameNativePassthrough.Required && SteamLinkConnection.Available
-            && MixedReality.Enabled.Value && MixedReality.SteamLinkNative.Value;
-        internal static bool HostPrepared(bool enabled, int width, int height)
-            => !enabled || Requested(true) && Prepared;
-        internal static void Tick(bool enabled, int width, double now, bool ordinaryRgba) { }
-    }
     internal static class ScenePayloadAssets
     {
-        internal static bool TryGet(out Shader pack, out Shader coverage, out string reason)
+        internal static bool TryGet(out Shader coverage, out string reason)
         {
-            pack = coverage = Shader.Find("Unlit/Color"); reason = string.Empty;
-            return pack != null;
+            coverage = Shader.Find("Unlit/Color"); reason = string.Empty;
+            return coverage != null;
         }
     }
     internal sealed class SceneHeadOutput : MonoBehaviour
@@ -73,12 +56,10 @@ namespace GloomhavenVR.Core.SteamLink
         internal static SceneHeadOutput? Last;
         internal Camera Head = null!;
         internal bool Ready;
-        internal bool OrdinaryRgba;
-        internal bool ReadyForProjection => Ready && !OrdinaryRgba;
         internal string Failure => "Fixture source preparation refused";
         private ulong _epoch;
-        internal bool Prepare(Camera head, ulong epoch, Shader pack, Shader coverage, bool ordinaryRgba = false)
-        { Head = head; _epoch = epoch; OrdinaryRgba = ordinaryRgba; Ready = true; Last = this; return true; }
+        internal bool Prepare(Camera head, ulong epoch, Shader coverage)
+        { Head = head; _epoch = epoch; Ready = true; Last = this; return true; }
         internal bool IsOwned => SteamLinkSceneRuntime.Owns(this, Head, _epoch);
         internal void TickCold() { }
         internal void Close() => Ready = false;

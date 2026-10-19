@@ -17,7 +17,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 PRODUCTION = 'src/GloomhavenVR/Core/SteamLink'
 FILES = ('SteamLinkSceneRuntime.cs', 'SceneEyeCoverage.cs', 'SceneEyeOutput.cs',
-         'SceneTransparentMaterials.cs', 'SceneAtlasProfile.cs')
+         'SceneTransparentMaterials.cs')
 OLD_OWNER = '''        if (_output != null && _output.Head == head)
         {
             _output.TickCold();
@@ -159,7 +159,7 @@ def main():
                     failure = (case/'failure.txt').read_text()
                     assert status != 0 and gpu['passed'] is False
                     assert 'Normal camera re-enable must prepare a fresh scene output' in failure, failure
-                    assert gpu['guard_cells'] == 12 and gpu['normal_closes'] == 1, 'Mutant failed before the semantic recovery assertion'
+                    assert gpu['normal_closes'] == 1, 'Mutant failed before the semantic recovery assertion'
                 else:
                     assert status == 0 and gpu['passed'] is True, str(case)
                 overall['stages'].append({'mode': mode, 'unity_exit_code': status,

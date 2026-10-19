@@ -26,10 +26,6 @@ def main():
     parser.add_argument('--output', type=Path, default=ROOT / '.planning/debug/steamlink-scene-startup')
     parser.add_argument('--typecheck-only', action='store_true',
                         help='Compile the real Unity/net472 sources without repeating state/mutant cases.')
-    parser.add_argument('--admission-only', action='store_true',
-                        help='Run production and host-admission controls; inherit unchanged stereo mutation evidence.')
-    parser.add_argument('--menu-only', action='store_true',
-                        help='Run current native-focus admission and actual both-eye callback controls only.')
     parser.add_argument('--metadata', choices=('auto', 'unity', 'nuget'), default='auto',
                         help='Use installed Unity metadata, the pinned NuGet modules, or automatic fallback.')
     parser.add_argument('--unity-managed', type=Path,
@@ -46,7 +42,7 @@ def main():
     assert text.count('            || !StereoReady(head)') == 1
     assert text.count(old_mono) == 1
     late_guard = '''            if (!SteamLinkSceneRuntime.StereoReady(Head)
-                || !SteamLinkSceneRuntime.TransportPrepared(source.width, source.height)
+                || !SteamLinkSceneRuntime.TransportPrepared()
                 || (eye != Camera.MonoOrStereoscopicEye.Left
                     && eye != Camera.MonoOrStereoscopicEye.Right))'''
     assert text.count(late_guard) == 1
@@ -65,19 +61,12 @@ def main():
                 return;'''),
         'late-attachment': text.replace(late_guard, '''            if (eye != Camera.MonoOrStereoscopicEye.Left
                 && eye != Camera.MonoOrStereoscopicEye.Right
-                || !SteamLinkSceneRuntime.TransportPrepared(source.width, source.height))'''),
+                || !SteamLinkSceneRuntime.TransportPrepared())'''),
         'no-cohort': text.replace(cohort_guard, '            if (!StereoCohortReady(eye, Time.frameCount) && Time.frameCount == int.MinValue)'),
         'same-frame-activation': text.replace('        return _cohortReady;', '        return _cohortReady || _cohortEyes == 3;'),
         'cross-frame-cohort': text.replace('            _cohortEyes = 0;', '            // Mutant retains eye labels across unrelated frames.'),
         'pending-host-admission': text.replace(' || !TransportPrepared())', ')'),
         'stale-host-owner': text.replace('        && TransportPrepared();', '        ;'),
-        'stale-source-width': text.replace('                || !SteamLinkSceneRuntime.TransportPrepared(source.width, source.height)\n', ''),
-        'menu-unfocused-legacy': text.replace(': VRSession.InputFocus == true && SteamLinkStreamQuality.HostPrepared(',
-                                              ': SteamLinkStreamQuality.HostPrepared('),
-        'menu-blocks-native-coverage': text.replace('return ordinary ? SteamLinkCoverageBridge.CanAcceptOrdinaryRgba',
-                                                   'return ordinary ? VRSession.InputFocus == true && SteamLinkCoverageBridge.CanAcceptOrdinaryRgba'),
-        'menu-stale-owner': text.replace('        && TransportPrepared();', '        ;'),
-        'menu-keeps-stereo-epoch': text.replace(late_owner_close, ''),
     }
     expected = {
         'unready-admission': 'startup non-stereo head must not arm',
@@ -89,23 +78,12 @@ def main():
         'no-cohort': 'first complete startup cohort must stay ordinary in both eyes',
         'same-frame-activation': 'first complete startup cohort must stay ordinary in both eyes',
         'cross-frame-cohort': 'duplicate Left then Right on another frame never forms a complete cohort',
-        'pending-host-admission': 'Pending host lease must not prepare a source',
-        'stale-host-owner': 'Host lease loss before pre-cull revokes source ownership immediately',
-        'stale-source-width': 'Late actual source extent cannot use a host lease for another carrier',
-        'menu-unfocused-legacy': 'Legacy menu admission requires explicitly known XR input focus',
-        'menu-blocks-native-coverage': 'Independent ordinary RGBA is explicitly exempt from the legacy menu gate',
-        'menu-stale-owner': 'Menu focus loss before pre-cull immediately revokes source ownership',
-        'menu-keeps-stereo-epoch': 'Late menu loss retires the epoch without a permanent failure',
+        'pending-host-admission': 'Pending paired capability must not prepare a source',
+        'stale-host-owner': 'Capability loss retires the current stereo epoch',
     }
-    if args.admission_only:
-        variants = {name: variants[name] for name in ['production', 'pending-host-admission',
-                    'stale-host-owner', 'stale-source-width']}
-    if args.menu_only:
-        variants = {name: variants[name] for name in ['production', 'menu-unfocused-legacy',
-                    'menu-blocks-native-coverage', 'menu-stale-owner', 'menu-keeps-stereo-epoch']}
     production = source.parent
     names = ['SteamLinkSceneRuntime.cs', 'SceneEyeCoverage.cs', 'SceneEyeOutput.cs',
-             'SceneTransparentMaterials.cs', 'SceneAtlasProfile.cs']
+             'SceneTransparentMaterials.cs']
     gpu_fixture = ROOT / 'tests/steamlink-loading-source'
     inputs = [production/name for name in names] + [p for p in HERE.iterdir() if p.is_file()]
     inputs += [gpu_fixture/name for name in ['Fixture.csproj', 'Boundary.cs', 'Fixture.cs']]
@@ -133,17 +111,16 @@ def main():
             command = [dotnet, 'run', '--project', str(fixture/'Fixture.csproj'), '-c', 'Release',
                               '-p:SourceFile='+str(candidate), '-p:FixtureDir='+str(HERE),
                               '-p:UseSharedCompilation=false']
-            if args.menu_only or name.startswith('menu-'): command += ['--', '--menu-only']
             status = execute(command, run/(name+'.log'))
             output = (run/(name+'.log')).read_text()
             if name == 'production':
-                marker = ' menu/callback assertions passed' if args.menu_only else ' startup/callback assertions passed'
+                marker = ' startup/callback assertions passed'
                 assert status == 0 and marker in output, output
                 assertions = int(output.split(marker)[0].splitlines()[-1])
             else:
                 assert status != 0 and expected[name] in output and 'error CS' not in output, name + ': ' + output
             results.append({'variant': name, 'status': status, 'expected_semantic_result': True})
-        # Compile the complete unmodified production owner, packer, coverage and
+        # Compile the complete unmodified production owner, ordinary output, coverage and
         # materials against actual Unity2021/net472 metadata with strict warnings.
         frozen = run/'typecheck-sources'; frozen.mkdir()
         for name in names: shutil.copyfile(production/name, frozen/name)

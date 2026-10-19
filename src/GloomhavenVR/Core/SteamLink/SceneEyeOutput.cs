@@ -7,47 +7,20 @@ namespace GloomhavenVR.Core.SteamLink
 {
     internal enum SceneEyeResult
     {
-        Rendered, Disposed, ShaderUnavailable, UnknownEye, WorkingColorSpace,
+        Rendered, Disposed, UnknownEye, WorkingColorSpace,
         SourceUnavailable, SourceShape, SourceFormat, SourceSrgb, SourceDynamicScale,
         SourceMultisample, DestinationUnavailable, DestinationShape, DestinationFormat,
         DestinationSrgb, DestinationDynamicScale, SourceDestinationAlias, BlitFailed
     }
 
     // Caller owns actual head-camera/MultiPass/eye and current coverage admission.
-    // An arbitrary OnRenderImage alpha is NOT admitted by this class. Prepare the
-    // material outside callbacks; retain Unity's borrowed source only until this
-    // queued blit returns. No scene render, readback, upload, pool or prior frame.
+    // An arbitrary OnRenderImage alpha is NOT admitted by this class. Retain
+    // Unity's borrowed source only until this queued blit returns. No scene render, readback, upload, pool or prior frame.
     internal sealed class SceneEyeOutput : IDisposable
     {
-        private static readonly int MainTexture = Shader.PropertyToID("_MainTex");
-        private readonly Material _material;
-        private readonly int _maximumSize;
-        internal string Profile { get; }
+        private readonly int _maximumSize = SystemInfo.maxTextureSize;
         private bool _disposed;
-        public bool Ready => !_disposed && _material != null;
-
-        public SceneEyeOutput(Shader shader)
-        {
-            if (shader == null || (shader.name != SceneAtlasProfile.ShaderName
-                && shader.name != SceneAtlasProfile.FullShaderName
-                && shader.name != SceneAtlasProfile.RobustShaderName) || !shader.isSupported)
-                throw new NotSupportedException("The frozen scene-atlas shader is unavailable.");
-            _material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-            _maximumSize = SystemInfo.maxTextureSize;
-            Profile = shader.name == SceneAtlasProfile.RobustShaderName ? SceneAtlasProfile.RobustProfile
-                : shader.name == SceneAtlasProfile.FullShaderName ? SceneAtlasProfile.FullProfile : SceneAtlasProfile.Profile;
-            if (_material.passCount != 1)
-            {
-                UnityEngine.Object.Destroy(_material);
-                throw new NotSupportedException("The scene-atlas shader has an unexpected pass layout.");
-            }
-        }
-
-        // Refusal records no draw. The caller must run its ordinary source blit
-        // exactly once when the result is not Rendered. Never reuse an old atlas.
-        public SceneEyeResult TryRender(RenderTexture source, RenderTexture? destination,
-                                         Camera.MonoOrStereoscopicEye eye)
-            => Render(source, destination, eye, false);
+        public bool Ready => !_disposed;
 
         // The full-RGB bridge consumes coverage from this very RGBA texture in
         // the native DirectMode composition path. Do not pack a header, resize,
@@ -57,13 +30,12 @@ namespace GloomhavenVR.Core.SteamLink
         // native submission/encoder association belongs to the native provider.
         public SceneEyeResult TryRenderOrdinary(RenderTexture source, RenderTexture? destination,
                                                  Camera.MonoOrStereoscopicEye eye)
-            => Render(source, destination, eye, true);
+            => Render(source, destination, eye);
 
         private SceneEyeResult Render(RenderTexture source, RenderTexture? destination,
-                                      Camera.MonoOrStereoscopicEye eye, bool ordinaryRgba)
+                                      Camera.MonoOrStereoscopicEye eye)
         {
             if (_disposed) return SceneEyeResult.Disposed;
-            if (_material == null) return SceneEyeResult.ShaderUnavailable;
             if (eye != Camera.MonoOrStereoscopicEye.Left && eye != Camera.MonoOrStereoscopicEye.Right)
                 return SceneEyeResult.UnknownEye;
             if (QualitySettings.activeColorSpace != ColorSpace.Gamma)
@@ -81,7 +53,7 @@ namespace GloomhavenVR.Core.SteamLink
                 if (source == destination) return SceneEyeResult.SourceDestinationAlias;
                 if (!destination.IsCreated()) return SceneEyeResult.DestinationUnavailable;
                 if (!Shape(destination)) return SceneEyeResult.DestinationShape;
-                if (ordinaryRgba && (destination.width != source.width || destination.height != source.height))
+                if (destination.width != source.width || destination.height != source.height)
                     return SceneEyeResult.DestinationShape;
                 if (!Format(destination.graphicsFormat)) return SceneEyeResult.DestinationFormat;
                 if (destination.sRGB) return SceneEyeResult.DestinationSrgb;
@@ -94,23 +66,17 @@ namespace GloomhavenVR.Core.SteamLink
             bool srgb = GL.sRGBWrite;
             try
             {
-                // Gamma SDR UNorm is the initial frozen transfer profile. The
-                // shader has its own linear-clamp sampler and consumes the same
-                // resolved source RGB/A. Unity auto-resolves ordinary bindMS=false
-                // MSAA sources, just as the original Graphics.Blit path does.
+                // Preserve the original RGB dimensions and values. Unity resolves
+                // bindMS=false sources as on its ordinary camera blit path.
                 GL.sRGBWrite = false;
-                if (ordinaryRgba) Graphics.Blit(source, destination);
-                else Graphics.Blit(source, destination, _material, 0);
+                Graphics.Blit(source, destination);
                 return SceneEyeResult.Rendered;
             }
             catch (Exception) { return SceneEyeResult.BlitFailed; }
             finally
             {
-                // Graphics.Blit records its draw immediately. Clear any native
-                // material binding of Unity's borrowed temporary source instead
-                // of retaining that RT across callbacks. No GPU work is awaited.
-                try { _material.SetTexture(MainTexture, null); }
-                finally { GL.sRGBWrite = srgb; RenderTexture.active = active; }
+                GL.sRGBWrite = srgb;
+                RenderTexture.active = active;
             }
         }
 
@@ -125,7 +91,6 @@ namespace GloomhavenVR.Core.SteamLink
         {
             if (_disposed) return;
             _disposed = true;
-            UnityEngine.Object.Destroy(_material); // Normal deferred destruction, after closing entry.
         }
     }
 }

@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net472</TargetFramework><EnableDefaultCompileItems>false</EnableDefaultCompileItems><Nullable>enable</Nullable><LangVersion>latest</LangVersion><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <FrameworkPathOverride Condition="Exists('$(FrameworkReferenceDir)/mscorlib.dll')">$(FrameworkReferenceDir)</FrameworkPathOverride>
-    <AutomaticallyUseReferenceAssemblyPackages Condition="Exists('$(FrameworkReferenceDir)/mscorlib.dll')">false</AutomaticallyUseReferenceAssemblyPackages>
-  </PropertyGroup>
-  <ItemGroup><Compile Include="$(SourceFile)" /></ItemGroup>
-</Project>

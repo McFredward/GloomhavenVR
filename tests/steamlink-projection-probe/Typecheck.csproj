@@ -1,4 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-<PropertyGroup><TargetFramework>net472</TargetFramework><Nullable>enable</Nullable><LangVersion>latest</LangVersion><EnableDefaultCompileItems>false</EnableDefaultCompileItems><TreatWarningsAsErrors>true</TreatWarningsAsErrors><AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages><FrameworkPathOverride>$(FrameworkReferenceDir)</FrameworkPathOverride></PropertyGroup>
-<ItemGroup><Compile Include="$(FixtureDir)/ActualUnityBoundary.cs"/><Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkProjectionProbe.cs"/><Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/Loc/Loc.SteamLinkProjectionProbe.cs"/><Compile Include="$(SourceRoot)/src/GloomhavenVR/WorldUI/Options/VROptionsTab.SteamLinkProjectionProbe.cs"/><Reference Include="UnityEngine.CoreModule"><HintPath>$(UnityManaged)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference></ItemGroup>
-</Project>

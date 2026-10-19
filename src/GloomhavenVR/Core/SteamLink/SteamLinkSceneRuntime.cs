@@ -18,9 +18,6 @@ internal static class SteamLinkSceneRuntime
     private static Camera? _failedHead;
 
     internal static bool Active => _output != null && _output.Ready;
-    internal static bool ProjectionProbeSourceReady => _output != null && _output.ReadyForProjection
-        && _output.Head.isActiveAndEnabled && StereoReady(_output.Head)
-        && Owns(_output, _output.Head, _epoch);
     internal static bool SourceProfileSupported => Supported(out _);
     internal static bool Requested => MixedReality.SteamLinkNative != null
         && MixedReality.SteamLinkNative.Value && !FrameNativePassthrough.Required
@@ -28,7 +25,6 @@ internal static class SteamLinkSceneRuntime
 
     internal static bool TryEnter(Camera? head)
     {
-        SteamLinkProjectionProbe.Tick();
         if (head == null || !head.isActiveAndEnabled || !VRSession.IsRunning
             || !StereoReady(head) || !TransportPrepared())
         {
@@ -43,14 +39,6 @@ internal static class SteamLinkSceneRuntime
         }
         if (_output != null && _output.Head == head)
         {
-            if (_output.OrdinaryRgba != SteamLinkCoverageBridge.CanAcceptOrdinaryRgba)
-            {
-                // Route transitions start a fresh complete stereo epoch. A
-                // background capability reply must not repack only the second
-                // eye of an already-rendering frame.
-                Exit();
-                return false;
-            }
             _output.TickCold();
             if (_output.Ready) return true;
             if (!string.IsNullOrEmpty(_output.Failure))
@@ -64,7 +52,7 @@ internal static class SteamLinkSceneRuntime
             // retain their nonempty Failure and still refuse this head.
         }
         Exit();
-        if (!ScenePayloadAssets.TryGet(out Shader pack, out Shader coverage, out reason))
+        if (!ScenePayloadAssets.TryGet(out Shader coverage, out reason))
         {
             Refuse(head, reason);
             return false;
@@ -75,16 +63,15 @@ internal static class SteamLinkSceneRuntime
             // size, MSAA or native camera target is changed here.
             MrNativeCamera.Apply(head);
             _output = head.gameObject.AddComponent<SceneHeadOutput>();
-            if (!_output.Prepare(head, ++_epoch, pack, coverage, SteamLinkCoverageBridge.CanAcceptOrdinaryRgba))
+            if (!_output.Prepare(head, ++_epoch, coverage))
             {
                 Refuse(head, _output.Failure);
                 return false;
             }
             _reportedReason = null;
             VRLog.Info("Core", "Steam Link native MR source prepared: "
-                + (_output.OrdinaryRgba ? "ordinary-rgba-coverage-v1" : pack.name == SceneAtlasProfile.RobustShaderName ? SceneAtlasProfile.RobustProfile
-                    : pack.name == SceneAtlasProfile.FullShaderName ? SceneAtlasProfile.FullProfile : SceneAtlasProfile.Profile) + "; "
-                + "same-eye image and coverage, MultiPass SDR. The matching Frame receiver is required.");
+                + "ordinary-rgba-coverage-v1; same-eye image and coverage, MultiPass SDR. "
+                + "Compatible PC and Frame companions are required; RGB dimensions remain unchanged.");
             return true;
         }
         catch (Exception ex)
@@ -119,7 +106,6 @@ internal static class SteamLinkSceneRuntime
     internal static void Reset()
     {
         SteamLinkCoverageBridge.Reset();
-        SteamLinkProjectionProbe.Stop();
         Exit();
         _failedHead = null;
         _reportedReason = null;
@@ -129,7 +115,6 @@ internal static class SteamLinkSceneRuntime
 
     internal static void Exit()
     {
-        SteamLinkProjectionProbe.Stop();
         SceneHeadOutput? previous = _output;
         _output = null; // Revoke callback authority before releasing any owned resource.
         if (previous == null) return;
@@ -142,39 +127,21 @@ internal static class SteamLinkSceneRuntime
         && VRCameraPolicy.AllowedHead == head && Requested && MixedReality.Enabled.Value
         && TransportPrepared();
 
-    // Metadata-only host boundary, queried again at the rendering authority
-    // seam: a setting/width change or helper completion can race the cold Tick.
-    // Edge-quality opt-out preserves the original native-source behavior.
-    internal static bool TransportPrepared() => TransportPrepared(XRSettings.eyeTextureWidth, XRSettings.eyeTextureHeight);
-    internal static bool TransportPrepared(int width, int height)
-    {
-        // Keep the established output's route fixed across its current pair.
-        // A capability gain is consumed only by the cold owner above; a loss
-        // immediately leaves ordinary RGB, never a stale remote mask.
-        bool ordinary = _output != null ? _output.OrdinaryRgba : SteamLinkCoverageBridge.CanAcceptOrdinaryRgba;
-        return ordinary ? SteamLinkCoverageBridge.CanAcceptOrdinaryRgba && SteamLinkStreamQuality.LegacyReleased
-            // Opening the Steam dashboard damages the legacy image header in
-            // the measured native video path. Wait for explicit current XR
-            // focus before packing an atlas; unknown startup focus also waits.
-            // TryEnter, Owns and the late actual-source check all use this same
-            // temporary admission. Keep Requested and the quality lease alive
-            // so the ordinary image cannot select chroma key or renegotiate.
-            // Independent certified coverage does not depend on that header
-            // and deliberately remains active beside the native Steam menu.
-            : VRSession.InputFocus == true && SteamLinkStreamQuality.HostPrepared(
-                MixedReality.SteamLinkEdgeQuality != null && MixedReality.SteamLinkEdgeQuality.Value, width, height);
-    }
+    // The native PC companion first certifies the ordinary game colour path.
+    // This readiness does not depend on receiving a mask, so the first coverage
+    // image cannot deadlock behind its own source-capability admission.
+    internal static bool TransportPrepared() => SteamLinkCoverageBridge.CanAcceptOrdinaryRgba;
 
     // A running VR session does not certify a camera's current XR attachment.
     // Startup/load teardown can temporarily render that same head as mono or
-    // target only one eye. Never introduce the packed atlas during that gap.
+    // target only one eye. Never publish coverage during that gap.
     // This is temporary admission loss, not a shader/attachment fault latch.
     internal static bool StereoReady(Camera head) => head.stereoEnabled
         && head.stereoTargetEye == StereoTargetEyeMask.Both;
 }
 
 // Unity invokes this only on the camera it is attached to. Unknown eyes and
-// failed packing preserve the ordinary RGB output; they never publish an old
+// failed coverage output preserve the ordinary RGB output; they never publish an old
 // mask or infer an eye from callback order.
 [RequireComponent(typeof(Camera))]
 internal sealed class SceneHeadOutput : MonoBehaviour
@@ -182,8 +149,6 @@ internal sealed class SceneHeadOutput : MonoBehaviour
     internal Camera Head { get; private set; } = null!;
     internal bool Ready => !_closed && _coverage != null && _coverage.Ready
         && _pack != null && _materials != null && _materials.Ready;
-    internal bool ReadyForProjection => Ready && !OrdinaryRgba && _cohortReady && _pack!.Profile == SceneAtlasProfile.RobustProfile;
-    internal bool OrdinaryRgba { get; private set; }
     internal string Failure { get; private set; } = "Scene source has not been prepared.";
     private SceneEyeCoverage? _coverage;
     private SceneEyeOutput? _pack;
@@ -197,11 +162,11 @@ internal sealed class SceneHeadOutput : MonoBehaviour
     private int _cohortFrame = -1, _cohortEyes;
     private bool _cohortReady;
 
-    internal bool Prepare(Camera head, ulong epoch, Shader pack, Shader coverage, bool ordinaryRgba = false)
+    internal bool Prepare(Camera head, ulong epoch, Shader coverage)
     {
-        Head = head; _epoch = epoch; OrdinaryRgba = ordinaryRgba;
+        Head = head; _epoch = epoch;
         _target = head.targetTexture;
-        _pack = new SceneEyeOutput(pack);
+        _pack = new SceneEyeOutput();
         _coverage = new SceneEyeCoverage(coverage);
         _coverage.SetOpaqueBackdropSource(static () => WorldUI.FlatScreen.OpaqueBackdrop);
         if (!_coverage.Arm(head, epoch))
@@ -261,7 +226,7 @@ internal sealed class SceneHeadOutput : MonoBehaviour
 
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
-        bool packed = false;
+        bool rendered = false;
         if (!_closed && _materials != null && !_materials.Ready)
         {
             Failure = "Owned material scope: " + _materials.Reason;
@@ -278,11 +243,11 @@ internal sealed class SceneHeadOutput : MonoBehaviour
         {
             // Unity can report Mono while an XR camera starts/stops even after
             // the previous cold tick observed a running session. Do not publish
-            // an atlas for that ordinary render or permanently poison this head;
+            // coverage for that ordinary render or permanently poison this head;
             // a later admitted stereo render prepares a fresh coverage epoch.
             Camera.MonoOrStereoscopicEye eye = Head.stereoActiveEye;
             if (!SteamLinkSceneRuntime.StereoReady(Head)
-                || !SteamLinkSceneRuntime.TransportPrepared(source.width, source.height)
+                || !SteamLinkSceneRuntime.TransportPrepared()
                 || (eye != Camera.MonoOrStereoscopicEye.Left
                     && eye != Camera.MonoOrStereoscopicEye.Right))
             {
@@ -297,11 +262,9 @@ internal sealed class SceneHeadOutput : MonoBehaviour
             }
             try
             {
-                SceneEyeResult result = OrdinaryRgba
-                    ? _pack!.TryRenderOrdinary(source, destination, eye)
-                    : _pack!.TryRender(source, destination, eye);
-                packed = result == SceneEyeResult.Rendered;
-                if (!packed) Failure = result.ToString();
+                SceneEyeResult result = _pack!.TryRenderOrdinary(source, destination, eye);
+                rendered = result == SceneEyeResult.Rendered;
+                if (!rendered) Failure = result.ToString();
                 else if (VRLog.WantsDebug)
                 {
                     int eyeBit = eye == Camera.MonoOrStereoscopicEye.Right ? 2 : 1;
@@ -312,27 +275,27 @@ internal sealed class SceneHeadOutput : MonoBehaviour
                             + " source=" + source.width + "x" + source.height + " format=" + source.graphicsFormat
                             + " samples=" + source.antiAliasing + " carrier="
                             + (destination == null ? "XR target" : destination.width + "x" + destination.height)
-                            + "; " + (OrdinaryRgba ? "ordinary-rgba-coverage-v1; native provider owns texture/AU association" : _pack!.Profile) + ".");
+                            + "; ordinary-rgba-coverage-v1; native provider owns texture/AU association.");
                     }
                 }
             }
             catch (Exception ex) { Failure = ex.GetType().Name + ": " + ex.Message; }
-            if (!packed)
+            if (!rendered)
             {
                 Close();
                 SteamLinkSceneRuntime.Failed(Head, Failure);
             }
         }
-        if (!packed) Graphics.Blit(source, destination);
+        if (!rendered) Graphics.Blit(source, destination);
     }
 
     private bool StereoCohortReady(Camera.MonoOrStereoscopicEye eye, int frame)
     {
         // AddComponent may happen after the first eye of an already-running XR
         // frame. Seeing only its remaining Right must not switch that one eye
-        // to an atlas while Left was ordinary. Observe an explicitly labelled
+        // to coverage while Left was ordinary. Observe an explicitly labelled
         // complete Left+Right frame first, keeping BOTH images ordinary, then
-        // begin packing at the following frame boundary. Store no image, infer
+        // begin coverage at the following frame boundary. Store no image, infer
         // no eye from callback order, and never carry admission to a new epoch.
         if (_cohortFrame != frame)
         {
@@ -341,7 +304,7 @@ internal sealed class SceneHeadOutput : MonoBehaviour
                 _cohortReady = true;
                 if (VRLog.WantsDebug)
                     VRLog.Debug("Core", "Steam Link native MR stereo cohort ready: frame=" + frame
-                        + "; previous current-head frame observed Left+Right; atlas starts at this boundary.");
+                        + "; previous current-head frame observed Left+Right; coverage starts at this boundary.");
             }
             _cohortFrame = frame;
             _cohortEyes = 0;
@@ -354,7 +317,6 @@ internal sealed class SceneHeadOutput : MonoBehaviour
     {
         if (_closed) return;
         _closed = true;
-        SteamLinkProjectionProbe.Tick();
         if (_materials != null)
         {
             if (_materialCallbacks)

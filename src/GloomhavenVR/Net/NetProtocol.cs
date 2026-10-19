@@ -612,8 +612,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 709;
+    public const ushort ModBuild = 710;
 
+    // ModBuild710 — use the paired ordinary-RGBA Steam Link bridge exclusively.
+    // Remove the image/mask atlas and its encoder quality/resolution overrides,
+    // auxiliary projection preview and retired helper resources. Before a
+    // compatible PC companion admits this source, keep the normal game image.
+    // Preserve exact same-eye RGB dimensions, depth/fractional coverage and
+    // current stereo-cohort authority; no new XR or encoder quality settings.
+    // Existing saved transport keys remain bound and inert. Standalone native
+    // passthrough and other transports' chroma-key presentation are unchanged.
+    // Hardware appearance remains subject to the paired Windows/Frame test.
+    //
     // ModBuild709 — preserve XR progress during Steam Link observer retirement
     // and contain the legacy atlas while the Steam dashboard owns input focus.
     // The708 hardware log shows a synchronous cancellation callback throwing

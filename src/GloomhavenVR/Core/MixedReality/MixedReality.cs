@@ -466,29 +466,24 @@ internal static partial class MixedReality
             "passthrough when the active Proton/OpenXR/SteamVR combination supports alpha " +
             "composition; otherwise this choice is unavailable. PC streaming normally uses " +
             "the selected solid KeyColor for compatible software such as Virtual Desktop. " +
-            "The experimental native Steam Link choice requires its matching Frame receiver. " +
+            "The native Steam Link choice requires matching PC and Frame companions. " +
             "Sky backgrounds are hidden, game geometry stays visible and floated " +
             "UI gets readable backing plates. Turning off restores the previous environment.");
         SteamLinkNative = _file.Bind("MixedReality", "SteamLinkNative", Defaults.SteamLinkNative,
             "Experimental native passthrough while streaming to Steam Frame over Steam Link. " +
             "Available only on an identified Steam Frame/vrlink connection, enabled by default. " +
             "Other headsets and streaming transports retain ordinary output even if this saved preference is on. " +
-            "Requires the matching GloomhavenVR Frame receiver to be installed and enabled first. " +
-            "Without that receiver the packed transport image may be visible instead of passthrough. " +
+            "Requires compatible PC and Frame companions. Without them the normal game image remains visible. " +
             "Streams the real game image with separate opacity instead of replacing a colour. " +
             "Changes apply immediately, including while VR Options is open. " +
             "Disable this choice or mixed reality to stop it; no automatic timer is used. " +
             "Currently requires MultiPass stereo, SDR and Gamma colour space. " +
-            "Does not change Steam Frame standalone passthrough or Steam PC sender binaries.");
+            "Does not change eye resolution, video quality settings or Steam Frame standalone passthrough.");
         SteamLinkEdgeQuality = _file.Bind("MixedReality", "SteamLinkEdgeQuality", Defaults.SteamLinkEdgeQuality,
-            "Use uniform Steam Link video quality and disable pre-encode sharpening while native " +
-            "Steam Frame streaming mixed reality is active. This reduces different colour/opacity " +
-            "edge filtering. Temporarily changes the supported SteamVR driver settings; restores " +
-            "previous values on exit or when switched off, preserving subsequent manual edits. " +
-            "Higher video resolution needs more network bandwidth and headset decoder capacity. " +
-            "No automatic expiry, colour replacement or opacity cutoff is used.");
+            "INERT — since build 710. Former atlas edge-quality override retained only for " +
+            "configuration compatibility. Native passthrough never changes encoder settings.");
         SteamLinkEncodeWidth = _file.Bind("MixedReality", "SteamLinkEncodeWidth", Defaults.SteamLinkEncodeWidth,
-            new ConfigDescription("INERT since build 702. Native Steam Link MR follows the actual XR " +
+            new ConfigDescription("INERT — since build 702. Native Steam Link MR follows the actual XR " +
                 "eye target dimensions automatically; this former separate encoding-width override " +
                 "is kept only for configuration compatibility and is never used for rendering.",
                 new AcceptableValueRange<int>(1024, 4096)));
@@ -627,16 +622,6 @@ internal static partial class MixedReality
         SteamLink.SteamLinkConnectionLifecycle.Tick();
         SteamLink.SteamLinkCoverageBridge.Tick(SteamLink.SteamLinkSceneRuntime.Requested
             && Enabled.Value && VRSession.IsRunning && SteamLink.SteamLinkSceneRuntime.SourceProfileSupported, Time.unscaledTime);
-        // Native MR must follow the allocation actually used by XR, never a
-        // separate saved transport resolution. Reading dimensions does not write
-        // EyeResolutionScale, the stable XR allocation, projection or viewport.
-        int streamWidth = 0;
-        if (SteamLink.SteamLinkStreamQuality.Requested(SteamLinkEdgeQuality.Value))
-            SteamLink.SteamLinkResolutionPolicy.TryWidth(UnityEngine.XR.XRSettings.eyeTextureWidth,
-                UnityEngine.XR.XRSettings.eyeTextureHeight, out streamWidth);
-        SteamLink.SteamLinkStreamQuality.Tick(SteamLinkEdgeQuality.Value,
-            streamWidth, Time.unscaledTime, SteamLink.SteamLinkCoverageBridge.CanAcceptOrdinaryRgba);
-
         // ELEMENT MOOD IS TICKED HERE, not from SkyAlternative.Tick, because this is the only
         // per-frame call that runs on BOTH branches below. The user's requirement is that the
         // elements reach the player under every presentation — a bundled room, the game's own sky,
@@ -655,17 +640,9 @@ internal static partial class MixedReality
         bool checkingStream = !native && SteamLinkNative.Value
             && SteamLink.SteamLinkConnectionLifecycle.Checking;
         bool streamReady = false;
-        // The retired full-screen test pattern paused while settings were open.
-        // Real-image MR must retain the settings in its scene and switch live:
-        // otherwise enabling it only restores a black ordinary menu background,
-        // with neither a source-prepared receipt nor any packed eye produced.
-        // Host acquisition is asynchronous. Keep an ordinary image until the
-        // matching current-width lease exists; do not emit old-policy atlas
-        // frames and then switch their sampling quality underneath the user.
-        // This host boundary is not proof of native encoder acknowledgement.
-        // Legacy atlas also waits for explicit XR input focus while a Steam
-        // menu is open. Keep stream requested: this existing not-ready branch
-        // restores the ordinary environment without selecting a green key.
+        // Only a compatible paired companion can admit native stream coverage.
+        // Until then the unmodified game image stays visible; there is no atlas
+        // or chroma-key fallback for an identified Steam Link connection.
         bool streamHostPrepared = SteamLink.SteamLinkSceneRuntime.TransportPrepared();
         if (!native && stream && requested && streamHostPrepared)
         {

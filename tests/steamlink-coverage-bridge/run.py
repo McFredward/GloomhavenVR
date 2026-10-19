@@ -31,7 +31,7 @@ def main():
     log = run / 'completion.log'; log.write_text('evidence: ' + str(run) + '\n')
     source = ROOT / 'src/GloomhavenVR/Core/SteamLink'
     startup = ROOT / 'tests/steamlink-scene-startup'
-    paths = [source / name for name in ['SteamLinkCoverageBridge.cs', 'SteamLinkSceneRuntime.cs', 'SceneEyeOutput.cs', 'SteamLinkStreamQuality.cs']]
+    paths = [source / name for name in ['SteamLinkCoverageBridge.cs', 'SteamLinkSceneRuntime.cs', 'SceneEyeOutput.cs']]
     paths += [p for p in HERE.iterdir() if p.is_file()]
     paths += [startup / name for name in ['Boundary.cs', 'Program.cs', 'Fixture.csproj']]
     pins = {str(p.relative_to(ROOT)): sha(p) for p in paths}
@@ -91,18 +91,10 @@ def main():
                     HERE / 'Fixture.csproj', HERE, ['--cancel-lifetime'], 'observer lifetime includes its pending cancellation callbacks')
         if args.suite in ('all', 'callback'):
             managed('callback', runtime, startup / 'Fixture.csproj', startup, ['--ordinary-only'])
-            old = '? _pack!.TryRenderOrdinary(source, destination, eye)'
+            old = 'internal static bool TransportPrepared() => SteamLinkCoverageBridge.CanAcceptOrdinaryRgba;'
             assert runtime.count(old) == 1
-            managed('force-atlas', runtime.replace(old, '? _pack!.TryRender(source, destination, eye)'),
-                    startup / 'Fixture.csproj', startup, ['--ordinary-only'], 'negotiated source uses ordinary RGBA without an atlas')
-            old = 'if (_output.OrdinaryRgba != SteamLinkCoverageBridge.CanAcceptOrdinaryRgba)'
-            assert runtime.count(old) == 1
-            managed('mid-pair-route', runtime.replace(old, old[:-1] + ' && _epoch == ulong.MaxValue)'),
-                    startup / 'Fixture.csproj', startup, ['--ordinary-only'], 'cold route transition retires the old stereo epoch')
-            old = 'SteamLinkCoverageBridge.CanAcceptOrdinaryRgba && SteamLinkStreamQuality.LegacyReleased'
-            assert runtime.count(old) == 1
-            managed('skip-legacy-restore', runtime.replace(old, 'SteamLinkCoverageBridge.CanAcceptOrdinaryRgba'),
-                    startup / 'Fixture.csproj', startup, ['--ordinary-only'], 'full RGBA waits for actual legacy settings restoration')
+            managed('unpaired-source', runtime.replace(old, 'internal static bool TransportPrepared() => true;'),
+                    startup / 'Fixture.csproj', startup, [], 'Pending paired capability must not prepare a source')
         if args.suite in ('all', 'typecheck'):
             owned = run / 'owned-typecheck'; owned.mkdir()
             shutil.copyfile(HERE / 'Typecheck.csproj', owned / 'Fixture.csproj')

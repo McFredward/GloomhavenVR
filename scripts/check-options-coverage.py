@@ -619,6 +619,9 @@ KNOWN_ORPHANS = {
     # production filter hides it in curated and Advanced views; actual eye
     # resolution now owns sizing. This is one retired key, not a family exemption.
     ("MixedReality", "SteamLinkEncodeWidth"),
+    # Maintainer 2026-10-19: remove the atlas/quality lease entirely, retain its
+    # saved binding inert and hidden rather than silently deleting user config.
+    ("MixedReality", "SteamLinkEdgeQuality"),
     # Build652: the new everyday wall-policy keys share only the "Wall" prefix with
     # this pre-existing expert sampling cadence. Its regular-fade alias remains
     # [WallFade] EvalIntervalSeconds; the legacy fallback stays reachable in Advanced.

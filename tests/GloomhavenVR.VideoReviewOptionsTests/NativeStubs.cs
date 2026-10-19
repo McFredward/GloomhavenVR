@@ -209,7 +209,6 @@ namespace GloomhavenVR.WorldUI
         private static int BuildGoldRow() => SaveRow("gold boundary", SessionOnline());
         // The projection-delivery action has its own production owner/UI suite;
         // this movie-only fixture does not launch a native OpenVR child.
-        private static int BuildSteamLinkProjectionProbe() => 0;
         private static int BuildAdvancedIndex() { Headers.Add("advanced index boundary"); return 1; }
         private static void BuildHeader(UnityEngine.Transform parent, string caption, string? hintKey = null,
                                         bool sub = false) => Headers.Add(caption);

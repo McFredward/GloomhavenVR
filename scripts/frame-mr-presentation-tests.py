@@ -153,7 +153,7 @@ def main():
                     'menu-entry': 'open settings applies native streaming immediately',
                     'menu-owner': 'open settings retains live source ownership',
                     'pending-key': 'initial identity query never selects the saved green key',
-                    'pending-host': 'pending host policy preserves ordinary presentation without chromakey'}[args.mutation]
+                    'pending-host': 'pending paired capability preserves ordinary presentation without chromakey'}[args.mutation]
         assert completed.returncode != 0 and expected in output, output
         print('PASS negative control: ' + args.mutation)
     else:

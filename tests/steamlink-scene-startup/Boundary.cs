@@ -81,23 +81,10 @@ namespace GloomhavenVR.Core.SteamLink
         internal static bool CanAcceptOrdinaryRgba=false;
         internal static void Reset() { CanAcceptOrdinaryRgba=false; }
     }
-    // The actual lease state machine is compiled/executed by stream-quality.
-    // This fixture supplies only its current metadata authority, never a timer
-    // or a pretend actual-encoder acknowledgement.
-    internal static class SteamLinkStreamQuality
-    {
-        internal static bool LegacyReleased=true;
-        internal static bool Prepared=true;
-        internal static int Width=4040,Height=4040;
-        internal static bool HostPrepared(bool enabled,int width,int height)
-            => !enabled || Prepared && width==Width && height==Height;
-    }
-    internal static class SceneAtlasProfile
-    { internal const string RobustShaderName="robust",FullShaderName="full",RobustProfile="v3",FullProfile="v2",Profile="v1"; }
     internal static class ScenePayloadAssets
     {
-        internal static bool TryGet(out UnityEngine.Shader pack,out UnityEngine.Shader coverage,out string reason)
-        { pack=new UnityEngine.Shader();coverage=new UnityEngine.Shader();reason="";return true; }
+        internal static bool TryGet(out UnityEngine.Shader coverage,out string reason)
+        { coverage=new UnityEngine.Shader();reason="";return true; }
         internal static UnityEngine.Shader? FindVariant(string name)=>new UnityEngine.Shader();
     }
     internal sealed class SceneEyeCoverage : IDisposable
@@ -114,12 +101,9 @@ namespace GloomhavenVR.Core.SteamLink
     internal enum SceneEyeResult { Rendered,UnknownEye,SourceFormat }
     internal sealed class SceneEyeOutput : IDisposable
     {
-        internal static int Packed,Ordinary;
+        internal static int Ordinary;
         internal static SceneEyeResult Next=SceneEyeResult.Rendered;
-        internal string Profile=>"v3";
-        internal SceneEyeOutput(UnityEngine.Shader shader) { }
-        internal SceneEyeResult TryRender(UnityEngine.RenderTexture source,UnityEngine.RenderTexture destination,UnityEngine.Camera.MonoOrStereoscopicEye eye)
-        { if(Next==SceneEyeResult.Rendered)Packed++;return Next; }
+        internal SceneEyeOutput() { }
         internal SceneEyeResult TryRenderOrdinary(UnityEngine.RenderTexture source,UnityEngine.RenderTexture destination,UnityEngine.Camera.MonoOrStereoscopicEye eye)
         { if(Next==SceneEyeResult.Rendered)Ordinary++;return Next; }
         public void Dispose() { }
@@ -135,18 +119,5 @@ namespace GloomhavenVR.Core.SteamLink
         internal void ExitHead(UnityEngine.Camera head) { }
         internal void DisarmImmediate() => Ready=false;
         public void Dispose() => Ready=false;
-    }
-}
-
-namespace GloomhavenVR.Core.SteamLink
-{
-    // The optional Cheats probe owner has a separate lifecycle/real-Unity
-    // fixture. Existing source tests keep the normal MR input unchanged.
-    internal static class SteamLinkProjectionProbe
-    {
-        internal static void Tick() { }
-        internal static void Stop() { }
-        internal static void PackFailed() { }
-        internal static UnityEngine.RenderTexture InputForFrame(UnityEngine.RenderTexture source,int frame) => source;
     }
 }

@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><EnableDefaultCompileItems>false</EnableDefaultCompileItems><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><SourceFile Condition="'$(SourceFile)' == ''">$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkStreamQuality.cs</SourceFile></PropertyGroup>
-  <ItemGroup>
-    <Compile Include="$(FixtureDir)/Boundary.cs" />
-    <Compile Include="$(FixtureDir)/Program.cs" />
-    <Compile Include="$(SourceFile)" /><Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkResolutionPolicy.cs" />
-  </ItemGroup>
-</Project>

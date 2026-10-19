@@ -17,7 +17,7 @@ public static class LoadingSourceFixture
         public bool xr_executed=false, connection_detection_executed=false, mixed_reality_owner_executed=false;
         public bool native_receiver_executed=false, game_wide_coverage_proven=false;
         public string unity="", backend="", device="", color_space="";
-        public int checks, renders, resumes, normal_closes, fault_refusals, guard_cells;
+        public int checks, renders, resumes, normal_closes, fault_refusals;
         public List<string> cases=new List<string>();
     }
     private static readonly FieldInfo CurrentField=typeof(SteamLinkSceneRuntime).GetField("_output",BindingFlags.Static|BindingFlags.NonPublic)!;
@@ -26,7 +26,6 @@ public static class LoadingSourceFixture
     private static readonly Color Background=new Color(40f/255,20f/255,10f/255,0);
     private static readonly Color Opaque=new Color(77f/255,102f/255,204f/255,0);
     private static readonly Color Glass=new Color(204f/255,51f/255,102f/255,.5f);
-    private static readonly int[] Codes={111,208,128,104,227,251,255,193,102,168,15,90};
     private static Report result=new Report();
     private static string output="";
     private static Material probe=null!, opaque=null!, glass=null!;
@@ -72,33 +71,19 @@ public static class LoadingSourceFixture
         }
         finally{GL.sRGBWrite=srgb;RenderTexture.active=active;}
     }
-    private static Color AtlasScene(Camera camera,float x,float y)
-        =>At(camera.targetTexture,(32+x*2048)/2112,(352+y*2048)/2752);
-    private static float AtlasMask(Camera camera,float x,float y)
-    {
-        int tile=Math.Min(3,(int)(y*1024)/256);
-        return At(camera.targetTexture,((tile%2)*1056+16+x*1024)/2112,
-            ((tile<2?48:2448)+y*1024-tile*256)/2752).g;
-    }
-    private static void Packed(Camera camera,string label)
+    private static void Covered(Camera camera,string label)
     {
         int before=LoadingSourceBoundary.EyeReads;
         camera.Render();result.renders++;
         Check(LoadingSourceBoundary.EyeReads==before+1,label+": actual production OnRenderImage entered once");
         Check(SteamLinkSceneRuntime.Active&&Current!.Ready,label+": output remains ready after raster");
-        for(int i=0;i<12;i++)
-        {
-            Color cell=At(camera.targetTexture,(80+i*160f)/2112,2416f/2752);
-            Near(cell.r,Codes[i]/255f,label+": guard R");Near(cell.g,Codes[i]/255f,label+": guard G");
-            Near(cell.b,Codes[i]/255f,label+": guard B");result.guard_cells++;
-        }
-        Color left=AtlasScene(camera,.25f,.5f),right=AtlasScene(camera,.75f,.5f),clear=AtlasScene(camera,.95f,.1f);
+        Color left=At(camera.targetTexture,.25f,.5f),right=At(camera.targetTexture,.75f,.5f),clear=At(camera.targetTexture,.95f,.1f);
         Near(left.r,Opaque.r,label+": opaque E.r");Near(left.g,Opaque.g,label+": opaque E.g");Near(left.b,Opaque.b,label+": opaque E.b");
-        Near(AtlasMask(camera,.25f,.5f),1,label+": actual depth stamps opaque A1");
-        Near(AtlasMask(camera,.75f,.5f),Glass.a,label+": real shipping transparent variant supplies fractional A");
+        Near(left.a,1,label+": actual depth stamps opaque A1");
+        Near(right.a,Glass.a,label+": real shipping transparent variant supplies fractional A");
         Near(right.r,Glass.r*.5f+Background.r*.5f,label+": fractional contributed RGB");
         Near(clear.r,Background.r,label+": positive RGB at zero coverage preserved");
-        Near(AtlasMask(camera,.95f,.1f),0,label+": transparent clear stays A0");
+        Near(clear.a,0,label+": transparent clear stays A0");
         Check(glassRenderer.sharedMaterial==glass,label+": actual material callback restored original material");
         var materials=(SceneTransparentMaterials)MaterialsField.GetValue(Current!)!;
         Check(materials.CachedMaterials==1&&materials.Ready,label+": real material scope has the known overlay");
@@ -128,6 +113,37 @@ public static class LoadingSourceFixture
         LoadingSourceBoundary.FrameCount++;
         return Current!;
     }
+    private static void OutputValidation(RenderTexture source)
+    {
+        Stage("ordinary full-size output, resolves and refusal guards");
+        var eye=Camera.MonoOrStereoscopicEye.Left;
+        using(var direct=new SceneEyeOutput())
+        {
+            var destination=Keep(new RenderTexture(source.width,source.height,0,RenderTextureFormat.ARGB32,RenderTextureReadWrite.Linear));
+            Check(destination.Create(),"created equal-size ordinary destination");
+            Check(direct.TryRenderOrdinary(source,destination,eye)==SceneEyeResult.Rendered,"full-size ordinary output admitted");
+            Color original=At(source,.75f,.5f),copied=At(destination,.75f,.5f);
+            Near(copied.r,original.r,"ordinary output preserves contributed RGB");
+            Near(copied.a,original.a,"ordinary output preserves fractional coverage");
+            Check(direct.TryRenderOrdinary(source,source,eye)==SceneEyeResult.SourceDestinationAlias,"borrowed source cannot alias destination");
+            Check(direct.TryRenderOrdinary(source,destination,Camera.MonoOrStereoscopicEye.Mono)==SceneEyeResult.UnknownEye,"unknown eye refuses without drawing");
+            var smaller=Keep(new RenderTexture(128,128,0,RenderTextureFormat.ARGB32,RenderTextureReadWrite.Linear));smaller.Create();
+            Check(direct.TryRenderOrdinary(source,smaller,eye)==SceneEyeResult.DestinationShape,"no reduced-resolution carrier is admitted");
+            var hdr=Keep(new RenderTexture(256,256,0,RenderTextureFormat.ARGBHalf,RenderTextureReadWrite.Linear));hdr.Create();
+            Check(direct.TryRenderOrdinary(hdr,destination,eye)==SceneEyeResult.SourceFormat,"unsupported HDR refuses ordinary transfer profile");
+            foreach(int requested in new[]{2,4,8})
+            {
+                var msaa=Keep(new RenderTexture(256,256,0,RenderTextureFormat.ARGB32,RenderTextureReadWrite.Linear));
+                msaa.antiAliasing=requested;msaa.bindTextureMS=false;Check(msaa.Create(),"created ordinary MSAA source");
+                Graphics.Blit(source,msaa);
+                Check(direct.TryRenderOrdinary(msaa,destination,eye)==SceneEyeResult.Rendered,"ordinary Unity MSAA resolve preserves dimensions");
+                copied=At(destination,.75f,.5f);
+                Near(copied.r,original.r,"resolved ordinary output RGB");Near(copied.a,original.a,"resolved fractional coverage");
+            }
+            direct.Dispose();
+            Check(direct.TryRenderOrdinary(source,destination,eye)==SceneEyeResult.Disposed,"closed output refuses a stale callback");
+        }
+    }
     public static IEnumerator Run(string evidence,string bank)
     {
         output=evidence;result.unity=Application.unityVersion;result.backend=SystemInfo.graphicsDeviceType.ToString();
@@ -137,7 +153,7 @@ public static class LoadingSourceFixture
             Stage("initialize actual source components and shipping bank");
             Check(result.backend!="Null"&&result.color_space=="Gamma","Actual Gamma GPU required");
             ScenePayloadAssets.Load(bank);
-            Check(ScenePayloadAssets.TryGet(out _,out _,out _),"Exact shipping pack/coverage shaders supported");
+            Check(ScenePayloadAssets.TryGet(out _,out _),"Exact shipping coverage shaders supported");
             probe=Keep(new Material(Shader.Find("LoadingSourceFixture/Probe")));
             probeTarget=Keep(new RenderTexture(32,32,0,RenderTextureFormat.ARGBFloat,RenderTextureReadWrite.Linear));
             Check(probeTarget.Create(),"Small numeric probe target");read=Keep(new Texture2D(32,32,TextureFormat.RGBAFloat,false,true));
@@ -146,7 +162,7 @@ public static class LoadingSourceFixture
             Surface("Owned opaque depth",-.5f,opaque);glassRenderer=Surface("Owned real overlay",.5f,glass);
             var first=CameraFor("Original loading head");
             SteamLinkSceneRuntime.Reset();
-            Stage("initial left eye real raster");var previous=Enter(first,"Initial scene output prepares");Packed(first,"initial left");
+            Stage("initial left eye real raster");var previous=Enter(first,"Initial scene output prepares");Covered(first,"initial left");
 
             Stage("normal GameObject disable and same-camera re-enable");
             first.gameObject.SetActive(false);
@@ -155,32 +171,32 @@ public static class LoadingSourceFixture
             first.gameObject.SetActive(true);
             var resumed=Enter(first,"Normal camera re-enable must prepare a fresh scene output");
             Check(!ReferenceEquals(previous,resumed),"Recovery replaces normally closed component");result.resumes++;
-            yield return null;Packed(first,"same camera resumed");
+            yield return null;Covered(first,"same camera resumed");
 
             Stage("zero-camera loading gap");previous=Current!;
             Check(!SteamLinkSceneRuntime.TryEnter(null),"No camera retains no source");
             Check(!previous.Ready&&first.GetCommandBuffers(CameraEvent.AfterForwardOpaque).Length==0,"Zero-camera gap releases old source");
             Enter(first,"Same camera returns after zero-camera gap");result.resumes++;
-            yield return null;Packed(first,"after zero-camera gap");
+            yield return null;Covered(first,"after zero-camera gap");
 
             Stage("master MR OFF and ON without menu cancellation");previous=Current!;
             MixedReality.Enabled.Value=false;Ordinary(first,"master OFF");
             Check(!previous.Ready&&string.IsNullOrEmpty(previous.Failure),"Master OFF closes ownership without a render fault");
             SteamLinkSceneRuntime.Exit();MixedReality.Enabled.Value=true;
             Enter(first,"Master ON prepares current camera");result.resumes++;
-            yield return null;Packed(first,"master ON resumed");
+            yield return null;Covered(first,"master ON resumed");
 
             Stage("actual camera replacement and destruction");previous=Current!;
             var second=CameraFor("Replacement loading head");Enter(second,"Replacement camera prepares");
             Check(!previous.Ready&&first.GetCommandBuffers(CameraEvent.AfterForwardOpaque).Length==0,"Camera replacement releases old commands");
             Object.DestroyImmediate(first.gameObject);result.resumes++;
             LoadingSourceBoundary.CurrentEye=Camera.MonoOrStereoscopicEye.Right;
-            yield return null;Packed(second,"replacement right eye");
+            yield return null;Covered(second,"replacement right eye");
             previous=Current!;Object.DestroyImmediate(second.gameObject);
             Check(!previous.Ready,"Actual camera destruction closes source");
             Check(!SteamLinkSceneRuntime.TryEnter(null)&&!SteamLinkSceneRuntime.Active,"Destroyed camera gap has no stale source");
             var third=CameraFor("Post-destruction loading head");Enter(third,"Post-destruction camera prepares");result.resumes++;
-            yield return null;Packed(third,"post destruction resumed");
+            yield return null;Covered(third,"post destruction resumed");
 
             Stage("actual nonempty attachment fault stays refused");previous=Current!;
             third.allowHDR=true;Ordinary(third,"HDR attachment fault");
@@ -188,7 +204,7 @@ public static class LoadingSourceFixture
             third.allowHDR=false;
             Check(!SteamLinkSceneRuntime.TryEnter(third),"Restoring attachments alone must not reopen failed head");result.fault_refusals++;
             SteamLinkSceneRuntime.Reset();Enter(third,"Explicit reset recovers actual failed head");
-            yield return null;Packed(third,"after explicit fault reset");
+            yield return null;Covered(third,"after explicit fault reset");
 
             Stage("temporary mono XR render closes without poisoning the returning head");previous=Current!;
             LoadingSourceBoundary.CurrentEye=Camera.MonoOrStereoscopicEye.Mono;
@@ -196,8 +212,9 @@ public static class LoadingSourceFixture
             Check(!previous.Ready&&string.IsNullOrEmpty(previous.Failure),"Temporary mono closes without an attachment fault");
             LoadingSourceBoundary.CurrentEye=Camera.MonoOrStereoscopicEye.Left;
             Enter(third,"Stereo recovery after temporary mono needs no explicit reset");result.resumes++;
-            yield return null;Packed(third,"final left resumed");
-            Check(result.resumes==6&&result.fault_refusals==1&&result.guard_cells==96,"All bounded lifecycle/raster cases executed");
+            yield return null;Covered(third,"final left resumed");
+            OutputValidation(third.targetTexture);
+            Check(result.resumes==6&&result.fault_refusals==1,"All bounded lifecycle/raster cases executed");
             result.passed=true;
         }
         finally

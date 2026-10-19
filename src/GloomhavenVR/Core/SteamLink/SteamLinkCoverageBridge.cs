@@ -35,13 +35,14 @@ internal static class SteamLinkCoverageBridge
         State.Tick(requested, nowSeconds);
         Snapshot current = State.Current;
         if (!requested) { _reports = 0; _lastAccept = _lastOperational = false; return; }
-        if ((current.CanAcceptOrdinaryRgba != _lastAccept || current.CoverageOperational != _lastOperational)
+        if ((_reports == 0 || current.CanAcceptOrdinaryRgba != _lastAccept || current.CoverageOperational != _lastOperational)
             && _reports < 8)
         {
             _reports++;
             VRLog.Info("Core", "Steam Link coverage bridge: ordinary RGBA source="
                 + current.CanAcceptOrdinaryRgba + "; native coverage operational=" + current.CoverageOperational
-                + ". Source negotiation alone does not prove a displayed image.");
+                + ". Without a compatible paired companion the normal game image remains visible. "
+                + "Source negotiation alone does not prove a displayed image.");
         }
         _lastAccept = current.CanAcceptOrdinaryRgba; _lastOperational = current.CoverageOperational;
     }
@@ -119,7 +120,7 @@ internal static class SteamLinkCoverageBridge
                                 if (_wanted && epoch == _epoch && !token.IsCancellationRequested) _current = value;
                         }, token).ConfigureAwait(false);
                     }
-                    catch (Exception) { /* Optional bridge absence preserves the requested legacy route. */ }
+                    catch (Exception) { /* Optional bridge absence preserves the normal game image. */ }
                     finally
                     {
                         Task? cancellation;
