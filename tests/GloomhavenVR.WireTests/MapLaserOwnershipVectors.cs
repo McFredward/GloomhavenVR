@@ -91,8 +91,38 @@ internal static class MapLaserOwnershipVectors
             "screen cancellation clears latch, pan and native drag without a click");
         string grab = Read("Hands/Interact/RayGrabDriver.cs");
         t.True(grab.Contains("else _lastCarryFrame = Time.frameCount;"), "successful same-frame ForceGrab claims release lifetime");
-        t.True(grab.Contains("if (_hand.Grabber.Held is PanelGrabHandle) _lastCarryFrame = Time.frameCount;"),
+        t.True(CarryStampWired(grab),
             "carry observed before ProximityGrabber releases preserves that frame");
+        t.True(!CarryStampWired(grab.Replace("_lastCarryFrame = Time.frameCount;", "")),
+            "negative control rejects a held carry without its release-frame stamp");
+        string hand = Read("Hands/VRHand.cs");
+        t.True(CarryTickOrderWired(hand), "live hand ticks RayGrab before ProximityGrabber can release Held");
+        string reversedTicks = Regex.Replace(hand, @"\b(RayGrab|Grabber)(\s*\.\s*Tick\s*\(\s*\)\s*;)",
+            match => (match.Groups[1].Value == "RayGrab" ? "Grabber" : "RayGrab") + match.Groups[2].Value);
+        t.True(!CarryTickOrderWired(reversedTicks), "negative control rejects release before carry observation");
+    }
+
+    // The active carry also claims the trigger, so its stamp may be inside a block.
+    // Require the original held-panel condition at Tick entry, before any early return.
+    private static bool CarryStampWired(string source) => Regex.IsMatch(source,
+        @"\binternal\s+void\s+Tick\s*\(\s*\)\s*\{\s*if\s*\(\s*_hand\.Grabber\.Held\s+is\s+PanelGrabHandle\s*\)\s*(?:\{\s*)?_lastCarryFrame\s*=\s*Time\.frameCount\s*;");
+
+    private static bool CarryTickOrderWired(string source)
+    {
+        Match declaration = Regex.Match(source, @"\bprivate\s+void\s+UpdateBody\s*\(\s*\)\s*\{");
+        if (!declaration.Success) return false;
+        int open = declaration.Index + declaration.Length - 1;
+        int depth = 1, end = open + 1;
+        for (; end < source.Length && depth > 0; end++)
+        {
+            if (source[end] == '{') depth++;
+            else if (source[end] == '}') depth--;
+        }
+        if (depth != 0) return false;
+        string body = source.Substring(open + 1, end - open - 2);
+        MatchCollection ray = Regex.Matches(body, @"\bRayGrab\s*\.\s*Tick\s*\(\s*\)\s*;");
+        MatchCollection grabber = Regex.Matches(body, @"\bGrabber\s*\.\s*Tick\s*\(\s*\)\s*;");
+        return ray.Count == 1 && grabber.Count == 1 && ray[0].Index < grabber[0].Index;
     }
 
     private static bool FlatYieldWired(string source)
