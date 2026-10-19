@@ -612,7 +612,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 713;
+    public const ushort ModBuild = 714;
+
+    // ModBuild714 — preserve the owned tracked menu head across native anchor swaps.
+    // A disabled/destroyed native intro/menu camera is not loss of our still-valid
+    // rig. Keep the same head, pose and current source while resolving a live anchor;
+    // do not copy over MR-owned camera settings or re-arm recenter on rebind. Real
+    // context changes, explicit rebuilds and owned-object loss still tear down.
+    // Actual Unity lifecycle and GPU source callbacks cover anchor gaps and causal
+    // regressions; no cached eye/mask, source-authority or wire change is introduced.
+    // Paired patch0.2.11 separately repairs exact decoder wait completion; its new
+    // hardware outcome remains to be checked with this build.
 
     // ModBuild713 — keep mixed-reality initiative backing behind its actual symbols.
     // The native initiative reorder writes world-X coordinates. At the rotated VR dock

@@ -14,6 +14,35 @@ visual acceptance is claimed. See `.planning/retired-PILLAR-LOD-20261019.md`.
 
 # State — where the project stands
 
+
+**Menu source continuity and paired handoff, Build714 / patch0.2.11, 2026-10-19.**
+The prerelease game713/patch0.2.10 paired audit proves that a disabled native
+intro/menu anchor tears down the still-valid owned head and closes requested MR
+coverage. Keep that same tracked menu head/root/pose through native-anchor gaps;
+rebind a live successor without re-centering or replacing MR-owned camera state.
+Real kind changes, explicit rebuilds, VR-off and owned-object loss still teardown.
+No previous eye/mask, foreign-source permission or image-resolution change.
+
+New actual Unity lifecycle/GPU-source fixture exercises12 anchor replacements,
+1,126 assertions/110 render callbacks and three compiling causal controls: old
+teardown genuinely closes the source, forced rebind pose and clear-owner mutation
+fail independently. It does not execute the full MR owner, real XR or receiver.
+The local suite is registered with its inventory (231 local,102 CI,16 source).
+Focused scene-startup/render-quality/frame-order plus worker strict Debug/Release
+pass. Integrated checks and final scope are recorded under
+`.planning/debug/menu745/`; no new complete local or headset acceptance claimed.
+
+Native patch0.2.11 repairs proven missing worker requeue wake and optional decoder
+waiting for exact permanently rejected OUTPUT tokens. Full current lease checks,
+authenticated positive Ready, camera/GPU ownership and emergency deadline remain.
+Process305, Runtime2739, Local197 plus sanitizer/causal evidence is retained in
+`.planning/debug/steamlink-sender745/`. Aggregate hardware timeouts do not prove
+which rejected token caused either event. No Frame mutation/restart was performed.
+Developer API/wire/build docs and historical-route warnings are now current in
+the native repository. The previous CI inventory repair's full runtime run is
+tracked separately; focused success is not relabeled a new full gate.
+
+
 **Release preflight test inventory, 2026-10-19 (Build713 unchanged).**
 CI39305984255 passed all four runtime shards but its source job rejected the newly
 registered local-only `mr-backing-depth-runtime` suite: the expected local inventory

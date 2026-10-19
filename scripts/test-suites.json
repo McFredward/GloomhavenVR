@@ -2871,6 +2871,20 @@
       "weight": 8
     },
     {
+      "id": "menu-rig-lifecycle",
+      "command": [
+        "python3",
+        "-B",
+        "tests/menu-rig-lifecycle/run.py",
+        "--output",
+        ".planning/debug/menu-rig-lifecycle"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
       "id": "steamlink-loading-source",
       "command": [
         "python3",
