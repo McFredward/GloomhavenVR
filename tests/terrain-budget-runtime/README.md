@@ -10,9 +10,8 @@ verified native structural streams through the actual production mesh decoder. A
 command buffers and `Camera.Render` callbacks execute; there is no simulated
 renderer or pixel oracle substituted for the production fragment.
 
-The production case makes 7,021 assertions. One hundred six independently compiled
-negative variants each corrupt a production statement and must fail at a named
-assertion. Shader compilation failures and unrelated exceptions never count as
+The production case makes 7,027 assertions. Independently compiled negative
+variants each corrupt a production statement and must fail at a named assertion. Shader compilation failures and unrelated exceptions never count as
 passing negative controls. `--production-only` and repeatable `--case NAME` are
 partial development runs; selected cases always retain the production baseline.
 Use `UNITY_PATH` or `--unity` for an editor override.
@@ -64,6 +63,26 @@ Temporary bank readiness retains pending discovery without replacing sources.
 Terminal failure clears discovery, preserves native continuation and reports
 one bounded ordinary-level fallback. A later ready bank reseeds the scene.
 A shader-resolver failure restores originals and reports once.
+
+## Detached LOD renderer ownership
+
+The wall material reader is extracted directly from `WallSegmentFade.ReadFacts.cs`.
+Real prepared terrain proxies publish no canonical material to the wall collectors:
+the source renderer remains their sole decision/fade/visibility owner. Otherwise a
+world shader resolving back to `Amp_Basic_WallFade` can enroll those detached
+proxies as another shared wall under the mod host, independently of the native
+wall that is actually clear. This applies to desktop and standalone alike.
+
+Exact registry membership is tested for a live actual proxy, its native source,
+a name/material/layer-identical foreign clone and removal before deferred Unity
+destruction. No hierarchy scan or name-based exemption is introduced. The two
+`terrain-proxy-ledger-*` controls remove registration or disposal respectively.
+The complementary wall-read-facts suite executes the real cold classifier,
+shader-adoption input and structural signature; removing the exact-owner guard
+must fail its named duplicate-adoption assertion. Ten thousand private reads
+perform no native material-list query in that counted fixture. A separate actual
+Unity reader microbenchmark records host CPU time without using it as a speed
+assertion or a complete LOD/GPU/headset FPS claim.
 
 ## Independently verified captured structural definitions
 

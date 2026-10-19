@@ -31,6 +31,13 @@ internal static partial class ScenarioTerrainBudget
     private static Func<Renderer, bool>? _performanceWallHidden;
     private static Driver? _driver;
     private static bool _failed;
+    // Exact private draws are not new scenery. A shared world variant resolves
+    // back to an original WallFade material, whose shader-adoption lane deliberately
+    // accepts mod-named meshes. Without this owner ledger the detached LOD proxies
+    // can become one unrelated wall under the terrain driver and acquire a second
+    // fade decision. Keep native sources as the only wall-table inputs on every OS.
+    private static readonly HashSet<Renderer> PrivateRenderers = new();
+    internal static bool IsPrivateRenderer(Renderer renderer) => PrivateRenderers.Contains(renderer);
     private const string ShaderName = "GloomhavenVR/ScenarioCheapTerrain";
 
     // A verified immutable original bank is required, even for geometry whose CPU copy

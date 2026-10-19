@@ -80,6 +80,8 @@ def main():
         '    internal static void CopyVisualRoots(List<GameObject> destination)\n    {\n        GloomhavenVR.Core.TerrainOwnershipObserver.RootCopies++;')
     wall_path=(args.wall_source_root.resolve() if args.wall_source_root else root)/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.HoldQuery.cs'
     wall_source=wall_path.read_text()
+    read_facts_path=wall_path.with_name('WallSegmentFade.ReadFacts.cs')
+    read_facts=read_facts_path.read_text()
     # Bind extraction to the same source bytes later recorded in the final receipt;
     # this also catches a parallel worker editing the optional cross-lane source
     # between extraction and the native coverage export.
@@ -87,9 +89,15 @@ def main():
         for p,value in zip(paths[:4]+ownership_paths+[wall_path,figure_path,figure_bank_path], [source,geometry,admission,shader,prop,held,remote,wall_source,figure,figure_bank])}
     extracted_hashes[str(core_path)]=hashlib.sha256(core.encode()).hexdigest()
     hide='using System.Collections.Generic; using UnityEngine;\nnamespace GloomhavenVR.Core { internal sealed class TerrainWallHide {\nprivate readonly HashSet<Renderer> _hidByEnable = new();\ninternal bool Owns(Renderer r) => _hidByEnable.Contains(r);\nprivate static bool FloorNeverFades(Renderer r) => false;\nprivate static bool HeldNeverFades(Renderer r) => false;\n'+method(wall_source,'    internal void HideByEnable(Renderer r)')+'}\n}\n'
+    wall_materials='using System.Collections.Generic; using UnityEngine; namespace GloomhavenVR.Core { internal static class TerrainWallMaterialReads { private static Material FadeSourceMaterial(Material material) => Canonical(material); internal static System.Func<Material,Material> Canonical = material => material;\n'+method(read_facts,'        private static void ReadFadeMaterials(').replace('private static void ReadFadeMaterials','internal static void ReadFadeMaterials')+'} }\n'
+    extracted_hashes[str(read_facts_path)]=hashlib.sha256(read_facts.encode()).hexdigest()
     assert 'StaticBatchingUtility' not in source+geometry and 'SetStaticBatchInfo' not in source+geometry
     assert not re.search(r'(?<![\w])(?:Filter\.sharedMesh|Renderer\.sharedMaterials)\s*=(?!=)', source+geometry), 'native cloning sources must stay unchanged'
     controls=[
+        ('terrain-proxy-ledger-missing', 'PrivateRenderers.Add(_proxyRenderer);',
+         '/* injected lost exact renderer ownership */', 'actual private terrain renderer is exempt from detached wall adoption', geometry, 1),
+        ('terrain-proxy-ledger-retained', 'PrivateRenderers.Remove(_proxyRenderer);',
+         '/* injected retired renderer ownership */', 'disposed terrain renderer releases exact private ownership before native destruction', geometry, 1),
         ('pillar-radial-aabb-regression', 'float metres = surface.HeadDistanceAndRadius(detail.Position, bounds, detail.PillarDistanceLod,\n                out float radius) / detail.Scale;',
          'float radius = 0f; float metres = Vector3.Distance(detail.Position, surface.Renderer.bounds.ClosestPoint(detail.Position)) / detail.Scale;',
          'fixed-radius pillar head proximity restores exact geometry at every orbit angle', source, 1),
@@ -370,7 +378,7 @@ def main():
     (run/'native-pillar-verification.log').write_text(pillar_result.stdout+pillar_result.stderr)
     print(pillar_result.stdout,end='')
     pillars=json.loads((run/'native-pillar-coverage.json').read_text())
-    inputs=paths+ownership_paths+[wall_path,core_path,figure_path,figure_bank_path,Path(__file__).resolve(),Path(native['nativeBundle']),
+    inputs=paths+ownership_paths+[wall_path,read_facts_path,core_path,figure_path,figure_bank_path,Path(__file__).resolve(),Path(native['nativeBundle']),
         root/'tools/environment-mesh/export-native.py',
         root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json']
     inputs+=sorted(p for p in fixture.rglob('*') if p.is_file())
@@ -437,6 +445,7 @@ def main():
             '_propRoots.Add(TerrainOwnershipObserver.VisualTransform(visual));')
         (production/'Admission.cs').write_text(observed_admission)
         (production/'PropOwnership.cs').write_text(ownership)
+        (production/'WallMaterialReads.cs').write_text(wall_materials)
         (production/'WallHide.cs').write_text(observed_wall.get(name,hide))
         (production/'WallRelease.cs').write_text('using System; using UnityEngine; namespace GloomhavenVR.Core { internal static class TerrainFinalWallRelease { private static readonly Action<Renderer> Release = '+observed_callback.get(name,callback)+'; internal static void Invoke(Renderer renderer) => Release(renderer); } }')
         (production/'MeshStream.cs').write_text(paths[4].read_text())

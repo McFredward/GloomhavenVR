@@ -17,6 +17,7 @@ namespace GloomhavenVR.Core
     internal static class ScenarioTerrainBudget
     {
         internal static bool HasCurrentRenderLease(Renderer renderer) => false;
+        internal static bool IsPrivateRenderer(Renderer renderer) => false;
     }
     internal static partial class WallSegmentFade
     {
