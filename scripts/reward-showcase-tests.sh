@@ -2,7 +2,23 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
-project="$repo_root/tests/GloomhavenVR.RewardShowcaseTests/GloomhavenVR.RewardShowcaseTests.csproj"
+# Generated projects live in one explicit owned run. The central runner removes
+# only their bin/obj through cleanup_completed_run after killing/reaping children;
+# input copies, native seams, failures and per-control logs remain reviewable.
+mkdir -p "$repo_root/.planning/debug/reward-showcase"
+run_root="$(python3 - "$repo_root/.planning/debug/reward-showcase" <<'PYRUN'
+import sys, tempfile
+print(tempfile.mkdtemp(prefix='run-', dir=sys.argv[1]))
+PYRUN
+)"
+echo "Reward showcase evidence: $run_root"
+project_dir="$run_root/production"
+mkdir -p "$project_dir"
+cp "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/"*.cs "$project_dir/"
+cp "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/GloomhavenVR.RewardShowcaseTests.csproj" "$project_dir/"
+project="$project_dir/GloomhavenVR.RewardShowcaseTests.csproj"
+export DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER=1
+export MSBUILDDISABLENODEREUSE=1
 # Overrides let isolated review worktrees test another lane before integration; hosted
 # and normal local gates always use their own committed production files.
 continue_button_source="$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardContinueButton.cs"
@@ -16,8 +32,18 @@ lifecycle_source="${REWARD_LIFECYCLE_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI
 window_panel_source="${REWARD_WINDOW_PANEL_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.3.WindowPanel.cs}"
 screen_bind_source="${REWARD_SCREEN_BIND_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.12.ScreenBind.cs}"
 close_source="${REWARD_CLOSE_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.7.Close.cs}"
-mutation_dir="$(mktemp -d)"
-trap 'rm -rf "$mutation_dir"' EXIT
+mutation_dir="$run_root/mutations"
+mkdir -p "$mutation_dir"
+button_source="${REWARD_BUTTON_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardShowcaseButton.cs}"
+python3 - "$button_source" "$run_root/RewardButton.fixture" <<'PYBUTTON'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+start = source.index('    internal void Tick(UIRewardsManager owner, bool canConfirm)')
+end = source.index('\n    private void Build(', start)
+callback = '    private static void Continue() => RewardShowcase.TryConfirm();'
+assert source.count(callback) == 1
+pathlib.Path(sys.argv[2]).write_text('namespace GloomhavenVR.WorldUI;\ninternal sealed partial class RewardShowcaseButton\n{\n' + source[start:end] + '\n' + callback + '\n}\n')
+PYBUTTON
 python3 - "$poll_source" "$conversion_source" "$lifecycle_source" "$window_panel_source" "$screen_bind_source" "$mutation_dir" "$close_source" <<'PY'
 import pathlib, re, sys
 poll, conversion, lifecycle, window_panel, screen_bind, out, close = map(pathlib.Path, sys.argv[1:])
@@ -55,12 +81,20 @@ assert 'SetPanelRenderVisible(panel, visible: false);' in hold and 'return;' in 
 PY
 native_source="$repo_root/decompiled/GH.Runtime/UIRewardsManager.cs"
 if [[ -f "$native_source" ]]; then
-    python3 - "$native_source" "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/NativeRewardProcess.cs" <<'PYCOMPARE'
+    python3 - "$native_source" "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/NativeRewardProcess.cs" "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/NativeRewardLifecycle.cs" <<'PYCOMPARE'
 import pathlib, sys
-a, b = (pathlib.Path(p).read_text() for p in sys.argv[1:])
+a, b, lifecycle = (pathlib.Path(p).read_text() for p in sys.argv[1:])
 start = a.index('\tprivate IEnumerator<float> ProcessRewards(')
 end = a.index('\n\tprivate void InstanceOnEscMenuStateChanged', start)
 assert a[start:end] in b, 'Native reward coroutine fixture diverged from the game reference'
+for signature, following in (
+    ('\tpublic void StartRewardsShowcase(List<RewardGroup>', '\n\tpublic void MoveToNextReward()'),
+    ('\tprivate void EndProcess()', '\n\tpublic void ClientProcessNextReward')):
+    start = a.index(signature)
+    end = a.index(following, start)
+    assert a[start:end] in lifecycle, 'Native reward lifecycle fixture diverged: ' + signature
+for field in ('processingRewards', 'networkProcessIfServer', 'isConfirmPressed'):
+    assert '\tprivate bool ' + field + ';' in a, 'Native construction default changed: ' + field
 PYCOMPARE
 fi
 if [[ -f "$repo_root/decompiled/GH.Runtime/UIGuildmasterAdventureRewardsManager.cs" ]]; then
@@ -77,6 +111,8 @@ PYMAP
 fi
 dotnet run --project "$project" --configuration Release \
     --property:RepositorySourceRoot="$repo_root/src/GloomhavenVR" \
+    --property:RewardButtonFixture="$run_root/RewardButton.fixture" \
+    --property:UseSharedCompilation=false \
     --property:ContinueButtonSource="$continue_button_source" \
     --property:RewardSource="$reward_source" \
     --property:IdentitySource="$identity_source" \
@@ -86,15 +122,18 @@ dotnet run --project "$project" --configuration Release \
 cp "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
 dotnet restore "$mutation_dir/GloomhavenVR.RewardShowcaseTests.csproj" --verbosity quiet
-for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter map-scenario-gate hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable map-reward-binding map-location-binding map-duplicate-binding unlock-target postquest-reveal postquest-duplicate postquest-success intro-focus intro-block postquest-pose; do
-    python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" "$continue_button_source" "$map_buttons_source" <<'PY'
+for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter map-scenario-gate hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable map-reward-binding map-location-binding map-duplicate-binding unlock-target postquest-reveal postquest-duplicate postquest-success intro-focus intro-block postquest-pose native-esc-veto native-manager-enabled button-disabled; do
+    python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" "$continue_button_source" "$map_buttons_source" "$run_root/RewardButton.fixture" <<'PY'
 import pathlib, sys
 reward, identity, placement, out = map(pathlib.Path, sys.argv[1:5])
-sources = {'Reward': reward.read_text(), 'Identity': identity.read_text(),
+sources = {'Button': pathlib.Path(sys.argv[8]).read_text(), 'Reward': reward.read_text(), 'Identity': identity.read_text(),
            'PostQuest': (reward.parent / 'PostQuestRewardSync.cs').read_text(),
            'Introduction': (reward.parent / 'PostQuestRewardSync.Introduction.cs').read_text(),
            'MapButtons': pathlib.Path(sys.argv[7]).read_text(), 'Placement': placement.read_text(), 'Continue': pathlib.Path(sys.argv[6]).read_text(), 'Poll': (out / 'RewardPoll.fixture').read_text()}
 mutations = {
+    'native-esc-veto': ('Reward', 'if (FlatScreen.ManualScreenActive) return ContinueBlock.ManualScreen;', 'if (FlatScreen.ManualScreenActive || (Singleton<ESCMenu>.IsInitialized && Singleton<ESCMenu>.Instance.IsOpen)) return ContinueBlock.ManualScreen;'),
+    'native-manager-enabled': ('Reward', 'if (guild == null || !guild.ProcessingRewards)', 'if (guild == null || !guild.isActiveAndEnabled || !guild.ProcessingRewards)'),
+    'button-disabled': ('Button', '_button.interactable = canConfirm;', '_button.interactable = false;'),
     'postquest-pose': ('PostQuest', 'Ledger.MatchesPose(_opening, sender, localPlayerId, entry.Epoch, entry.Token)', 'true'),
     'postquest-reveal': ('PostQuest', '!window.isRevealing', 'true'),
     'postquest-duplicate': ('PostQuest', '_consumed = true;', '_consumed = false;'),
@@ -127,6 +166,9 @@ for name, text in sources.items():
     (out / (name + '.mutant')).write_text(text)
 PY
     case "$mutation" in
+        native-esc-veto) expected='visible chest Continue remains pointer-actionable with native ESC window open' ;;
+        native-manager-enabled) expected='live MEC reward Continue remains pointer-actionable on a disabled manager' ;;
+        button-disabled) expected='guild continuation surface is attached to actionable native owner' ;;
         postquest-pose) expected='stale pose cannot bind repeated native reward group' ;;
         postquest-reveal) expected='remote postquest completion waits for native reward reveal' ;;
         postquest-duplicate) expected='repeated remote and local postquest input cannot double callback' ;;
@@ -154,20 +196,22 @@ PY
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.RewardShowcaseTests.csproj" --configuration Release --no-restore \
         --property:RepositorySourceRoot="$repo_root/src/GloomhavenVR" \
-    --property:ContinueButtonSource="$mutation_dir/Continue.mutant" \
+    --property:RewardButtonFixture="$mutation_dir/Button.mutant" \
+        --property:UseSharedCompilation=false \
+        --property:ContinueButtonSource="$mutation_dir/Continue.mutant" \
         --property:PostQuestSource="$mutation_dir/PostQuest.mutant" \
         --property:IntroductionSource="$mutation_dir/Introduction.mutant" \
         --property:RewardSource="$mutation_dir/Reward.mutant" \
         --property:IdentitySource="$mutation_dir/Identity.mutant" \
         --property:PlacementSource="$mutation_dir/Placement.mutant" \
         --property:MapButtonsSource="$mutation_dir/MapButtons.mutant" \
-        --property:CatchAllSource="$mutation_dir/Poll.mutant" > "$mutation_dir/mutant.log" 2>&1; then
-        cat "$mutation_dir/mutant.log"
+        --property:CatchAllSource="$mutation_dir/Poll.mutant" > "$run_root/$mutation.log" 2>&1; then
+        cat "$run_root/$mutation.log"
         echo "FAIL: $mutation escaped reward showcase test." >&2
         exit 1
     fi
-    if ! rg -qF "$expected" "$mutation_dir/mutant.log"; then
-        cat "$mutation_dir/mutant.log"
+    if ! rg -qF "$expected" "$run_root/$mutation.log"; then
+        cat "$run_root/$mutation.log"
         exit 1
     fi
     echo "Reward showcase negative control: $mutation rejected."
