@@ -481,8 +481,10 @@ internal sealed class ProximityGrabber
         IGrabbable? target = FindNearestGripGrabbable();
         if (target != null)
         {
+            // A held bar occupies this hand, so a figure can no longer promise a trigger grab.
+            // Cards retain their historical no-flash hover during the independent grip route.
             BeginGrab(target, releaseOnTriggerUp: false, "grip", "proximity fall-through",
-                clearHighlight: false);
+                clearHighlight: IsFigure(Highlighted));
             return;
         }
         LogRefusal($"'{DescribeGrabbable(Highlighted!)}' is trigger-only (cards and figures " +
