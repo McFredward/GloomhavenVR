@@ -17,9 +17,12 @@ internal static class AnnouncementContinue
     private static bool _enabled;
     private static int _lastConfirmFrame = -1;
 
+    // ESC is an independent floating window in VR. Its IsOpen is not a native pointer
+    // permission: ClickTrackerExtended.ProcessClick has no ESC veto, and controller
+    // unfocus may disable the tracker while enableTracker still owns the ready reveal.
+    // Keep that reveal latch and character authority, rather than the gamepad's focus gate.
     internal static bool CanConfirm => _enabled && WorldUIConfig.ConversionActive
         && !FlatScreen.ManualScreenActive
-        && !(Singleton<ESCMenu>.IsInitialized && Singleton<ESCMenu>.Instance.IsOpen)
         && _owner != null && _owner.isActiveAndEnabled
         && Singleton<UILevelUpWindow>.IsInitialized
         && ReferenceEquals(_owner, Singleton<UILevelUpWindow>.Instance)

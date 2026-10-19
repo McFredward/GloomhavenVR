@@ -27,7 +27,7 @@ mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.AnnouncementTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in readiness direct-callback duplicate-frame ownership selection hidden; do
+for mutation in readiness direct-callback duplicate-frame ownership selection hidden pause-veto; do
     python3 - "$source_file" "$mutation_dir/Announcement.mutant" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -39,6 +39,7 @@ mutations={
 'ownership': ('(!FFSNetwork.IsOnline || _owner.character.IsUnderMyControl)', 'true'),
 'selection': ('&& IsLive(_owner.myWindow) && _owner.IsShowing', '&& IsLive(_owner.myWindow)'),
 'hidden': ('&& window.IsOpen;', ';'),
+'pause-veto': ('&& !FlatScreen.ManualScreenActive', '&& !FlatScreen.ManualScreenActive\n        && !(Singleton<ESCMenu>.IsInitialized && Singleton<ESCMenu>.Instance.IsOpen)'),
 }
 a,b=mutations[sys.argv[3]]
 assert s.count(a)==1
@@ -51,6 +52,7 @@ PY
         ownership) expected="observer cannot advance another player's level-up" ;;
         selection) expected='card choice is not an announcement' ;;
         hidden) expected='hidden pooled window rejects stale click' ;;
+        pause-veto) expected='an independently open ESC menu cannot veto a ready native announcement' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.AnnouncementTests.csproj" --configuration Release \
         --property:AnnouncementSource="$mutation_dir/Announcement.mutant" > "$mutation_dir/mutant.log" 2>&1; then
