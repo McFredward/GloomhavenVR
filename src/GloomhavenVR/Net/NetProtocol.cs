@@ -612,7 +612,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 711;
+    public const ushort ModBuild = 712;
+
+    // ModBuild712 — Quest hardware follow-up after the confirmed B711 startup.
+    // Retain exact-decoder camera-plane suppression for packed movies, qualify
+    // actual visible menu content before spinner handoff, and prevent detached
+    // terrain LOD draws from receiving a second unrelated wall fade decision.
+    // Submit only the original ping billboards via reused COLOR-bearing meshes;
+    // original simulation/material/timing and confirmed slot/audio fixes remain.
+    // Compact code update; original Campaign, movie recipes and art unchanged.
+    // Native fixture/source checks are separate from Adreno/headset validation.
 
     // ModBuild711 — retain the actual WorldUI startup registration after the
     // two reviewed movie transpilers have been applied before Quest AOT.
