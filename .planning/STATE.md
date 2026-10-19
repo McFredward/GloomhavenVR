@@ -1,3 +1,17 @@
+**Structural pillar LOD retired, 2026-10-19.**
+The maintainer explicitly requested removing the shared PC/Steam Frame and Quest
+pillar LOD, active settings and reduced distribution meshes. History was recorded
+first in f15e66459; removal and actual bank qualification follow in28f5371df and
+ceef048f8. Native pillar geometry/visibility is retained. The hidden old config key
+is inert; figure LOD and ordinary wall detail are unchanged. All261 reduced streams
+and261metadata files (14,396,885rawbytes) are removed; the actual rebuilt Windows
+bank shrinks4,496,780bytes to52,361,903. Its2,909streams decode successfully;
+1,139exactoriginals, including those shared with independent chunk rendering,
+remain. Focused terrain370 assertions/four causal controls, profiles328,
+help2,314, producer guards9 and strict Release0warnings/errors pass. The integrator
+also reran the source group16/16. No new complete local gameplay gate or headset
+visual acceptance is claimed. See `.planning/retired-PILLAR-LOD-20261019.md`.
+
 # State — where the project stands
 
 **Steam Link paired-only transport, Build710, 2026-10-19.**
