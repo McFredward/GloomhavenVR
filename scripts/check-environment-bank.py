@@ -198,6 +198,8 @@ def main():
         assert identity not in identities and entry['key'] not in preparation['ambiguousRejected'], 'unambiguous native identity'
         identities.add(identity)
         tiers = [variant['tier'] for variant in entry['variants']]
+        if 'pillar' in entry['signature']['name'].casefold():
+            assert tiers == [100], 'retired pillar LOD must not ship a reduced stream'
         assert len(set(tiers)) == len(tiers) and 100 in tiers and set(tiers) <= {0, 50, 100}, 'unique tiers with exact fallback'
         original_variant = next(variant for variant in entry['variants'] if variant['tier'] == 100)
         original_data = (prepared / original_variant['file']).read_bytes()

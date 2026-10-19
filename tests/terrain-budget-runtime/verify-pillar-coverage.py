@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independently read every pillar definition admitted by private terrain."""
+"""Independently verify retained exact native pillars and removed LOD streams."""
 import argparse
 import hashlib
 import importlib.util
@@ -20,7 +20,7 @@ def main():
     prepared = root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes'
     index = json.loads((prepared/'index.json').read_text())
     entries = {entry['signature']['name']: entry for entry in index['entries'] if entry['signature']['name'] in NAMES}
-    assert len(entries) == len(NAMES), 'all ten admitted pillar definitions exist in the verified immutable bank'
+    assert len(entries) == len(NAMES), 'all ten retired pillar definitions retain exact shared geometry'
     spec = importlib.util.spec_from_file_location('native_export', root/'tools/environment-mesh/export-native.py')
     exporter = importlib.util.module_from_spec(spec); spec.loader.exec_module(exporter)
     bundles = {}; results = []
@@ -35,16 +35,17 @@ def main():
         mesh = meshes[source['meshPathId']]; assert exporter.signature(mesh) == entry['signature'], 'independent complete native pillar metadata'
         raw = output/(entry['key']+'-pillar-native.bytes'); exporter.write(mesh, raw)
         exact = next(tier for tier in entry['variants'] if tier['tier'] == 100)
-        coarse = next(tier for tier in entry['variants'] if tier['tier'] == 0)
+        assert [tier['tier'] for tier in entry['variants']] == [100], 'retired pillars retain only exact shared streams'
+        coarse = exact
         assert raw.read_bytes() == (prepared/exact['file']).read_bytes(), 'every exact native pillar channel/index byte matches'
         raw.unlink()
-        for tier in (exact, coarse):
+        for tier in (exact,):
             assert hashlib.sha256((prepared/tier['file']).read_bytes()).hexdigest() == tier['sha256'], 'complete exact/coarse pillar stream digest'
         results.append({'name': name, 'exactPath': str(prepared/exact['file']), 'coarsePath': str(prepared/coarse['file']),
                         'sourceTriangles': sum(entry['signature']['indices'])//3, 'nativeBundle': str(original), 'nativeBundleSha256': sha,
                         'nativeMeshPathId': source['meshPathId'], 'bankSourcePaths': [p['path'] for p in entry['sources']]})
     (output/'native-pillar-coverage.json').write_text(json.dumps({'entries': results,
         'limits': ['Definition provenance, not procedural scene-instance census or current game LOD ownership.']}, indent=2)+'\n')
-    print('PASS independent native pillar coverage: all 10 admitted definitions; exact channel/index bytes and coarse digests verified')
+    print('PASS independent native pillar coverage: all 10 retired definitions; native exact bytes retained, reduced streams absent')
 
 if __name__ == '__main__': main()

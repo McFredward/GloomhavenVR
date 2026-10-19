@@ -1,5 +1,11 @@
 # Configurable private 3D terrain presentation
 
+As of2026-10-19, pillar LOD is removed on every platform at the maintainer's request. Only ordinary audited walls enter the terrain substitute owner.
+Pillars retain original geometry at every distance. The previous pillar
+implementation, tests and hardware findings are preserved in the
+[retirement record](../../.planning/retired-PILLAR-LOD-20261019.md); historical
+asset-definition totals below describe the original implementation.
+
 The maintainer's October 5, 2026 direction authorizes stronger 3D representation
 compromises, individually adjustable in the same PC/Steam Frame binary. A 2.5D
 board is explicitly excluded. Resolution remains the maintainer's own next-test
@@ -39,8 +45,8 @@ native floor and tactical object; there is no room deactivation, planar board,
 new scenery, MR backing, collider replacement or gameplay-state write.
 
 Admission requires a live `ProceduralWall` ancestor, `Generated Content`, native
-scenario ownership, immutable mesh-bank provenance and one of the twenty-five audited
-crypt/cave/city wall-body or pillar identities listed in `StructuralIdentity`.
+scenario ownership, immutable mesh-bank provenance and one of the fifteen audited
+crypt/cave/city ordinary wall-body identities listed in `StructuralIdentity`.
 `Floor` anywhere in a mesh name is vetoed, including `EN_CR_FloorHex_Edge_Even2`.
 Map-tile ownership alone, foundations/under-wall slabs, top caps, anonymous meshes
 and other bank members never authorize simplification. The October 6 extension adds exactly ten CR_INT wall/pillar definitions present

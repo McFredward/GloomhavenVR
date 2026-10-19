@@ -36,7 +36,6 @@ internal static partial class PerfConfig
     internal static int TerrainDetailPercent => Mathf.Clamp(ScenarioTerrainDetailPercent?.Value ?? Defaults.ScenarioTerrainDetailPercent, 0, 100);
     internal static int DistantTerrainDetailPercent => Mathf.Clamp(ScenarioDistantTerrainDetailPercent?.Value ?? Defaults.ScenarioDistantTerrainDetailPercent, 0, 100);
     internal static float TerrainDistanceMeters => Mathf.Clamp(ScenarioTerrainDistanceMeters?.Value ?? Defaults.ScenarioTerrainDistanceMeters, .1f, 10f);
-    internal static bool PillarDistanceLodEnabled => ScenarioTerrainPillarDistanceLod?.Value ?? Defaults.ScenarioTerrainPillarDistanceLod;
     internal static int TerrainCameraSourceLimit => Mathf.Clamp(ScenarioTerrainCameraSourceLimitCount?.Value ?? Defaults.ScenarioTerrainCameraSourceLimitCount, 0, 2048);
     internal static int WallVisibilityMode => Mathf.Clamp(WallVisibilityModeCount?.Value ?? Defaults.WallVisibilityModeCount, 0, 2);
     internal static int WallAutoHideBelowFps => Mathf.Clamp(WallAutoHideBelowFpsCount?.Value ?? Defaults.WallAutoHideBelowFpsCount, 5, 30);
@@ -75,7 +74,7 @@ internal static partial class PerfConfig
 
         ScenarioTerrainSubstitution = file.Bind("Optimize", "ScenarioTerrainSubstitution",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainSubstitution : Defaults.ScenarioTerrainSubstitution,
-            "Use prepared 3D substitutes for eligible walls and pillars. Off restores original geometry and stops substitute preparation, while the independent world-material mode still applies. This trades lower CPU preparation for potentially more GPU geometry work; compare in the same loaded view. Detail percentages and simpler-wall choices are retained for On. Works live on every platform; no room is hidden.");
+            "Use prepared 3D substitutes for eligible walls. Off restores original geometry and stops substitute preparation, while the independent world-material mode still applies. This trades lower CPU preparation for potentially more GPU geometry work; compare in the same loaded view. Detail percentages and simpler-wall choices are retained for On. Works live on every platform; no room is hidden.");
         ScenarioExplicitEnvironmentInstancing = file.Bind("Optimize", "ScenarioExplicitEnvironmentInstancing",
             FrameDefaults.Active ? FrameDefaults.ScenarioExplicitEnvironmentInstancing : Defaults.ScenarioExplicitEnvironmentInstancing,
             "Submit eligible repeated static environment geometry in small camera-bound groups. Restores original rendering on unsupported or changed sources. Works live on PC and Frame.");
@@ -90,19 +89,19 @@ internal static partial class PerfConfig
             new ConfigDescription("Ambient lighting for world material mode 2: 100 uses original scene ambient light to retain atmosphere; 0 shows raw textured color. Values between blend the two. Fine surface lighting remains omitted. Works live on every platform; modes 0/1 are unaffected.", new AcceptableValueRange<int>(0, 100)));
         ScenarioTerrainDetailPercent = file.Bind("Optimize", "ScenarioTerrainDetailPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainDetailPercent : Defaults.ScenarioTerrainDetailPercent,
-            new ConfigDescription("Eligible static wall and pillar mesh detail: 100 preserves original geometry, 0 uses the strongest available prepared 3D simplification. Near pillars retain original geometry even at 0. By default each pillar determines its own near range from its original size and camera distance using the figure LOD distance rules. Floors, doors, actors, targeting and gameplay collision remain available. Works live on PC and Frame.", new AcceptableValueRange<int>(0, 100)));
+            new ConfigDescription("Eligible static wall mesh detail: 100 preserves original geometry, 0 uses the strongest available prepared 3D simplification. Pillars retain original geometry at every distance. Floors, doors, actors, targeting and gameplay collision remain available. Works live on PC and Frame.", new AcceptableValueRange<int>(0, 100)));
         ScenarioDistantTerrainDetailPercent = file.Bind("Optimize", "ScenarioDistantTerrainDetailPercent",
             FrameDefaults.Active ? FrameDefaults.ScenarioDistantTerrainDetailPercent : Defaults.ScenarioDistantTerrainDetailPercent,
-            new ConfigDescription("Additional eligible wall and pillar mesh detail cap beyond ScenarioTerrainDistanceMeters. 100 keeps selected near detail; lower values use coarser prepared 3D geometry. Revealed rooms and tactical contents remain represented.", new AcceptableValueRange<int>(0, 100)));
+            new ConfigDescription("Additional eligible wall mesh detail cap beyond ScenarioTerrainDistanceMeters. 100 keeps selected near detail; lower values use coarser prepared 3D geometry. Revealed rooms and tactical contents remain represented.", new AcceptableValueRange<int>(0, 100)));
         ScenarioTerrainDistanceMeters = file.Bind("Optimize", "ScenarioTerrainDistanceMeters",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainDistanceMeters : Defaults.ScenarioTerrainDistanceMeters,
-            new ConfigDescription("Viewing distance in VR metres for the distant wall detail cap. Also controls the original-detail pillar radius when ScenarioTerrainPillarDistanceLod is Off. On lets each pillar use its own original size and the figure LOD distance rules instead. Pillar distance is radial from its surface and independent of head direction. Larger manual radii retain more original geometry. Works live.", new AcceptableValueRange<float>(.1f, 10f)));
+            new ConfigDescription("Viewing distance in VR metres for the distant wall detail cap. Pillars keep their original geometry at every distance. Works live.", new AcceptableValueRange<float>(.1f, 10f)));
         ScenarioTerrainPillarDistanceLod = file.Bind("Optimize", "ScenarioTerrainPillarDistanceLod",
             Defaults.ScenarioTerrainPillarDistanceLod,
-            "Each pillar independently selects detail from its distance to the VR camera and its own original model size, using the same size-relative switching rules as figures. No live figure or figure setting controls a pillar. Near pillars remain original even at 0% terrain detail. Off uses the saved ScenarioTerrainDistanceMeters radius. Radial and gaze-independent, with hysteresis; works live on every platform. More near original geometry can cost more GPU work.");
+            "INERT — pillar LOD was removed at the maintainer's request. Retained only to read existing configuration files; this value has no effect.");
         ScenarioTerrainCameraSourceLimitCount = file.Bind("Optimize", "ScenarioTerrainCameraSourceLimitCount",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainCameraSourceLimitCount : Defaults.ScenarioTerrainCameraSourceLimitCount,
-            new ConfigDescription("Maximum eligible 3D wall/pillar substitutes per eye: 0 is unlimited; lower positive limits reduce substitute preparation CPU work. Remaining surfaces keep their original 3D geometry and shading, which can increase rendering cost. No room is hidden. Works live; fresh Frame/Standalone profiles use 64.", new AcceptableValueRange<int>(0, 2048)));
+            new ConfigDescription("Maximum eligible 3D wall substitutes per eye: 0 is unlimited; lower positive limits reduce substitute preparation CPU work. Remaining surfaces keep their original 3D geometry and shading, which can increase rendering cost. No room is hidden. Works live; fresh Frame/Standalone profiles use 64.", new AcceptableValueRange<int>(0, 2048)));
 
     }
 }

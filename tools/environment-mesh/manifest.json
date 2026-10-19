@@ -3,7 +3,7 @@
   "source": "read-only pcg database MeshFilter originals",
   "unitypy": "1.25.2",
   "originals": 1139,
-  "variants": 3170,
+  "variants": 2909,
   "ambiguousRejected": [
     "22586d3a7dac7f517b517521",
     "2ef70e61108915f7a4b4c3d0",
@@ -55,28 +55,6 @@
       "sourceVertices": 190,
       "vertices": 190,
       "fixedBoundaryPositions": 75,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "3b248d121a10c8bcab4fb936",
-      "name": "EN_CR_Pillar_Thin",
-      "tier": 50,
-      "sourceTriangles": 2040,
-      "triangles": 362,
-      "sourceVertices": 1440,
-      "vertices": 1440,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "3b248d121a10c8bcab4fb936",
-      "name": "EN_CR_Pillar_Thin",
-      "tier": 0,
-      "sourceTriangles": 2040,
-      "triangles": 108,
-      "sourceVertices": 1440,
-      "vertices": 1440,
-      "fixedBoundaryPositions": 0,
       "sameIndexMorph": true
     },
     {
@@ -432,50 +410,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "1994ca5ca0c9391e96de608f",
-      "name": "SmallPillars",
-      "tier": 50,
-      "sourceTriangles": 1008,
-      "triangles": 384,
-      "sourceVertices": 1064,
-      "vertices": 1064,
-      "fixedBoundaryPositions": 200,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "1994ca5ca0c9391e96de608f",
-      "name": "SmallPillars",
-      "tier": 0,
-      "sourceTriangles": 1008,
-      "triangles": 224,
-      "sourceVertices": 1064,
-      "vertices": 1064,
-      "fixedBoundaryPositions": 200,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "4dc3b6d5e4729574ec492ea6",
-      "name": "CR_RU_UnderWall_01_Pillar",
-      "tier": 50,
-      "sourceTriangles": 1047,
-      "triangles": 345,
-      "sourceVertices": 1756,
-      "vertices": 1756,
-      "fixedBoundaryPositions": 15,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "4dc3b6d5e4729574ec492ea6",
-      "name": "CR_RU_UnderWall_01_Pillar",
-      "tier": 0,
-      "sourceTriangles": 1047,
-      "triangles": 151,
-      "sourceVertices": 1756,
-      "vertices": 1756,
-      "fixedBoundaryPositions": 15,
-      "sameIndexMorph": true
-    },
-    {
       "key": "b578556aa6131f402de363af",
       "name": "TERRAIN_Crypt_Thorns_Spikes",
       "tier": 50,
@@ -627,28 +561,6 @@
       "sourceVertices": 1707,
       "vertices": 1707,
       "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f80a68f1f25b127fe1c7fc23",
-      "name": "Pillars",
-      "tier": 50,
-      "sourceTriangles": 2016,
-      "triangles": 588,
-      "sourceVertices": 2272,
-      "vertices": 2272,
-      "fixedBoundaryPositions": 400,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f80a68f1f25b127fe1c7fc23",
-      "name": "Pillars",
-      "tier": 0,
-      "sourceTriangles": 2016,
-      "triangles": 448,
-      "sourceVertices": 2272,
-      "vertices": 2272,
-      "fixedBoundaryPositions": 400,
       "sameIndexMorph": true
     },
     {
@@ -905,28 +817,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "12f30da5a6452f1bcf5b3f61",
-      "name": "EN_CR_wall_Pillar_Shrine",
-      "tier": 50,
-      "sourceTriangles": 1203,
-      "triangles": 479,
-      "sourceVertices": 1122,
-      "vertices": 1122,
-      "fixedBoundaryPositions": 21,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "12f30da5a6452f1bcf5b3f61",
-      "name": "EN_CR_wall_Pillar_Shrine",
-      "tier": 0,
-      "sourceTriangles": 1203,
-      "triangles": 119,
-      "sourceVertices": 1122,
-      "vertices": 1122,
-      "fixedBoundaryPositions": 21,
-      "sameIndexMorph": true
-    },
-    {
       "key": "df67215bdf1997ff6fb60c20",
       "name": "CR_RU_Floor_RockSmall_New_03",
       "tier": 50,
@@ -1045,94 +935,6 @@
       "sourceVertices": 3113,
       "vertices": 3113,
       "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "d159c988f5c974319c542085",
-      "name": "CR_OS_Pillar_Large_03",
-      "tier": 50,
-      "sourceTriangles": 784,
-      "triangles": 484,
-      "sourceVertices": 690,
-      "vertices": 690,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "d159c988f5c974319c542085",
-      "name": "CR_OS_Pillar_Large_03",
-      "tier": 0,
-      "sourceTriangles": 784,
-      "triangles": 110,
-      "sourceVertices": 690,
-      "vertices": 690,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "cb0c746fb163352d8f3e6ff6",
-      "name": "SmallPillars",
-      "tier": 50,
-      "sourceTriangles": 1031,
-      "triangles": 401,
-      "sourceVertices": 1089,
-      "vertices": 1089,
-      "fixedBoundaryPositions": 203,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "cb0c746fb163352d8f3e6ff6",
-      "name": "SmallPillars",
-      "tier": 0,
-      "sourceTriangles": 1031,
-      "triangles": 247,
-      "sourceVertices": 1089,
-      "vertices": 1089,
-      "fixedBoundaryPositions": 203,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "a84800cc6287ef89c5be2f49",
-      "name": "SB_AC_Arch_Pillars",
-      "tier": 50,
-      "sourceTriangles": 648,
-      "triangles": 312,
-      "sourceVertices": 1194,
-      "vertices": 1194,
-      "fixedBoundaryPositions": 20,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "a84800cc6287ef89c5be2f49",
-      "name": "SB_AC_Arch_Pillars",
-      "tier": 0,
-      "sourceTriangles": 648,
-      "triangles": 40,
-      "sourceVertices": 1194,
-      "vertices": 1194,
-      "fixedBoundaryPositions": 20,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "74a6a06eb167d4653af17839",
-      "name": "EN_CR_Pillar_Large",
-      "tier": 50,
-      "sourceTriangles": 2306,
-      "triangles": 514,
-      "sourceVertices": 1595,
-      "vertices": 1595,
-      "fixedBoundaryPositions": 15,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "74a6a06eb167d4653af17839",
-      "name": "EN_CR_Pillar_Large",
-      "tier": 0,
-      "sourceTriangles": 2306,
-      "triangles": 128,
-      "sourceVertices": 1595,
-      "vertices": 1595,
-      "fixedBoundaryPositions": 15,
       "sameIndexMorph": true
     },
     {
@@ -1378,28 +1180,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "bcbcb15b4cc3efe79af53141",
-      "name": "Pillar",
-      "tier": 50,
-      "sourceTriangles": 504,
-      "triangles": 186,
-      "sourceVertices": 568,
-      "vertices": 568,
-      "fixedBoundaryPositions": 100,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "bcbcb15b4cc3efe79af53141",
-      "name": "Pillar",
-      "tier": 0,
-      "sourceTriangles": 504,
-      "triangles": 128,
-      "sourceVertices": 568,
-      "vertices": 568,
-      "fixedBoundaryPositions": 100,
-      "sameIndexMorph": true
-    },
-    {
       "key": "3c0997ebe88636e926b27abe",
       "name": "EN_CR_FloorTileSingle_Damaged03",
       "tier": 50,
@@ -1598,28 +1378,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "ca33b4833969261975f97b63",
-      "name": "EN_CR_Pillar_Large_02",
-      "tier": 50,
-      "sourceTriangles": 2040,
-      "triangles": 406,
-      "sourceVertices": 1457,
-      "vertices": 1457,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ca33b4833969261975f97b63",
-      "name": "EN_CR_Pillar_Large_02",
-      "tier": 0,
-      "sourceTriangles": 2040,
-      "triangles": 104,
-      "sourceVertices": 1457,
-      "vertices": 1457,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
       "key": "39f8e48d345ce7f0d586a7bb",
       "name": "Wall",
       "tier": 50,
@@ -1697,28 +1455,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "d1c2684c23238da91fd5921b",
-      "name": "CR_OS_Pillar_Large_02",
-      "tier": 50,
-      "sourceTriangles": 748,
-      "triangles": 394,
-      "sourceVertices": 1068,
-      "vertices": 1068,
-      "fixedBoundaryPositions": 44,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "d1c2684c23238da91fd5921b",
-      "name": "CR_OS_Pillar_Large_02",
-      "tier": 0,
-      "sourceTriangles": 748,
-      "triangles": 138,
-      "sourceVertices": 1068,
-      "vertices": 1068,
-      "fixedBoundaryPositions": 44,
-      "sameIndexMorph": true
-    },
-    {
       "key": "eafd9a77f7c5f16c30f50866",
       "name": "EN_CR_Wall_TrimBasic_01",
       "tier": 50,
@@ -1737,50 +1473,6 @@
       "triangles": 78,
       "sourceVertices": 1147,
       "vertices": 1147,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "aa9e0961c393f83fe0e7c1f4",
-      "name": "CR_RU_Wall_Sm_Pillars_01",
-      "tier": 50,
-      "sourceTriangles": 588,
-      "triangles": 236,
-      "sourceVertices": 435,
-      "vertices": 435,
-      "fixedBoundaryPositions": 126,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "aa9e0961c393f83fe0e7c1f4",
-      "name": "CR_RU_Wall_Sm_Pillars_01",
-      "tier": 0,
-      "sourceTriangles": 588,
-      "triangles": 138,
-      "sourceVertices": 435,
-      "vertices": 435,
-      "fixedBoundaryPositions": 126,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "fde4b540b432ccdce513608a",
-      "name": "CR_RU_Pillar_Thin_Middle_01",
-      "tier": 50,
-      "sourceTriangles": 314,
-      "triangles": 176,
-      "sourceVertices": 326,
-      "vertices": 326,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "fde4b540b432ccdce513608a",
-      "name": "CR_RU_Pillar_Thin_Middle_01",
-      "tier": 0,
-      "sourceTriangles": 314,
-      "triangles": 62,
-      "sourceVertices": 326,
-      "vertices": 326,
       "fixedBoundaryPositions": 0,
       "sameIndexMorph": true
     },
@@ -1829,28 +1521,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "57106fea86ee866e77c961dc",
-      "name": "CR_RU_Pillar_Large_Top_02",
-      "tier": 50,
-      "sourceTriangles": 1252,
-      "triangles": 306,
-      "sourceVertices": 883,
-      "vertices": 883,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "57106fea86ee866e77c961dc",
-      "name": "CR_RU_Pillar_Large_Top_02",
-      "tier": 0,
-      "sourceTriangles": 1252,
-      "triangles": 100,
-      "sourceVertices": 883,
-      "vertices": 883,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
       "key": "13617e94c7f79ba9027e2a2f",
       "name": "FR_Floor_Detail_Medium_04",
       "tier": 0,
@@ -1859,50 +1529,6 @@
       "sourceVertices": 889,
       "vertices": 889,
       "fixedBoundaryPositions": 519,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "45f6aa043566161afdf70781",
-      "name": "CR_RU_Pillar_Large_Botton_02",
-      "tier": 50,
-      "sourceTriangles": 1074,
-      "triangles": 396,
-      "sourceVertices": 799,
-      "vertices": 799,
-      "fixedBoundaryPositions": 30,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "45f6aa043566161afdf70781",
-      "name": "CR_RU_Pillar_Large_Botton_02",
-      "tier": 0,
-      "sourceTriangles": 1074,
-      "triangles": 134,
-      "sourceVertices": 799,
-      "vertices": 799,
-      "fixedBoundaryPositions": 30,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "28bad2035bf230b7f9a696af",
-      "name": "CR_RU_Pillar_Thin_Bottom_01",
-      "tier": 50,
-      "sourceTriangles": 710,
-      "triangles": 210,
-      "sourceVertices": 1113,
-      "vertices": 1113,
-      "fixedBoundaryPositions": 22,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "28bad2035bf230b7f9a696af",
-      "name": "CR_RU_Pillar_Thin_Bottom_01",
-      "tier": 0,
-      "sourceTriangles": 710,
-      "triangles": 100,
-      "sourceVertices": 1113,
-      "vertices": 1113,
-      "fixedBoundaryPositions": 22,
       "sameIndexMorph": true
     },
     {
@@ -2005,28 +1631,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "3ddf28e1fe8467957d7e989d",
-      "name": "CR_RU_Pillar_Thin_Top_02",
-      "tier": 50,
-      "sourceTriangles": 314,
-      "triangles": 176,
-      "sourceVertices": 326,
-      "vertices": 326,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "3ddf28e1fe8467957d7e989d",
-      "name": "CR_RU_Pillar_Thin_Top_02",
-      "tier": 0,
-      "sourceTriangles": 314,
-      "triangles": 62,
-      "sourceVertices": 326,
-      "vertices": 326,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
       "key": "adc7842b50e81ac4458886c0",
       "name": "CR_FR_ Floor_Detail_Grass_05",
       "tier": 0,
@@ -2079,28 +1683,6 @@
       "sourceVertices": 1353,
       "vertices": 1353,
       "fixedBoundaryPositions": 784,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "4205ed98e7c5d114e241eebe",
-      "name": "CR_RU_Pillar_Thin_Bottom_02",
-      "tier": 50,
-      "sourceTriangles": 710,
-      "triangles": 210,
-      "sourceVertices": 1113,
-      "vertices": 1113,
-      "fixedBoundaryPositions": 22,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "4205ed98e7c5d114e241eebe",
-      "name": "CR_RU_Pillar_Thin_Bottom_02",
-      "tier": 0,
-      "sourceTriangles": 710,
-      "triangles": 100,
-      "sourceVertices": 1113,
-      "vertices": 1113,
-      "fixedBoundaryPositions": 22,
       "sameIndexMorph": true
     },
     {
@@ -2159,50 +1741,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "2f7b327281d9d1bccd5cf627",
-      "name": "CR_RU_Pillar_Thin_Middle_02",
-      "tier": 50,
-      "sourceTriangles": 1200,
-      "triangles": 252,
-      "sourceVertices": 1624,
-      "vertices": 1624,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "2f7b327281d9d1bccd5cf627",
-      "name": "CR_RU_Pillar_Thin_Middle_02",
-      "tier": 0,
-      "sourceTriangles": 1200,
-      "triangles": 66,
-      "sourceVertices": 1624,
-      "vertices": 1624,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "02c0061d481ea4ec2aed246c",
-      "name": "CR_RU_Pillar_Thin_Top_01",
-      "tier": 50,
-      "sourceTriangles": 1200,
-      "triangles": 280,
-      "sourceVertices": 1629,
-      "vertices": 1629,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "02c0061d481ea4ec2aed246c",
-      "name": "CR_RU_Pillar_Thin_Top_01",
-      "tier": 0,
-      "sourceTriangles": 1200,
-      "triangles": 88,
-      "sourceVertices": 1629,
-      "vertices": 1629,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
       "key": "481fcb2d85438630811f3cbd",
       "name": "CR_RU_StoneSlabs_01",
       "tier": 50,
@@ -2255,28 +1793,6 @@
       "sourceVertices": 288,
       "vertices": 288,
       "fixedBoundaryPositions": 202,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "87f66047017e79ad48151cc8",
-      "name": "CR_RU_Wall_Sm_Pillars_02",
-      "tier": 50,
-      "sourceTriangles": 876,
-      "triangles": 336,
-      "sourceVertices": 631,
-      "vertices": 631,
-      "fixedBoundaryPositions": 174,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "87f66047017e79ad48151cc8",
-      "name": "CR_RU_Wall_Sm_Pillars_02",
-      "tier": 0,
-      "sourceTriangles": 876,
-      "triangles": 198,
-      "sourceVertices": 631,
-      "vertices": 631,
-      "fixedBoundaryPositions": 174,
       "sameIndexMorph": true
     },
     {
@@ -3490,72 +3006,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "873c25f2279401a8e86d4c08",
-      "name": "CR_OS_Pillar_Large_Bones",
-      "tier": 50,
-      "sourceTriangles": 2762,
-      "triangles": 330,
-      "sourceVertices": 2546,
-      "vertices": 2546,
-      "fixedBoundaryPositions": 170,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "873c25f2279401a8e86d4c08",
-      "name": "CR_OS_Pillar_Large_Bones",
-      "tier": 0,
-      "sourceTriangles": 2762,
-      "triangles": 198,
-      "sourceVertices": 2546,
-      "vertices": 2546,
-      "fixedBoundaryPositions": 170,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "15107043dab740a06668f272",
-      "name": "CR_OS_Pillar_Large_Skulls",
-      "tier": 50,
-      "sourceTriangles": 13144,
-      "triangles": 3348,
-      "sourceVertices": 12876,
-      "vertices": 12876,
-      "fixedBoundaryPositions": 2012,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "15107043dab740a06668f272",
-      "name": "CR_OS_Pillar_Large_Skulls",
-      "tier": 0,
-      "sourceTriangles": 13144,
-      "triangles": 2408,
-      "sourceVertices": 12876,
-      "vertices": 12876,
-      "fixedBoundaryPositions": 2012,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "733cdc02038d5df5f5d8f986",
-      "name": "CR_OS_Pillar_Large",
-      "tier": 50,
-      "sourceTriangles": 532,
-      "triangles": 304,
-      "sourceVertices": 772,
-      "vertices": 772,
-      "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "733cdc02038d5df5f5d8f986",
-      "name": "CR_OS_Pillar_Large",
-      "tier": 0,
-      "sourceTriangles": 532,
-      "triangles": 78,
-      "sourceVertices": 772,
-      "vertices": 772,
-      "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
       "key": "c4f77d515489cb981416353d",
       "name": "CR_OS_FloorTomb_02",
       "tier": 50,
@@ -3875,50 +3325,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "6e3430082b576029e4f32af2",
-      "name": "CV_Pillar_Generic_02",
-      "tier": 50,
-      "sourceTriangles": 336,
-      "triangles": 320,
-      "sourceVertices": 195,
-      "vertices": 195,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "6e3430082b576029e4f32af2",
-      "name": "CV_Pillar_Generic_02",
-      "tier": 0,
-      "sourceTriangles": 336,
-      "triangles": 124,
-      "sourceVertices": 195,
-      "vertices": 195,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "0b409cdc0603bdaf143214fd",
-      "name": "CV_Ice_Pillar_02",
-      "tier": 50,
-      "sourceTriangles": 388,
-      "triangles": 322,
-      "sourceVertices": 226,
-      "vertices": 226,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "0b409cdc0603bdaf143214fd",
-      "name": "CV_Ice_Pillar_02",
-      "tier": 0,
-      "sourceTriangles": 388,
-      "triangles": 128,
-      "sourceVertices": 226,
-      "vertices": 226,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
       "key": "a5d9a6331b9ae1a538766941",
       "name": "CV_Floor_Basic_01",
       "tier": 50,
@@ -3938,28 +3344,6 @@
       "sourceVertices": 293,
       "vertices": 293,
       "fixedBoundaryPositions": 6,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "d39d28a71172026958843ed4",
-      "name": "CV_Pillar_Crystal_03",
-      "tier": 50,
-      "sourceTriangles": 354,
-      "triangles": 336,
-      "sourceVertices": 275,
-      "vertices": 275,
-      "fixedBoundaryPositions": 78,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "d39d28a71172026958843ed4",
-      "name": "CV_Pillar_Crystal_03",
-      "tier": 0,
-      "sourceTriangles": 354,
-      "triangles": 192,
-      "sourceVertices": 275,
-      "vertices": 275,
-      "fixedBoundaryPositions": 78,
       "sameIndexMorph": true
     },
     {
@@ -4084,28 +3468,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "8f054e51d75584ba9032c9b0",
-      "name": "CV_Pillar_Volcanic_01",
-      "tier": 50,
-      "sourceTriangles": 360,
-      "triangles": 326,
-      "sourceVertices": 208,
-      "vertices": 208,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "8f054e51d75584ba9032c9b0",
-      "name": "CV_Pillar_Volcanic_01",
-      "tier": 0,
-      "sourceTriangles": 360,
-      "triangles": 120,
-      "sourceVertices": 208,
-      "vertices": 208,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
       "key": "520ad527059fea05035d489b",
       "name": "CV_Generic_Rock_06 simplified mesh",
       "tier": 50,
@@ -4191,28 +3553,6 @@
       "sourceVertices": 293,
       "vertices": 293,
       "fixedBoundaryPositions": 6,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ce712df2958fa0e1dfcb9e8d",
-      "name": "CV_Pillar_Generic_01",
-      "tier": 50,
-      "sourceTriangles": 384,
-      "triangles": 364,
-      "sourceVertices": 232,
-      "vertices": 232,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ce712df2958fa0e1dfcb9e8d",
-      "name": "CV_Pillar_Generic_01",
-      "tier": 0,
-      "sourceTriangles": 384,
-      "triangles": 118,
-      "sourceVertices": 232,
-      "vertices": 232,
-      "fixedBoundaryPositions": 14,
       "sameIndexMorph": true
     },
     {
@@ -4348,17 +3688,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "e7afc7d038e161bdbbc8674b",
-      "name": "CV_Pillar_Crystal_03 simplified mesh",
-      "tier": 0,
-      "sourceTriangles": 240,
-      "triangles": 166,
-      "sourceVertices": 208,
-      "vertices": 208,
-      "fixedBoundaryPositions": 78,
-      "sameIndexMorph": true
-    },
-    {
       "key": "3c8fb077ff57cabff764b674",
       "name": "CV_Generic_Rock_07 simplified mesh",
       "tier": 50,
@@ -4400,50 +3729,6 @@
       "sourceVertices": 1581,
       "vertices": 1581,
       "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "353844f6aa2cd43ce417e091",
-      "name": "CV_Pillar_Crystal_03 simplified mesh",
-      "tier": 50,
-      "sourceTriangles": 264,
-      "triangles": 258,
-      "sourceVertices": 221,
-      "vertices": 221,
-      "fixedBoundaryPositions": 78,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "353844f6aa2cd43ce417e091",
-      "name": "CV_Pillar_Crystal_03 simplified mesh",
-      "tier": 0,
-      "sourceTriangles": 264,
-      "triangles": 178,
-      "sourceVertices": 221,
-      "vertices": 221,
-      "fixedBoundaryPositions": 78,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ed130ad44912f776fc14be82",
-      "name": "CV_Ice_Pillar_01",
-      "tier": 50,
-      "sourceTriangles": 394,
-      "triangles": 356,
-      "sourceVertices": 229,
-      "vertices": 229,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ed130ad44912f776fc14be82",
-      "name": "CV_Ice_Pillar_01",
-      "tier": 0,
-      "sourceTriangles": 394,
-      "triangles": 122,
-      "sourceVertices": 229,
-      "vertices": 229,
-      "fixedBoundaryPositions": 14,
       "sameIndexMorph": true
     },
     {
@@ -4510,28 +3795,6 @@
       "sourceVertices": 153,
       "vertices": 153,
       "fixedBoundaryPositions": 11,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "366f73da3a09ccd15b3524ba",
-      "name": "CR_FR_Pillar_Stoun_02",
-      "tier": 50,
-      "sourceTriangles": 544,
-      "triangles": 484,
-      "sourceVertices": 339,
-      "vertices": 339,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "366f73da3a09ccd15b3524ba",
-      "name": "CR_FR_Pillar_Stoun_02",
-      "tier": 0,
-      "sourceTriangles": 544,
-      "triangles": 106,
-      "sourceVertices": 339,
-      "vertices": 339,
-      "fixedBoundaryPositions": 0,
       "sameIndexMorph": true
     },
     {
@@ -4887,28 +4150,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "16e8dc662262c15b09537cad",
-      "name": "CR_OS_Pillar_LOD1_02_Skull00",
-      "tier": 50,
-      "sourceTriangles": 812,
-      "triangles": 714,
-      "sourceVertices": 778,
-      "vertices": 778,
-      "fixedBoundaryPositions": 151,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "16e8dc662262c15b09537cad",
-      "name": "CR_OS_Pillar_LOD1_02_Skull00",
-      "tier": 0,
-      "sourceTriangles": 812,
-      "triangles": 252,
-      "sourceVertices": 778,
-      "vertices": 778,
-      "fixedBoundaryPositions": 151,
-      "sameIndexMorph": true
-    },
-    {
       "key": "848856ccaca7357168514e60",
       "name": "CR_ST_Chapel_Wallhanging_01",
       "tier": 50,
@@ -4928,72 +4169,6 @@
       "sourceVertices": 328,
       "vertices": 328,
       "fixedBoundaryPositions": 41,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "80f2f28f0303659f29fb1017",
-      "name": "CR_OS_Pillar_LOD1_02_Skull06",
-      "tier": 50,
-      "sourceTriangles": 840,
-      "triangles": 704,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "80f2f28f0303659f29fb1017",
-      "name": "CR_OS_Pillar_LOD1_02_Skull06",
-      "tier": 0,
-      "sourceTriangles": 840,
-      "triangles": 252,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "31d7ebf124b981eb293675f4",
-      "name": "CR_OS_Pillar_LOD1_02",
-      "tier": 50,
-      "sourceTriangles": 568,
-      "triangles": 362,
-      "sourceVertices": 714,
-      "vertices": 714,
-      "fixedBoundaryPositions": 10,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "31d7ebf124b981eb293675f4",
-      "name": "CR_OS_Pillar_LOD1_02",
-      "tier": 0,
-      "sourceTriangles": 568,
-      "triangles": 156,
-      "sourceVertices": 714,
-      "vertices": 714,
-      "fixedBoundaryPositions": 10,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "de9bdd561c716a78f25919d1",
-      "name": "CR_OS_Pillar_LOD1_02_Skull05",
-      "tier": 50,
-      "sourceTriangles": 840,
-      "triangles": 704,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "de9bdd561c716a78f25919d1",
-      "name": "CR_OS_Pillar_LOD1_02_Skull05",
-      "tier": 0,
-      "sourceTriangles": 840,
-      "triangles": 252,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
       "sameIndexMorph": true
     },
     {
@@ -5019,72 +4194,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "e825aa3f03710d008e0c1a48",
-      "name": "CR_OS_Pillar_LOD1_02_Skull01",
-      "tier": 50,
-      "sourceTriangles": 840,
-      "triangles": 704,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "e825aa3f03710d008e0c1a48",
-      "name": "CR_OS_Pillar_LOD1_02_Skull01",
-      "tier": 0,
-      "sourceTriangles": 840,
-      "triangles": 252,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ca9ac05230d2d023b80b2aef",
-      "name": "CR_OS_Pillar_LOD1_02_Skull04",
-      "tier": 50,
-      "sourceTriangles": 840,
-      "triangles": 704,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ca9ac05230d2d023b80b2aef",
-      "name": "CR_OS_Pillar_LOD1_02_Skull04",
-      "tier": 0,
-      "sourceTriangles": 840,
-      "triangles": 252,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f0e70c2d514f5abdaac1fa4e",
-      "name": "CR_OS_Pillar_LOD1_02_Skull02",
-      "tier": 50,
-      "sourceTriangles": 840,
-      "triangles": 704,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f0e70c2d514f5abdaac1fa4e",
-      "name": "CR_OS_Pillar_LOD1_02_Skull02",
-      "tier": 0,
-      "sourceTriangles": 840,
-      "triangles": 252,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
       "key": "ddc34887f6bd07374838a86e",
       "name": "CR_ST_Chapel_Wallhanging_02",
       "tier": 50,
@@ -5104,28 +4213,6 @@
       "sourceVertices": 338,
       "vertices": 338,
       "fixedBoundaryPositions": 51,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "952f3fa1dc8035f9191562c2",
-      "name": "CR_OS_Pillar_LOD1_02_Skull03",
-      "tier": 50,
-      "sourceTriangles": 812,
-      "triangles": 714,
-      "sourceVertices": 778,
-      "vertices": 778,
-      "fixedBoundaryPositions": 151,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "952f3fa1dc8035f9191562c2",
-      "name": "CR_OS_Pillar_LOD1_02_Skull03",
-      "tier": 0,
-      "sourceTriangles": 812,
-      "triangles": 252,
-      "sourceVertices": 778,
-      "vertices": 778,
-      "fixedBoundaryPositions": 151,
       "sameIndexMorph": true
     },
     {
@@ -5305,50 +4392,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "6c602a93147f081e3b5bf6bc",
-      "name": "TO_INT_Pillar_WoodPanel_02",
-      "tier": 50,
-      "sourceTriangles": 1708,
-      "triangles": 852,
-      "sourceVertices": 3055,
-      "vertices": 3055,
-      "fixedBoundaryPositions": 64,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "6c602a93147f081e3b5bf6bc",
-      "name": "TO_INT_Pillar_WoodPanel_02",
-      "tier": 0,
-      "sourceTriangles": 1708,
-      "triangles": 288,
-      "sourceVertices": 3055,
-      "vertices": 3055,
-      "fixedBoundaryPositions": 64,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "7de0efe6a3041bf99c659d79",
-      "name": "CR_INT_Wooden_Int_Pillar_Single",
-      "tier": 50,
-      "sourceTriangles": 38,
-      "triangles": 30,
-      "sourceVertices": 42,
-      "vertices": 42,
-      "fixedBoundaryPositions": 8,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "7de0efe6a3041bf99c659d79",
-      "name": "CR_INT_Wooden_Int_Pillar_Single",
-      "tier": 0,
-      "sourceTriangles": 38,
-      "triangles": 14,
-      "sourceVertices": 42,
-      "vertices": 42,
-      "fixedBoundaryPositions": 8,
-      "sameIndexMorph": true
-    },
-    {
       "key": "de418929d3ac502843aa13ef",
       "name": "TERRAIN_Town_HotCoals_Edge",
       "tier": 50,
@@ -5390,28 +4433,6 @@
       "sourceVertices": 187,
       "vertices": 187,
       "fixedBoundaryPositions": 29,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "1263f2c03ceb77182c8550f0",
-      "name": "CR_INT_Wooden_Int_Pillars_Base",
-      "tier": 50,
-      "sourceTriangles": 1054,
-      "triangles": 598,
-      "sourceVertices": 896,
-      "vertices": 896,
-      "fixedBoundaryPositions": 224,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "1263f2c03ceb77182c8550f0",
-      "name": "CR_INT_Wooden_Int_Pillars_Base",
-      "tier": 0,
-      "sourceTriangles": 1054,
-      "triangles": 342,
-      "sourceVertices": 896,
-      "vertices": 896,
-      "fixedBoundaryPositions": 224,
       "sameIndexMorph": true
     },
     {
@@ -5525,28 +4546,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "af776c6141eddd9551faa0bd",
-      "name": "TO_House_Ext_Sec_01_Pillar_02",
-      "tier": 50,
-      "sourceTriangles": 1230,
-      "triangles": 554,
-      "sourceVertices": 1051,
-      "vertices": 1051,
-      "fixedBoundaryPositions": 252,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "af776c6141eddd9551faa0bd",
-      "name": "TO_House_Ext_Sec_01_Pillar_02",
-      "tier": 0,
-      "sourceTriangles": 1230,
-      "triangles": 358,
-      "sourceVertices": 1051,
-      "vertices": 1051,
-      "fixedBoundaryPositions": 252,
-      "sameIndexMorph": true
-    },
-    {
       "key": "43928f127eaaba674c67fe16",
       "name": "CR_INT_Wooden_Int_Thin_Wall_04",
       "tier": 50,
@@ -5569,28 +4568,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "1b579836540c8e50b5a702ee",
-      "name": "CR_INT_Wooden_Int_Pillars_06",
-      "tier": 50,
-      "sourceTriangles": 1198,
-      "triangles": 542,
-      "sourceVertices": 1017,
-      "vertices": 1017,
-      "fixedBoundaryPositions": 252,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "1b579836540c8e50b5a702ee",
-      "name": "CR_INT_Wooden_Int_Pillars_06",
-      "tier": 0,
-      "sourceTriangles": 1198,
-      "triangles": 358,
-      "sourceVertices": 1017,
-      "vertices": 1017,
-      "fixedBoundaryPositions": 252,
-      "sameIndexMorph": true
-    },
-    {
       "key": "0cd2d311208f024df2855e5f",
       "name": "CR_INT_Stone_Int_Wall_04",
       "tier": 50,
@@ -5610,28 +4587,6 @@
       "sourceVertices": 262,
       "vertices": 262,
       "fixedBoundaryPositions": 22,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "3597142a51622a007566fbe1",
-      "name": "CR_INT_Wooden_Hut_Pillars_02",
-      "tier": 50,
-      "sourceTriangles": 166,
-      "triangles": 110,
-      "sourceVertices": 156,
-      "vertices": 156,
-      "fixedBoundaryPositions": 8,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "3597142a51622a007566fbe1",
-      "name": "CR_INT_Wooden_Hut_Pillars_02",
-      "tier": 0,
-      "sourceTriangles": 166,
-      "triangles": 30,
-      "sourceVertices": 156,
-      "vertices": 156,
-      "fixedBoundaryPositions": 8,
       "sameIndexMorph": true
     },
     {
@@ -5844,28 +4799,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "3825c96392c7302b4eb833b1",
-      "name": "CR_INT_Stone_Pillar_04",
-      "tier": 50,
-      "sourceTriangles": 1072,
-      "triangles": 580,
-      "sourceVertices": 906,
-      "vertices": 906,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "3825c96392c7302b4eb833b1",
-      "name": "CR_INT_Stone_Pillar_04",
-      "tier": 0,
-      "sourceTriangles": 1072,
-      "triangles": 218,
-      "sourceVertices": 906,
-      "vertices": 906,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
       "key": "1002dcd61bce58eaa94dce63",
       "name": "CR_INT_Stone_Int_Wall_02_Narrow",
       "tier": 50,
@@ -5885,28 +4818,6 @@
       "sourceVertices": 228,
       "vertices": 228,
       "fixedBoundaryPositions": 30,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "be21b7478ac3fab7ab19006f",
-      "name": "CR_INT_Wooden_Int_Pillars_02",
-      "tier": 50,
-      "sourceTriangles": 130,
-      "triangles": 90,
-      "sourceVertices": 124,
-      "vertices": 124,
-      "fixedBoundaryPositions": 40,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "be21b7478ac3fab7ab19006f",
-      "name": "CR_INT_Wooden_Int_Pillars_02",
-      "tier": 0,
-      "sourceTriangles": 130,
-      "triangles": 50,
-      "sourceVertices": 124,
-      "vertices": 124,
-      "fixedBoundaryPositions": 40,
       "sameIndexMorph": true
     },
     {
@@ -5932,28 +4843,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "c82f3194fbd5a4e23210804c",
-      "name": "TO_INT_Stone_Pillar_Large_01",
-      "tier": 50,
-      "sourceTriangles": 1072,
-      "triangles": 580,
-      "sourceVertices": 906,
-      "vertices": 906,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "c82f3194fbd5a4e23210804c",
-      "name": "TO_INT_Stone_Pillar_Large_01",
-      "tier": 0,
-      "sourceTriangles": 1072,
-      "triangles": 218,
-      "sourceVertices": 906,
-      "vertices": 906,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
       "key": "dfe0fd3ef1796e1da205219b",
       "name": "CR_INT_Stone_Floor_04_Half_01",
       "tier": 50,
@@ -5973,28 +4862,6 @@
       "sourceVertices": 99,
       "vertices": 99,
       "fixedBoundaryPositions": 17,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f65390e5fee04c917acbed70",
-      "name": "TO_INT_Wooden_Hut_Pillars_03_Thin",
-      "tier": 50,
-      "sourceTriangles": 272,
-      "triangles": 168,
-      "sourceVertices": 370,
-      "vertices": 370,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f65390e5fee04c917acbed70",
-      "name": "TO_INT_Wooden_Hut_Pillars_03_Thin",
-      "tier": 0,
-      "sourceTriangles": 272,
-      "triangles": 80,
-      "sourceVertices": 370,
-      "vertices": 370,
-      "fixedBoundaryPositions": 24,
       "sameIndexMorph": true
     },
     {
@@ -6284,28 +5151,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "6ff6674a036985a175a5615f",
-      "name": "CR_INT_Wooden_Hut_Pillars_01",
-      "tier": 50,
-      "sourceTriangles": 474,
-      "triangles": 314,
-      "sourceVertices": 351,
-      "vertices": 351,
-      "fixedBoundaryPositions": 76,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "6ff6674a036985a175a5615f",
-      "name": "CR_INT_Wooden_Hut_Pillars_01",
-      "tier": 0,
-      "sourceTriangles": 474,
-      "triangles": 162,
-      "sourceVertices": 351,
-      "vertices": 351,
-      "fixedBoundaryPositions": 76,
-      "sameIndexMorph": true
-    },
-    {
       "key": "78790b945561d4846d20c0cd",
       "name": "CR_INT_Stone_WallShelf_03",
       "tier": 50,
@@ -6369,28 +5214,6 @@
       "sourceVertices": 54,
       "vertices": 54,
       "fixedBoundaryPositions": 6,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "e40b775e0815ccc811c02f3c",
-      "name": "TO_House_Ext_Sec_02_Pillar_01",
-      "tier": 50,
-      "sourceTriangles": 130,
-      "triangles": 90,
-      "sourceVertices": 124,
-      "vertices": 124,
-      "fixedBoundaryPositions": 40,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "e40b775e0815ccc811c02f3c",
-      "name": "TO_House_Ext_Sec_02_Pillar_01",
-      "tier": 0,
-      "sourceTriangles": 130,
-      "triangles": 50,
-      "sourceVertices": 124,
-      "vertices": 124,
-      "fixedBoundaryPositions": 40,
       "sameIndexMorph": true
     },
     {
@@ -6636,50 +5459,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "c6497002cb256786c4caeb70",
-      "name": "CR_INT_Wooden_Hut_Pillars_03",
-      "tier": 50,
-      "sourceTriangles": 318,
-      "triangles": 222,
-      "sourceVertices": 239,
-      "vertices": 239,
-      "fixedBoundaryPositions": 8,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "c6497002cb256786c4caeb70",
-      "name": "CR_INT_Wooden_Hut_Pillars_03",
-      "tier": 0,
-      "sourceTriangles": 318,
-      "triangles": 78,
-      "sourceVertices": 239,
-      "vertices": 239,
-      "fixedBoundaryPositions": 8,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "3fade8b565006c9b6f514df1",
-      "name": "CV_Temples_Pillars_02",
-      "tier": 50,
-      "sourceTriangles": 321,
-      "triangles": 283,
-      "sourceVertices": 398,
-      "vertices": 398,
-      "fixedBoundaryPositions": 5,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "3fade8b565006c9b6f514df1",
-      "name": "CV_Temples_Pillars_02",
-      "tier": 0,
-      "sourceTriangles": 321,
-      "triangles": 87,
-      "sourceVertices": 398,
-      "vertices": 398,
-      "fixedBoundaryPositions": 5,
-      "sameIndexMorph": true
-    },
-    {
       "key": "54928d23b5fdbdf32f3a2432",
       "name": "CR_INT_Plaster_Wall_01",
       "tier": 0,
@@ -6809,28 +5588,6 @@
       "sourceVertices": 7557,
       "vertices": 7557,
       "fixedBoundaryPositions": 2111,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "2e1c4f443e414218af050859",
-      "name": "TO_EXT_Pillar_Large_New_01",
-      "tier": 50,
-      "sourceTriangles": 1370,
-      "triangles": 702,
-      "sourceVertices": 1205,
-      "vertices": 1205,
-      "fixedBoundaryPositions": 276,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "2e1c4f443e414218af050859",
-      "name": "TO_EXT_Pillar_Large_New_01",
-      "tier": 0,
-      "sourceTriangles": 1370,
-      "triangles": 438,
-      "sourceVertices": 1205,
-      "vertices": 1205,
-      "fixedBoundaryPositions": 276,
       "sameIndexMorph": true
     },
     {
@@ -7208,28 +5965,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "75d1e031215e1eee7ec8aa5b",
-      "name": "TO_EXT_Pillar_06",
-      "tier": 50,
-      "sourceTriangles": 1278,
-      "triangles": 662,
-      "sourceVertices": 1135,
-      "vertices": 1135,
-      "fixedBoundaryPositions": 256,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "75d1e031215e1eee7ec8aa5b",
-      "name": "TO_EXT_Pillar_06",
-      "tier": 0,
-      "sourceTriangles": 1278,
-      "triangles": 428,
-      "sourceVertices": 1135,
-      "vertices": 1135,
-      "fixedBoundaryPositions": 256,
-      "sameIndexMorph": true
-    },
-    {
       "key": "66a6f1dbb273b88a076a19cc",
       "name": "CR_INT_Floor_Clutter_Leaves_01",
       "tier": 50,
@@ -7439,28 +6174,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "3406cb56f1d0c932215706f3",
-      "name": "CR_INT_Wooden_Int_Pillar_Single_02",
-      "tier": 50,
-      "sourceTriangles": 114,
-      "triangles": 66,
-      "sourceVertices": 106,
-      "vertices": 106,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "3406cb56f1d0c932215706f3",
-      "name": "CR_INT_Wooden_Int_Pillar_Single_02",
-      "tier": 0,
-      "sourceTriangles": 114,
-      "triangles": 34,
-      "sourceVertices": 106,
-      "vertices": 106,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
       "key": "2733dd9091a0334b83f0c5e3",
       "name": "CR_INT_Floor_Clutter_Leaves_03",
       "tier": 50,
@@ -7656,28 +6369,6 @@
       "sourceVertices": 195,
       "vertices": 195,
       "fixedBoundaryPositions": 6,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "c8e6107dba8397443d34d5cb",
-      "name": "CR_INT_Wooden_Int_Pillars_07",
-      "tier": 50,
-      "sourceTriangles": 1252,
-      "triangles": 594,
-      "sourceVertices": 1088,
-      "vertices": 1088,
-      "fixedBoundaryPositions": 264,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "c8e6107dba8397443d34d5cb",
-      "name": "CR_INT_Wooden_Int_Pillars_07",
-      "tier": 0,
-      "sourceTriangles": 1252,
-      "triangles": 380,
-      "sourceVertices": 1088,
-      "vertices": 1088,
-      "fixedBoundaryPositions": 264,
       "sameIndexMorph": true
     },
     {
@@ -8429,28 +7120,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "92fd8a5234086db0e2077b50",
-      "name": "FR_Pillar_Thin_Tree_Trunk_02",
-      "tier": 50,
-      "sourceTriangles": 1162,
-      "triangles": 820,
-      "sourceVertices": 753,
-      "vertices": 753,
-      "fixedBoundaryPositions": 64,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "92fd8a5234086db0e2077b50",
-      "name": "FR_Pillar_Thin_Tree_Trunk_02",
-      "tier": 0,
-      "sourceTriangles": 1162,
-      "triangles": 196,
-      "sourceVertices": 753,
-      "vertices": 753,
-      "fixedBoundaryPositions": 64,
-      "sameIndexMorph": true
-    },
-    {
       "key": "f0727f9cfd58d5da593633c7",
       "name": "FR_CW_Wall_Tree_Edge_Thin_03",
       "tier": 50,
@@ -8558,28 +7227,6 @@
       "sourceVertices": 49,
       "vertices": 49,
       "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "1490c25ca07cfcecfd5ae855",
-      "name": "CR_FR_Pillar_Tree_Trunk_01",
-      "tier": 50,
-      "sourceTriangles": 1108,
-      "triangles": 602,
-      "sourceVertices": 749,
-      "vertices": 749,
-      "fixedBoundaryPositions": 22,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "1490c25ca07cfcecfd5ae855",
-      "name": "CR_FR_Pillar_Tree_Trunk_01",
-      "tier": 0,
-      "sourceTriangles": 1108,
-      "triangles": 90,
-      "sourceVertices": 749,
-      "vertices": 749,
-      "fixedBoundaryPositions": 22,
       "sameIndexMorph": true
     },
     {
@@ -8877,28 +7524,6 @@
       "sourceVertices": 2288,
       "vertices": 2288,
       "fixedBoundaryPositions": 1758,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "84a1e5a7a5d63ce6d575e798",
-      "name": "CR_FR_Pillar_Tree_Trunk_02",
-      "tier": 50,
-      "sourceTriangles": 850,
-      "triangles": 570,
-      "sourceVertices": 556,
-      "vertices": 556,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "84a1e5a7a5d63ce6d575e798",
-      "name": "CR_FR_Pillar_Tree_Trunk_02",
-      "tier": 0,
-      "sourceTriangles": 850,
-      "triangles": 84,
-      "sourceVertices": 556,
-      "vertices": 556,
-      "fixedBoundaryPositions": 0,
       "sameIndexMorph": true
     },
     {
@@ -9804,28 +8429,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "520637b38e19ceb71394d494",
-      "name": "TO_INT_Shack_Pillar_02",
-      "tier": 50,
-      "sourceTriangles": 1300,
-      "triangles": 540,
-      "sourceVertices": 991,
-      "vertices": 991,
-      "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "520637b38e19ceb71394d494",
-      "name": "TO_INT_Shack_Pillar_02",
-      "tier": 0,
-      "sourceTriangles": 1300,
-      "triangles": 96,
-      "sourceVertices": 991,
-      "vertices": 991,
-      "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
       "key": "f8f908f8f0efe9fd71427e2b",
       "name": "CR_INT_Wood_Floor_06",
       "tier": 50,
@@ -10090,28 +8693,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "c1fe54fd2d8ca181fae74d01",
-      "name": "TO_INT_Shack_Pillar_03",
-      "tier": 50,
-      "sourceTriangles": 2162,
-      "triangles": 1066,
-      "sourceVertices": 1671,
-      "vertices": 1671,
-      "fixedBoundaryPositions": 196,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "c1fe54fd2d8ca181fae74d01",
-      "name": "TO_INT_Shack_Pillar_03",
-      "tier": 0,
-      "sourceTriangles": 2162,
-      "triangles": 396,
-      "sourceVertices": 1671,
-      "vertices": 1671,
-      "fixedBoundaryPositions": 196,
-      "sameIndexMorph": true
-    },
-    {
       "key": "0f1bfeb55d578dccb45a7a90",
       "name": "SB_Cu01_DemoBuilding_Wall_Thick_03",
       "tier": 50,
@@ -10241,28 +8822,6 @@
       "sourceVertices": 465,
       "vertices": 465,
       "fixedBoundaryPositions": 148,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "760e423b2030d16a64b20662",
-      "name": "TO_INT_Shack_Pillar_01",
-      "tier": 50,
-      "sourceTriangles": 652,
-      "triangles": 454,
-      "sourceVertices": 524,
-      "vertices": 524,
-      "fixedBoundaryPositions": 100,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "760e423b2030d16a64b20662",
-      "name": "TO_INT_Shack_Pillar_01",
-      "tier": 0,
-      "sourceTriangles": 652,
-      "triangles": 218,
-      "sourceVertices": 524,
-      "vertices": 524,
-      "fixedBoundaryPositions": 100,
       "sameIndexMorph": true
     },
     {
@@ -10728,28 +9287,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "164d1c7cb4a53e02927255dd",
-      "name": "DLC_SB_Plaform_Wall_Pillar_01",
-      "tier": 50,
-      "sourceTriangles": 578,
-      "triangles": 416,
-      "sourceVertices": 464,
-      "vertices": 464,
-      "fixedBoundaryPositions": 90,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "164d1c7cb4a53e02927255dd",
-      "name": "DLC_SB_Plaform_Wall_Pillar_01",
-      "tier": 0,
-      "sourceTriangles": 578,
-      "triangles": 202,
-      "sourceVertices": 464,
-      "vertices": 464,
-      "fixedBoundaryPositions": 90,
-      "sameIndexMorph": true
-    },
-    {
       "key": "b65f3602f4f256c38d80f0e9",
       "name": "TO_INT_Shack_Wall_02",
       "tier": 50,
@@ -10849,28 +9386,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "f9146a212f3ab31743ecebc6",
-      "name": "DLC_SB_Plaform_Wall_Pillar_02",
-      "tier": 50,
-      "sourceTriangles": 988,
-      "triangles": 428,
-      "sourceVertices": 766,
-      "vertices": 766,
-      "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f9146a212f3ab31743ecebc6",
-      "name": "DLC_SB_Plaform_Wall_Pillar_02",
-      "tier": 0,
-      "sourceTriangles": 988,
-      "triangles": 82,
-      "sourceVertices": 766,
-      "vertices": 766,
-      "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
       "key": "6387d34db149ec587876857f",
       "name": "DLC_SB_Plaform_Wall_Thick_02",
       "tier": 50,
@@ -10890,28 +9405,6 @@
       "sourceVertices": 1151,
       "vertices": 1151,
       "fixedBoundaryPositions": 96,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "e367d7ea017d4137efdbdc85",
-      "name": "SE_Gothic_Pillars_02",
-      "tier": 50,
-      "sourceTriangles": 784,
-      "triangles": 316,
-      "sourceVertices": 1309,
-      "vertices": 1309,
-      "fixedBoundaryPositions": 40,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "e367d7ea017d4137efdbdc85",
-      "name": "SE_Gothic_Pillars_02",
-      "tier": 0,
-      "sourceTriangles": 784,
-      "triangles": 140,
-      "sourceVertices": 1309,
-      "vertices": 1309,
-      "fixedBoundaryPositions": 40,
       "sameIndexMorph": true
     },
     {
@@ -11374,50 +9867,6 @@
       "sourceVertices": 240,
       "vertices": 240,
       "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "912d1d12ccc5ec1f012163fa",
-      "name": "SE_Pillar_Large_02",
-      "tier": 50,
-      "sourceTriangles": 1064,
-      "triangles": 572,
-      "sourceVertices": 902,
-      "vertices": 902,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "912d1d12ccc5ec1f012163fa",
-      "name": "SE_Pillar_Large_02",
-      "tier": 0,
-      "sourceTriangles": 1064,
-      "triangles": 222,
-      "sourceVertices": 902,
-      "vertices": 902,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "774d06b7bea2d8dadc139408",
-      "name": "SE_Gothic_Pillars_01",
-      "tier": 50,
-      "sourceTriangles": 2182,
-      "triangles": 806,
-      "sourceVertices": 1808,
-      "vertices": 1808,
-      "fixedBoundaryPositions": 76,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "774d06b7bea2d8dadc139408",
-      "name": "SE_Gothic_Pillars_01",
-      "tier": 0,
-      "sourceTriangles": 2182,
-      "triangles": 228,
-      "sourceVertices": 1808,
-      "vertices": 1808,
-      "fixedBoundaryPositions": 76,
       "sameIndexMorph": true
     },
     {
@@ -12191,28 +10640,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "c67df6e13ca29b1723761cf6",
-      "name": "SE_Gothic_Thin_Pillars_02",
-      "tier": 50,
-      "sourceTriangles": 548,
-      "triangles": 348,
-      "sourceVertices": 1024,
-      "vertices": 1024,
-      "fixedBoundaryPositions": 118,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "c67df6e13ca29b1723761cf6",
-      "name": "SE_Gothic_Thin_Pillars_02",
-      "tier": 0,
-      "sourceTriangles": 548,
-      "triangles": 148,
-      "sourceVertices": 1024,
-      "vertices": 1024,
-      "fixedBoundaryPositions": 118,
-      "sameIndexMorph": true
-    },
-    {
       "key": "685ee9fefa1ed40c07d148c0",
       "name": "SE_Gothic_Floor_Half_02",
       "tier": 50,
@@ -12510,28 +10937,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "bc8e6e19fa6e476c8e8ae8b8",
-      "name": "SE_Pillar_Large_01",
-      "tier": 50,
-      "sourceTriangles": 116,
-      "triangles": 68,
-      "sourceVertices": 124,
-      "vertices": 124,
-      "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "bc8e6e19fa6e476c8e8ae8b8",
-      "name": "SE_Pillar_Large_01",
-      "tier": 0,
-      "sourceTriangles": 116,
-      "triangles": 44,
-      "sourceVertices": 124,
-      "vertices": 124,
-      "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
       "key": "4e64fb8acfd5a77dea43fa9f",
       "name": "SE_Gothic_Wall_Arch_07",
       "tier": 50,
@@ -12628,28 +11033,6 @@
       "sourceVertices": 520,
       "vertices": 520,
       "fixedBoundaryPositions": 20,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "1cb218a2c2fc874d339d8cfc",
-      "name": "SE_Gothic_Thin_Pillars_01",
-      "tier": 50,
-      "sourceTriangles": 2580,
-      "triangles": 748,
-      "sourceVertices": 4828,
-      "vertices": 4828,
-      "fixedBoundaryPositions": 190,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "1cb218a2c2fc874d339d8cfc",
-      "name": "SE_Gothic_Thin_Pillars_01",
-      "tier": 0,
-      "sourceTriangles": 2580,
-      "triangles": 372,
-      "sourceVertices": 4828,
-      "vertices": 4828,
-      "fixedBoundaryPositions": 190,
       "sameIndexMorph": true
     },
     {
@@ -12873,28 +11256,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "f65ae62d4afd54bcf4ab4ca2",
-      "name": "SE_Gothic_Thin_Pillars_04",
-      "tier": 50,
-      "sourceTriangles": 628,
-      "triangles": 380,
-      "sourceVertices": 1054,
-      "vertices": 1054,
-      "fixedBoundaryPositions": 10,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f65ae62d4afd54bcf4ab4ca2",
-      "name": "SE_Gothic_Thin_Pillars_04",
-      "tier": 0,
-      "sourceTriangles": 628,
-      "triangles": 100,
-      "sourceVertices": 1054,
-      "vertices": 1054,
-      "fixedBoundaryPositions": 10,
-      "sameIndexMorph": true
-    },
-    {
       "key": "f3850526663b1949e0629e94",
       "name": "SE_Gothic_Wall_Thin_Arch_R_05",
       "tier": 50,
@@ -13049,28 +11410,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "662eafd0974c364c923e061c",
-      "name": "SE_Gothic_Thin_Pillars_03",
-      "tier": 50,
-      "sourceTriangles": 428,
-      "triangles": 292,
-      "sourceVertices": 788,
-      "vertices": 788,
-      "fixedBoundaryPositions": 6,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "662eafd0974c364c923e061c",
-      "name": "SE_Gothic_Thin_Pillars_03",
-      "tier": 0,
-      "sourceTriangles": 428,
-      "triangles": 120,
-      "sourceVertices": 788,
-      "vertices": 788,
-      "fixedBoundaryPositions": 6,
-      "sameIndexMorph": true
-    },
-    {
       "key": "a385064450413b3072aa5209",
       "name": "SE_Gothic_Wall_Column_01",
       "tier": 50,
@@ -13156,28 +11495,6 @@
       "sourceVertices": 384,
       "vertices": 384,
       "fixedBoundaryPositions": 128,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "7d39ce89e240b2ca876f05bf",
-      "name": "TO_INT_Cathedral_Pillar_Stone",
-      "tier": 50,
-      "sourceTriangles": 364,
-      "triangles": 144,
-      "sourceVertices": 592,
-      "vertices": 592,
-      "fixedBoundaryPositions": 48,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "7d39ce89e240b2ca876f05bf",
-      "name": "TO_INT_Cathedral_Pillar_Stone",
-      "tier": 0,
-      "sourceTriangles": 364,
-      "triangles": 100,
-      "sourceVertices": 592,
-      "vertices": 592,
-      "fixedBoundaryPositions": 48,
       "sameIndexMorph": true
     },
     {
@@ -13368,28 +11685,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "78c8f17d1931a48181b279b2",
-      "name": "DLC_SC12_Pillar_Mesh",
-      "tier": 50,
-      "sourceTriangles": 1044,
-      "triangles": 446,
-      "sourceVertices": 761,
-      "vertices": 761,
-      "fixedBoundaryPositions": 40,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "78c8f17d1931a48181b279b2",
-      "name": "DLC_SC12_Pillar_Mesh",
-      "tier": 0,
-      "sourceTriangles": 1044,
-      "triangles": 178,
-      "sourceVertices": 761,
-      "vertices": 761,
-      "fixedBoundaryPositions": 40,
-      "sameIndexMorph": true
-    },
-    {
       "key": "2a68f5307bcb351710d7c5a2",
       "name": "CR_ST_WallShelf_Wood",
       "tier": 50,
@@ -13431,28 +11726,6 @@
       "sourceVertices": 3382,
       "vertices": 3382,
       "fixedBoundaryPositions": 692,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "75f87b9e9396ace258acb504",
-      "name": "TO_INT_Pillar_WoodPanel_01",
-      "tier": 50,
-      "sourceTriangles": 2308,
-      "triangles": 916,
-      "sourceVertices": 4175,
-      "vertices": 4175,
-      "fixedBoundaryPositions": 32,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "75f87b9e9396ace258acb504",
-      "name": "TO_INT_Pillar_WoodPanel_01",
-      "tier": 0,
-      "sourceTriangles": 2308,
-      "triangles": 190,
-      "sourceVertices": 4175,
-      "vertices": 4175,
-      "fixedBoundaryPositions": 32,
       "sameIndexMorph": true
     },
     {
@@ -13731,28 +12004,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "3dc7bc66a1e51fe22bd08301",
-      "name": "TO_INT_Pillar_WoodPanel_03",
-      "tier": 50,
-      "sourceTriangles": 288,
-      "triangles": 184,
-      "sourceVertices": 248,
-      "vertices": 248,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "3dc7bc66a1e51fe22bd08301",
-      "name": "TO_INT_Pillar_WoodPanel_03",
-      "tier": 0,
-      "sourceTriangles": 288,
-      "triangles": 86,
-      "sourceVertices": 248,
-      "vertices": 248,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
       "key": "49b6a55a8e968a390b6cc0be",
       "name": "CR_INT_Wall_Tapestry_02",
       "tier": 50,
@@ -13885,28 +12136,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "0eca25b61f06344dc799065e",
-      "name": "CR_FR_Pillar_Stoun_01",
-      "tier": 50,
-      "sourceTriangles": 542,
-      "triangles": 474,
-      "sourceVertices": 360,
-      "vertices": 360,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "0eca25b61f06344dc799065e",
-      "name": "CR_FR_Pillar_Stoun_01",
-      "tier": 0,
-      "sourceTriangles": 542,
-      "triangles": 114,
-      "sourceVertices": 360,
-      "vertices": 360,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
       "key": "0d79ae05a3f77d2d7ce838ee",
       "name": "CV_Floor_MetalOre_03",
       "tier": 50,
@@ -13948,28 +12177,6 @@
       "sourceVertices": 127,
       "vertices": 127,
       "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "4fa14864aefab4e50ba757f4",
-      "name": "CR_FR_Pillar_Wall_Tree_Edge_02",
-      "tier": 50,
-      "sourceTriangles": 240,
-      "triangles": 224,
-      "sourceVertices": 143,
-      "vertices": 143,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "4fa14864aefab4e50ba757f4",
-      "name": "CR_FR_Pillar_Wall_Tree_Edge_02",
-      "tier": 0,
-      "sourceTriangles": 240,
-      "triangles": 102,
-      "sourceVertices": 143,
-      "vertices": 143,
-      "fixedBoundaryPositions": 14,
       "sameIndexMorph": true
     },
     {
@@ -15744,28 +13951,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "6033d30a4c2ef6c878a07ef4",
-      "name": "CR_FR_Pillar_Tree_Trunk_03",
-      "tier": 50,
-      "sourceTriangles": 1040,
-      "triangles": 806,
-      "sourceVertices": 665,
-      "vertices": 665,
-      "fixedBoundaryPositions": 38,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "6033d30a4c2ef6c878a07ef4",
-      "name": "CR_FR_Pillar_Tree_Trunk_03",
-      "tier": 0,
-      "sourceTriangles": 1040,
-      "triangles": 194,
-      "sourceVertices": 665,
-      "vertices": 665,
-      "fixedBoundaryPositions": 38,
-      "sameIndexMorph": true
-    },
-    {
       "key": "715dbaeed22768af565c5085",
       "name": "CR_FR_Wall_Log_Structure_02",
       "tier": 50,
@@ -15983,28 +14168,6 @@
       "sourceVertices": 49,
       "vertices": 49,
       "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "9305c51cc32f9a55ad4992e5",
-      "name": "FR_Pillar_Thin_Tree_Trunk_01",
-      "tier": 50,
-      "sourceTriangles": 1108,
-      "triangles": 602,
-      "sourceVertices": 749,
-      "vertices": 749,
-      "fixedBoundaryPositions": 22,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "9305c51cc32f9a55ad4992e5",
-      "name": "FR_Pillar_Thin_Tree_Trunk_01",
-      "tier": 0,
-      "sourceTriangles": 1108,
-      "triangles": 88,
-      "sourceVertices": 749,
-      "vertices": 749,
-      "fixedBoundaryPositions": 22,
       "sameIndexMorph": true
     },
     {
@@ -17240,28 +15403,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "19ab4240c35dbd85aea3c2c8",
-      "name": "TO_Fort_PropWall_Pillar",
-      "tier": 50,
-      "sourceTriangles": 238,
-      "triangles": 122,
-      "sourceVertices": 276,
-      "vertices": 276,
-      "fixedBoundaryPositions": 12,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "19ab4240c35dbd85aea3c2c8",
-      "name": "TO_Fort_PropWall_Pillar",
-      "tier": 0,
-      "sourceTriangles": 238,
-      "triangles": 30,
-      "sourceVertices": 276,
-      "vertices": 276,
-      "fixedBoundaryPositions": 12,
-      "sameIndexMorph": true
-    },
-    {
       "key": "de877877e37c704e7792e7b0",
       "name": "TO_Fort_PropWall_01_Half",
       "tier": 50,
@@ -17416,28 +15557,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "7852ac6a1c4797dd5ee65447",
-      "name": "CR_OS_Pillar_LOD0_02_Skull09",
-      "tier": 50,
-      "sourceTriangles": 747,
-      "triangles": 653,
-      "sourceVertices": 705,
-      "vertices": 705,
-      "fixedBoundaryPositions": 164,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "7852ac6a1c4797dd5ee65447",
-      "name": "CR_OS_Pillar_LOD0_02_Skull09",
-      "tier": 0,
-      "sourceTriangles": 747,
-      "triangles": 263,
-      "sourceVertices": 705,
-      "vertices": 705,
-      "fixedBoundaryPositions": 164,
-      "sameIndexMorph": true
-    },
-    {
       "key": "c951fcf41a93efa549560fa3",
       "name": "CR_OS_Wall_Thin_03_Main",
       "tier": 0,
@@ -17559,28 +15678,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "689ee41940d265f502d6a506",
-      "name": "CR_OS_Pillar_LOD0_02_Skull07",
-      "tier": 50,
-      "sourceTriangles": 617,
-      "triangles": 519,
-      "sourceVertices": 579,
-      "vertices": 579,
-      "fixedBoundaryPositions": 180,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "689ee41940d265f502d6a506",
-      "name": "CR_OS_Pillar_LOD0_02_Skull07",
-      "tier": 0,
-      "sourceTriangles": 617,
-      "triangles": 269,
-      "sourceVertices": 579,
-      "vertices": 579,
-      "fixedBoundaryPositions": 180,
-      "sameIndexMorph": true
-    },
-    {
       "key": "fd7422b59497a815bfd13d89",
       "name": "TERRAIN_Necro_HotCoals_Floor",
       "tier": 50,
@@ -17691,28 +15788,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "bbc1f4171b99b313cd685360",
-      "name": "CR_OS_Pillar_LOD0_02",
-      "tier": 50,
-      "sourceTriangles": 568,
-      "triangles": 362,
-      "sourceVertices": 714,
-      "vertices": 714,
-      "fixedBoundaryPositions": 10,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "bbc1f4171b99b313cd685360",
-      "name": "CR_OS_Pillar_LOD0_02",
-      "tier": 0,
-      "sourceTriangles": 568,
-      "triangles": 156,
-      "sourceVertices": 714,
-      "vertices": 714,
-      "fixedBoundaryPositions": 10,
-      "sameIndexMorph": true
-    },
-    {
       "key": "eb9db4c1a44798ab9d79a541",
       "name": "CR_OS_Wall_Thin_03_Stones",
       "tier": 50,
@@ -17731,28 +15806,6 @@
       "triangles": 28,
       "sourceVertices": 286,
       "vertices": 286,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "4a398d03d6f801316f6dbdb6",
-      "name": "CR_OS_Pillar_Thin_02_Column",
-      "tier": 50,
-      "sourceTriangles": 176,
-      "triangles": 84,
-      "sourceVertices": 252,
-      "vertices": 252,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "4a398d03d6f801316f6dbdb6",
-      "name": "CR_OS_Pillar_Thin_02_Column",
-      "tier": 0,
-      "sourceTriangles": 176,
-      "triangles": 32,
-      "sourceVertices": 252,
-      "vertices": 252,
       "fixedBoundaryPositions": 0,
       "sameIndexMorph": true
     },
@@ -17867,28 +15920,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "1a4c03d46f12678f3e22d41b",
-      "name": "CR_OS_Pillar_LOD0_02_Skull16",
-      "tier": 50,
-      "sourceTriangles": 591,
-      "triangles": 497,
-      "sourceVertices": 564,
-      "vertices": 564,
-      "fixedBoundaryPositions": 180,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "1a4c03d46f12678f3e22d41b",
-      "name": "CR_OS_Pillar_LOD0_02_Skull16",
-      "tier": 0,
-      "sourceTriangles": 591,
-      "triangles": 265,
-      "sourceVertices": 564,
-      "vertices": 564,
-      "fixedBoundaryPositions": 180,
-      "sameIndexMorph": true
-    },
-    {
       "key": "7f365c4c780cf8a949e052ee",
       "name": "CR_OS_Floor_Basic_Seg_P",
       "tier": 50,
@@ -17930,28 +15961,6 @@
       "sourceVertices": 984,
       "vertices": 984,
       "fixedBoundaryPositions": 153,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "9abbd927a80e18305e61d7cb",
-      "name": "CR_OS_Pillar_LOD0_02_Skull14",
-      "tier": 50,
-      "sourceTriangles": 659,
-      "triangles": 577,
-      "sourceVertices": 623,
-      "vertices": 623,
-      "fixedBoundaryPositions": 188,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "9abbd927a80e18305e61d7cb",
-      "name": "CR_OS_Pillar_LOD0_02_Skull14",
-      "tier": 0,
-      "sourceTriangles": 659,
-      "triangles": 285,
-      "sourceVertices": 623,
-      "vertices": 623,
-      "fixedBoundaryPositions": 188,
       "sameIndexMorph": true
     },
     {
@@ -18021,50 +16030,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "960902052038bcdb303fc9f6",
-      "name": "CR_OS_Pillar_LOD2_02",
-      "tier": 50,
-      "sourceTriangles": 568,
-      "triangles": 362,
-      "sourceVertices": 714,
-      "vertices": 714,
-      "fixedBoundaryPositions": 10,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "960902052038bcdb303fc9f6",
-      "name": "CR_OS_Pillar_LOD2_02",
-      "tier": 0,
-      "sourceTriangles": 568,
-      "triangles": 156,
-      "sourceVertices": 714,
-      "vertices": 714,
-      "fixedBoundaryPositions": 10,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "0dc933a85be0d2eccedaf645",
-      "name": "CR_OS_Pillar_01_New_Mesh",
-      "tier": 50,
-      "sourceTriangles": 568,
-      "triangles": 362,
-      "sourceVertices": 714,
-      "vertices": 714,
-      "fixedBoundaryPositions": 10,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "0dc933a85be0d2eccedaf645",
-      "name": "CR_OS_Pillar_01_New_Mesh",
-      "tier": 0,
-      "sourceTriangles": 568,
-      "triangles": 156,
-      "sourceVertices": 714,
-      "vertices": 714,
-      "fixedBoundaryPositions": 10,
-      "sameIndexMorph": true
-    },
-    {
       "key": "0c2fcc6962db6ac766eece01",
       "name": "TERRAIN_Necro_HotCoals_Edge",
       "tier": 50,
@@ -18109,28 +16074,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "5f3bd0155cb116b0776bd42d",
-      "name": "CR_OS_Pillar_LOD0_02_Skull10",
-      "tier": 50,
-      "sourceTriangles": 696,
-      "triangles": 586,
-      "sourceVertices": 650,
-      "vertices": 650,
-      "fixedBoundaryPositions": 183,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "5f3bd0155cb116b0776bd42d",
-      "name": "CR_OS_Pillar_LOD0_02_Skull10",
-      "tier": 0,
-      "sourceTriangles": 696,
-      "triangles": 286,
-      "sourceVertices": 650,
-      "vertices": 650,
-      "fixedBoundaryPositions": 183,
-      "sameIndexMorph": true
-    },
-    {
       "key": "22f775536b4b2f059d08fae7",
       "name": "CR_OS_Floor_03_Bones",
       "tier": 50,
@@ -18150,28 +16093,6 @@
       "sourceVertices": 1125,
       "vertices": 1125,
       "fixedBoundaryPositions": 15,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "77efcbb26f04c4e4d8d2c878",
-      "name": "CR_OS_Pillar_LOD0_02_Skull11",
-      "tier": 50,
-      "sourceTriangles": 670,
-      "triangles": 564,
-      "sourceVertices": 631,
-      "vertices": 631,
-      "fixedBoundaryPositions": 179,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "77efcbb26f04c4e4d8d2c878",
-      "name": "CR_OS_Pillar_LOD0_02_Skull11",
-      "tier": 0,
-      "sourceTriangles": 670,
-      "triangles": 266,
-      "sourceVertices": 631,
-      "vertices": 631,
-      "fixedBoundaryPositions": 179,
       "sameIndexMorph": true
     },
     {
@@ -18395,28 +16316,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "2df39fe85aef445afca5795d",
-      "name": "CR_OS_Pillar_01_New_Skulls",
-      "tier": 50,
-      "sourceTriangles": 4010,
-      "triangles": 2164,
-      "sourceVertices": 3841,
-      "vertices": 3841,
-      "fixedBoundaryPositions": 1025,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "2df39fe85aef445afca5795d",
-      "name": "CR_OS_Pillar_01_New_Skulls",
-      "tier": 0,
-      "sourceTriangles": 4010,
-      "triangles": 1228,
-      "sourceVertices": 3841,
-      "vertices": 3841,
-      "fixedBoundaryPositions": 1025,
-      "sameIndexMorph": true
-    },
-    {
       "key": "560391a596301f214debdbbd",
       "name": "CR_OS_Wall_DoorFrame_Thin_01_Bone",
       "tier": 50,
@@ -18436,28 +16335,6 @@
       "sourceVertices": 936,
       "vertices": 936,
       "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "8b922d9bcc686499e26ba438",
-      "name": "CR_OS_Pillar_LOD0_02_Skull03",
-      "tier": 50,
-      "sourceTriangles": 660,
-      "triangles": 554,
-      "sourceVertices": 620,
-      "vertices": 620,
-      "fixedBoundaryPositions": 183,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "8b922d9bcc686499e26ba438",
-      "name": "CR_OS_Pillar_LOD0_02_Skull03",
-      "tier": 0,
-      "sourceTriangles": 660,
-      "triangles": 268,
-      "sourceVertices": 620,
-      "vertices": 620,
-      "fixedBoundaryPositions": 183,
       "sameIndexMorph": true
     },
     {
@@ -18502,28 +16379,6 @@
       "sourceVertices": 2071,
       "vertices": 2071,
       "fixedBoundaryPositions": 228,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f28195b0e47611b2e986c6a2",
-      "name": "CR_OS_Pillar_Thin_02_Base",
-      "tier": 50,
-      "sourceTriangles": 404,
-      "triangles": 230,
-      "sourceVertices": 524,
-      "vertices": 524,
-      "fixedBoundaryPositions": 12,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f28195b0e47611b2e986c6a2",
-      "name": "CR_OS_Pillar_Thin_02_Base",
-      "tier": 0,
-      "sourceTriangles": 404,
-      "triangles": 60,
-      "sourceVertices": 524,
-      "vertices": 524,
-      "fixedBoundaryPositions": 12,
       "sameIndexMorph": true
     },
     {
@@ -18692,28 +16547,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "216acd09d2b73300421638d9",
-      "name": "CR_OS_Pillar_LOD0_02_Skull13",
-      "tier": 50,
-      "sourceTriangles": 703,
-      "triangles": 583,
-      "sourceVertices": 658,
-      "vertices": 658,
-      "fixedBoundaryPositions": 176,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "216acd09d2b73300421638d9",
-      "name": "CR_OS_Pillar_LOD0_02_Skull13",
-      "tier": 0,
-      "sourceTriangles": 703,
-      "triangles": 261,
-      "sourceVertices": 658,
-      "vertices": 658,
-      "fixedBoundaryPositions": 176,
-      "sameIndexMorph": true
-    },
-    {
       "key": "5441299ee9fe1d353821722a",
       "name": "CR_OS_Floor_04_Bones",
       "tier": 50,
@@ -18846,28 +16679,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "09a882532d3ee6d12e0297cd",
-      "name": "CR_OS_Pillar_Shrine",
-      "tier": 50,
-      "sourceTriangles": 2287,
-      "triangles": 699,
-      "sourceVertices": 2534,
-      "vertices": 2534,
-      "fixedBoundaryPositions": 21,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "09a882532d3ee6d12e0297cd",
-      "name": "CR_OS_Pillar_Shrine",
-      "tier": 0,
-      "sourceTriangles": 2287,
-      "triangles": 211,
-      "sourceVertices": 2534,
-      "vertices": 2534,
-      "fixedBoundaryPositions": 21,
-      "sameIndexMorph": true
-    },
-    {
       "key": "0df160d76563f3f793076b10",
       "name": "CR_OS_Wall_Thin_02_Main",
       "tier": 50,
@@ -18887,94 +16698,6 @@
       "sourceVertices": 255,
       "vertices": 255,
       "fixedBoundaryPositions": 88,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ce8de4e1bf8fd5a7dae1867e",
-      "name": "CR_OS_Pillar_LOD0_02_Skull12",
-      "tier": 50,
-      "sourceTriangles": 655,
-      "triangles": 551,
-      "sourceVertices": 622,
-      "vertices": 622,
-      "fixedBoundaryPositions": 178,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ce8de4e1bf8fd5a7dae1867e",
-      "name": "CR_OS_Pillar_LOD0_02_Skull12",
-      "tier": 0,
-      "sourceTriangles": 655,
-      "triangles": 267,
-      "sourceVertices": 622,
-      "vertices": 622,
-      "fixedBoundaryPositions": 178,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "efa6ece710474b169d209be7",
-      "name": "CR_OS_Pillar_LOD0_02_Skull01",
-      "tier": 50,
-      "sourceTriangles": 719,
-      "triangles": 607,
-      "sourceVertices": 668,
-      "vertices": 668,
-      "fixedBoundaryPositions": 172,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "efa6ece710474b169d209be7",
-      "name": "CR_OS_Pillar_LOD0_02_Skull01",
-      "tier": 0,
-      "sourceTriangles": 719,
-      "triangles": 263,
-      "sourceVertices": 668,
-      "vertices": 668,
-      "fixedBoundaryPositions": 172,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "1a34f16fd140d3f28b23fc38",
-      "name": "CR_OS_Pillar_LOD0_02_Skull15",
-      "tier": 50,
-      "sourceTriangles": 644,
-      "triangles": 548,
-      "sourceVertices": 611,
-      "vertices": 611,
-      "fixedBoundaryPositions": 187,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "1a34f16fd140d3f28b23fc38",
-      "name": "CR_OS_Pillar_LOD0_02_Skull15",
-      "tier": 0,
-      "sourceTriangles": 644,
-      "triangles": 262,
-      "sourceVertices": 611,
-      "vertices": 611,
-      "fixedBoundaryPositions": 187,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "2b99f39569d66c22c9634bb3",
-      "name": "CR_OS_Pillar_LOD0_02_Skull06",
-      "tier": 50,
-      "sourceTriangles": 596,
-      "triangles": 528,
-      "sourceVertices": 574,
-      "vertices": 574,
-      "fixedBoundaryPositions": 189,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "2b99f39569d66c22c9634bb3",
-      "name": "CR_OS_Pillar_LOD0_02_Skull06",
-      "tier": 0,
-      "sourceTriangles": 596,
-      "triangles": 284,
-      "sourceVertices": 574,
-      "vertices": 574,
-      "fixedBoundaryPositions": 189,
       "sameIndexMorph": true
     },
     {
@@ -19220,28 +16943,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "e2c0f47f03c0512c145930fd",
-      "name": "CR_OS_Pillar_LOD0_02_Skull08",
-      "tier": 50,
-      "sourceTriangles": 662,
-      "triangles": 574,
-      "sourceVertices": 631,
-      "vertices": 631,
-      "fixedBoundaryPositions": 178,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "e2c0f47f03c0512c145930fd",
-      "name": "CR_OS_Pillar_LOD0_02_Skull08",
-      "tier": 0,
-      "sourceTriangles": 662,
-      "triangles": 266,
-      "sourceVertices": 631,
-      "vertices": 631,
-      "fixedBoundaryPositions": 178,
-      "sameIndexMorph": true
-    },
-    {
       "key": "d79f679e2723c0a1eb7fd170",
       "name": "CR_OS_Wall_Narrow_01_Low",
       "tier": 50,
@@ -19261,50 +16962,6 @@
       "sourceVertices": 332,
       "vertices": 332,
       "fixedBoundaryPositions": 56,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "7cf23a348e2298acbfde360c",
-      "name": "CR_OS_Pillar_LOD0_02_Skull04",
-      "tier": 50,
-      "sourceTriangles": 840,
-      "triangles": 704,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "7cf23a348e2298acbfde360c",
-      "name": "CR_OS_Pillar_LOD0_02_Skull04",
-      "tier": 0,
-      "sourceTriangles": 840,
-      "triangles": 252,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "b5ccbb2c3075217ab1536a53",
-      "name": "CR_OS_Pillar_LOD0_02_Skull05",
-      "tier": 50,
-      "sourceTriangles": 711,
-      "triangles": 591,
-      "sourceVertices": 664,
-      "vertices": 664,
-      "fixedBoundaryPositions": 174,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "b5ccbb2c3075217ab1536a53",
-      "name": "CR_OS_Pillar_LOD0_02_Skull05",
-      "tier": 0,
-      "sourceTriangles": 711,
-      "triangles": 259,
-      "sourceVertices": 664,
-      "vertices": 664,
-      "fixedBoundaryPositions": 174,
       "sameIndexMorph": true
     },
     {
@@ -19371,50 +17028,6 @@
       "sourceVertices": 180,
       "vertices": 180,
       "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ad73064ca88b9b5a52ee8953",
-      "name": "CR_OS_Pillar_LOD0_02_Skull00",
-      "tier": 50,
-      "sourceTriangles": 707,
-      "triangles": 589,
-      "sourceVertices": 664,
-      "vertices": 664,
-      "fixedBoundaryPositions": 178,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ad73064ca88b9b5a52ee8953",
-      "name": "CR_OS_Pillar_LOD0_02_Skull00",
-      "tier": 0,
-      "sourceTriangles": 707,
-      "triangles": 265,
-      "sourceVertices": 664,
-      "vertices": 664,
-      "fixedBoundaryPositions": 178,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "0b81fd68a69d4e8a70c239e5",
-      "name": "CR_OS_Pillar_LOD0_02_Skull02",
-      "tier": 50,
-      "sourceTriangles": 840,
-      "triangles": 704,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "0b81fd68a69d4e8a70c239e5",
-      "name": "CR_OS_Pillar_LOD0_02_Skull02",
-      "tier": 0,
-      "sourceTriangles": 840,
-      "triangles": 252,
-      "sourceVertices": 794,
-      "vertices": 794,
-      "fixedBoundaryPositions": 149,
       "sameIndexMorph": true
     },
     {
@@ -20034,28 +17647,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "8eda42eb7e017287574d6623",
-      "name": "CV_Temples_Pillars_01",
-      "tier": 50,
-      "sourceTriangles": 189,
-      "triangles": 181,
-      "sourceVertices": 256,
-      "vertices": 256,
-      "fixedBoundaryPositions": 33,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "8eda42eb7e017287574d6623",
-      "name": "CV_Temples_Pillars_01",
-      "tier": 0,
-      "sourceTriangles": 189,
-      "triangles": 109,
-      "sourceVertices": 256,
-      "vertices": 256,
-      "fixedBoundaryPositions": 33,
-      "sameIndexMorph": true
-    },
-    {
       "key": "15b361cb51ea789451c75ada",
       "name": "SE_Rot_Wall_01_Narrow",
       "tier": 50,
@@ -20133,28 +17724,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "a719e127b7a57e4a474408d1",
-      "name": "SE_Rot_Wall_HexPillar_02",
-      "tier": 50,
-      "sourceTriangles": 838,
-      "triangles": 214,
-      "sourceVertices": 693,
-      "vertices": 693,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "a719e127b7a57e4a474408d1",
-      "name": "SE_Rot_Wall_HexPillar_02",
-      "tier": 0,
-      "sourceTriangles": 838,
-      "triangles": 120,
-      "sourceVertices": 693,
-      "vertices": 693,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
       "key": "3be07456f2092b128ba8bfd6",
       "name": "SE_Rot_Wall_01_Tiny",
       "tier": 50,
@@ -20174,50 +17743,6 @@
       "sourceVertices": 102,
       "vertices": 102,
       "fixedBoundaryPositions": 7,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "bd1039bacff8298282ae0133",
-      "name": "SE_Rot_Pillar_Large_01",
-      "tier": 50,
-      "sourceTriangles": 116,
-      "triangles": 68,
-      "sourceVertices": 128,
-      "vertices": 128,
-      "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "bd1039bacff8298282ae0133",
-      "name": "SE_Rot_Pillar_Large_01",
-      "tier": 0,
-      "sourceTriangles": 116,
-      "triangles": 44,
-      "sourceVertices": 128,
-      "vertices": 128,
-      "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "46c257ac7b32cf429f3ff4dc",
-      "name": "SE_Rot_Pillar_Small",
-      "tier": 50,
-      "sourceTriangles": 44,
-      "triangles": 20,
-      "sourceVertices": 64,
-      "vertices": 64,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "46c257ac7b32cf429f3ff4dc",
-      "name": "SE_Rot_Pillar_Small",
-      "tier": 0,
-      "sourceTriangles": 44,
-      "triangles": 20,
-      "sourceVertices": 64,
-      "vertices": 64,
-      "fixedBoundaryPositions": 0,
       "sameIndexMorph": true
     },
     {
@@ -20408,50 +17933,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "8c9cc16ce315aca5147e5cfb",
-      "name": "EN_CR_Pillar_Large_02 (34) simplified mesh",
-      "tier": 50,
-      "sourceTriangles": 678,
-      "triangles": 290,
-      "sourceVertices": 491,
-      "vertices": 491,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "8c9cc16ce315aca5147e5cfb",
-      "name": "EN_CR_Pillar_Large_02 (34) simplified mesh",
-      "tier": 0,
-      "sourceTriangles": 678,
-      "triangles": 76,
-      "sourceVertices": 491,
-      "vertices": 491,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "6a96f0f46ce4e93576cfc59d",
-      "name": "EN_CR_Pillar_Large_02 (34) simplified mesh",
-      "tier": 50,
-      "sourceTriangles": 1358,
-      "triangles": 404,
-      "sourceVertices": 871,
-      "vertices": 871,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "6a96f0f46ce4e93576cfc59d",
-      "name": "EN_CR_Pillar_Large_02 (34) simplified mesh",
-      "tier": 0,
-      "sourceTriangles": 1358,
-      "triangles": 104,
-      "sourceVertices": 871,
-      "vertices": 871,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
       "key": "2e7f53dfb9f42aa80d92484d",
       "name": "CR_RU_Floor_Rock_New_01",
       "tier": 50,
@@ -20470,50 +17951,6 @@
       "triangles": 60,
       "sourceVertices": 203,
       "vertices": 203,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "5a91146e7fa95aac328fa228",
-      "name": "CR_RU_Pillar_Shrine_01_Main",
-      "tier": 50,
-      "sourceTriangles": 1363,
-      "triangles": 535,
-      "sourceVertices": 1582,
-      "vertices": 1582,
-      "fixedBoundaryPositions": 21,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "5a91146e7fa95aac328fa228",
-      "name": "CR_RU_Pillar_Shrine_01_Main",
-      "tier": 0,
-      "sourceTriangles": 1363,
-      "triangles": 143,
-      "sourceVertices": 1582,
-      "vertices": 1582,
-      "fixedBoundaryPositions": 21,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f7ccfea8040bcf28642bb422",
-      "name": "CR_RU_Pillar_Large_Top",
-      "tier": 50,
-      "sourceTriangles": 1202,
-      "triangles": 278,
-      "sourceVertices": 1633,
-      "vertices": 1633,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f7ccfea8040bcf28642bb422",
-      "name": "CR_RU_Pillar_Large_Top",
-      "tier": 0,
-      "sourceTriangles": 1202,
-      "triangles": 98,
-      "sourceVertices": 1633,
-      "vertices": 1633,
       "fixedBoundaryPositions": 0,
       "sameIndexMorph": true
     },
@@ -20537,28 +17974,6 @@
       "sourceVertices": 39,
       "vertices": 39,
       "fixedBoundaryPositions": 16,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "b29f8c69e4d12827929862d1",
-      "name": "CR_RU_Pillar_Shrine_01_Slab",
-      "tier": 50,
-      "sourceTriangles": 584,
-      "triangles": 414,
-      "sourceVertices": 575,
-      "vertices": 575,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "b29f8c69e4d12827929862d1",
-      "name": "CR_RU_Pillar_Shrine_01_Slab",
-      "tier": 0,
-      "sourceTriangles": 584,
-      "triangles": 96,
-      "sourceVertices": 575,
-      "vertices": 575,
-      "fixedBoundaryPositions": 0,
       "sameIndexMorph": true
     },
     {
@@ -20683,28 +18098,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "f7081e9a8a15506cedd04e5e",
-      "name": "CR_RU_Pillar_Large_Bottom",
-      "tier": 50,
-      "sourceTriangles": 1014,
-      "triangles": 310,
-      "sourceVertices": 722,
-      "vertices": 722,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "f7081e9a8a15506cedd04e5e",
-      "name": "CR_RU_Pillar_Large_Bottom",
-      "tier": 0,
-      "sourceTriangles": 1014,
-      "triangles": 104,
-      "sourceVertices": 722,
-      "vertices": 722,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
       "key": "6b2176c44876c8da0fc81f79",
       "name": "CR_RU_StoneBlock_Floor_02",
       "tier": 0,
@@ -20713,28 +18106,6 @@
       "sourceVertices": 89,
       "vertices": 89,
       "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "b59d2dfcbe7d864ad4c4edd8",
-      "name": "SE_Wall_HexPillar_02",
-      "tier": 50,
-      "sourceTriangles": 838,
-      "triangles": 214,
-      "sourceVertices": 693,
-      "vertices": 693,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "b59d2dfcbe7d864ad4c4edd8",
-      "name": "SE_Wall_HexPillar_02",
-      "tier": 0,
-      "sourceTriangles": 838,
-      "triangles": 120,
-      "sourceVertices": 693,
-      "vertices": 693,
-      "fixedBoundaryPositions": 14,
       "sameIndexMorph": true
     },
     {
@@ -20757,28 +18128,6 @@
       "sourceVertices": 176,
       "vertices": 176,
       "fixedBoundaryPositions": 4,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ec5497e4dcf5a50fbcbe9f7d",
-      "name": "SE_Pillar_Small",
-      "tier": 50,
-      "sourceTriangles": 44,
-      "triangles": 20,
-      "sourceVertices": 64,
-      "vertices": 64,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "ec5497e4dcf5a50fbcbe9f7d",
-      "name": "SE_Pillar_Small",
-      "tier": 0,
-      "sourceTriangles": 44,
-      "triangles": 20,
-      "sourceVertices": 64,
-      "vertices": 64,
-      "fixedBoundaryPositions": 0,
       "sameIndexMorph": true
     },
     {
@@ -20878,28 +18227,6 @@
       "sourceVertices": 79,
       "vertices": 79,
       "fixedBoundaryPositions": 6,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "2cf8a434fa47eb6c9370d15b",
-      "name": "TO_INT_Cathedral_Pillar_Thin_01",
-      "tier": 50,
-      "sourceTriangles": 458,
-      "triangles": 186,
-      "sourceVertices": 737,
-      "vertices": 737,
-      "fixedBoundaryPositions": 56,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "2cf8a434fa47eb6c9370d15b",
-      "name": "TO_INT_Cathedral_Pillar_Thin_01",
-      "tier": 0,
-      "sourceTriangles": 458,
-      "triangles": 138,
-      "sourceVertices": 737,
-      "vertices": 737,
-      "fixedBoundaryPositions": 56,
       "sameIndexMorph": true
     },
     {
@@ -21101,28 +18428,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "9b08d9387fd8ec58e92dd7fd",
-      "name": "TO_INT_Cathedral_Pillar_Stone_02",
-      "tier": 50,
-      "sourceTriangles": 458,
-      "triangles": 236,
-      "sourceVertices": 737,
-      "vertices": 737,
-      "fixedBoundaryPositions": 56,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "9b08d9387fd8ec58e92dd7fd",
-      "name": "TO_INT_Cathedral_Pillar_Stone_02",
-      "tier": 0,
-      "sourceTriangles": 458,
-      "triangles": 138,
-      "sourceVertices": 737,
-      "vertices": 737,
-      "fixedBoundaryPositions": 56,
-      "sameIndexMorph": true
-    },
-    {
       "key": "44ef0175073247768b2cc25d",
       "name": "CR_INT_Marble_Floor_Seg_L",
       "tier": 50,
@@ -21208,28 +18513,6 @@
       "sourceVertices": 55,
       "vertices": 55,
       "fixedBoundaryPositions": 6,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "add7ba77fd81a33a64173184",
-      "name": "CR_INT_Wooden_Hut_Pillars_04",
-      "tier": 50,
-      "sourceTriangles": 616,
-      "triangles": 468,
-      "sourceVertices": 367,
-      "vertices": 367,
-      "fixedBoundaryPositions": 20,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "add7ba77fd81a33a64173184",
-      "name": "CR_INT_Wooden_Hut_Pillars_04",
-      "tier": 0,
-      "sourceTriangles": 616,
-      "triangles": 152,
-      "sourceVertices": 367,
-      "vertices": 367,
-      "fixedBoundaryPositions": 20,
       "sameIndexMorph": true
     },
     {
@@ -21596,28 +18879,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "355285d14d2c2695f2089954",
-      "name": "CV_Pillar_Volcanic_02",
-      "tier": 50,
-      "sourceTriangles": 336,
-      "triangles": 320,
-      "sourceVertices": 195,
-      "vertices": 195,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "355285d14d2c2695f2089954",
-      "name": "CV_Pillar_Volcanic_02",
-      "tier": 0,
-      "sourceTriangles": 336,
-      "triangles": 116,
-      "sourceVertices": 195,
-      "vertices": 195,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
       "key": "b1f11d3af070af1e90ec0d2a",
       "name": "CV_Wall_Volcanic_02",
       "tier": 50,
@@ -21750,28 +19011,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "73eb4357098d901670d7aeb7",
-      "name": "TO_Fort_Pillar_01",
-      "tier": 50,
-      "sourceTriangles": 2040,
-      "triangles": 362,
-      "sourceVertices": 1440,
-      "vertices": 1440,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "73eb4357098d901670d7aeb7",
-      "name": "TO_Fort_Pillar_01",
-      "tier": 0,
-      "sourceTriangles": 2040,
-      "triangles": 108,
-      "sourceVertices": 1440,
-      "vertices": 1440,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
       "key": "d0a18309c4617513f3092fe6",
       "name": "TO_Fort_Wall_01",
       "tier": 50,
@@ -21879,50 +19118,6 @@
       "sourceVertices": 153,
       "vertices": 153,
       "fixedBoundaryPositions": 11,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "c97f3f0ae4a273a060031766",
-      "name": "TO_SB_03_Pillar_02",
-      "tier": 50,
-      "sourceTriangles": 762,
-      "triangles": 324,
-      "sourceVertices": 821,
-      "vertices": 821,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "c97f3f0ae4a273a060031766",
-      "name": "TO_SB_03_Pillar_02",
-      "tier": 0,
-      "sourceTriangles": 762,
-      "triangles": 78,
-      "sourceVertices": 821,
-      "vertices": 821,
-      "fixedBoundaryPositions": 0,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "6bde236bbb28333fb8c74da4",
-      "name": "TO_SB_03_Pillar_03",
-      "tier": 50,
-      "sourceTriangles": 896,
-      "triangles": 400,
-      "sourceVertices": 728,
-      "vertices": 728,
-      "fixedBoundaryPositions": 24,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "6bde236bbb28333fb8c74da4",
-      "name": "TO_SB_03_Pillar_03",
-      "tier": 0,
-      "sourceTriangles": 896,
-      "triangles": 126,
-      "sourceVertices": 728,
-      "vertices": 728,
-      "fixedBoundaryPositions": 24,
       "sameIndexMorph": true
     },
     {
@@ -22201,50 +19396,6 @@
       "sameIndexMorph": true
     },
     {
-      "key": "09aa8fe480ac384b45dad321",
-      "name": "CR_FR_Pillar_Wall_Rocky_Verge_03",
-      "tier": 50,
-      "sourceTriangles": 240,
-      "triangles": 224,
-      "sourceVertices": 143,
-      "vertices": 143,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "09aa8fe480ac384b45dad321",
-      "name": "CR_FR_Pillar_Wall_Rocky_Verge_03",
-      "tier": 0,
-      "sourceTriangles": 240,
-      "triangles": 102,
-      "sourceVertices": 143,
-      "vertices": 143,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "73059a765535a71509a9b860",
-      "name": "CR_FR_Pillar_Wall_Rocky_Verge_02",
-      "tier": 50,
-      "sourceTriangles": 336,
-      "triangles": 304,
-      "sourceVertices": 195,
-      "vertices": 195,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "73059a765535a71509a9b860",
-      "name": "CR_FR_Pillar_Wall_Rocky_Verge_02",
-      "tier": 0,
-      "sourceTriangles": 336,
-      "triangles": 120,
-      "sourceVertices": 195,
-      "vertices": 195,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
       "key": "0b639b736f10f684e504afa5",
       "name": "FR_VV_Feature_Wall_Mound_02",
       "tier": 0,
@@ -22253,28 +19404,6 @@
       "sourceVertices": 132,
       "vertices": 132,
       "fixedBoundaryPositions": 10,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "cf57a48720e028852887a769",
-      "name": "CR_FR_Pillar_Wall_Rocky_Verge_01",
-      "tier": 50,
-      "sourceTriangles": 336,
-      "triangles": 318,
-      "sourceVertices": 195,
-      "vertices": 195,
-      "fixedBoundaryPositions": 14,
-      "sameIndexMorph": true
-    },
-    {
-      "key": "cf57a48720e028852887a769",
-      "name": "CR_FR_Pillar_Wall_Rocky_Verge_01",
-      "tier": 0,
-      "sourceTriangles": 336,
-      "triangles": 110,
-      "sourceVertices": 195,
-      "vertices": 195,
-      "fixedBoundaryPositions": 14,
       "sameIndexMorph": true
     },
     {
@@ -22355,5 +19484,5 @@
       "sameIndexMorph": true
     }
   ],
-  "assetBytes": 167299844
+  "assetBytes": 152902959
 }

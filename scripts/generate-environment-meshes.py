@@ -35,7 +35,14 @@ def prepare_mesh(source,native_path,target,*,receipt_dir=None,producer_key=None)
     evidence={'role':role,'reasons':source.get('roleReasons',[]),'uses':source.get('uses',[]),'floor':floor_facts}
     evidence_sha=hashlib.sha256(json.dumps(evidence,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     variants=[];details=[]
-    for tier in (100,50,0):
+    # Pillar LOD is retired; exact100 is shared with the independent chunk owner.
+    pillar = "pillar" in source['signature']['name'].casefold()
+    if pillar:
+        for tier in (50,0):
+            old = target/(source['key']+'-'+str(tier)+'.bytes')
+            old.unlink(missing_ok=True)
+            old.with_name(old.name+'.meta').unlink(missing_ok=True)
+    for tier in ((100,) if pillar else (100,50,0)):
         filename=source['key']+'-'+str(tier)+'.bytes';path=target/filename
         identity={'format':1,'sourceSha256':source['sha256'],'producerKey':producer_key,'roleEvidenceSha256':evidence_sha,'tier':tier}
         receipt=Path(receipt_dir)/(source['key']+'-'+str(tier)+'.json') if receipt_dir else None

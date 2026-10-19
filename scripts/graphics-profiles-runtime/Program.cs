@@ -76,8 +76,8 @@ internal static class Program
             Check(PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value==(i==0?64:0),
                 "standalone bounds terrain substitution work while PC quality profiles retain unlimited originals-compatible substitution");
             Check(PerfConfig.ScenarioTerrainDistanceMeters.Value==GloomhavenVR.FrameDefaults.ScenarioTerrainDistanceMeters, "VR distance threshold is platform-independent");
-            Check(PerfConfig.ScenarioTerrainPillarDistanceLod.Value,
-                "every explicit profile restores independent pillar distance LOD");
+            Check(!PerfConfig.ScenarioTerrainPillarDistanceLod.Value,
+                "explicit profiles do not enable the retired pillar LOD compatibility key");
             Check(PerfConfig.WallVisibilityModeCount.Value == 2 && PerfConfig.WallAutoHideBelowFpsCount.Value == 10,
                 "explicit profiles restore the approved automatic wall policy at10FPS");
             Check(PerfConfig.WallFadeEvalInterval.Value == 0f && WallFadeTuning.EvalIntervalSecondsEntry.Value == (i == 0 ? .25f : 0f),
@@ -94,7 +94,7 @@ internal static class Program
                         "profiles never bind retired idle or pure environment work-removal controls");
             foreach(var file in ModuleConfig.Snapshot()) Check(file.Value.SaveOnConfigSet, "autosave flags restored for every file");
         }
-        PerfConfig.ScenarioTerrainPillarDistanceLod.Value = false;
+        PerfConfig.ScenarioTerrainPillarDistanceLod.Value = true;
         PerfConfig.WallVisibilityModeCount.Value = 1;
         PerfConfig.WallAutoHideBelowFpsCount.Value = 7;
         PerfConfig.WallFadeEvalInterval.Value = .1f;
@@ -103,7 +103,7 @@ internal static class Program
         Check(PerfConfig.ScenarioTerrainPillarDistanceLod.Value && PerfConfig.WallVisibilityModeCount.Value == 2
             && PerfConfig.WallAutoHideBelowFpsCount.Value == 10 && PerfConfig.WallFadeEvalInterval.Value == 0
             && WallFadeTuning.EvalIntervalSecondsEntry.Value == .25f,
-            "Standalone restores a known wall and pillar state after arbitrary saved overrides");
+            "Standalone restores active wall policy without rewriting the inert saved pillar value");
         GloomhavenVR.FrameLaunchOptIn.MarkerPresent = true;
         Check(GraphicsProfiles.Apply(0), "can return to shared standalone on Steam Frame after high-end");
         var frameValues = ProfileValues();

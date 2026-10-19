@@ -74,7 +74,6 @@ reversible. Figure choices also apply to held figures.
 | `ScenarioStructuralInstancing` | false | false |
 | `ScenarioExplicitEnvironmentInstancing` | false | true |
 | `ScenarioTerrainSubstitution` | true | true |
-| `ScenarioTerrainPillarDistanceLod` | true | true |
 | `ScenarioTerrainDetailPercent` | 100 | 0 |
 | `ScenarioDistantTerrainDetailPercent` | 100 | 0 |
 | `ScenarioTerrainCameraSourceLimitCount` | 0 (unlimited) | 64 |
@@ -124,7 +123,7 @@ when a player explicitly chooses a profile through the original game callback.
 
 Each action writes its settings once, saves them, and leaves later manual
 changes authoritative. It also resets environment style, wall evaluation/rescan
-cadence, shared auto-hide threshold, pillar distance LOD and the
+cadence, shared auto-hide threshold and the
 legacy wall interval. The corresponding fresh values and explicit profile
 values must agree without changing personal control calibration. The shared
 bar-occlusion value is a startup default; profiles preserve an explicit player
