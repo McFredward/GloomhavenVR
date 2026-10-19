@@ -618,15 +618,24 @@ internal sealed class ProximityGrabber
         _nextTriggerRefusedLogAt = Time.unscaledTime + 1f;
         int swallowed = _triggerRefusalsSinceLastLog - 1;
         _triggerRefusalsSinceLastLog = 0;
+        bool figure = IsFigure(target);
+        string blocker = "Ray.HasFreshUiHit, raised by " + _hand.Ray.FreshUiHitSource;
+        if (figure)
+        {
+            blocker = _hand.Ray.HasFreshTriggerClaim
+                ? "a committed trigger claim raised by " + _hand.Ray.FreshTriggerClaimSource
+                : "an active uGUI pointer press (RayUgui.IsPressing=true)";
+            if (_hand.Ray.HasFreshTriggerClaim && _hand.RayUgui.IsPressing)
+                blocker += "; the uGUI pointer press also remains active";
+        }
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         Core.VRLog.Note("Interact",
             $"{_hand.Side} TRIGGER REFUSED on the elected candidate '{DescribeGrabbable(target)}' — "
-            + "the blocker is Ray.HasFreshUiHit, raised by " + _hand.Ray.FreshUiHitSource
-            + (IsFigure(target) ? "; committed owner: " + _hand.Ray.FreshTriggerClaimSource : "")
-            + ". That is a real rival for this pull, so the grab defers to it by design. If this "
-            + "line names a UI PANEL the arbitration is wrong and ModBuild 359's override did not "
-            + "engage."
+            + "the blocker is " + blocker
+            + (figure ? ". The active action retains this pull; the competing figure glow is cleared."
+                : ". That is a real rival for this pull, so the grab defers to it by design. If this "
+                  + "line names a UI PANEL the arbitration is wrong and ModBuild 359's override did not engage.")
             + (swallowed > 0
                 ? $" {swallowed} further refusal(s) in the last second are not printed."
                 : ""));
