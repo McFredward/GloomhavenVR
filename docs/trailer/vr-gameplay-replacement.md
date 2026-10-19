@@ -1,5 +1,85 @@
 # Genuine VR gameplay replacement
 
+## UI-only inventory and stronger attack (v16)
+
+The maintainer explicitly keeps the cinematic card near 1:30 (FG12) and requests
+an inventory limited to visible game UI. A fresh actual-v15 picture review finds
+33 UI inventory phases: 21 already in VR and twelve still native. These are
+inventory phases rather than independent cuts; FG14–16 and FG36–38 each share
+one continuous composition. The current work list has eight action groups:
+
+| Trailer | Native UI still visible | Material decision |
+| --- | --- | --- |
+| 1:22.75–1:25.20 | Trap action and targeting | Review existing environmental actions; capture a missing specific action if needed. |
+| 2:04.53–2:05.90 | Equipment assignment | New footage showing actual equipping, rather than another purchase. |
+| 2:05.90–2:07.83 | Enhancement purchase | New footage showing a confirmed enhancement. |
+| 2:07.83–2:10.13 | Quest completion / Claim Rewards | Review existing rewards footage first; scenario Victory alone is insufficient. |
+| 2:41.82–2:43.12 | Victory banner over the map | Actual VR Victory footage already exists. |
+| 3:04.52–3:09.32 | Guildmaster mission markers | Review existing map footage for real mission UI; a decorative map alone is insufficient. |
+| 3:19.20–3:23.15 | Card selection, system mosaic and turn transition | Existing fans, actions and menu footage cover many elements; build the moving composition while preserving cinematic tiles. |
+| 3:28.70–3:37.20 | Cooperative player panels | Record at least two genuine synchronized POVs; compose according to the real player count. |
+
+HUDless campaign combat over a painted map does not require replacement.
+The actual Victory UI starts at frame 9709, three frames before the former FG30
+boundary, and ends before 9787; only `[9709,9787)` belongs to that remaining UI
+window. Guildmaster's first mission-marker edge appears at 11071, so its UI phase
+is `[11071,11359)`. The purely illustrated lead-in and subsequent bare map are
+excluded. Branding and film titles are not game UI. The approved FG12 card is
+explicitly excluded from outstanding work and requests for new footage.
+
+The private `vr-gameplay-v7/inventory/INVENTAR-UI.html` provides a player, times,
+actual pictures and separate existing-material/new-capture decisions. Its
+analysis authority remains the reviewed v15, with a link to the current v16
+review. The reviewer personally inspects 239 Watch cues and 112 exact boundary
+pictures. Root independently views all twelve remaining-UI representatives,
+the approved card, five campaign/context sheets and two exact boundary sheets.
+
+For “spot some weaknesses to exploit”, v16 changes only FG07 `[4359,4534)`.
+The real `2026-10-17 11-28-25.mp4` source frames `[12000,12088)` show Cragheart's
+Avalanche hitting two Living Bones for five damage each, both collapsing and
+leaving gold. The 175 output frames repeat native 30fps at exactly 1x; the last
+source frame is used once. There is no speed fitting, interpolation or held
+ending. The native hard entry and following FG08 flare are inherited. Every
+other v15 frame address, original AAC and the separate approved intro remain.
+
+All 88 source pictures are reviewed; an independent sequential-PTS comparison
+passes all 175 component frames, at maximum 320-by-180 MAE 0.60440. A deliberately
+wrong next-source-frame clock has mean MAE 2.90216 against 0.45797 for the correct
+mapping on moving frames. Root views sixteen exact encoded-component witnesses
+and three full-size source damage/result pictures. Source and clock evidence
+live under `vr-gameplay-v7/attack-search/`. No paid inference or runtime change
+is used. The previous v15 section remains historical evidence.
+
+V16 SHA256 is
+`3c38629aecd0acf4ad7c335c20d54efe6097a771882c7f4bc50836874ab44234`.
+The assembler passes all 13 checks. Independent sequential validation passes
+all 14,810 frames, 14,635 outside-window pictures against v15, all 175 new
+component pictures, the continuous fan mark and all 11,573 unchanged AAC packets
+including clocks/configuration. Maximum 320-by-180 MAE is 0.68808 outside and
+1.38360 inside, below the unchanged 2.0 threshold. The source-clock proof above
+is explicitly inherited from the independent attack reviewer, not rerun.
+Root additionally views fifteen actual-export Watch cues and seven exact export
+boundary/result/card witnesses. This is focused media evidence, with unchanged
+v15 creative evidence inherited; no game-runtime or headset gate is claimed.
+
+Desktop Chromium and mobile emulation each play only the new attack context at
+1x. Thirty-eight paused chapter checks, twelve time/state-preserving comparisons
+and eight UI-inventory scene jumps pass. The reviewer personally views eighteen
+media pictures and the upper player/layout regions of four page captures;
+unseen lower page regions are not claimed as visually reviewed. The approved
+1:30 card remains visible. JavaScript/media checks pass; request cancellations
+are the expected aborted seeks/source switches. Final authorities are
+`vr-gameplay-v7/{qc-independent/technical-final.json,browser-review/final-review.json}`.
+
+Postpublication navigation passes 72 HTTP/Range requests and 38 paused chapter
+checks, reaches v16/CURRENT/the UI inventory from the homepage and confirms all
+eight action groups. No playback run is added. The separate intro section is
+byte-identical. Both completed clean worker worktrees are removed and the
+canonical cleanup API has run after process reaping. All 38 protected media
+hashes still match; used recordings, comparison references, selected components,
+masters and review evidence remain. See
+`vr-gameplay-v7/{browser-review/final-navigation.json,editor/protected-media-final.json}`.
+
 ## October 19 UI-focused capture pass (v15)
 
 The maintainer permits equivalent broad actions with different classes, cards

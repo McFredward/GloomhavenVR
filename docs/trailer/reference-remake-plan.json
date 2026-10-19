@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "Provisional v15 genuine VR material trial: prioritize visibly Flat UI; equivalent broad actions may use different classes/cards/rewards. HUDless scenes retained for now; remaining UI awaits more footage.",
+  "status": "V16: UI-only inventory and stronger real attack. Keep the approved cinematic card near 1:30 and HUDless/decorative shots. Twelve native UI windows in eight action groups remain; use existing material first.",
   "date": "2026-10-19",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
@@ -15,7 +15,7 @@
     "motion_quality": "V9 root review covers all762 changed component frames,139 whole-film Watch cues and21 native witness contacts/eight full-size witnesses. Independent visual review, all14810-frame technical/footer checks and actual browser playback pass; user acceptance is not claimed."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
-  "timing_note": "V15 preserves 14,810 frames at 60fps and the 246.861s AAC clock. Seven new windows contain 1,587 replacement frames; 13,223 pictures outside them follow accepted V14. Genuine source motion stays at 1x with normal 30-to-60fps repeats. Native wipe/smear clocks remain intact.",
+  "timing_note": "V16 changes only 175 frames in FG07 [4359,4534) against V15. Preserve 14,810 frames at 60fps, the original 246.861s AAC and source motion at 1x. The other 14,635 frame addresses remain inherited.",
   "voice": {
     "mode": "Keep original English text/timing, user confirmed; small GloomhavenVR substitutions only",
     "patches": [
@@ -2468,22 +2468,22 @@
     "cleanup_authority": "Latest explicit unused-video/resource deletion instruction overrides historical preserve-all-AI policy. Retain selected used sources and all fal run recovery metadata."
   },
   "current_working_cut": {
-    "phase": "genuine-vr-gameplay-v6",
+    "phase": "genuine-vr-gameplay-v7",
     "status": "provisional-material-trial-reviewed-and-published",
-    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/full-timeline-v1/reference-remake-vr-v15.mp4",
-    "sha256": "a9423dc88ed5dc2175f00d6d18b53d050e446c5c0142b8fe59aa306dcaa287ed",
-    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/REVIEW.html",
-    "base_phase": "genuine VR material trial v14 with accepted cinematic v9 inherited",
-    "base_sha256": "ac93cd713684eb5ce55fe2cf3bfd71cb2884238fb072666d5963dc89a1541403",
+    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/full-timeline-v1/reference-remake-vr-v16.mp4",
+    "sha256": "3c38629aecd0acf4ad7c335c20d54efe6097a771882c7f4bc50836874ab44234",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/REVIEW.html",
+    "base_phase": "genuine VR material trial v15, accepted cinematics inherited",
+    "base_sha256": "a9423dc88ed5dc2175f00d6d18b53d050e446c5c0142b8fe59aa306dcaa287ed",
     "frames": 14810,
     "fps": 60,
     "container_seconds": 246.861,
     "new_paid_calls": 0,
     "user_acceptance_claimed": false,
     "provisional_material_trial": true,
-    "bytes": 295302671,
+    "bytes": 293193204,
     "review_published": true,
-    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v6/REVIEW.html"
+    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v7/REVIEW.html"
   },
   "genuine_vr_gameplay_pass_v1": {
     "date": "2026-10-16",
@@ -3091,7 +3091,7 @@
   },
   "genuine_vr_gameplay_pass_v6": {
     "date": "2026-10-19",
-    "status": "focused-media-and-browser-reviewed-published",
+    "status": "historical-superseded-by-v16",
     "new_recording": "gameplay/2026-10-19 19-33-36.mp4",
     "new_recording_sha256": "e7e753a8df0761c9e888481dd03662e2fbba879cbf8b5379dbb8a73e8b3eede0",
     "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v6/full-timeline-v1/reference-remake-vr-v15.mp4",
@@ -3199,6 +3199,172 @@
       "owned_worker_worktrees_removed": 2,
       "used_media_deleted": false,
       "shared_references_modified": false
+    }
+  },
+  "genuine_vr_gameplay_pass_v7": {
+    "date": "2026-10-19",
+    "status": "focused-media-and-browser-reviewed-published",
+    "new_paid_calls": 0,
+    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/full-timeline-v1/reference-remake-vr-v16.mp4",
+    "master_sha256": "3c38629aecd0acf4ad7c335c20d54efe6097a771882c7f4bc50836874ab44234",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/REVIEW.html",
+    "private_selection": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/editor/selection-final.json",
+    "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/NAECHSTE-AUFNAHMEN.txt",
+    "ui_inventory": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/inventory/ui-only-inventory.json",
+    "ui_inventory_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/inventory/INVENTAR-UI.html",
+    "ui_inventory_reviewed_master_sha256": "a9423dc88ed5dc2175f00d6d18b53d050e446c5c0142b8fe59aa306dcaa287ed",
+    "visible_ui_regions": 33,
+    "already_vr_ui_regions": 21,
+    "remaining_native_ui_regions": 12,
+    "ui_action_groups": 8,
+    "clearly_new_capture_groups": 3,
+    "legacy41_coverage_count_is_not_current_ui_worklist": true,
+    "approved_exception": "FG12 cinematic Cataclysm card near 1:30 stays unchanged by explicit user ruling.",
+    "refined_native_ui_phases": {
+      "FG30": [
+        9709,
+        9787
+      ],
+      "FG31": [
+        11071,
+        11359
+      ]
+    },
+    "remaining_ui_windows": [
+      {
+        "id": "FG10",
+        "start_frame": 4965,
+        "end_frame_exclusive": 5112,
+        "material_status": "existing_to_review"
+      },
+      {
+        "id": "FG21",
+        "start_frame": 7472,
+        "end_frame_exclusive": 7554,
+        "material_status": "additional_capture_needed"
+      },
+      {
+        "id": "FG22",
+        "start_frame": 7554,
+        "end_frame_exclusive": 7670,
+        "material_status": "additional_capture_needed"
+      },
+      {
+        "id": "FG23",
+        "start_frame": 7670,
+        "end_frame_exclusive": 7808,
+        "material_status": "existing_to_review"
+      },
+      {
+        "id": "FG30",
+        "start_frame": 9709,
+        "end_frame_exclusive": 9787,
+        "material_status": "existing_usable"
+      },
+      {
+        "id": "FG31",
+        "start_frame": 11071,
+        "end_frame_exclusive": 11359,
+        "material_status": "existing_to_review"
+      },
+      {
+        "id": "FG36",
+        "start_frame": 11952,
+        "end_frame_exclusive": 11977,
+        "material_status": "existing_usable"
+      },
+      {
+        "id": "FG37",
+        "start_frame": 11977,
+        "end_frame_exclusive": 12097,
+        "material_status": "existing_usable"
+      },
+      {
+        "id": "FG38",
+        "start_frame": 12097,
+        "end_frame_exclusive": 12189,
+        "material_status": "existing_usable"
+      },
+      {
+        "id": "FG39",
+        "start_frame": 12522,
+        "end_frame_exclusive": 12624,
+        "material_status": "additional_capture_needed"
+      },
+      {
+        "id": "FG40",
+        "start_frame": 12624,
+        "end_frame_exclusive": 12805,
+        "material_status": "additional_capture_needed"
+      },
+      {
+        "id": "FG41",
+        "start_frame": 12805,
+        "end_frame_exclusive": 13032,
+        "material_status": "additional_capture_needed"
+      }
+    ],
+    "changed_window": [
+      4359,
+      4534
+    ],
+    "changed_frames": 175,
+    "unchanged_frames": 14635,
+    "actual_vr_chapters": 19,
+    "new_attack": {
+      "source": "gameplay/2026-10-17 11-28-25.mp4",
+      "source_sha256": "d28452f2fd872a7b59d9327c046669c0b4b86d6559fefef92c6d92b75fb80fc4",
+      "source_frames": [
+        12000,
+        12088
+      ],
+      "source_fps": 30,
+      "output_fps": 60,
+      "playback_rate": 1,
+      "action": "Avalanche: two Living Bones take 5 damage each, collapse and leave gold.",
+      "component_sha256": "d201a4dd839f6aa43185e0f252a7780f606f3654ab23d3144217ecbb980c1599",
+      "source_clock_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/attack-search/component-clock-qc.json"
+    },
+    "user_acceptance_claimed": false,
+    "technical": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/qc-independent/technical-final.json",
+      "total_decoded_frames": 14810,
+      "outside_frames": 14635,
+      "outside_max_mae": 0.6880787037037037,
+      "component_frames": 175,
+      "component_max_mae": 1.38359197845805,
+      "threshold": 2.0,
+      "unchanged_aac_packets": 11573,
+      "source_clock_inherited": true,
+      "source_clock_frames": 175
+    },
+    "browser": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/browser-review/final-review.json",
+      "contexts_played_at_1x": 2,
+      "paused_chapter_checks": 38,
+      "time_state_comparisons": 12,
+      "inventory_scene_jumps": 8,
+      "personally_viewed_media_screenshots": 18,
+      "personally_viewed_page_top_regions": 4,
+      "full_runtime_or_hardware_gate": false,
+      "final_navigation_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/browser-review/final-navigation.json",
+      "postpublication_http_range_checks": 72,
+      "postpublication_paused_chapter_checks": 38,
+      "separate_intro_section_byte_identical": true
+    },
+    "visual": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/qc-root/visual-review.json",
+      "root_component_witnesses": 16,
+      "root_actual_export_watch_cues": 15,
+      "root_exact_export_witnesses": 7
+    },
+    "private_inventory_counts_are_independent_cuts": false,
+    "cleanup": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/editor/protected-media-final.json",
+      "protected_media_hashes": 38,
+      "owned_worker_worktrees_removed": 2,
+      "used_media_deleted": false,
+      "shared_game_references_modified": false
     }
   }
 }

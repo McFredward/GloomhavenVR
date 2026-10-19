@@ -3,21 +3,23 @@
 The accepted opening also supplies the first-save campaign intro, with a native-style
 GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
 
-The October 19 pass prioritizes visibly Flat gameplay UI. HUDless scenes are
-acceptable for now under the maintainer's latest instruction. Equivalent actions
-may use different classes, cards and rewards. V15 adds genuine exhaustion,
-melee and incoming hits, enemy repositioning into a trap, damage-sacrifice
-confirmation, played loss, actual healing-potion use and a chest reward from
-`2026-10-19 19-33-36.mp4`. Real actions still matter: inspection, short rest and
-outgoing damage cannot stand in for item use, played loss and incoming damage.
+The current v16 pass inventories actual visible game UI. It excludes HUDless
+combat, decorative map illustrations and the maintainer's explicitly approved
+cinematic card near 1:30. Thirty-three UI inventory phases remain relevant:
+21 already contain genuine VR and twelve native windows form eight outstanding
+action groups. This replaces the old 41-row coverage count as the current work
+list. An outstanding edit does not automatically require another recording.
+Existing Victory, card fans, combat turns and many montage elements can be reused;
+equipment assignment, enhancement and genuine cooperative POVs need new captures.
 
-Seven new windows preserve the native timing, gold wipes and camera-smear
-transitions. All source motion remains at 1x with ordinary 30-to-60fps repeats.
-The accepted cinematics, original AAC track, full-trailer fan mark and separate
-approved campaign intro are inherited. Twenty-one inventory regions now contain
-VR pictures; twenty remain native, including deferred HUDless scenes. The active
-review is `vr-gameplay-v6/REVIEW.html`, with nineteen chapter buttons, source
-comparisons and nine grouped requests for remaining UI footage.
+V16 also replaces the weak one-damage hit during “spot some weaknesses” with
+Cragheart's actual Avalanche: two Living Bones each take five damage, collapse
+and leave gold. Only `[4359,4534)` changes against v15. All source motion stays
+at 1x with ordinary 30-to-60fps repeats; the native outgoing flare remains.
+Accepted cinematics, original AAC, full-trailer fan mark and the separate game
+intro are inherited. The active review is `vr-gameplay-v7/REVIEW.html`, with
+nineteen chapter buttons, source comparisons, an updated capture list and
+`inventory/INVENTAR-UI.html` for the complete UI-only inventory.
 No paid inference or runtime change is used. See
 [vr-gameplay-replacement.md](vr-gameplay-replacement.md) for exact evidence.
 
