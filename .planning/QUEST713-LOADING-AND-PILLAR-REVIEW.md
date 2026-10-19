@@ -77,6 +77,9 @@ contain no environment mesh streams and remain unchanged. The Quest producer
 also emits only exact100 for pillars and prunes obsolete50/0 staged files.
 An update changes managed/native mod code and the small mod environment art;
 original Campaign conversion, original shaders and movies must remain reusable.
+The finite environment-cache migration reuses reviewed non-pillar tiers and
+exact100 pillar receipts without extraction or simplification; its19 focused
+cases and9 producer assertions pass. See `QUEST713-ENVIRONMENT-RETIREMENT-REUSE.md`.
 The game-free Builder archive never contained the original-derived desktop bank;
 its source recipe now excludes these derivatives from future owned Quest banks.
 
@@ -99,3 +102,33 @@ release smoke results accompany the delivery. No full original import, shader
 recovery, depth/movie generation or whole-game APK build is required locally.
 Unchanged broader multiplayer/gameplay evidence is inherited, not reported as a
 new complete local gate pass. Test process trees are reaped before shared cleanup.
+
+### Final focused integration evidence
+
+Shared dev source group passes16/16. Quest source group also passes16/16;
+strict B713 Release has0warnings/errors. Actual original-assembly weaving emits
+488hooks across301targets with no issues; current-mod AOT/registry checks pass
+814assertions (218live registrations,196runtime activations,2static proofs).
+The source and target compiler checks are not a headset run.
+
+The final loading fixture passes823assertions across8real native boundaries,
+71spinner pixel checks and189final-menu frame observations. All six bad cases
+retain coverage; both independent proof-bypass controls reproduce false receipts.
+The actual B712 baseline has16/24black frames. Native menu-controller lifecycle
+is still controlled, and the final native-host camera is not an XR compositor.
+
+Ping native autoplay and static draw pass30assertions, identical229visiblepixels,
+six clock samples and five causal controls. The final Quest terrain integration
+passes373assertions and four focused causal controls; its profiles pass382.
+Initial composed terrain attempts failed obsolete pillar-counter log-string
+assertions after their removal. Those assertions now check wall-only facts;
+the original failed results are preserved. The unrelated broader terrain controls
+were not mislabeled as a fresh successful complete pass.
+
+The independently rebuilt actual Windows bank decodes2,909streams, preserving
+1,139originals and both shader families. All reduced pillar names are absent from
+its real content. Its SHA256 is
+`1e95caed4ca1614e95b39f51e165d3ae3087b17fa8b562491df68cbdeee2609f`.
+Broader unchanged gameplay/network evidence is inherited from B712 rather than
+rerun for these rendering/removal changes. Final archive/source classification
+and extracted Linux launcher/API smoke are required before publication.

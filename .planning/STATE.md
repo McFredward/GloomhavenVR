@@ -7,7 +7,7 @@ shared environment originals retained. Quest producer also drops reduced pillars
 The B712 ping proxy froze original Pause-culled particle clocks; real automatic
 native playback proves the regression and restoration of native simulation/draw.
 Its separate tile artifact remains open for hardware. Initial spinner review
-reproduces false menu retirement under five real-rendered blank/foreign-content
+reproduces false menu retirement under six real-rendered blank/foreign-content
 cases. Source-image eligibility and fresh actual consumer pixels now qualify the
 one initial handoff; bounded continuity/private-source probes survive log budget
 saturation. This does not establish final Quest eye pixels or resolve the entire
