@@ -737,7 +737,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     }
 
     /// <summary>Resolve real rig lifetime changes before per-frame camera/MR maintenance.</summary>
-    private void UpdateRigLifetime(RigKind desired, CameraController controller, bool sceneRecheck)
+    private void UpdateRigLifetime(RigKind desired, CameraController? controller, bool sceneRecheck)
     {
         // The owned menu head outlives native camera swaps. Actual rig/context loss
         // still tears down synchronously before the next kind is built.
