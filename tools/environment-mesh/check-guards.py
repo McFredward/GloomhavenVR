@@ -49,6 +49,7 @@ def main():
     exact = next(variant for variant in pillar['variants'] if variant['tier'] == 100)
     with tempfile.TemporaryDirectory(prefix='ghvr-retired-pillar-') as temporary:
         root = Path(temporary); native = root / 'generation/native'; native.mkdir(parents=True)
+        (root / 'tools/environment-mesh').mkdir(parents=True)
         target = root / 'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes'; target.mkdir(parents=True)
         data = (prepared_root / exact['file']).read_bytes()
         (native / (pillar['key'] + '.bytes')).write_bytes(data)

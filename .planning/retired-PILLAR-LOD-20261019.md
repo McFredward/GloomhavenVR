@@ -106,3 +106,67 @@ generalized into an entire-game cost or a Frame comparison. These observations
 support measuring the full substitution path rather than crediting every
 prepared reduced mesh as an active benefit; removal still follows the explicit
 user decision.
+
+## Implemented removal and focused evidence
+
+The ordinary terrain allowlist now contains only its15 previously admitted wall
+identities. Pillar surface classification, radial cylinder/radius measurement,
+figure-policy bands and every pillar detail branch are removed. The old setting
+is bound only as hidden `INERT —` storage; it has no runtime getter, curated row,
+topic entry or profile write. Existing saved values cannot restore the feature.
+The diagnostic token remains `pillarDistanceLOD=False` for log compatibility.
+Figure LOD, ordinary wall detail, hand protection, native visibility and exact
+gameplay meshes/colliders remain.
+
+Delete261 reduced pillar50/0 streams and their metadata,14,396,885 raw bytes.
+Keep all1,139 exact originals and2,909 total streams, including131 pillar-named
+exact originals in the generic environment bank. Some of those exact originals
+are shared by the independent environment chunk owner; the general exact bank
+is not an exclusively pillar-LOD distribution asset.
+
+The actual tracked `prebuilt/ghvr-environment.bundle` was independently repacked
+with Unity2021.3.5f1. Its size drops from56,858,683 to52,361,903 bytes, saving
+4,496,780 compressed bytes. New SHA256:
+`1e95caed4ca1614e95b39f51e165d3ae3087b17fa8b562491df68cbdeee2609f`.
+The inventory/hash checker verifies every remaining stream, exact index bytes,
+both compiled shader families and all retained fog/instancing variants. Native
+Unity loads the actual file and production-decodes all2,909 streams. This Null
+graphics loader proves package/decoder compatibility, not headset appearance.
+
+The actual main, town, voice, Steam Link and stereo-video banks contain no
+environment-stream paths and retain their original bytes. The only tracked
+desktop environment bank is the file above; Android environment banks are built
+from owned inputs by the separate Quest Builder and must apply the same retirement
+in its checkpointed producer. Original Campaign conversion need not change.
+
+Fresh focused checks:
+
+- Actual Unity terrain:370 assertions and four causal controls. All10 former
+  native pillar identities remain original under zero caps and cheap shading;
+  reintroducing one allowlist entry fails the real proxy-count assertion.
+  Unchanged ordinary-wall hand proximity, distant cap and exact proxy ownership
+  controls also fail their named assertions when deliberately broken.
+- Profiles:328 source-bound assertions, including hidden compatibility storage
+  and no profile reactivation. English/German help:2,314 production lookups and
+  its existing content/lookup controls.
+- Producer guards:9 assertions, including warm removal of stale50/0 files and
+  metadata while preserving real exact100 bytes; an isolated former-generator
+  control actually recreates the forbidden reductions.
+- Strict Release:zero errors/warnings. Source group initially passed15/16;
+  the expected retired-setting family exception was recorded explicitly and its
+  affected options check then passed. This is composed source evidence, not a
+  second new complete local gate.
+
+The former7,027 terrain count intentionally falls because its removed radial,
+size-band and per-pillar reduction permutations no longer describe product
+behavior. Their historical evidence remains above; they are not silently counted
+as current checks. The first new fixture build exposed an unused figure-helper
+boundary and the initial native-loader check still expected the old3,170-stream
+census; both test bindings were corrected and their failures retained. No new
+PC/Frame/Quest picture or FPS result is claimed.
+
+Detailed logs, source receipts, bank inventories and cleanup results live under
+`/home/claw/quest3-local/build/evidence/quest713-loading-review-20261019/pillar-removal/`
+and this worker's ignored `.planning/debug/quest713-removal/`. Owned child
+processes are reaped before common completion cache cleanup. Current results,
+source/hash evidence and hardware inputs remain retained.
