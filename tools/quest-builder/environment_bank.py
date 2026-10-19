@@ -77,6 +77,78 @@ def plan(game_info, source_files):
     return {"association": ASSOCIATION, "sources": _source_rows(game_info), "producers": [known[name] for name in PRODUCERS]}
 
 
+# Only this audited retirement may reuse the previous selector's derivative
+# receipts. Reconstruct its exact original source bytes; arbitrary future edits
+# still receive their own producer identity and cannot inherit these outputs.
+_PILLAR_PREDECESSOR_SHA = "9f9d09d30837555ce694e2e2eb82f88b83ab6f35def79041979ba1d2ea489fd4"
+_PILLAR_PREDECESSOR_SIZE = 8535
+_PILLAR_RETIREMENT = """    # Pillar LOD is retired; exact100 is shared with the independent chunk owner.
+    pillar = "pillar" in source['signature']['name'].casefold()
+    if pillar:
+        for tier in (50,0):
+            old = target/(source['key']+'-'+str(tier)+'.bytes')
+            old.unlink(missing_ok=True)
+            old.with_name(old.name+'.meta').unlink(missing_ok=True)
+            if receipt_dir:
+                (Path(receipt_dir)/(source['key']+'-'+str(tier)+'.json')).unlink(missing_ok=True)
+    for tier in ((100,) if pillar else (100,50,0)):
+"""
+
+
+def _retirement_predecessor(source, producers):
+    data = (source / PRODUCERS[1]).read_bytes()
+    boundary = _PILLAR_RETIREMENT.encode()
+    if data.count(boundary) != 1: return None
+    previous = data.replace(boundary, b"    for tier in (100,50,0):\n", 1)
+    if len(previous) != _PILLAR_PREDECESSOR_SIZE or hashlib.sha256(previous).hexdigest() != _PILLAR_PREDECESSOR_SHA:
+        return None
+    rows = [dict(row) for row in producers]
+    rows[1].update(sha256=_PILLAR_PREDECESSOR_SHA, size=_PILLAR_PREDECESSOR_SIZE)
+    return rows
+
+
+def _prune_retired_streams(root, entries):
+    for entry in entries:
+        if "pillar" not in entry["signature"]["name"].casefold(): continue
+        if [row["tier"] for row in entry["variants"]] != [100]:
+            raise BuildError("Retired pillar LOD cannot publish reduced compiler inputs.")
+        for tier in (50, 0):
+            for suffix in (".bytes", ".bytes.meta"):
+                path = _ordinary_owned(root / (entry["key"] + "-" + str(tier) + suffix))
+                path.unlink(missing_ok=True)
+
+
+def _retire_previous_staging(authored, previous, current, predecessor, entries):
+    """Resume the finite tier-drop migration, including a partially copied index."""
+    if predecessor is None or not isinstance(previous, dict) or set(previous) != set(current): return False
+    expected_key = value_hash({"format": 1, "association": ASSOCIATION, "producers": predecessor})
+    if (previous.get("producers") != predecessor or previous.get("producerKey") != expected_key
+            or any(previous.get(key) != current.get(key) for key in ("schema", "association", "gameKey", "sources"))):
+        return False
+    old_rows = previous.get("files")
+    if not isinstance(old_rows, list) or any(not isinstance(row, dict) for row in old_rows): return False
+    old = {row.get("path"): row for row in old_rows}
+    new = {row["path"]: row for row in current["files"]}
+    if len(old) != len(old_rows) or not set(new) <= set(old): return False
+    removed = {ROOT + entry["key"] + "-" + str(tier) + suffix for entry in entries
+               if "pillar" in entry["signature"]["name"].casefold()
+               for tier in (50, 0) for suffix in (".bytes", ".bytes.meta")}
+    if not set(old).difference(new) <= removed: return False
+    mutable = {ROOT + "index.json", ROOT + ORIGINS}
+    if any(old[path] != row for path, row in new.items() if path not in mutable): return False
+    # Immutable rows are checked by _copy. Only the two finite generated records
+    # may change; recognize both old and already-copied new bytes after a crash.
+    for relative in mutable:
+        target = _ordinary_owned(authored / relative)
+        if target.exists():
+            actual = record_file(target, relative)
+            if actual != new[relative] and actual != old[relative]:
+                raise BuildError("Retained environment index changed outside its tier-drop migration.")
+            if actual == old[relative] and actual != new[relative]: target.unlink()
+    _prune_retired_streams(authored / ROOT, entries)
+    return True
+
+
 def _meta(path):
     guid = hashlib.md5(("GloomhavenVR.EnvironmentMeshes/" + path.name).encode()).hexdigest()
     text = "fileFormatVersion: 2\nguid: " + guid + "\nTextScriptImporter:\n  externalObjects: {}\n  userData:\n  assetBundleName:\n  assetBundleVariant:\n"
@@ -116,7 +188,8 @@ def stage(source, game, authored, output, game_info, source_files):
     bundles = _source_rows(game_info)
     producer_key = value_hash({"format": 1, "association": ASSOCIATION, "producers": producers})
     native_producer_key = value_hash({"format": 1, "producers": [producers[0], producers[2]]})
-    derivative_producer_key = value_hash({"format": 1, "producers": producers[1:]})
+    predecessor = _retirement_predecessor(source, producers)
+    derivative_producer_key = value_hash({"format": 1, "producers": (predecessor or producers)[1:]})
     key = value_hash({"producerKey": producer_key, "bundles": bundles})
     cache = _ordinary_owned(output / "cache/environment-meshes" / key)
     cache.mkdir(parents=True, exist_ok=True)
@@ -185,6 +258,7 @@ def stage(source, game, authored, output, game_info, source_files):
             _copy(path, prepared / variant["file"], {"path": variant["file"], "sha256": variant["sha256"], "size": path.stat().st_size})
         entries.append(entry); counter.add(1, mesh["signature"]["name"])
     counter.finish()
+    _prune_retired_streams(prepared, entries)
     write_json(prepared / "index.json", {"format": 1, "entries": entries})
     index_sha = digest(prepared / "index.json")
     origins = {"schema": 1, "association": ASSOCIATION, "gameKey": game_info["key"], "indexSha256": index_sha,
@@ -199,8 +273,11 @@ def stage(source, game, authored, output, game_info, source_files):
     generated_marker = authored / "quest-owned-environment.json"
     generated = {"schema": 1, "association": ASSOCIATION, "gameKey": game_info["key"], "producerKey": producer_key,
                  "producers": producers, "sources": bundles, "indexSha256": index_sha, "files": files}
-    if generated_marker.exists() and json.loads(generated_marker.read_text()) != generated:
-        raise BuildError("Generated environment compiler input owner differs.")
+    if generated_marker.exists():
+        previous = json.loads(generated_marker.read_text())
+        if previous != generated and not _retire_previous_staging(authored, previous, generated, predecessor, entries):
+            raise BuildError("Generated environment compiler input owner differs.")
+    _prune_retired_streams(authored / ROOT, entries)
     for row in files: _copy(prepared / Path(row["path"]).name, authored / row["path"], row)
     write_json(generated_marker, generated)
     return generated

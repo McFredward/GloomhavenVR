@@ -42,6 +42,8 @@ def prepare_mesh(source,native_path,target,*,receipt_dir=None,producer_key=None)
             old = target/(source['key']+'-'+str(tier)+'.bytes')
             old.unlink(missing_ok=True)
             old.with_name(old.name+'.meta').unlink(missing_ok=True)
+            if receipt_dir:
+                (Path(receipt_dir)/(source['key']+'-'+str(tier)+'.json')).unlink(missing_ok=True)
     for tier in ((100,) if pillar else (100,50,0)):
         filename=source['key']+'-'+str(tier)+'.bytes';path=target/filename
         identity={'format':1,'sourceSha256':source['sha256'],'producerKey':producer_key,'roleEvidenceSha256':evidence_sha,'tier':tier}

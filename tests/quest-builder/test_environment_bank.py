@@ -1,5 +1,6 @@
 """Owned original extraction and same-index tiers; no game/Unity build fixture."""
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -137,6 +138,71 @@ class OwnedEnvironmentTests(unittest.TestCase):
         self.refresh(); self.stage(self.root / "next-compiler-project")
         self.assertEqual(self.calls, [])
         self.assertEqual(self.simplifications, [50, 0, 50, 0])
+
+    def legacy_pillar_stage(self):
+        current = (self.source / bank.PRODUCERS[1]).read_bytes()
+        legacy = current.replace(bank._PILLAR_RETIREMENT.encode(), b"    for tier in (100,50,0):\n", 1)
+        self.assertEqual(hashlib.sha256(legacy).hexdigest(), bank._PILLAR_PREDECESSOR_SHA)
+        (self.source / bank.PRODUCERS[1]).write_bytes(legacy)
+        path = sorted((self.game / bank.PCG_ROOT).glob("*.bundle"))[1]
+        path.write_text(json.dumps({"name": "Pillar_fixture", "grid": 18}))
+        self.refresh()
+        # Seed the previous host's pre-retirement staging policy. Its actual
+        # old generator and receipt keys execute; only the new prune admission
+        # did not exist in that released host.
+        with patch.object(bank, "_prune_retired_streams", return_value=None): previous = self.stage()
+        old_index = json.loads((self.authored / bank.ROOT / "index.json").read_text())
+        self.assertEqual([v["tier"] for e in old_index["entries"] for v in e["variants"]], [100, 50, 0, 100, 50, 0])
+        originals = {str(p): p.stat().st_mtime_ns for p in self.output.glob("cache/environment-geometry/*/prepared/*-100.bytes")}
+        (self.source / bank.PRODUCERS[1]).write_bytes(current)
+        self.calls.clear(); self.simplifications.clear(); self.refresh()
+        return previous, originals
+
+    def test_reviewed_pillar_retirement_reuses_all_existing_geometry_and_prunes_owned_staging(self):
+        previous, originals = self.legacy_pillar_stage()
+        generated = self.stage()
+        self.assertNotEqual(generated["producerKey"], previous["producerKey"])
+        self.assertEqual((self.calls, self.simplifications), ([], []))
+        self.assertEqual({name: Path(name).stat().st_mtime_ns for name in originals}, originals)
+        index = json.loads((self.authored / bank.ROOT / "index.json").read_text())
+        pillar = next(e for e in index["entries"] if e["signature"]["name"] == "Pillar_fixture")
+        floor = next(e for e in index["entries"] if e["signature"]["name"].startswith("floor_"))
+        self.assertEqual([v["tier"] for v in pillar["variants"]], [100])
+        self.assertEqual([v["tier"] for v in floor["variants"]], [100, 50, 0])
+        for tier in (50, 0):
+            stem = pillar["key"] + "-" + str(tier)
+            self.assertFalse(list(self.authored.rglob(stem + ".bytes*")))
+            # Historical aggregate snapshots belong to the old source owner;
+            # current compiler inputs and reusable derivative slots must be clean.
+            current_key = storage.value_hash({"producerKey": generated["producerKey"], "bundles": generated["sources"]})
+            self.assertFalse(list((self.output / "cache/environment-meshes" / current_key).rglob(stem + ".bytes*")))
+            self.assertFalse(list(self.output.glob("cache/environment-geometry/*/prepared/" + stem + ".bytes*")))
+            self.assertFalse(list(self.output.glob("cache/environment-geometry/*/receipts/" + stem + ".json")))
+        bank.validated_records(self.authored, generated)
+        self.calls.clear(); self.simplifications.clear()
+        self.assertEqual(self.stage(), generated)
+        self.assertEqual((self.calls, self.simplifications), ([], []))
+
+    def test_reviewed_retirement_resumes_after_index_copy_without_rebuilding_geometry(self):
+        self.legacy_pillar_stage(); original_copy = bank._copy
+        def interrupted(path, target, expected):
+            if Path(target).name == bank.ORIGINS and Path(target).parent == self.authored / bank.ROOT:
+                raise RuntimeError("retirement staged-copy interruption")
+            return original_copy(path, target, expected)
+        with patch.object(bank, "_copy", side_effect=interrupted):
+            with self.assertRaisesRegex(RuntimeError, "retirement staged-copy interruption"): self.stage()
+        generated = self.stage()
+        bank.validated_records(self.authored, generated)
+        self.assertEqual((self.calls, self.simplifications), ([], []))
+
+    def test_retirement_compatibility_refuses_an_additional_unreviewed_generator_edit(self):
+        self.legacy_pillar_stage()
+        generator = self.source / bank.PRODUCERS[1]
+        generator.write_text(generator.read_text() + "\n# another unknown producer revision\n")
+        self.refresh(); target = self.root / "unreviewed-retirement-project"
+        self.stage(target)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.simplifications, [50, 0])
 
     def test_global_census_refuses_safe_mesh_reused_under_protected_other_bundle(self):
         paths = sorted((self.game / bank.PCG_ROOT).glob("*.bundle"))
