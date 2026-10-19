@@ -2,10 +2,12 @@
 """Exercise production startup callback/file persistence, with explicit defect controls."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from town_run_retention import cleanup_completed_run
 
 
 def main():
@@ -17,6 +19,8 @@ def main():
     output = root / ".planning/debug/quest-startup-log"
     output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
+    runner_log = run / "runner.log"
+    runner_log.write_text("Quest startup logging evidence: " + str(run) + "\n")
     harness = run / "fixture"
     shutil.copytree(root / "tests/QuestStartupLog.Tests", harness, ignore=shutil.ignore_patterns("bin", "obj"))
     cases = [("production", logger, bootstrap, frames, "")]
@@ -35,7 +39,12 @@ def main():
         ("primitive-spends-general-detail-reserve", "logger", '\n                || message.StartsWith("[Quest startup] presentation primitive-upload ", StringComparison.Ordinal)', "", 1, "menu-partition"),
         ("consumer-spends-general-detail-reserve", "logger", '\n                || message.StartsWith("[Quest startup] presentation menu-consumer-draw ", StringComparison.Ordinal)', "", 1, "menu-partition"),
         ("tutorial-spends-filled-detail-reserve", "logger", 'return message.StartsWith("[Quest startup] original movie state ", StringComparison.Ordinal)', 'return message.StartsWith("[Quest startup] scenario ", StringComparison.Ordinal) || message.StartsWith("[Quest startup] original movie state ", StringComparison.Ordinal)', 1, "tutorial-reserve"),
-        ("spinner-spends-filled-detail-reserve", "logger", 'if (message.StartsWith("[Quest startup] presentation spinner ", StringComparison.Ordinal)) return false;', '', 1, "spinner-reserve"),
+        ("spinner-spends-filled-detail-reserve", "logger", 'if (IsLoadingPresentationDetail(message))', 'if (IsLoadingPresentationDetail(message) && message.IndexOf(" presentation spinner ", StringComparison.Ordinal) < 0)', 1, "spinner-reserve"),
+        ("loading-continuity-spends-filled-detail", "logger", '\n                || message.StartsWith("[Quest startup] presentation spinner-continuity ", StringComparison.Ordinal)', '', 1, "loading-window-reserve"),
+        ("loading-owner-spends-filled-detail", "logger", '\n                || message.StartsWith("[Quest startup] presentation spinner-intro-owner ", StringComparison.Ordinal)', '', 1, "loading-window-reserve"),
+        ("loading-final-spends-filled-detail", "logger", '\n                || message.StartsWith("[Quest startup] presentation spinner-final ", StringComparison.Ordinal)', '', 1, "loading-window-reserve"),
+        ("loading-unbounded-utf8", "logger", ' || loadingDetailBytes + loadingLength + Utf8.GetByteCount(LoadingDetailLimit) > LoadingDetailBytes', '', 1, "all-lanes-byte-bound"),
+        ("loading-unknown-stream-consumes-reserve", "logger", 'return message.StartsWith("[Quest startup] presentation spinner ", StringComparison.Ordinal)', 'return message.StartsWith("[Quest startup] presentation spinner", StringComparison.Ordinal)', 1, "loading-window-reserve"),
         ("menu-producer-spends-filled-detail", "logger", '\n                || message.StartsWith("[Quest startup] presentation menu-producer ", StringComparison.Ordinal)', '', 1, "menu-chain"),
         ("ambient-movie-spends-filled-detail", "logger", 'bool nativeMenuMovie = message.IndexOf(" Gloomhaven_unified/MainMenuVideo ", StringComparison.Ordinal) >= 0;', 'bool nativeMenuMovie = false;', 1, "menu-chain"),
         ("early-spikes-only", "frames", "int index = Snapshot.spikeCursor;", "if (Snapshot.spikeCount == Snapshot.spikeTimes.Length) return null; int index = Snapshot.spikeCursor;", 1, "frame-window"),
@@ -61,10 +70,21 @@ def main():
         (case / "QuestGameBootstrap.cs").write_text(bootstrap_source)
         (case / "QuestFrameEvidence.cs").write_text(frame_source)
         shutil.copy2(runtime / "QuestSnapshotWriter.cs", case / "QuestSnapshotWriter.cs")
-        result = subprocess.run([dotnet, "run", "--project", str(case_harness / "QuestStartupLog.Tests.csproj"),
-                                 "--configuration", "Release", "--property:RuntimeSource=" + str(case),
-                                 "--", str(case / "files")], text=True, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, timeout=120)
+        result = None
+        try:
+            result = subprocess.run([dotnet, "run", "--project", str(case_harness / "QuestStartupLog.Tests.csproj"),
+                                     "--configuration", "Release", "--property:RuntimeSource=" + str(case),
+                                     "--property:UseSharedCompilation=false", "--disable-build-servers",
+                                     "--", str(case / "files")], text=True, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, timeout=120,
+                                    env={**os.environ, "MSBUILDDISABLENODEREUSE": "1", "DOTNET_CLI_USE_MSBUILD_SERVER": "0"})
+        finally:
+            # The bounded console fixture disables all reusable build servers.
+            # Its synchronous process has exited before cleanup is permitted;
+            # a timeout has no such proof and leaves the evidence intact.
+            receipt = cleanup_completed_run("quest-startup-log", result.returncode if result else 1,
+                runner_log, root, process_reaped=result is not None)
+            (case / "cleanup.json").write_text(json.dumps(receipt, indent=2) + "\n")
         (case / "console.log").write_text(result.stdout)
         passed = (result.returncode == 0 and "PASS Quest startup logging:" in result.stdout) if not expected else (result.returncode != 0 and expected in result.stdout)
         evidence["cases"].append({"name": name, "exitCode": result.returncode, "expected": expected, "passed": passed})

@@ -160,7 +160,7 @@ internal static class Program
         text = File.ReadAllText(path);
         Check(text.Contains("provider actual-render-boundary") && Count(text, "laser actual-marker-bounds") == 1,
             "priority-reserve: general presentation saturation lost or duplicated provider/laser evidence");
-        Check(LogCounter(details, "priorityDetailRecords") == 2 && LogCounter(details, "detailRecords") == 48,
+        Check(LogCounter(details, "priorityDetailRecords") == 2 && LogCounter(details, "detailRecords") == 24,
             "priority-partition: reserved observations consumed general presentation slots");
 
         path = Path.Combine(root, "priority-record-cap.log");
@@ -218,16 +218,16 @@ internal static class Program
         Check(text.Contains("camera=Background depth=4") && text.Contains("reason=boot-retire frame=42"),
             "menu-chain: Intro saturation swallowed actual producer or spinner retirement");
         Check(Count(text, "original movie pixels" + menuMovie) == 4
-            && text.Contains("bindingObservation=previous-head-pass shader=overlay") && LogCounter(details, "menuDetailRecords") == 8,
+            && text.Contains("bindingObservation=previous-head-pass shader=overlay") && LogCounter(details, "menuDetailRecords") == 7,
             "menu-chain: Intro saturation swallowed the bounded ambient movie producer/consumer chain");
         details.Append("[Quest startup] original movie pixels Intro/Video source=Intro stage=consumer-texture sample=late");
         details.Append("[Quest startup] original movie pixels" + menuMovie + " stage=native-capture-before-composition sample=late");
         details.Append("[Quest startup] original movie state" + menuMovie + " reason=native-started playing=True");
         details.Append("[Quest startup] presentation menu-canvas verbose-widget-census");
-        Check(LogCounter(details, "menuDetailRecords") == 8,
+        Check(LogCounter(details, "menuDetailRecords") == 7,
             "menu-scope: Intro, redundant snapshots or verbose canvas observations spent the reserved menu share");
         details.Append("[Quest startup] original movie consumer" + menuMovie + " bindingObservation=previous-head-pass shader=overlay");
-        Check(LogCounter(details, "menuDetailRecords") == 8,
+        Check(LogCounter(details, "menuDetailRecords") == 7,
             "menu-chain: repeated ambient evidence spent the bounded menu share twice");
         for (int i = 0; i < 1000; i++)
             priority.Append("[Quest startup] presentation menu-pixels sample=" + i);
@@ -276,9 +276,8 @@ internal static class Program
         text = File.ReadAllText(path);
         Check(Count(text, "[Quest startup] presentation spinner sample=") == 2,
             "spinner-reserve: pre-menu detail saturation swallowed or duplicated the bounded spinner evidence");
-        Check(LogCounter(tutorial, "startupRecords") == 94
-            && LogCounter(tutorial, "startupBytes") <= 32 * 1024,
-            "spinner-partition: two spinner observations exceeded the existing startup share");
+        Check(LogCounter(tutorial, "startupRecords") == 92 && LogCounter(tutorial, "loadingDetailRecords") == 2,
+            "spinner-partition: two spinner observations consumed the scenario startup share");
         for (int i = 0; i < 2; i++)
         {
             string pointer = "[Quest startup] pointer sample=" + i + " " + new string('p', 450);
@@ -286,12 +285,62 @@ internal static class Program
         }
         text = File.ReadAllText(path);
         Check(Count(text, "[Quest startup] pointer sample=") == 2
-            && LogCounter(tutorial, "startupRecords") == 96,
+            && LogCounter(tutorial, "startupRecords") == 94,
             "pointer-reserve: two settled pointer observations left the existing startup record share");
         Check(new FileInfo(path).Length <= QuestGameStartupLog.MaxBytes,
             "tutorial-byte-bound: retained gameplay evidence expanded the global budget");
 
-        // Exercise all six independent lanes at their record ceiling, then
+        // B712 emitted new spinner-continuity/owner observations only after
+        // Intro's general presentation lane was already full. Saturate every
+        // OTHER lane first, including menu, startup and first errors: the exact
+        // loading producer -> consumer chain must still survive independently.
+        path = Path.Combine(root, "loading-window-reserve.log");
+        var loading = new QuestGameStartupLog(path, "B712 missing continuity replay");
+        for (int i = 0; i < 1100; i++)
+        {
+            loading.Append("ordinary noisy initialization " + i);
+            loading.Append("[Quest startup] lifecycle " + i);
+            loading.Append("[Quest startup] presentation camera " + i);
+            loading.Append("[Quest startup] presentation provider " + i);
+            loading.Append("[Quest startup] presentation menu-pixels " + i);
+            loading.Append("[Quest startup] presentation spinner-unknown-stream " + i);
+            loading.AppendOriginalError("unrelated failure " + i, "retained stack " + i);
+        }
+        foreach (string kind in new[] { "spinner", "spinner-edge", "spinner-continuity", "spinner-intro-owner", "spinner-native-owner", "spinner-final" })
+        {
+            string observation = "[Quest startup] presentation " + kind + " exact-loading-evidence=" + kind;
+            loading.Append(observation); loading.Append(observation);
+        }
+        text = File.ReadAllText(path);
+        foreach (string kind in new[] { "spinner", "spinner-edge", "spinner-continuity", "spinner-intro-owner", "spinner-native-owner", "spinner-final" })
+            Check(Count(text, "exact-loading-evidence=" + kind + "\n") == 1,
+                "loading-window-reserve: saturated Intro/menu/startup evidence swallowed or duplicated " + kind);
+        Check(LogCounter(loading, "loadingDetailRecords") == 6,
+            "loading-window-scope: unrelated spinner-prefixed diagnostics consumed the finite loading chain");
+        for (int i = 0; i < 1000; i++) loading.Append("[Quest startup] presentation spinner-continuity overflow=" + i);
+        text = File.ReadAllText(path); size = new FileInfo(path).Length;
+        Check(LogCounter(loading, "loadingDetailRecords") == 24
+            && Count(text, "loading window diagnostic log limit reached") == 1,
+            "loading-window-record-bound: continuity overflow exceeded its finite record ceiling");
+        loading.Append("[Quest startup] presentation spinner-final after loading cap");
+        Check(new FileInfo(path).Length == size,
+            "loading-window-record-bound: capped loading evidence kept growing");
+        object loadingSeen = typeof(QuestGameStartupLog).GetField("loadingDetailSeen", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(loading)!;
+        Check((int)loadingSeen.GetType().GetProperty("Count")!.GetValue(loadingSeen)! == 24,
+            "loading-window-memory-bound: capped loading identities grew without a bound");
+        path = Path.Combine(root, "loading-window-io-retry.log");
+        var loadingRetry = new QuestGameStartupLog(path, "loading IO retry");
+        File.Delete(path); Directory.CreateDirectory(path);
+        try { loadingRetry.Append("[Quest startup] presentation spinner-final retry"); throw new Exception("Loading IO fixture did not fail"); }
+        catch (UnauthorizedAccessException) { }
+        catch (IOException) { }
+        Check(LogCounter(loadingRetry, "loadingDetailRecords") == 0,
+            "loading-window-io-retry: failed write published a retained observation");
+        Directory.Delete(path); File.WriteAllText(path, ""); loadingRetry.Append("[Quest startup] presentation spinner-final retry");
+        Check(LogCounter(loadingRetry, "loadingDetailRecords") == 1 && File.ReadAllText(path).Contains("spinner-final retry"),
+            "loading-window-io-retry: failed write consumed the observation identity");
+
+        // Exercise all seven independent lanes at their record ceiling, then
         // repeat with multi-byte payloads to exercise each byte ceiling instead.
         foreach (bool longMessages in new[] { false, true })
         {
@@ -310,19 +359,20 @@ internal static class Program
                 all.Append("[Quest startup] presentation menu-pixels " + value);
                 all.Append("[Quest startup] presentation menu-thumbnail " + value);
                 all.Append("[Quest startup] presentation menu-draw " + value);
+                all.Append("[Quest startup] presentation spinner-continuity " + value);
                 all.AppendOriginalError("failure " + value, "stack " + payload);
             }
             text = File.ReadAllText(path);
             Check(new FileInfo(path).Length <= QuestGameStartupLog.MaxBytes,
                 "all-lanes-byte-bound: combined streams exceeded256KiB, longMessages=" + longMessages);
             Check(LogCounter(all, "records") + LogCounter(all, "startupRecords") + LogCounter(all, "detailRecords")
-                + LogCounter(all, "priorityDetailRecords") + LogCounter(all, "menuDetailRecords") + all.OriginalErrors + 6 <= QuestGameStartupLog.MaxRecords,
-                "all-lanes-record-bound: combined streams and six markers exceeded512records");
+                + LogCounter(all, "priorityDetailRecords") + LogCounter(all, "menuDetailRecords") + LogCounter(all, "loadingDetailRecords") + all.OriginalErrors + 7 <= QuestGameStartupLog.MaxRecords,
+                "all-lanes-record-bound: combined streams and seven markers exceeded512records");
             foreach (string marker in new[] { "diagnostic log limit reached;", "original error log limit reached;",
-                "startup lifecycle log limit reached;", "presentation diagnostic log limit reached;", "provider and laser diagnostic log limit reached;", "menu handover diagnostic log limit reached;" })
+                "startup lifecycle log limit reached;", "presentation diagnostic log limit reached;", "provider and laser diagnostic log limit reached;", "menu handover diagnostic log limit reached;", "loading window diagnostic log limit reached;" })
                 Check(text.Contains(marker), "all-lanes-markers: missing cap marker " + marker);
-            Check(LogCounter(all, "priorityDetailBytes") <= 24 * 1024 && LogCounter(all, "detailBytes") <= 16 * 1024
-                && LogCounter(all, "menuDetailBytes") <= 24 * 1024,
+            Check(LogCounter(all, "priorityDetailBytes") <= 20 * 1024 && LogCounter(all, "detailBytes") <= 8 * 1024
+                && LogCounter(all, "menuDetailBytes") <= 20 * 1024 && LogCounter(all, "loadingDetailBytes") <= 16 * 1024,
                 "priority-byte-partition: presentation sublanes exceeded the existing64KiB share");
         }
 

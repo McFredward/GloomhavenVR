@@ -23,12 +23,18 @@ namespace GloomhavenVR.Quest
         // B675's file sink stopped before settled-menu pixels/consumer state;
         // those survived only in logcat's evictable ring. Reserve that final
         // handover separately, rather than letting Intro or widget censuses
-        // consume it. All three shares still total64KiB/160detail records.
-        const int DetailBytes = 16 * 1024, DetailRecords = 48;
-        const int PriorityDetailBytes = 24 * 1024, PriorityDetailRecords = 64;
-        const int MenuDetailBytes = 24 * 1024, MenuDetailRecords = 48;
-        const int LifecycleBytes = MaxBytes / 2 - StartupBytes - DetailBytes - PriorityDetailBytes - MenuDetailBytes, ErrorBytes = MaxBytes / 2;
-        const int LifecycleRecords = MaxRecords - MaxOriginalErrors - StartupRecords - DetailRecords - PriorityDetailRecords - MenuDetailRecords - 6;
+        // consume it. The four shares below still total64KiB/160detail records.
+        // B712 added five loading-window observations, but spinner-continuity
+        // and exact owner records silently entered the Intro-saturated general
+        // lane. OnWillRenderObject was therefore observable only at retirement.
+        // Reserve the whole finite loading chain independently; do not enlarge
+        // the existing64KiB/160record presentation share or first-error reserve.
+        const int DetailBytes = 8 * 1024, DetailRecords = 24;
+        const int PriorityDetailBytes = 20 * 1024, PriorityDetailRecords = 64;
+        const int MenuDetailBytes = 20 * 1024, MenuDetailRecords = 48;
+        const int LoadingDetailBytes = 16 * 1024, LoadingDetailRecords = 24;
+        const int LifecycleBytes = MaxBytes / 2 - StartupBytes - DetailBytes - PriorityDetailBytes - MenuDetailBytes - LoadingDetailBytes, ErrorBytes = MaxBytes / 2;
+        const int LifecycleRecords = MaxRecords - MaxOriginalErrors - StartupRecords - DetailRecords - PriorityDetailRecords - MenuDetailRecords - LoadingDetailRecords - 7;
         // Retain the existing grep token; it now caps only lifecycle records.
         const string LifecycleLimit = "[Quest startup] diagnostic log limit reached; further records suppressed.\n";
         const string ErrorLimit = "[Quest startup] original error log limit reached; further distinct causes suppressed.\n";
@@ -36,6 +42,7 @@ namespace GloomhavenVR.Quest
         const string DetailLimit = "[Quest startup] presentation diagnostic log limit reached; further records suppressed.\n";
         const string PriorityDetailLimit = "[Quest startup] provider and laser diagnostic log limit reached; further records suppressed.\n";
         const string MenuDetailLimit = "[Quest startup] menu handover diagnostic log limit reached; further records suppressed.\n";
+        const string LoadingDetailLimit = "[Quest startup] loading window diagnostic log limit reached; further records suppressed.\n";
         static readonly Encoding Utf8 = new UTF8Encoding(false);
         readonly string path;
         readonly object sync = new object();
@@ -45,6 +52,7 @@ namespace GloomhavenVR.Quest
         readonly HashSet<string> detailSeen = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<string> priorityDetailSeen = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<string> menuDetailSeen = new HashSet<string>(StringComparer.Ordinal);
+        readonly HashSet<string> loadingDetailSeen = new HashSet<string>(StringComparer.Ordinal);
         int startupBytes, startupRecords;
         int detailBytes, detailRecords;
         bool detailCapped;
@@ -52,6 +60,8 @@ namespace GloomhavenVR.Quest
         bool priorityDetailCapped;
         int menuDetailBytes, menuDetailRecords;
         bool menuDetailCapped;
+        int loadingDetailBytes, loadingDetailRecords;
+        bool loadingDetailCapped;
         bool startupCapped;
         int bytes, records;
         int errorBytes, originalErrors;
@@ -90,6 +100,20 @@ namespace GloomhavenVR.Quest
                 // and the existing first-error reserve. It never stores stacks.
                 if (message != null && message.StartsWith("[Quest startup]", StringComparison.Ordinal))
                 {
+                    if (IsLoadingPresentationDetail(message))
+                    {
+                        if (loadingDetailCapped) return;
+                        string loadingKey = Clip(message, 4096);
+                        if (loadingDetailSeen.Contains(loadingKey)) return;
+                        string loadingLine = Line(loadingKey, null);
+                        int loadingLength = Utf8.GetByteCount(loadingLine);
+                        if (loadingDetailRecords >= LoadingDetailRecords || loadingDetailBytes + loadingLength + Utf8.GetByteCount(LoadingDetailLimit) > LoadingDetailBytes)
+                        {
+                            File.AppendAllText(path, LoadingDetailLimit, Utf8); loadingDetailBytes += Utf8.GetByteCount(LoadingDetailLimit); loadingDetailCapped = true; return;
+                        }
+                        File.AppendAllText(path, loadingLine, Utf8); loadingDetailBytes += loadingLength; loadingDetailRecords++; loadingDetailSeen.Add(loadingKey);
+                        return;
+                    }
                     // B619's bounded audio/video/camera observations spent the
                     // entire startup reserve before MainMenu's scene edge and
                     // actual video output arrived. Give detailed presentation
@@ -166,15 +190,25 @@ namespace GloomhavenVR.Quest
             return message.StartsWith("[Quest startup] presentation provider ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation laser ", StringComparison.Ordinal);
         }
+        static bool IsLoadingPresentationDetail(string message)
+        {
+            // Exact production families only. Unknown spinner-like diagnostic
+            // streams cannot consume this finite producer -> final-pixel chain.
+            return message.StartsWith("[Quest startup] presentation spinner ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation spinner-edge ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation spinner-continuity ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation spinner-intro-owner ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation spinner-native-owner ", StringComparison.Ordinal)
+                || message.StartsWith("[Quest startup] presentation spinner-final ", StringComparison.Ordinal);
+        }
         static bool IsMenuPresentationDetail(string message)
         {
             // Intro fills ordinary movie detail before the real menu renders.
-            // Retain its bounded producer/consumer chain and spinner retirement
-            // within this existing share, without expanding startup/global caps.
+            // Retain its bounded producer/consumer chain within this existing
+            // share; loading retirement has its own finite reserve above.
             bool nativeMenuMovie = message.IndexOf(" Gloomhaven_unified/MainMenuVideo ", StringComparison.Ordinal) >= 0;
             return message.StartsWith("[Quest startup] presentation menu-handover ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation menu-producer ", StringComparison.Ordinal)
-                || message.StartsWith("[Quest startup] presentation spinner-edge ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation menu-pixels ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation menu-thumbnail ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] presentation menu-draw ", StringComparison.Ordinal)
@@ -188,10 +222,6 @@ namespace GloomhavenVR.Quest
         }
         static bool IsPresentationDetail(string message)
         {
-            // B680's pre-menu spinner reports arrived after the movie/detail
-            // lane filled. Preserve its existing two bounded observations in
-            // the startup share; retain the grep token and all global ceilings.
-            if (message.StartsWith("[Quest startup] presentation spinner ", StringComparison.Ordinal)) return false;
             return message.StartsWith("[Quest startup] original movie state ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] original movie decoded frame ", StringComparison.Ordinal)
                 || message.StartsWith("[Quest startup] original movie pixels ", StringComparison.Ordinal)
