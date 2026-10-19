@@ -608,6 +608,12 @@
       "weight": 153
     },
     {
+      "id": "mr-backing-depth-runtime",
+      "command": ["python3", "scripts/check-mr-backing-depth-runtime.py", "--all"],
+      "groups": ["local"],
+      "weight": 70
+    },
+    {
       "id": "mr-backing-materialise",
       "command": [
         "bash",

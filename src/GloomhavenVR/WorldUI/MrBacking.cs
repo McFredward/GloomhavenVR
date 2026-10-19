@@ -168,6 +168,13 @@ internal static partial class MrBacking
         int BackingOrder { get; }
     }
 
+    /// <summary>Optional actual content plane in BackingAnchor-local units.
+    /// A row may retain native depth rather than lie on its host origin.</summary>
+    internal interface IDepthBacking
+    {
+        float BackingDepth { get; }
+    }
+
     /// <summary>
     /// OPT-IN companion to <see cref="IBackedSurface"/>: "my content DISAPPEARS BY FADING, so the
     /// plate must fade with it". Implement it alongside the main interface and the plate's opacity
@@ -293,6 +300,10 @@ internal static partial class MrBacking
         public Transform? Plate;
         public readonly MrBackingLayout Layout = new();
         public Rect Bounds;
+        public float BackZ;
+        public int DepthNotes;
+        public float LoggedBackZ = float.NaN;
+        public bool DepthCrossingNoted;
         public bool BoundsVisible;
         public int SampleFrame = -1;
         public int NextSampleFrame;
@@ -924,6 +935,8 @@ internal static partial class MrBacking
                                               contentRoot: panel.FitContentRoot,
                                               visibleWitnesses: entry.Visibility.Witnesses, backingGeometry: true)
                                           && ink.Valid;
+                    entry.BackZ = entry.BoundsVisible ? ink.BackZ : 0f;
+                    ReportBackingDepth(entry, host);
                     entry.Bounds = entry.BoundsVisible
                         ? MrBackingLayout.WindowRect(r, ink.Rect, ink.Plates > 0, ink.PlateBottom,
                             fitScoped: true)
@@ -968,6 +981,7 @@ internal static partial class MrBacking
                 continue;
 
             Fit(entry.Plate, host, shown.size, shown.center);
+            SeatBehindContent(entry.Plate, owned ? 0f : entry.BackZ);
             entry.Shown = shown;
             float alpha = owned ? GrabbableModal.GetMrBackingAlpha(panel) : entry.Visibility.AlphaNow;
             ApplyPlateAlpha(entry.Plate.GetComponent<Renderer>(), ref entry.FadeMat, ref entry.Faded, alpha);
@@ -1071,6 +1085,7 @@ internal static partial class MrBacking
                 e.PlateRenderer.sortingOrder = order;
 
             Fit(e.Plate, anchor, shown.size, shown.center);
+            if (s is IDepthBacking depth) SeatBehindContent(e.Plate, depth.BackingDepth);
             ApplyPlateAlpha(e.PlateRenderer, ref e.FadeMat, ref e.Faded, alpha);
         }
     }
@@ -1244,6 +1259,39 @@ internal static partial class MrBacking
         var scale = new Vector3(size.x, size.y, 1f);
         if (plate.localScale != scale)
             plate.localScale = scale;
+    }
+
+    private static void ReportBackingDepth(PanelEntry entry, RectTransform host)
+    {
+        if (!entry.BoundsVisible || entry.Panel.FitContentRoot == null) return;
+        float gap = PlateGapMeters * PanelLayout.WorldScale / Mathf.Max(Mathf.Abs(host.lossyScale.z), 1e-5f);
+        bool crossing = entry.BackZ > gap;
+        bool anomaly = crossing && !entry.DepthCrossingNoted;
+        if (!anomaly && (!VRLog.WantsDebug || entry.DepthNotes >= 4
+            || Mathf.Abs(entry.LoggedBackZ - entry.BackZ) < 0.1f)) return;
+        entry.LoggedBackZ = entry.BackZ;
+        entry.DepthNotes++;
+        if (anomaly) entry.DepthCrossingNoted = true;
+        string message = $"MR PLATE DEPTH: '{host.name}' visible ink back z={entry.BackZ:F3}px, "
+            + $"host-plane gap={gap:F3}px, seated plate z={Mathf.Max(0f, entry.BackZ) + gap:F3}px; "
+            + $"content='{entry.Panel.FitContentRoot.name}', host forward={host.forward:F3}, "
+            + $"crosses former plate={crossing}. Original UI transforms and draw order are unchanged.";
+        if (anomaly) VRLog.Note("WorldUI", message);
+        else VRLog.Debug("WorldUI", message);
+    }
+
+    // The initiative row preserves real native child depth. A host-local +2mm plate can
+    // therefore sit IN FRONT of its visible portraits (2026-10-19 hardware front/back
+    // reversal), even though its own sorting order is correct. Seat the same opaque plate
+    // behind the furthest admitted painted plane instead of guessing a larger offset or
+    // disabling its honest depth write. The existing ink walk measures the exact transform
+    // chain and visibility; no extra hierarchy walk, game write or viewer-dependent facing.
+    // Ordinary coplanar panels and labels retain the existing pose exactly.
+    private static void SeatBehindContent(Transform plate, float backZ)
+    {
+        if (float.IsNaN(backZ) || float.IsInfinity(backZ) || backZ <= 0f) return;
+        Vector3 position = plate.localPosition;
+        plate.localPosition = new Vector3(position.x, position.y, position.z + backZ);
     }
 
     /// <summary>

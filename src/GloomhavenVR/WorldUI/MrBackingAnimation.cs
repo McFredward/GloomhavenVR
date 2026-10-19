@@ -155,6 +155,7 @@ internal static partial class MrBacking
         if (!visible)
             return;
         Fit(entry.Plate, host, rect.size, rect.center);
+        SeatBehindContent(entry.Plate, entry.BackZ);
         entry.Shown = rect;
         entry.Materialise ??= new MrBackingMaterialise();
         entry.FadeMat ??= CreateFadeMaterial();
@@ -176,6 +177,7 @@ internal static partial class MrBacking
         entry.Animation.CaptureKnown = false;
         if (measured && ink.Valid)
         {
+            entry.BackZ = ink.BackZ;
             entry.Animation.Bounds = MrBackingLayout.WindowRect(panel.HostRect.rect,
                 ink.Rect, ink.Plates > 0, ink.PlateBottom, fitScoped: true);
             LogPaintedExtent(entry, panel.HostRect, panel.HostRect.rect, entry.Animation.Bounds);

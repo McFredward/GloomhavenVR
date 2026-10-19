@@ -16,6 +16,9 @@ import pathlib, re, sys
 repo, root = map(pathlib.Path, sys.argv[1:])
 source = (repo / 'src/GloomhavenVR/WorldUI/Conversion/PanelInkBounds.cs').read_text()
 visibility = (repo / 'src/GloomhavenVR/WorldUI/MrBackingVisibility.cs').read_text()
+needle='if (backingGeometry) ink.BackZ = Mathf.Max(ink.BackZ, backZ);'
+assert source.count(needle)==1
+(root/'mr-depth.fixture').write_text(source.replace(needle,'if (backingGeometry) ink.BackZ = 0f;'))
 trace = (repo / 'src/GloomhavenVR/WorldUI/Conversion/MrBackingBoundsTrace.cs').read_text()
 for name, needle, replacement in [
     ('trace-cap', 'Reports >= 8', 'Reports >= 800'),
@@ -59,7 +62,7 @@ assert source.count(needle) == 1
 (root / 'paint-backdrop.fixture').write_text(source.replace(needle,'contentRoot == null'))
 needle = 'MrBackingPaintedBounds.TryMeasure(host, graphic, out drawBounds,\n                            backingOriginalAlpha, out bool pendingPaint)'
 assert source.count(needle) == 1
-(root / 'paint-layout.fixture').write_text(source.replace(needle,'TryHostLocalBounds(host, rt, out drawBounds)').replace('if (pendingPaint && MrBackingScope.Paint(t, contentRoot)) ink.PendingPaint++;','ink.PendingPaint = 0;'))
+(root / 'paint-layout.fixture').write_text(source.replace(needle,'TryHostLocalBounds(host, rt, out drawBounds, out _)').replace('if (pendingPaint && MrBackingScope.Paint(t, contentRoot)) ink.PendingPaint++;','ink.PendingPaint = 0;'))
 needle = 'visibleWitnesses?.Clear();'
 assert source.count(needle) == 2
 (root / 'live-clear.fixture').write_text(source.replace(needle, '', 1))
@@ -129,7 +132,7 @@ assert 'out content, out contributors, out _, out _, includeParkedHint)' in code
 print('Placement binding negative control: inclusion of owner annotation rejected.')
 PY
 dotnet run --project "$project" --configuration Release --property:ReflowBoundsSource="$repo_root/src/GloomhavenVR/WorldUI/Modal/WindowReflowBounds.cs" --property:RootWatchSource="$watch_source" --property:DrawnUnionSource="$mutation_dir/union.fixture"
-for mutation in live-allocation missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout trace-cap trace-steady trace-throw trace-binding live-own-alpha paint-own-alpha paint-original-alpha capture-clip capture-host signature-capacity; do
+for mutation in mr-depth live-allocation missing broad hint-ink hint-union reward-heading mr-frame mr-hover mr-scope mr-scope-plate mr-scope-clip live-hidden live-alpha live-canvas live-clear paint-mask paint-alpha paint-transform paint-backdrop paint-layout trace-cap trace-steady trace-throw trace-binding live-own-alpha paint-own-alpha paint-original-alpha capture-clip capture-host signature-capacity; do
     ink_source="$mutation_dir/$mutation.fixture"
     capture_bounds_source="$repo_root/src/GloomhavenVR/WorldUI/Conversion/MrBackingCaptureBounds.cs"
     capture_accessor_source="$repo_root/src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.MrBacking.cs"
@@ -168,6 +171,7 @@ for mutation in live-allocation missing broad hint-ink hint-union reward-heading
         exit 1
     fi
     expected='full-frame movie remains measurable content'
+    if [[ "$mutation" == mr-depth ]]; then expected='MR backing retains complete native child depth chain'; fi
     if [[ "$mutation" == signature-capacity ]]; then expected='signature memo retains all 21 current-frame panel answers without eviction'; fi
     if [[ "$mutation" == live-allocation ]]; then expected='cached live visibility allocates nothing per frame'; fi
     if [[ "$mutation" == broad ]]; then expected='content exemption never admits a neighboring backdrop'; fi
@@ -202,4 +206,4 @@ for mutation in live-allocation missing broad hint-ink hint-union reward-heading
         exit 1
     fi
 done
-echo "Panel ink negative controls: thirty runtime mutations and one placement binding mutation rejected."
+echo "Panel ink negative controls: thirty-one runtime mutations and one placement binding mutation rejected."
