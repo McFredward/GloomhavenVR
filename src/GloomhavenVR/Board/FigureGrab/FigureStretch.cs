@@ -287,9 +287,9 @@ internal static class FigureStretch
         // MAP ITEMS ARE ON THIS LIST TOO (2026-09-03). A hovered GrabbableProp used to fall into
         // the "keeps its own trigger" branch and silently refuse every capture — which would have
         // made the prop resize unreachable exactly where props are, i.e. everywhere the gesture
-        // hand is likely to be. It joins the figure for the same reason the figure is exempt: the
-        // capture veto clears that highlight, and for props that veto is published by
-        // GrabbableProp.AllowsHand's own FigureStretch.Engaged early-out.
+        // hand is likely to be. Props retain that capture exception: GrabbableProp.AllowsHand's
+        // FigureStretch.Engaged early-out removes their hover once captured. The newer live-figure
+        // offer rule above supersedes the old figure exception specifically on capture entry.
         if ((!wasCaptured && hand.Grabber.FigureGrabOffered)
             || (hand.Grabber.Highlighted != null
             && hand.Grabber.Highlighted is not FigureGrabbable
