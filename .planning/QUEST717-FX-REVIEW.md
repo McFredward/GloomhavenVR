@@ -109,3 +109,33 @@ than another change to particle timing. No full game import, original bank,
 shader bank, audio/movie/depth recipe or APK rebuild ran in this lane; this is
 a compact runtime-code update. Every fixture reaps its processes and uses
 `cleanup_completed_run`; only finished regenerable caches are removed.
+
+## Follow-up: optional Normal input and real rig scale
+
+The final admission accepts exactly POSITION/COLOR/UV, with or without the
+unconsumed Normal field. It does not rewrite either layout, admit additional
+custom streams or override a live texture-property writer. A refused exact
+owner now reports at Debug at most twice per kind, with at most three original
+child descriptors; no recurring scene census or normal-level trace is added.
+The original shader's unused Normal input cannot be a reason to silently skip
+this correction on a native layout already narrowed to its consumed streams.
+
+The expanded actual native fixture passes196 additional assertions in twelve
+pixel cases: both three/four-stream layouts, both original effects and identity,
+source ancestor scale13/yaw37, or tracked camera ancestor scale13/yaw37. Every
+case has visible original pixels and maximum RGB difference0. Ping cases retain
+228–229 visible pixels; shield cases828–891. The source-ancestor view aims at
+actual native shield bounds because the original Local particle scaling ignores
+ancestor scale for emitted geometry; aiming at a fictitious scaled centre made
+the exploratory fixture miss the original entirely. Production needed no new
+transform change. Arbitrary shear is outside this requested rig-scale boundary.
+
+Automatic playback now observes ten native systems across both layouts at six
+samples. Clocks, counts and native visibility remain equal. Two new compiling
+controls reject removing compact-layout admission or removing the required
+source-scale compensation, respectively. Existing full four-stream shader,
+material, ownership and six earlier causal controls remain inherited from the
+first reviewed checkpoint; they are not counted as newly rerun controls here.
+Repeated refused exact owners exercise and verify the finite two-per-kind Debug
+cap. Strict Release compilation again has zero warnings/errors. These remain
+host/native ownership and pixel observations, not new Adreno acceptance.

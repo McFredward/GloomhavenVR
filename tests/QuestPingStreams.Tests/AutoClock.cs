@@ -28,6 +28,19 @@ internal sealed class QuestPingAutoClock : MonoBehaviour
             originalSystems.AddRange(originalShield.GetComponentsInChildren<ParticleSystem>(true));
             candidateSystems.AddRange(patchedShield.GetComponentsInChildren<ParticleSystem>(true));
         }
+        var compactBaseline=UnityEngine.Object.Instantiate(Resources.Load<GameObject>("NativePing"));
+        var compactPatched=UnityEngine.Object.Instantiate(Resources.Load<GameObject>("NativePing"));
+        compactBaseline.transform.position=new Vector3(-1,0,0);compactPatched.transform.position=new Vector3(1,0,0);
+        SetCompact(compactBaseline);SetCompact(compactPatched);
+        originalSystems.AddRange(compactBaseline.GetComponentsInChildren<ParticleSystem>(true));candidateSystems.AddRange(compactPatched.GetComponentsInChildren<ParticleSystem>(true));
+        GameObject compactOriginalShield=null,compactPatchedShield=null;
+        if (shieldPrefab!=null)
+        {
+            compactOriginalShield=UnityEngine.Object.Instantiate(shieldPrefab);compactPatchedShield=UnityEngine.Object.Instantiate(shieldPrefab);
+            compactOriginalShield.transform.position=new Vector3(-2,0,0);compactPatchedShield.transform.position=new Vector3(2,0,0);
+            SetCompact(compactOriginalShield);SetCompact(compactPatchedShield);
+            originalSystems.AddRange(compactOriginalShield.GetComponentsInChildren<ParticleSystem>(true));candidateSystems.AddRange(compactPatchedShield.GetComponentsInChildren<ParticleSystem>(true));
+        }
         var originals=originalSystems.ToArray();var candidates=candidateSystems.ToArray();
         foreach (var system in originals) Prepare(system);
         foreach (var system in candidates) Prepare(system);
@@ -39,6 +52,7 @@ internal sealed class QuestPingAutoClock : MonoBehaviour
         VRCameraPolicy.AllowedHead = camera;
         QuestStandalonePlatform.Enabled = true; QuestPingStreams.Attach(patched);
         if (patchedShield!=null) QuestPingStreams.AttachShield(patchedShield);
+        QuestPingStreams.Attach(compactPatched);if(compactPatchedShield!=null)QuestPingStreams.AttachShield(compactPatchedShield);
         float started = Time.realtimeSinceStartup;
         var rows = new List<string>(); int sample = 0; float next = .1f; bool sameThroughWindow = true;
         while (Time.realtimeSinceStartup - started < 1.2f)
@@ -64,9 +78,15 @@ internal sealed class QuestPingAutoClock : MonoBehaviour
             same &= Math.Abs(originals[i].time-candidates[i].time) <= .05f;
         File.WriteAllText("ProbeOutput/auto-clock.json", "{\"sameNativeClock\":"+same.ToString().ToLowerInvariant()+",\"systems\":"+originals.Length+",\"samples\":"+sample+",\"nativeClock\":"+originals[0].time.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+",\"patchedClock\":"+candidates[0].time.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+",\"hardwareVerified\":false}\n");
         Debug.Log("AUTO_CLOCK_RESULT same="+same+" samples="+sample);
-        QuestPingStreams.ResetAll(); UnityEngine.Object.Destroy(baseline); UnityEngine.Object.Destroy(patched); UnityEngine.Object.Destroy(originalShield); UnityEngine.Object.Destroy(patchedShield); UnityEngine.Object.Destroy(owner);
+        QuestPingStreams.ResetAll(); UnityEngine.Object.Destroy(baseline); UnityEngine.Object.Destroy(patched); UnityEngine.Object.Destroy(originalShield); UnityEngine.Object.Destroy(patchedShield); UnityEngine.Object.Destroy(compactBaseline);UnityEngine.Object.Destroy(compactPatched);UnityEngine.Object.Destroy(compactOriginalShield);UnityEngine.Object.Destroy(compactPatchedShield);UnityEngine.Object.Destroy(owner);
         target.Release(); UnityEngine.Object.Destroy(target);
         UnityEditor.EditorApplication.Exit(same ? 0 : 3);
+    }
+    private static void SetCompact(GameObject effect)
+    {
+        var compact=new List<ParticleSystemVertexStream>{ParticleSystemVertexStream.Position,ParticleSystemVertexStream.Color,ParticleSystemVertexStream.UV};
+        foreach(var renderer in effect.GetComponentsInChildren<ParticleSystemRenderer>(true))
+            if(renderer.sharedMaterial.shader.name!="KriptoFX/RFX4/Particle")renderer.SetActiveVertexStreams(compact);
     }
     private static void Prepare(ParticleSystem system)
     {

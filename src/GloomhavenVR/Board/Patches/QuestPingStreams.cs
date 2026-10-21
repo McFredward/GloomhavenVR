@@ -28,6 +28,7 @@ internal sealed class QuestPingStreams : MonoBehaviour
     private readonly List<Binding> _bindings = new(2);
     private static bool _failureReported;
     private static int _pingDiagnostics, _shieldDiagnostics;
+    private static int _pingAdmissionDiagnostics, _shieldAdmissionDiagnostics;
     private const int MaximumVertices = 4096;
     private static readonly int MainTexture = Shader.PropertyToID("_MainTex");
 
@@ -104,7 +105,8 @@ internal sealed class QuestPingStreams : MonoBehaviour
         if (highlight.GetComponent<QuestPingStreams>() != null) return;
         var owner = highlight.AddComponent<QuestPingStreams>();
         var streams = new List<ParticleSystemVertexStream>(4);
-        foreach (ParticleSystemRenderer renderer in highlight.GetComponentsInChildren<ParticleSystemRenderer>(true))
+        ParticleSystemRenderer[] renderers = highlight.GetComponentsInChildren<ParticleSystemRenderer>(true);
+        foreach (ParticleSystemRenderer renderer in renderers)
         {
             Material? material = renderer.sharedMaterial;
             string shader = material != null && material.shader != null ? material.shader.name : string.Empty;
@@ -113,15 +115,43 @@ internal sealed class QuestPingStreams : MonoBehaviour
                 || (shader != "Particles/Priority Additive" && shader != "Particles/Additive"
                     && shader != "Legacy Shaders/Particles/Additive" && shader != "Mobile/Particles/Additive")) continue;
             renderer.GetActiveVertexStreams(streams);
-            if (streams.Count != 4 || streams[0] != ParticleSystemVertexStream.Position
-                || streams[1] != ParticleSystemVertexStream.Normal
-                || streams[2] != ParticleSystemVertexStream.Color
-                || streams[3] != ParticleSystemVertexStream.UV) continue;
+            if (!ConsumedStreams(streams)) continue;
             owner._bindings.Add(new Binding(renderer));
         }
-        if (owner._bindings.Count == 0) { Destroy(owner); return; }
+        if (owner._bindings.Count == 0) { ReportAdmission(highlight, mode, renderers, streams); Destroy(owner); return; }
         if (Live.Count == 0) { Camera.onPreCull += BeforeCamera; Camera.onPostRender += AfterCamera; }
         Live.Add(owner);
+    }
+
+    // Both layouts contain exactly the shader's consumed Position/Color/UV.
+    // A native optional Normal stream is harmless and must remain authored;
+    // never rewrite either layout or accept extra/custom particle data.
+    private static bool ConsumedStreams(List<ParticleSystemVertexStream> streams) =>
+        streams.Count == 3 && streams[0] == ParticleSystemVertexStream.Position
+            && streams[1] == ParticleSystemVertexStream.Color && streams[2] == ParticleSystemVertexStream.UV
+        || streams.Count == 4 && streams[0] == ParticleSystemVertexStream.Position
+            && streams[1] == ParticleSystemVertexStream.Normal && streams[2] == ParticleSystemVertexStream.Color
+            && streams[3] == ParticleSystemVertexStream.UV;
+
+    private static void ReportAdmission(GameObject owner, ParticleSystemRenderMode mode,
+        ParticleSystemRenderer[] renderers, List<ParticleSystemVertexStream> streams)
+    {
+        if (!VRLog.Wants(VRLogLevel.Debug)
+            || (mode == ParticleSystemRenderMode.Mesh ? _shieldAdmissionDiagnostics >= 2 : _pingAdmissionDiagnostics >= 2)) return;
+        if (mode == ParticleSystemRenderMode.Mesh) _shieldAdmissionDiagnostics++; else _pingAdmissionDiagnostics++;
+        var details = new System.Text.StringBuilder(256);
+        for (int index = 0; index < renderers.Length && index < 3; index++)
+        {
+            ParticleSystemRenderer renderer = renderers[index];
+            Material material = renderer.sharedMaterial;
+            renderer.GetActiveVertexStreams(streams);
+            if (index != 0) details.Append(';');
+            details.Append(renderer.name).Append(':').Append(renderer.renderMode).Append(':')
+                .Append(material != null && material.shader != null ? material.shader.name : "none")
+                .Append(':').Append(string.Join(",", streams));
+        }
+        UnityEngine.Debug.Log("[Quest startup] ping-upload admission=none kind=" + mode
+            + " owner=" + owner.name + " renderers=" + renderers.Length + " observed=" + details);
     }
 
     private static void BeforeCamera(Camera camera)
@@ -152,9 +182,7 @@ internal sealed class QuestPingStreams : MonoBehaviour
         if (binding.Properties.HasProperty(MainTexture)) { binding.Release(); return; }
         source.GetActiveVertexStreams(binding.Streams);
         if (source.sharedMaterial.shader != binding.Shader || source.renderMode != binding.Mode
-            || binding.Streams.Count != 4 || binding.Streams[0] != ParticleSystemVertexStream.Position
-            || binding.Streams[1] != ParticleSystemVertexStream.Normal || binding.Streams[2] != ParticleSystemVertexStream.Color
-            || binding.Streams[3] != ParticleSystemVertexStream.UV)
+            || !ConsumedStreams(binding.Streams))
         { binding.Release(); return; }
         // Honor a visibility owner which already suppressed this native draw.
         if (!binding.Claimed && source.forceRenderingOff) return;

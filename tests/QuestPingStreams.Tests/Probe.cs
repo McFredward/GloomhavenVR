@@ -33,7 +33,7 @@ public static class QuestPingStreamsProbe
         EditorApplication.update -= WaitForPlay;
         try
         {
-            if (Environment.GetEnvironmentVariable("QUEST_PING_AUTOPLAY_ONLY") != "1") { Probe(); Shield(); }
+            if (Environment.GetEnvironmentVariable("QUEST_PING_AUTOPLAY_ONLY") != "1") { Probe(); Shield(); QuestNativeFxLayoutPose.Run(); }
             QuestPingAutoClock.Begin();
         }
         catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }

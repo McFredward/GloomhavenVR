@@ -22,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--owned-project', type=Path, required=True)
     parser.add_argument('--shader-overlay', type=Path)
-    parser.add_argument('--control', choices=('duplicate-draw', 'no-visibility-lease', 'no-restore', 'no-shader-gate', 'no-live-contract', 'baked-native-visibility'))
+    parser.add_argument('--control', choices=('no-compact-layout', 'no-pose-compensation', 'duplicate-draw', 'no-visibility-lease', 'no-restore', 'no-shader-gate', 'no-live-contract', 'baked-native-visibility'))
     args = parser.parse_args()
     base = ROOT / '.planning/debug/quest-ping-streams'; base.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=base)); project = run / 'unity'
@@ -80,6 +80,8 @@ def main():
     (resources / 'NativePing.prefab').write_text(text)
     production = ROOT / 'src/GloomhavenVR/Board/Patches/QuestPingStreams.cs'; code = production.read_text(); source_hashes = {str(production): hashlib.sha256(production.read_bytes()).hexdigest()}
     mutations = {
+        'no-compact-layout': ('streams.Count == 3 && streams[0]', 'false && streams[0]'),
+        'no-pose-compensation': ('binding.Draw.transform.localScale = new Vector3(1f / scale.x, 1f / scale.y, 1f / scale.z);', 'binding.Draw.transform.localScale = Vector3.one;'),
         'duplicate-draw': ('Visibility.mainTexture = Texture2D.blackTexture;', 'Visibility.mainTexture = Material.mainTexture;'),
         'no-visibility-lease': ('source.sharedMaterial = binding.Visibility; binding.Claimed = true;', 'source.forceRenderingOff = true; binding.Claimed = true;'),
         'no-restore': ('Source.sharedMaterial = Material;', ';'),
@@ -126,7 +128,7 @@ namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { in
     try:
         code = process.wait(timeout=180)
         if args.control:
-            expected = {'duplicate-draw': 'Native upload draws the original effect once without duplicate contribution', 'no-visibility-lease': 'AUTO_CLOCK_RESULT same=False', 'no-restore': 'Original ping material and texture identity remain unchanged', 'no-shader-gate': 'Foreign particle materials receive no upload geometry', 'no-live-contract': 'Changed native shader retains its native draw during head culling', 'baked-native-visibility': 'AUTO_CLOCK_RESULT same=False'}[args.control]
+            expected = {'no-compact-layout': 'Qualified source layout receives exactly its two native effect uploads', 'no-pose-compensation': 'Scenario root scale and yaw preserve exact original FX pixels', 'duplicate-draw': 'Native upload draws the original effect once without duplicate contribution', 'no-visibility-lease': 'AUTO_CLOCK_RESULT same=False', 'no-restore': 'Original ping material and texture identity remain unchanged', 'no-shader-gate': 'Foreign particle materials receive no upload geometry', 'no-live-contract': 'Changed native shader retains its native draw during head culling', 'baked-native-visibility': 'AUTO_CLOCK_RESULT same=False'}[args.control]
             if code == 0 or expected not in (run / 'unity.log').read_text(): raise RuntimeError('Native ping control did not detect its targeted defect')
             (run / 'control.json').write_text(json.dumps({'control': args.control, 'expectedFailure': expected, 'observedExit': code, 'hardwareVerified': False}, indent=2) + '\n')
             print('PASS native ping causal control: ' + args.control, flush=True); code = 0; return
@@ -137,7 +139,10 @@ namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { in
         if shield and (shield['visiblePixels'] < 50 or shield['pixelMaxDelta'] > 2): raise RuntimeError('Incomplete native shield pixel evidence')
         clock = json.loads((project / 'ProbeOutput/auto-clock.json').read_text())
         if not clock['sameNativeClock'] or clock['samples'] < 5 or clock['nativeClock'] < 1: raise RuntimeError('Incomplete native autoplay evidence')
-        (run / 'qualification.json').write_text(json.dumps({'sources': source_hashes, 'nativeInputs': inputs, 'results': report, 'shield': shield, 'autoPlay': clock, 'hardwareVerified': False}, indent=2) + '\n')
+        admissions = [line for line in (run / 'unity.log').read_text().splitlines() if line.startswith('[Quest startup] ping-upload admission=none')]
+        admission_counts = {kind: sum('kind=' + kind + ' ' in row for row in admissions) for kind in ('Billboard', 'Mesh')}
+        if any(count > 2 for count in admission_counts.values()) or admission_counts['Billboard'] != 2: raise RuntimeError('Unbounded or unexercised exact-owner admission diagnostics')
+        (run / 'qualification.json').write_text(json.dumps({'sources': source_hashes, 'nativeInputs': inputs, 'results': report, 'shield': shield, 'layoutPose': json.loads((project / 'ProbeOutput/layout-pose.json').read_text()), 'admissionReports': admission_counts, 'autoPlay': clock, 'hardwareVerified': False}, indent=2) + '\n')
         print('PASS native ping streams: ' + str(report['assertions']) + ' assertions and ' + str(clock['samples']) + ' actual autoplay observations; headset tile pixels unverified', flush=True)
     finally:
         if process.poll() is None: process.kill(); process.wait()
