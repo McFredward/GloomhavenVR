@@ -1,3 +1,16 @@
+**Quest release-main integration, 2026-10-21: feature / 1.2.0 / B716.**
+
+Rebase the published Quest B713 adaptations onto requested release main
+4f10ddd60 (PC Build715), retaining the dedicated feature branch. Combine release
+menu-anchor continuity with exact Quest presentation-target admission; retain
+shared Continue permission, live figure arbitration, MR depth and cheat gating.
+Remove only verified byte-identical retired B713 inputs when extracting over an
+old Builder. The production update planner requires matched mod code/metadata
+only: original Campaign conversion, environment/figure/audio/movie banks and
+depth recipes are unchanged. Focused source/runtime/network/host evidence is
+recorded separately from inherited main release CI; no new headset acceptance or
+full local gameplay gate is claimed. See `QUEST-MAIN120-REBASE-20261021.md`.
+
 **Release1.2.0 candidate, Build715, 2026-10-19.**
 The maintainer requests publication from the current dev frontier, with
 English-only highlights for native Steam Link passthrough and stereoscopic
