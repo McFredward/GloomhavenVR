@@ -53,7 +53,11 @@ OWNED_DERIVED_FILES = {'tools/environment-mesh/bank.json', 'tools/environment-me
 # They are compiler inputs of the current mod, including source-only APK updates.
 # Release1.2.0 retired the separate Windows quality/compositor/projection probes;
 # require only the resources still embedded by its actual mod project.
-AUTHORED_RESOURCES = {'src/GloomhavenVR/Assets/StereoVideo/ui-sbs.bundle'} | {
+AUTHORED_RESOURCES = {'src/GloomhavenVR/Assets/StereoVideo/ui-sbs.bundle',
+    'src/GloomhavenVR/Assets/QuestLoading/ghvr-quest-loading.bundle',
+    'src/GloomhavenVR/Assets/QuestLoading/QuestLoadingSpinner.shader',
+    'src/GloomhavenVR/Assets/QuestLoading/QuestLoadingSpinner.shader.meta',
+    'src/GloomhavenVR/Assets/QuestLoading/provenance.json'} | {
     'src/GloomhavenVR/Assets/SteamLink/' + name for name in (
         'scene.bundle', 'connection-reader.exe', 'openvr_api.dll')}
 AUTHORED_MOVIES = {'src/GloomhavenVR/Assets/Movies/CP_Intro/' + name for name in (

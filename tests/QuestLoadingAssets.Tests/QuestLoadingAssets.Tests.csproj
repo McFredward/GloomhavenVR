@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><TreatWarningsAsErrors>true</TreatWarningsAsErrors><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Boundaries.cs" />
+    <Compile Include="QuestLoadingAssets.cs" />
+    <Compile Include="QuestEnvironmentJson.cs" />
+    <Compile Include="SelfUpdateRelease.cs" />
+    <EmbeddedResource Include="ghvr-quest-loading.bundle" LogicalName="GloomhavenVR.QuestLoading.spinner.bundle" Condition="Exists('ghvr-quest-loading.bundle')" />
+    <EmbeddedResource Include="provenance.json" LogicalName="GloomhavenVR.QuestLoading.provenance.json" Condition="Exists('provenance.json')" />
+  </ItemGroup>
+</Project>

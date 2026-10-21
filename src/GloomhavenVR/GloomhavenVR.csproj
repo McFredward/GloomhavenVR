@@ -67,6 +67,11 @@
     <!-- The small, explicitly loaded stereo UI shader does not replace the main asset bank. -->
     <EmbeddedResource Include="Assets\StereoVideo\ui-sbs.bundle"
                       LogicalName="GloomhavenVR.StereoVideo.ui-sbs.bundle" />
+    <!-- Quest-only foreground spinner shader: compact updates retain every large mod bank. -->
+    <EmbeddedResource Include="Assets\QuestLoading\ghvr-quest-loading.bundle"
+                      LogicalName="GloomhavenVR.QuestLoading.spinner.bundle" />
+    <EmbeddedResource Include="Assets\QuestLoading\provenance.json"
+                      LogicalName="GloomhavenVR.QuestLoading.provenance.json" />
     <EmbeddedResource Include="Assets\SteamLink\scene.bundle"
                       LogicalName="GloomhavenVR.SteamLink.scene.bundle" />
     <!-- Isolated public OpenVR identity reader: never initialize another VR client in the game. -->
