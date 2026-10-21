@@ -37,6 +37,7 @@ namespace GloomhavenVR.Core.Events
 }
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform { internal static bool Enabled; }
     internal static class Plugin
     {
         internal static Color VoidColor => Color.black;
@@ -115,12 +116,15 @@ namespace GloomhavenVR.Rig
         internal bool PendingRecenter { get => _pendingRecenter; set => _pendingRecenter = value; }
         internal int Kind => (int)_kind;
         internal int PriorKind => (int)_priorKind;
+        internal static Camera? ResolveAnchor() => ResolveMenuCamera();
         internal void Step(int kind = 2, bool scene = false) => UpdateRigLifetime((RigKind)kind, CameraController.s_CameraController, scene);
         internal void Maintain() { TickHeadClearColor(); TickClipPlanes(); }
         internal void ManualRecenter() => RecenterMenu();
         internal void Shutdown() => OnDestroy();
         internal void Rebuild() { _pendingRebuildRequest = "explicit fixture rebuild"; Step(); }
         private void OnSceneLoaded(int unused) { }
+        private void StartQuestTrackingEvidence() { }
+        private void StopQuestTrackingEvidence() { }
         private static int ComposeHeadMask(int source) => source | VRLayers.ModLayerMask;
         // Scenario/map builders are boundaries: the fixture proves lifetime
         // routing and old-head revocation, not those independent seat algorithms.

@@ -7,11 +7,14 @@ namespace UnityEngine
         internal string name = "";
         internal void Release() { }
     }
+    internal class GameObject { internal bool activeInHierarchy = true; }
     internal class Camera
     {
         internal static Camera? main;
         internal string tag = "Untagged";
         internal bool enabled = true;
+        internal readonly GameObject gameObject = new();
+        internal bool isActiveAndEnabled => enabled && gameObject.activeInHierarchy;
         internal float depth;
         internal RenderTexture? targetTexture;
         internal bool CompareTag(string value) => tag == value;
@@ -22,7 +25,14 @@ namespace GloomhavenVR.Core
     internal static class QuestStandalonePlatform { internal static bool Enabled; }
     // Native projection ownership is an explicit module boundary; the production
     // menu resolver consumes its cached Main instead of a separate Camera.main.
-    internal static class NativeCameraRenderBudget { internal static UnityEngine.Camera? Main => UnityEngine.Camera.main; }
+    internal static class NativeCameraRenderBudget
+    {
+        internal static UnityEngine.Camera? Main => UnityEngine.Camera.main;
+        internal static readonly HashSet<UnityEngine.Camera> Suspended = new();
+        internal static bool Owns(UnityEngine.Camera camera) => Suspended.Contains(camera);
+        internal static int GetProjectionCamerasNonAlloc(out UnityEngine.Camera[] cameras)
+        { cameras = VRCameraPolicy.Cameras; return cameras.Length; }
+    }
     internal static class VRCameraPolicy
     {
         internal static UnityEngine.Camera[] Cameras = System.Array.Empty<UnityEngine.Camera>();
