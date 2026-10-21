@@ -21,6 +21,13 @@ class CapabilityResumeTests(unittest.TestCase):
     def setUp(self):
         self.write_apk = lambda: fixture.UpdateDriverTests.write_apk(self)
         fixture.UpdateDriverTests.setUp(self)
+        # A completed Player owns the original managed input snapshot before
+        # capability publication embeds its portable compiler seed. Retain the
+        # fixture's exact bytes/SHA rows through the real snapshot producer;
+        # do not bypass seed generation or fabricate absent assembly inputs.
+        storage.snapshot(self.game, apk_update._managed(self.manifest),
+                         self.output / 'inputs/game' / self.manifest['game']['key'],
+                         phase='capability-fixture-inputs')
         # The fixture input Player is outside the build output; publish a copy
         # inside the real stage owner before exercising exact receipt reuse.
         self.apk = self.output / 'builds/player/GloomhavenVR-Quest.apk'
