@@ -50,12 +50,16 @@ class ParallelBuildIdentityTests(unittest.TestCase):
         self.before = {**common, "mod": {"files": self.old, "modBuild": 672}}
         self.after = {**common, "mod": {"files": self.new, "modBuild": 672}}
 
-    def test_actual_release_original_recovery_and_complete_preparation_scopes_remain_equal(self):
+    def test_actual_release_original_recovery_and_unconsumed_preparation_scopes_remain_equal(self):
         self.assertEqual(recovery_resume.recipe_key(self.before, 77), recovery_resume.recipe_key(self.after, 77))
-        self.assertEqual(identity._scope(self.before, self.old_source, recovery_resume,
-                                        original_prefix=True, completed=True),
-                         identity._scope(self.after, self.new_source, recovery_resume,
-                                        original_prefix=True, completed=True))
+        before = identity._scope(self.before, self.old_source, recovery_resume, original_prefix=True, completed=True)
+        after = identity._scope(self.after, self.new_source, recovery_resume, original_prefix=True, completed=True)
+        old_rows = {row['path']: row for row in before['mod']['producerFiles']}
+        new_rows = {row['path']: row for row in after['mod']['producerFiles']}
+        # The maintainer subsequently removed pillar LOD, including its bank
+        # producer. Do not pretend that already-produced old bank is unchanged.
+        self.assertEqual([name for name in sorted(old_rows.keys() | new_rows.keys())
+                          if old_rows.get(name) != new_rows.get(name)], ['tools/quest-builder/environment_bank.py'])
         # This baseline already carries the current Editor profile. Host-only
         # changes may retain an incomplete prefix too; actual Editor mutations
         # are tested separately by the closed27-owner overlay fixtures.

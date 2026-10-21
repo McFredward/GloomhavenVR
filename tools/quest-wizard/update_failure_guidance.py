@@ -16,15 +16,22 @@ def installed_source_requirement(source_error, **parameters):
     """A PC-assisted compact update is an input choice, never full-build consent."""
     text = str(source_error)[:16384]
     seed = "This older Quest APK has no portable compiler references." in text
-    assets = "This update changes original-derived assets or the player layout." in text
-    if not seed and not assets: return None
+    damaged_seed = "Portable Quest compiler seed could not be read:" in text
+    assets = any(prefix in text for prefix in (
+        "This update changes original-derived assets or the player layout.",
+        "The card-art producer or installed sidecar changed.",
+        "The installed APK lacks its exact card-art sidecar;"))
+    if not seed and not damaged_seed and not assets: return None
     en = ("This older APK needs one update with the matching PC game copy to add portable compiler inputs. The existing game conversion is retained."
           if seed else "This update changes game-derived assets or the player layout and needs the matching PC game copy. The installed game remains unchanged.")
     de = ("Diese ältere APK benötigt einmalig ein Update mit der passenden PC-Spielkopie, um die Compiler-Grundlage hinzuzufügen. Die vorhandene Spielkonvertierung bleibt erhalten."
           if seed else "Dieses Update ändert aus dem Spiel abgeleitete Assets oder den Player-Aufbau und benötigt die passende PC-Spielkopie. Das installierte Spiel bleibt unverändert.")
+    if damaged_seed:
+        en = "The APK's portable compiler inputs could not be read. Select another intact APK or use the matching PC game copy to repair those inputs; no full game conversion has started."
+        de = "Die portable Compiler-Grundlage der APK konnte nicht gelesen werden. Eine andere intakte APK oder die passende PC-Spielkopie zur gezielten Reparatur auswählen; eine vollständige Spielkonvertierung wurde nicht gestartet."
     return WizardError("installed_update_pc_required", en, de,
         **dict(parameters, cause=text, requiresPcUpdateSource=True, completedWorkRetained=True,
-               originalApkRetained=True, pcSourceReason="compiler-seed" if seed else "derived-assets"))
+               originalApkRetained=True, pcSourceReason="compiler-seed" if seed or damaged_seed else "derived-assets"))
 
 
 def rebuild_decision(cause, *, stage="update-mod"):

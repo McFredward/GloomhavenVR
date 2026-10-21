@@ -45,35 +45,9 @@ class BuilderProducerIdentityTests(unittest.TestCase):
         self.assertNotEqual(identity.builder_producer_digest(previous), identity.builder_producer_digest(altered))
 
     def preceding_portable_source(self):
-        """Remove only the reviewed late CLI/module additions from this tree."""
-        tree = ast.parse(self.original.decode())
-        tree.body = [node for node in tree.body if not (isinstance(node, ast.FunctionDef) and node.name == "export_portable")
-                     and not (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
-                              and target.id == "portable_packages" for target in node.targets))]
-        for function in tree.body:
-            if not isinstance(function, ast.FunctionDef) or function.name != "parser": continue
-            retained = []
-            for node in function.body:
-                call = node.value if isinstance(node, ast.Expr) else None
-                if isinstance(call, ast.Call) and call.args and isinstance(call.args[0], ast.Constant):
-                    flag = call.args[0].value
-                    if flag in ("--export-path", "--signing-mode"): continue
-                    for keyword in call.keywords:
-                        if flag == "command" and keyword.arg == "choices":
-                            keyword.value.elts = [item for item in keyword.value.elts if item.value != "export"]
-                        if flag == "--base-apk" and keyword.arg == "help":
-                            keyword.value.value = "Existing locally built Quest APK; updates always require the matching owned PC game."
-                retained.append(node)
-            function.body = retained
-        class RemoveExport(ast.NodeTransformer):
-            def visit_If(self, node):
-                self.generic_visit(node)
-                if (isinstance(node.test, ast.Compare) and ast.unparse(node.test.left) == "args.command"
-                        and len(node.test.comparators) == 1 and isinstance(node.test.comparators[0], ast.Constant)
-                        and node.test.comparators[0].value == "export"):
-                    return node.orelse
-                return node
-        return ast.unparse(RemoveExport().visit(tree)).encode()
+        """Use the actual preceding delivery, not a never-shipped mixed CLI."""
+        import subprocess
+        return subprocess.check_output(["git", "show", "3fa908fc0^:" + identity.BUILDER], cwd=ROOT)
 
     def test_exact_portable_cli_and_cached_input_selection_retain_preceding_assets(self):
         previous = self.preceding_portable_source()
@@ -120,26 +94,10 @@ class BuilderProducerIdentityTests(unittest.TestCase):
                             identity.builder_producer_digest(self.original, original_prefix=True))
 
     def test_exact_late_update_and_art_key_change_retains_preceding_producer_identity(self):
-        # Reconstruct the preceding producer AST without changing any art writer,
-        # original converter or input. Only the new host callback/key descriptor
-        # is absent. Unknown earlier consumers still invalidate this identity.
-        tree = ast.parse(self.preceding_portable_source().decode())
-        tree.body = [node for node in tree.body if not isinstance(node, ast.FunctionDef)
-                     or node.name not in ("rebuild_update", "mod_bank_recipe")]
-        tree.body = [node for node in tree.body if not (isinstance(node, ast.Assign)
-                     and any(isinstance(target, ast.Name) and target.id == "apk_input_hashes" for target in node.targets))]
-        for node in tree.body:
-            if not isinstance(node, ast.FunctionDef) or node.name != "package_mod_content": continue
-            node.body = [item for item in node.body if not (isinstance(item, ast.Assign)
-                         and any(isinstance(target, ast.Name) and target.id == "producers" for target in item.targets))]
-            for item in node.body:
-                if not (isinstance(item, ast.Assign) and isinstance(item.value, ast.Call)
-                        and any(isinstance(target, ast.Name) and target.id == "key" for target in item.targets)): continue
-                value = item.value.args[0]
-                pairs = [(key, member) for key, member in zip(value.keys, value.values)
-                         if not isinstance(key, ast.Constant) or key.value != "producers"]
-                value.keys, value.values = [pair[0] for pair in pairs], [pair[1] for pair in pairs]
-        previous = ast.unparse(tree).encode()
+        # Exact source before the retained full-build update callback and art
+        # producer key were added. Later CLI changes cannot be spliced into it.
+        import subprocess
+        previous = subprocess.check_output(["git", "show", "0acf20ef5^:" + identity.BUILDER], cwd=ROOT)
         self.assertEqual(identity.builder_producer_digest(previous), identity.builder_producer_digest(self.original))
         self.assertEqual(identity.builder_producer_digest(previous, original_prefix=True),
                          identity.builder_producer_digest(self.original, original_prefix=True))

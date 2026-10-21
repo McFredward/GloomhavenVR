@@ -24,6 +24,8 @@ IDENTITY = "tools/quest-builder/preparation_identity.py"
 RECIPE_IDENTITY = "tools/quest-builder/recovery_resume.py"
 METADATA_IDENTITY = "tools/quest-builder/preparation_metadata.py"
 DELIVERY_PREFIXES = ("tools/quest-wizard/", "tools/quest-wizard-ui/", "tools/quest-installer/")
+# Published only after retained preparation, with its own seed receipt.
+DELIVERY_ONLY = {"tools/quest-builder/update_seed.py"}
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 # The completed preparation journal lists original output contracts, rather than
 # only a small control manifest. Capture134446 reports 25,864,174 journal bytes
@@ -724,10 +726,13 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     # These modules validate/select identity; neither generates game assets.
     # Delivery tools are never read by generate_files or its conversion tools.
     rows = [row for row in rows if row["path"] not in (BUILDER, IDENTITY, RECIPE_IDENTITY, "quest-builder-release.json")
+            and row["path"] not in DELIVERY_ONLY
             and not row["path"].startswith(DELIVERY_PREFIXES) and row not in NATIVE_BANK_HOST_ROWS]
     if original_prefix:
         reviewed = []
         for row in rows:
+            current, preceding = INSTALLED_UPDATE_DELIVERY_ROWS.get(row["path"], (None, row))
+            if row == current: row = preceding
             current, preceding = REBASE_MEDIA_DELIVERY_ROWS.get(row["path"], (None, row))
             if row == current: row = preceding
             current, preceding = REBASE_AUDIO_DELIVERY_ROWS.get(row["path"], (None, row))

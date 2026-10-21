@@ -16,6 +16,18 @@ import wizard
 
 
 class UpdateFailureGuidanceTests(unittest.TestCase):
+    def test_installed_seed_and_card_input_repairs_offer_pc_source_without_full_build(self):
+        from update_failure_guidance import installed_source_requirement
+        for cause in ('Portable Quest compiler seed could not be read: original hash mismatch',
+                      'The card-art producer or installed sidecar changed.',
+                      'The installed APK lacks its exact card-art sidecar; select the matching PC installation.'):
+            with self.subTest(cause=cause):
+                error = installed_source_requirement(cause)
+                self.assertEqual(error.code, 'installed_update_pc_required')
+                self.assertTrue(error.parameters['requiresPcUpdateSource'])
+                self.assertTrue(error.parameters['originalApkRetained'])
+                self.assertNotIn('rebuildApproved', error.parameters)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name) / 'owned'; Store(self.root)

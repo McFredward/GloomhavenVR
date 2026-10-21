@@ -482,7 +482,8 @@ class DeviceTools:
                     message={"en": result.get("action", "No installed Quest game found. Select a local APK or install the game first."),
                              "de": "Kein installiertes Quest-Spiel gefunden. Eine lokale APK auswählen oder das Spiel zuerst installieren."})
             # Keep only bounded UI metadata. The complete game/mod input
-            # manifest stays in the helper's owned receipt, not every status poll.
+            # manifest remains in the helper's in-memory result, never a receipt
+            # or every status poll.
             source = {key: result[key] for key in ("source", "apk", "remotePath", "versionCode", "versionName", "size",
                 "inputKeyPrefix", "modBuild", "witnessKey", "reused", "resumedBytes") if key in result}
             source.update(deviceSerial=hardware, transport=transport)

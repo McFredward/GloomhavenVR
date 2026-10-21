@@ -11,7 +11,7 @@ import storage
 class PixelDeliveryScopeTests(unittest.TestCase):
     def test_complete_reviewed_controller_bytes_and_both_pixel_revisions_keep_compiler_rows(self):
         current=storage.record_file(ROOT/'tools/quest-builder/update_driver.py','tools/quest-builder/update_driver.py')
-        self.assertEqual(current,identity.REBASE_MEDIA_DELIVERY_ROWS[current["path"]][0])
+        self.assertEqual(current,identity.INSTALLED_UPDATE_DELIVERY_ROWS[current["path"]][0])
         runtime={'path':'src/Runtime.cs','size':10,'sha256':'1'*64}
         before=[identity.REBASE_MEDIA_DELIVERY_ROWS[current["path"]][1],runtime,{'path':'tools/quest-builder/quest_card_pixels.py','size':10,'sha256':'2'*64}]
         after=[current,runtime,{'path':'tools/quest-builder/quest_card_pixels.py','size':99,'sha256':'3'*64}]

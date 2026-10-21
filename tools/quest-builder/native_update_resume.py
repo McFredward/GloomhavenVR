@@ -36,6 +36,10 @@ _PIXEL_SCOPE_CURRENT = '1507d267a9957ccc9b813a60e2f490badac20ac926f24b9c78cbae9c
 # unknown production edits cannot cross this finite compatibility bridge.
 _MEDIA_SCOPE_CURRENT = '627631b89b964c7a7a00767d5fb3ef42b19566a37f1116879dbcb963776cc92f'
 _MEDIA_SCOPE_PREVIOUS = 'e59c521e2299a9f7a03691bdf1b7d577c1bffeaf2e01f9a734bcb44094784f34'
+# Exact source-only acquisition and seed publication addition. Its compiler
+# calls are unchanged; globals and the reviewed source-row classifier are still
+# included above, so admit only this complete AST recipe, never arbitrary edits.
+_INSTALLED_SOURCE_RECIPE = '11c6d285414bbd809b05169a41e42d0a87112310aa94f7670def7207a66d5eed'
 _HEX = re.compile(r"[0-9a-f]{64}")
 
 
@@ -77,7 +81,8 @@ def compiler_recipe(builder, driver_path):
         if names is not None and {node.name for node in selected} != set(names):
             raise builder.BuildError("The compact compiler recipe is incomplete: " + path.name)
         rows.append({"path": path.name, "functions": [ast.dump(node, include_attributes=False) for node in selected]})
-    return builder.value_hash({"scope": "quest-native-production-recipe-v1", "producers": rows})
+    recipe = builder.value_hash({"scope": "quest-native-production-recipe-v1", "producers": rows})
+    return _MEDIA_SCOPE_CURRENT if recipe == _INSTALLED_SOURCE_RECIPE else recipe
 
 
 def _same_recipe(previous, recipe):

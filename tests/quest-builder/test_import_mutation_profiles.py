@@ -93,7 +93,7 @@ class ImportMutationProfileTests(unittest.TestCase):
     def test_latest_delivery_profile_matches_exact_current_consumer_bytes(self):
         # Historical delivery constants remain intentionally pinned to earlier
         # archives. The newest finite host pair is the current source contract.
-        for current, _ in preparation_identity.REBASE_MEDIA_DELIVERY_ROWS.values():
+        for current, _ in preparation_identity.INSTALLED_UPDATE_DELIVERY_ROWS.values():
             raw = (ROOT / current["path"]).read_bytes()
             self.assertEqual(current, {"path": current["path"], "size": len(raw),
                 "sha256": hashlib.sha256(raw).hexdigest()})

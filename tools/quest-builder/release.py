@@ -128,6 +128,7 @@ REQUIRED = set(PUBLIC_PACKAGES) | {"tools/quest-builder/staging_copy.py", "tools
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs',
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestNativePluginContract.cs'}
 REQUIRED |= AUTHORED_RESOURCES | AUTHORED_MOVIES | PROMOTIONAL_ASSETS | {
+    'tools/quest-builder/update_seed.py', 'tools/quest-installer/installed_source.py',
     'tools/quest-builder/movie_banks.py', 'tools/quest-builder/movie_render.py',
     'tools/quest-builder/requirements-movies.txt', 'tools/quest-movies/recipe.json',
     'tools/quest-movies/MovieBankBuild.cs', 'tools/quest-movies/QuestMovieEye.shader',

@@ -155,5 +155,23 @@ class InstalledUpdateTests(unittest.TestCase):
         current[0]['sha256'] = '0' * 64
         self.assertNotEqual(normalize(current), normalize(old))
 
+    def test_reviewed_seed_delivery_keeps_native_recipe_but_unknown_compiler_edit_does_not(self):
+        import native_update_resume
+        import tempfile
+        f = self.f
+        expected = native_update_resume._MEDIA_SCOPE_CURRENT
+        self.assertEqual(native_update_resume.compiler_recipe(f.builder, driver.__file__), expected)
+        raw = Path(driver.__file__).read_text()
+        changed = raw.replace('def _compile_code(', 'def _unreviewed_compile_code(', 1)
+        self.assertNotEqual(changed, raw)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'update_driver.py'
+            path.write_text(changed)
+            with self.assertRaisesRegex(storage.BuildError, 'compiler recipe is incomplete'):
+                native_update_resume.compiler_recipe(f.builder, path)
+            path.write_text(raw.replace('"quest-builder-release.json": return False',
+                                        '"unreviewed-release.json": return False', 1))
+            self.assertNotEqual(native_update_resume.compiler_recipe(f.builder, path), expected)
+
 
 if __name__ == '__main__': unittest.main()

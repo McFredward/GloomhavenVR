@@ -1,3 +1,22 @@
+**Quest installed-source updates, 2026-10-21: host-only / game B717 unchanged.**
+
+The maintainer now permits the installed Quest copy to suffice without a PC
+game-copy check for explicitly selected updates. Discover local/workspace and
+authorized headset sources; import only the exact installed base.apk with
+resumable byte progress, preserving external banks/saves. A one-time PC-assisted
+compact/profile update embeds the exact 169 original Mono DLL references (47.3 MB raw,
+18.4 MB compressed), making subsequent code updates independent of PC game and
+full-conversion caches. Older IL2CPP APKs lack those IL bodies and must offer that
+preparation explicitly, never fabricate references or start a full conversion.
+Retain embedded identity/DLC and existing card data; changed original-derived
+asset producers request targeted PC inputs. Keep the separate small signing key
+and temporary compiler space requirement visible. Preserve latest/pending device
+imports, prune older proven ones, and warn before deleting reusable seed caches.
+PC self-update remains disabled on Quest; evaluate notification/PC companion and
+device-only alternatives separately. Focused host/API/browser evidence and the
+unchanged B717 runtime evidence are distinct. See
+`QUEST-INSTALLED-UPDATES-AND-AUTOUPDATE-20261021.md`.
+
 **Quest hardware follow-up, 2026-10-21: feature / 1.2.0 / B717.**
 
 Match capture164143/video182718 to B716. Record the complete failed initial
