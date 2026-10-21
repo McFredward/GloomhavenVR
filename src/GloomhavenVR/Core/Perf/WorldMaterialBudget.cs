@@ -110,10 +110,20 @@ internal static partial class WorldMaterialBudget
     private sealed partial class Driver : MonoBehaviour
     {
         private int _lastCandidates, _lastVariants, _lastNative;
+        private int _lastCoverageFrame = -1, _lastInactive, _lastCameraExcluded, _lastPerformanceHidden;
+        private int _lastScopeRefusals, _lastShaderRefusals, _lastEffectRefusals;
+        private int _adoptionCandidates, _adoptionScopeRefusals;
+        private Camera? _lastCoverageCamera;
         internal string DescribeConsumers() => "worldMaterial mode=" + _mode + " failed=" + _failed
             + " shader=" + (_shader == null ? "unresolved" : _shader.isSupported ? "supported" : "unsupported-native-fallback")
             + " surfaces=" + _surfaces.Count + " lastPassCandidates=" + _lastCandidates
-            + " variantSlots=" + _lastVariants + " nativeSlots=" + _lastNative;
+            + " variantSlots=" + _lastVariants + " nativeSlots=" + _lastNative
+            + " camera=" + (_lastCoverageCamera != null ? _lastCoverageCamera.name : "none")
+            + " frame=" + _lastCoverageFrame + " inactive/cameraExcluded/performanceHidden="
+            + _lastInactive + "/" + _lastCameraExcluded + "/" + _lastPerformanceHidden
+            + " scope/shader/effectRefusals=" + _lastScopeRefusals + "/" + _lastShaderRefusals + "/" + _lastEffectRefusals
+            + " discoveryCandidates/ScopeRefused=" + _adoptionCandidates + "/" + _adoptionScopeRefusals
+            + " blockedTypes=" + DescribeRefusedTypes();
         private const int NodesPerFrame = 128;
         private readonly Dictionary<int, Surface> _surfaces = new();
         private readonly Queue<Transform> _pending = new();
@@ -237,8 +247,14 @@ internal static partial class WorldMaterialBudget
             // All mutable native guards are read again immediately before rendering.
             using IDisposable pass = BeginPass();
             MeshFilter filter = renderer.GetComponent<MeshFilter>();
-            if (filter != null && filter.sharedMesh != null && InWorld(renderer) && !_surfaces.ContainsKey(renderer.GetInstanceID()))
-                _surfaces[renderer.GetInstanceID()] = new Surface(renderer, filter);
+            if (filter != null && filter.sharedMesh != null)
+            {
+                bool inWorld = InWorld(renderer);
+                if (VRLog.Level >= VRLogLevel.Debug)
+                { _adoptionCandidates++; if (!inWorld) _adoptionScopeRefusals++; }
+                if (inWorld && !_surfaces.ContainsKey(renderer.GetInstanceID()))
+                    _surfaces[renderer.GetInstanceID()] = new Surface(renderer, filter);
+            }
         }
         internal void UnavailableCamera(Camera camera)
         {
@@ -372,6 +388,12 @@ internal static partial class WorldMaterialBudget
                 foreach (Renderer renderer in _changedSources) _sourceChanged?.Invoke(renderer);
                 _changedSources.Clear();
                 _lastCandidates = candidates; _lastVariants = changed; _lastNative = native;
+                if (VRLog.Level >= VRLogLevel.Debug)
+                {
+                    _lastCoverageCamera = camera; _lastCoverageFrame = Time.frameCount;
+                    _lastInactive = inactive; _lastCameraExcluded = cameraExcluded; _lastPerformanceHidden = performanceHidden;
+                    _lastScopeRefusals = scopeRefusals; _lastShaderRefusals = shaderRefusals; _lastEffectRefusals = effectRefusals;
+                }
                 if (PerfMonitor.StepsActive && VRLog.Level >= VRLogLevel.Debug)
                 {
                     PerfMonitor.Count("WorldMaterial.Candidates", candidates);
@@ -461,6 +483,8 @@ internal static partial class WorldMaterialBudget
                 _variants.Clear(); _originalByVariant.Clear();
             }
             _prepared.Clear(); _metadata.Clear(); _scopes.Clear(); _sceneScopes.Clear(); InvalidateScopeReads();
+            _refusedTypes.Clear(); _adoptionCandidates = _adoptionScopeRefusals = 0;
+            _lastCoverageCamera = null; _lastCoverageFrame = -1;
             _shader = null;
             _changedSources.Clear();
             _surfaces.Clear(); _pending.Clear(); _queued.Clear();
