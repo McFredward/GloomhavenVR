@@ -1268,6 +1268,7 @@ internal static partial class PerfMonitor
         private static DisplayIntStat? _dropped;
         private static DisplayIntStat? _presented;
         private static DisplayFloatStat? _gpuTime;
+        private static DisplayFloatStat? _appGpuSeconds;
         private static DisplayFloatStat? _motionToPhoton;
         private static DisplayFloatStat? _displayRefresh;
         private static FloatStat? _gpuTimeGlobal;
@@ -1286,13 +1287,23 @@ internal static partial class PerfMonitor
                 return;
             _resolved = true;
 
+            // Unity's provider API reports app GPU seconds on the display itself.
+            // XRStats is the legacy/global API: resolving only that class left
+            // current OpenXR counters unavailable even when the display exposed
+            // them. Keep its historical millisecond fallback separate; never
+            // mix the provider's seconds with the window's millisecond samples.
+            _appGpuSeconds = Bind<DisplayFloatStat>(typeof(XRDisplaySubsystem), "TryGetAppGPUTimeLastFrame");
+            _dropped = Bind<DisplayIntStat>(typeof(XRDisplaySubsystem), "TryGetDroppedFrameCount");
+            _presented = Bind<DisplayIntStat>(typeof(XRDisplaySubsystem), "TryGetFramePresentCount");
+            _motionToPhoton = Bind<DisplayFloatStat>(typeof(XRDisplaySubsystem), "TryGetMotionToPhoton");
+
             Type? stats = FindType("UnityEngine.XR.XRStats");
             if (stats != null)
             {
-                _dropped = Bind<DisplayIntStat>(stats, "TryGetDroppedFrameCount");
-                _presented = Bind<DisplayIntStat>(stats, "TryGetFramePresentCount");
+                _dropped ??= Bind<DisplayIntStat>(stats, "TryGetDroppedFrameCount");
+                _presented ??= Bind<DisplayIntStat>(stats, "TryGetFramePresentCount");
                 _gpuTime = Bind<DisplayFloatStat>(stats, "TryGetGPUTimeLastFrame");
-                _motionToPhoton = Bind<DisplayFloatStat>(stats, "TryGetMotionToPhoton");
+                _motionToPhoton ??= Bind<DisplayFloatStat>(stats, "TryGetMotionToPhoton");
                 if (_gpuTime == null)
                     _gpuTimeGlobal = Bind<FloatStat>(stats, "TryGetGPUTimeLastFrame");
             }
@@ -1393,7 +1404,14 @@ internal static partial class PerfMonitor
         /// </summary>
         internal static bool TryGetGpuTimeMs(out float ms)
         {
+            Resolve();
             XRDisplaySubsystem? d = Display();
+            if (d != null && _appGpuSeconds != null && _appGpuSeconds(d, out float seconds)
+                && seconds >= 0f && !float.IsInfinity(seconds) && !float.IsNaN(seconds))
+            {
+                ms = seconds * 1000f;
+                if (!float.IsInfinity(ms)) return true;
+            }
             if (d != null && _gpuTime != null && _gpuTime(d, out ms))
                 return true;
             if (_gpuTimeGlobal != null && _gpuTimeGlobal(out ms))
@@ -1453,7 +1471,7 @@ internal static partial class PerfMonitor
             Resolve();
             return $"dropped={(_dropped != null ? "ok" : "n/a")} "
                    + $"presented={(_presented != null ? "ok" : "n/a")} "
-                   + $"gpuTime={(_gpuTime != null || _gpuTimeGlobal != null ? "ok" : "n/a")} "
+                   + $"gpuTime={(_appGpuSeconds != null || _gpuTime != null || _gpuTimeGlobal != null ? "ok" : "n/a")} "
                    + $"motionToPhoton={(_motionToPhoton != null ? "ok" : "n/a")} "
                    + $"refreshRate={(_displayRefresh != null ? "display" : _deviceRefreshRate != null ? "device" : "n/a")}";
         }
