@@ -84,8 +84,12 @@ The small authored `QuestLoadingSpinner` shader preserves native Sprite
 premultiplication and Blend One, including alpha for passthrough. Reusing the
 ordinary straight-alpha Overlay shader would square coverage in the alpha
 channel; an intermediate RGB-only comparison did not establish full equivalence
-and is not the final implementation. Resolution uses the registered
-`BundleShaders.Resolve` path, not a cold-load-sensitive bare Shader.Find.
+and is not the final implementation. Resolution uses the separately qualified
+tiny embedded Android bank through `QuestLoadingAssets.ResolveShader`, not a
+cold-load-sensitive bare Shader.Find. The bank is embedded in the updated mod
+assembly so the original Campaign and all four existing authored mod banks
+remain reusable. The Linux graphics fixture compiles the exact shader source;
+Android bank loading is an explicit separate boundary.
 This prevents a retained depth writer or a newly appearing blank menu capture
 from covering the live symbol. Desktop and later native scenario spinners keep
 their established path. No new timer, loading delay, camera clear, eye viewport

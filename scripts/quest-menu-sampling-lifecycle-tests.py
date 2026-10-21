@@ -121,7 +121,7 @@ def main():
             if core.count("        ObserveQuestMenuFrame();") != 1:
                 raise RuntimeError("Production menu frame observer has no unique live FlatScreen.Tick call before compilation")
         rows = {"LoadingIndicator.cs": loading, "QuestMenuReadiness.cs": readiness}
-        for path in ("Core/QuestTextureCopy.cs", "Core/QuestPrimitiveMesh.cs", "Core/BundleShaders.cs", "WorldUI/Sharpness/LoadingIconGeometry.cs", "WorldUI/FlatScreen/FlatScreen.7.QuestDrawProbe.cs"):
+        for path in ("Core/QuestTextureCopy.cs", "Core/QuestPrimitiveMesh.cs", "WorldUI/Sharpness/LoadingIconGeometry.cs", "WorldUI/FlatScreen/FlatScreen.7.QuestDrawProbe.cs"):
             rows[Path(path).name] = (production_root / "src/GloomhavenVR" / path).read_text()
         if args.control == "menu-stencil-context":
             args.masked_menu = True
@@ -131,7 +131,7 @@ def main():
         for name, text in rows.items(): (production / name).write_text(text)
         source_hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in rows.items()}
         source_hashes.update({str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in fixture.glob("*") if path.is_file()})
-        for shader in ("unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader", "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader", "unity/GloomhavenVR.Assets/Assets/Bundle/Table/QuestLoadingSpinner.shader"):
+        for shader in ("unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader", "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader", "src/GloomhavenVR/Assets/QuestLoading/QuestLoadingSpinner.shader"):
             source_hashes[shader] = hashlib.sha256((production_root / shader).read_bytes()).hexdigest()
         (run / "source-hashes.json").write_text(json.dumps(source_hashes, indent=2) + "\n")
         # Retain the exact test source before later development can change it.
@@ -149,7 +149,7 @@ def main():
         dll = run / "bin/Release/netstandard2.1/QuestLoadingLifecycle.dll"
         shutil.copyfile(production_root / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader", project / "Assets/Resources/QuestTextureCopy.shader")
         shutil.copyfile(production_root / "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader", project / "Assets/Resources/Overlay.shader")
-        shutil.copyfile(production_root / "unity/GloomhavenVR.Assets/Assets/Bundle/Table/QuestLoadingSpinner.shader", project / "Assets/Resources/QuestLoadingSpinner.shader")
+        shutil.copyfile(production_root / "src/GloomhavenVR/Assets/QuestLoading/QuestLoadingSpinner.shader", project / "Assets/Resources/QuestLoadingSpinner.shader")
         wanted = set()
         source = args.owned_project.resolve(strict=True)
         def copy(path, target):
@@ -281,6 +281,8 @@ public static class LoadingLifecycleRunner {
         if args.handoff_case: environment["QUEST_LOADING_HANDOFF_CASE"] = args.handoff_case
         if args.masked_menu: environment["QUEST_LOADING_MASKED_MENU"] = "1"
         if args.final_composition: environment["QUEST_LOADING_COMPOSITION_REPORT"] = str(run)
+        if args.control in ("native-overlay-kept", "native-loading-overlay-kept"):
+            environment["QUEST_LOADING_COMPOSITION_CONTROL"] = args.control
         process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=environment); reaped=False
         code = process.wait(timeout=240)
     finally:

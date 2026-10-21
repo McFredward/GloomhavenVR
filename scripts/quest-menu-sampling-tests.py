@@ -92,7 +92,6 @@ def main():
     witness_start = loading.index("    private sealed class LoadingDrawWitness : MonoBehaviour")
     witness = loading[witness_start:loading.index("\n    /// <summary>", witness_start)]
     sources = {"Sampling.cs": (sharp / "QuestScreenSampling.cs").read_text(),
-               "BundleShaders.cs": (ROOT / "src/GloomhavenVR/Core/BundleShaders.cs").read_text(),
                "PrimitiveMesh.cs": (ROOT / "src/GloomhavenVR/Core/QuestPrimitiveMesh.cs").read_text(),
                "TextureCopy.cs": (ROOT / "src/GloomhavenVR/Core/QuestTextureCopy.cs").read_text(),
                "Geometry.cs": (sharp / "LoadingIconGeometry.cs").read_text(),

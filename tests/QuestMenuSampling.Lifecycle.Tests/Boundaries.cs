@@ -6,6 +6,13 @@ namespace GloomhavenVR { internal static class MyPluginInfo { internal const str
 namespace GloomhavenVR.Core
 {
     internal static class QuestStandalonePlatform { internal static bool Enabled = true; }
+    // The Android embedded bank loader has its separate production provenance
+    // gate. This native Linux fixture compiles and renders its exact shader
+    // source; it cannot load an Android AssetBundle into the Linux Editor.
+    internal static class QuestLoadingAssets
+    {
+        internal static Shader? ResolveShader() => Shader.Find("GloomhavenVR/QuestLoadingSpinner");
+    }
     internal static class VRSession { internal static bool IsRunning = true; }
     internal enum VRLogLevel { Debug }
     internal static class VRLog

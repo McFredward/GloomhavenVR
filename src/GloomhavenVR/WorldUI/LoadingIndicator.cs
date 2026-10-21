@@ -972,16 +972,14 @@ internal sealed class LoadingIndicator
         // B716 kept this renderer admitted, opaque and attached until the90s
         // safety exit; retaining it longer cannot repair an invisible picture.
         // The initial Quest handoff is a foreground HUD, including while the
-        // normal menu capture starts behind it. Use the already-shipped unlit
+        // normal menu capture starts behind it. Use the tiny embedded unlit
         // spinner program: its native Sprite-equivalent premultiplied output
         // preserves both colour and alpha, while its explicit owned depth state
         // cannot lose against a retained depth surface or a later blank capture.
         // Keep native atlas UVs, animation, tint and fade; do not touch cameras,
         // eye viewports, native loading, desktop, or later scenario spinners.
         Shader? foreground = QuestStandalonePlatform.Enabled && _questMenuHandoff
-            ? BundleShaders.Resolve("GloomhavenVR/QuestLoadingSpinner", "WorldUI",
-                "The initial Quest loading symbol has an explicit native-art foreground draw.",
-                "The established Sprite consumer remains available; the initial foreground guarantee is unavailable.") : null;
+            ? QuestLoadingAssets.ResolveShader() : null;
         // Same shader family as WorldUIAssets.CreateFlatMaterial, but alpha-blended on
         // purpose: the spinner art lives in the sprite's alpha channel, and Sprites/Default
         // ships shipped-verified (FlatScreen glass uses it) with a _Color tint the glow

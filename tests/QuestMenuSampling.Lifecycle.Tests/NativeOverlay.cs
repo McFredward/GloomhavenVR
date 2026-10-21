@@ -62,10 +62,11 @@ internal static class NativeOverlayComposition
             for (int i = 0; i < 24; i++) yield return null;
             Renderer spinner = Visual(indicator).GetComponentInChildren<Renderer>();
             bool suppressed = !canvas.enabled;
+            bool keepIntroControl = Environment.GetEnvironmentVariable("QUEST_LOADING_COMPOSITION_CONTROL") == "native-overlay-kept";
             check(Visual(indicator).activeInHierarchy && owner.activeInHierarchy
                 && owner.GetComponentInChildren<AnimateLoadingIcon>().isActiveAndEnabled && callbacks == 1 && other.enabled,
                 "Quest admission retains native animator, callback, active owner and unrelated canvas");
-            check(suppressed, "Exact Intro loading owner hands off after a native camera rebind");
+            if (!keepIntroControl) check(suppressed, "Exact Intro loading owner hands off after a native camera rebind");
             indicator.Shutdown(); setTick(null);
             canvasHost = NestCanvas(owner, introScene);
             check(!canvas.isRootCanvas, "Original Intro loading ownership remains exact after native canvas nesting");
@@ -73,7 +74,7 @@ internal static class NativeOverlayComposition
             for (int i = 0; i < 12; i++) yield return null;
             spinner = Visual(indicator).GetComponentInChildren<Renderer>();
             suppressed = !canvas.enabled;
-            check(suppressed, "Nested exact Intro loading owner hands off without a root-canvas assumption");
+            if (!keepIntroControl) check(suppressed, "Nested exact Intro loading owner hands off without a root-canvas assumption");
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             // Causal old-graph observation: leave the same spinner/texture/pose
             // live, but temporarily reintroduce the authored flat overlay.
@@ -84,8 +85,9 @@ internal static class NativeOverlayComposition
             for (int i = 0; i < 6; i++) yield return null;
             float uncovered = Capture(head, spinner, "native-overlay-owned");
             UnityEngine.Debug.Log("[Lifecycle] final overlay composition covered=" + covered + " uncovered=" + uncovered + " screen=" + Screen.width + "x" + Screen.height);
-            check(suppressed && covered < .01f && uncovered > .02f && !canvas.enabled,
+            check(covered < .01f && uncovered > .02f,
                 "Actual final native overlay draw hides the admitted spinner and Quest Tick reveals the same pixels");
+            check(suppressed && !canvas.enabled, "Exact Intro overlay state agrees with the final composition");
             WorldUIConfig.LoadingIndicator.Value = false;
             float until = Time.unscaledTime + .5f; while (Time.unscaledTime < until) yield return null;
             check(canvas.enabled && callbacks == 1 && other.enabled,
@@ -125,8 +127,9 @@ internal static class NativeOverlayComposition
             check(canvas.enabled && loading.activeInHierarchy && loading.GetComponentInChildren<AnimateLoadingIcon>().isActiveAndEnabled
                 && sibling.GetComponent<Image>().enabled && !hidden.GetComponent<Image>().enabled,
                 "Native loading handoff preserves GlobalCanvas siblings, original animation and pre-disabled graphics");
-            check(!loading.GetComponent<Image>().enabled,
-                "Exact native loading widget hands off after a native camera rebind");
+            if (Environment.GetEnvironmentVariable("QUEST_LOADING_COMPOSITION_CONTROL") != "native-loading-overlay-kept")
+                check(!loading.GetComponent<Image>().enabled,
+                    "Exact native loading widget hands off after a native camera rebind");
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             setTick(null);
             foreach (Graphic graphic in loading.GetComponentsInChildren<Graphic>(true))

@@ -14,6 +14,7 @@ using Debug = UnityEngine.Debug;
 namespace GloomhavenVR.Core
 {
     internal static class QuestStandalonePlatform { internal static bool Enabled; }
+    internal static class QuestLoadingAssets { internal static Shader? ResolveShader() => null; }
     internal enum VRLogLevel { Debug }
     internal static class VRLog
     {
