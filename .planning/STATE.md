@@ -1,3 +1,13 @@
+**Shared XR GPU measurement repair, 2026-10-21 (development source).**
+
+Bind the current XRDisplaySubsystem GPU provider before the legacy XRStats API;
+convert provider seconds to the existing millisecond samples and retain explicit
+unavailable/legacy behavior. No graphics setting, image, gameplay or wire change.
+Strict Release0/0, source16/16 and actual-production probe12assertions/four causal
+controls pass; four actual SDK metadata checks are separately inherited by exact
+probe-body identity from the Quest investigation. No physical provider answer or
+new PC hardware artifact is claimed. See `XR-DISPLAY-TIMING-20261021.md`.
+
 **Release1.2.0 candidate, Build715, 2026-10-19.**
 The maintainer requests publication from the current dev frontier, with
 English-only highlights for native Steam Link passthrough and stereoscopic
