@@ -323,7 +323,7 @@ class SourceDependencyTests(Fixture):
         for name,_,version in package_rows:
             project=checkout/'tools/RuntimeDepsBuild'/('Unity.XR.'+name)/('Unity.XR.'+name+'.csproj');project.parent.mkdir(parents=True)
             project.write_text('<Project><PackageSourceVersion>'+version+'</PackageSourceVersion></Project>')
-        managed=self.root/'OwnedGame/Gloomhaven_Data';managed.mkdir(parents=True)
+        managed=self.root/'OwnedGame/Gloomhaven_Data';(managed/'Managed').mkdir(parents=True)
         calls=[]
         class SimulatedTools:
             def run(inner,argv,log,**kwargs):
@@ -350,6 +350,7 @@ class SourceDependencyTests(Fixture):
         for name,_,version in rows:
             project=checkout/'tools/RuntimeDepsBuild'/('Unity.XR.'+name)/('Unity.XR.'+name+'.csproj');project.parent.mkdir(parents=True);project.write_text('<PackageSourceVersion>'+version+'</PackageSourceVersion>')
             target=checkout/'libs/RuntimeDeps'/('Unity.XR.'+name+'.dll');target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(b'actual supplied input')
+        (self.root/'Game_Data/Managed').mkdir(parents=True)
         with mock.patch.object(discovery,'builder',return_value=types.SimpleNamespace(game_data=lambda _:self.root/'Game_Data')):
             result=provision.derive_runtime_dependencies(checkout,self.root/'Game',{},mock.Mock(),self.root/'logs',lambda:None)
         self.assertEqual({r['source'] for r in state.read_json(result)['assemblies'].values()},{'supplied-local-assembly'})
