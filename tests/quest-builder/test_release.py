@@ -111,6 +111,14 @@ class ReleaseOverlayTests(unittest.TestCase):
         self.assertEqual(before, {name: (self.root / name).read_bytes() for name in before})
         release.verified_source_inventory(self.root)
 
+    def test_prequalified_obsolete_file_already_removed_by_another_loader_is_complete(self):
+        old = self.old()
+        witness = release._retired_source_witness(old, OLD_PATH)
+        old.unlink()
+        release._remove_retired_sources([witness])
+        release.verified_source_inventory(self.root)
+        self.assertFalse(old.exists())
+
     def test_same_sized_modified_retired_source_is_rejected_and_preserved(self):
         old = self.old()
         old.write_bytes(b'X' + OLD_MENU_CAMERA[1:])

@@ -258,12 +258,19 @@ def _retired_source_witness(path, relative):
 def _remove_retired_sources(retired):
     for path, witness in retired:
         ordinary(path)
-        value = path.lstat()
+        try:
+            value = path.lstat()
+        except FileNotFoundError:
+            # Another verified loader may already have removed this exact obsolete
+            # file. Its absence is the intended result, never a new source input.
+            continue
         stamp = (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
         if stamp != witness:
             raise BuildError('Retired Builder file changed during verification: ' + str(path))
         try:
             path.unlink()
+        except FileNotFoundError:
+            continue
         except OSError as exc:
             raise BuildError('Cannot remove the verified obsolete Builder file: ' + str(path)
                              + '. Close other Builder windows or extract the new Builder into a clean folder;'
