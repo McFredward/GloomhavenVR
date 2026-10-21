@@ -25,6 +25,7 @@ internal sealed partial class FlatScreen
     private MenuImageProof? _questGraphicPixels;
     private float _questGraphicPixelsUntil;
     private readonly Dictionary<int, float> _questBlankGraphics = new();
+    private bool _questMenuSourceProofLogged, _questMenuStaleProofLogged;
 
     private sealed class MenuImageProof
     {
@@ -110,6 +111,22 @@ internal sealed partial class FlatScreen
                         && consumer.sharedMaterial == material && material != null && material.mainTexture == target;
                     if (!owned || visible < 3)
                     {
+                        // Distinguish a blank decorative Image from an otherwise
+                        // valid GPU result whose owner/target/frame expired.
+                        // B716 retained neither a positive source proof nor the
+                        // reason its receipt never completed. Share the existing
+                        // four-record budget; no per-frame failure stream.
+                        if (!owned && !_questMenuStaleProofLogged && Core.VRLog.Wants(Core.VRLogLevel.Debug))
+                        {
+                            _questMenuStaleProofLogged = true;
+                            if (_questMenuProbeReports++ < 4)
+                                UnityEngine.Debug.Log("[Quest startup] presentation spinner-final stage=menu-proof result=stale"
+                                    + " source=" + sourceStep + " failed=" + request.hasError + " visiblePixels=" + visible
+                                    + " ageSeconds=" + (Time.unscaledTime - requestedAt)
+                                    + " producerAgeFrames=" + (Time.frameCount - _questMenuProducedFrame)
+                                    + " sameHead=" + (VRRigDriver.HeadCamera == head)
+                                    + " finalXrPixelsObserved=false");
+                        }
                         ClearQuestMenuPixelReceipt();
                         if (owned && sourceStep)
                         {
@@ -122,6 +139,14 @@ internal sealed partial class FlatScreen
                     {
                         _questGraphicPixels = sourceBinding;
                         _questGraphicPixelsUntil = Time.unscaledTime + .5f;
+                        if (!_questMenuSourceProofLogged && Core.VRLog.Wants(Core.VRLogLevel.Debug))
+                        {
+                            _questMenuSourceProofLogged = true;
+                            if (_questMenuProbeReports++ < 4)
+                                UnityEngine.Debug.Log("[Quest startup] presentation spinner-final stage=menu-source result=eligible"
+                                    + " frame=" + Time.frameCount + " visiblePixels=" + visible
+                                    + " privateEligibility=true finalXrPixelsObserved=false");
+                        }
                         return;
                     }
                     if (_questGraphicPixels == null || !_questGraphicPixels.Matches(graphic)
