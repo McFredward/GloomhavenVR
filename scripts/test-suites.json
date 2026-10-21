@@ -2168,6 +2168,18 @@
       "weight": 2
     },
     {
+      "id": "quest-performance-history",
+      "command": [
+        "python3",
+        "scripts/quest-performance-history-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
       "id": "quest-game-scope",
       "command": [
         "python3",
