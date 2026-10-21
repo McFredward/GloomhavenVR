@@ -38,10 +38,18 @@ class RetainedUpdateTests(unittest.TestCase):
         bank = self.apk.with_name("GloomhavenVR-Quest-content.zip")
         with zipfile.ZipFile(bank, "w") as archive:
             archive.writestr("StreamingAssets/owned.bundle", b"original game data" * 8192)
-        self.write_apk(extra={"assets/Quest/content-delivery.json": storage.canonical({
+        # A current player already contains the original managed compiler seed.
+        # Omitting it models an older player that intentionally needs one PC-side
+        # seed migration/repack, so it cannot prove the no-payload-change path.
+        seed = driver._seed(self.builder)
+        members = seed.build(self.builder, self.game, self.manifest, self.output)
+        self.write_apk(extra={**{name: value.read_bytes() if isinstance(value, Path) else value
+                                for name, value in members.items()},
+            "assets/Quest/content-delivery.json": storage.canonical({
             "schema": 1, "package": fixture.portable.PACKAGE, "inputKey": self.manifest["inputKey"],
             "files": [{"file": fixture.portable.CONTENT, "size": bank.stat().st_size,
                        "sha256": storage.digest(bank), "archive": fixture.portable.ARCHIVE}]})})
+        self.assertTrue(seed.inspect_seed(self.apk, apk_update.inspect_base(self.apk))["available"])
         details = {"inputKey": self.manifest["inputKey"], "modBuild": self.current_mod["modBuild"],
                    "apkSha256": storage.digest(self.apk), "isDiagnostic": False, "isDummy": False,
                    "package": fixture.portable.PACKAGE,
