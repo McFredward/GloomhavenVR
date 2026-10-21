@@ -26,7 +26,10 @@ The acquire result includes `source`, `apk`, `path`, `remotePath`, `deviceSerial
 `versionCode`, `versionName`, `size`, `witness`, `witnessKey`, `identity`, `base`,
 `seed`, `receipt`, `reused` and `resumedBytes`. `base` is the full bounded APK
 inspection object for the update driver; the wizard must omit it from its small
-persisted/display state. Discovery cannot truthfully report seed availability
+persisted/display state. `identity.currentMod` contains only bounded primitive
+`key`, `modBuild`, `commit` and `dirty` facts; the actual multi-thousand-file mod
+roster stays in `base`. Profile summaries likewise retain bounded identity
+fields instead of arbitrary nested metadata. Discovery cannot truthfully report seed availability
 without reading the APK; it reports only the version-stamped input-key prefix.
 
 The progress callback receives a dictionary with `phase`, `done`, `total`,
@@ -64,7 +67,11 @@ base-APK transfer is restarted, never accepted as complete. No completed build,
 game content bank or save result is invalidated by that retry.
 
 A completed import is reused only while the remote package witness and the
-ordinary local file's complete stat witness remain unchanged. It still receives
+ordinary local file's strong stat witness remain unchanged. A private loader
+uses the existing storage helper's native FileId/ChangeTime on NTFS/ReFS and
+inode/ctime on POSIX; Python's Windows creation-time `st_ctime` never authorizes
+persistent reuse. Unsupported strong metadata disables closed-import reuse and
+partial resume, requiring a fresh base-APK transfer. It still receives
 the production bounded metadata validation; it does not undergo a full bank or
 APK rehash on each discovery/retry. This stat cache is a retry optimization, not
 a tamper-proof local authenticity mechanism. Invalid/changed local caches are
@@ -89,19 +96,24 @@ silently start a full asset rebuild.
 
 ## Focused evidence
 
-`tests/quest-installer/test_installed_source.py` passes 26 protocol tests using
+`tests/quest-installer/test_installed_source.py` passes 30 protocol tests using
 the actual `installer.Adb`, APK native-header/contract inspection and real ZIP
 fixtures. They cover USB/remembered transport aliases, read-only discovery,
 actual 8-MiB binary chunks, exact byte progress, missing/split/unsafe sources,
 authorization, space, local-link refusal, cancellation/resume, short/error/timeout
-retries, closing package/device changes and unchanged closed-import reuse. A
+retries, closing package/device changes and unchanged closed-import reuse.
+A real-shape 3,648-file mod roster stays out of small receipts/UI state; identical
+Python stats cannot override a changed native ChangeTime, and unsupported strong
+metadata cannot authorize either closed reuse or partial resume. A
 real host `sh`/`dd` witness also merges raw stdout/stderr and verifies that the
 fixed script suppresses `dd`'s footer before it can enter the binary channel.
 
-Eight compiling causal controls remove headset identity, closing package witness,
+Eleven compiling causal controls remove headset identity, closing package witness,
 binary byte-count qualification, native version binding, local cache witness or
 cancellation, remove the closing local-file witness, or allow the raw channel's
-`dd` footer into APK bytes. Each is
+`dd` footer into APK bytes. Further controls leak the complete roster into the
+identity receipt, trust an unavailable native stamp, or ignore native ChangeTime.
+Each is
 detected by its selected behavior test. Test subprocesses
 are reaped and the common `cleanup_completed_run` API is called. Fixtures are
 removed by their owning temporary-directory contexts; no Unity project is built.

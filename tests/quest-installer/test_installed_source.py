@@ -29,13 +29,14 @@ REMOTE = "/data/app/~~generation/" + PACKAGE + "-random/base.apk"
 INPUT = "a" * 64
 
 
-def player(build=717, key=INPUT, malformed=False):
+def player(build=717, key=INPUT, malformed=False, current_mod=None):
     if malformed: return b"not an Android ZIP"
     elf = bytearray(64)
     elf[:6] = b"\x7fELF\x02\x01"
     struct.pack_into("<H", elf, 18, 183)
     manifest = {"schema": 1, "target": "game", "inputKey": key,
-                "mod": {"modBuild": build}, "profile": {"displayName": "Fixture Player"}}
+                "mod": current_mod if current_mod is not None else {"modBuild": build},
+                "profile": {"displayName": "Fixture Player"}}
     target = io.BytesIO()
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr("lib/arm64-v8a/libil2cpp.so", elf)
@@ -168,6 +169,51 @@ class InstalledSourceTests(unittest.TestCase):
         self.assertEqual(transferred, len(self.android.transfers))
         # Hash arguments are tiny witness JSON, never the APK or game bank.
         self.assertTrue(all(len(call.args[0]) < 4096 for call in hashed.call_args_list))
+
+    def test_full_real_shape_mod_roster_stays_out_of_small_receipt_and_ui_state(self):
+        mod = {"key": "c" * 64, "modBuild": 717, "commit": "d" * 40, "dirty": False,
+               "files": [{"path": "src/GloomhavenVR/Example" + str(index) + ".cs", "size": 1000,
+                          "sha256": "e" * 64} for index in range(3648)]}
+        self.assertGreater(len(json.dumps(mod).encode()), subject.MAX_RECORD_BYTES)
+        self.android.body = player(current_mod=mod)
+        result = self.acquire()
+        self.assertEqual(3648, len(result["base"]["currentMod"]["files"]))
+        self.assertEqual({key: mod[key] for key in ("key", "modBuild", "commit", "dirty")}, result["identity"]["currentMod"])
+        self.assertLess(Path(result["receipt"]).stat().st_size, 16384)
+        self.assertLess(len(json.dumps({key: value for key, value in result.items() if key != "base"}).encode()), subject.MAX_RECORD_BYTES)
+        self.assertTrue(self.acquire()["reused"])
+
+    def test_unknown_strong_file_stamp_never_reuses_closed_input(self):
+        with mock.patch.object(subject._storage(), "_file_witness_stamp", return_value=None):
+            first = self.acquire()
+            transferred = len(self.android.transfers)
+            second = self.acquire()
+        self.assertFalse(first["reused"])
+        self.assertFalse(second["reused"])
+        self.assertGreater(len(self.android.transfers), transferred)
+        self.assertEqual(0, self.android.transfers[transferred][0])
+
+    def test_unknown_strong_file_stamp_never_resumes_partial_input(self):
+        cancel = threading.Event()
+        def progress(row):
+            if row["done"] >= subject.CHUNK_BYTES: cancel.set()
+        with mock.patch.object(subject._storage(), "_file_witness_stamp", return_value=None):
+            self.expect_reason("cancelled", lambda: self.acquire(cancel=cancel, progress=progress))
+            transferred = len(self.android.transfers)
+            cancel.clear()
+            result = self.acquire(cancel=cancel)
+        self.assertEqual(0, result["resumedBytes"])
+        self.assertEqual(0, self.android.transfers[transferred][0])
+
+    def test_native_change_time_is_required_beyond_identical_portable_python_stat(self):
+        recorded = {"portable": [1, 2, 3, 4, 5], "strong": ["win32-v1", 1, "file-id", 3, 4, 100]}
+        changed = {"portable": [1, 2, 3, 4, 5], "strong": ["win32-v1", 1, "file-id", 3, 4, 101]}
+        with mock.patch.object(subject, "_stat", return_value=recorded):
+            self.assertTrue(subject._matches_local(self.root / "input.apk", recorded))
+        with mock.patch.object(subject, "_stat", return_value=changed):
+            self.assertFalse(subject._matches_local(self.root / "input.apk", recorded))
+        with mock.patch.object(subject, "_stat", return_value={"portable": recorded["portable"], "strong": None}):
+            self.assertFalse(subject._matches_local(self.root / "input.apk", {"portable": recorded["portable"], "strong": None}))
 
     def test_cancel_retains_committed_chunks_and_resumes_from_offset(self):
         cancel = threading.Event()

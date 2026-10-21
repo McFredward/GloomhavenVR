@@ -26,6 +26,7 @@ MAX_RECORD_BYTES = 128 * 1024
 CHUNK_BYTES = 8 * 1024 * 1024
 BLOCK_BYTES = 1024 * 1024
 DISK_MARGIN_BYTES = 64 * 1024 * 1024
+_storage_helper = None
 
 
 class InstalledSourceError(RuntimeError):
@@ -80,9 +81,44 @@ def _ordinary(path):
 
 def _stat(path):
     info = _ordinary(path).stat()
-    if not stat.S_ISREG(info.st_mode):
+    if not stat.S_ISREG(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
         raise InstalledSourceError("Quest import requires an ordinary file.", "unsafe-local-path")
-    return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
+    strong = _storage()._file_witness_stamp(path, info)
+    return {"portable": [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns],
+            "strong": list(strong) if strong is not None else None}
+
+
+def _storage():
+    """Capture native FileId/ChangeTime support without global import aliases."""
+    global _storage_helper
+    if _storage_helper is None:
+        spec = importlib.util.spec_from_file_location("_ghvr_installed_source_storage", REPO / "tools/quest-builder/storage.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _storage_helper = module
+    return _storage_helper
+
+
+def _matches_local(path, recorded):
+    observed = _stat(path)
+    # Python's Windows st_ctime is creation time. It must never substitute for
+    # NTFS/ReFS ChangeTime or authorize byte-free reuse on unknown filesystems.
+    return observed["strong"] is not None and observed == recorded
+
+
+def _identity(base):
+    """Small UI/receipt facts; the complete source roster stays in-memory only."""
+    identity = {key: base.get(key) for key in ("inputKey", "modBuild")}
+    fields = {"currentMod": ("key", "modBuild", "commit", "dirty"),
+              "currentProfile": ("schema", "provider", "providerId", "steamId", "accountId",
+                                 "displayName", "source", "logoSha256", "isDummy")}
+    for key, allowed in fields.items():
+        original = base.get(key)
+        identity[key] = ({name: original[name] for name in allowed if name in original
+                          and (original[name] is None or type(original[name]) in (bool, int)
+                               or isinstance(original[name], str) and len(original[name].encode("utf-8")) <= 1024)}
+                         if isinstance(original, dict) else None)
+    return identity
 
 
 def _read(path):
@@ -206,7 +242,7 @@ def _qualified(adb, address, selected, apk, receipt, *, reused, resumed_bytes):
     try: base = builder.apk_updates.inspect_base(apk)
     except (OSError, RuntimeError, ValueError) as error:
         raise InstalledSourceError("The installed APK lacks readable Quest update contracts. Select a complete Quest package or prepare a one-time update from the PC game installation. " + str(error), "invalid-update-source") from error
-    identity = {key: base.get(key) for key in ("inputKey", "modBuild", "currentProfile", "currentMod")}
+    identity = _identity(base)
     if (type(identity["modBuild"]) is not int or identity["modBuild"] != selected["versionCode"]
             or selected.get("modBuild", identity["modBuild"]) != identity["modBuild"]
             or (selected.get("inputKeyPrefix") and not identity["inputKey"].startswith(selected["inputKeyPrefix"]))):
@@ -247,7 +283,7 @@ def acquire_installed(adb, address, state_root, *, hardware=None, progress=None,
         with _installer().input_cache_module()._lock(directory / "import.lock"):
             old = _read(receipt)
             if (old and old.get("witness") == selected["witness"] and apk.is_file()
-                    and old.get("localStat") == _stat(apk) and apk.stat().st_size == selected["size"]):
+                    and _matches_local(apk, old.get("localStat")) and apk.stat().st_size == selected["size"]):
                 _cancel(cancel)
                 result = _qualified(adb, address, selected, apk, receipt, reused=True, resumed_bytes=selected["size"])
                 _report(progress, "quest-source-import", selected["size"], selected["size"], "Using the unchanged installed Quest APK already imported on this PC.")
@@ -255,7 +291,7 @@ def acquire_installed(adb, address, state_root, *, hardware=None, progress=None,
             state = _read(journal)
             offset = 0
             if (state and state.get("witness") == selected["witness"] and partial.is_file()
-                    and state.get("localStat") == _stat(partial)
+                    and _matches_local(partial, state.get("localStat"))
                     and type(state.get("bytes")) is int and state["bytes"] == partial.stat().st_size
                     and 0 <= state["bytes"] <= selected["size"]
                     and (state["bytes"] % CHUNK_BYTES == 0 or state["bytes"] == selected["size"])):
