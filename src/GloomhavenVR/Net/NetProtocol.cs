@@ -612,7 +612,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 716;
+    public const ushort ModBuild = 717;
+
+    // ModBuild717 — Quest B716 hardware follow-up: inspect rendering, not longer timers.
+    // Preserve original spinner art/alpha in an explicit initial foreground draw;
+    // qualify masked native menu sources in their private stencil context and
+    // retain asynchronous probe textures through native unused-asset collection.
+    // Correct undersampled loading probes without calling them final eye pixels.
+    // Ping and native TargetShield use exact live geometry with Float32 COLOR,
+    // retaining visible native particle renderers and original culling clocks.
+    // Keep bounded existing performance windows and actual world-scope refusals;
+    // bind current XR provider GPU seconds as millisecond samples. No automatic
+    // wall hiding, resolution reduction, pillar LOD or guessed GPU bottleneck.
+    // A tiny embedded Android spinner bank preserves all existing Campaign,
+    // authored/environment, figure, audio and stereo movie banks during compact
+    // code/metadata update. Host/native tests do not prove Adreno or headset fixes.
 
     // ModBuild716 — Quest adaptations rebased onto released main1.2.0 / Build715.
     // Retain shared figure pickup arbitration, native pointer Continue, initiative
