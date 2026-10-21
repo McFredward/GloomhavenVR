@@ -139,3 +139,17 @@ first reviewed checkpoint; they are not counted as newly rerun controls here.
 Repeated refused exact owners exercise and verify the finite two-per-kind Debug
 cap. Strict Release compilation again has zero warnings/errors. These remain
 host/native ownership and pixel observations, not new Adreno acceptance.
+
+
+The native TargetShield receipt and the user's shield-shaped video are separate
+facts: shape and source inspection identify a candidate, not the actual hardware
+spawn. The existing postfix now also observes the exact
+`GlobalSettings.m_DefaultHitEffects.DefaultShieldHitEffect` reference once at
+Debug, after a native spawn. Its small descriptor includes at most six native
+particle shader/mode/active states and explicitly says `adapter=none`. No child
+query occurs unless that exact prefab was spawned and Debug logging requests the
+one remaining observation. This lets the next headset capture distinguish the
+separate default zero-damage hit effect from the adapted TargetShield effect;
+it does not change unqualified hit fog/distortion or inspect all actor prefabs.
+Actor-specific ShieldHitEffect overrides remain outside this one exact fallback
+receipt. No source or video inference is promoted to proven hardware causation.

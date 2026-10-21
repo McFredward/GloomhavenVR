@@ -15,9 +15,31 @@ namespace GloomhavenVR.Board.Patches;
 [HarmonyPatch]
 internal static class QuestNativeShieldSpawn
 {
-    private static bool _failureReported;
+    private static bool _failureReported, _defaultHitReported;
     private static MethodBase? TargetMethod() => AccessTools.Method(typeof(ObjectPool), nameof(ObjectPool.Spawn),
         new[] { typeof(GameObject), typeof(Transform), typeof(Vector3), typeof(Quaternion), typeof(bool) });
+
+    // The supplied shield-shaped video is not a native spawn receipt. The
+    // separate zero-damage hit effect has unqualified fog/distortion consumers;
+    // observe its exact authored fallback once, without adapting any of them.
+    private static void ObserveDefaultHit(GameObject prefab, GameObject effect)
+    {
+        if (_defaultHitReported || !VRLog.Wants(VRLogLevel.Debug)) return;
+        _defaultHitReported = true;
+        ParticleSystemRenderer[] renderers = effect.GetComponentsInChildren<ParticleSystemRenderer>(true);
+        var details = new System.Text.StringBuilder(256);
+        for (int index = 0; index < renderers.Length && index < 6; index++)
+        {
+            ParticleSystemRenderer renderer = renderers[index];
+            Material material = renderer.sharedMaterial;
+            if (index != 0) details.Append(';');
+            details.Append(renderer.name).Append(':').Append(renderer.renderMode).Append(':')
+                .Append(material != null && material.shader != null ? material.shader.name : "none")
+                .Append(":active=").Append(renderer.enabled && renderer.gameObject.activeInHierarchy);
+        }
+        Debug.Log("[Quest startup] shield-native-source role=default-hit prefab=" + prefab.name
+            + " renderers=" + renderers.Length + " observed=" + details + " adapter=none");
+    }
 
     private static void Postfix(GameObject prefab, GameObject __result)
     {
@@ -28,6 +50,9 @@ internal static class QuestNativeShieldSpawn
             if (settings != null && settings.m_ActiveBonusBuffTargetEffects != null
                 && ReferenceEquals(prefab, settings.m_ActiveBonusBuffTargetEffects.ShieldActiveBonusTargetEffect))
                 QuestPingStreams.AttachShield(__result);
+            else if (settings != null && settings.m_DefaultHitEffects != null
+                && ReferenceEquals(prefab, settings.m_DefaultHitEffects.DefaultShieldHitEffect))
+                ObserveDefaultHit(prefab, __result);
         }
         catch (Exception error)
         {
