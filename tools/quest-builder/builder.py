@@ -2078,7 +2078,9 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="Build a locally owned Gloomhaven copy for Quest; no store/cloud services.")
     result.add_argument("command", choices=("inspect", "prepare", "build", "finish-build", "install", "report", "package", "export", "inspect-update", "update-mod", "update-profile"))
     result.add_argument("--delivery-input-key", help="Exact retained Player input identity; finish-build never starts a new compilation.")
-    result.add_argument("--base-apk", type=Path, help="Existing Quest APK or portable ZIP; updates always require the matching owned PC game.")
+    result.add_argument("--base-apk", type=Path, help="Existing Quest APK or portable ZIP used as the update source.")
+    result.add_argument("--installed-game", action="store_true",
+                        help="Update from the existing Quest APK and its embedded compiler references, without a PC installation.")
     result.add_argument("--export-path", type=Path, help="Destination for one portable APK-plus-content ZIP; no Unity compilation.")
     result.add_argument("--update-kind", choices=("update-mod", "update-profile"), default="update-mod")
     result.add_argument("--apk-tools-json", type=Path, help="Wizard-owned Android signing tool paths for profile-only updates.")
@@ -2181,13 +2183,15 @@ def main(argv: list[str] | None = None) -> int:
         os.environ.update(GHVR_QUEST_VERIFICATION="full", GHVR_QUEST_VALIDATE_IMPORTED_ASSETS="1", GHVRQ_FULL_ASSET_AUDIT="1")
     try:
         repo = args.repo_root.resolve()
-        if args.command in ("inspect", "prepare", "build", "finish-build", "inspect-update", "update-mod", "update-profile") and not args.game_root:
+        if args.installed_game and args.command not in ("inspect-update", "update-mod", "update-profile"):
+            raise BuildError("--installed-game belongs only to APK updates; a new game conversion requires the PC installation.")
+        if args.command in ("inspect", "prepare", "build", "finish-build", "inspect-update", "update-mod", "update-profile") and not args.game_root and not args.installed_game:
             raise BuildError("Supply --game-root pointing to the legally acquired PC installation.")
         if args.probe_assets and args.target != "probe":
             raise BuildError("--probe-assets belongs only to the explicitly diagnostic --target probe.")
         if args.startup_project and args.target != "startup":
             raise BuildError("--startup-project belongs only to the explicitly diagnostic --target startup.")
-        data = game_data(args.game_root) if args.game_root else None
+        data = game_data(args.game_root) if args.game_root and not args.installed_game else None
         output = ensure_output(args.output_root or repo / ".planning/quest3-local", repo, data)
         conversion_python = None
         if args.command in ("prepare", "build", "finish-build", "update-mod", "update-profile") and args.target in ("startup", "game"):

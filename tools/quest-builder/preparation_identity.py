@@ -516,6 +516,15 @@ BUILDER_PORTABLE_AST = {
     True: ("566b05ba1e939ae229d751f78cd810e53c2c8ef4891b63bbe78e1eafab0cdd30",
            "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
 }
+
+# Exact reviewed CLI-only addition: --installed-game selects the existing APK
+# update branch and can skip PC path validation there. All original prepare,
+# conversion, weaving and Player bodies are byte/AST-identical. Unknown edits
+# anywhere in the complete Builder retain their ordinary migration boundary.
+BUILDER_INSTALLED_UPDATE_AST = (
+    "959c050ccbcad1e5f8f0a5ac63b54bd73ab72905fcda8fec725d2ecbecf36382",
+    "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1",
+)
 PORTABLE_DELIVERY_ROWS = {
     "tools/quest-builder/update_driver.py": (
         {"path": "tools/quest-builder/update_driver.py", "size": 52109,
@@ -628,6 +637,8 @@ def builder_producer_digest(raw, *, original_prefix=False):
             if isinstance(node, ast.ImportFrom) and node.module == "storage":
                 node.names = [name for name in node.names if not (name.name == "persistent_inventory" and name.asname is None)]
     result = hashlib.sha256(ast.dump(tree, include_attributes=False).encode("utf-8")).hexdigest()
+    if not original_prefix and result == BUILDER_INSTALLED_UPDATE_AST[0]:
+        result = BUILDER_INSTALLED_UPDATE_AST[1]
     result = BUILDER_MINIMUM_WORK_AST.get(result, result)
     observed, preceding = BUILDER_PORTABLE_AST[bool(original_prefix)]
     if result == observed: result = preceding
@@ -818,3 +829,19 @@ def rebind_key(output, project, inputs, source, *, target, recipe, recovery):
     print("preparation resume: retaining " + str(len(value["steps"])) + " witnessed conversions across compatible producer inputs; "
           "mutable content and final settings retain the current input key", flush=True)
     return previous_key
+
+
+# Reviewed host-only APK seed acquisition/publication; compiler staging bodies
+# are unchanged. Finite full-file rows never admit unknown compiler changes.
+INSTALLED_UPDATE_DELIVERY_ROWS = {'tools/quest-builder/apk_update.py': ({'path': 'tools/quest-builder/apk_update.py',
+                                        'sha256': '9e10b60c215885f11911d7b98dadb8f2c0105e1d35cc92ef34da43ac7e8ebc06',
+                                        'size': 89389},
+                                       {'path': 'tools/quest-builder/apk_update.py',
+                                        'sha256': '47dc58ea70429452f5bc3de737e5e3a152433a11a1c2afcbed7e9766f32b21e4',
+                                        'size': 88035}),
+ 'tools/quest-builder/update_driver.py': ({'path': 'tools/quest-builder/update_driver.py',
+                                           'sha256': '8ef0f7604d393ffabe1fa4033e5106bc344bb623390e8f2f7c1c8f58f476c3e1',
+                                           'size': 106786},
+                                          {'path': 'tools/quest-builder/update_driver.py',
+                                           'sha256': '907a0fe7d02e85707948fc122ee334d6e57a8b9f2041447ad99f9105ae06136e',
+                                           'size': 99846})}

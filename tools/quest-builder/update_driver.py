@@ -25,6 +25,13 @@ def _core(builder):
     return builder.apk_updates
 
 
+def _seed(builder):
+    spec = importlib.util.spec_from_file_location("quest_update_seed", Path(__file__).with_name("update_seed.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _proton_helpers():
     # The installer loads this driver in an isolated dependency context. Resolve
     # the new optional helper by its delivered sibling, never a global import.
@@ -139,11 +146,36 @@ def card_art_delivery(builder, inputs, output, game):
             **card_pixels_delivery(builder, inputs, output, game)}
 
 
-def preflight(builder, game_root, base_apk, mode=None, *, output=None, progress=None, cancel=None):
-    """Always read the selected owned installation before downloads/build reuse."""
+def retained_card_art(builder, base_apk, inputs):
+    """Keep exact existing CPU-art sidecars without opening original PC banks."""
+    with zipfile.ZipFile(base_apk) as apk:
+        for helper, source in (("quest_card_alpha", "src/GloomhavenVR/Cards/Art/QuestCardAlpha.cs"),
+                               ("quest_card_pixels", "src/GloomhavenVR/Cards/Art/QuestCardPixels.cs")):
+            if not any(row.get("path") == source for row in inputs["mod"]["files"]): continue
+            spec = importlib.util.spec_from_file_location(helper, Path(__file__).with_name(helper + ".py"))
+            module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+            metadata = _core(builder)._json(apk, module.MANIFEST)
+            recipe = module.RECIPE + ":" + hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()[:16]
+            try: entry = apk.getinfo(module.MEMBER)
+            except KeyError as error:
+                raise builder.BuildError("The installed APK lacks its exact card-art sidecar; select the matching PC installation for a targeted repair.") from error
+            if (metadata.get("schema") != 1 or metadata.get("recipe") != recipe
+                    or metadata.get("gameKey") != inputs["game"]["key"]
+                    or metadata.get("bytes") != entry.file_size or not 0 < entry.file_size <= module.MAX_FILE
+                    or not re.fullmatch(r"[0-9a-f]{64}", str(metadata.get("sha256", "")))):
+                raise builder.BuildError("The card-art producer or installed sidecar changed. Select the matching PC installation to update only those sidecars; no full game rebuild has started.")
+
+
+def preflight(builder, game_root, base_apk, mode=None, *, output=None, progress=None, cancel=None, installed_game=False):
+    """Qualify the explicitly selected PC copy or installed APK update basis.
+
+    The maintainer permits an installed Quest copy to suffice (2026-10-21).
+    Original Mono IL is still required for native compilation: an old IL2CPP
+    APK cannot magically recreate those bodies from its metadata/type roster.
+    """
     if not base_apk:
         raise builder.BuildError("Select --base-apk and the matching locally owned PC installation.")
-    data = builder.game_data(Path(game_root))
+    data = None if installed_game else builder.game_data(Path(game_root))
     apk = Path(base_apk).expanduser().resolve()
     source_package = str(apk) if apk.suffix.lower() == ".zip" else None
     if source_package:
@@ -158,23 +190,56 @@ def preflight(builder, game_root, base_apk, mode=None, *, output=None, progress=
     base["sourcePackage"] = source_package
     if mode == "update-profile" and not base["dynamicProfile"]:
         raise builder.BuildError("This older APK needs one mod/code update before a profile can be edited without Unity. Select 'Update mod' first.")
-    proof = core.preflight_owned_game(apk, data)
+    if installed_game:
+        proof = {"schema": 1, "inputKey": base["inputKey"], "source": "existing-quest-apk",
+                 "installedGameAccepted": True, "ownedGameAssembliesQualified": False}
+        if mode != "update-profile":
+            if output is None:
+                raise builder.BuildError("The installed-game compiler references need an owned temporary workspace.")
+            if cancel: cancel()
+            seed = _seed(builder).extract(builder, apk, base, output,
+                progress=(lambda done, total, name: progress({"done": done, "completed": done, "total": total,
+                    "unit": "files", "detail": "Compiler references: " + name})) if progress else None)
+            if not seed.get("available"):
+                raise builder.BuildError("This older Quest APK has no portable compiler references. Run one PC-assisted mod or profile update with the matching game installation, then install that APK once. No full game rebuild is needed for this preparation.")
+            data = Path(seed["dataRoot"])
+            base["compilerGameRoot"] = str(data)
+            proof["compilerSeed"] = seed["proof"]
+    else:
+        proof = core.preflight_owned_game(apk, data)
     return base, data, proof
 
 
 def inspect(builder, args, repo, output, data=None):
     mode = args.update_kind if args.command == "inspect-update" else args.command
     operation = "game-inputs" if args.command == "inspect-update" else "update-owned-game"
-    builder.build_progress.operation(operation, detail="Checking the selected locally owned PC installation.")
+    installed_game = bool(getattr(args, "installed_game", False))
+    builder.build_progress.operation(operation, detail="Reading the selected installed Quest update basis." if installed_game
+                                     else "Checking the selected locally owned PC installation.")
     def import_progress(value):
-        builder.build_progress.event("portable-import", value.get("completed"), value.get("total"),
+        builder.build_progress.event("portable-import", value.get("completed", value.get("done")), value.get("total"),
                                      "bytes", value.get("detail"), operation=operation)
-    base, data, proof = preflight(builder, args.game_root, args.base_apk, mode, output=output, progress=import_progress)
+    base, data, proof = preflight(builder, args.game_root, args.base_apk, mode, output=output, progress=import_progress,
+                                installed_game=installed_game)
     base_apk = Path(base["resolvedApk"])
-    profile, logo = builder.selected_profile(args)
-    if profile is None:
-        raise builder.BuildError("An update requires a selected local account profile.")
-    profile["dlcOwnership"] = builder.dlcs.capture(args, data, profile)
+    if installed_game:
+        profile = copy.deepcopy(base["currentProfile"])
+        if getattr(args, "profile_json", None):
+            path = builder._ordinary_owned(Path(args.profile_json))
+            if not path.is_file() or path.stat().st_size > 4096:
+                raise builder.BuildError("Select one bounded offline update profile.")
+            profile = json.loads(path.read_text(encoding="utf-8"))
+        # Validate identity without contacting Steam/Epic/GOG. The exact existing
+        # DLC roster remains authoritative; this path cannot install new DLC.
+        if "dlcOwnership" not in profile and base["currentProfile"].get("dlcOwnership"):
+            profile["dlcOwnership"] = copy.deepcopy(base["currentProfile"]["dlcOwnership"])
+        _core(builder).profile_update(base_apk, profile)
+        logo = None  # Existing signed logo resource remains in the retained APK.
+    else:
+        profile, logo = builder.selected_profile(args)
+        if profile is None:
+            raise builder.BuildError("An update requires a selected local account profile.")
+        profile["dlcOwnership"] = builder.dlcs.capture(args, data, profile)
     original = base["manifest"]
     # A profile change cannot add content missing from the original conversion.
     old_owned = original.get("profile", {}).get("dlcOwnership", {}).get("installedAppIds", [])
@@ -204,10 +269,13 @@ def inspect(builder, args, repo, output, data=None):
         movie_banks_changed = requirements.get("movieBanksChanged", False)
         requires_unity = requirements.get("requiresUnity", bool(reasons or code_changed or art_changed
             or native_helper_changed or figure_banks_changed or audio_banks_changed or movie_banks_changed))
+        if installed_game and (reasons or art_changed or figure_banks_changed or audio_banks_changed or movie_banks_changed):
+            raise builder.BuildError("This update changes original-derived assets or the player layout. The installed APK retains its current assets, but cannot regenerate their original PC inputs. Select the matching PC installation for this update; no new build has been started.")
     else:
         reasons = []
         code_changed = art_changed = native_helper_changed = figure_banks_changed = audio_banks_changed = movie_banks_changed = False
         requires_unity = False
+    if installed_game and mode == "update-mod": retained_card_art(builder, base_apk, inputs)
     # Owned game and DLC qualification above must precede any local key creation.
     source_stamp = _core(builder)._base_stamp(base_apk)
     source_change_stamp = _selection_stamp(builder, [base_apk])
@@ -232,17 +300,23 @@ def inspect(builder, args, repo, output, data=None):
             "nativeCompilerRecipe": _native_resume().compiler_recipe(builder, __file__),
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
                 ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py", "audio_banks.py")}}
+    if installed_game:
+        plan["installedGame"] = True
+        if data is not None: plan["compilerGameRoot"] = str(data)
+    plan["seedRequired"] = not installed_game and not _seed(builder).inspect_seed(base_apk, base).get("available")
     for name in ("movie_banks.py", "movie_render.py", "requirements-movies.txt"):
         path = Path(repo) / "tools/quest-builder" / name
         if path.is_file(): plan["updateRecipe"][name] = builder.digest(path)
-    plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name not in ("baseApk", "sourcePackage")})
+    plan["updateRecipe"]["update_seed.py"] = builder.digest(Path(__file__).with_name("update_seed.py"))
+    plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name not in ("baseApk", "sourcePackage", "compilerGameRoot")})
     root = output / "updates" / plan["updateKey"]
     builder.write_json(root / "plan.json", plan)
     builder.write_json(output / "latest-update-input.json", {"schema": 1, "plan": (root / "plan.json").relative_to(output).as_posix()})
     identities = output / "identities" / inputs["profileKey"]
     builder.write_json(identities / "quest-profile.json", profile)
-    (identities / "quest-steam-logo.png").write_bytes(logo)
-    builder.build_progress.operation(operation, complete=True, detail="Selected owned PC installation matches the original APK game.")
+    if logo is not None: (identities / "quest-steam-logo.png").write_bytes(logo)
+    builder.build_progress.operation(operation, complete=True, detail="Existing Quest identity and compiler basis retained." if installed_game
+                                     else "Selected owned PC installation matches the original APK game.")
     print("update inspect: " + mode + "; retained game " + base["inputKey"][:12] + "; B" + str(inputs["mod"]["modBuild"]), flush=True)
     return plan
 
@@ -554,6 +628,9 @@ def _code_rows(files, *, normalizer=None):
     # or IL2CPP input. Its external finite byte profile avoids self-hash pins.
     # Every unknown driver body remains qualified by the ordinary source rows.
     if normalizer is not None:
+        installed_aliases = getattr(normalizer, "INSTALLED_UPDATE_DELIVERY_ROWS", {})
+        rows = [installed_aliases[row["path"]][1] if row["path"] in installed_aliases
+                and row == installed_aliases[row["path"]][0] else row for row in rows]
         fixed = getattr(normalizer, "UPDATE_DOWNLOAD_FIXED", None)
         previous = getattr(normalizer, "UPDATE_DOWNLOAD_PREVIOUS", None)
         preceding = getattr(normalizer, "UPDATE_DOWNLOAD_PARALLEL_PREVIOUS", None)
@@ -1184,9 +1261,12 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
     package_abi = package_fingerprint(builder, source, inputs)
     producer = payload_producer(builder, source, inputs["mod"].get("files", []))
     alpha = card_art_delivery(builder, inputs, output, Path(output) / "inputs/game" / inputs["game"]["key"])
+    seed = _seed(builder).build(builder, Path(output) / "inputs/game" / inputs["game"]["key"], inputs, output)
+    alpha.update(seed)
     receipt_key = builder.value_hash({"scope": "full-build-update-capability-receipt-v1", "inputKey": inputs["inputKey"],
         "profile": inputs["profile"], "modBuild": inputs["mod"]["modBuild"], "packageAbi": package_abi,
-        "payloadProducer": producer, "cardAlpha": {name: hashlib.sha256(body).hexdigest() for name, body in alpha.items()}})
+        "payloadProducer": producer, "cardAlpha": {name: builder.digest(body) if isinstance(body, Path)
+            else hashlib.sha256(body).hexdigest() for name, body in alpha.items()}})
     stages = builder.Stages(output)
 
     def close_capability():
@@ -1201,7 +1281,8 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
                 "mode": "build-capability", "modBuild": inputs["mod"]["modBuild"], "profile": inputs["profile"]}
             with zipfile.ZipFile(apk) as archive:
                 profile = core._json(archive, core.PROFILE, optional=True)
-                alpha_matches = all(name in archive.namelist() and archive.read(name) == body for name, body in alpha.items())
+                alpha_matches = all(name in archive.namelist() and archive.read(name) == (body.read_bytes() if isinstance(body, Path) else body)
+                                    for name, body in alpha.items())
             adopted = bool(capsule and capsule["packageAbi"] == package_abi and capsule["dynamicProfile"]
                            and capsule.get("payloadProducer") == producer
                            and base["inputKey"] == inputs["inputKey"] and profile == inputs["profile"]
@@ -1232,7 +1313,8 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
                 if core._base_stamp(apk) != current:
                     raise builder.BuildError("Signed Player changed while recording its capability proof.")
         details = {"schema": 1, "dynamicProfile": True, "scriptTypes": len(capsule["scriptTypes"]), "packageAbi": package_abi,
-                   "payloadProducer": capsule.get("payloadProducer")}
+                   "payloadProducer": capsule.get("payloadProducer"),
+                   "updateSeed": _seed(builder).inspect_seed(apk, core.inspect_base(apk))}
         return [apk, *(output / "signing" / name for name in ("certificate.json", "quest.keystore", "local-key.json"))], details
 
     return stages.run("player-update-capability", receipt_key, close_capability)["details"]
@@ -1277,7 +1359,7 @@ def _retain_current_apk(builder, plan, base, output):
     """
     signing = plan.get("signing", {})
     certificate = signing.get("certificateSha256")
-    if (plan.get("requiresUnity") or plan.get("rebuildReasons") or plan.get("codeChanged")
+    if (plan.get("seedRequired") or plan.get("requiresUnity") or plan.get("rebuildReasons") or plan.get("codeChanged")
             or plan.get("artChanged") or plan.get("movieBanksChanged") or signing.get("mode") != "original"
             or not isinstance(certificate, str) or not re.fullmatch(r"[0-9a-f]{64}", certificate)
             or certificate != signing.get("sourceCertificateSha256")
@@ -1334,7 +1416,7 @@ def _retain_current_apk(builder, plan, base, output):
 
 
 def run(builder, args, repo, output):
-    # Do not authorize a cached update from yesterday's absent PC installation.
+    # Each run qualifies its explicit PC or installed-APK source independently.
     plan = inspect(builder, args, repo, output)
     core = _core(builder); base_apk = Path(plan["baseApk"]); base = core.inspect_base(base_apk)
     inputs, update_key = plan["inputs"], plan["updateKey"]
@@ -1369,7 +1451,10 @@ def run(builder, args, repo, output):
                 builder.build_progress.operation("update-mod-source", complete=True, detail="Current mod source snapshot retained.")
                 if plan["codeChanged"] or changed_art:
                     game = output / "updates/game-inputs" / inputs["game"]["key"] / ("with-art" if changed_art else "code")
-                    _game_subset(builder, inputs, builder.game_data(args.game_root), game, art_changed=changed_art)
+                    if plan.get("installedGame"):
+                        game = Path(plan["compilerGameRoot"])
+                    else:
+                        _game_subset(builder, inputs, builder.game_data(args.game_root), game, art_changed=changed_art)
             else:
                 builder.build_progress.operation("update-mod-source", complete=True,
                     detail="Runtime/compiler and authored art sources are unchanged; no new source or game snapshot.")
@@ -1402,7 +1487,10 @@ def run(builder, args, repo, output):
                     installation = json.loads(original.read("assets/Quest/installation-manifest.json"))
                 installation["mod"] = manifest
                 replacements["assets/Quest/installation-manifest.json"] = json.dumps(installation, sort_keys=True).encode()
-            replacements.update(card_art_delivery(builder, inputs, output, builder.game_data(args.game_root)))
+            if plan.get("installedGame"):
+                retained_card_art(builder, base_apk, inputs)
+            else:
+                replacements.update(card_art_delivery(builder, inputs, output, builder.game_data(args.game_root)))
             if plan.get("figureBanksChanged"):
                 figures = _figures(builder)
                 figure_root, figure_manifest = figures.produce(builder, args, source, builder.game_data(args.game_root),
@@ -1420,6 +1508,10 @@ def run(builder, args, repo, output):
                     builder.game_data(args.game_root), media_base))
             builder.build_progress.operation("update-art", complete=True, detail="Changed mod art built or unchanged embedded banks reused.")
             replacements["assets/Quest/offline-profile.json"] = builder.canonical(inputs["profile"])
+        if plan.get("seedRequired"):
+            builder.build_progress.event("update-compiler-seed", operation="update-repack", status="start",
+                detail="Embedding original compiler references once; later code updates can use the installed Quest alone.")
+            replacements.update(_seed(builder).build(builder, builder.game_data(args.game_root), inputs, output))
         update = {"schema": 1, "updateKey": update_key, "mode": args.command,
                   "gameInputKey": base["inputKey"], "baseApkSha256": plan["baseApkSha256"],
                   "modBuild": inputs["mod"]["modBuild"], "profile": inputs["profile"],
@@ -1447,6 +1539,7 @@ def run(builder, args, repo, output):
                    "contentFiles": [], "retainedGameContent": True, "updateResult": result,
                    "signing": plan["signing"], "sourceCertificateSha256": plan["signing"]["sourceCertificateSha256"],
                    "sourcePackage": retained_source_package(builder, base_apk, output, plan.get("sourcePackage")),
+                   "updateSeed": _seed(builder).inspect_seed(apk, core.inspect_base(apk)),
                    "baseApk": plan["baseApk"],
                    **({"certificateSha256": result["certificateSha256"]} if "certificateSha256" in result else {})}
         builder.write_json(report, {"schema": 1, "buildResult": "Succeeded", "scope": "APK update", **details})

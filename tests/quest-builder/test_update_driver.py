@@ -255,6 +255,9 @@ class UpdateDriverTests(unittest.TestCase):
         self.builder.snapshot.assert_not_called()
 
     def test_capability_adopts_only_the_exact_requested_card_alpha_pair(self):
+        # A real completed build already owns this exact original input subset.
+        # Its portable compiler seed is now part of capability publication too.
+        shutil.copytree(self.game, self.output / "inputs/game" / self.manifest["game"]["key"])
         self.apk = self.output / "builds/player/GloomhavenVR-Quest.apk"
         self.apk.parent.mkdir(parents=True); self.write_apk()
         alpha = self.card_alpha_pair()

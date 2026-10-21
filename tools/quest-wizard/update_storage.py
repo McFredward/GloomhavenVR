@@ -9,6 +9,8 @@ import, recursive cache sweep or external input deletion is needed here.
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
 import stat
 
 from state import Cancelled, WizardError, atomic_json
@@ -16,7 +18,7 @@ from state import Cancelled, WizardError, atomic_json
 FAST_AREAS = ("updates/code-projects", "updates/source-inputs", "updates/game-inputs",
               "cache/quest-figure-meshes", "cache/quest-native-audio", "cache/quest-movies",
               "cache/environment-meshes", "cache/environment-native", "cache/environment-geometry",
-              "cache/update-art-delivery")
+              "cache/update-art-delivery", "cache/update-seeds", "cache/device-update-seeds")
 
 
 def _overlaps(path, other):
@@ -97,7 +99,7 @@ def candidates(helper, root, build, proofs, *, keep_paths=(), cancel=None):
             if (plan.get("schema") != 1 or plan.get("updateKey") != key
                     or plan.get("mode") not in ("update-mod", "update-profile")
                     or helper.value_hash({name: member for name, member in plan.items()
-                        if name not in ("baseApk", "sourcePackage", "updateKey")}) != key):
+                        if name not in ("baseApk", "sourcePackage", "compilerGameRoot", "updateKey")}) != key):
                 continue
             outputs = helper._rows(receipt.get("outputs"))
             name = apk.relative_to(build).as_posix()
@@ -115,6 +117,32 @@ def candidates(helper, root, build, proofs, *, keep_paths=(), cancel=None):
         except Cancelled: raise
         except (WizardError, OSError, ValueError, KeyError, TypeError):
             skipped.append({"path": receipt_path.relative_to(root).as_posix(), "reason": "unproven_update_output"})
+    # Each device generation needs only one base APK, never its external game
+    # bank. Keep the latest closed import per headset (also before a UI session
+    # is created), plus every explicitly pending source. Prune only older exact
+    # owned imports; never walk unknown directories or delete partial transfers.
+    imports = {}
+    for folder in helper._children(build / "device-inputs", cancel=cancel):
+        try:
+            record = helper._read(folder / "source.json", proofs, cancel=cancel)
+            witness = record.get("witness")
+            apk = folder / "base.apk"
+            if (record.get("source") != "quest" or not isinstance(witness, dict)
+                    or witness.get("package") != "dev.gloomhavenvr.quest"
+                    or not isinstance(witness.get("deviceSerial"), str)
+                    or hashlib.sha256(json.dumps(witness, sort_keys=True, separators=(",", ":")).encode()).hexdigest() != folder.name
+                    or not apk.is_file()): continue
+            stamp = helper._stamp(apk)
+            if not stat.S_ISREG(stamp[2]) or stamp[3] != witness.get("remoteStat", {}).get("size"): continue
+            imports.setdefault(witness["deviceSerial"], []).append((folder, apk, helper._stamp(folder / "source.json")[4]))
+        except Cancelled: raise
+        except (WizardError, OSError, ValueError, KeyError, TypeError):
+            skipped.append({"path": folder.relative_to(root).as_posix(), "reason": "unproven_device_input"})
+    for rows in imports.values():
+        rows.sort(key=lambda row: (row[2], row[0].name), reverse=True)
+        protected.add(rows[0][1])
+        for _, apk, _ in rows[1:]:
+            if not any(_overlaps(apk, path) for path in protected): targets.append(apk)
     return targets, protected, skipped
 
 

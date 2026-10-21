@@ -29,6 +29,7 @@ INSTALLATION = "assets/Quest/installation-manifest.json"
 MOVIES = "assets/Quest/movies.json"
 MOVIE_PREFIX = "assets/QuestMovies/"
 MOD_ARCHIVE = "assets/quest-mod-content.zip"
+COMPILER_SEED = "assets/Quest/update-seed.zip"
 LIBRARY = "lib/arm64-v8a/libil2cpp.so"
 METADATA = "assets/bin/Data/Managed/Metadata/global-metadata.dat"
 INITIALIZERS = "assets/bin/Data/RuntimeInitializeOnLoads.json"
@@ -731,7 +732,7 @@ def _resource_member(name):
 
 
 def _replaceable(name):
-    return name in {LIBRARY, METADATA, INITIALIZERS, ASSEMBLIES, CAPSULE, UPDATE, PROFILE,
+    return name in {LIBRARY, METADATA, INITIALIZERS, ASSEMBLIES, CAPSULE, UPDATE, PROFILE, "assets/Quest/update-seed.json",
                     "AndroidManifest.xml", INSTALLATION, "assets/quest-mod-content.zip", PROTON_CONTRACT,
                     "assets/bin/Data/unity_app_guid", "assets/quest-card-alpha.bin", "assets/Quest/card-alpha.json",
                     "assets/quest-card-pixels.bin", "assets/Quest/card-pixels.json",
@@ -1187,15 +1188,31 @@ Neither callback is optional: unsigned output is never an installable result.
     for name, value in replacements.items():
         _safe_name(name)
         if isinstance(value, Path):
-            if not (_figure_member(name) or _audio_member(name) or _movie_member(name) or name == MOD_ARCHIVE): raise BuildError("Only owned figure/audio/movie parts and mod archives accept streamed file replacements: " + name)
+            if not (_figure_member(name) or _audio_member(name) or _movie_member(name) or name in (MOD_ARCHIVE, COMPILER_SEED)):
+                raise BuildError("Only owned figure/audio/movie parts, mod archives and compiler seeds accept streamed file replacements: " + name)
             path = _ordinary_owned(value)
-            kind = "Mod archive" if name == MOD_ARCHIVE else "Movie" if _movie_member(name) else "Figure"
+            if name == COMPILER_SEED and (not path.is_file() or not 0 < path.stat().st_size <= 256 * 1048576):
+                raise BuildError("The portable compiler seed exceeds its bounded size.")
+            kind = "Compiler seed" if name == COMPILER_SEED else "Mod archive" if name == MOD_ARCHIVE else "Movie" if _movie_member(name) else "Figure"
             if not path.is_file() or path.stat().st_size > MAX_MEMBER: raise BuildError("Invalid streamed " + kind.lower() + " replacement: " + name)
             # Production banks already have a producer hash in their signed
             # manifest. Bind it to the current file witness and prove bytes
             # during the actual copy instead of a redundant pre-read.
             expected = movie_hashes.get(name) if _movie_member(name) else figure_hashes.get(name)
             if name == MOD_ARCHIVE: expected = {"sha256": mod_archive_hash, "size": path.stat().st_size}
+            if name == COMPILER_SEED:
+                raw = replacements.get("assets/Quest/update-seed.json")
+                if not isinstance(raw, bytes) or not 0 < len(raw) <= 2 * 1048576:
+                    raise BuildError("The compiler seed requires its bounded original-input descriptor.")
+                try:
+                    descriptor = json.loads(raw)
+                    expected = {"sha256": descriptor["archiveSha256"], "size": descriptor["archiveBytes"]}
+                    if (descriptor.get("scope") != "quest-portable-update-seed-v1"
+                            or descriptor.get("inputKey") != info["inputKey"]
+                            or not _SHA.fullmatch(str(expected["sha256"])) or type(expected["size"]) is not int):
+                        raise ValueError()
+                except (KeyError, TypeError, ValueError) as error:
+                    raise BuildError("The compiler seed descriptor does not match the original APK input.") from error
             if expected and expected["size"] != path.stat().st_size: raise BuildError("Owned " + kind.lower() + " source length changed: " + name)
             file_replacements[name] = {"stamp": _base_stamp(path), "sha256": expected["sha256"] if expected else digest(path), "size": path.stat().st_size}
             if _base_stamp(path) != file_replacements[name]["stamp"]: raise BuildError(kind + " replacement changed while qualifying: " + name)

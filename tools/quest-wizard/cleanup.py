@@ -53,6 +53,7 @@ def _inventory_category(relative):
         if parts[3] in ("code-player.apk", "code-player.apk.code-build.json", "package-api"): return "converted-assets"
     if parts[:2] in (("build", "builds"), ("build", "updates")) or parts[:1] == ("exports",): return "apk-content"
     if parts[:2] == ("build", "inputs"): return "inputs"
+    if parts[:2] == ("build", "device-inputs"): return "inputs"
     if parts[:2] == ("build", "projects"):
         if len(parts) > 3 and parts[3] in ("Library", "Temp", "Obj", "obj", "bin"): return "unity-caches"
         return "unity-projects"

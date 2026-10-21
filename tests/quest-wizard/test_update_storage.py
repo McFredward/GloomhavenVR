@@ -61,6 +61,42 @@ class UpdateStorageTests(unittest.TestCase):
         self.assertEqual(result["warnings"], [])
         self.assertEqual(update_storage.maintain(self.root)["prunedFiles"], 0)
 
+    def device_source(self, generation, serial='Quest-device'):
+        witness = {'package': 'dev.gloomhavenvr.quest', 'deviceSerial': serial,
+                   'versionCode': generation, 'remoteStat': {'size': 20}}
+        key = hashlib.sha256(json.dumps(witness, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        apk = self.file('device-inputs/' + key + '/base.apk', b'x' * 20)
+        record = self.build / 'device-inputs' / key / 'source.json'
+        state.atomic_json(record, {'schema': 1, 'source': 'quest', 'witness': witness})
+        import os
+        os.utime(record, ns=(generation * 1000000000, generation * 1000000000))
+        return self.build / apk['path']
+
+    def test_device_imports_keep_latest_per_headset_and_pending_base_without_payload_reads(self):
+        self.update(1, latest=True)
+        old = self.device_source(1)
+        pending = self.device_source(2)
+        latest = self.device_source(3)
+        second = self.device_source(1, serial='Second-Quest')
+        run = self.store.create({'mode': 'update-mod', 'baseApk': str(pending)})
+        run['status'] = 'blocked'; self.store.save(run)
+        original = Path.read_bytes
+        def no_apk_read(path):
+            if path.suffix == '.apk': raise AssertionError('Only metadata belongs in cleanup')
+            return original(path)
+        with mock.patch.object(Path, 'read_bytes', no_apk_read):
+            result = update_storage.maintain(self.root)
+        self.assertEqual(result['prunedFiles'], 1)
+        self.assertFalse(old.exists())
+        self.assertTrue(pending.is_file() and latest.is_file() and second.is_file())
+
+    def test_seed_caches_remain_fast_inputs_and_deleting_them_warns(self):
+        self.update(1, latest=True)
+        for area in ('cache/update-seeds', 'cache/device-update-seeds'):
+            self.file(area + '/' + 'b' * 64 + '/Managed/GH.Runtime.dll', b'reusable')
+            impact = update_storage.impact(self.root, [self.build / area], mode='session')
+            self.assertEqual(impact['fastUpdateImpact']['status'], 'slower')
+
     def test_pending_input_or_explicit_keep_prevents_history_deletion(self):
         first, _ = self.update(1); second, _ = self.update(2); self.update(3, latest=True)
         run = self.store.create({"mode": "update-mod", "baseApk": str(first)})
