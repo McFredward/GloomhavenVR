@@ -80,3 +80,29 @@ Evidence root: `/home/claw/quest3-local/build/evidence/quest-device-update-20261
 No Windows/Quest end-to-end compiler or hardware installation outcome is claimed
 by the UI tests. The primary integration must qualify the actual seed/CLI helper
 composition and the delivered game-free release package.
+
+## Integration review follow-up
+
+Installed update build progress now has a stable scope from original game key,
+qualified base-APK hash, update mode and any explicit name/profile edit. It does
+not index a missing PC path or require a downloaded profile JSON. The full Engine
+run/resume test exercises both mod and name-only update modes, interrupts during
+build work, reuses all five closed predecessors, and retains closed build work
+and its nonzero scope on retry. Replacing a selected APK in place invalidates the
+installed source/profile stage identities as well as update inspection.
+
+The Unity provisioning step checks original-derived asset/layout changes before
+preparing Unity. Both direct preflight errors and structured CLI WizardErrors
+map to the same explicit matching-PC-source action. Hidden stale PC provider IDs
+cannot override an installed name-only edit. Metadata-only discovery cannot try
+an absent remembered Wi-Fi endpoint. Profile-only edits do not require the older
+APK compiler-seed migration merely to change a name.
+
+Final focused lane runs: 14 installed engine cases (including two full
+Engine.run/resume modes), 35 DeviceTools cases, 11 device HTTP cases, 25 update
+recommendation cases, 11 update failure guidance cases, 4 legacy APK workflow
+cases, 1 source-copy case, 7 UI/model/transport cases and 4 actual Chrome flows.
+The first Engine resume test assertion used a nonexistent internal test field
+(`operations`); its retained failed log remains evidence. The corrected test
+checks the actual completed-operation list and nonzero persisted scope. Browser
+fixtures remain explicitly simulated ADB/backend responses, not headset tests.

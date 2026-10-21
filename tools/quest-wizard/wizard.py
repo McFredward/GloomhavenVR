@@ -131,7 +131,8 @@ class Engine:
             if manifest.is_file() and not (selected / ".git").exists(): release_identity = digest(manifest)
         base_identity = None
         if ((stage == "inspect" and state["choices"].get("mode", "build") != "build")
-                or (stage == "unity" and state["choices"].get("mode") == "update-mod")):
+                or (stage == "unity" and state["choices"].get("mode") == "update-mod")
+                or (state["choices"].get("installedGame") and stage in ("source", "profile"))):
             module = discovery.builder(self.repo)
             apk = ordinary(state["choices"]["baseApk"])
             # A user may replace an APK at the same selected path. File path
@@ -184,6 +185,14 @@ class Engine:
         inspected = prior.get("inspect", {}).get("details", {})
         profile = prior.get("profile", {}).get("details", {})
         game_key = inspected.get("gameKey")
+        if state["choices"].get("installedGame"):
+            # This is a progress scope, not update/signature authority. The
+            # qualified APK identity already includes embedded profile and DLCs.
+            base_hash = inspected.get("baseApkSha256")
+            if not game_key or not base_hash: return None
+            return value_hash({"gameKey": game_key, "baseApk": base_hash, "installedGame": True,
+                               "mode": state["choices"].get("mode"), "profileName": state["choices"].get("profileName"),
+                               **({"profile": state["choices"]["profile"]} if state["choices"].get("profile") else {})})
         if not game_key or not profile.get("profilePath"):
             return None
         try:
@@ -312,6 +321,11 @@ class Engine:
                 self.store.progress(session, stage, "complete", 1, 1, "stages", "Stage outputs verified.")
                 self.emit(self.store.event(state, "stage_complete", stage, durationSeconds=row["durationSeconds"], outputCount=len(receipt["outputs"])))
             except (Cancelled, WizardError) as error:
+                if isinstance(error, WizardError) and state["choices"].get("installedGame"):
+                    from update_failure_guidance import installed_source_requirement
+                    cause = "\n".join(str(error.parameters.get(name, "")) for name in ("builderError", "cause"))
+                    requirement = installed_source_requirement(cause, **error.parameters)
+                    if requirement is not None: error = requirement
                 row["durationSeconds"] = round(time.monotonic() - started, 3)
                 row["status"] = "cancelled" if isinstance(error, Cancelled) else "failed" if error.code in ("build_tool_failed", "child_failed", "installation_tool_failed") else "blocked"
                 state["status"] = row["status"]
@@ -757,6 +771,11 @@ class Engine:
             files, _, _ = module.source_inventory(root)
             requirements = updates.update_requirements(module, root, base, files, module.mod_build(root),
                                                       output=self.store.root / 'build')
+            if state["choices"].get("installedGame") and (requirements.get("rebuildReasons") or any(requirements.get(name) for name in
+                    ("artChanged", "figureBanksChanged", "audioBanksChanged", "movieBanksChanged"))):
+                from update_failure_guidance import installed_source_requirement
+                raise installed_source_requirement("This update changes original-derived assets or the player layout.",
+                    failureStage="unity", workflowMode="update-mod")
             # This comparison admits only provisioning, never APK editing. The
             # normal inspect step independently qualifies ownership/signatures
             # and the actual current source before any output is published.
@@ -791,12 +810,14 @@ class Engine:
             # bounded embedded identity, logo and entitlement entries itself.
             marker = self.store.session_dir(state["session"]) / "installed-profile.json"
             details = {"retainedFromApk": True}
-            if selected.get("profileName"):
+            if selected.get("profileName") or selected.get("profile"):
                 core = module.apk_updates
                 base_apk = self.selected_apk(state, module)
-                with zipfile.ZipFile(base_apk) as apk:
-                    profile = core._json(apk, core.PROFILE)
-                profile = {**profile, "displayName": selected["profileName"]}
+                if selected.get("profile"): profile = selected["profile"]
+                else:
+                    with zipfile.ZipFile(base_apk) as apk:
+                        profile = core._json(apk, core.PROFILE)
+                    profile = {**profile, "displayName": selected["profileName"]}
                 core.profile_update(base_apk, profile)
                 atomic_json(marker, profile)
                 details["profilePath"] = str(marker)

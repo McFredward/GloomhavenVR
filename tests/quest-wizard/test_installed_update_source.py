@@ -49,6 +49,12 @@ class InstalledUpdateTests(unittest.TestCase):
         with self.assertRaises(WizardError): self.choice(deviceSource={**source, 'remotePath':'/unexpected'})
         self.assertEqual(discovery.recent_sessions(self.store)[0][0]['session'], state['session'])
 
+    def test_changed_apk_at_same_path_invalidates_seed_source_and_profile_receipts(self):
+        saved=self.store.create(self.choice(mode='update-profile',profileName='Name'))
+        before={stage:self.engine.key(saved,stage) for stage in ('source','profile')}
+        self.apk.write_bytes(b'different APK identity in the same selected path')
+        for stage in before:self.assertNotEqual(before[stage],self.engine.key(saved,stage))
+
     def test_cli_handoff_has_no_pc_profile_or_logo_arguments(self):
         state = self.store.create(self.choice())
         state['completed'] = {'tools':{'details':{'dotnet8':'dn8','dotnet10':'dn10'}},
@@ -137,6 +143,56 @@ class InstalledUpdateTests(unittest.TestCase):
             value=provision.derive_runtime_dependencies(ROOT,data,{},supervisor,self.root,lambda:None,reference_only=True)
         self.assertEqual(value,'qualified-reference-cache');self.assertEqual(derive.call_args.args[1],data/'Managed')
         helper.game_data.assert_not_called()
+
+
+    def test_installed_update_run_resume_reuses_completed_stages_and_build_progress_without_pc_profile(self):
+        real=discovery.builder(ROOT)
+        helper=SimpleNamespace(apk_input_hashes=real.apk_input_hashes,
+            _local_helper=lambda name:SimpleNamespace(preflight=lambda *args,**kwargs:({},self.root/'seed',{})))
+        for mode in ('update-mod','update-profile'):
+            with self.subTest(mode=mode):
+                saved=self.store.create(self.choice(mode=mode,**({'profileName':'Changed name'} if mode=='update-profile' else {})))
+                calls=[];seen=[]
+                def perform(stage):
+                    def action(state, supervisor):
+                        calls.append(stage)
+                        marker=self.store.session_dir(state['session'])/(stage+'.output');marker.write_text(stage)
+                        details={}
+                        if stage=='source': details={'sourceRoot':str(ROOT)}
+                        if stage=='profile' and mode=='update-profile':
+                            details={'profilePath':str(marker)}
+                            marker.write_text(json.dumps({'schema':1,'provider':'gog','providerId':'original','displayName':'Changed name'}))
+                        if stage=='inspect':details={'gameKey':'a'*64,'baseApkSha256':'b'*64,'inputKey':'c'*64}
+                        if stage=='build':
+                            row=state['stages'][5];seen.append(row.get('progressWorkKey'))
+                            if calls.count('build')==1:
+                                self.store.operation(state['session'],'build','update-owned-game',complete=True)
+                                raise wizard.Cancelled()
+                            self.assertIn('update-owned-game',row['progressPlan']['completed'])
+                            self.assertGreater(row['progressPlan']['percent'],0)
+                        return [marker],details
+                    return action
+                actions={stage:perform(stage) for stage in wizard.STAGES}
+                with patch.object(discovery,'builder',return_value=helper):
+                    first=wizard.Engine(self.store,actions=actions).run(saved['session'])
+                    self.assertEqual(first['status'],'cancelled')
+                    second=wizard.Engine(self.store,actions=actions).run(saved['session'])
+                self.assertEqual(second['status'],'complete');self.assertTrue(seen[0]);self.assertEqual(seen[0],seen[1])
+                for stage in wizard.STAGES[:5]:self.assertEqual(calls.count(stage),1)
+                self.assertEqual(calls.count('build'),2);self.assertEqual(calls.count('install'),1)
+
+    def test_game_derived_asset_changes_request_pc_before_preparing_unity(self):
+        saved=self.store.create(self.choice());saved['completed']={'source':{'details':{'sourceRoot':str(ROOT)}}}
+        core=SimpleNamespace(inspect_base=lambda apk:{})
+        updates=SimpleNamespace(update_requirements=lambda *args,**kwargs:{'requiresUnity':True,'artChanged':True})
+        helper=SimpleNamespace(apk_updates=core,_local_helper=lambda name:updates,
+            source_inventory=lambda root:([],None,None),mod_build=lambda root:717)
+        import unity_setup
+        with self.store.active(saved),patch.object(discovery,'builder',return_value=helper), \
+             patch.object(unity_setup,'prepare',side_effect=AssertionError('No compiler setup before the PC input choice')):
+            with self.assertRaises(WizardError) as error:self.engine.stage_unity(saved,Mock())
+        self.assertEqual(error.exception.code,'installed_update_pc_required')
+        self.assertEqual(error.exception.parameters['pcSourceReason'],'derived-assets')
 
 
 if __name__ == '__main__': unittest.main()

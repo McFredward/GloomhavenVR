@@ -460,7 +460,10 @@ class DeviceTools:
                     message={"en": "No authorized Quest is connected. A local APK remains selectable; connect USB or reuse the Quest connection tools.",
                              "de": "Keine freigegebene Quest verbunden. Eine lokale APK bleibt auswählbar; USB anschließen oder die Quest-Verbindungswerkzeuge verwenden."})
             if selected["host"]: selected["host"] = installer.endpoint(selected["host"])
-            serial, hardware, transport = collector.choose_capture_device(adb, SimpleNamespace(**selected), config)
+            # Automatic inspection only uses transports already listed by ADB.
+            # Do not try an absent remembered Wi-Fi endpoint behind local setup.
+            selection_config = config if acquire else {key: value for key, value in config.items() if key != "endpoint"}
+            serial, hardware, transport = collector.choose_capture_device(adb, SimpleNamespace(**selected), selection_config)
             self._cancel(cancel)
             atomic_json(self.config, installer.connection_settings(config, serial, hardware, adb.executable))
             self._publish(progress, status="scanning", serial=serial, hardwareSerial=hardware, transport=transport,

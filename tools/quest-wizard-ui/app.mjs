@@ -474,7 +474,7 @@ function renderUpdateSources(){
   $('source-device-percent').textContent=measured?percentText(100*progress.done/progress.total)+' %':t('working');
   $('source-device-detail').textContent=[progress.detail??progress.label??'',measured&&progress.unit==='bytes'?storageSize(progress.done)+' / '+storageSize(progress.total):''].filter(Boolean).join(' · ');
   const localSeed=discovery?.defaultApk?.path===$('base-apk').value?discovery?.updateRecommendation?.seed:null;
-  const legacy=(quest?importedDeviceSource?.seed:localSeed)?.available===false&&$('installed-game').checked;
+  const legacy=mode==='update-mod'&&(quest?importedDeviceSource?.seed:localSeed)?.available===false&&$('installed-game').checked;
   $('source-seed-warning').hidden=!legacy;$('source-use-pc').hidden=!legacy;
 }
 async function sourceOperation(operation,automatic=false){

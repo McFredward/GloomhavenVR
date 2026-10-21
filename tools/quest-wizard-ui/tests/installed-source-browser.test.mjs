@@ -10,7 +10,7 @@ import {fileURLToPath} from 'node:url';
 import {browser,chrome} from './browser-harness.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const mime={'.html':'text/html','.mjs':'text/javascript','.css':'text/css','.png':'image/png','.svg':'image/svg+xml'};
-async function fixture({local=true,legacy=false}={}){
+async function fixture({local=true,legacy=false,pcRequired=false}={}){
   const requests=[],session='a'.repeat(32);let device={status:'idle',devices:[]},polls=0;
   const source={deviceSerial:'USB_FIXTURE',versionCode:716,versionName:'1.2.0.B716.123456789abc',size:2097152000};
   const replyDevice=()=>({schema:1,event:'device',state:device});
@@ -48,7 +48,7 @@ async function fixture({local=true,legacy=false}={}){
           return reply({schema:1,event:'planned',session,state:{session,status:'ready',choices:body.choices,needsActions:[],stages:['tools','source','unity','profile','inspect','build','install'].map(id=>({id,status:'pending',attempts:0}))}});
         }
         if(path==='/api/run')return reply({schema:1,event:'started',session});
-        if(path==='/api/status')return reply({schema:1,event:'status',session,state:{session,status:'running',choices:{mode:'update-mod',installedGame:true,install:false},needsActions:[],stages:['tools','source','unity','profile','inspect','build','install'].map(id=>({id,status:id==='tools'?'running':'pending',attempts:0}))}});
+        if(path==='/api/status')return reply({schema:1,event:'status',session,state:{session,status:pcRequired?'blocked':'running',choices:{mode:'update-mod',installedGame:true,baseApk:'C:\\Users\\Fixture\\.ghvrq\\build\\latest.apk',install:false},needsActions:pcRequired?[{code:'installed_update_pc_required',stage:'tools',message:{en:'One matching PC copy is needed once.',de:'Einmalig ist die passende PC-Kopie nötig.'},parameters:{requiresPcUpdateSource:true,cause:'This older Quest APK has no portable compiler references.'}}]:[],stages:['tools','source','unity','profile','inspect','build','install'].map(id=>({id,status:id==='tools'?(pcRequired?'blocked':'running'):'pending',attempts:0}))}});
         if(path==='/api/events')return reply({schema:1,event:'events',events:[],lastEvent:0});
         response.writeHead(404);return response.end();
       }
@@ -114,5 +114,25 @@ test('legacy installed APK asks for one PC-assisted update without launching con
     assert.equal(await client.evaluate("document.getElementById('pc-game-choice').hidden"),false);
     assert.equal(await client.evaluate("document.getElementById('primary').disabled"),true);
     assert.match(await client.evaluate("document.getElementById('base-apk').value"),/installed\.apk$/);
+  }finally{await client?.close();await server.close();}
+});
+
+
+test('missing-seed preflight presents a PC-assisted input action while keeping the exact APK and update mode', {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await fixture({pcRequired:true});let client;
+  try{
+    client=await browser();await client.command('Page.navigate',{url:server.url});await client.chooseHome('mod');
+    await client.wait("document.getElementById('source-device-summary').textContent.includes('B716')");
+    await client.evaluate("document.getElementById('primary').click()");await client.wait("!document.getElementById('setup-page').hidden");
+    await client.evaluate("document.getElementById('unity-terms').checked=true;document.getElementById('install-choice').checked=false;document.getElementById('primary').click()");
+    await client.wait("!document.getElementById('failure-use-pc').hidden");
+    assert.equal(await client.evaluate("document.getElementById('failure-new-build').hidden"),true);
+    await client.picture('installed-source-pc-action');
+    await client.evaluate("document.getElementById('failure-use-pc').click()");
+    assert.equal(await client.evaluate("document.getElementById('pc-game-choice').hidden"),false);
+    assert.equal(await client.evaluate("document.getElementById('installed-game').checked"),false);
+    assert.equal(await client.evaluate("document.getElementById('build-mode').value"),'update-mod');
+    assert.match(await client.evaluate("document.getElementById('base-apk').value"),/latest\.apk$/);
+    assert.equal(server.requests.filter(row=>row.path==='/api/run').length,1,'Opening input selection does not start another run');
   }finally{await client?.close();await server.close();}
 });

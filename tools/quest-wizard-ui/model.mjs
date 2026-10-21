@@ -19,7 +19,7 @@ export function choicesFromForm(form, language) {
   if (mode !== 'build' && String(form.signingRoot ?? '').trim()) choices.signingRoot = form.signingRoot.trim();
   if (String(form.unityEditor ?? '').trim()) choices.unityEditor = form.unityEditor.trim();
   const displayName = String(form.profileName ?? '').trim(), providerId = String(form.profileId ?? '').trim();
-  if(mode==='update-profile'&&displayName&&!providerId){
+  if(mode==='update-profile'&&displayName&&(installedGame||!providerId)){
     // The Builder inherits the provider/ID from the selected APK's bounded
     // profile entry. A name edit must not require manually copying a Steam ID.
     choices.profileName=displayName;

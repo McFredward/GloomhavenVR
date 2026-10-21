@@ -71,3 +71,11 @@ test('standalone game starts send an explicit debugger boolean and ordinary laun
   assert.throws(()=>api.deviceStart('','','true'),{code:'invalidReply'});
   assert.equal(calls.length,2);
 });
+
+
+test('installed profile name edits ignore stale hidden PC IDs and do not require Linux DLC declarations',()=>{
+  const value=choicesFromForm({mode:'update-profile',installedGame:true,provider:'steam',hostSystem:'Linux',baseApk:'existing.apk',profileName:'New name',profileId:'stale-hidden-PC-id'},'en');
+  assert.equal(value.profileName,'New name');assert.equal(value.profile,undefined);assert.equal(value.gameRoot,undefined);
+  const update=choicesFromForm({mode:'update-mod',installedGame:true,provider:'steam',hostSystem:'Linux',baseApk:'existing.apk',declareDlc:true,ownedDlc:['solo'],profileName:'stale',profileId:'stale-id'},'en');
+  assert.equal(update.installedGame,true);assert.equal(update.profile,undefined);assert.equal(update.ownedDlc,undefined);
+});
