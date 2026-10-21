@@ -149,6 +149,8 @@ internal sealed class BoardModule : IVRModule
         // MP bug #7: world-space name tag over every hex ping (own + received, flat or VR) —
         // the game's own screen-space ping tooltip is unreadable from a VR head pose.
         VRSession.Harmony?.PatchAll(typeof(Patches.PingNameTag_Patch));
+        if (QuestStandalonePlatform.Enabled)
+            VRSession.Harmony?.PatchAll(typeof(Patches.QuestNativeShieldSpawn));
         // USER REPORT (3-player hardware): "Wenn es keine Gegnerinfos gibt weil aktuell sichtbar
         // gar keine Gegner existieren, soll die Phase übersprungen werden in dem der host nochmal
         // mit 'Fortfahren' bestätigen muss." The game HAS that skip (Choreographer.cs:3705) but

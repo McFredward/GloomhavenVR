@@ -22,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--owned-project', type=Path, required=True)
     parser.add_argument('--shader-overlay', type=Path)
-    parser.add_argument('--control', choices=('no-upload', 'no-restore', 'no-shader-gate', 'no-live-contract', 'baked-native-visibility'))
+    parser.add_argument('--control', choices=('duplicate-draw', 'no-visibility-lease', 'no-restore', 'no-shader-gate', 'no-live-contract', 'baked-native-visibility'))
     args = parser.parse_args()
     base = ROOT / '.planning/debug/quest-ping-streams'; base.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=base)); project = run / 'unity'
@@ -51,6 +51,23 @@ def main():
         copy(shader, target)
         copy(source / 'Assets/Shader/Particles_Priority Additive.shader.meta', Path(str(target) + '.meta'))
         prefab = source / 'Assets/GameObject/Ping Highlight.prefab'
+    # The shield frame's original native mesh draws use engine shader fileID200.
+    # Copy its exact mesh/material/texture and the actual native fog shader closure.
+    if not recovered.is_dir():
+        shield = source / 'Assets/GameObject/P_Shield_Frame.prefab'
+        shield_text = shield.read_text(); inputs[str(shield)] = hashlib.sha256(shield.read_bytes()).hexdigest()
+        for key in re.findall(r'^--- !u!114 &(\d+)\n.*?(?=^--- !u!|\Z)', shield_text, re.M | re.S):
+            shield_text = re.sub(r'^--- !u!114 &' + key + r'\n.*?(?=^--- !u!|\Z)', '', shield_text, flags=re.M | re.S)
+            shield_text = shield_text.replace('  - component: {fileID: ' + key + '}\n', '')
+        (resources / 'NativeShield.prefab').write_text(shield_text)
+        for relative in ('Material/ShieldFrameMat.mat', 'Mesh/geo_plane_convex.asset', 'Texture2D/T_shield_frame_mask.png',
+                         'Material/DeathDissolveFogMat.mat', 'Texture2D/T_effect_smoke_01.png'):
+            path = source / 'Assets' / relative; copy(path); copy(Path(str(path) + '.meta'))
+        fog_shader = overlay / 'Assets/Shader/KriptoFX_RFX4_Particle.shader'
+        fog_target = project / 'Assets/Shader/KriptoFX_RFX4_Particle.shader'
+        copy(fog_shader, fog_target); copy(source / 'Assets/Shader/KriptoFX_RFX4_Particle.shader.meta', Path(str(fog_target)+'.meta'))
+        for include in re.findall(r'#include "(Assets/QuestOriginalCampaign/ShaderPrograms/[^"]+)"', fog_shader.read_text()):
+            copy(overlay / include, project / include)
     for include in re.findall(r'#include "(Assets/QuestOriginalCampaign/ShaderPrograms/[^"]+)"', shader.read_text()):
         copy(overlay / include, project / include)
     text = prefab.read_text(); inputs[str(prefab)] = hashlib.sha256(prefab.read_bytes()).hexdigest()
@@ -63,10 +80,11 @@ def main():
     (resources / 'NativePing.prefab').write_text(text)
     production = ROOT / 'src/GloomhavenVR/Board/Patches/QuestPingStreams.cs'; code = production.read_text(); source_hashes = {str(production): hashlib.sha256(production.read_bytes()).hexdigest()}
     mutations = {
-        'no-upload': ('binding.Renderer.SetActiveVertexStreams(Packed);', 'binding.Renderer.SetActiveVertexStreams(binding.Original);'),
-        'no-restore': ('if (Equal(_scratch, Packed)) binding.Renderer.SetActiveVertexStreams(binding.Original);', ';'),
+        'duplicate-draw': ('Visibility.mainTexture = Texture2D.blackTexture;', 'Visibility.mainTexture = Material.mainTexture;'),
+        'no-visibility-lease': ('source.sharedMaterial = binding.Visibility; binding.Claimed = true;', 'source.forceRenderingOff = true; binding.Claimed = true;'),
+        'no-restore': ('Source.sharedMaterial = Material;', ';'),
         'no-shader-gate': ('|| (shader != "Particles/Priority Additive"', '|| (false && shader != "Particles/Priority Additive"'),
-        'no-live-contract': (' || binding.Material.shader != binding.Shader', ' || false'),
+        'no-live-contract': ('source.sharedMaterial.shader != binding.Shader', 'false'),
     }
     if args.control in mutations:
         before, after = mutations[args.control]
@@ -77,6 +95,7 @@ def main():
         # That revision passed paused/manual pixel probes while its visibility
         # lease freezes both original Pause-culling simulation clocks on device.
         code = subprocess.check_output(['git', 'show', '17cab93ae:src/GloomhavenVR/Board/Patches/QuestPingStreams.cs'], cwd=ROOT, text=True)
+        code = code.rsplit('}', 1)[0] + 'internal static void AttachShield(GameObject highlight) {}\n}\n'
     source_hashes['emittedProduction'] = hashlib.sha256(code.encode()).hexdigest()
     (project / 'Assets/QuestPingStreams.cs').write_text('#nullable enable\n' + code.replace('namespace GloomhavenVR.Board.Patches;', 'namespace GloomhavenVR.Board.Patches {') + '\n}\n')
     (project / 'Assets/Boundaries.cs').write_text('''using System.Collections.Generic;
@@ -101,21 +120,24 @@ namespace GloomhavenVR.Core { internal static class QuestStandalonePlatform { in
     command = ['/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-vulkan', '-projectPath', str(project), '-executeMethod', 'QuestPingStreamsProbe.Run', '-logFile', str(run / 'unity.log')]
     if not os.environ.get('DISPLAY'): command = ['xvfb-run', '-a'] + command
     environment = os.environ.copy()
-    if args.control == 'baked-native-visibility': environment['QUEST_PING_AUTOPLAY_ONLY'] = '1'
+    if args.control in ('baked-native-visibility', 'no-visibility-lease'): environment['QUEST_PING_AUTOPLAY_ONLY'] = '1'
+    if args.control == 'duplicate-draw': environment['QUEST_PING_PIXEL_CONTROL'] = '1'
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=environment); code = 1
     try:
         code = process.wait(timeout=180)
         if args.control:
-            expected = {'no-upload': 'Original ping retains its exact consumed native streams', 'no-restore': 'Pooling restores exact original ping streams', 'no-shader-gate': 'Foreign particle materials retain their authored streams', 'no-live-contract': 'Changed native contracts retain authored streams', 'baked-native-visibility': 'AUTO_CLOCK_RESULT same=False'}[args.control]
+            expected = {'duplicate-draw': 'Native upload draws the original effect once without duplicate contribution', 'no-visibility-lease': 'AUTO_CLOCK_RESULT same=False', 'no-restore': 'Original ping material and texture identity remain unchanged', 'no-shader-gate': 'Foreign particle materials receive no upload geometry', 'no-live-contract': 'Changed native shader retains its native draw during head culling', 'baked-native-visibility': 'AUTO_CLOCK_RESULT same=False'}[args.control]
             if code == 0 or expected not in (run / 'unity.log').read_text(): raise RuntimeError('Native ping control did not detect its targeted defect')
             (run / 'control.json').write_text(json.dumps({'control': args.control, 'expectedFailure': expected, 'observedExit': code, 'hardwareVerified': False}, indent=2) + '\n')
             print('PASS native ping causal control: ' + args.control, flush=True); code = 0; return
         if code: raise RuntimeError('Native ping fixture failed: ' + str(run / 'unity.log'))
         report = json.loads((project / 'ProbeOutput/results.json').read_text())
         if report['assertions'] < 30 or report['visiblePixels'] < 50: raise RuntimeError('Incomplete native ping evidence')
+        shield = json.loads((project / 'ProbeOutput/shield-results.json').read_text()) if (project / 'ProbeOutput/shield-results.json').is_file() else None
+        if shield and (shield['visiblePixels'] < 50 or shield['pixelMaxDelta'] > 2): raise RuntimeError('Incomplete native shield pixel evidence')
         clock = json.loads((project / 'ProbeOutput/auto-clock.json').read_text())
         if not clock['sameNativeClock'] or clock['samples'] < 5 or clock['nativeClock'] < 1: raise RuntimeError('Incomplete native autoplay evidence')
-        (run / 'qualification.json').write_text(json.dumps({'sources': source_hashes, 'nativeInputs': inputs, 'results': report, 'autoPlay': clock, 'hardwareVerified': False}, indent=2) + '\n')
+        (run / 'qualification.json').write_text(json.dumps({'sources': source_hashes, 'nativeInputs': inputs, 'results': report, 'shield': shield, 'autoPlay': clock, 'hardwareVerified': False}, indent=2) + '\n')
         print('PASS native ping streams: ' + str(report['assertions']) + ' assertions and ' + str(clock['samples']) + ' actual autoplay observations; headset tile pixels unverified', flush=True)
     finally:
         if process.poll() is None: process.kill(); process.wait()

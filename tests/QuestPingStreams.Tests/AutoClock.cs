@@ -17,10 +17,20 @@ internal sealed class QuestPingAutoClock : MonoBehaviour
         var baseline = UnityEngine.Object.Instantiate(Resources.Load<GameObject>("NativePing"));
         var patched = UnityEngine.Object.Instantiate(Resources.Load<GameObject>("NativePing"));
         baseline.transform.position = new Vector3(-1, 0, 0); patched.transform.position = new Vector3(1, 0, 0);
-        var originals = baseline.GetComponentsInChildren<ParticleSystem>(true);
-        var candidates = patched.GetComponentsInChildren<ParticleSystem>(true);
-        foreach (var system in baseline.GetComponentsInChildren<ParticleSystem>(true)) Prepare(system);
-        foreach (var system in patched.GetComponentsInChildren<ParticleSystem>(true)) Prepare(system);
+        var originalSystems = new List<ParticleSystem>(baseline.GetComponentsInChildren<ParticleSystem>(true));
+        var candidateSystems = new List<ParticleSystem>(patched.GetComponentsInChildren<ParticleSystem>(true));
+        GameObject originalShield=null,patchedShield=null;
+        var shieldPrefab=Resources.Load<GameObject>("NativeShield");
+        if (shieldPrefab!=null)
+        {
+            originalShield=UnityEngine.Object.Instantiate(shieldPrefab);patchedShield=UnityEngine.Object.Instantiate(shieldPrefab);
+            originalShield.transform.position=new Vector3(-2,0,0);patchedShield.transform.position=new Vector3(2,0,0);
+            originalSystems.AddRange(originalShield.GetComponentsInChildren<ParticleSystem>(true));
+            candidateSystems.AddRange(patchedShield.GetComponentsInChildren<ParticleSystem>(true));
+        }
+        var originals=originalSystems.ToArray();var candidates=candidateSystems.ToArray();
+        foreach (var system in originals) Prepare(system);
+        foreach (var system in candidates) Prepare(system);
         var owner = new GameObject("original-ping-auto-head"); Camera camera = owner.AddComponent<Camera>();
         camera.transform.position = new Vector3(0, 5, -5); camera.transform.LookAt(Vector3.zero);
         camera.orthographic = true; camera.orthographicSize = 3; camera.aspect = 1; camera.nearClipPlane = .05f; camera.farClipPlane = 20;
@@ -28,6 +38,7 @@ internal sealed class QuestPingAutoClock : MonoBehaviour
         var target = new RenderTexture(128, 128, 24); target.Create(); camera.targetTexture = target; camera.enabled = true;
         VRCameraPolicy.AllowedHead = camera;
         QuestStandalonePlatform.Enabled = true; QuestPingStreams.Attach(patched);
+        if (patchedShield!=null) QuestPingStreams.AttachShield(patchedShield);
         float started = Time.realtimeSinceStartup;
         var rows = new List<string>(); int sample = 0; float next = .1f; bool sameThroughWindow = true;
         while (Time.realtimeSinceStartup - started < 1.2f)
@@ -51,9 +62,9 @@ internal sealed class QuestPingAutoClock : MonoBehaviour
         bool same = sameThroughWindow;
         for (int i = 0; i < originals.Length; i++)
             same &= Math.Abs(originals[i].time-candidates[i].time) <= .05f;
-        File.WriteAllText("ProbeOutput/auto-clock.json", "{\"sameNativeClock\":"+same.ToString().ToLowerInvariant()+",\"samples\":"+sample+",\"nativeClock\":"+originals[0].time.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+",\"patchedClock\":"+candidates[0].time.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+",\"hardwareVerified\":false}\n");
+        File.WriteAllText("ProbeOutput/auto-clock.json", "{\"sameNativeClock\":"+same.ToString().ToLowerInvariant()+",\"systems\":"+originals.Length+",\"samples\":"+sample+",\"nativeClock\":"+originals[0].time.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+",\"patchedClock\":"+candidates[0].time.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+",\"hardwareVerified\":false}\n");
         Debug.Log("AUTO_CLOCK_RESULT same="+same+" samples="+sample);
-        QuestPingStreams.ResetAll(); UnityEngine.Object.Destroy(baseline); UnityEngine.Object.Destroy(patched); UnityEngine.Object.Destroy(owner);
+        QuestPingStreams.ResetAll(); UnityEngine.Object.Destroy(baseline); UnityEngine.Object.Destroy(patched); UnityEngine.Object.Destroy(originalShield); UnityEngine.Object.Destroy(patchedShield); UnityEngine.Object.Destroy(owner);
         target.Release(); UnityEngine.Object.Destroy(target);
         UnityEditor.EditorApplication.Exit(same ? 0 : 3);
     }
