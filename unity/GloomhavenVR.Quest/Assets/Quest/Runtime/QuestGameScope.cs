@@ -26,6 +26,11 @@ namespace GloomhavenVR.Quest
         readonly HashSet<string> reported = new HashSet<string>(StringComparer.Ordinal);
         readonly List<MonoBehaviour> sceneBehaviours = new List<MonoBehaviour>();
         readonly Dictionary<Type, string> typeNames = new Dictionary<Type, string>();
+        // Only immutable ABI metadata is cached. The pooled widget's current
+        // field value is still read on every call, including inactive widgets
+        // and purchase-to-owned rebindings. All callers are on Unity's thread.
+        static readonly Dictionary<Type, Dictionary<string, FieldInfo>> fieldBindings =
+            new Dictionary<Type, Dictionary<string, FieldInfo>>();
         QuestScopeObjects scopeObjects;
         bool discoveryAttempted;
 
@@ -273,10 +278,20 @@ namespace GloomhavenVR.Quest
 
         static object RequiredField(object owner, string name)
         {
+            Type identity = owner.GetType();
+            Dictionary<string, FieldInfo> bindings;
+            if (!fieldBindings.TryGetValue(identity, out bindings))
+            {
+                bindings = new Dictionary<string, FieldInfo>(StringComparer.Ordinal);
+                fieldBindings.Add(identity, bindings);
+            }
+            FieldInfo bound;
+            if (bindings.TryGetValue(name, out bound)) return bound.GetValue(owner);
             FieldInfo field = null;
-            for (Type type = owner.GetType(); type != null && field == null; type = type.BaseType)
+            for (Type type = identity; type != null && field == null; type = type.BaseType)
                 field = type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly);
             if (field == null) throw new InvalidOperationException("Original scope field ABI is missing: " + name);
+            bindings.Add(name, field);
             return field.GetValue(owner);
         }
         void Report(string key, Exception error)
