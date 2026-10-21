@@ -27,7 +27,7 @@ controls = [
     ('provider-api-lost', '"TryGetAppGPUTimeLastFrame"', '"TryGetGPUTimeLastFrame"', 'provider seconds become millisecond samples'),
     ('seconds-not-converted', 'ms = seconds * 1000f;', 'ms = seconds;', 'provider seconds become millisecond samples'),
     ('invalid-provider-samples', 'seconds >= 0f && !float.IsInfinity(seconds) && !float.IsNaN(seconds)', 'true', 'invalid provider data remains unavailable'),
-    ('provider-counters-lost', '_dropped = Bind<DisplayIntStat>(typeof(XRDisplaySubsystem), "TryGetDroppedFrameCount");', '_dropped = null;', 'display-owned counters and seconds retain units'),
+    ('provider-false-ignored', '_appGpuSeconds(d, out float seconds)', '(_appGpuSeconds(d, out float seconds) || true)', 'provider false does not become an invented zero sample'),
 ]
 out = ROOT / '.planning/debug/xr-stat-probe'
 out.mkdir(parents=True, exist_ok=True)

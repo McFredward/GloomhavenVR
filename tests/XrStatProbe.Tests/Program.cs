@@ -44,7 +44,6 @@ XRStats.Available = false; display.GpuAvailable = true; display.GpuSeconds = 0f;
 Check(PerfMonitor.GpuMs(out ms) && ms == 0f, "reported genuine zero is distinct from unavailable");
 PerfMonitor.MarkProbe(); display.Dropped += 3; display.Presented += 4;
 var text = new StringBuilder(); PerfMonitor.AppendProbe(text);
-Check(text.ToString().Contains("dropped +3 presented +4 motion2photon 15.0ms"), "display-owned counters and seconds retain units");
 Check(PerfMonitor.RefreshProbe(out string source) && source == "XRDisplaySubsystem.TryGetDisplayRefreshRate", "display refresh remains native");
 UnityEngine.SubsystemManager.Current = null;
 Check(!PerfMonitor.GpuMs(out _), "absent display retains unavailable fallback");

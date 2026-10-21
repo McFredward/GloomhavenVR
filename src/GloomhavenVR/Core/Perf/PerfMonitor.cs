@@ -1284,17 +1284,14 @@ internal static partial class PerfMonitor
             // them. Keep its historical millisecond fallback separate; never
             // mix the provider's seconds with the window's millisecond samples.
             _appGpuSeconds = Bind<DisplayFloatStat>(typeof(XRDisplaySubsystem), "TryGetAppGPUTimeLastFrame");
-            _dropped = Bind<DisplayIntStat>(typeof(XRDisplaySubsystem), "TryGetDroppedFrameCount");
-            _presented = Bind<DisplayIntStat>(typeof(XRDisplaySubsystem), "TryGetFramePresentCount");
-            _motionToPhoton = Bind<DisplayFloatStat>(typeof(XRDisplaySubsystem), "TryGetMotionToPhoton");
 
             Type? stats = FindType("UnityEngine.XR.XRStats");
             if (stats != null)
             {
-                _dropped ??= Bind<DisplayIntStat>(stats, "TryGetDroppedFrameCount");
-                _presented ??= Bind<DisplayIntStat>(stats, "TryGetFramePresentCount");
+                _dropped = Bind<DisplayIntStat>(stats, "TryGetDroppedFrameCount");
+                _presented = Bind<DisplayIntStat>(stats, "TryGetFramePresentCount");
                 _gpuTime = Bind<DisplayFloatStat>(stats, "TryGetGPUTimeLastFrame");
-                _motionToPhoton ??= Bind<DisplayFloatStat>(stats, "TryGetMotionToPhoton");
+                _motionToPhoton = Bind<DisplayFloatStat>(stats, "TryGetMotionToPhoton");
                 if (_gpuTime == null)
                     _gpuTimeGlobal = Bind<FloatStat>(stats, "TryGetGPUTimeLastFrame");
             }
