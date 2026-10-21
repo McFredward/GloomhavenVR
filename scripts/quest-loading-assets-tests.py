@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MODES = ('success', 'missing-bank', 'missing-provenance', 'wrong-hash', 'wrong-target', 'wrong-api', 'shared-eye', 'load-null', 'wrong-bank', 'wrong-path', 'missing-shader', 'wrong-shader', 'unsupported')
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--case', choices=MODES, action='append', help='Rerun selected resource cases after an artifact-only change.')
+parser.add_argument('--plugin', type=Path, help='Also require resource closure of this actually compiled plugin; independent host cases need no game SDK build.')
 args = parser.parse_args()
 out = ROOT / '.planning/debug/quest-loading-assets'
 out.mkdir(parents=True, exist_ok=True)
@@ -64,12 +65,15 @@ try:
         manifest['cases'].append({'mode': mode, 'exitCode': code, 'log': str(log)})
         print(mode + ': ' + ('PASS' if code == 0 else 'FAIL'), flush=True)
         if code: raise RuntimeError(log.read_text())
-    plugin = ROOT / 'src/GloomhavenVR/bin/Release/net472/GloomhavenVR.dll'
-    if not plugin.is_file(): raise RuntimeError('Build the actual plugin before qualifying embedded resource closure.')
-    closure_log = run / 'compiled-plugin-resources.log'
-    code = execute([dotnet, str(run / modes[0] / 'bin/Release/net8.0/QuestLoadingAssets.Tests.dll'), '--assembly', str(plugin)], closure_log, 'w')
-    if code: raise RuntimeError(closure_log.read_text())
-    manifest['compiledPlugin'] = {'path': str(plugin), 'sha256': hashlib.sha256(plugin.read_bytes()).hexdigest(), 'closurePassed': True}
+    if args.plugin is not None:
+        plugin = args.plugin.resolve()
+        if not plugin.is_file(): raise RuntimeError('Build the selected plugin before qualifying embedded resource closure.')
+        closure_log = run / 'compiled-plugin-resources.log'
+        code = execute([dotnet, str(run / modes[0] / 'bin/Release/net8.0/QuestLoadingAssets.Tests.dll'), '--assembly', str(plugin)], closure_log, 'w')
+        if code: raise RuntimeError(closure_log.read_text())
+        manifest['compiledPlugin'] = {'path': str(plugin), 'sha256': hashlib.sha256(plugin.read_bytes()).hexdigest(), 'closurePassed': True}
+    else:
+        manifest['compiledPlugin'] = {'closurePassed': False, 'reason': 'Host-only cases; actual compiled-plugin closure is a separate explicit integration check.'}
     status = 0
 finally:
     (run / 'results.json').write_text(json.dumps(manifest, indent=2) + '\n')

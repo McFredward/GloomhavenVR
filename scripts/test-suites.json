@@ -2180,6 +2180,18 @@
       "weight": 2
     },
     {
+      "id": "quest-loading-assets",
+      "command": [
+        "python3",
+        "scripts/quest-loading-assets-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
       "id": "quest-performance-history",
       "command": [
         "python3",
