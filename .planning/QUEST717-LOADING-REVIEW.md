@@ -117,3 +117,23 @@ Every process tree is stopped/reaped before `cleanup_completed_run`; preserve
 the initial failed/intermediate evidence as well as final results. No full-game
 import, depth generation, Campaign rebuild, complete gameplay suite or new
 headset acceptance is claimed by this lane.
+
+The final shader's real native-art comparison has maximum RGBA difference0
+against Sprites/Default at opacity0.1/0.5/1. A real depth writer and a later
+blank capture each reduce the old Sprite to0 visible pixels while the owned
+foreground retains231. The complete production GL/native-overlay/masked-menu
+case passes831assertions,71spinner pixel checks and197final-menu observations;
+Vulkan also passes the full native lifecycle. The separate geometry/native
+alpha fixture passes397,143assertions on Vulkan. Counts of final-menu frame
+observations vary with the actual asynchronous PlayerLoop.
+
+Two new independent compiling controls remove foreground composition or retain
+the private source stencil comparison. They respectively reproduce the invisible
+depth-blocked draw and the visible-but-unacknowledged masked menu. Existing
+native-overlay mutations are correctly classified as owner-state controls:
+their earliest failures are the exact rebind assertions, before final pixel
+capture. Their previous runner expected a later pixel assertion and incorrectly
+reported those deliberate failures as failed control runs. The runner now names
+the actual earliest assertion. The production fixture's explicit same-image
+overlay-on/overlay-off screenshots separately establish that rendering boundary;
+these controls must not be mislabeled new final-device pixel proof.

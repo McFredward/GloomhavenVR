@@ -54,8 +54,8 @@ def main():
             "missing-native-seam": ("return _bootLoadSceneField!.GetValue(_bootstrap) != null;", "return false;", "through original Bootstrap/Intro callback and immediate activation"),
             "skip-head-reparent": ("bool attach = _root.transform.parent != head.transform;", "bool attach = _root.transform.parent == null && _root.transform.parent != head.transform;", "through actual same-frame head-rig replacement"),
             "stale-draw-witness": ("LastHeadId = camera.GetInstanceID();", "LastHeadId = 0;", "Actual native camera submission updates the owned loading draw witness"),
-            "native-overlay-kept": ("_questIntroCanvas.enabled = false;", "_questIntroCanvas.enabled = true;", "Actual final native overlay draw hides the admitted spinner and Quest Tick reveals the same pixels"),
-            "native-loading-overlay-kept": ("if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = false;", "if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = true;", "Actual unified native loading overlay covers the admitted spinner until its exact widget hands off graphics"),
+            "native-overlay-kept": ("_questIntroCanvas.enabled = false;", "_questIntroCanvas.enabled = true;", "Exact Intro loading owner hands off after a native camera rebind"),
+            "native-loading-overlay-kept": ("if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = false;", "if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = true;", "Exact native loading widget hands off after a native camera rebind"),
             "boot-foreground-depth": ('Shader? shader = foreground ?? Shader.Find("Sprites/Default")', 'Shader? shader = Shader.Find("Sprites/Default")', "Initial Quest spinner survives real retained depth and later blank capture composition"),
         }
         expected = ""
@@ -281,8 +281,6 @@ public static class LoadingLifecycleRunner {
         if args.handoff_case: environment["QUEST_LOADING_HANDOFF_CASE"] = args.handoff_case
         if args.masked_menu: environment["QUEST_LOADING_MASKED_MENU"] = "1"
         if args.final_composition: environment["QUEST_LOADING_COMPOSITION_REPORT"] = str(run)
-        if args.control in ("native-overlay-kept", "native-loading-overlay-kept"):
-            environment["QUEST_LOADING_COMPOSITION_CONTROL"] = args.control
         process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=environment); reaped=False
         code = process.wait(timeout=240)
     finally:
