@@ -2022,6 +2022,18 @@
       "weight": 90
     },
     {
+      "id": "xr-stat-probe",
+      "command": [
+        "python3",
+        "scripts/xr-stat-probe-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
       "id": "world-material-runtime",
       "command": [
         "python3",
