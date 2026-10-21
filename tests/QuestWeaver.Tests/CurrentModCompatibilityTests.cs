@@ -20,6 +20,7 @@ internal static class CurrentModCompatibilityTests
         check(Failure(() => FieldReaders.Version<WrongRevision>("_version")) is MissingFieldException, "Wrong revision field type was accepted.");
         using (Discovery model = Discovery.Load(modPath, managed))
         {
+            VerifyShieldDiagnostic(model.Mod, check);
             TypeDefinition camera = model.Mod.MainModule.GetType("GloomhavenVR.Core.NativeCameraRenderBudget");
             string[] mainBody = Body(camera.Methods.Single(m => m.Name == "get_Main"));
             string[] enumBody = Body(camera.Methods.Single(m => m.Name == "get_ProjectionCameras"));
@@ -48,6 +49,7 @@ internal static class CurrentModCompatibilityTests
         RuntimeRegistrationTests.VerifyWriteGate(modPath, managed, Path.Combine(output, "static-proof-rejection"), check);
         using (AssemblyDefinition woven = AssemblyDefinition.ReadAssembly(Path.Combine(output, "GloomhavenVR.dll")))
         {
+            VerifyShieldDiagnostic(woven, check);
             check(!woven.MainModule.AssemblyReferences.Any(a => a.Name == "System.Private.CoreLib"), "Host framework identity escaped into Unity output.");
             MethodDefinition factory = woven.MainModule.GetType("GloomhavenVR.WorldUI.CanvasConversion").Methods.Single(m => m.Name == "ResolveNativeWindowRegistryVersion");
             MethodReference invoke = factory.Body.Instructions.Select(i => i.Operand).OfType<MethodReference>().First(c => c.DeclaringType.FullName.StartsWith("System.Func`2<", StringComparison.Ordinal) && c.Name == "Invoke");
@@ -129,6 +131,19 @@ internal static class CurrentModCompatibilityTests
             try { using Discovery model = Discovery.Load(path, managed); check(model.Audit().Issues.Any(i => i.Code == "CURRENT_MOD_AOT_UNSUPPORTED"), "Unknown " + label + " did not close the build gate."); }
             finally { File.Delete(path); }
         }
+    }
+    static void VerifyShieldDiagnostic(AssemblyDefinition assembly, Action<bool, string> check)
+    {
+        TypeDefinition? shield = assembly.MainModule.GetType("GloomhavenVR.Board.Patches.QuestNativeShieldSpawn");
+        if (shield == null) return;
+        MethodDefinition trace = shield.Methods.Single(m => m.Name == "ObserveDefaultHit");
+        // The real game's global Debug facade has conditional methods. A source
+        // call can compile successfully while leaving no emitted diagnostic.
+        check(trace.Body.Instructions.Any(i => i.OpCode == OpCodes.Ldstr && i.Operand is string text
+                && text.StartsWith("[Quest startup] shield-native-source role=default-hit", StringComparison.Ordinal))
+            && trace.Body.Instructions.Select(i => i.Operand).OfType<MethodReference>()
+                .Any(m => m.DeclaringType.FullName == "UnityEngine.Debug" && m.Name == "Log"),
+            "The exact shield-source observation was elided or rebound through the game's conditional Debug facade.");
     }
     static string[] Body(MethodDefinition method) => method.Body.Instructions.Select(i => i.ToString()).ToArray();
     static Exception? Failure(Action action) { try { action(); return null; } catch (Exception e) { return e; } }

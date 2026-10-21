@@ -1,3 +1,21 @@
+**Quest hardware follow-up, 2026-10-21: feature / 1.2.0 / B717.**
+
+Match capture164143/video182718 to B716. Record the complete failed initial
+spinner chronology: current renderer remains admitted at alpha1 until its90s
+cap, so another longer lifetime is unsupported. Preserve native artwork with
+an explicit initial foreground draw, correct undersampled/private-stencil probes
+and retain readback targets across unused-asset collection. Deliver the verified
+16,936byte Android shader embedded in code, preserving existing asset banks.
+Upload exact live native ping/TargetShield geometry with Float32 COLOR while
+keeping original particle visibility/culling clocks; qualify real3/4stream and
+scaled-rig pixel/playback behavior. Shield-source attribution remains a hardware
+hypothesis. Second-room slowdown is measured but not attributed: retain bounded
+CPU windows and material refusals, fix current-provider GPU units (also source-only
+dev25d9c22f0) and cache immutable UI field bindings. No claimed large FPS gain,
+wall hiding, quality reduction or pillar LOD. Focused evidence, inherited gate
+boundaries and minimal B716 update qualification are recorded in
+`QUEST717-HARDWARE-REVIEW.md`; final headset outcomes remain open.
+
 **Quest release-main integration, 2026-10-21: feature / 1.2.0 / B716.**
 
 Rebase the published Quest B713 adaptations onto requested release main

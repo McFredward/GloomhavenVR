@@ -32,13 +32,13 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**219 patch classes, 317 patched methods.**
+**220 patch classes, 318 patched methods.**
 
 ## Board
 
 | Patch class | Target | Kind | Registered by |
 |---|---|---|---|
-| `Controller_CommonLoop_Patch`<br/><sub>src/GloomhavenVR/Board/BoardClickDriver.cs:789</sub> | `Controller.CommonLoop()` *(private)* | postfix | `BoardModule`:115 |
+| `Controller_CommonLoop_Patch`<br/><sub>src/GloomhavenVR/Board/BoardClickDriver.cs:792</sub> | `Controller.CommonLoop()` *(private)* | postfix | `BoardModule`:115 |
 | `ActorBehaviour_HeldTransform_Patch`<br/><sub>src/GloomhavenVR/Board/FigureGrab/ActorBehaviour_HeldTransform_Patch.cs:42</sub> | `ActorBehaviour.Update()` *(private)* | prefix | `BoardModule`:118 |
 | &nbsp; | `ActorBehaviour.LateUpdate()` *(private)* | prefix | &nbsp; |
 | &nbsp; | `ActorBehaviour.SetLocoTarget()` | prefix | &nbsp; |
@@ -53,17 +53,18 @@ runtime, which is why a runtime audit could never do this job (see
 | `HexHighlightFix.HexSelect_ProjectorMaterialAdjustment_Patch`<br/><sub>src/GloomhavenVR/Board/HexHighlightFix.cs:555</sub> | `HexSelect_Control.ProjectorMaterialAdjustment()` *(private)* | postfix | `BoardModule`:106 |
 | `AllCardsViewerBlock`<br/><sub>src/GloomhavenVR/Board/Patches/AllCardsViewerBlock.cs:115</sub> | `CardsHandManager.ToggleViewAllCards(CPlayerActor, bool)` | prefix | `BoardModule`:144 |
 | &nbsp; | `CardsHandUI.ToggleFullCardsPreview(bool, bool)` | prefix | &nbsp; |
-| `InitiativeTrack_ShowMonsterClasses_ArmSkip`<br/><sub>src/GloomhavenVR/Board/Patches/EnemyInfoPhaseSkip.cs:437</sub> | `InitiativeTrack.ShowMonsterClassesForSelectingRoundAbilityCards()` | postfix | `BoardModule`:158 |
-| `InitiativeTrack_Update_TickSkip`<br/><sub>src/GloomhavenVR/Board/Patches/EnemyInfoPhaseSkip.cs:457</sub> | `InitiativeTrack.Update()` *(private)* | postfix | `BoardModule`:159 |
+| `InitiativeTrack_ShowMonsterClasses_ArmSkip`<br/><sub>src/GloomhavenVR/Board/Patches/EnemyInfoPhaseSkip.cs:437</sub> | `InitiativeTrack.ShowMonsterClassesForSelectingRoundAbilityCards()` | postfix | `BoardModule`:160 |
+| `InitiativeTrack_Update_TickSkip`<br/><sub>src/GloomhavenVR/Board/Patches/EnemyInfoPhaseSkip.cs:457</sub> | `InitiativeTrack.Update()` *(private)* | postfix | `BoardModule`:161 |
 | `HexHoverClear`<br/><sub>src/GloomhavenVR/Board/Patches/HexHoverClear.cs:135</sub> | `WorldspaceStarHexDisplay.Update()` | postfix | `BoardModule`:100 |
 | `HoverPickPatch`<br/><sub>src/GloomhavenVR/Board/Patches/HoverPickPatch.cs:163</sub> | `HoverRegisterer.Update()` *(private)* | prefix | `BoardModule`:96 |
 | `MF_FindInteractableAtMousePosition_Patch`<br/><sub>src/GloomhavenVR/Board/Patches/PickingPatches.cs:42</sub> | `MF.FindInteractableAtMousePosition()` | prefix | `BoardModule`:86 |
 | `InputManager_CursorPosition_Patch`<br/><sub>src/GloomhavenVR/Board/Patches/PickingPatches.cs:87</sub> | `InputManager.get_CursorPosition()` | prefix | `BoardModule`:87 |
 | `UIManager_IsPointerOverUI_Patch`<br/><sub>src/GloomhavenVR/Board/Patches/PickingPatches.cs:141</sub> | `UIManager.get_IsPointerOverUI()` | prefix | `BoardModule`:88 |
 | `PingNameTag_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/Board/Patches/PingNameTag.cs:45</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `BoardModule`:151 |
-| `Placement_Hover_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:47</sub> | `WorldspaceStarHexDisplay.HighlightSelectedPlacementHex()` | postfix | `BoardModule`:161 |
-| `Placement_UpdateGate_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:98</sub> | `WorldspaceStarHexDisplay.Update()` | prefix | `BoardModule`:162 |
-| `Placement_Click_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:155</sub> | `Choreographer.TileHandler()` | prefix | `BoardModule`:163 |
+| `Placement_Hover_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:47</sub> | `WorldspaceStarHexDisplay.HighlightSelectedPlacementHex()` | postfix | `BoardModule`:163 |
+| `Placement_UpdateGate_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:98</sub> | `WorldspaceStarHexDisplay.Update()` | prefix | `BoardModule`:164 |
+| `Placement_Click_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:155</sub> | `Choreographer.TileHandler()` | prefix | `BoardModule`:165 |
+| `QuestNativeShieldSpawn` *(degrades by design)*<br/><sub>src/GloomhavenVR/Board/Patches/QuestNativeShieldSpawn.cs:17</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `BoardModule`:153 |
 | `InitiativeTrackPlayerAvatar_OnClick_Guard`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:60</sub> | `InitiativeTrackPlayerAvatar.OnClick()` | prefix | `BoardModule`:125 |
 | &nbsp; | `InitiativeTrackPlayerAvatar.OnClick()` | postfix | &nbsp; |
 | `InteractabilityManager_PortraitFocusBypass`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:290</sub> | `InteractabilityManager.ShouldAllowClickForExtendedButton()` | prefix | `BoardModule`:133 |
@@ -245,8 +246,8 @@ runtime, which is why a runtime audit could never do this job (see
 | `MapItemConfirmationRequestObserver`<br/><sub>src/GloomhavenVR/WorldUI/Composites/MapDialogSeat.cs:708</sub> | `UIItemConfirmationBox.ShowConfirmation()` | prefix | `WorldUIModule`:84 |
 | `QuestPreparationHint`<br/><sub>src/GloomhavenVR/WorldUI/Composites/QuestPreparationHint.cs:22</sub> | `UIIntroduceBase.Show(IntroductionConfigUI, Action)` *(private)* | prefix | `WorldUIModule`:148 |
 | `NativeStartupMoviePatch`<br/><sub>src/GloomhavenVR/WorldUI/FlatScreen/NativeEmbeddedMoviePatches.cs:10</sub> | `IntroPlayer.ShowVideo()` *(private)* | prefix | `WorldUIModule`:182 |
-| `NativeVideoMoviePatch`<br/><sub>src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs:281</sub> | `VideoCamera.PlayFullscreenVideo()` | transpiler | `WorldUIModule`:179 |
-| `NativeAmbientMoviePatch`<br/><sub>src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs:322</sub> | `BackgroundView.Update()` *(private)* | transpiler | `WorldUIModule`:181 |
+| `NativeVideoMoviePatch`<br/><sub>src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs:283</sub> | `VideoCamera.PlayFullscreenVideo()` | transpiler | `WorldUIModule`:179 |
+| `NativeAmbientMoviePatch`<br/><sub>src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs:324</sub> | `BackgroundView.Update()` *(private)* | transpiler | `WorldUIModule`:181 |
 | `InputManager_SetGamepadInputDevice_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:79</sub> | `InputManager.SetGamepadInputDevice()` | prefix | `WorldUIModule`:79 |
 | `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:99</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:80 |
 | `VrGamepadConnectionActivateGuard`<br/><sub>src/GloomhavenVR/WorldUI/Grab/VrGamepadConnectionGuard.cs:20</sub> | `GamepadConnectionBox.Activate()` | prefix | `WorldUIModule`:81 |
@@ -390,7 +391,7 @@ runtime, which is why a runtime audit could never do this job (see
 
 | Module file | Patch classes registered |
 |---|---|
-| `src/GloomhavenVR/Board/BoardModule.cs` | `ActorBehaviour_HeldTransform_Patch`, `AllCardsViewerBlock`, `CharacterManager_OnControlReleased_Fallback`, `Choreographer_HeldFigureAction_Patch`, `Choreographer_TileHandler_OwnershipGuard`, `Controller_CommonLoop_Patch`, `HexHoverClear`, `HexSelect_ProjectorMaterialAdjustment_Patch`, `HoverPickPatch`, `InitiativeTrackPlayerAvatar_OnClick_Guard`, `InitiativeTrack_ShowMonsterClasses_ArmSkip`, `InitiativeTrack_Update_TickSkip`, `InputManager_CursorPosition_Patch`, `InteractabilityManager_PortraitFocusBypass`, `MF_FindInteractableAtMousePosition_Patch`, `MF_HeldFigureAnimation_Patch`, `PingNameTag_Patch`, `Placement_Click_Diagnostics`, `Placement_Hover_Diagnostics`, `Placement_UpdateGate_Diagnostics`, `ProjectorModifier_Awake_Patch`, `UIManager_IsPointerOverUI_Patch` |
+| `src/GloomhavenVR/Board/BoardModule.cs` | `ActorBehaviour_HeldTransform_Patch`, `AllCardsViewerBlock`, `CharacterManager_OnControlReleased_Fallback`, `Choreographer_HeldFigureAction_Patch`, `Choreographer_TileHandler_OwnershipGuard`, `Controller_CommonLoop_Patch`, `HexHoverClear`, `HexSelect_ProjectorMaterialAdjustment_Patch`, `HoverPickPatch`, `InitiativeTrackPlayerAvatar_OnClick_Guard`, `InitiativeTrack_ShowMonsterClasses_ArmSkip`, `InitiativeTrack_Update_TickSkip`, `InputManager_CursorPosition_Patch`, `InteractabilityManager_PortraitFocusBypass`, `MF_FindInteractableAtMousePosition_Patch`, `MF_HeldFigureAnimation_Patch`, `PingNameTag_Patch`, `Placement_Click_Diagnostics`, `Placement_Hover_Diagnostics`, `Placement_UpdateGate_Diagnostics`, `ProjectorModifier_Awake_Patch`, `QuestNativeShieldSpawn`, `UIManager_IsPointerOverUI_Patch` |
 | `src/GloomhavenVR/Cards/CardsModule.cs` | `AbilityCardUI_Init_HistoricalBurn_Patch`, `AbilityCardUI_OnReturnedToPool_BurnLifetime`, `BurnCardTimeline_PreserveSpentStart_Patch`, `BurnCardTimeline_Track`, `CardsHandManager_ShowAll_Patch`, `CardsHandManager_ShowHands_Patch`, `CardsHandManager_ShowList_Patch`, `CardsHandUI_DestroyCardUI_Patch`, `CardsHandUI_HandleLongRest_PickFlowEnd`, `CardsHandUI_Hide_PickFlowEnd`, `CardsHandUI_OnDestroy_Patch`, `CardsHandUI_OnLoseCardClick_Gate`, `CardsHandUI_UpdateView_PickFlowOpen`, `DialogPopup_Show_HoverStrip`, `FullAbilityCard_Enter_HalfHoverSync`, `FullAbilityCard_Exit_HalfHoverSync`, `FullAbilityCard_Init_CensusLifetime`, `FullAbilityCard_OnDestroy_CensusLifetime`, `FullAbilityCard_OnEnable_CensusLifetime`, `FullAbilityCard_ShowCard_ArtGuard`, `FullAbilityCard_UpdatePosition_AdoptedLayout`, `FullAbilityCard_UpdateScale_AdoptedLayout`, `FullCardEventPusher_Enter_LaserGeometric`, `FullCardEventPusher_Exit_LaserGeometric`, `MapPartyEnhancementShopService_AddEnhancement_FanRefresh`, `ObjectPool_GetCardInstance_NativeHierarchy`, `ObjectPool_RecycleCard_NativeHierarchy`, `RestoreCard_Once`, `RestoreCard_PreservePlayback_Patch`, `ReturnedToPool_Retire`, `SceneController_LoadScene_CardLifetime`, `TakeDamagePanel_BurnHover_Skip`, `ToggleAdditiveEffect_Once`, `ToggleAdditiveEffect_PreservePlayback_Patch`, `ToggleEffect_Once`, `ToggleEffect_PreserveSpentStart_Patch` |
 | `src/GloomhavenVR/Compat/CompatModule.cs` | `InitialInputSkip`, `LevelEventsController_MessageWasDismissed_Patch`, `LevelEventsController_MessageWasDisplayed_Patch`, `LevelEventsController_StartListeningForEvents_Patch`, `LevelMessagePageUI_OnLanguageChanged_Patch`, `LevelMessageUILayoutGroup_Show_Patch`, `LevelMessageUILayout_Title_Patch`, `LoadoutHostingGuard`, `MaterialLoader_LoadMaterials_RegisterPatch`, `NativeBugFixes_ItemReplayActor`, `NativeBugFixes_ShowUsableItemsActor`, `NativeCardsRestorePhaseFix`, `TutorialChainHold`, `TutorialService_StartTutorial_Patch`, `WallFadeDisable` |
 | `src/GloomhavenVR/Core/Events/VREventsModule.cs` | `Choreographer_ProcessMessage_Patch`, `Choreographer_SetChoreographerState_Patch`, `UIManager_ToggleLockUI_Patch`, `UIWindow_Transition_Patch` |

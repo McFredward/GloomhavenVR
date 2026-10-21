@@ -37,7 +37,7 @@ internal static class QuestNativeShieldSpawn
                 .Append(material != null && material.shader != null ? material.shader.name : "none")
                 .Append(":active=").Append(renderer.enabled && renderer.gameObject.activeInHierarchy);
         }
-        Debug.Log("[Quest startup] shield-native-source role=default-hit prefab=" + prefab.name
+        UnityEngine.Debug.Log("[Quest startup] shield-native-source role=default-hit prefab=" + prefab.name
             + " renderers=" + renderers.Length + " observed=" + details + " adapter=none");
     }
 
