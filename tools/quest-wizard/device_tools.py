@@ -1,0 +1,698 @@
+"""Independent Quest connection and bounded runtime captures for the local wizard.
+
+Reuse the installer's identity-checked wireless setup and the standalone collector's
+fixed diagnostic allowlist. No APK, content bank, save or profile is transferred.
+The HTTP owner supplies job exclusion and cancellation; polling only reads cached
+state and never probes ADB or walks the filesystem again.
+
+The maintainer's 2026-10-12 report found silent waits inside the previous4/27
+completion counters. Count the collector's actual observation targets and expose
+the current command's measured activity without inferring completion from time.
+"""
+from __future__ import annotations
+
+import copy
+from contextlib import contextmanager
+import importlib.util
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from types import SimpleNamespace
+import uuid
+import zipfile
+
+import discovery
+from state import Cancelled, WizardError, atomic_json, ordinary
+
+CAPTURE_ID = re.compile(r"[0-9a-f]{32}\Z")
+CAPTURE_NAME = re.compile(r"quest-capture-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}\.zip\Z")
+MAX_CAPTURE_BYTES = 40 * 1048576
+MAX_STATE_BYTES = 128 * 1024
+MAX_PROGRESS_LOG_BYTES = 2 * 1048576
+HEARTBEAT_SECONDS = .5
+
+
+def _cleanup_module(repo):
+    """Load the packaged device helper without depending on a CLI import path."""
+    with discovery._LOADER_LOCK:
+        name = "_quest_wizard_device_cleanup"
+        spec = importlib.util.spec_from_file_location(name, repo / "tools/quest-installer/device_cleanup.py")
+        module = importlib.util.module_from_spec(spec)
+        previous = sys.modules.get(name)
+        sys.modules[name] = module
+        try:
+            spec.loader.exec_module(module)
+            return module
+        finally:
+            if previous is None: sys.modules.pop(name, None)
+            else: sys.modules[name] = previous
+
+
+def _wireless_module(repo):
+    """Use the same endpoint qualification as completed USB installations."""
+    with discovery._LOADER_LOCK:
+        name = "_quest_wizard_remember_wireless"
+        spec = importlib.util.spec_from_file_location(name, repo / "tools/quest-installer/wireless.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+
+def _modules(repo):
+    """Bind the real collector to its installer without polluting other imports."""
+    with discovery._LOADER_LOCK:
+        missing = object()
+        names = ("_quest_wizard_device_installer", "installer", "_quest_wizard_device_collector")
+        prior = {name: sys.modules.get(name, missing) for name in names}
+        try:
+            def load(name, filename):
+                spec = importlib.util.spec_from_file_location(name, repo / "tools/quest-installer" / filename)
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[name] = module
+                spec.loader.exec_module(module)
+                return module
+            installer = load(names[0], "installer.py")
+            sys.modules["installer"] = installer
+            collector = load(names[2], "collector.py")
+            return installer, collector
+        finally:
+            for name, value in prior.items():
+                if value is missing: sys.modules.pop(name, None)
+                else: sys.modules[name] = value
+
+
+def _options(value, capture=False):
+    allowed = {"host", "serial"} | (set() if capture else {"setupWireless"})
+    if not isinstance(value, dict) or set(value) - allowed:
+        raise WizardError("device_options", "Unsupported Quest connection options.", "Ungültige Quest-Verbindungsoptionen.")
+    for key in ("host", "serial"):
+        if key in value and (not isinstance(value[key], str) or len(value[key]) > 256):
+            raise WizardError("device_options", "Invalid Quest address or serial.", "Ungültige Quest-Adresse oder Seriennummer.")
+    if "setupWireless" in value and type(value["setupWireless"]) is not bool:
+        raise WizardError("device_options", "Wireless setup must be a yes/no choice.", "WLAN-Einrichtung muss eine Ja/Nein-Auswahl sein.")
+    serial = value.get("serial", "").strip()
+    if serial and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", serial):
+        raise WizardError("device_options", "Invalid Quest serial.", "Ungültige Quest-Seriennummer.")
+    return {"host": value.get("host", "").strip() or None,
+            "serial": serial or None, "setup": value.get("setupWireless", False)}
+
+
+def _start_options(value):
+    if (not isinstance(value, dict) or set(value) != {"host", "serial", "waitForDebugger"}
+            or type(value["waitForDebugger"]) is not bool):
+        raise WizardError("device_options", "Select a Quest and an explicit debugger yes/no choice.",
+                          "Eine Quest und eine ausdrückliche Ja/Nein-Auswahl für den Debugger angeben.")
+    return _options({key: value[key] for key in ("host", "serial")}, capture=True), value["waitForDebugger"]
+
+
+class DeviceTools:
+    def __init__(self, repo, state_root, runner=None):
+        self.repo, self.root = Path(repo), ordinary(state_root)
+        self.directory = ordinary(self.root / "device")
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.config = ordinary(self.directory / "wireless-install.json")
+        self.captures = ordinary(self.directory / "captures")
+        self.captures.mkdir(exist_ok=True)
+        self.runner = runner
+        self.lock = threading.RLock()
+        self.started = None
+        self.remote_sizes = {}
+        self.recorded_progress = None
+        self.recorded_at = 0
+        self.cleanup_plan = None
+        self.cleanup_helper = None
+        self.state_path = ordinary(self.directory / "device-tools-state.json")
+        self.progress_log = ordinary(self.directory / "device-tools-progress.jsonl")
+        self.state = {"status": "idle", "operation": None, "devices": [], "endpoint": None,
+                      "serial": None, "message": {"en": "Connect an authorized Quest to collect runtime logs.",
+                      "de": "Eine autorisierte Quest verbinden, um Laufzeit-Logs zu speichern."},
+                      "progress": {"done": 0, "total": 1, "percent": 0, "label": "idle"}}
+        # A remembered endpoint is only presentation here. The actual operation
+        # still verifies hardware identity through the shared installer.
+        try:
+            config = self._config()
+            self.state["endpoint"] = config.get("endpoint")
+            self.state["hardwareSerial"] = config.get("deviceSerial")
+        except (OSError, ValueError, WizardError): pass
+
+    def status(self):
+        with self.lock: return copy.deepcopy(self.state)
+
+    def _publish(self, callback=None, **values):
+        with self.lock:
+            self.state.update(values)
+            self.state["updatedAt"] = time.time()
+            if self.started is not None:
+                self.state["elapsedSeconds"] = round(time.monotonic() - self.started, 3)
+            result = copy.deepcopy(self.state)
+            # Keep the current job identifiable in a Builder support export,
+            # including jobs that have not reached a command's completion log.
+            # Diagnostics must never prevent the actual connection/capture.
+            activity = result.get("activity") or {}
+            signature = (result.get("status"), result.get("operation"), result.get("log"),
+                         result.get("progress", {}).get("done"), activity.get("label"))
+            record = signature != self.recorded_progress or time.monotonic() - self.recorded_at >= 1
+            try:
+                if record:
+                    atomic_json(self.state_path, result)
+                    ordinary(self.progress_log)
+                    if self.progress_log.exists() and self.progress_log.stat().st_size > MAX_PROGRESS_LOG_BYTES:
+                        self.progress_log.unlink()
+                    event = {key: result[key] for key in ("updatedAt", "elapsedSeconds", "status", "operation", "progress", "activity") if key in result}
+                    with self.progress_log.open("a", encoding="utf-8") as stream:
+                        stream.write(json.dumps(event, sort_keys=True) + "\n")
+                    self.recorded_progress, self.recorded_at = signature, time.monotonic()
+            except (OSError, ValueError, WizardError): pass
+        if callback: callback(result)
+        return result
+
+    def _step(self, progress, done, total, label, **values):
+        return self._publish(progress, progress={"done": done, "total": total,
+            "percent": None if total is None else 100 if done == total else done / total * 100,
+            "label": label}, activity=None, **values)
+
+    @contextmanager
+    def _watch(self, callback, label, observe=None):
+        """Show measured activity while a synchronous tool owns its real work.
+
+        Unknown totals remain unknown. Elapsed time is an activity signal, never
+        a percentage estimate. Only our private download/pull file and captured
+        command output provide byte counts; no APK or game bank is inspected.
+        """
+        started = time.monotonic()
+        stop = threading.Event()
+        def pulse():
+            activity = {"label": label, "elapsedSeconds": round(time.monotonic() - started, 3)}
+            if observe:
+                try: activity.update(observe())
+                except (OSError, ValueError, WizardError): pass
+            self._publish(callback, activity=activity)
+        pulse()
+        def monitor():
+            while not stop.wait(HEARTBEAT_SECONDS): pulse()
+        thread = threading.Thread(target=monitor, name="quest-device-activity", daemon=False)
+        thread.start()
+        try: yield
+        finally:
+            stop.set(); thread.join()
+
+    @staticmethod
+    def _command_label(command):
+        args = list(map(str, command[1:]))
+        if args[:1] == ["-s"]: args = args[2:]
+        if args[:1] == ["devices"]: return "device-discovery"
+        if args[:1] == ["connect"]: return "wifi-connect"
+        if args[:1] == ["tcpip"]: return "wifi-setup"
+        if args[:1] == ["pull"]: return "log-transfer"
+        if args[:2] == ["shell", "sha256sum"]: return "installed-apk-hash"
+        if args[:2] == ["shell", "getprop"]: return "device-properties"
+        if args[:2] == ["shell", "logcat"]: return "logcat-history" if "-s" in args else "logcat"
+        if args[:2] == ["shell", "dumpsys"] or args[:2] == ["shell", "pm"]: return "installed-package"
+        if args[:3] == ["shell", "cmd", "package"]: return "game-launcher"
+        if args[:3] == ["shell", "am", "start"]: return "game-start"
+        if args[:2] == ["shell", "pidof"]: return "game-process"
+        if "head" in args: return "log-transfer"
+        if "stat" in args: return "log-metadata"
+        return "quest-command"
+
+    def _config(self):
+        ordinary(self.config)
+        if not self.config.exists(): return {"schema": 1}
+        if self.config.stat().st_size > MAX_STATE_BYTES:
+            raise WizardError("device_config", "Remembered Quest settings are too large.", "Gespeicherte Quest-Einstellungen sind zu groß.")
+        value = json.loads(self.config.read_text(encoding="utf-8-sig"))
+        if not isinstance(value, dict) or value.get("schema") != 1:
+            raise WizardError("device_config", "Remembered Quest settings are invalid.", "Gespeicherte Quest-Einstellungen sind ungültig.")
+        return value
+
+    @staticmethod
+    def _cancel(cancel):
+        if cancel is not None and cancel.is_set(): raise Cancelled()
+
+    def _runner(self, cancel, progress=None):
+        """Terminate and reap a current ADB child when the browser cancels a job."""
+        def run(command, **options):
+            self._cancel(cancel)
+            args = list(map(str, command[1:]))
+            if args[:1] == ["-s"]: args = args[2:]
+            observation = {"command": self._command_label(command), "receivedBytes": 0}
+            if args[:1] == ["pull"]: observation["detail"] = Path(args[1]).name
+            elif "head" in args or "stat" in args or args[:2] == ["shell", "sha256sum"]:
+                observation["detail"] = Path(args[-1]).name
+            elif args[:2] == ["shell", "getprop"] and len(args) > 2:
+                observation["detail"] = args[2]
+            pull = Path(args[2]) if args[:1] == ["pull"] and len(args) == 3 else None
+            expected = self.remote_sizes.get(args[1]) if pull else None
+            if "head" in args and "-c" in args:
+                try: expected = int(args[args.index("-c") + 1])
+                except (ValueError, IndexError): pass
+            # The collector bounds every log target. Do not accidentally turn a
+            # future unrelated ADB command into an unbounded filesystem probe.
+            if type(expected) is not int or not 0 < expected <= MAX_CAPTURE_BYTES: expected = None
+            def observed():
+                value = copy.deepcopy(observation)
+                if pull:
+                    ordinary(pull)
+                    value["receivedBytes"] = min(MAX_CAPTURE_BYTES, pull.stat().st_size) if pull.is_file() else 0
+                if expected:
+                    value["totalBytes"] = expected
+                    value["percent"] = min(99, value["receivedBytes"] / expected * 100)
+                return value
+            def complete(result):
+                if args[:4] == ["shell", "stat", "-c", "%s"] and result.returncode == 0:
+                    output = result.stdout.decode("utf-8", errors="replace") if isinstance(result.stdout, bytes) else (result.stdout or "")
+                    if re.fullmatch(r"\s*\d{1,19}\s*", output): self.remote_sizes[args[-1]] = int(output.strip())
+                return result
+            if self.runner is not None:
+                with self._watch(progress, self._command_label(command), observed):
+                    return complete(self.runner(command, **options))
+            timeout = options.pop("timeout", 20)
+            capture = options.pop("capture_output", False)
+            payload = options.pop("input", None)
+            if capture: options.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if payload is not None: options["stdin"] = subprocess.PIPE
+            started = time.monotonic()
+            process = subprocess.Popen(command, **options)
+            try:
+                with self._watch(progress, self._command_label(command), observed):
+                    first = True
+                    while True:
+                        self._cancel(cancel)
+                        remaining = timeout - (time.monotonic() - started)
+                        if remaining <= 0: raise subprocess.TimeoutExpired(command, timeout)
+                        try:
+                            stdout, stderr = process.communicate(input=payload if first else None, timeout=min(.2, remaining))
+                            return complete(subprocess.CompletedProcess(command, process.returncode, stdout, stderr))
+                        except subprocess.TimeoutExpired as waiting:
+                            first = False
+                            partial = waiting.stdout or b""
+                            observation["receivedBytes"] = len(partial.encode("utf-8") if isinstance(partial, str) else partial)
+            except BaseException:
+                if process.poll() is None:
+                    process.terminate()
+                    try: process.communicate(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill(); process.communicate()
+                raise
+        return run
+
+    def _begin(self, operation, progress, cancel):
+        self._cancel(cancel)
+        self.started = time.monotonic()
+        self.remote_sizes = {}
+        self.total = 4 if operation == "connect" else 7 if operation == "start" else None
+        self.cleanup_plan = None
+        self.cleanup_helper = None
+        self._publish(progress, progress={"done": 0, "total": self.total, "percent": 0, "label": "adb-setup"}, activity=None,
+            status="connecting", operation=operation, capture=None, storagePlan=None, storageResult=None, launch=None, wireless=None,
+            startedAt=time.time(), log=None, error=None,
+            message={"en": "Preparing Android platform-tools; missing tools are downloaded automatically.",
+                     "de": "Android platform-tools vorbereiten; fehlende Werkzeuge werden automatisch heruntergeladen."})
+        installer, collector = _modules(self.repo)
+        self.targets = self._capture_targets(collector)
+        if operation == "capture":
+            self.total = len(self.targets)
+            self._step(progress, 0, self.total, "adb-setup")
+        config = self._config()
+        def download_observation():
+            cache = self.repo / "scripts/.quest-adb"
+            ordinary(cache)
+            if not cache.is_dir(): return {}
+            # The bootstrap creates a random private *.partial owner. Observe
+            # only the current download; never walk a user's SDK or game files.
+            files = [path for path in cache.glob("download-*.partial") if path.is_file()]
+            if len(files) != 1: return {}
+            ordinary(files[0])
+            if files[0].stat().st_mtime < self.state["startedAt"]: return {}
+            spec = importlib.util.spec_from_file_location("_quest_device_download_limits", self.repo / "tools/quest-installer/adb_bootstrap.py")
+            bootstrap = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(bootstrap)
+            total = bootstrap.BYTES if sys.platform == "win32" else bootstrap.LINUX["bytes"] if sys.platform == "linux" else None
+            value = {"label": "adb-download", "receivedBytes": files[0].stat().st_size}
+            if total: value.update(totalBytes=total, percent=min(99, value["receivedBytes"] / total * 100))
+            return value
+        with self._watch(progress, "adb-setup", download_observation):
+            executable = installer.adb_path(None, config.get("adb"))
+        self._cancel(cancel)
+        log = ordinary(self.directory / ("device-tools-" + uuid.uuid4().hex + ".log"))
+        self._step(progress, 1, self.total, "device-discovery", log=str(log))
+        adb = installer.Adb(executable, log, self._runner(cancel, progress))
+        devices = adb.devices()
+        rows = [{"serial": serial, "state": state,
+                 "kind": "wifi" if ":" in serial or serial.startswith("adb-") else "usb",
+                 "model": None} for serial, state in sorted(devices.items())]
+        self._step(progress, 2, self.total, "quest-connect", devices=rows)
+        return installer, collector, config, adb
+
+    @staticmethod
+    def _capture_targets(collector):
+        # The capture plan counts actual observations, not variable fallback
+        # commands. All installed APK hashes form one explicit identity task.
+        files = tuple(collector.APP_FILES)
+        procedural = tuple(collector.PROCEDURAL_APP_FILES)
+        delivery = tuple(collector.DELIVERY_FILES)
+        return ("adb-setup", "device-discovery", "quest-select",
+            "ro.product.model", "ro.product.name", "ro.build.version.release", "ro.build.version.incremental", "ro.build.fingerprint",
+            "process", "logcat", "logcat-history", "package", "installed-apks") + files + procedural + tuple("delivery:" + name for name in delivery) + (
+            "metadata-summary", "capture-archive", "capture-receipt")
+
+    def _failure(self, error, progress):
+        if isinstance(error, Cancelled):
+            return self._publish(progress, status="idle", message=error.message)
+        # Missing authorization/network is an actionable wait, not a lost build.
+        detail = str(error)[:1400]
+        return self._publish(progress, status="waiting", message={
+            "en": "Quest connection needs attention. Unlock it, enable developer mode, connect USB and accept USB debugging. Then retry. " + detail,
+            "de": "Quest-Verbindung benötigt eine Aktion. Quest entsperren, Entwicklermodus aktivieren, USB anschließen und USB-Debugging bestätigen. Danach erneut versuchen. " + detail})
+
+    def connect(self, options, progress=None, cancel=None):
+        selected = _options(options)
+        try:
+            installer, _, config, adb = self._begin("connect", progress, cancel)
+            if selected["serial"] and ":" in selected["serial"] and not selected["setup"]:
+                # The device picker can contain an already connected Wi-Fi
+                # serial. The shared installer reserves --serial for USB;
+                # qualify that selection through its normal --host path.
+                if selected["host"] and installer.endpoint(selected["host"]) != installer.endpoint(selected["serial"]):
+                    raise WizardError("device_selection", "The selected Quest and address differ.", "Die ausgewählte Quest und Adresse unterscheiden sich.")
+                selected["host"] = selected["serial"]; selected["serial"] = None
+            if selected["host"]: selected["host"] = installer.endpoint(selected["host"])
+            self._step(progress, 2, 4, "quest-connect", message={
+                "en": "Checking USB first, then authorized Wi-Fi. Unlock the Quest and accept USB debugging.",
+                "de": "Zuerst USB, danach freigegebenes WLAN prüfen. Quest entsperren und USB-Debugging bestätigen."})
+            address, hardware = installer.choose_device(adb, SimpleNamespace(**selected), config)
+            self._cancel(cancel)
+            self._step(progress, 3, 4, "identity-confirmed", endpoint=address, serial=address, hardwareSerial=hardware)
+            config = installer.connection_settings(config, address, hardware, adb.executable)
+            transport = config["transport"]
+            self._publish(progress, transport=transport)
+            wireless = None
+            if transport == "usb":
+                # Connecting remains read-only unless wireless setup was
+                # explicitly chosen. Merely remembering an already authorized
+                # endpoint never changes the selected USB transport or adbd.
+                try:
+                    config, wireless = _wireless_module(self.repo).remember_after_usb(
+                        adb, address, hardware, config, enable=False)
+                except Cancelled: raise
+                except (OSError, RuntimeError, ValueError, ImportError) as error:
+                    # Optional Wi-Fi qualification must not turn an already
+                    # verified cable connection into a connection failure.
+                    wireless = {"status": "unavailable", "reason": "wireless-helper-unavailable",
+                                "detail": str(error)[:600], "message": {
+                        "en": "USB is connected. The optional wireless endpoint check was unavailable; previous settings were retained.",
+                        "de": "USB ist verbunden. Die optionale WLAN-Prüfung war nicht verfügbar; bisherige Einstellungen bleiben erhalten."}}
+                self._cancel(cancel)
+            atomic_json(self.config, config)
+            message = {
+                "en": "Quest connected over " + ("USB" if transport == "usb" else "Wi-Fi") + ". The verified headset identity is remembered.",
+                "de": "Quest über " + ("USB" if transport == "usb" else "WLAN") + " verbunden. Die geprüfte Headset-Identität ist gespeichert."}
+            if wireless is not None:
+                message = {locale: text + " " + wireless["message"][locale] for locale, text in message.items()}
+            return self._step(progress, 4, 4, "connected", status="connected", message=message,
+                              endpoint=config.get("endpoint") or address, wireless=wireless)
+        except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
+            return self._failure(error, progress)
+
+    def start(self, options, progress=None, cancel=None):
+        """Launch independently of installation, with opt-in Android debugging.
+
+        The maintainer's 2026-10-14 ruling separates debugger use from ordinary
+        installation. This action never opens app storage or attaches JDWP. Only
+        this request's explicit choice adds Android's transient -D start flag;
+        no persistent debugger setting, port forwarding or process stop is used.
+        An observed PID is a process witness, not proof of visible gameplay.
+        """
+        selected, debug = _start_options(options)
+        try:
+            installer, collector, config, adb = self._begin("start", progress, cancel)
+            if selected["host"]: selected["host"] = installer.endpoint(selected["host"])
+            serial, hardware, transport = collector.choose_capture_device(adb, SimpleNamespace(**selected), config)
+            self._cancel(cancel)
+            atomic_json(self.config, installer.connection_settings(config, serial, hardware, adb.executable))
+            self._step(progress, 3, self.total, "installed-package", status="starting", serial=serial,
+                       hardwareSerial=hardware, transport=transport,
+                       message={"en": "Checking the installed game before requesting its launch.",
+                                "de": "Installiertes Spiel vor der Startanforderung prüfen."})
+            raw = adb.run("-s", serial, "shell", "pm", "path", "--user", "0", installer.PACKAGE,
+                          check_text=False, empty_exit_codes=(1,))
+            if not raw:
+                raise WizardError("device_game_missing", "Install the Quest version before starting the game.",
+                                  "Vor dem Spielstart die Quest-Version installieren.")
+            if len(raw) > 16384 or not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", raw):
+                raise WizardError("device_game_identity", "The installed game could not be identified. Keep it installed and collect a support report.",
+                                  "Das installierte Spiel konnte nicht zugeordnet werden. Installation behalten und Diagnosepaket speichern.")
+            self._step(progress, 4, self.total, "game-launcher")
+            recovery = installer.signing_recovery_module()
+            raw = adb.run("-s", serial, "shell", "cmd", "package", "resolve-activity", "--brief", "--user", "0",
+                          "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", installer.PACKAGE,
+                          check_text=False)
+            component = raw.splitlines()[-1] if raw and len(raw) <= 8192 else ""
+            try: arguments = recovery.launcher_arguments(component)
+            except RuntimeError as error:
+                raise WizardError("device_game_launcher", "Android did not identify GloomhavenVR's launcher. Keep the installation and collect a support report.",
+                                  "Android konnte den GloomhavenVR-Start nicht zuordnen. Installation behalten und Diagnosepaket speichern.") from error
+            def process_id():
+                self._cancel(cancel)
+                value = adb.run("-s", serial, "shell", "pidof", installer.PACKAGE,
+                                check_text=False, empty_exit_codes=(1,))
+                if not value: return None
+                if not re.fullmatch(r"[1-9][0-9]{0,9}", value) or int(value) > 2147483647:
+                    raise WizardError("device_game_process", "Android returned an ambiguous game process. Close GloomhavenVR in the headset and retry.",
+                                      "Android meldet keinen eindeutigen Spielprozess. GloomhavenVR in der Brille schließen und erneut versuchen.")
+                return int(value)
+            before = process_id()
+            if debug and before is not None:
+                raise WizardError("device_debug_game_running", "Close GloomhavenVR in the headset first, saving your game if needed. Then start again with the debugger option.",
+                                  "GloomhavenVR zuerst in der Brille schließen und bei Bedarf den Spielstand speichern. Danach mit der Debugger-Option erneut starten.")
+            self._step(progress, 5, self.total, "game-start", message={
+                "en": "Requesting the game launch" + (" with the selected Android debugger wait." if debug else "."),
+                "de": "Spielstart anfordern" + (" mit dem gewählten Warten auf einen Android-Debugger." if debug else ".")})
+            self._cancel(cancel)
+            if adb.identity(serial) != hardware:
+                raise WizardError("device_game_identity", "The connection now belongs to another Quest. Reconnect the selected headset and retry.",
+                                  "Die Verbindung gehört inzwischen zu einer anderen Quest. Ausgewählte Brille erneut verbinden und wiederholen.")
+            adb.run("-s", serial, "shell", "am", "start", *(["-D"] if debug else []), "--user", "0", *arguments, timeout=30)
+            self._step(progress, 6, self.total, "game-process")
+            pid = None
+            for attempt in range(5):
+                pid = process_id()
+                if pid is not None: break
+                if attempt < 4:
+                    if cancel is not None:
+                        if cancel.wait(.2): raise Cancelled()
+                    else: time.sleep(.2)
+            launch = {"waitForDebugger": debug, "processId": pid, "requestAcknowledged": True}
+            if pid is None:
+                return self._step(progress, 7, self.total, "game-start-observed", status="waiting", launch=launch,
+                    message={"en": "Android acknowledged the launch, but no game process was observed. Put on and unlock the Quest, then retry or open GloomhavenVR under Unknown Sources. Collect game logs if it closes again.",
+                             "de": "Android hat den Start angenommen, aber es wurde kein Spielprozess erkannt. Quest aufsetzen und entsperren, dann erneut versuchen oder GloomhavenVR unter „Unbekannte Quellen“ öffnen. Falls es sich wieder schließt, Spielprotokolle speichern."})
+            return self._step(progress, 7, self.total, "game-start-observed", status="debug-wait" if debug else "started", launch=launch,
+                message={"en": "Game process started with Android debugger wait requested. Attach your Android/Java debugger; the Builder does not attach automatically. This is separate from Unity C# debugging." if debug else "Game process observed. Continue in the Quest; use Collect game logs if a problem occurs.",
+                         "de": "Spielprozess mit angefordertem Warten auf einen Android-Debugger gestartet. Android-/Java-Debugger verbinden; der Builder verbindet ihn nicht automatisch. Dies ist unabhängig vom Unity-C#-Debugging." if debug else "Spielprozess erkannt. In der Quest fortfahren; bei Problemen die Spielprotokolle speichern."})
+        except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
+            if isinstance(error, Cancelled): return self._failure(error, progress)
+            if isinstance(error, WizardError):
+                return self._publish(progress, status="waiting", error={"code": error.code}, message=error.message)
+            return self._failure(error, progress)
+
+    def capture(self, options, progress=None, cancel=None):
+        selected = _options(options, capture=True)
+        archive = None
+        try:
+            installer, collector, config, adb = self._begin("capture", progress, cancel)
+            if selected["host"]: selected["host"] = installer.endpoint(selected["host"])
+            serial, hardware, transport = collector.choose_capture_device(adb, SimpleNamespace(**selected), config)
+            self._cancel(cancel)
+            self._step(progress, 3, self.total, "runtime-logs", status="capturing", serial=serial, hardwareSerial=hardware, transport=transport,
+                message={"en": "Collecting bounded runtime logs. APKs, game assets and savegames are not copied.",
+                         "de": "Begrenzte Laufzeit-Logs erfassen. APKs, Spielassets und Spielstände werden nicht kopiert."})
+            identity = uuid.uuid4().hex
+            stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + identity[:8]
+            archive = ordinary(self.captures / ("quest-capture-" + stamp + ".zip"))
+            completed = set(self.targets[:3])
+            owner = self
+            def advance(label):
+                owner._cancel(cancel)
+                if label not in self.targets: raise ValueError("Unknown capture progress target")
+                if label in completed: return
+                completed.add(label)
+                owner._step(progress, len(completed), self.total, label)
+            class ProgressCapture(collector.Capture):
+                def read(self, *arguments, **keywords):
+                    owner._cancel(cancel)
+                    result = super().read(*arguments, **keywords)
+                    # Top-level fixed metadata observations, distinct from a
+                    # log's internal transfer/fallback commands.
+                    if arguments[:2] == ("shell", "getprop"): advance(arguments[2])
+                    elif arguments[:2] == ("shell", "pidof"): advance("process")
+                    elif arguments[:2] == ("shell", "logcat"): advance("logcat-history" if "-s" in arguments else "logcat")
+                    elif arguments[:2] == ("shell", "dumpsys"): advance("package")
+                    elif (arguments[:2] == ("shell", "stat") and arguments[-1] in
+                            tuple(collector.REMOTE_FILES + "/" + item for item in collector.DELIVERY_FILES)):
+                        advance("delivery:" + arguments[-1][len(collector.REMOTE_FILES) + 1:])
+                    return result
+                def app_file(self, name):
+                    advance("installed-apks")
+                    owner._step(progress, len(completed), owner.total, name)
+                    super().app_file(name); advance(name)
+                def procedural_file(self, name):
+                    owner._step(progress, len(completed), owner.total, name)
+                    super().procedural_file(name); advance(name)
+            with tempfile.TemporaryDirectory(prefix="capture-", dir=self.captures) as temporary:
+                directory = Path(temporary)
+                manifest = {"schema": 1, "capturedUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "device": {"adbSerial": serial, "hardwareSerial": hardware, "transport": transport},
+                    "limits": {"appFileBytes": collector.MAX_FILE, "logcatBytes": collector.MAX_LOGCAT,
+                        "appHistoryBytes": collector.MAX_HISTORY, "proceduralFileBytes": collector.MAX_FILE},
+                    "files": [], "errors": []}
+                capture = ProgressCapture(adb, serial, directory, manifest)
+                collector.collect(capture, self.config)
+                usable = any(row["bytes"] and row["kind"] in ("recent-main-crash-logcat", "owned-app-logcat-history",
+                    "app-file-pull", "app-file-run-as", "procedural-file-run-as") for row in manifest["files"])
+                manifest["status"] = "partial" if manifest["errors"] else "complete"
+                if not usable: manifest["status"] = "no-readable-logs"
+                installer.write_json(directory / "manifest.json", manifest)
+                # Preserve the shared ADB command evidence inside this capture.
+                log = directory / "adb-commands.log"
+                log.write_bytes(adb.log.read_bytes()[:4 * 1048576])
+                advance("metadata-summary")
+                self._step(progress, len(completed), self.total, "capture-archive")
+                self._cancel(cancel)
+                files = sorted(path for path in directory.iterdir() if path.is_file())
+                total_bytes = sum(path.stat().st_size for path in files)
+                archive_bytes = 0
+                with zipfile.ZipFile(archive, "x", compression=zipfile.ZIP_DEFLATED) as zipped:
+                    for path in files:
+                        with path.open("rb") as source, zipped.open(path.name, "w") as target:
+                            for block in iter(lambda: source.read(1048576), b""):
+                                self._cancel(cancel)
+                                target.write(block); archive_bytes += len(block)
+                                self._publish(progress, activity={"label": "capture-archive", "detail": path.name,
+                                    "receivedBytes": archive_bytes, "totalBytes": total_bytes,
+                                    "percent": min(99, archive_bytes / total_bytes * 100) if total_bytes else 0})
+                if archive.stat().st_size > MAX_CAPTURE_BYTES:
+                    archive.unlink(); raise WizardError("capture_size", "The runtime capture exceeded its size limit.")
+                advance("capture-archive")
+            if completed != set(self.targets) - {"capture-receipt"}:
+                raise ValueError("The capture progress plan has unfinished observations")
+            receipt = {"schema": 1, "id": identity, "name": archive.name, "bytes": archive.stat().st_size}
+            atomic_json(ordinary(self.captures / (identity + ".json")), receipt)
+            message = {"en": "Runtime capture saved. Download the ZIP to attach it to a bug report.",
+                       "de": "Laufzeit-Capture gespeichert. Die ZIP herunterladen und dem Fehlerbericht beilegen."}
+            if not usable: message = {"en": "Capture saved, but no readable runtime logs were available. Start the Quest app and collect again.",
+                                     "de": "Capture gespeichert, aber keine lesbaren Laufzeit-Logs verfügbar. Quest-App starten und erneut erfassen."}
+            return self._step(progress, self.total, self.total, "capture-complete", status="complete", message=message,
+                capture={"id": identity, "name": archive.name, "path": str(archive), "status": manifest["status"]})
+        except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
+            if archive is not None:
+                try: archive.unlink(missing_ok=True)
+                except OSError: pass
+            return self._failure(error, progress)
+
+    def _storage_device(self, operation, selected, progress, cancel, retained=None):
+        installer, collector, config, adb = self._begin(operation, progress, cancel)
+        if selected["host"]: selected["host"] = installer.endpoint(selected["host"])
+        serial, hardware, transport = collector.choose_capture_device(adb, SimpleNamespace(**selected), config)
+        self._cancel(cancel)
+        # Record the verified Quest, rather than a stale remembered Wi-Fi target.
+        atomic_json(self.config, installer.connection_settings(config, serial, hardware, adb.executable))
+        self._publish(progress, status="scanning" if operation == "storage-preview" else "cleaning",
+                      serial=serial, hardwareSerial=hardware, transport=transport)
+        if retained is not None:
+            retained.reconnect(adb, serial)
+            return retained
+        return _cleanup_module(self.repo).DeviceCleanup(adb, serial, hardware, self.directory)
+
+    def _storage_progress(self, progress, value):
+        """The connection and finite metadata plan share one completion owner."""
+        done, total = value.get("done"), value.get("total")
+        counted = type(done) is int and type(total) is int and 0 <= done <= total and total > 0
+        parameters = {"done": 3 + done if counted else 3, "total": 3 + total if counted else None,
+                      "percent": min(99, (3 + done) / (3 + total) * 100) if counted else None,
+                      "label": value.get("detail", "storage-metadata")}
+        self._publish(progress, progress=parameters)
+
+    def _storage_failure(self, error, progress):
+        self.cleanup_plan = None
+        self.cleanup_helper = None
+        if isinstance(error, Cancelled):
+            return self._publish(progress, status="cancelled", storagePlan=None,
+                                 message={"en": "Quest cleanup stopped. Retained game and save data are unchanged.",
+                                          "de": "Quest-Bereinigung angehalten. Behaltene Spieldaten und Spielstände bleiben erhalten."})
+        detail = str(error)[:1400]
+        code = error.code if isinstance(error, WizardError) else "device_storage_failed"
+        # A partial delete is not a reusable authorization. A fresh, bounded
+        # preview observes what remains before the user authorizes another pass.
+        return self._publish(progress, status="waiting", storagePlan=None,
+            error={"code": code}, message={
+                "en": "Quest cleanup needs attention. Keep the Quest connected and unlocked, then choose Check Quest storage again. Only newly confirmed temporary files can be removed. " + detail,
+                "de": "Quest-Bereinigung benötigt eine Aktion. Quest verbunden und entsperrt lassen, danach erneut „Quest-Speicher prüfen“ wählen. Nur neu bestätigte temporäre Dateien können entfernt werden. " + detail})
+
+    def storage_preview(self, options, progress=None, cancel=None):
+        selected = _options(options, capture=True)
+        try:
+            helper = self._storage_device("storage-preview", selected, progress, cancel)
+            plan = helper.preview(progress=lambda value: self._storage_progress(progress, value),
+                                  cancel=lambda: self._cancel(cancel))
+            self._cancel(cancel)
+            if (not isinstance(plan, dict) or plan.get("schema") != 1
+                    or not CAPTURE_ID.fullmatch(plan.get("planId", ""))
+                    or plan.get("deviceSerial") != self.state.get("hardwareSerial") or type(plan.get("complete")) is not bool):
+                raise ValueError("Invalid Quest cleanup preview")
+            self.cleanup_plan = copy.deepcopy(plan)
+            self.cleanup_helper = helper
+            return self._step(progress, 1, 1, "storage-preview-complete", status="storage-preview", storagePlan=plan,
+                message={"en": "Preview ready. Review temporary files before confirming their removal.",
+                         "de": "Vorschau bereit. Temporäre Dateien vor der Löschbestätigung prüfen."})
+        except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
+            return self._storage_failure(error, progress)
+
+    def storage_clean(self, options, progress=None, cancel=None):
+        if (not isinstance(options, dict) or set(options) != {"planId"}
+                or not isinstance(options["planId"], str) or not CAPTURE_ID.fullmatch(options["planId"])):
+            raise WizardError("device_cleanup_plan", "Check Quest storage before confirming cleanup.",
+                              "Vor der Löschbestätigung den Quest-Speicher prüfen.")
+        plan = copy.deepcopy(self.cleanup_plan)
+        helper = self.cleanup_helper
+        if plan is None or helper is None or plan.get("planId") != options["planId"]:
+            raise WizardError("device_cleanup_plan", "The preview is no longer current. Check Quest storage again.",
+                              "Die Vorschau ist nicht mehr aktuell. Quest-Speicher erneut prüfen.")
+        try:
+            helper = self._storage_device("storage-clean", _options({}, capture=True), progress, cancel, retained=helper)
+            if self.state.get("hardwareSerial") != plan["deviceSerial"]:
+                raise WizardError("device_cleanup_identity", "The connected Quest differs from the preview. Check its storage again.",
+                                  "Die verbundene Quest unterscheidet sich von der Vorschau. Speicher erneut prüfen.")
+            result = helper.clean(plan, progress=lambda value: self._storage_progress(progress, value),
+                                  cancel=lambda: self._cancel(cancel))
+            return self._step(progress, 1, 1, "storage-clean-complete", status="storage-complete", storageResult=result,
+                message={"en": "Temporary-file cleanup finished. Game content, saves and resume data were retained.",
+                         "de": "Temporäre Dateien bereinigt. Spielinhalte, Spielstände und Fortsetzungsdaten bleiben erhalten."})
+        except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
+            return self._storage_failure(error, progress)
+
+    def download(self, identity):
+        if not isinstance(identity, str) or not CAPTURE_ID.fullmatch(identity):
+            raise WizardError("capture_id", "Invalid capture selection.", "Ungültige Capture-Auswahl.")
+        try:
+            receipt = ordinary(self.captures / (identity + ".json"))
+            if receipt.stat().st_size > MAX_STATE_BYTES: raise ValueError("oversized receipt")
+            value = json.loads(receipt.read_text(encoding="utf-8"))
+            if (value.get("schema") != 1 or value.get("id") != identity or not CAPTURE_NAME.fullmatch(value.get("name", ""))
+                    or type(value.get("bytes")) is not int or not 0 < value["bytes"] <= MAX_CAPTURE_BYTES):
+                raise ValueError("invalid receipt")
+            archive = ordinary(self.captures / value["name"])
+            if not archive.is_file() or archive.stat().st_size != value["bytes"]: raise ValueError("capture changed")
+            # Small central-directory qualification; no multi-gigabyte game hash.
+            with zipfile.ZipFile(archive) as zipped:
+                if "manifest.json" not in zipped.namelist(): raise ValueError("manifest missing")
+                if any(Path(name).name != name for name in zipped.namelist()): raise ValueError("unsafe capture names")
+            return archive
+        except (OSError, ValueError, TypeError, KeyError, AttributeError, zipfile.BadZipFile) as error:
+            raise WizardError("capture_unavailable", "The selected runtime capture is unavailable. Collect logs again.",
+                              "Das ausgewählte Laufzeit-Capture ist nicht verfügbar. Logs erneut erfassen.") from error

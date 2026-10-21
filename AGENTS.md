@@ -2,6 +2,97 @@
 
 ## Unified development workflow (2026-09-29)
 
+**Quest scope, corrected by the maintainer on2026-10-06:** include Guildmaster
+again. Its earlier exclusion depended on removing the procedural engine; the
+current bridge instead preserves original dynamic generation. Retain native
+Guildmaster menu availability, saves, loading and multiplayer admission. Remove
+Quest-specific unavailable hints/guards from the complete game target. Steam
+Workshop and store/cloud services remain excluded. Engine execution and its
+combined mobile CPU/memory/frame cost remain unverified hardware gates.
+
+**Quest exception, clarified by the maintainer on 2026-10-03:** keep Quest
+implementation and hardware installer work on `feature/quest3-standalone`, with
+separate worker worktrees from its current checkpoint. The primary agent reviews,
+runs the complete checks and publishes this feature branch for Windows hardware
+testing. Do not merge or push these Quest changes into `dev`, where other agents
+continue Steam Frame work. This explicit instruction supersedes the generic
+integration-branch rules below for the Quest task; all other contracts still apply.
+
+**Quest hardware handoff, clarified on 2026-10-04:** after verifying each new
+hardware package, keep the main ignored `.planning/debug/quest3/` output directory
+limited to the latest APK, Windows archive and current handoff receipt. Remove
+superseded APKs/archives and move historical validation outside that handoff
+directory. Preserve supplied captures in `quest3_probleme/`. The initial loading
+view must use the existing GloomhavenVR logo, a real progress bar and percentage;
+keep the presentation reusable for later in-game loading.
+
+**Quest startup, clarified on 2026-10-04 after the longer menu capture:**
+prefer the original Intro-to-menu flow without an extra preparation display.
+Reuse successfully installed content across launches and source-only mod updates;
+do not run full-file integrity scans on every launch. If actual installation or
+repair needs preparation, show one overall progress bar before native startup,
+without individual verification/file/step bars. Complete it only at observed
+native handover. This supersedes the earlier five-step progress presentation.
+The original native loaders retain their asset-load ownership.
+
+**Quest adaptation compatibility, clarified by the maintainer on 2026-10-04:**
+standalone-only behavior must not change the ordinary PC mod. Gate adaptations
+through `QuestStandalonePlatform.Enabled` or a centrally owned capability, use
+small seams in the shared current components, and retain desktop behavior tests.
+Do not fork menus/keyboards, pin an old mod binary or maintain a Quest option
+allowlist. The builder must include selected current source/art automatically;
+report genuine original/package ABI drift visibly rather than guessing bindings.
+Future settings remain available unless a specific Quest-only exclusion applies.
+
+**Quest image-density clarification, 2026-10-17:** the same displayed resolution
+factor should give comparable sharpness on standalone Quest and Steam Frame.
+Provider-relative fractions alone do not satisfy this: the supplied Frame B661
+capture submits2728x2728 at0.8, while Quest B678 submits1344x1408 at0.8 and
+1680x1760 at1.0. Preserve the shared0.8 default and saved user choices, but map
+Quest's startup allocation to the measured Frame raster-density reference.
+Retain a full eye viewport and the hardware-confirmed startup-only allocation
+policy. Show actual submitted pixels separately from the next-start estimate;
+equal reference density is not proof of equal optics, FOV or mobile GPU cost.
+
+**Quest cache hygiene, requested on 2026-10-04 and reinforced on 2026-10-11:** after
+each Quest repair/test round, archive compact diagnostic receipts and prune obsolete
+Quest worker checkouts, generated test copies and historical Unity/build caches.
+Keep Git branch refs, active builds/worktrees, latest matching native symbols,
+canonical owned inputs, supplied captures and potentially unique dirty source
+snapshots. Check active process references and incoming symlinks before removal;
+never follow shared links into other agents' work or the read-only references.
+Record measured reclaimed space rather than summing potentially shared extents.
+
+**Quest essential-component ruling, 2026-10-17:** no VR setting may disable an
+essential game element. The legacy free-form `Compat/DisableComponents` value
+must be inert and its row hidden on Quest; keep persisted values and ordinary
+desktop compatibility behavior. Reviewed built-in stereo effect exclusions
+remain explicit. Restore a native lifecycle only under source-qualified original
+owner/readiness conditions; never use this ruling to force hidden room renderers
+or gameplay state.
+
+**Quest burn-effect clarification, 2026-10-18:** red card paint during/after a burn
+is correct. The reported missing presentation is the separate native flame overlay.
+Preserve that tint; neither Frame defaults nor the historical optional CardSmoke
+particle setting authorize removal of the original flame material/timeline.
+
+**Quest evidence binding, B681:** the original GH.Runtime defines a global
+`Debug` facade with conditional `Log` methods. Unqualified mod calls can compile
+away without `ENABLE_LOGS`; a file-level `Debug` alias can instead conflict with
+that global type. Use fully qualified `UnityEngine.Debug` for direct evidence,
+retain Debug guards/budgets and qualify compiled call targets against real game
+references. Tiny fixtures must include the conditional global facade when testing
+this boundary. Do not enable all game logs to work around a binding defect.
+
+**Quest GPU evidence, B683:** B682's isolated Linux Vulkan passes did not predict
+its Android XR copy regressions. Keep the hardware-qualified native blit submission
+until a replacement has actual headset evidence. Optional image filtering and
+physical card contours must retain native content or the established complete-body
+fallback when exact CPU alpha/pixels are unavailable; never persist a guessed mask
+from an unqualified GPU readback. Preserve source color encoding for CPU copies.
+Generated rooms, enabled renderers, mono-frustum tests and shader support are
+separate from final XR visibility; do not force native state to repair a readback.
+
 The maintainer requested integration of `feature/immersive-town-services` into
 `dev`. All subsequent NPC, Steam Frame, and other development now integrates and
 pushes to `dev`; create worker worktrees from the current `dev` commit. The NPC

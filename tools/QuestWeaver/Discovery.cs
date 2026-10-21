@@ -19,13 +19,22 @@ public sealed class AuditReport
     public List<IntegrationIssue> Issues { get; set; } = new();
     public List<string> HarmonyApi { get; set; } = new();
     public List<IntegrationIssue> AotRisks { get; set; } = new();
+    public List<string> StaticSubstitutions { get; set; } = new();
+    public List<ReflectionRoot> ReflectionRoots { get; set; } = new();
     public Dictionary<string, string> InputAssemblies { get; set; } = new();
 }
 
 public sealed record HookEvidence(string Patch, string Kind, string? Target, int Priority);
 public sealed record CallEvidence(string Caller, int IlOffset, string Api, string[] Strings);
 public sealed record IntegrationIssue(string Code, string Subject, string Detail);
+public sealed record ReflectionRoot(string Assembly, string Type);
 internal sealed record HookDefinition(MethodDefinition Patch, MethodDefinition Target, string Kind, int Priority);
+internal sealed record StaticPatchDefinition(TypeDefinition PatchClass, MethodDefinition Target, string RemovedPatch, MethodDefinition Replacement)
+{
+    // Capture the complete qualified body once. A later record copy which
+    // redirects Target must not silently certify that different method.
+    internal string TargetFingerprint { get; } = NativeMovieBoundary.Fingerprint(Target);
+}
 internal sealed record FieldHelper(MethodDefinition Caller, Instruction Call, Instruction Name, FieldDefinition Field, GenericInstanceMethod Factory);
 
 internal sealed class Discovery : IDisposable
@@ -35,6 +44,7 @@ internal sealed class Discovery : IDisposable
     public string ModPath { get; }
     public string ManagedPath { get; }
     public List<HookDefinition> Hooks { get; } = new();
+    public List<StaticPatchDefinition> StaticPatches { get; } = new();
     public List<FieldHelper> Helpers { get; } = new();
     public List<AssemblyDefinition> Loaded { get; } = new();
     private AuditReport? cached;
@@ -47,7 +57,7 @@ internal sealed class Discovery : IDisposable
     {
         if (!File.Exists(modPath)) throw new FileNotFoundException("Mod assembly is missing.", modPath);
         if (!Directory.Exists(managedPath)) throw new DirectoryNotFoundException(managedPath);
-        var resolver = new DefaultAssemblyResolver();
+        var resolver = new TargetMetadata.Resolver();
         resolver.AddSearchDirectory(managedPath);
         resolver.AddSearchDirectory(Path.GetDirectoryName(modPath)!);
         // A compiler's reference facade is useful only for metadata resolution; target bodies
@@ -56,7 +66,7 @@ internal sealed class Discovery : IDisposable
         string packages = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
         string harmony = Path.Combine(packages, "harmonyx", "2.7.0", "lib", "netstandard2.0");
         if (Directory.Exists(harmony)) resolver.AddSearchDirectory(harmony);
-        var mod = AssemblyDefinition.ReadAssembly(modPath, new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
+        var mod = AssemblyDefinition.ReadAssembly(modPath, new ReaderParameters { AssemblyResolver = resolver, InMemory = true, MetadataImporterProvider = TargetMetadata.Importer });
         return new Discovery(modPath, managedPath, resolver, mod);
     }
 
@@ -70,9 +80,10 @@ internal sealed class Discovery : IDisposable
     {
         if (cached != null) return cached;
         var report = new AuditReport { ModSha256 = Hash(ModPath) };
-        if (Mod.MainModule.Resources.Any(r => r.Name == "QuestWeaver.Hooks.v1")) report.Issues.Add(new IntegrationIssue("ALREADY_WOVEN", Mod.Name.Name, "The mod input already contains generated Quest integration. Build from a fresh current mod output and original game assemblies."));
+        if (Mod.MainModule.Resources.Any(r => r.Name is "QuestWeaver.Hooks.v1" or "QuestWeaver.StaticPatches.v1")) report.Issues.Add(new IntegrationIssue("ALREADY_WOVEN", Mod.Name.Name, "The mod input already contains generated Quest integration. Build from a fresh current mod output and original game assemblies."));
+        if (report.Issues.Count == 0) CurrentModCompatibility.Apply(this, report, FindType, Track);
         report.Issues.AddRange(HarmonyFacade.Validate(Mod.MainModule));
-        report.HarmonyApi = Mod.MainModule.GetMemberReferences().Where(m => m.DeclaringType.FullName.StartsWith("HarmonyLib.", StringComparison.Ordinal)).Select(m => m.FullName).Distinct().OrderBy(s => s, StringComparer.Ordinal).ToList();
+        report.HarmonyApi = HarmonyFacade.LiveMembers(Mod.MainModule).Select(m => m.FullName).Distinct().OrderBy(s => s, StringComparer.Ordinal).ToList();
         foreach (TypeDefinition type in AllTypes(Mod.MainModule))
             if (type.BaseType?.FullName == "BepInEx.BaseUnityPlugin") report.AotRisks.Add(new IntegrationIssue("BEPINEX_MONO_BOOTSTRAP", type.FullName,
                 "Original BaseUnityPlugin constructor requires initialized Chainloader, Paths, logger/config and assembly location; Quest needs a verified standalone lifecycle adapter."));
@@ -169,6 +180,7 @@ internal sealed class Discovery : IDisposable
             if (added == 0) report.Issues.Add(new IntegrationIssue("DIRECT_REGISTRATION_UNRESOLVED", method.FullName,
                 "The direct registration's candidate target/patch closure is not derivable from current static metadata."));
         }
+        StaticRegistrationClosure.Audit(this, report);
         foreach (AssemblyDefinition assembly in Loaded.Distinct())
         {
             string file = assembly.MainModule.FileName;
@@ -330,6 +342,9 @@ internal sealed class Discovery : IDisposable
     private static string? ValidateHook(MethodDefinition patch, MethodDefinition target, string kind)
     {
         if (Protected(target.DeclaringType)) return "The target is protected by project contracts and must remain unmodified.";
+        string assembly = target.Module.Assembly.Name.Name;
+        if (assembly.StartsWith("UnityEngine.", StringComparison.Ordinal) && assembly.EndsWith("Module", StringComparison.Ordinal))
+            return "The Quest Player owns native Unity engine modules; this hook needs an explicit standalone adaptation.";
         if (kind is not ("prefix" or "postfix" or "finalizer")) return "Only Prefix, Postfix and Finalizer are supported, not " + kind;
         if (!target.HasBody || target.IsConstructor || target.HasGenericParameters || target.DeclaringType.HasGenericParameters)
             return "Target has no managed body, is a constructor, or requires generic wrapper specialization.";

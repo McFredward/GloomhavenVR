@@ -314,7 +314,10 @@ public static partial class MirrorProgram
             "first captured enhancement original carries complete owner state without a template-repair wait");
         TownServiceFrame first = samples[0]; int initialBytes = lengths[0];
         pump();
-        for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
+        // Leave the genuine retained-original repair eligible too. Its 150 ms
+        // grace can elapse during an ordinary slow editor frame; that same-source
+        // resend must not be mistaken for a fresh full owner hover publication.
+        for (float until = Time.unscaledTime + .18f; Time.unscaledTime < until;) yield return null;
         TownServiceMirror.TickRemote(_ => observer);
         Check(Remote(2, 41) != null, "real first-offer queue builds its complete original on reception");
 
@@ -323,12 +326,15 @@ public static partial class MirrorProgram
         _clip.padding = new Vector4(3f, 5f, 7f, 9f);
         original.Find("Viewport/Oversized").localPosition += new Vector3(0f, 11f, 0f);
         capture();
-        Check(samples.Count == 2 && samples[1].BaseSequence == first.Sequence
-            && samples[1].NativeTemplateBasisKey == 0,
+        int hoverIndex = samples.Count - 1;
+        Check(samples.Count >= 2 && samples[hoverIndex].BaseSequence == first.Sequence
+            && samples[hoverIndex].NativeTemplateBasisKey == 0
+            && samples.Skip(1).Take(hoverIndex - 1).All(sample =>
+                sample.BaseSequence == 0 && sample.Sequence == first.Sequence),
             "after the exact native original actual hover capture uses the existing cumulative owner delta");
-        TownServiceFrame changed = samples[1];
+        TownServiceFrame changed = samples[hoverIndex];
         Check(TownServiceMirror.TryExpandNativeTemplateState(first, out TownServiceFrame firstComplete)
-            && lengths[1] < TownServiceCodec.Write(firstComplete).Length,
+            && lengths[hoverIndex] < TownServiceCodec.Write(firstComplete).Length,
             "actual cumulative hover avoids repeating the complete owner native property table");
         Check(TownServiceDelta.Expand(null, changed) == null,
             "a missing genuine owner baseline never reconstructs hover from viewer defaults");
@@ -369,8 +375,9 @@ public static partial class MirrorProgram
             "periodic native repair cannot roll selected upgrade artwork back");
         File.WriteAllText(Path.Combine(_output, "native-queued-delta626.txt"),
             "Actual CaptureCore -> immutable queue -> native bundle/fragments -> ReceiveParsed -> TickRemote.\n"
-            + "Initial original=" + initialBytes + " bytes; cumulative hover=" + lengths[1]
+            + "Initial original=" + initialBytes + " bytes; cumulative hover=" + lengths[hoverIndex]
             + " bytes; current complete repair=" + lengths[lengths.Count - 1] + " bytes.\n"
+            + "Same-sequence retained full repairs before hover=" + (hoverIndex - 1) + ".\n"
             + "Reordered delta requires its exact independently expanded original baseline.\n");
     }
 
@@ -407,7 +414,12 @@ public static partial class MirrorProgram
             Check(Remote(2, 25) == null, "missing genuine original never substitutes a grey or mismatched offered card");
             ready = true;
             for (float until = Time.unscaledTime + .10f; Remote(2, 25) == null && Time.unscaledTime < until;)
-            { TownServiceMirror.TickRemote(_ => observer); yield return null; }
+            { TownServiceMirror.TickRemote(_ => observer); yield return new WaitForSecondsRealtime(.12f); }
+            // Deliberately cross the polling window in one slow observer frame.
+            // Judge the next eligible native retry, rather than skipping its
+            // TickRemote merely because the coroutine resumed beyond the window.
+            // Strict first-picture wall-clock latency has its separate 639 proof.
+            if (Remote(2, 25) == null) TownServiceMirror.TickRemote(_ => observer);
             Check(Remote(2, 25) != null,
                 "a retained first sparse offer replays immediately after its original becomes available");
             Check(Remote(2, 25)!.Root.GetComponent<Image>().color == Color.yellow,

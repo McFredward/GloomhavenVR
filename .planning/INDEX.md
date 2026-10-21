@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-18: Build704 direct MR comparison and host-source preparation boundary.
+Updated 2026-10-19: Quest Build710 current-dev rebase, stereo movie delivery and minimal-update review.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [QUEST-DEV-REBASE-20261019.md](QUEST-DEV-REBASE-20261019.md) | Quest on dev708, owned stereo reconstruction, static AOT movie seams, independent update caches and final review |
 | [STEAM-LINK-704-COMPARISON.md](STEAM-LINK-704-COMPARISON.md) | Actual703 A/B and delivered video, host preparation repair, remaining quality and native-menu transport constraints |
 | [STEAM-LINK-703-LIVE-RESOLUTION.md](STEAM-LINK-703-LIVE-RESOLUTION.md) | Actual702 delivered-video evidence, live PCVR slider repair, chosen game/menu/camera behavior and explicit remaining transport work |
 | [STEREO-VIDEO-LIBRARY-2026-10-17.md](STEREO-VIDEO-LIBRARY-2026-10-17.md) | Headset-accepted20-subject/22-file library;696 automatic studio admission and Cheats-gated spoiler reviews, composed evidence and trailer exclusion |
@@ -29,9 +30,26 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [QUEST-WINDOWS-ALIGNMENT-085642-20261011.md](QUEST-WINDOWS-ALIGNMENT-085642-20261011.md) | Windows large-file reader limit, integrated raw APK alignment and retained final delivery |
+| [QUEST-ZIP32-DELIVERY-075701-20261011.md](QUEST-ZIP32-DELIVERY-075701-20261011.md) | Large ZIP32 APK signing repair and independently reusable final delivery gates |
+| [QUEST-COMPLETED-PLAYER-065619-20261011.md](QUEST-COMPLETED-PLAYER-065619-20261011.md) | Direct recovery of the successful Windows Android Player at host delivery, without repeating earlier preparation/Unity checks |
+| [QUEST-COMPUTE-SELF-REPAIR-090432-20261010.md](QUEST-COMPUTE-SELF-REPAIR-090432-20261010.md) | Original Windows shader source parsing, bounded single-asset compute import repair and complete retained preparation |
+| [QUEST-SPRITE-SELF-REPAIR-075120-20261010.md](QUEST-SPRITE-SELF-REPAIR-075120-20261010.md) | Exact retained case-path manifest chain and bounded imported Sprite repair; corrects the preceding composition blind spot |
+| [QUEST-UNITY-TOTALS-065547-20261010.md](QUEST-UNITY-TOTALS-065547-20261010.md) | Finite Unity work plans, real Gradle totals and targeted retained Windows loading-Sprite repair |
+| [QUEST-EDITOR-CONTRACTS-232406-20261010.md](QUEST-EDITOR-CONTRACTS-232406-20261010.md) | Real Shader/meta/script-order owners, explicit PlayerSettings handoff and corrected continuation proof |
+| [QUEST-TARGETED-REPAIR-055813-20261010.md](QUEST-TARGETED-REPAIR-055813-20261010.md) | Real LightingData drift, individual reconstruction, GUID preservation and interrupted repair continuation |
+| [QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md](QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md) | Exact imported Shader and package-script transitions retain completed preparation and Library |
+| [QUEST-EDITOR-SPRITE-200517-20261009.md](QUEST-EDITOR-SPRITE-200517-20261009.md) | Completed first import, exporter-local promotion identity, retained Editor overlays and measured Unity steps |
+| [QUEST-UNITY-IMPORT-184004-20261009.md](QUEST-UNITY-IMPORT-184004-20261009.md) | Actual initial import, live Unity/API/content counters, retained preparation and storage/timing evidence |
+| [QUEST-JOURNAL-134446-20261009.md](QUEST-JOURNAL-134446-20261009.md) | Captured large-journal resume rejection, dedicated bounded reader and compact support frontier |
+| [QUEST-COMPLETED-PREP-123047-20261009.md](QUEST-COMPLETED-PREP-123047-20261009.md) | Captured CoreModule deployment failure, retained27 completed owners, measured Unity compiler work and dev654 merge |
+| [QUEST-GRAPHICS-093454-20261009.md](QUEST-GRAPHICS-093454-20261009.md) | Captured scalar compute failure, retained17-step prefix and measured texture/compute/Shader work |
+| [QUEST-BUILD-REUSE-20261008.md](QUEST-BUILD-REUSE-20261008.md) | Original-source/output roles, retained14-phase staging and preparation, persistent change-time witnesses and bounded speed evidence |
+| [QUEST-BUILD-NATIVE-BYTES-20261008.md](QUEST-BUILD-NATIVE-BYTES-20261008.md) | Exact Windows native overlays, retained642 staging, measured native progress and dev643 Builder |
 | [DEFAULTS-664-REVIEW.md](DEFAULTS-664-REVIEW.md) | Paired configuration audit, approved defaults and focused validation |
 | [STEAM-FRAME-DEFAULTS.md](STEAM-FRAME-DEFAULTS.md) | Current PC/Standalone default and explicit graphics-profile policy |
 | [FRAME-PILLAR-DISTANCE-REVIEW.md](FRAME-PILLAR-DISTANCE-REVIEW.md) | Configured full-detail pillar radius, matched inherited proof and final659 integration |
+| [NPC-660-REVIEW.md](NPC-660-REVIEW.md) | Published current dev repair, composed validation, paired658 failure and remaining hardware limits |
 | [NPC-658-REVIEW.md](NPC-658-REVIEW.md) | Paired656 videos/logs, reproduced defects, integrated validation and hardware limits |
 | [NPC-658-LATENCY.md](NPC-658-LATENCY.md) | Complete native card preparation, exact compact originals and retained full recovery |
 | [NPC-658-FLIGHTS.md](NPC-658-FLIGHTS.md) | Bounded common native return clocks, original partitions and cancellation/clock controls |
@@ -62,6 +80,7 @@ status; it is not the player manual.
 | [../docs/performance/FRAME-644-STEADY-CPU.md](../docs/performance/FRAME-644-STEADY-CPU.md) | Integrated Frame work removal, configurable quality trades and full-scope validation ledger |
 | [FRAME-643-NATIVE-PRESENTATION.md](FRAME-643-NATIVE-PRESENTATION.md) | Paired642 native fade/menu/resolution causes, loaded timing and inherited proof limits |
 | [../docs/performance/FRAME-643-INTEGRATION.md](../docs/performance/FRAME-643-INTEGRATION.md) | Exact-source integration, retained NPC/crossplay/CPU repairs and current validation scope |
+| [QUEST-BUILD-CRLF-20261008.md](QUEST-BUILD-CRLF-20261008.md) | Windows Unity YAML audit repair, retained640 checkpoints and dev642 Builder qualification |
 | [FRAME-642-STEADY-CPU.md](FRAME-642-STEADY-CPU.md) | Exact per-camera CPU read sharing, native lease/refusal ownership and inherited runtime evidence |
 | [../docs/performance/FRAME-642-INTEGRATION.md](../docs/performance/FRAME-642-INTEGRATION.md) | Checked CPU integration on641, exact source hashes, compiled scope and retained NPC evidence |
 | [CROSSPLAY-QUEST-REVIEW.md](CROSSPLAY-QUEST-REVIEW.md) | Crossplay source repairs, integrated validation and outstanding mixed-session HMD matrix |
@@ -132,7 +151,9 @@ status; it is not the player manual.
 | [../docs/performance/FRAME-612-ANALYSIS.md](../docs/performance/FRAME-612-ANALYSIS.md) | Frame612 mesh/camera application, remaining CPU stalls and scoped skinning conflict correction |
 | [../docs/performance/FRAME-609-ANALYSIS.md](../docs/performance/FRAME-609-ANALYSIS.md) | Natural-motion resolution and figure-detail evidence, loaded hitches and confidence limits |
 | [QUEST3-IMPLEMENTATION.md](QUEST3-IMPLEMENTATION.md) | Authorized Quest implementation branch, actual hardware checkpoint evidence and outstanding full-game gates |
+| [QUEST-APK-UPDATES-20261008.md](QUEST-APK-UPDATES-20261008.md) | Retained progress, parallel codecs, code-only APK updates and profile changes with owned-copy/signing qualification |
 | [QUEST3-HARDWARE-609.md](QUEST3-HARDWARE-609.md) | Private Quest diagnostic installation, controls, evidence capture and explicit limits before campaign/multiplayer startup |
+| [QUEST3-WIRELESS-INSTALL.md](QUEST3-WIRELESS-INSTALL.md) | Windows double-click Wi-Fi ADB installer, remembered headset/source, data-preserving updates and connection recovery |
 | [QUEST3-PORT-PLAN.md](QUEST3-PORT-PLAN.md) | Quest 3 campaign port: local APK conversion, embedded Steam logo/name/ID without store/cloud services, necessary EOS multiplayer exception and native passthrough; implementation authorized 2026-10-03 |
 | [QUEST3-CRITICAL-SOLUTIONS.md](QUEST3-CRITICAL-SOLUTIONS.md) | Concrete future solutions for asset reconstruction, Apparance baking, generated ARM64 mod integration, original multiplayer, offline Steam identity, manual save transfer and Quest performance |
 | [QUEST3-PREFLIGHT-AND-BUILDER.md](QUEST3-PREFLIGHT-AND-BUILDER.md) | Source-backed preflight blockers and a builder maintenance contract: current mod/patch/helper/resource discovery, coherent inputs, dependency-aware caches and N -> N+1 acceptance |

@@ -21,8 +21,10 @@ internal static class RuntimeDepsLoader
     /// <summary>Idempotency guard: hooks must run at most once per process (hot reload!).</summary>
     private static bool _initializersInvoked;
 
-    /// <summary>Directory the plugin assembly lives in (BepInEx/plugins/GloomhavenVR/).</summary>
-    private static string PluginDir => Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+    /// <summary>Player-verified standalone resource root, or the desktop plugin assembly directory.</summary>
+    internal static string PluginDir => QuestStandalonePlatform.Enabled
+        ? QuestStandalonePlatform.ResourceDirectory
+        : Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
 
     internal static string RuntimeDepsDir => Path.Combine(PluginDir, "RuntimeDeps");
 
@@ -33,6 +35,21 @@ internal static class RuntimeDepsLoader
     /// </summary>
     internal static bool LoadAll()
     {
+        if (UnityEngine.Application.platform == UnityEngine.RuntimePlatform.Android)
+        {
+            // IL2CPP cannot load the desktop RuntimeDeps DLLs. The local Android
+            // player already compiled its XR packages and Unity ran their normal
+            // initialization hooks. Replaying them would reset the active session.
+            if (!QuestStandalonePlatform.Enabled)
+            {
+                VRLog.Error("Core", "Android VR adoption blocked: the Quest standalone bridge was not configured.");
+                return false;
+            }
+            if (!_loaded)
+                VRLog.Info("Core", "Quest standalone uses the player's compiled XR packages; dynamic RuntimeDeps loading and initializer replay are disabled.");
+            _loaded = true;
+            return true;
+        }
         if (_loaded)
             return true;
 

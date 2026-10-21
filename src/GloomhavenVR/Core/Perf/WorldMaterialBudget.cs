@@ -16,6 +16,7 @@ internal static partial class WorldMaterialBudget
 {
     private const string ShaderName = "GloomhavenVR/WorldSimpleMaterial";
     private static Driver? _driver;
+    internal static string Diagnostics => _driver != null ? _driver.DescribeConsumers() : "worldMaterial driver=unavailable";
     private static Func<Material, Material>? _canonicalSource;
     private static Action<Renderer>? _sourceChanged;
     private static Func<Renderer, bool>? _substituteOwnership;
@@ -40,7 +41,7 @@ internal static partial class WorldMaterialBudget
     {
         if (_driver != null) return;
         _driver = host.AddComponent<Driver>();
-        try { ScenarioCameraCullBoundary.Install(); ScenarioCameraCullBoundary.Subscribe(_driver.PreCull); }
+        try { ScenarioCameraCullBoundary.Install(); ScenarioCameraCullBoundary.Subscribe(_driver.PreCull); ScenarioCameraCullBoundary.SubscribeUnavailable(_driver.UnavailableCamera); }
         catch (Exception error) { _driver.Fail(error); }
         foreach (string counter in new[] { "WorldMaterial.Candidates", "WorldMaterial.VariantSlots",
             "WorldMaterial.NativeSlots", "WorldMaterial.MaterialRefreshes", "WorldMaterial.ScopeRefusals",
@@ -52,6 +53,7 @@ internal static partial class WorldMaterialBudget
     {
         if (_driver == null) return;
         ScenarioCameraCullBoundary.Unsubscribe(_driver.PreCull);
+        ScenarioCameraCullBoundary.UnsubscribeUnavailable(_driver.UnavailableCamera);
         _driver.RestoreAll(true);
         UnityEngine.Object.Destroy(_driver); _driver = null;
     }
@@ -107,6 +109,11 @@ internal static partial class WorldMaterialBudget
     [DefaultExecutionOrder(30008)]
     private sealed partial class Driver : MonoBehaviour
     {
+        private int _lastCandidates, _lastVariants, _lastNative;
+        internal string DescribeConsumers() => "worldMaterial mode=" + _mode + " failed=" + _failed
+            + " shader=" + (_shader == null ? "unresolved" : _shader.isSupported ? "supported" : "unsupported-native-fallback")
+            + " surfaces=" + _surfaces.Count + " lastPassCandidates=" + _lastCandidates
+            + " variantSlots=" + _lastVariants + " nativeSlots=" + _lastNative;
         private const int NodesPerFrame = 128;
         private readonly Dictionary<int, Surface> _surfaces = new();
         private readonly Queue<Transform> _pending = new();
@@ -131,6 +138,7 @@ internal static partial class WorldMaterialBudget
         private void OnDestroy()
         {
             ScenarioCameraCullBoundary.Unsubscribe(PreCull);
+            ScenarioCameraCullBoundary.UnsubscribeUnavailable(UnavailableCamera);
             SceneManager.sceneLoaded -= SceneLoaded;
             SceneManager.sceneUnloaded -= SceneUnloaded;
             RestoreAll(true);
@@ -231,6 +239,11 @@ internal static partial class WorldMaterialBudget
             MeshFilter filter = renderer.GetComponent<MeshFilter>();
             if (filter != null && filter.sharedMesh != null && InWorld(renderer) && !_surfaces.ContainsKey(renderer.GetInstanceID()))
                 _surfaces[renderer.GetInstanceID()] = new Surface(renderer, filter);
+        }
+        internal void UnavailableCamera(Camera camera)
+        {
+            try { RestoreBindings(); }
+            catch (Exception error) { Fail(error); }
         }
         internal void PreCull(Camera camera)
         {
@@ -358,6 +371,7 @@ internal static partial class WorldMaterialBudget
                 // Notify after enumeration; unchanged owned slots never notify again.
                 foreach (Renderer renderer in _changedSources) _sourceChanged?.Invoke(renderer);
                 _changedSources.Clear();
+                _lastCandidates = candidates; _lastVariants = changed; _lastNative = native;
                 if (PerfMonitor.StepsActive && VRLog.Level >= VRLogLevel.Debug)
                 {
                     PerfMonitor.Count("WorldMaterial.Candidates", candidates);

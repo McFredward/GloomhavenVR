@@ -612,7 +612,45 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 715;
+    public const ushort ModBuild = 716;
+
+    // ModBuild716 — Quest adaptations rebased onto released main1.2.0 / Build715.
+    // Retain shared figure pickup arbitration, native pointer Continue, initiative
+    // backing depth and persistent menu head lifecycle. Preserve standalone
+    // passthrough, stereo movie delivery, the removed pillar LOD and compact
+    // updates. Original game, movie and environment producer recipes are unchanged.
+    // Quest-only B713 — Retire structural pillar LOD and its reduced asset streams.
+    // Preserve the original ping's autoplay/culling after the failed baked proxy.
+    // Qualify original menu art and actual consumer fragments before initial
+    // spinner retirement; retain bounded loading renderer evidence after Intro.
+    // Original Campaign, movie and procedural helper producers are unchanged.
+    // Quest-only B712 — Quest hardware follow-up after the confirmed B711 startup.
+    // Retain exact-decoder camera-plane suppression for packed movies, qualify
+    // actual visible menu content before spinner handoff, and prevent detached
+    // terrain LOD draws from receiving a second unrelated wall fade decision.
+    // Submit only the original ping billboards via reused COLOR-bearing meshes;
+    // original simulation/material/timing and confirmed slot/audio fixes remain.
+    // Compact code update; original Campaign, movie recipes and art unchanged.
+    // Native fixture/source checks are separate from Adreno/headset validation.
+
+    // Quest-only B711 — retain the actual WorldUI startup registration after the
+    // two reviewed movie transpilers have been applied before Quest AOT.
+    // Capture103413 confirms B710 blocks native bootstrap when PatchAll reaches
+    // the now-empty NativeVideoMoviePatch. Bind those completed static edits
+    // to their exact compiled class/target closure; keep unknown registrations
+    // rejected and executable hook ordering unchanged. Compact code update,
+    // unchanged original Campaign assets, movie depth recipes and media caches.
+    // Automated startup/registry coverage is separate from headset validation.
+
+    // ModBuild710 — rebase Quest standalone onto dev709, retaining B693 hardware
+    // repairs and the current shared features, including native stereo movies.
+    // Qualify the two desktop URL transpilers as static setter substitutions;
+    // retain original decoder clocks, callbacks and native continuation. Deliver
+    // numeric-only movie recipes, owned locally reconstructed films and tiny
+    // Android shaders independently of the unchanged original Campaign bank.
+    // Compact updates preserve completed native/object caches and per-file movie
+    // results; unknown original producer/ABI drift still requires an explicit
+    // rebuild decision. Automated metadata/GPU evidence is not headset closure.
 
     // ModBuild715 — publish the reviewed 1.2.0 release candidate.
     // The maintainer requested the current dev tree as 1.2.0, highlighting native
@@ -658,7 +696,7 @@ internal static class NetProtocol
     // repeated rewards, genuine disablement and exact single continuation.
     // Wire layout, native game state, escape-menu state and figure pickup are unchanged.
 
-    // ModBuild711 — make a visible near-figure highlight a live pickup offer.
+    // Quest-only B711 — make a visible near-figure highlight a live pickup offer.
     // Hardware710 logs prove elected figure pulls refused by generic beam hover;
     // they do not establish stale zoom geometry or the exact hover publisher.
     // Separate named world hover from committed presses/gestures. Hover producers
@@ -1301,6 +1339,432 @@ internal static class NetProtocol
     // No gameplay/network state, shader asset, configuration default or TLV changes.
     // Version3/next-free118. Focused source/runtime evidence and headset boundaries
     // are recorded in WATER-673-REVIEW.md and WATER-673-ASSET-AUDIT.md.
+
+    // ModBuild693 — observed menu handoff, native audio channels and Quest effect inputs.
+    // Capture202103 verifies current692/previous691. Preserve confirmed full rooms,
+    // cards, menu video, pointer point and now-visible hover/reachable hex overlays.
+    // IsMainMenu precedes native InitializeUI/Show: retain only the initial spinner
+    // until an open, alpha-positive native window passes UI capture and head draw.
+    // Repack only original ping billboard POSITION/COLOR/UV streams; preserve all
+    // native particles, materials, timing, geometry and reversible pool ownership.
+    // Read the existing environment index/source receipt without reflection-driven
+    // generic deserialization: Android lacked EnsureArraySize<uint> AOT code.
+    // The explicit reader matches all1,139 existing native index identities/fields.
+    // Startup quad Vorbis was mislabeled mono. Native Unity reproduces both B692
+    // corrupt hit sample hashes exactly; recover the original four-channel Vorbis
+    // packets and import PCM in a small cached32-clip sidecar, retaining Campaign.
+    // Native source lease changes preserve playback cursor, pooling and mixer state.
+    // The original Gamma flame uses a numeric particle mask; Quest Linear must
+    // sample the same blocks without sRGB decoding, using a private linear view.
+    // Preserve red burnt-card paint, original timeline and all other native textures.
+    // Isolate the left/right slot pulse uniforms per renderer without changing
+    // eligibility, depth, pose or waveform; its Adreno outcome remains open.
+    // Compact Mod Update; no original-bank regeneration or local full-game APK.
+    // See .planning/QUEST-HARDWARE-202103-20261018.md for scope and hardware gates.
+
+    // ModBuild692 — native loading ownership, Quest overlay inputs and settled wall sampling.
+    // Capture191141 verifies current691/previous690. Keep confirmed complete rooms,
+    // clear artwork, actual figure derivatives, menu depth video and idle-click repair.
+    // Qualify Intro/Single loading through exact serialized owners across legitimate
+    // Canvas camera rebinding; preserve native timings and restore originals on release.
+    // Own the exact native hex vertex upload, preserving both shader passes, geometry,
+    // depth/slab rules, hover/reach eligibility and desktop identity. Bind only the
+    // authored white sampler on private Quest guide quads; preserve supplied imagery.
+    // Shared PC/Frame/Quest automatic wall sampling starts ten seconds after native
+    // loading/reveal/focus readiness, then keeps the existing two-second FPS window.
+    // Preserve manual Hide all and ordinary wall fading. Keep active guide-pair facts
+    // and true hit-audio evidence beyond saturated startup logs. The imported native
+    // hit samples remain exact; audible squeak is unresolved, not a decoder fix.
+    // Red burn paint is correct. Retain bounded separate flame base/drawn material,
+    // timeline and texture evidence without repainting cards or forcing effects.
+    // Linux rendering proves original flame pixels, not Android final visibility.
+    // Compact Mod Update; no original content/bank regeneration or local full APK.
+    // See .planning/QUEST-HARDWARE-191141-20261018.md for evidence and open gates.
+
+    // ModBuild691 — Quest native loading mask, actual LOD containers and UI pixels.
+    // Capture165952 verifies current690/previous689. Preserve hardware-confirmed
+    // complete rooms, improved performance and removal of the idle audio click.
+    // The native Single scene has a second opaque PersistentOverlay loading
+    // screen, distinct from Intro's overlay. Hand off only its exact loading
+    // Graphics while the existing VR spinner owns presentation; restore them
+    // at native retirement. Do not hide other global/error UI or fake timing.
+    // Enable the missing AssetBundle engine module in the independent figure
+    // producer: old files contained Meshes but no loadable bundle container.
+    // Reuse exact derivative geometry; recook only Android containers, retaining
+    // original Campaign/mod/Wine data. Expose actual terrain/pillar consumers.
+    // Restore rectangular Options clipping and the original filled-slider text
+    // mask on Quest; desktop labels, layout and native values remain unchanged.
+    // Deliver exact owned UI pixels as a separately cached sidecar, streaming
+    // only changed bytes before activation. Feed the shared mip baker without
+    // XR readbacks. Reuse the established trimmed-Sprite path without changing
+    // physical cuts; average lower sRGB mips in linear light on Quest/Linear
+    // only. Native near-picture and distance/oblique comparisons qualify this
+    // filtering route; headset aliasing improvement still requires testing.
+    // Scaled native combat sources use pitch1 but Doppler1. Disable Doppler only
+    // for Quest nonlooping native 3D combat playback, restoring pooled sources;
+    // actual audio outcome still requires hardware testing. Add bounded Debug
+    // native reach/material/draw and guide-tint facts, without rendering or
+    // gameplay writes. Left guide, movement-range visibility and pillar LOD
+    // still need headset evidence; no speculative shader/state forcing.
+    // Compact Mod Update, no original-bank regeneration or local full APK.
+    // See .planning/QUEST-HARDWARE-165952-20261018.md and handoff validation.
+
+    // ModBuild690 — deliver missing Quest figure LOD banks and reduce steady CPU work.
+    // Capture150639 verifies current689/previous688; preserve complete native rooms,
+    // load closure, menu depth video, cuts/art, hit point and full viewport/density.
+    // Scope all five native guard families to loaded/persistent scene hierarchies;
+    // publish bounded state files on one managed writer without gameplay I/O waits.
+    // Add separately cached owned Android figure derivative index/parts to both
+    // build and compact update, before plugin activation. Original Campaign/mod/
+    // Wine banks stay reusable. No other omitted custom runtime asset group found.
+    // Suppress only Intro's exact black ScreenSpaceOverlay canvas while the Quest
+    // native-art spinner owns output; native callbacks/timing/art remain unchanged.
+    // Quest held portraits avoid fresh readable CPU shadows after GPU-only copies.
+    // Linux old path also passes; Android dual-panel outcome still requires testing.
+    // Refresh completed-APK update hints. Retain bounded Debug actual-budget,
+    // guide-submission and idle-audio facts; left cue/click/FPS remain hardware gates.
+
+    // ModBuild689 — qualify Quest Standalone budgets and tutorial clipping.
+    // Capture140053 verifies current688/previous687; complete rooms, native load
+    // closure and menu depth video are hardware-confirmed. Preserve their paths.
+    // Two Frame world budgets failed on Quest's unavailable CoreModule detour.
+    // Use a camera-owned, exact-public-list final callback; unavailable/changed
+    // boundaries restore originals before culling. Desktop detour stays intact.
+    // Keep shared defaults/pixel-light cap, authored Important lights and density.
+    // Drop only two unused full-game owner queries; keep five real guard families.
+    // Repair the original tutorial list's rectangular TMP clipping, retaining its
+    // stencil mask/material/native controller and existing shader variants.
+    // Passively retain bounded combat audio/guide snapshots and enrich the same
+    // four spinner edges; no audio, guide-rule or spinner visual cure is claimed.
+    // Actual Unity/Vulkan/ABI controls qualify source behavior, not device FPS.
+    // Compact managed-code update; original/mod/Wine banks and native helpers
+    // unchanged. No full APK/import/shader sweep or unrelated wire-gate claim.
+    // See .planning/QUEST-HARDWARE-140053-20261018.md and handoff validation.
+    //
+    // ModBuild688 — preserve native engine ownership across original reconnect.
+    // Capture125422 verifies installed/current687, previous686 and queued=False
+    // on the incomplete busy Wall1; task-submission starvation is not this cause.
+    // Original startup initializes twice. Reuse the same bridge worker/channel
+    // and forward both initializations to the same original DLL, which retains
+    // live entity handles. Never replace their owner during native reconnect.
+    // Compile/embed the small source-owned worker into the Android bridge;
+    // compact Mod Update retains all original banks and Wine payload bytes.
+    // Qualify actual original managed/native callbacks with nonempty tasks,
+    // healthy shutdown/restart and the historical respawn failure control.
+    // The pre-menu spinner gap and black ambient-depth movie remain hardware
+    // observations; retain bounded retirement/producer/snapshot evidence within
+    // existing file caps. No guessed duration, visibility or codec workaround.
+    // Preserve qualified card cuts/art, hit point, density and native blit.
+    // Windows execution and complete headset world/load closure need testing.
+
+    // ModBuild687 — Quest boot sprite lifetime and queued native submissions.
+    // Capture114020 verifies installed/current686, previous685. The maintainer
+    // confirms complete card artwork and physical cuts; preserve their consumer,
+    // the laser hit marker, full viewport, density and hardware-qualified blit.
+    // The boot RT consumer still flashes while later native sprites display.
+    // Bind the Intro atlas/UV directly through the persistent mod material on
+    // Quest; preserve borrowed flags, native handover and desktop owned copies.
+    // Full Tick/scene/unload/head-rebuild tests qualify that reference lifetime.
+    // Honor the original signed spin tuning on Quest, without a display timer.
+    // Actual readiness names busy/incomplete Wall1 inside completed roomB.
+    // Original task-first scheduling can consume its5ms before queued rebuild
+    // submission. Give only already-requested active All-room entities an
+    // original Update(.1f) submission opportunity after native UpdateEngine.
+    // Preserve task decode, EndContentUpdate and actual placement completion;
+    // never Refresh, clear busy, invent readiness or reveal hidden renderers.
+    // Actual original managed-assembly tests reproduce controlled starvation;
+    // 18 genuine native requests x3 builds return all54 completion tasks.
+    // B686 lacks the queue flag, so this is not a proven headset root cause.
+    // Include handle/queued state in the same bounded first-blocker record.
+    // Full world visibility and scenario load closure remain hardware gates.
+    // Compact code update only; original/mod banks and native helper unchanged.
+
+    // ModBuild686 — Quest consumer paths, animated loading and drop guides.
+    // Capture103822 proves installed/current685, previous684. The maintainer
+    // still sees only part of the world and an endless scenario spinner;
+    // completed internal room placement is not complete visible scene readiness.
+    // B685 installed exact CPU alpha above the actual mod ResourceDirectory.
+    // Publish under StreamingAssets before activation, qualify the real startup
+    // boundary and retire only old GPU-derived contour-cache recipes on Quest.
+    // Wanted/snap/fan glows now own the same explicit primitive inputs as the
+    // hardware-qualified pointer/menu path. Keep their artwork, depth and pulse.
+    // Native loading overlay starts at alpha0; do not freeze that acquisition
+    // value into every subsequent animated alpha. Preserve base/RGB/desktop.
+    // The private desktop generation wait subscribes hidden preview observers
+    // and uses a960-frame cap in retained data. Quest directly awaits scoped
+    // requested placement/material readiness; the original outer loading flow
+    // still owns networking, input and closure. No timeout or forced completion.
+    // Bound the first actual blocker through that same decision code. Native
+    // dark-world shading/final XR coverage remain unresolved; do not change
+    // global color space, material/light defaults or hidden renderer state.
+    // Preserve the confirmed laser, full viewport, density and B683 blit.
+    // Compact code update and reuse the existing small locally derived alpha;
+    // no original/mod bank conversion or full local APK build is required.
+
+    // ModBuild685 — Quest loading dependencies and original physical card cuts.
+    // Capture094059 proves installed/current684, previous683. The maintainer
+    // confirms the hit marker everywhere; retain that consumer and eye density.
+    // Do not await invisible Object/TilesOcclusionVolume renderer materials:
+    // original occlusion code draws those inputs using its own explicit material.
+    // Preserve the original loading coroutine and visible-room readiness gate.
+    // Quest boot loading uses the live Intro sprites, not persisted ReadPixels
+    // PNGs. Keep hardware-qualified B683 blits and ordinary native playback.
+    // Build a small exact CPU-alpha sidecar from owned original card textures.
+    // Deliver it independently of retained banks before mod activation; use the
+    // original contour/mesh algorithm. Unknown image regions require exact
+    // alpha-union domination before omission; never infer a cut from GPU noise.
+    // Whole requested-world visibility remains an unresolved hardware gate.
+    // Bounded probes now observe the actual All room/all material parts with
+    // native DontSave lighting inputs; private non-XR output is not a visual fix.
+    // Compact code + small alpha asset update; no original bank reconversion.
+
+    // ModBuild684 — load actual Quest procedural content before native handover.
+    // Capture131952 proves installed/current683, previous682. The maintainer
+    // confirms spinner, initiative and held-figure information are repaired.
+    // Preserve B683 image copying, native sources, density and full eye viewport.
+    // The initial engine recovery must run during native loading, not wait for
+    // its dismissal and an arbitrary grace period. Keep original unique owner,
+    // resources, loaded scenes, requested content and OS-pause admission.
+    // Native WaitForProcGen retains its original coroutine and continuation;
+    // Quest additionally waits for actual requested visible placement/material
+    // readiness instead of trusting the desktop frame cap as completion.
+    // Keep hidden/pooled content and native renderer visibility authoritative.
+    // The late hit marker is active, layer-admitted and in the mono frustum,
+    // but its sphere is invisible in the headset. Use a bounded round marker
+    // through the already visible native LineRenderer consumer on Quest;
+    // retain endpoint, footprint, tint, depth tests and the desktop sphere.
+    // Headset appearance remains a hardware gate, not a Linux-fixture claim.
+    // Compact code update only: retain original banks and native helper assets.
+
+    // ModBuild683 — recover Quest copy regressions; retain real generation.
+    // Capture123858 proves installed/current682 and previous681. Both new
+    // screenshots were inspected: cards lose their artwork, native menu/movie
+    // and dialogs regress, while real floors/door/walls/figure finally exist.
+    // The second census proves both rooms complete with handles/content and an
+    // active engine. Keep the B682 lifecycle repair; do not reset native state.
+    // Restore B681's hardware-qualified Graphics.Blit submission instead of the
+    // B682 owned-quad CommandBuffer copy. Linux GPU passes did not qualify active
+    // Android XR behavior. A new recipe retires only broken derived copy caches.
+    // Optional Quest mip filtering reads existing supported CPU source pixels;
+    // keep exact native source identity when that read is unavailable rather
+    // than replacing correct art with an untrusted GPU readback. Desktop keeps
+    // its established GPU bake. Preserve source encoding for direct CPU bytes.
+    // The same untrusted alpha can cut the physical card: reject an incomplete
+    // native contour union and retain the existing complete-body fallback under
+    // bounded guards; never persist a guessed mask. No original bank is rewritten.
+    // Bound actual shown-vs-pooled world material/loader facts and late pointer
+    // render facts within existing record limits. Enabled CPU geometry is not
+    // proof of a visible hit marker; its absence after Intro remains hardware
+    // evidence, not permission to hide or arbitrarily replace its original look.
+    // Focused current-source checks and compact Mod Update only; no full APK,
+    // original content conversion, new full wire gate or headset success claim.
+
+    // ModBuild682 — preserve the hit marker and recover requested native rooms.
+    // Capture114923 verifies current/installed681, previous680. The maintainer
+    // confirms the startup spinner is visible. Keep its source/UV/mesh policy,
+    // full XR viewport, density, working menu and pile inputs unchanged.
+    // Active native room entities have zero handles/children, while another
+    // registered entity owns a handle. Original Entity.Start creates handles
+    // independently of Engine.Start/Update: that global veto is invalid. Scope
+    // initial generation readiness to visible active room requests, retaining
+    // original owner/resources, native-content, pause, grace and once guards.
+    // The presentation observer also calls TMP_SubMeshUI.material on a pooled
+    // source and throws. Read its shared material without changing native UI.
+    // Identical native header/crop readbacks differ on Android. Own the 2D copy
+    // quad and snapshot source/crop with the unchanged sampler shader; retire
+    // only derived Quest copy caches. Retained-source GPU tests cannot establish
+    // the Adreno cause or prove complete headset artwork.
+    // The missing marker remains enabled in actual logs. Remove diagnostic
+    // BakeMesh only, preserving visible marker geometry/material/size/depth and
+    // passive bounded evidence. A native side effect is not proven. Compact
+    // code update only; no original asset conversion or local full APK build.
+
+    // ModBuild681 — Quest native lifecycle focus, spinner inputs and live sources.
+    // Capture105503 proves installed/current680, previous679. The original engine
+    // is unique in Gloomhaven_unified with enabledFalse, active hierarchy and
+    // resources ready, but zero handles/generated content and recovery not-admitted.
+    // Compat installs after VR startup: the initial install-timing hypothesis was
+    // false. Application.isFocused is not a Quest XR lifecycle gate; the existing
+    // provider already documents that the Android window may remain unfocused.
+    // Native procedural Update does not require input focus. Keep running VR and
+    // OS pause boundaries, original scene/owner/request/content guards and the
+    // one-shot3s repair. Exercise the real Driver in Unity PlayerLoop against
+    // controlled engine callbacks, not the Windows native engine ABI/body;
+    // retain actual admission blockers/ticks/focus within the same world record.
+    // The startup spinner still uses a native full-UV Quad without the explicit
+    // COLOR input already required by the hardware-confirmed Quest primitives.
+    // Apply the owned upload after its original pivot/UV mapping; preserve shape,
+    // alpha, shader, timing and desktop behavior. Preserve its two existing Debug
+    // observations after movie-detail saturation, without raising logger limits.
+    // The original global Debug.Log has Conditional(ENABLE_LOGS); unqualified
+    // artwork calls compiled away in the mod. Explicit UnityEngine.Debug binding
+    // and a matching conditional-shadow fixture correct this proven logging bug.
+    // Missing logs did not prove unreachable consumer branches. Also observe
+    // common Offer/original settled sources with the same8record cap;
+    // do not infer healthy Android captures from retained-project Vulkan fixtures.
+    // The screenshot's thin second laser segment is observed, but its cause is
+    // not yet established by two-endpoint/non-dominant policy source. Keep the
+    // confirmed pointer repair and bounded actual line ownership/geometry evidence.
+    // Final world/spinner/artwork/pointer outcomes require hardware. Code update
+    // only; no original game/art/native-helper reconversion or local full APK.
+
+    // ModBuild680 — protect Quest native lifecycles and observe actual artwork.
+    // Capture095625 verifies B679; the maintainer confirms pile icons and improved
+    // density, but missing card/portrait regions and a black Tutorial remain.
+    // No generated room exists yet: zero native handles/children, engine inactive.
+    // The engineActive aggregate does not establish component vs hierarchy/clone.
+    // Ignore the legacy free-form DisableComponents setting on Quest and hide its
+    // row, preserving the saved key and desktop compatibility behavior. After a
+    // stable initial-generation request, restore only a unique original-scene
+    // engine whose component alone is disabled. Foreground, settled scenes,
+    // active populated entities and absent generated/native content are required.
+    // One attempt per engine; native Start/Update own continuation. Never activate
+    // roots/renderers, invent readiness, tick native code or reset worker state.
+    // Reuse the world probe's dormant GPU slot for bounded engine-owner evidence.
+    // Fix PartialParameterOverride observation: it is an original property.
+    // Observe actual direct card/stat fields and adopted initiative subtree even
+    // while native capture hosts are parked. Preserve both pixel samples under
+    // the existing record limit by compressing metadata, not dropping pixels.
+    // Retained native Sprite/PNG/shader Vulkan fixtures show complete upper art;
+    // no current image repair or game-asset reconversion is justified by them.
+    // Keep B675/B677/B679 confirmed viewport/primitive/density repairs untouched.
+    // Focused real Unity tests and strict compilation are recorded; no complete
+    // wire gate, local full APK build or verified new headset outcome is claimed.
+
+    // ModBuild679 — Quest density reference and remaining Tutorial draw inputs.
+    // Capture091104 verifies B678 (both startup banners), but card/portrait tops,
+    // pile stacks and the native environment remain absent. Preserve the already
+    // hardware-confirmed full eye viewport and B677 menu/pointer primitive uploads.
+    // The maintainer now requires comparable Frame/Quest sharpness at the same
+    // saved factor. Frame B661 submits2728x2728 at0.8; Quest B678 submits1680x1760
+    // at1.0. Normalize Quest startup density against the measured3410px short-axis
+    // reference, retaining aspect/default0.8/saved0.5--2.0 choices. Show actual
+    // pixels separately from next-start estimates. No running allocation resize,
+    // partial viewport, provider retry or configuration rewrite on native clamp.
+    // Correct the remaining card-silhouette CPU alpha crop and retire its older
+    // Quest-only recipe cache. Preserve lit pile Cube inputs in owned uploads,
+    // including normals/tangents/UVs, material, geometry and desktop behavior.
+    // Panel carry/resolve use the existing ordinary2D copy with original MSAA,
+    // alpha, mips and capture counters; desktop retains the builtin route.
+    // MultiPass Camera.current is not an Update-phase guard: retain bounded real
+    // artwork/source/draw evidence instead of silently suppressing every record.
+    // World census now separates component disablement from inactive hierarchy,
+    // with native entity gates, parameters, handles and material-loader state.
+    // No terrain fix is proven: do not force native visibility/material/generation.
+    // Focused actual GPU/platform/provider/census/log tests and strict integrated
+    // compilation are recorded in the handoff. Compact matched-code update only;
+    // no original game/art/native-helper bank change or local full-game APK build.
+    // Final headset artwork, clarity, performance and world output remain open.
+
+    // ModBuild678 — first Quest tutorial: resolution and native artwork inputs.
+    // Capture082642 verifies B677 and the maintainer confirms that both the
+    // black menu and oversized blue pointer facets are resolved. Preserve those
+    // uploads and B675's full viewport. The first Tutorial now exposes a black
+    // environment, wrong initiative/stat portraits and damaged ability artwork.
+    // The Quest provider's0.8 target is1344x1408; the factor is not an absolute
+    // cross-platform pixel count. Remove the two artificial1.0 ceilings and
+    // retain the existing0.5--2.0 range at stopped-display startup only. Show
+    // actual pixels and restart semantics in the row and both player-help paths;
+    // the shared mobile default stays0.8, with no live Vulkan allocation resize.
+    // Quest mip copies use the existing explicit2D sampler. Runtime portrait
+    // atlases may share name/size while changing content: key their preparation
+    // by source identity/version, refresh stale consumers and bound metadata,
+    // preserving native UV/provenance and the ordinary desktop behavior.
+    // Bounded Debug artwork/source samples and scenario CPU/GPU observations
+    // survive earlier initialization saturation within unchanged log budgets.
+    // The procedural engine initialization alone does not establish generated
+    // terrain or final GPU output. Do not substitute shaders or relabel an
+    // unproven terrain repair as fixed; new evidence separates these boundaries.
+    // Focused platform/provider/artwork/diagnostic checks and strict compilation
+    // are recorded in the handoff. No original game/art bank reconversion or
+    // local full APK build; new headset sharpness, artwork and world outcomes
+    // still require hardware verification through the compact Mod Update path.
+
+    // ModBuild677 — explicit Quest primitive buffers and bounded consumer probes.
+    // Capture074018 proves B676 actually uses the owned Overlay shader but the
+    // user still reports a black menu and oversized blue hit-marker facets.
+    // Captured menu textures contain pixels; native Quad/Sphere streams have
+    // no COLOR attribute. Re-upload only these small, owned unlit consumers
+    // from their readable CPU positions/UVs/indices with explicit vertex color,
+    // preserving geometry, material, per-eye routing, depth and desktop meshes.
+    // This removes a shared input dependency; it does not establish the exact
+    // Android cause. Keep B675's hardware-confirmed XR allocation/viewport fix.
+    // At Debug, two Update-only private-camera draws compare actual consumer
+    // output independently of final XR output. Retain those and primitive
+    // records within existing log quotas; shrink source thumbnails to fit one
+    // Android logcat record and decode both current and historical dimensions.
+    // Host Wizard changes add local update recommendations, persistent Home
+    // navigation/live-job status, one hero logo and prominent project links.
+    // These host changes alone do not require native compilation. The runtime
+    // repair uses compact code compilation/update without rebuilding game/art
+    // banks. Focused GPU/compile/log/browser checks are recorded in the B677
+    // handoff; menu, laser and MR outcomes still require a new Quest test.
+
+    // ModBuild676 — Quest mesh output with retained eye allocation and capture data.
+    // Capture071329 confirms B675 resolves tracked-picture distortion. Retain
+    // its stopped-display .8 allocation and full viewport without modification.
+    // The menu is now reported black, although actual background/UI/consumer
+    // readbacks contain pixels, and the pointer still produces large blue facets
+    // with neutral native Sprite inputs. Neither is a proven tracking defect.
+    // Use the existing owned mesh shader for Quest MultiPass screen surfaces
+    // and pointer draws, preserving per-eye texture routing, alpha, depth/order
+    // and desktop behavior. Premultiply pointer inputs in their actual material
+    // and vertex color spaces; preserve opaque-screen alpha with the same-quad
+    // black underlay rather than assuming every source texel is opaque.
+    // This avoids the suspect native draw paths; it does not prove their exact
+    // historical GPU failure. No shader assets or game content are changed.
+    // Reserve settled-menu pixels/consumer/draw evidence independently within
+    // the existing256KiB/512record sink. Earlier Intro/provider floods must not
+    // leave the only useful menu proof in Android's evictable logcat ring.
+    // Focused native GPU/compile/update evidence is in the B676 receipt; final
+    // headset menu, pointer and MR outcomes still require hardware verification.
+
+    // ModBuild675 — full Quest eye viewports and explicit native pointer inputs.
+    // Capture063423/video confirms B674 still clips the tracked picture and
+    // produces large cyan facets on menu hits. CPU tracking/provider matrices
+    // match, but the 1680x1760 allocation uses a normalized .8 eye subrect.
+    // Select the saved/shared-mobile scale on initialized, stopped XR displays
+    // before StartSubsystems; retain a full viewport and never resize a live
+    // Vulkan swapchain. Changed resolution applies on the next app start.
+    // Small real GPU controls reproduce an inflated pointer with centimetre
+    // CPU bounds by changing Sprite _Flip. Pin neutral sprite inputs on the
+    // Quest material and both renderer blocks, preserving native alpha/depth.
+    // This establishes a rendering risk, not the headset's final GPU values.
+    // Foreground depth now converts normalized XR viewports using each actual
+    // pass descriptor; ordinary mono/RenderTexture paths retain pixel semantics.
+    // Qualify the exact managed display-start callback separately from native
+    // interop drift, keeping compact updates and unchanged content banks.
+    // Focused GPU/provider/compiler checks pass; headset outcome is unverified.
+
+    // ModBuild674 — Quest offscreen movie work before stereo draw setup.
+    // Capture215640 confirms visible Intro/menu/video, but reports head-dependent
+    // distortion and menu-sized blue areas when the pointer hits. Its CPU head
+    // poses/views/projections are consistent; that does not prove GPU state.
+    // A real small GPU fixture proves ordinary movie/stereo target switches
+    // restore the active target but reset a partial viewport to the full target.
+    // Complete Quest movies, copy depth-shifted eyes and take bounded readbacks
+    // at head pre-cull; keep late pre-render limited to per-eye texture routing.
+    // Desktop retains its existing timing. Original video/audio/depth and saved
+    // quality settings remain authoritative. Bounded Debug observations now
+    // cover settled menu visits, provider render parameters and hit geometry.
+    // No XR pose/FOV compensation, asset conversion or new local APK build.
+    // Mono GPU pixels do not establish the Quest outcome; verify on hardware.
+
+    // ModBuild673 — Quest render ownership and retained native helper repair.
+    // Capture135518 reaches the real menu after both existing content banks are
+    // accepted; the first-run UI/intro and head/hand picture remain hardware
+    // defects, not content conversion. Quest skips desktop spectator clearing
+    // and mirror controls. Video/presentation logging binds UnityEngine.Debug
+    // explicitly instead of the original game's conditional global facade.
+    // Head-pre-cull Debug evidence compares actual device/rig poses, projection
+    // matrices and viewports with a six-record bound, without changing tracking.
+    // Wall draw diagnostics allocate native MPBs after construction, preventing
+    // the observed constructor exception and subsequent partial-ledger failure.
+    // Proton's packaged server resolves its retained NLS data via an exact
+    // server-only native layout adapter. Compact updates compile/replace just
+    // the two small helpers plus current matched IL2CPP code/metadata; no game
+    // asset conversion, Wine rebuild or bank replacement. Android runtime and
+    // final headset pixels remain unverified until the next hardware capture.
 
     // ModBuild672 — separate wall visibility from VR foreground and verify Frame launch setup.
     // Through-wall native health/effect widgets now sample the original visible depth of
