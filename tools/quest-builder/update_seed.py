@@ -143,6 +143,7 @@ def _receipt(path):
 def _plain(entry):
     mode = entry.external_attr >> 16
     if (entry.is_dir() or entry.flag_bits & 1 or stat.S_ISLNK(mode)
+            or entry.orig_filename != entry.filename or entry.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
             or stat.S_IFMT(mode) not in (0, stat.S_IFREG)):
         raise SeedError("Compiler seed rejects directories, links and encrypted entries.")
 
@@ -278,7 +279,8 @@ def build(builder, data, inputs, output):
         previous = _receipt(receipt)
         old_manifest = _receipt(manifest)
         sources = {}
-        if (old_manifest is not None and all(old_manifest.get(name) == value for name, value in identity.items())
+        if (set(old_manifest) == {*identity, "archiveSha256", "archiveBytes"}
+                and all(old_manifest.get(name) == value for name, value in identity.items())
                 and type(old_manifest.get("archiveBytes")) is int and 0 < old_manifest["archiveBytes"] <= MAX_TOTAL
                 and isinstance(old_manifest.get("archiveSha256"), str) and _SHA.fullmatch(old_manifest["archiveSha256"])):
             archive_proof = _closed(builder, archive, old_manifest["archiveBytes"], old_manifest["archiveSha256"], previous.get("archive"))
