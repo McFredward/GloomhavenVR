@@ -92,6 +92,7 @@ def main():
     witness_start = loading.index("    private sealed class LoadingDrawWitness : MonoBehaviour")
     witness = loading[witness_start:loading.index("\n    /// <summary>", witness_start)]
     sources = {"Sampling.cs": (sharp / "QuestScreenSampling.cs").read_text(),
+               "BundleShaders.cs": (ROOT / "src/GloomhavenVR/Core/BundleShaders.cs").read_text(),
                "PrimitiveMesh.cs": (ROOT / "src/GloomhavenVR/Core/QuestPrimitiveMesh.cs").read_text(),
                "TextureCopy.cs": (ROOT / "src/GloomhavenVR/Core/QuestTextureCopy.cs").read_text(),
                "Geometry.cs": (sharp / "LoadingIconGeometry.cs").read_text(),
@@ -103,7 +104,7 @@ def main():
         "private readonly List<Texture> _ownedArtTextures = new();\n"
         "private const int MaxStepsPerFrame=8;\n"
         "private Transform? _baseQuad, _overlayQuad; private Material? _baseMaterial, _overlayMaterial;\n"
-        "private LayerArt? _baseArt, _overlayArt; private float _accum, _overlayAlpha, _fade, _spinDegrees, _stepSeconds, _glowStep, _minAlpha; private bool _increaseAlpha;\n"
+        "private LayerArt? _baseArt, _overlayArt; private float _accum, _overlayAlpha, _fade, _spinDegrees, _stepSeconds, _glowStep, _minAlpha; private bool _increaseAlpha; private bool _questMenuHandoff = false;\n"
         "private GameObject? _root = new GameObject(\"fixture-loading-root\");\n" + layer + witness
         + method(loading, "    private static void DestroyObj<")
         + method(loading, "    private static LayerArt? ReadLayer(")

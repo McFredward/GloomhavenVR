@@ -74,7 +74,13 @@ internal sealed partial class FlatScreen
         {
             Matrix4x4 view = head.stereoEnabled ? head.GetStereoViewMatrix(Camera.StereoscopicEye.Left) : head.worldToCameraMatrix;
             Matrix4x4 projection = head.stereoEnabled ? head.GetStereoProjectionMatrix(Camera.StereoscopicEye.Left) : head.projectionMatrix;
-            target = RenderQuestConsumerProbe(renderer, renderer.sharedMaterial, view, projection);
+            // The old48x32 full-eye probe resolves the9.5degree loading disc to
+            // approximately three pixels on Quest. A perfectly good narrow ring
+            // can miss all of those sample centres while it rotates. Fit this
+            // exact mesh to the private target instead, so zero no longer
+            // masquerades as missing source artwork because of undersampling.
+            Matrix4x4 tightProjection = CropQuestProbeToRenderer(renderer, view, projection);
+            target = RenderQuestConsumerProbe(renderer, renderer.sharedMaterial, view, tightProjection);
             if (target == null) return;
             RenderTexture retained = target;
             int frame = Time.frameCount;
@@ -94,7 +100,7 @@ internal sealed partial class FlatScreen
                     }
                     UnityEngine.Debug.Log("[Quest startup] presentation spinner-final stage=spinner-source sample=" + sample
                         + " frame=" + frame + " visiblePixels=" + visible + " failed=" + request.hasError
-                        + " width=48 height=32 finalXrPixelsObserved=false");
+                        + " framing=exact-consumer-bounds width=48 height=32 finalXrPixelsObserved=false");
                 }
                 finally { retained.Release(); Object.Destroy(retained); }
             });
@@ -106,6 +112,31 @@ internal sealed partial class FlatScreen
                 + " unavailable=" + error.GetType().Name);
         }
         finally { if (target != null) { target.Release(); Object.Destroy(target); } }
+    }
+
+    private static Matrix4x4 CropQuestProbeToRenderer(Renderer renderer, Matrix4x4 view, Matrix4x4 projection)
+    {
+        Bounds bounds = renderer.bounds;
+        Vector3 centre = bounds.center, extent = bounds.extents;
+        Matrix4x4 worldToClip = projection * view;
+        float left = float.PositiveInfinity, right = float.NegativeInfinity;
+        float bottom = float.PositiveInfinity, top = float.NegativeInfinity;
+        for (int corner = 0; corner < 8; corner++)
+        {
+            Vector3 world = centre + new Vector3((corner & 1) == 0 ? -extent.x : extent.x,
+                (corner & 2) == 0 ? -extent.y : extent.y, (corner & 4) == 0 ? -extent.z : extent.z);
+            Vector4 clip = worldToClip * new Vector4(world.x, world.y, world.z, 1f);
+            if (clip.w <= .0001f) return projection;
+            float x = clip.x / clip.w, y = clip.y / clip.w;
+            left = Mathf.Min(left, x); right = Mathf.Max(right, x);
+            bottom = Mathf.Min(bottom, y); top = Mathf.Max(top, y);
+        }
+        float width = right - left, height = top - bottom;
+        if (width < .0001f || height < .0001f) return projection;
+        var crop = Matrix4x4.identity;
+        crop.m00 = 1.8f / width; crop.m03 = -.9f * (right + left) / width;
+        crop.m11 = 1.8f / height; crop.m13 = -.9f * (top + bottom) / height;
+        return crop * projection;
     }
 
     private static RenderTexture? RenderQuestConsumerProbe(Renderer? renderer, Material? material,
@@ -130,6 +161,7 @@ internal sealed partial class FlatScreen
         if (source == null || graphic == null || graphic.GetType() != typeof(Image)
             || graphic.materialForRendering == null || PopulateMenuImage == null) return null;
         var mesh = new Mesh { name = "GloomhavenVR.QuestMenuGraphicProbe" };
+        Material? unmasked = null;
         try
         {
             // Unity2021 CanvasRenderer has no mesh getter. Ask the original
@@ -145,17 +177,39 @@ internal sealed partial class FlatScreen
             if (mesh.vertexCount < 3) return null;
             var properties = new MaterialPropertyBlock();
             properties.SetTexture("_MainTex", graphic.mainTexture);
+            Material material = graphic.materialForRendering;
+            // A Mask gives an otherwise visible native Image a derived Equal
+            // stencil material. Its parent mask does not draw into this private
+            // eligibility target, whose stencil starts empty. Replaying that
+            // derived comparison here rejects real menu artwork indefinitely.
+            // The private source-only draw therefore uses a private comparison;
+            // real CanvasRenderer masking, inherited alpha/cull, the actual
+            // capture and both actual consumer pixel proofs remain unchanged.
+            if (material.HasProperty("_StencilComp")
+                && material.GetInt("_StencilComp") != (int)CompareFunction.Always
+                && material.GetInt("_StencilComp") != (int)CompareFunction.Disabled)
+            {
+                unmasked = new Material(material) { name = "GloomhavenVR.QuestMenuEligibility" };
+                unmasked.SetInt("_StencilComp", (int)CompareFunction.Always);
+                unmasked.SetInt("_StencilWriteMask", 0);
+                material = unmasked;
+            }
             return RenderQuestMenuMeshProbe(mesh, graphic.transform.localToWorldMatrix,
-                graphic.materialForRendering, properties, source.worldToCameraMatrix, source.projectionMatrix);
+                material, properties, source.worldToCameraMatrix, source.projectionMatrix);
         }
-        finally { Object.Destroy(mesh); }
+        finally { Object.Destroy(mesh); if (unmasked != null) Object.Destroy(unmasked); }
     }
 
     private static RenderTexture? RenderQuestMenuMeshProbe(Mesh mesh, Matrix4x4 localToWorld,
         Material material, MaterialPropertyBlock? properties, Matrix4x4 view, Matrix4x4 projection)
     {
         var target = new RenderTexture(48, 32, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
-            { name = "GloomhavenVR.QuestMenuConsumerProbe", filterMode = FilterMode.Point };
+            { name = "GloomhavenVR.QuestMenuConsumerProbe", filterMode = FilterMode.Point,
+                // A managed callback capture is not a Unity asset-reachability
+                // edge. Native startup can collect unused assets while the
+                // async readback is outstanding; this owned target must live
+                // until that callback explicitly releases/destroys it.
+                hideFlags = HideFlags.HideAndDontSave };
         RenderTexture? previous = RenderTexture.active;
         var commands = new CommandBuffer { name = "GloomhavenVR.QuestMenuConsumerProbe" };
         var cameraObject = new GameObject("GloomhavenVR.QuestMenuConsumerProbe")

@@ -231,6 +231,7 @@ public static class LoadingLifecycleProgram
         ObservedBoundary = 1;
         Check(Field<float>("_spinDegrees") == -6f && Field<float>("_stepSeconds") == .07f && Field<float>("_glowStep") == .07f,
             "Actual Tick preserves the original signed native spinner tuning");
+        BootForegroundComposition.Probe(head, indicator, Check);
         unified.allowSceneActivation = true; yield return unified; yield return null;
         Check(SceneManager.GetActiveScene().name == "Gloomhaven_unified", "Actual Single native scene activation completed");
         ObservedBoundary = 2;
@@ -376,7 +377,7 @@ public static class LoadingLifecycleProgram
         var cameraOwner = new GameObject("native-readiness-ui-camera");
         Camera ui = cameraOwner.AddComponent<Camera>(); ui.enabled = false;
         ui.cullingMask = 1 << 5; ui.clearFlags = CameraClearFlags.SolidColor; ui.backgroundColor = Color.clear;
-        var capture = new RenderTexture(64, 64, 0); capture.Create(); ui.targetTexture = capture;
+        var capture = new RenderTexture(64, 64, 24); capture.Create(); ui.targetTexture = capture;
         Canvas nativeCanvas = root.GetComponent<Canvas>(); nativeCanvas.renderMode = RenderMode.ScreenSpaceCamera;
         nativeCanvas.worldCamera = ui; nativeCanvas.planeDistance = .5f;
         var graphicOwner = new GameObject("native-original-menu-graphic", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
@@ -497,6 +498,19 @@ public static class LoadingLifecycleProgram
                 }
             }
             finally { UnityEngine.Object.DestroyImmediate(transparent); UnityEngine.Object.DestroyImmediate(blankTexture); }
+            if (Environment.GetEnvironmentVariable("QUEST_LOADING_MASKED_MENU") == "1")
+            {
+                var maskOwner = new GameObject("native-menu-mask", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Mask));
+                maskOwner.layer = 5; maskOwner.transform.SetParent(optionsOwner.transform, false);
+                maskOwner.GetComponent<RectTransform>().sizeDelta = Vector2.one * 64;
+                maskOwner.GetComponent<Image>().color = Color.black;
+                maskOwner.GetComponent<Mask>().showMaskGraphic = false;
+                graphicOwner.transform.SetParent(maskOwner.transform, false);
+                Canvas.ForceUpdateCanvases();
+                yield return null;
+                Check(nativeImage.materialForRendering.GetInt("_StencilComp") == (int)UnityEngine.Rendering.CompareFunction.Equal,
+                    "Real native menu Mask derives an Equal-stencil child material");
+            }
             // Actual asynchronous GPU confirmation may complete on a following
             // PlayerLoop turn. Never seed the proof or sleep until it is assumed
             // ready: check the finished picture on each rendered handoff frame.

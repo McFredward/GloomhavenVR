@@ -15,7 +15,12 @@ namespace GloomhavenVR.Core
 {
     internal static class QuestStandalonePlatform { internal static bool Enabled; }
     internal enum VRLogLevel { Debug }
-    internal static class VRLog { internal static bool Wants(VRLogLevel level) => false; }
+    internal static class VRLog
+    {
+        internal static bool Wants(VRLogLevel level) => false;
+        internal static void Info(string category, string text) => UnityEngine.Debug.Log(text);
+        internal static void Error(string category, string text) => UnityEngine.Debug.LogError(text);
+    }
 }
 
 // Actual loading witness is debug-only; this isolated geometry fixture has no

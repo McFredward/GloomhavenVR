@@ -31,7 +31,8 @@ def main():
     parser.add_argument("--production-root", type=Path, default=ROOT, help="Read reviewed production sources from this checkout; fixture and runner remain this checkout's own files.")
     parser.add_argument("--handoff-case", choices=("transparent-native-graphic", "offscreen-native-graphic", "later-target-overwrite", "black-head-consumer", "foreign-ui-only", "foreign-ui-authored-black"), help="Isolate one final-frame handoff failure before the valid native menu.")
     parser.add_argument("--final-composition", action="store_true", help="Also qualify the native overlay in a real automatically rendered GameView (GL/Xvfb).")
-    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept", "intro-mode-assumption", "unified-mode-assumption", "intro-root-assumption", "unified-root-assumption", "intro-actor-assumption", "early-menu-hide", "menu-state-only", "menu-no-submission", "menu-empty-window", "menu-hidden-ancestor", "menu-foreign-capture", "menu-native-image-proof-bypassed", "menu-consumer-proof-bypassed"))
+    parser.add_argument("--masked-menu", action="store_true", help="Require actual native masked artwork to complete the one initial handoff.")
+    parser.add_argument("--control", choices=("retire-at-controller", "copy-boot-rt", "skip-rig-rebuild", "signed-spin", "missing-native-seam", "skip-head-reparent", "stale-draw-witness", "native-overlay-kept", "native-loading-overlay-kept", "intro-mode-assumption", "unified-mode-assumption", "intro-root-assumption", "unified-root-assumption", "intro-actor-assumption", "early-menu-hide", "menu-state-only", "menu-no-submission", "menu-empty-window", "menu-hidden-ancestor", "menu-foreign-capture", "menu-native-image-proof-bypassed", "menu-consumer-proof-bypassed", "boot-foreground-depth", "menu-stencil-context"))
     args = parser.parse_args()
     if args.control in ("native-overlay-kept", "native-loading-overlay-kept", "intro-root-assumption", "unified-root-assumption") and not args.final_composition:
         parser.error("The native overlay control requires --final-composition.")
@@ -55,6 +56,7 @@ def main():
             "stale-draw-witness": ("LastHeadId = camera.GetInstanceID();", "LastHeadId = 0;", "Actual native camera submission updates the owned loading draw witness"),
             "native-overlay-kept": ("_questIntroCanvas.enabled = false;", "_questIntroCanvas.enabled = true;", "Actual final native overlay draw hides the admitted spinner and Quest Tick reveals the same pixels"),
             "native-loading-overlay-kept": ("if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = false;", "if (state.graphic != null && state.graphic.enabled) state.graphic.enabled = true;", "Actual unified native loading overlay covers the admitted spinner until its exact widget hands off graphics"),
+            "boot-foreground-depth": ('Shader? shader = foreground ?? Shader.Find("Sprites/Default")', 'Shader? shader = Shader.Find("Sprites/Default")', "Initial Quest spinner survives real retained depth and later blank capture composition"),
         }
         expected = ""
         controls["intro-mode-assumption"] = (
@@ -119,12 +121,17 @@ def main():
             if core.count("        ObserveQuestMenuFrame();") != 1:
                 raise RuntimeError("Production menu frame observer has no unique live FlatScreen.Tick call before compilation")
         rows = {"LoadingIndicator.cs": loading, "QuestMenuReadiness.cs": readiness}
-        for path in ("Core/QuestTextureCopy.cs", "Core/QuestPrimitiveMesh.cs", "WorldUI/Sharpness/LoadingIconGeometry.cs", "WorldUI/FlatScreen/FlatScreen.7.QuestDrawProbe.cs"):
+        for path in ("Core/QuestTextureCopy.cs", "Core/QuestPrimitiveMesh.cs", "Core/BundleShaders.cs", "WorldUI/Sharpness/LoadingIconGeometry.cs", "WorldUI/FlatScreen/FlatScreen.7.QuestDrawProbe.cs"):
             rows[Path(path).name] = (production_root / "src/GloomhavenVR" / path).read_text()
+        if args.control == "menu-stencil-context":
+            args.masked_menu = True
+            rows["FlatScreen.7.QuestDrawProbe.cs"] = replace_control(rows["FlatScreen.7.QuestDrawProbe.cs"],
+                'if (material.HasProperty("_StencilComp")', 'if (false && material.HasProperty("_StencilComp")', args.control)
+            expected = "Actual produced visible native UI reaches the real head consumer"
         for name, text in rows.items(): (production / name).write_text(text)
         source_hashes = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in rows.items()}
         source_hashes.update({str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in fixture.glob("*") if path.is_file()})
-        for shader in ("unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader", "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader"):
+        for shader in ("unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader", "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader", "unity/GloomhavenVR.Assets/Assets/Bundle/Table/QuestLoadingSpinner.shader"):
             source_hashes[shader] = hashlib.sha256((production_root / shader).read_bytes()).hexdigest()
         (run / "source-hashes.json").write_text(json.dumps(source_hashes, indent=2) + "\n")
         # Retain the exact test source before later development can change it.
@@ -142,6 +149,7 @@ def main():
         dll = run / "bin/Release/netstandard2.1/QuestLoadingLifecycle.dll"
         shutil.copyfile(production_root / "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestTextureCopy.shader", project / "Assets/Resources/QuestTextureCopy.shader")
         shutil.copyfile(production_root / "unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader", project / "Assets/Resources/Overlay.shader")
+        shutil.copyfile(production_root / "unity/GloomhavenVR.Assets/Assets/Bundle/Table/QuestLoadingSpinner.shader", project / "Assets/Resources/QuestLoadingSpinner.shader")
         wanted = set()
         source = args.owned_project.resolve(strict=True)
         def copy(path, target):
@@ -271,6 +279,7 @@ public static class LoadingLifecycleRunner {
         environment = os.environ.copy()
         environment["QUEST_LOADING_FRAME_REPORT"] = str(run)
         if args.handoff_case: environment["QUEST_LOADING_HANDOFF_CASE"] = args.handoff_case
+        if args.masked_menu: environment["QUEST_LOADING_MASKED_MENU"] = "1"
         if args.final_composition: environment["QUEST_LOADING_COMPOSITION_REPORT"] = str(run)
         process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, start_new_session=True, env=environment); reaped=False
         code = process.wait(timeout=240)

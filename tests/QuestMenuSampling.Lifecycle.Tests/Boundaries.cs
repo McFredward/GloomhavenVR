@@ -13,6 +13,7 @@ namespace GloomhavenVR.Core
         internal static bool Wants(VRLogLevel level) => true;
         internal static void Info(string category, string text) => UnityEngine.Debug.Log("[Lifecycle] " + text);
         internal static void Warn(string category, string text) => UnityEngine.Debug.LogWarning("[Lifecycle] " + text);
+        internal static void Error(string category, string text) => UnityEngine.Debug.LogError("[Lifecycle] " + text);
     }
     internal static class VRLayers
     {
