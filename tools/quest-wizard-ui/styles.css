@@ -377,3 +377,10 @@ html{scroll-padding-top:calc(var(--topbar-height,94px) + 16px)}
 .storage-confirmation .primary{padding:12px 16px;white-space:normal}.storage-preview-details{margin-top:18px}.storage-preview-details summary{font-size:12px;color:var(--muted);cursor:pointer;line-height:1.6}
 .storage-section-title{font-size:15px;margin:30px 0 12px}.storage-details{margin-top:24px;padding:16px 0;border-top:1px solid var(--line)}.storage-details>summary{font-size:13px;line-height:1.6}.storage-details>.hint{margin-top:15px;font-size:12px;line-height:1.7}
 @media(max-width:600px){.storage-automatic,.storage-operation{padding:16px}.storage-confirmation .storage-actions{align-items:stretch;flex-direction:column}.storage-automatic>.primary{width:100%}}
+
+/* Installed-source acquisition is a measured byte transfer, not build progress. */
+#update-source-choice{margin-bottom:20px}#update-source-choice>.checkline{margin-top:12px}
+#quest-source-choice>.support-actions{gap:8px;flex-wrap:wrap;margin-top:10px}
+#source-device-progress{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:center;margin:12px 0}
+#source-device-bar{width:100%;height:7px;accent-color:var(--gold)}#source-device-percent{font-size:12px;font-variant-numeric:tabular-nums}
+#source-device-detail{grid-column:1/-1;margin:0;overflow-wrap:anywhere}#source-device-summary{overflow-wrap:anywhere}

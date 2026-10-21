@@ -23,7 +23,7 @@ let lastCleanupRefresh=null,supportBusy=false,supportResult=null,supportFailure=
 let runsRefreshAfterInventory=false;
 const removedRuns=new Set();
 let deviceInfo=null,deviceBusy=false,devicePollTimer=null,deviceDownloading=false;
-let pendingDeviceCleanup=null;
+let pendingDeviceCleanup=null,importedDeviceSource=null,appliedDeviceSource=null,localSourcePath='',autoChooseQuest=false;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
 let automaticBaseApk='',workflowMode=null,workflowPage=0;
 let packageInfo=null,packageBusy=false,packagePollTimer=null,automaticPackageSource='',automaticPackageDestination='';
@@ -65,7 +65,8 @@ function setLanguage(value) {
   renderUpdateRebuildDialog();
 }
 function form() { return {gameRoot:$('game-root').value,provider:$('provider').value,unityEditor:$('unity-editor').value,hostSystem:discovery?.host?.system,
-  mode:$('build-mode').value,baseApk:$('base-apk').value,signingRoot:$('signing-root').value,signingMode:$('signing-mode').value,
+  mode:$('build-mode').value,baseApk:$('base-apk').value,installedGame:$('installed-game').checked,updateSource:$('update-source').value,
+  ...(importedDeviceSource?{deviceSource:{deviceSerial:importedDeviceSource.deviceSerial,versionName:importedDeviceSource.versionName??''}}:{}),signingRoot:$('signing-root').value,signingMode:$('signing-mode').value,
   profileName:$('profile-name').value,profileId:$('profile-id').value,declareDlc:$('declare-dlc').checked,
   ownedDlc:[...document.querySelectorAll('input[name=dlc]:checked')].map(node => node.value),
   acceptUnityTerms:$('unity-terms').checked,install:$('install-choice').checked}; }
@@ -318,7 +319,7 @@ function homeActiveWork(){
     title:t({'update-mod':'homeMod','update-profile':'homeProfile'}[running.mode]??'homeBuild'),detail:t('homeWorkLoading'),phase:t('working'),percent:null};
   if(deviceActive()){
     const current=deviceInfo?.state??{},progress=current.progress??{},key='deviceStatus_'+current.status;
-    return {kind:'device',status:current.status,title:t('deviceTitle'),
+    return {kind:'device',status:current.status,title:t(['source-discover','source-import'].includes(current.operation)?'modOperationTitle':'deviceTitle'),
       phase:current.message?message(current.message):t(key)===key?t('working'):t(key),
       detail:[typeof progress.label==='string'?progress.label:'',typeof current.activity?.detail==='string'?current.activity.detail:''].filter(Boolean).join(' · '),percent:progress.percent};
   }
@@ -355,17 +356,21 @@ function openHomeActivity(){
     if(state?.session===work.session){navigatePage(2,'progress-title');return;}
     void openSession(work.session);return;
   }
+  if(work.kind==='device'&&['source-discover','source-import'].includes(deviceInfo?.state?.operation)){navigatePage(0,'source-device-summary');return;}
   navigatePage(work.kind,{device:'device-title',export:'package-title',storage:'storage-title'}[work.kind]);
 }
 function renderHome(){
   $('home-page').hidden=page!==-1;$('home').hidden=false;$('home').disabled=busy;
   if(page===-1)$('home').setAttribute('aria-current','page');else $('home').removeAttribute('aria-current');
-  const recommendation=discovery?.updateRecommendation;
+  const installed=deviceInfo?.state?.source;
+  const deviceBuild=Number(installed?.versionCode),bundled=discovery?.modSource?.modBuild;
+  const local=discovery?.updateRecommendation;
+  const recommendation=local?.inputsReady?local:Number.isInteger(deviceBuild)&&deviceBuild>0&&Number.isInteger(bundled)&&deviceBuild<bundled?{available:true,inputsReady:true,installedBuild:deviceBuild,bundledBuild:bundled,device:true}:local;
   const output=completedOutputKey(),stale=Boolean(output)&&output!==completedDiscoveryKey;
   const recommended=!stale&&!completedDiscoveryRequest&&recommendation?.available===true&&recommendation?.inputsReady===true;
   $('home-mod').classList.toggle('recommended',recommended);
   $('home-mod-badge').hidden=!recommended;$('home-mod-recommendation').hidden=!recommended;
-  $('home-mod-recommendation').textContent=recommended?t('homeUpdateReady',{installed:recommendation.installedBuild,bundled:recommendation.bundledBuild}):'';
+  $('home-mod-recommendation').textContent=recommended?t(recommendation.device?'homeUpdateDeviceReady':'homeUpdateReady',{installed:recommendation.installedBuild,bundled:recommendation.bundledBuild}):'';
   $('home-update-status').hidden=!completedDiscoveryRequest&&(Boolean(discovery)||!busy);
   renderHomeActivity();
   document.querySelector('.steps').hidden=typeof page!=='number'||page<0;
@@ -444,6 +449,57 @@ async function deviceOperation(operation){
   }catch(value){deviceInfo={schema:1,event:'device',state:{status:'failed',message:value?.message??t(value?.code??'offline')}};}
   finally{deviceBusy=false;updateView();scheduleDevicePoll();}
 }
+function renderUpdateSources(){
+  const mode=$('build-mode').value,current=deviceInfo?.state??{},source=current.source;
+  const active=deviceActive();
+  if(autoChooseQuest&&mode!=='build'&&page===0&&source&&current.status==='source-found'&&!$('base-apk').value){$('update-source').value='quest';autoChooseQuest=false;}
+  const quest=$('update-source').value==='quest';
+  const options=$('source-device'),selected=options.value;
+  const roster=(current.devices??[]).filter(row=>row.state==='device');
+  const key=JSON.stringify(roster.map(row=>[row.serial,row.kind]));
+  if(options.dataset.roster!==key){options.replaceChildren(new Option(t('deviceAutomatic'),''),...roster.map(row=>new Option(row.serial+' · '+(row.kind??''),row.serial)));options.value=roster.some(row=>row.serial===selected)?selected:'';options.dataset.roster=key;}
+  options.options[0].textContent=t('deviceAutomatic');
+  $('quest-source-choice').hidden=!quest;
+  for(const id of ['source-discover','source-import'])$(id).disabled=active||busy||isActive(state)||storageActive()||packageActive()||!canConnect;
+  $('source-cancel').hidden=!active||!['source-discover','source-import'].includes(current.operation);
+  if(current.status==='source-ready'&&source?.apk&&source!==appliedDeviceSource&&quest){
+    importedDeviceSource=structuredClone(source);appliedDeviceSource=source;$('base-apk').value=source.apk;automaticBaseApk=source.apk;
+  }
+  const relevant=['source-discover','source-import'].includes(current.operation);
+  const summary=$('source-device-summary');summary.hidden=mode==='build'||!relevant;
+  summary.textContent=[source?.versionName?source.versionName+' · '+(source.deviceSerial??''):'',current.message?message(current.message):''].filter(Boolean).join(' · ');
+  const progress=current.progress??{},measured=Number.isFinite(progress.done)&&Number.isFinite(progress.total)&&progress.total>0;
+  $('source-device-progress').hidden=mode==='build'||!relevant||!active;
+  if(measured)$('source-device-bar').value=100*progress.done/progress.total;else $('source-device-bar').removeAttribute('value');
+  $('source-device-percent').textContent=measured?percentText(100*progress.done/progress.total)+' %':t('working');
+  $('source-device-detail').textContent=[progress.detail??progress.label??'',measured&&progress.unit==='bytes'?storageSize(progress.done)+' / '+storageSize(progress.total):''].filter(Boolean).join(' · ');
+  const localSeed=discovery?.defaultApk?.path===$('base-apk').value?discovery?.updateRecommendation?.seed:null;
+  const legacy=(quest?importedDeviceSource?.seed:localSeed)?.available===false&&$('installed-game').checked;
+  $('source-seed-warning').hidden=!legacy;$('source-use-pc').hidden=!legacy;
+}
+async function sourceOperation(operation,automatic=false){
+  if(deviceActive()||busy||isActive(state)||storageActive()||packageActive())return;
+  deviceBusy=true;clearTimeout(devicePollTimer);updateView();
+  try{
+    const serial=automatic?'':$('source-device').value;
+    const result=operation==='import'?await api.deviceSourceImport('',serial):await api.deviceSourceDiscover('',serial);
+    if(result?.event!=='device'||!result.state)throw {code:'invalidReply'};deviceInfo=result;
+  }catch(value){
+    deviceInfo={schema:1,event:'device',state:{status:'source-unavailable',operation:'source-discover',message:value?.message??t('sourceUnavailable')}};
+    if(!automatic)error(value);
+  }finally{deviceBusy=false;updateView();scheduleDevicePoll();}
+}
+$('source-discover').addEventListener('click',()=>sourceOperation('discover'));
+$('source-import').addEventListener('click',()=>sourceOperation('import'));
+$('source-cancel').addEventListener('click',async()=>{try{deviceInfo=await api.deviceCancel();}catch(value){error(value);}finally{updateView();scheduleDevicePoll();}});
+$('source-use-pc').addEventListener('click',()=>{$('installed-game').checked=false;updateView();$('game-root').focus();});
+$('installed-game').addEventListener('change',updateView);
+$('update-source').addEventListener('change',()=>{
+  autoChooseQuest=false;
+  if($('update-source').value==='quest'){localSourcePath=$('base-apk').value;$('base-apk').value=importedDeviceSource?.apk??'';}
+  else{$('base-apk').value=localSourcePath||discovery?.defaultApk?.path||'';}
+  updateView();
+});
 function deviceStorageRows(node,rows,emptyKey){
   node.replaceChildren();
   if(!Array.isArray(rows)||!rows.length){const li=document.createElement('li');li.textContent=t(emptyKey);node.append(li);return;}
@@ -1032,7 +1088,7 @@ function updateView() {
   $('space-estimate').hidden=!estimate;
   if(estimate){$('space-estimate').textContent=t(estimate.scanBounded?'spacePartial':qualification.spaceWarning?'spaceLow':'spaceEstimate',{required:Math.ceil(estimate.additionalEstimatedBytes/1073741824),free:Math.floor(qualification.freeBytes/1073741824)});$('space-estimate').classList.toggle('warning',qualification.spaceWarning===true);}
   $('game-page').hidden=page!==0;$('setup-page').hidden=page!==1;$('progress-page').hidden=page!==2;
-  renderHome();renderDevice();renderPackage();renderSupport();
+  renderHome();renderDevice();renderUpdateSources();renderPackage();renderSupport();
   const step=page===2 ? macroStep(state) : page;
   document.querySelectorAll('[data-step]').forEach(node => {const index=Number(node.dataset.step);node.classList.toggle('active',index===step);node.classList.toggle('done',index<step);if(index===step)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');});
   $('back').hidden=page!==1;$('cancel').hidden=page!==2||!isActive(state);
@@ -1040,13 +1096,20 @@ function updateView() {
   $('cancel').disabled=busy||['cancelling','cancel_requested'].includes(state?.status);
   $('cancel').textContent=t(['cancelling','cancel_requested'].includes(state?.status)?'cancelling':'cancel');
   $('profile-summary').textContent=t($('profile-name').value?'profileManual':'profileCheck');
-  $('selected-review').textContent=$('provider').value.toUpperCase()+' · '+$('game-root').value;
+  $('selected-review').textContent=$('installed-game').checked&&$('build-mode').value!=='build'?($('base-apk').value||t('updateSourceQuest')):$('provider').value.toUpperCase()+' · '+$('game-root').value;
   const mode=$('build-mode').value;
   $('profile-name-hint').hidden=mode!=='update-profile';
   document.querySelector('label[for=profile-name]').textContent=t(mode==='update-profile'?'profileUpdateName':'profileName');
   document.querySelector('label[for=profile-id]').textContent=t(mode==='update-profile'?'profileUpdateId':'profileId');
   const unityLabel=document.querySelector('label[for=unity-editor]');unityLabel.hidden=mode==='update-profile';unityLabel.nextElementSibling.hidden=mode==='update-profile';
-  $('base-apk-choice').hidden=mode==='build';
+  const installedGame=mode!=='build'&&$('installed-game').checked;
+  $('update-source-choice').hidden=mode==='build';
+  $('pc-game-choice').hidden=installedGame;
+  document.querySelector('#game-page .intro').textContent=t(mode==='build'?'gameIntro':'updateSourceIntro');
+  $('base-apk-choice').hidden=mode==='build'||$('update-source').value==='quest';
+  for(const id of ['profile-id','declare-dlc']){const node=$(id);node.disabled=installedGame;node.closest('label')?node.closest('label').hidden=installedGame:node.hidden=installedGame;}
+  $('dlc-declaration').hidden=installedGame||!$('declare-dlc').checked;
+  for(const name of ['profile-name','profile-id']){const node=$(name);node.hidden=installedGame&&(mode!=='update-profile'||name==='profile-id');document.querySelector('label[for='+name+']').hidden=node.hidden;}
   const workspaceSource=discovery?.defaultApk?.path??'';
   const chosenSource=$('base-apk').value.trim();
   $('base-apk-default').hidden=mode==='build';
@@ -1065,7 +1128,7 @@ function updateView() {
   document.querySelector('[data-i18n=firstBuild]').textContent=t(mode==='build'?'firstBuild':'updateBuild');
   $('browse-apk').hidden=discovery?.capabilities?.browse===false;
   $('primary').hidden=typeof page!=='number'||page<0;
-  $('primary').disabled=typeof page!=='number'||page<0||busy||storageActive()||deviceActive()||packageActive()||!canConnect||Boolean(resumeFailed)||(page===0&&!$('game-root').value.trim())||(page===2&&(isActive(state)||state?.status==='complete'));
+  $('primary').disabled=typeof page!=='number'||page<0||busy||storageActive()||deviceActive()||packageActive()||!canConnect||Boolean(resumeFailed)||(page===0&&(!installedGame&&!$('game-root').value.trim()||mode!=='build'&&$('update-source').value==='quest'&&!importedDeviceSource?.apk))||(page===2&&(isActive(state)||state?.status==='complete'));
   $('primary').firstElementChild.textContent=t(busy?'preparing':page===0?'continue':page===1?'build':isActive(state)?'working':state?.status==='complete'?'done':state?.status==='blocked'?'retry':'resumeContinue');
   if(page===2&&!busy&&installationView(state)?.attention)$('primary').firstElementChild.textContent=t('installationRetry');
   $('primary').lastElementChild.textContent=state?.status==='complete'?'✓':'→';
@@ -1079,6 +1142,7 @@ function renderProgress() {
   if(state.requestError)error(state.requestError);
   const failure=failureView(state);
   const updateFailure=updateFailureView(state);
+  const pcSourceRequired=state?.status==='blocked'&&state?.choices?.installedGame===true&&state?.needsActions?.some(row=>row.code==='installed_update_pc_required'&&row.parameters?.requiresPcUpdateSource===true);
   const launcher=launcherView(state);
   const installation=installationView(state),installIssue=installation?.attention===true,connectionWait=installation?.connectionWaiting===true,manualWait=installation?.manualLaunchWaiting===true;
   // Show connection setup as soon as installation begins, before a missing
@@ -1192,7 +1256,9 @@ function renderProgress() {
   $('failure-retry').textContent=t(installation?.dataIssue==='non-save-inaccessible'?'installationRetryAll':installIssue?'installationRetry':'failureRetry');
   const locked=busy||actionBusy||storageActive()||packageActive()||active||!canConnect||Boolean(resumeFailed);
   $('failure-retry').disabled=locked;
-  $('failure-edit-inputs').hidden=!updateFailure?.editInputs&&!launcher;
+  $('failure-use-pc').hidden=!pcSourceRequired;$('failure-use-pc').disabled=locked;
+  if(pcSourceRequired){$('progress-copy').textContent=t('sourcePcRequiredCopy');$('failure-next').textContent=t('sourcePcRequiredNext');}
+  $('failure-edit-inputs').hidden=!updateFailure?.editInputs&&!launcher&&!pcSourceRequired;
   $('failure-edit-inputs').disabled=locked;
   if(launcher){$('progress-copy').textContent=t('launcherRequiredCopy');}
   $('failure-edit-inputs').textContent=t(launcher?'launcherEditInputs':'updateFailureEditInputs');
@@ -1267,6 +1333,10 @@ async function loadArtwork(artwork,{publisher=false}={}) {
 }
 function restoreChoices(choices) {
   if(!choices)return;
+  importedDeviceSource=null;appliedDeviceSource=null;
+  $('installed-game').checked=choices.installedGame===true;
+  $('update-source').value=choices.deviceSource?'quest':'local';
+  if(choices.deviceSource&&choices.baseApk)importedDeviceSource={...choices.deviceSource,apk:choices.baseApk};
   $('build-mode').value=choices.mode??'build';$('base-apk').value=choices.baseApk??'';automaticBaseApk='';$('signing-mode').value=choices.signingMode??'auto';
   $('signing-root').value=choices.signingRoot??'';
   $('game-root').value=choices.gameRoot??'';$('provider').value=choices.provider??'steam';$('unity-editor').value=choices.unityEditor??'';
@@ -1369,7 +1439,7 @@ async function primary() {
   if(typeof page!=='number'||page<0||busy||actionBusy||resumeFailed||storageActive()||deviceActive()||packageActive()||isActive(state))return;
   clearError();
   if(page===0){busy=true;updateView();try{const selectedChoices=choicesFromForm(form(),language);
-    if(discovery?.capabilities?.spaceEstimate===true){qualification=await api.qualify(selectedChoices.gameRoot,selectedChoices.mode,selectedChoices.baseApk);}
+    if(discovery?.capabilities?.spaceEstimate===true){qualification=await api.qualify(selectedChoices.gameRoot,selectedChoices.mode,selectedChoices.baseApk,selectedChoices.installedGame===true);}
     page=1;updateView();const heading=document.querySelector('#setup-page h2');heading.setAttribute('tabindex','-1');heading.focus();}catch(value){error(typeof value?.message==='string'?{code:value.message}:value);}finally{busy=false;updateView();}return;}
   busy=true;clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();updateView();
   try {
@@ -1505,10 +1575,12 @@ function beginBuild(mode='build',force=false,prefill=null){
   clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();state=null;resumeFailed=null;restoredSession=null;qualification=null;page=0;after=0;log=[];
   restoreChoices(prefill?{...prefill,mode,baseApk:'',signingRoot:'',signingMode:'auto'}:{install:true});resetArtwork();clearLoadedLog();clearError();renderGames();
   $('build-mode').value=mode;workflowMode=mode;workflowPage=0;
+  $('installed-game').checked=mode!=='build';$('update-source').value='local';autoChooseQuest=mode!=='build'&&!previousApk.path;
   if(mode!=='build'&&previousApk.path){$('base-apk').value=previousApk.path;automaticBaseApk=previousApk.explicit?'':previousApk.path;}
   if(mode==='update-profile')document.querySelector('#game-page .advanced').open=true;
   if(!prefill?.gameRoot&&discovery?.games?.length===1)selectGame(discovery.games[0]);
-  updateView();$('game-root').focus();
+  updateView();(mode==='build'?$('game-root'):$('update-source')).focus();
+  if(mode!=='build'&&discovery?.capabilities?.installedSources===true)void sourceOperation('discover',true);
 }
 $('new-build').addEventListener('click',()=>updateFailureView(state)?.newBuild?showUpdateRebuildDialog():beginBuild('build',true));
 function closeUpdateRebuildDialog(){
@@ -1575,6 +1647,12 @@ $('device-cancel').addEventListener('click',async()=>{try{const result=await api
 function editRunChoices(){if(busy||actionBusy||isActive(state)||storageActive()||deviceActive()||packageActive())return;clearTimeout(pollTimer);restoreChoices(state?.choices);page=0;clearError();updateView();$('game-root').focus();}
 $('edit-choices').addEventListener('click',editRunChoices);
 $('failure-edit-inputs').addEventListener('click',editRunChoices);
+$('failure-use-pc').addEventListener('click',()=>{
+  if(busy||actionBusy||isActive(state)||storageActive()||deviceActive()||packageActive())return;
+  editRunChoices();$('installed-game').checked=false;
+  if(discovery?.games?.length===1)selectGame(discovery.games[0]);
+  updateView();$('game-root').focus();
+});
 function renderSupport(){
   const available=!preview&&(discovery?.capabilities?.workspaceSupport===true||discovery?.capabilities?.support===true);
   const workspace=discovery?.capabilities?.workspaceSupport===true;

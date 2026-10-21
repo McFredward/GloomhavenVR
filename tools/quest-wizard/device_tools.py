@@ -17,6 +17,8 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import shutil
+import os
 import subprocess
 import sys
 import tempfile
@@ -42,6 +44,22 @@ def _cleanup_module(repo):
     with discovery._LOADER_LOCK:
         name = "_quest_wizard_device_cleanup"
         spec = importlib.util.spec_from_file_location(name, repo / "tools/quest-installer/device_cleanup.py")
+        module = importlib.util.module_from_spec(spec)
+        previous = sys.modules.get(name)
+        sys.modules[name] = module
+        try:
+            spec.loader.exec_module(module)
+            return module
+        finally:
+            if previous is None: sys.modules.pop(name, None)
+            else: sys.modules[name] = previous
+
+
+def _installed_module(repo):
+    """Isolate the read-only installed-APK helper from the CLI import namespace."""
+    with discovery._LOADER_LOCK:
+        name = "_quest_wizard_installed_source"
+        spec = importlib.util.spec_from_file_location(name, repo / "tools/quest-installer/installed_source.py")
         module = importlib.util.module_from_spec(spec)
         previous = sys.modules.get(name)
         sys.modules[name] = module
@@ -418,6 +436,73 @@ class DeviceTools:
                               endpoint=config.get("endpoint") or address, wireless=wireless)
         except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
             return self._failure(error, progress)
+
+    def _source(self, options, *, acquire, progress=None, cancel=None):
+        selected = _options(options, capture=True)
+        try:
+            if not acquire:
+                # Opening the update page never downloads tools or reconnects an
+                # absent headset. An explicit import can provision ADB normally.
+                configured = self._config().get("adb")
+                candidates = [configured, shutil.which("adb")]
+                executable = "adb.exe" if os.name == "nt" else "adb"
+                candidates += [self.repo / "scripts/.quest-adb/platform-tools" / executable]
+                for name in ("ANDROID_HOME", "ANDROID_SDK_ROOT", "SDK_ROOT"):
+                    if os.environ.get(name): candidates.append(Path(os.environ[name]) / "platform-tools" / executable)
+                if not any(value and Path(value).is_file() for value in candidates):
+                    return self._publish(progress, operation="source-discover", status="source-unavailable", source=None,
+                        message={"en": "No prepared ADB connection found. Connect the Quest by USB and choose Read Quest installation to prepare the tools.",
+                                 "de": "Keine vorbereitete ADB-Verbindung gefunden. Quest per USB anschließen und „Quest-Installation einlesen“ wählen, um die Werkzeuge einzurichten."})
+            installer, collector, config, adb = self._begin("source-import" if acquire else "source-discover", progress, cancel)
+            authorized = [row for row in self.state.get("devices", []) if row.get("state") == "device"]
+            if not authorized and not acquire:
+                return self._publish(progress, status="source-unavailable", source=None,
+                    message={"en": "No authorized Quest is connected. A local APK remains selectable; connect USB or reuse the Quest connection tools.",
+                             "de": "Keine freigegebene Quest verbunden. Eine lokale APK bleibt auswählbar; USB anschließen oder die Quest-Verbindungswerkzeuge verwenden."})
+            if selected["host"]: selected["host"] = installer.endpoint(selected["host"])
+            serial, hardware, transport = collector.choose_capture_device(adb, SimpleNamespace(**selected), config)
+            self._cancel(cancel)
+            atomic_json(self.config, installer.connection_settings(config, serial, hardware, adb.executable))
+            self._publish(progress, status="scanning", serial=serial, hardwareSerial=hardware, transport=transport,
+                          source=None, operation="source-import" if acquire else "source-discover")
+            helper = _installed_module(self.repo)
+            if acquire:
+                def report(value):
+                    done, total = value.get("done"), value.get("total")
+                    percent = 100 * done / total if type(done) in (int, float) and type(total) in (int, float) and total > 0 else None
+                    self._publish(progress, progress={**value, "percent": min(100, percent) if percent is not None else None,
+                                                    "label": value.get("phase", "installed-apk-read")}, activity=None)
+                result = helper.acquire_installed(adb, serial, self.root, hardware=hardware, progress=report, cancel=cancel)
+            else: result = helper.inspect_installed(adb, serial, hardware=hardware)
+            if result.get("available") is False:
+                return self._publish(progress, status="source-unavailable", source=None,
+                    message={"en": result.get("action", "No installed Quest game found. Select a local APK or install the game first."),
+                             "de": "Kein installiertes Quest-Spiel gefunden. Eine lokale APK auswählen oder das Spiel zuerst installieren."})
+            # Keep only bounded UI metadata. The complete game/mod input
+            # manifest stays in the helper's owned receipt, not every status poll.
+            source = {key: result[key] for key in ("source", "apk", "remotePath", "versionCode", "versionName", "size",
+                "inputKeyPrefix", "modBuild", "witnessKey", "reused", "resumedBytes") if key in result}
+            source.update(deviceSerial=hardware, transport=transport)
+            if isinstance(result.get("identity"), dict):
+                source["identity"] = {key: result["identity"][key] for key in ("inputKey", "modBuild") if key in result["identity"]}
+            if isinstance(result.get("seed"), dict):
+                source["seed"] = {key: result["seed"][key] for key in ("available", "reason", "state", "bytes", "archiveBytes") if key in result["seed"]}
+            return self._publish(progress, status="source-ready" if acquire else "source-found", source=source, activity=None,
+                message={"en": "Installed APK imported. Existing Quest content and saves were not copied." if acquire else "Quest installation found. Only package metadata was read; no game content was transferred.",
+                         "de": "Installierte APK eingelesen. Vorhandene Quest-Spielinhalte und Spielstände wurden nicht kopiert." if acquire else "Quest-Installation gefunden. Nur Paketinformationen gelesen; keine Spielinhalte übertragen."})
+        except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
+            if cancel is not None and cancel.is_set(): return self._failure(Cancelled(), progress)
+            reason = getattr(error, "reason", None)
+            if reason:
+                return self._publish(progress, status="waiting", source=None, error={"code": "installed_source", "reason": reason},
+                    message={"en": str(error), "de": "Quest-Quelle benötigt eine Aktion. " + str(error)})
+            return self._failure(error, progress)
+
+    def source_discover(self, options, progress=None, cancel=None):
+        return self._source(options, acquire=False, progress=progress, cancel=cancel)
+
+    def source_import(self, options, progress=None, cancel=None):
+        return self._source(options, acquire=True, progress=progress, cancel=cancel)
 
     def start(self, options, progress=None, cancel=None):
         """Launch independently of installation, with opt-in Android debugging.

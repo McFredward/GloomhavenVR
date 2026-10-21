@@ -223,4 +223,23 @@ class DeviceHttpTests(unittest.TestCase):
         self.assertIn(("storage-clean", {"planId": "c" * 32}), self.calls)
 
 
+    def test_installed_source_routes_are_authenticated_async_and_cancellable(self):
+        options={"host":"","serial":""}
+        self.assertEqual(self.request("/api/device/source-import",options,token=False)[0],403)
+        self.assertEqual(self.request("/api/device/source-import",{**options,"path":"/save"})[0],400)
+        self.assertEqual(self.calls,[])
+        def acquire(options, *, progress, cancel):
+            self.entered.set();progress({"status":"scanning","operation":"source-import","progress":{"done":25,"total":100,"percent":25,"unit":"bytes"}})
+            while not self.release.wait(.01):
+                if cancel.is_set(): return {"status":"cancelled","operation":"source-import"}
+            return {"status":"source-ready","source":{"apk":"imported.apk"}}
+        self.adapter.source_import=acquire
+        self.assertEqual(self.request("/api/device/source-import",options)[0],200)
+        self.assertTrue(self.entered.wait(2))
+        self.assertEqual(self.request("/api/device/status")[1]["state"]["progress"]["percent"],25)
+        self.assertEqual(self.request("/api/device/source-discover",options)[0],400)
+        self.assertEqual(self.request("/api/device/cancel",{})[0],200)
+        self.wait_status("cancelled")
+
+
 if __name__ == "__main__": unittest.main()

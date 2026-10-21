@@ -473,7 +473,7 @@ class LocalServer(ThreadingHTTPServer):
                 self.device_tools = self.device_factory(REPO, self.store.root)
             self.device_stop.clear()
             with self.device_lock:
-                self.device_state = {"status": "scanning" if operation == "storage-preview" else
+                self.device_state = {"status": "scanning" if operation in ("storage-preview", "source-discover", "source-import") else
                                     "cleaning" if operation == "storage-clean" else
                                     "starting" if operation == "start" else
                                     "connecting" if operation == "connect" else "capturing",
@@ -834,7 +834,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.server.device_capture(identifier)
             if parsed.path == "/api/discover":
                 result = dict(self.server.discover(REPO, self.server.store))
-                result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "storageInventory": True,
+                result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "installedSources": True, "storageInventory": True,
                                           "portablePackages": True, "runRemoval": True, "runOverview": True, "workspaceSupport": True,
                                           "storageCancel": True, "storeLaunchers": True, "updateHistoryCleanup": True,
                                           "autoStorageCleanup": True}
@@ -903,7 +903,7 @@ class Handler(BaseHTTPRequestHandler):
                 if value: raise WizardError("request_body", "Unexpected export cancellation fields.")
                 self.server.package_stop.set()
                 return self.server.package_status()
-            if parsed.path in ("/api/device/connect", "/api/device/capture", "/api/device/storage-preview"):
+            if parsed.path in ("/api/device/connect", "/api/device/capture", "/api/device/storage-preview", "/api/device/source-discover", "/api/device/source-import"):
                 connecting = parsed.path.endswith("/connect")
                 allowed = {"host", "serial", "setupWireless"} if connecting else {"host", "serial"}
                 if (set(value) != allowed or any(not isinstance(value[key], str) or len(value[key]) > 256
@@ -960,15 +960,17 @@ class Handler(BaseHTTPRequestHandler):
                 state = Engine(self.server.store).plan(value["choices"], session=value.get("session"))
                 return {"schema": 1, "event": "planned", "session": state["session"], "state": state}
             if parsed.path == "/api/qualify":
-                if set(value) - {"gameRoot", "mode", "baseApk"} or "gameRoot" not in value: raise WizardError("request_body", "Expected the owned game path and optional update mode.")
+                if set(value) - {"gameRoot", "mode", "baseApk", "installedGame"} or "gameRoot" not in value and value.get("installedGame") is not True: raise WizardError("request_body", "Expected the owned game path and optional update mode.")
                 from qualification import qualify
                 mode = value.get("mode", "build")
                 if mode not in ("build", "update-mod", "update-profile"): raise WizardError("invalid_choices", "Unsupported update mode.")
                 if "baseApk" in value and (not isinstance(value["baseApk"], str) or "\0" in value["baseApk"] or len(value["baseApk"]) > 32768):
                     raise WizardError("request_body", "Invalid local APK or package path.")
-                selected_choices = choices({"gameRoot": value["gameRoot"], "mode": mode,
+                selected_choices = choices({**({"gameRoot": value["gameRoot"]} if value.get("gameRoot") else {}), "mode": mode,
+                    **({"installedGame": value["installedGame"]} if "installedGame" in value else {}),
                     **({"baseApk": value["baseApk"]} if "baseApk" in value else {})}, store=self.server.store)
-                return qualify(self.server.store.root, game_root=selected_choices["gameRoot"], repo=REPO, mode=mode,
+                return qualify(self.server.store.root, game_root=selected_choices.get("gameRoot"), repo=REPO, mode=mode,
+                               installed_game=selected_choices.get("installedGame", False),
                                base_apk=selected_choices.get("baseApk") or None)
             if parsed.path == "/api/browse":
                 if set(value) != {"kind"}: raise WizardError("request_body", "Unsupported browse fields.")

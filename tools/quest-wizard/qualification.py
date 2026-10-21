@@ -172,7 +172,7 @@ def check_runtime_space(store_root, *, free_bytes=None):
 
 
 def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root=None, repo=None, mode="build", enforce=True,
-            helper=None, build_output=None, base_apk=None):
+            helper=None, build_output=None, base_apk=None, installed_game=False):
     root = ordinary(store_root)
     system = system or platform.system(); machine = machine or platform.machine()
     if system not in ('Windows', 'Linux'):
@@ -194,11 +194,11 @@ def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root
               'workspaceRoot': str(root), 'buildSpaceCheckPassed': False,
               'licenseVerified': False, 'unityAction': 'Sign in and activate an eligible license in Unity Hub; version does not verify licensing.',
               'fullBuildSpaceVerified': False}
-    if game_root and mode != "build":
+    if mode != "build" and (game_root or installed_game):
         if helper is None:
             import discovery
             helper = discovery.builder(repo or Path(__file__).resolve().parents[2])
-        helper.game_data(Path(game_root))
+        if not installed_game: helper.game_data(Path(game_root))
         required = 4 * GIB if mode == "update-profile" else 40 * GIB
         apk_bytes = import_bytes = None
         if base_apk:

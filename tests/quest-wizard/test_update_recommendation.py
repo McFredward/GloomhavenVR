@@ -278,4 +278,24 @@ class UpdateRecommendationTests(unittest.TestCase):
         self.assertFalse(self.recommend()["inputsReady"])
 
 
+    def test_seeded_apk_hint_needs_no_pc_game_or_campaign_bank(self):
+        self.details["updateSeed"]={"available":True,"state":"ready"}
+        self.publish(self.apk,self.details)
+        self.games=[];self.game.rename(self.root/"not-selected-PC")
+        (self.apk.parent/"GloomhavenVR-Quest-content.zip").unlink()
+        with patch.object(Path,"glob",side_effect=AssertionError("No directory scan")), \
+             patch.object(state,"digest",side_effect=AssertionError("No payload hash")):
+            value=self.recommend()
+        self.assertTrue(value["inputsReady"]);self.assertTrue(value["installedGame"])
+        self.assertEqual(value["missing"],[])
+
+    def test_seeded_hint_can_read_bounded_apk_contract_without_reading_bank_or_pc(self):
+        self.games=[]
+        self.helper.apk_updates=SimpleNamespace(inspect_base=lambda path:{"inputKey":self.input_key})
+        self.helper._local_helper=lambda name:SimpleNamespace(inspect_seed=lambda apk,base:{"available":True,"reason":"available"})
+        (self.apk.parent/"GloomhavenVR-Quest-content.zip").unlink()
+        value=self.recommend()
+        self.assertTrue(value["inputsReady"]);self.assertTrue(value["seed"]["available"])
+
+
 if __name__ == "__main__": unittest.main()

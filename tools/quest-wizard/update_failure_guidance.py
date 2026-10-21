@@ -12,6 +12,21 @@ UPDATE_STAGES = frozenset(("inspect-update", "update-mod", "update-profile"))
 REBUILD_DECISION_PREFIX = "Compact update needs a rebuild decision:"
 
 
+def installed_source_requirement(source_error, **parameters):
+    """A PC-assisted compact update is an input choice, never full-build consent."""
+    text = str(source_error)[:16384]
+    seed = "This older Quest APK has no portable compiler references." in text
+    assets = "This update changes original-derived assets or the player layout." in text
+    if not seed and not assets: return None
+    en = ("This older APK needs one update with the matching PC game copy to add portable compiler inputs. The existing game conversion is retained."
+          if seed else "This update changes game-derived assets or the player layout and needs the matching PC game copy. The installed game remains unchanged.")
+    de = ("Diese ältere APK benötigt einmalig ein Update mit der passenden PC-Spielkopie, um die Compiler-Grundlage hinzuzufügen. Die vorhandene Spielkonvertierung bleibt erhalten."
+          if seed else "Dieses Update ändert aus dem Spiel abgeleitete Assets oder den Player-Aufbau und benötigt die passende PC-Spielkopie. Das installierte Spiel bleibt unverändert.")
+    return WizardError("installed_update_pc_required", en, de,
+        **dict(parameters, cause=text, requiresPcUpdateSource=True, completedWorkRetained=True,
+               originalApkRetained=True, pcSourceReason="compiler-seed" if seed else "derived-assets"))
+
+
 def rebuild_decision(cause, *, stage="update-mod"):
     """Pause before original-content work; a diagnostic is never rebuild consent."""
     cause = str(cause)[:16384]
@@ -32,6 +47,8 @@ def update_failure(parameters):
     if stage not in UPDATE_STAGES and not legacy_update:
         return None
     error = "\n".join(str(parameters.get(name, "")) for name in ("builderError", "cause"))[:16384]
+    installed = installed_source_requirement(error, **parameters)
+    if installed is not None: return installed
     kind = "unknown"
     en = "The APK update stopped at the cause shown below."
     de = "Die APK-Aktualisierung wurde bei der unten genannten Ursache angehalten."

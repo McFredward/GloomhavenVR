@@ -1,8 +1,8 @@
 """Cheap homepage hints; update preflight still owns all byte qualifications.
 
-Never open an APK, content bank, witness database or source inventory here.
-Closed receipts and exact-size file observations can suggest a local update,
-but cannot establish the current APK signature or ownership of a PC copy.
+Never hash an APK, open a content bank or walk a source inventory here.
+Closed receipts and bounded APK contracts can suggest a local update. The
+explicit preflight still owns byte validation, signatures and compiler inputs.
 """
 from __future__ import annotations
 
@@ -178,8 +178,20 @@ def recommend(repo, store, source, selected, games, recent, helper):
         budget = {"remaining": MAX_METADATA_BYTES}
         details, identity = _receipt(Path(selected["path"]), build, budget=budget)
         if identity[1] != installed: raise ValueError("The selected completed APK identity changed.")
-        if not _content(Path(selected["path"]), build, identity[0], (details, identity), budget): result["missing"].append("campaign-content")
-    except (OSError, ValueError, KeyError, TypeError, WizardError):
+        seed = details.get("updateSeed")
+        if not isinstance(seed, dict) and hasattr(helper, "_local_helper"):
+            # Read only ZIP headers and bounded signed JSON contracts. No
+            # original DLL or seed payload is decompressed or hashed here.
+            base = helper.apk_updates.inspect_base(Path(selected["path"]))
+            if base["inputKey"] != identity[0]: raise ValueError("APK input identity differs from its receipt.")
+            seed = helper._local_helper("update_seed").inspect_seed(Path(selected["path"]), base)
+        if isinstance(seed, dict): result["seed"] = {name: seed[name] for name in ("available", "reason", "state") if name in seed}
+        if isinstance(seed, dict) and seed.get("available") is True:
+            result["installedGame"] = True
+            result["missing"] = [name for name in result["missing"] if name != "owned-pc-game"]
+        elif not _content(Path(selected["path"]), build, identity[0], (details, identity), budget):
+            result["missing"].append("campaign-content")
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError, WizardError):
         result["missing"].append("campaign-content")
     result["inputsReady"] = not result["missing"]
     if result["inputsReady"]: result["reason"] = "local-update-ready"

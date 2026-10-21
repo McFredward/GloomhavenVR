@@ -127,7 +127,7 @@ def inventory(workspace, source, state, *, pending, editor=None, hub=None, host=
     if 'tools' in pending:
         for name in (('apkJdk', 'apkBuildTools') if mode == 'update-profile' else ('git', 'dotnet8', 'dotnet10')):
             if name != 'git' or not linux: tool(name)
-    if 'profile' in pending:
+    if 'profile' in pending and not selected.get('installedGame'):
         need('steam-logo', 'Steam logo', [provision.LOCK['steamLogo']['url']],
              present(selected['steamLogo']) if selected.get('steamLogo') else present(session / 'steam-logo.png'))
     if mode == 'update-profile': return rows

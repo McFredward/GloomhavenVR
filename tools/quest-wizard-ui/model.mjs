@@ -1,17 +1,20 @@
 export const stageIds = ['tools','source','unity','profile','inspect','build','install'];
 export function choicesFromForm(form, language) {
   const gameRoot = String(form.gameRoot ?? '').trim();
-  if (!gameRoot) throw new Error('missingGame');
   const mode = form.mode ?? 'build';
   if (!['build','update-mod','update-profile'].includes(mode)) throw new Error('invalidMode');
+  const installedGame = mode !== 'build' && form.installedGame === true;
+  if (!gameRoot && !installedGame) throw new Error('missingGame');
   const baseApk = String(form.baseApk ?? '').trim();
+  if (mode !== 'build' && form.updateSource === 'quest' && !baseApk) throw new Error('sourceImportFirst');
   const provider = ['steam','epic','gog'].includes(form.provider) ? form.provider : 'steam';
-  if(form.hostSystem==='Linux'&&provider==='steam'&&mode!=='update-profile'&&!form.declareDlc)throw new Error('linuxDlcRequired');
-  const choices = {gameRoot, provider, mode, install:Boolean(form.install), acceptUnityTerms:Boolean(form.acceptUnityTerms), language};
+  if(!installedGame&&form.hostSystem==='Linux'&&provider==='steam'&&mode!=='update-profile'&&!form.declareDlc)throw new Error('linuxDlcRequired');
+  const choices = {...(!installedGame?{gameRoot}:{}), ...(installedGame?{installedGame:true}:{}), provider, mode, install:Boolean(form.install), acceptUnityTerms:Boolean(form.acceptUnityTerms), language};
   // An omitted source lets the local server select the completed owner workspace.
   // Explicit APK/ZIP choices remain intact; the server reports a missing source
   // only when no suitable workspace result exists.
   if (mode !== 'build' && baseApk) choices.baseApk = baseApk;
+  if(installedGame&&form.deviceSource&&form.updateSource==='quest')choices.deviceSource=form.deviceSource;
   if (mode !== 'build' && ['auto','original','new-owner'].includes(form.signingMode)) choices.signingMode=form.signingMode;
   if (mode !== 'build' && String(form.signingRoot ?? '').trim()) choices.signingRoot = form.signingRoot.trim();
   if (String(form.unityEditor ?? '').trim()) choices.unityEditor = form.unityEditor.trim();
@@ -20,12 +23,12 @@ export function choicesFromForm(form, language) {
     // The Builder inherits the provider/ID from the selected APK's bounded
     // profile entry. A name edit must not require manually copying a Steam ID.
     choices.profileName=displayName;
-  }else if (displayName || providerId) {
+  }else if ((!installedGame||mode==='update-profile') && (displayName || providerId)) {
     if (!displayName || !providerId) throw new Error('missingProfile');
     choices.profile = {schema:1, provider, displayName, providerId};
     if (provider === 'steam') choices.profile.steamId = providerId;
   }
-  if (form.declareDlc) choices.ownedDlc = [...new Set((form.ownedDlc ?? []).filter(value => ['jotl','solo','jotl-skins'].includes(value)))];
+  if (!installedGame && form.declareDlc) choices.ownedDlc = [...new Set((form.ownedDlc ?? []).filter(value => ['jotl','solo','jotl-skins'].includes(value)))];
   return choices;
 }
 export function progressView(state) {
@@ -140,7 +143,8 @@ export function failureView(state) {
   const workspaceBlocked=state?.status==='blocked'&&action.code==='workspace_metadata_busy';
   const rebuildBlocked=state?.status==='blocked'&&action.code==='update_rebuild_decision_required';
   const launcherBlocked=state?.status==='blocked'&&action.code==='store_launcher_required';
-  if(state?.status!=='failed'&&!memoryBlocked&&!workspaceBlocked&&!rebuildBlocked&&!launcherBlocked)return null;
+  const installedBlocked=state?.status==='blocked'&&action.code==='installed_update_pc_required';
+  if(state?.status!=='failed'&&!memoryBlocked&&!workspaceBlocked&&!rebuildBlocked&&!launcherBlocked&&!installedBlocked)return null;
   const parameters=action.parameters??{};
   const cause=typeof parameters.cause==='string'?parameters.cause:typeof parameters.builderError==='string'?parameters.builderError:'';
   // Show one concrete, bounded diagnostic rather than a traceback wall. Text
@@ -150,7 +154,7 @@ export function failureView(state) {
     !/[\u0000-\u001f\u007f]/.test(parameters.path)?parameters.path:null;
   return {stage:typeof parameters.failureStage==='string'?parameters.failureStage:action.stage??state.stages?.find(row=>row.status==='failed')?.id,
     message:action.message??null,cause:lines.at(-1)?.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360)??'',
-    ...(memoryBlocked||workspaceBlocked||rebuildBlocked||launcherBlocked?{blocked:true}:{}),...(workspaceBlocked?{workspace:true}:{}),...(workspacePath?{workspacePath}:{})};
+    ...(memoryBlocked||workspaceBlocked||rebuildBlocked||launcherBlocked||installedBlocked?{blocked:true}:{}),...(workspaceBlocked?{workspace:true}:{}),...(workspacePath?{workspacePath}:{})};
 }
 export function launcherView(state) {
   if(!['blocked','failed'].includes(state?.status))return null;

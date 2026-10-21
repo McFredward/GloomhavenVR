@@ -38,6 +38,8 @@ export class LocalApi {
   }
   deviceStatus() { return this.request('/api/device/status'); }
   deviceConnect(host='',setupWireless=false,serial='') { return this.request('/api/device/connect',{host,setupWireless,serial}); }
+  deviceSourceDiscover(host='',serial='') { return this.request('/api/device/source-discover',{host,serial}); }
+  deviceSourceImport(host='',serial='') { return this.request('/api/device/source-import',{host,serial}); }
   deviceCapture(host='',serial='') { return this.request('/api/device/capture',{host,serial}); }
   deviceStart(host='',serial='',waitForDebugger=false) { if(typeof waitForDebugger!=='boolean')throw {code:'invalidReply'};return this.request('/api/device/start',{host,serial,waitForDebugger}); }
   deviceStoragePreview(host='',serial='') { return this.request('/api/device/storage-preview',{host,serial}); }
@@ -71,7 +73,7 @@ export class LocalApi {
   log(session,stage,signal) { if(!sessionId(session)||!stageIds.includes(stage))throw {code:'invalidReply'};return this.request('/api/log?session='+encodeURIComponent(session)+'&stage='+stage,undefined,signal); }
   gallery() {return this.request('/api/gallery');}
   action(session,action,nonce) {if(!sessionId(session)||!['unity-open','unity-check'].includes(action)||typeof nonce!=='string'||!/^[a-f0-9]{32}$/.test(nonce))throw {code:'invalidReply'};return this.request('/api/action',{session,action,nonce});}
-  qualify(gameRoot,mode='build',baseApk='') { return this.request('/api/qualify',{gameRoot,...(mode==='build'?{}:{mode}),...(mode!=='build'&&baseApk?{baseApk}:{})}); }
+  qualify(gameRoot,mode='build',baseApk='',installedGame=false) { return this.request('/api/qualify',{...(installedGame?{installedGame:true}:{gameRoot}),...(mode==='build'?{}:{mode}),...(mode!=='build'&&baseApk?{baseApk}:{})}); }
   browse(kind) { return this.request('/api/browse',{kind}); }
   status(session) { if (!sessionId(session)) throw {code:'invalidReply'}; return this.request('/api/status?session='+encodeURIComponent(session)); }
   events(session, after,signal) { if(!sessionId(session))throw {code:'invalidReply'};return this.request('/api/events?session='+encodeURIComponent(session)+'&after='+(Number.isInteger(after)&&after>=0?after:0),undefined,signal); }
@@ -91,6 +93,8 @@ export class PreviewApi {
   async deviceStatus(){return {schema:1,event:'device',state:{status:'idle',devices:[]}};}
   async deviceConnect(){throw {code:'preview'};}
   async deviceCapture(){throw {code:'preview'};}
+  async deviceSourceDiscover(){return this.deviceStatus();}
+  async deviceSourceImport(){throw {code:'preview'};}
   async deviceStart(){throw {code:'preview'};}
   async deviceStoragePreview(){throw {code:'preview'};}
   async deviceStorageClean(){throw {code:'preview'};}

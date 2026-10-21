@@ -284,6 +284,50 @@ class DeviceToolsTests(unittest.TestCase):
             self.assertIs(collector.installer, installer)
 
 
+    def test_update_discovery_reads_package_metadata_without_acquiring_apk(self):
+        self.tools.config.write_text(json.dumps({"schema":1,"adb":str(self.adb)}))
+        source = {"available":True,"versionCode":716,"versionName":"B716","size":1000}
+        helper = SimpleNamespace(inspect_installed=mock.Mock(return_value=source),
+                                 acquire_installed=mock.Mock(side_effect=AssertionError("No discovery transfer")))
+        with mock.patch.object(device_tools, "_installed_module", return_value=helper):
+            result = self.tools.source_discover({})
+        self.assertEqual(result["status"], "source-found")
+        helper.inspect_installed.assert_called_once()
+        self.assertEqual(helper.inspect_installed.call_args.args[1], "USB_TEST")
+        helper.acquire_installed.assert_not_called()
+        self.assertFalse(any("exec-out" in command or "pull" in command for command in self.runner.commands))
+
+    def test_absent_adb_discovery_does_not_download_or_block_local_update(self):
+        with mock.patch.object(device_tools.shutil,"which",return_value=None), mock.patch.dict(device_tools.os.environ,{},clear=True):
+            result = self.tools.source_discover({})
+        self.assertEqual(result["status"],"source-unavailable")
+        self.installer.adb_path.assert_not_called(); self.assertEqual(self.runner.commands,[])
+
+    def test_update_import_reports_measured_bytes_and_drops_large_manifest_from_status(self):
+        events=[]
+        def acquire(adb, serial, root, *, hardware, progress, cancel):
+            self.assertEqual((serial,root,hardware),("USB_TEST",self.store.root,self.runner.hardware))
+            progress({"phase":"quest-source-import","done":250,"total":1000,"unit":"bytes","detail":"base.apk"})
+            return {"apk":str(self.temp/'base.apk'),"available":True,"base":{"manifest":"large must stay out of UI state"},
+                "identity":{"inputKey":"a"*64,"modBuild":716,"currentMod":{"files":["unbounded"]}},
+                "versionName":"B716","seed":{"available":True,"manifest":["not UI metadata"]}}
+        helper=SimpleNamespace(acquire_installed=acquire)
+        with mock.patch.object(device_tools,"_installed_module",return_value=helper):
+            result=self.tools.source_import({},events.append)
+        self.assertEqual(result["status"],"source-ready")
+        self.assertTrue(any(row.get("progress",{}).get("percent")==25 for row in events))
+        self.assertNotIn("base",result["source"]);self.assertNotIn("currentMod",result["source"]["identity"])
+        self.assertEqual(result["source"]["seed"],{"available":True})
+        self.assertLess(self.tools.state_path.stat().st_size,65536)
+
+    def test_uninstalled_package_is_unavailable_not_a_found_source(self):
+        self.tools.config.write_text(json.dumps({"schema":1,"adb":str(self.adb)}))
+        helper=SimpleNamespace(inspect_installed=mock.Mock(return_value={"available":False,"reason":"package-missing","action":"Install the game."}))
+        with mock.patch.object(device_tools,"_installed_module",return_value=helper):
+            result=self.tools.source_discover({})
+        self.assertEqual(result["status"],"source-unavailable");self.assertIsNone(result["source"])
+
+
 class DeviceStorageTests(unittest.TestCase):
     setUp = DeviceToolsTests.setUp
 

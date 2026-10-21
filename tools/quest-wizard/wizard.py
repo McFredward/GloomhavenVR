@@ -25,15 +25,32 @@ REPO = Path(__file__).resolve().parents[2]
 
 def choices(value, *, store=None):
     allowed = {"gameRoot", "provider", "sourceRoot", "sourceCommit", "sourceRef", "unityEditor", "unityHub", "steamRoot", "steamId",
-               "profile", "profileName", "ownedDlc", "steamLogo", "install", "acceptUnityTerms", "language", "mode", "baseApk", "signingRoot", "signingMode"}
+               "profile", "profileName", "ownedDlc", "steamLogo", "install", "acceptUnityTerms", "language", "mode", "baseApk", "signingRoot", "signingMode", "installedGame", "deviceSource"}
     if not isinstance(value, dict) or set(value) - allowed:
         raise WizardError("invalid_choices", "Wizard choices contain unsupported fields.", "Die Auswahl enthält nicht unterstützte Felder.")
     result = dict(value)
-    if not isinstance(result.get("gameRoot"), str) or not result["gameRoot"].strip():
-        raise WizardError("game_required", "Select your owned Gloomhaven installation.", "Bitte die eigene Gloomhaven-Installation wählen.")
     result.setdefault("provider", "steam"); result.setdefault("language", "de")
     result.setdefault("install", True); result.setdefault("acceptUnityTerms", False)
     result.setdefault("mode", "build")
+    installed = result.get("installedGame", False)
+    if type(installed) is not bool or installed and result["mode"] == "build":
+        raise WizardError("invalid_choices", "Installed-game sources are available only for APK updates.",
+                          "Installierte Spieldaten können nur für APK-Updates verwendet werden.")
+    if not installed and (not isinstance(result.get("gameRoot"), str) or not result["gameRoot"].strip()):
+        raise WizardError("game_required", "Select your owned Gloomhaven installation.", "Bitte die eigene Gloomhaven-Installation wählen.")
+    if installed:
+        # The APK owns the embedded player/DLC identity. Do not silently import
+        # stale PC-form overrides when the source selector changes.
+        for field in ("gameRoot", "steamRoot", "steamId", "steamLogo", "ownedDlc"):
+            result.pop(field, None)
+        if result["mode"] != "update-profile": result.pop("profile", None)
+    if "deviceSource" in result:
+        item = result["deviceSource"]
+        if (not installed or not isinstance(item, dict) or set(item) != {"deviceSerial", "versionName"}
+                or not isinstance(item["deviceSerial"], str)
+                or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", item["deviceSerial"])
+                or not isinstance(item["versionName"], str) or len(item["versionName"]) > 256):
+            raise WizardError("invalid_choices", "Invalid selected installed-game source.")
     if "signingMode" in result and result["signingMode"] not in ("auto", "original", "new-owner"):
         raise WizardError("invalid_choices", "Unsupported signing mode.")
     if result["mode"] not in ("build", "update-mod", "update-profile"):
@@ -99,6 +116,8 @@ class Engine:
         # New name-only inputs must not add null fields to ordinary retained
         # profile keys. Capture150551 has six closed owners; an installer/UI
         # repair must keep that exact completion frontier and skip Unity work.
+        if state["choices"].get("installedGame"):
+            names += ("installedGame", "baseApk", "deviceSource")
         if stage == "profile" and "profileName" in state["choices"]:
             names += ("profileName", "baseApk")
         if stage in ("inspect", "build") and "signingMode" in state["choices"]:
@@ -229,8 +248,8 @@ class Engine:
                     if not self.actions:
                         self.store.operation(session, "tools", "qualify", detail="Checking update disk reserve before importing the package APK.")
                         self.qualify(state, stage=stage)
-                    helper._local_helper("update_driver").preflight(helper, state["choices"]["gameRoot"], state["choices"]["baseApk"], state["choices"]["mode"],
-                        output=self.store.root / "build", cancel=lambda: self.store.check_cancel(session),
+                    helper._local_helper("update_driver").preflight(helper, state["choices"].get("gameRoot"), state["choices"]["baseApk"], state["choices"]["mode"],
+                        installed_game=state["choices"].get("installedGame", False), output=self.store.root / "build", cancel=lambda: self.store.check_cancel(session),
                         progress=lambda value: self.store.progress(session, "tools", "package-import", value.get("completed"),
                                        value.get("total"), "bytes", value.get("detail", "Importing package APK.")))
                 if stage == "tools" and not self.actions:
@@ -304,6 +323,16 @@ class Engine:
                     state["needsActions"] = [{"code": error.code, "stage": stage, "message": error.message, "parameters": error.parameters}]
                 self.emit(self.store.event(state, error.code, stage, **{**error.parameters, "message": error.message, "durationSeconds": row["durationSeconds"]})); return state
             except (OSError, ValueError, RuntimeError) as error:
+                from update_failure_guidance import installed_source_requirement
+                requirement = installed_source_requirement(error, failureStage=stage, workflowMode=state["choices"].get("mode")) if state["choices"].get("installedGame") else None
+                if requirement is not None:
+                    row["status"] = state["status"] = "blocked"
+                    row["durationSeconds"] = round(time.monotonic() - started, 3)
+                    self.store.clear_waiting(session, stage)
+                    state["needsActions"] = [{"code": requirement.code, "stage": stage, "message": requirement.message,
+                                              "parameters": requirement.parameters}]
+                    self.emit(self.store.event(state, requirement.code, stage, **{**requirement.parameters, "message": requirement.message}))
+                    return state
                 row["durationSeconds"] = round(time.monotonic() - started, 3)
                 from failures import disk_full, disk_full_error
                 if disk_full(error):
@@ -658,8 +687,8 @@ class Engine:
         # full-build route or its disk reserve. Only a newly selected build
         # workflow may reserve and launch original-content preparation.
         try:
-            qualification = qualify(self.store.root, game_root=state["choices"]["gameRoot"], repo=self.repo,
-                                    mode=mode, base_apk=state["choices"].get("baseApk"))
+            qualification = qualify(self.store.root, game_root=state["choices"].get("gameRoot"), repo=self.repo,
+                                    installed_game=state["choices"].get("installedGame", False), mode=mode, base_apk=state["choices"].get("baseApk"))
         except WizardError as error:
             if error.code in ("workspace_build_space_low", "workspace_space_estimate_incomplete"):
                 self.remember_storage_game(state, error.parameters)
@@ -679,7 +708,7 @@ class Engine:
 
     def stage_tools(self, state, supervisor):
         # The runner qualifies capacity before receipt reuse and preflight.
-        if (os.name != 'nt' and state['choices'].get('provider') == 'steam'
+        if (not state['choices'].get('installedGame') and os.name != 'nt' and state['choices'].get('provider') == 'steam'
                 and state['choices'].get('mode', 'build') != 'update-profile'
                 and 'ownedDlc' not in state['choices']):
             # The original Windows Steam DLL cannot be loaded by a Linux host.
@@ -704,7 +733,13 @@ class Engine:
             marker = self.store.session_dir(state["session"]) / "profile-source.json"
             atomic_json(marker, {"schema": 1, "sourceRoot": str(self.repo), "purpose": "Profile-only APK update; no mod compilation."})
             return [marker], {"sourceRoot": str(self.repo)}
-        return provision.source_checkout(self.store, state["session"], state["choices"], self.details(state, "tools"), supervisor, self.repo)
+        selected = state["choices"]
+        if selected.get("installedGame"):
+            module = discovery.builder(self.repo)
+            _, prepared, _ = module._local_helper("update_driver").preflight(module, None, selected["baseApk"], selected["mode"],
+                installed_game=True, output=self.store.root / "build", cancel=lambda: self.store.check_cancel(state["session"]))
+            selected = {**selected, "gameRoot": str(prepared)}
+        return provision.source_checkout(self.store, state["session"], selected, self.details(state, "tools"), supervisor, self.repo)
 
     def stage_unity(self, state, supervisor):
         if state["choices"].get("mode") == "update-profile":
@@ -751,6 +786,25 @@ class Engine:
 
     def stage_profile(self, state, supervisor):
         selected = state["choices"]; module = discovery.builder(self.details(state, "source")["sourceRoot"])
+        if selected.get("installedGame"):
+            # No launcher or profile/logo download: the updater retains the
+            # bounded embedded identity, logo and entitlement entries itself.
+            marker = self.store.session_dir(state["session"]) / "installed-profile.json"
+            details = {"retainedFromApk": True}
+            if selected.get("profileName"):
+                core = module.apk_updates
+                base_apk = self.selected_apk(state, module)
+                with zipfile.ZipFile(base_apk) as apk:
+                    profile = core._json(apk, core.PROFILE)
+                profile = {**profile, "displayName": selected["profileName"]}
+                core.profile_update(base_apk, profile)
+                atomic_json(marker, profile)
+                details["profilePath"] = str(marker)
+            else:
+                atomic_json(marker, {"schema": 1, "retainedFromApk": selected["baseApk"]})
+            self.store.operation(state["session"], "profile", "identity", complete=True,
+                                 detail="Keeping the existing APK profile, logo and DLC ownership.")
+            return [marker], details
         logo = self.store.session_dir(state["session"]) / "steam-logo.png"
         if selected.get("steamLogo"):
             import shutil
@@ -798,9 +852,13 @@ class Engine:
         mode = state["choices"].get("mode", "build")
         if mode != "build": command = "inspect-update" if command == "inspect" else mode
         argv = [sys.executable, "-B", "-X", "utf8", str(root / "scripts/build-quest.py"), command,
-                "--game-root", state["choices"]["gameRoot"], "--repo-root", str(root), "--target", "game",
-                "--output-root", str(self.store.root / "build"),
-                "--profile-json", profile["profilePath"], "--steam-logo", profile["steamLogo"]]
+                "--repo-root", str(root), "--target", "game", "--output-root", str(self.store.root / "build")]
+        if state["choices"].get("installedGame"):
+            argv += ["--installed-game"]
+            if profile.get("profilePath"): argv += ["--profile-json", profile["profilePath"]]
+        else:
+            argv += ["--game-root", state["choices"]["gameRoot"], "--profile-json", profile["profilePath"],
+                     "--steam-logo", profile["steamLogo"]]
         if mode == "update-profile" or self.details(state, "unity").get("required") is False:
             argv += ["--apk-tools-json", str(self.store.session_dir(state["session"]) / "apk-tools.json")]
         else:

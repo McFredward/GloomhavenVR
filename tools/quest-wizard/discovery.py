@@ -149,12 +149,12 @@ def recent_sessions(store, *, limit=8):
             updated = value.get("updated", value.get("created", 0))
             if (not isinstance(session, str) or re.fullmatch(r"[0-9a-f]{32}", session) is None
                     or path.parent != store.session_dir(session) or not isinstance(selected, dict)
-                    or not isinstance(selected.get("gameRoot"), str)
+                    or not (isinstance(selected.get("gameRoot"), str) or selected.get("installedGame") is True)
                     or value.get("status") not in ("ready", "running", "complete", "failed", "blocked", "cancelled", "interrupted")
                     or type(updated) not in (int, float) or not math.isfinite(updated)):
                 continue
             recent.append({"session": session, "status": value["status"],
-                           "gameRoot": selected["gameRoot"], "updated": updated,
+                           "gameRoot": selected.get("gameRoot", ""), "installedGame": selected.get("installedGame", False), "updated": updated,
                            "created": value.get("created", updated), "mode": selected.get("mode", "build"),
                            **({"restartHintDeferred": True} if value.get("restartHintDeferred") is True else {})})
         except (OSError, ValueError, KeyError, WizardError):

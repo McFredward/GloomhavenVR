@@ -310,10 +310,13 @@ def environment(details):
     return env
 
 
-def derive_runtime_dependencies(checkout, game_root, details, supervisor, logs, check_cancel):
+def derive_runtime_dependencies(checkout, game_root, details, supervisor, logs, check_cancel, *, reference_only=False):
     """Run the selected source's existing package projects without a Bash dependency."""
     module = __import__("discovery").builder(checkout)
-    managed = module.game_data(Path(game_root)) / "Managed"
+    # Only an already qualified update seed can enter this reference-only path.
+    # It supplies compiler DLLs, never pretends to be a complete PC installation.
+    managed = (ordinary(Path(game_root)) if reference_only else module.game_data(Path(game_root))) / "Managed"
+    if not managed.is_dir(): raise WizardError("runtime_references", "The selected compiler references are missing.")
     recipe = (checkout / "scripts/build-runtimedeps.sh").read_text(encoding="utf-8")
     packages = re.findall(r'"(com\.unity\.xr\.[a-z-]+) ([0-9]+\.[0-9]+\.[0-9]+)"', recipe)
     projects = sorted((checkout / "tools/RuntimeDepsBuild").glob("*/*.csproj"))
@@ -398,7 +401,7 @@ def release_source(store, session, choices, details, supervisor, source):
             if digest(target) != row["sha256"]: raise WizardError("source_changed", "A release input changed while copied.")
         store.progress(session, 'source', 'source-copy', index, len(records), 'files', Path(row['path']).name)
     derived = derive_runtime_dependencies(checkout, choices["gameRoot"], details, supervisor,
-                                          store.session_dir(session) / "logs", lambda: store.check_cancel(session))
+                                          store.session_dir(session) / "logs", lambda: store.check_cancel(session), **({"reference_only": True} if choices.get("installedGame") else {}))
     # The builder validates shipped sources and adds local derived references
     # separately. No game or license files are copied into the release itself.
     store.operation(session, 'source', 'source-inventory', detail='Recording selected source, ModBuild and derived dependency identities')
@@ -487,7 +490,7 @@ def source_checkout(store, session, choices, details, supervisor, repo):
             target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(original, target)
             if digest(target) != row["sha256"]: raise WizardError("source_changed", "A source file changed while copied; retry when editing stops.")
             store.progress(session, 'source', 'source-copy', index, len(records), 'files', Path(row['path']).name)
-    derived = derive_runtime_dependencies(checkout, choices["gameRoot"], details, supervisor, log_root, lambda: store.check_cancel(session))
+    derived = derive_runtime_dependencies(checkout, choices["gameRoot"], details, supervisor, log_root, lambda: store.check_cancel(session), **({"reference_only": True} if choices.get("installedGame") else {}))
     store.operation(session, 'source', 'source-inventory', detail='Recording the exact source and runtime-dependency manifest')
     records, current, dirty = source_inventory(checkout, "source-owned-inventory.json")
     receipt = store.session_dir(session) / "source.json"

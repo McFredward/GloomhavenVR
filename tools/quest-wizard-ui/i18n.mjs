@@ -1410,6 +1410,37 @@ Object.assign(strings.en,{
   runRetiredConfirmCopy:'Only the unused intermediates in this preview from the already deleted run are removed. Protected and shared data and diagnostic logs are retained.',
 });
 
+Object.assign(strings.de, {
+  homeOwnedCopy:'Für neue Quest-Versionen ist eine gekaufte PC-Spielkopie nötig. Kompakte Updates können die vorhandene Quest-Installation verwenden.',
+  homeUpdateReady:'B{installed} → B{bundled} · Lokale APK vorhanden; Update-Eignung wird geprüft',
+  homeUpdateDeviceReady:'B{installed} → B{bundled} · Quest-Installation gefunden; Compiler-Grundlage beim Einlesen prüfen',
+  updateSource:'Grundlage des Updates',updateSourceLocal:'APK / ZIP auf diesem PC',updateSourceQuest:'Installiertes Spiel auf der Quest',
+  updateSourceIntro:'Eine vorhandene APK oder die installierte Quest-Version verwenden. Spielinhalte werden für kompakte Updates nicht neu konvertiert.',
+  updateKeepIdentity:'Profil und DLCs der vorhandenen APK übernehmen; keine PC-Spielkopie erforderlich',
+  updateTemporarySpace:'Der PC benötigt vorübergehend Platz für die APK, Compiler und Update-Dateien. Die großen installierten Spielinhalte und Spielstände bleiben auf der Quest.',
+  sourceDiscover:'Quest prüfen',sourceImport:'Quest-Installation einlesen',sourceImportFirst:'Zuerst die Quest-Installation einlesen.',
+  sourceLegacy:'Diese ältere APK enthält noch keine Compiler-Grundlage. Einmalig die passende PC-Spielkopie für das Update verwenden. Danach sind weitere kompakte Updates ohne PC-Spielkopie möglich.',
+  sourcePcRequiredCopy:'Für dieses kompakte Update wird einmalig die passende PC-Spielkopie benötigt. Es wird kein vollständiger Neuaufbau gestartet.',
+  sourcePcRequiredNext:'PC-Spielkopie verwenden wählen, den passenden Spielordner angeben und das Update fortsetzen. Die ausgewählte APK bleibt erhalten. Alternativ eine neuere APK mit Compiler-Grundlage auswählen.',
+  sourceUsePc:'Einmalig PC-Spielkopie verwenden',sourceUnavailable:'Keine Quest-Installation gefunden. Eine lokale APK bleibt auswählbar.',
+  updateHint:'Die vorhandene APK ist die Update-Grundlage. Profil und DLCs bleiben erhalten. Für ältere APKs kann einmalig die passende PC-Spielkopie benötigt werden.',
+});
+Object.assign(strings.en, {
+  homeOwnedCopy:'New Quest builds require a purchased PC game. Compact updates can use the existing Quest installation.',
+  homeUpdateReady:'B{installed} → B{bundled} · Local APK found; update compatibility will be checked',
+  homeUpdateDeviceReady:'B{installed} → B{bundled} · Quest installation found; compiler inputs checked when imported',
+  updateSource:'Update source',updateSourceLocal:'APK / ZIP on this PC',updateSourceQuest:'Game installed on the Quest',
+  updateSourceIntro:'Use an existing APK or the installed Quest version. Compact updates do not reconvert game content.',
+  updateKeepIdentity:'Keep the existing APK profile and DLCs; no PC game copy required',
+  updateTemporarySpace:'The PC temporarily needs space for the APK, compiler and update files. Large installed game content and saves remain on the Quest.',
+  sourceDiscover:'Check Quest',sourceImport:'Read Quest installation',sourceImportFirst:'Read the Quest installation first.',
+  sourceLegacy:'This older APK does not contain compiler inputs yet. Use the matching PC game copy for one update. Further compact updates can then run without the PC game copy.',
+  sourcePcRequiredCopy:'This compact update needs the matching PC game copy once. No full rebuild is started.',
+  sourcePcRequiredNext:'Choose Use PC game copy once, select the matching game folder and continue the update. The selected APK is retained. Alternatively, choose a newer APK with portable compiler inputs.',
+  sourceUsePc:'Use PC game copy once',sourceUnavailable:'No Quest installation found. A local APK remains selectable.',
+  updateHint:'The existing APK is the update source. Its profile and DLCs are retained. Older APKs may need the matching PC game copy once.',
+});
+
 export function translate(language, key, parameters = {}) {
   const value = strings[language]?.[key] ?? strings.en[key] ?? key;
   return value.replace(/\{([A-Za-z]+)\}/g, (_, name) => String(parameters[name] ?? ''));
