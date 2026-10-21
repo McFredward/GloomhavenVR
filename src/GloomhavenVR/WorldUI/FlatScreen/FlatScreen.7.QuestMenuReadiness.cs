@@ -125,6 +125,12 @@ internal sealed partial class FlatScreen
                                     + " ageSeconds=" + (Time.unscaledTime - requestedAt)
                                     + " producerAgeFrames=" + (Time.frameCount - _questMenuProducedFrame)
                                     + " sameHead=" + (VRRigDriver.HeadCamera == head)
+                                    + " sameMenu=" + (_questProducedMenu == menu && menu == GLOOM.MainMenu.MainMenuUIManager.Instance)
+                                    + " sameGraphic=" + (_questProducedMenuGraphic == graphic && sourceBinding.Matches(graphic))
+                                    + " graphicVisible=" + (graphic != null && graphic.isActiveAndEnabled
+                                        && !graphic.canvasRenderer.cull && graphic.canvasRenderer.GetInheritedAlpha() > .01f)
+                                    + " sameConsumer=" + (_quadRenderer == consumer && consumer != null
+                                        && consumer.sharedMaterial == material && material != null && material.mainTexture == target)
                                     + " finalXrPixelsObserved=false");
                         }
                         ClearQuestMenuPixelReceipt();
