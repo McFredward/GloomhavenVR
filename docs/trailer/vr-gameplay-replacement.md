@@ -1,6 +1,63 @@
 # Genuine VR gameplay replacement
 
-## October 21 single-player completion pass (v17)
+## October 21 damage and map correction (v18)
+
+The maintainer requested only two further shot corrections. V18 replaces FG08
+`[4534,4779)` (1:15.57–1:19.65) and MAP3 `[8979,9118)`
+(2:29.65–2:31.97) against V17. The other 14,426 frame addresses remain inherited;
+384 addresses change, with the original cuts, 14,810-frame/60fps clock and AAC.
+
+At approximately 1:16, a Living Corpse hits an allied archer for **4 damage**;
+the native health indicator falls **6 → 2**. The target is a scenario ally,
+not an asserted playable mercenary class. October 21 source frames 20964 onward
+(698.8 seconds) supply the complete 245-frame beat at 1x. Its inherited nine-frame
+flare and eleven-frame outgoing smear retain the transition timing. The initial
+unused attempt had an incorrectly normalized outgoing palette; the corrected
+v2 is the selected component. Source review confirms all 225 untreated output
+frames against sequential source decoding and rejects shifted causal controls.
+
+At approximately 2:31, a previously unused magical close-combat moment with rune
+hands replaces the scaling gesture. October 21 source frames 33870 onward
+(1129 seconds) supply 139 frames at 1x. The original standard matte is restored:
+the previous upper widening for both hands had removed too much map artwork.
+V16 supplies the native paper layer so the mountains, route, city and original
+contour return. All 732,228 pure native-map pixels per frame are exactly retained
+before encoding. All 139 encoded component
+frames pass the unchanged 2.0-MAE comparison, including the restored paper area;
+the maximum restored-area MAE is 1.39584 at 320×180. An independent 960×540
+final-export comparison restores 34,088 paper pixels removed by the old matte;
+all 139 final frames pass its declared 3.0-MAE paper threshold (restored-area
+maximum 2.67285). The first mixed-resampler diagnostic
+is retained and corrected through an identical measurement path, with no
+component or threshold change. Other five map-side shots and the accepted
+outgoing Victory transition are inherited from V17.
+
+V18 SHA256 is `77d90be7f70e47b8b7e821875e79ac4441c0f76dead580b89ba8799a69c9ea57`.
+The assembler and independent final-export checks pass for both new windows,
+all inherited frame addresses, the continuous fan-mod mark and original AAC.
+The first full run passes all outside-window pictures, MAP3, AAC and the footer;
+five saturated FG08 flare frames need the exact assembler colour path as their
+reference. A bounded 245-frame follow-up passes without changing media or the
+2.0 threshold; the initial failure remains recorded. Maximum final comparison
+MAE is 0.72722 outside and 1.50681 inside. This composes existing full-run evidence
+with the focused check; it does not claim another complete run.
+Root reviews 21 actual-export Watch cues and 44 exact sequential boundary/result
+witnesses; independent desktop/mobile-emulated browser review checks both new
+contexts at 1x, 25 chapters, comparisons and published navigation. This is focused
+media/browser evidence; unchanged creative review is inherited. No game-runtime,
+headset or continuous whole-film manual-viewing result is claimed.
+
+The active private review is `vr-gameplay-v9/REVIEW.html`. Final receipts are
+`qc-independent/technical-final.json`, `browser-review/final-review.json`,
+`browser-review/final-navigation.json`, `qc-root/visual-review.json` and
+`editor/protected-media-final.json`, relative to that folder. All used sources,
+previous deliverables and current authorities are preserved; completed owned
+worktrees and regenerable private caches are removed. No paid inference or mod
+build change is introduced. Multiplayer FG39–FG41 remains the only capture task;
+FG12/30/31 and the separate approved game intro retain their explicit exceptions.
+User acceptance of this new revision is not claimed.
+
+## Historical October 21 single-player completion pass (v17)
 
 The maintainer explicitly keeps the campaign Victory/map overview (FG30),
 Guildmaster region/missions (FG31) and previously approved cinematic card

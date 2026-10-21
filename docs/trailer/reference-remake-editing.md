@@ -3,26 +3,27 @@
 The accepted opening also supplies the first-save campaign intro, with a native-style
 GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
 
-The current v17 pass leaves only genuine multiplayer captures outstanding:
-FG39–FG41, 3:28.70–3:37.20. The October 21 recording supplies actual equipping,
-enhancement and summoning. Recruitment replaces the Quest Complete panel with
-an honestly named Create Mercenary confirmation and personal-quest options.
-Six previously unused VR excerpts replace the combat beside the original map
-on the right; the card-list/system montage is rebuilt with 25 genuine VR tiles.
-The maintainer explicitly keeps the campaign Victory/overview, Guildmaster
-region/missions and cinematic card near 1:30. The UI inventory now records
-28 VR phases, two approved original views and three pending cooperative phases.
+The current v18 correction changes only the heavy-damage shot near 1:16 and
+third map-side shot near 2:31. A Living Corpse deals 4 damage to an allied archer,
+reducing native HP 6 → 2. The other shot now shows an unused magical close-combat
+moment with rune hands. Its original map contour is restored after the previous
+wide upper opening removed too much paper. Mountains, route and city retain the
+native V16 framing; the other five map-side shots and Victory exit stay from V17.
 
-Six bounded components change 1,682 frames against v16, preserving the other
-13,128 addresses. All gameplay clocks stay at 1x with ordinary 30-to-60fps
-repeats. Native optical timing is preserved at the gold wipe, map entry/exit
-and mosaic zooms. A nine-frame map-transition tail preserves native Victory UI
-while removing the last old-room residue. Accepted cinematics, v16's strong Avalanche attack, original
-AAC, full-trailer fan mark and the separate game intro are inherited.
-The active review is `vr-gameplay-v8/REVIEW.html`, with 25 chapter buttons,
-source comparisons and an updated multiplayer-only capture list.
-No paid inference or runtime change is used. See
-[vr-gameplay-replacement.md](vr-gameplay-replacement.md) for exact evidence.
+The two windows change 384 frame addresses against V17, retaining 14,426 addresses.
+Source tempo remains 1x, with ordinary 30-to-60fps repetition and existing optical
+transition timing. Original AAC, accepted cinematics, continuous full-trailer
+fan mark and separate approved intro are retained. Focused source/component,
+actual-export and desktop/mobile-emulated browser checks pass; this is not a new
+game-runtime or headset gate. The active review is `vr-gameplay-v9/REVIEW.html`,
+with 25 chapters and direct buttons for the two corrected passages. No paid calls.
+
+Only multiplayer FG39–FG41 (3:28.70–3:37.20) needs new recordings. The UI inventory
+still records 28 VR phases, two approved original views and three cooperative
+phases. The maintainer keeps FG12/30/31. V17's equipment, enhancement, summoning,
+recruitment, other map-side shots and 25-tile genuine VR mosaic are inherited.
+See [vr-gameplay-replacement.md](vr-gameplay-replacement.md) for provenance,
+measured media checks and delivery receipts.
 
 The historical v10 first pass used 20 inserts covering 25 of 41 inventory regions; 16
 regions retain their previous pictures pending suitable captures. The accepted
