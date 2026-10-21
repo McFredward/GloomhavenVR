@@ -1041,24 +1041,35 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// </summary>
     private static Camera? ResolveMenuCamera()
     {
+        bool quest = QuestStandalonePlatform.Enabled;
         Camera? cam = NativeCameraRenderBudget.Main;
         if (IsLiveMenuAnchor(cam))
             return cam;
 
-        // Cold path only (no-rig frames / missing anchor / scene-load recheck).
+        // Keep the release's budget-owned suspended anchors. Quest additionally
+        // accepts a native capture already redirected by FlatScreen, with its
+        // native UI camera as the final reference-only fallback. Neither path
+        // activates a native renderer or replaces the owned tracked head.
         int count = NativeCameraRenderBudget.GetProjectionCamerasNonAlloc(out Camera[] all);
         Camera? best = null;
+        Camera? ui = null;
         for (int i = 0; i < count; i++)
         {
             Camera candidate = all[i];
             if (!IsLiveMenuAnchor(candidate)
-                || (candidate.targetTexture != null && !NativeCameraRenderBudget.Owns(candidate))
-                || candidate.CompareTag("UICamera"))
+                || (candidate.targetTexture != null && !NativeCameraRenderBudget.Owns(candidate)
+                    && (!quest || !WorldUI.FlatScreen.OwnsPresentationTarget(candidate))))
                 continue;
+            if (candidate.CompareTag("UICamera"))
+            {
+                if (quest && (ui == null || candidate.depth > ui.depth))
+                    ui = candidate;
+                continue;
+            }
             if (best == null || candidate.depth > best.depth)
                 best = candidate;
         }
-        return best;
+        return best != null ? best : ui;
     }
 
     private void TearDownRig(string reason)
