@@ -120,3 +120,35 @@ Campaign conversion, Unity import, shader compilation, depth estimation, APK
 build, device installation or headset visual outcome is claimed here. A final
 delivered ZIP must still have its selected rows compared with this frozen
 manifest and pass the ordinary game-free archive verification.
+
+## Existing Builder directory overlays
+
+The maintainer extracts new Builder archives over the existing B713 directory.
+Main1.2.0 removes15 old source/resource files which ordinary ZIP extraction leaves
+behind, including the retired menu-camera partial and Windows debug helpers.
+The strict release loader previously rejected every unlisted file, so this common
+update method would fail before the Wizard opened.
+
+The loader now recognizes exactly the15 B713 path/size/SHA-256 records absent
+from the new public inventory. It qualifies the complete current release and
+every remaining directory entry before removing byte-identical historical files.
+The final deletion checks the observed file witness again. Current listed files,
+modified old files, unknown extras, symlinks and files changed during verification
+are never silently admitted or deleted. Failure gives a clean extraction-folder
+route while retaining the separate working folder and its reusable results.
+There is no directory-wide ignore rule or generalized executable allowance.
+
+Nine added full-loader tests pass, including original B713 menu-camera bytes,
+same-size modification, unknown extra source, corrupt current source, still-listed
+historical source, symlink, a change after qualification, deletion denial and
+repeat/fresh loading. The exact15 historical files were also read from the actual
+public B713 ZIP and passed through the production retirement helper:
+**1,290,029bytes qualified and removed**, with an unrelated current sentinel
+retained. The full inventory walk and historical helper tests are distinct proofs.
+All13 existing release-admission tests were rerun against this repaired verifier
+and pass. This adds nine tests to the108 above, for117 distinct focused host tests;
+the repeated13 are not counted twice.
+
+This host-only verifier change does not alter original asset generation, compiler
+source selection, independent media plans or the compact-update ABI. Its final
+release source row must be included when recording the delivered source manifest.

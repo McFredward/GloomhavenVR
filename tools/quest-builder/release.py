@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import stat
 import subprocess
 import tempfile
 import zipfile
@@ -65,6 +66,31 @@ def owned_derived_source(name):
     """One exclusion boundary shared by Git and released Builder inventories."""
     return (name.startswith(OWNED_DERIVED_ROOTS + GAME_MOVIE_ROOTS)
             or name in OWNED_DERIVED_FILES)
+
+
+# B716 main1.2.0 retires these exact public B713 sources/resources. Players
+# commonly extract a new Builder over the old directory. Admit no unlisted
+# source except these complete old byte identities, then remove them only after
+# the entire current release and its remaining directory contents are valid.
+# Provenance: B713 f4539f297a948476b593f6fd0ebc561f04e22a8e, archive SHA256
+# fa0a762d7a6a38ea23644090947b122f6f86acbb067d2864bb19955d79f42a01.
+RETIRED_B713_INPUTS = {
+    "src/GloomhavenVR/Assets/SteamLink/compositor-state-probe-provenance.json": (1339, "a5e1013eec72214915b0bc2c2d40220734423e82bea1ddaaa9b4eec6f224c82a"),
+    "src/GloomhavenVR/Assets/SteamLink/compositor-state-probe.exe": (957952, "fd5496814dbcc4a37de7d73e46fae155000197404adec353f29bdeb2e0009b38"),
+    "src/GloomhavenVR/Assets/SteamLink/projection-overlay-probe-provenance.json": (1373, "98b0e500631fab69e1325e05ba09e9359a1d5c7420065042fc886488bf7e4824"),
+    "src/GloomhavenVR/Assets/SteamLink/projection-overlay-probe.exe": (210432, "0b5d8fcda22da91f1ee43259384ce0e5e119d870ef9b4faeeb200973b1600fd0"),
+    "src/GloomhavenVR/Assets/SteamLink/stream-quality-provenance.json": (836, "9079226cab4d32e43c5a98ef7c1d28843b60b98940350edf10d1b33b2a2774a0"),
+    "src/GloomhavenVR/Assets/SteamLink/stream-quality.exe": (46080, "aae6bf6a0da3fd3a0f2e9e6b65ff6375786b5058fc4c8fc7c752c47298202ccd"),
+    "src/GloomhavenVR/Core/Loc/Loc.SteamLinkProjectionProbe.cs": (1853, "7119ce6ab27d3c93c6c0bd4c2a06df75103b49955735f2f0287c60915a483d3d"),
+    "src/GloomhavenVR/Core/SteamLink/SceneAtlasProfile.cs": (1857, "63b09c1697376eb65f5351099423a2b8661c32cb99b229fac9d5113e32e05266"),
+    "src/GloomhavenVR/Core/SteamLink/ScenePayloadDraft.cs": (4795, "0c56d3c2ec0d554b156137dce64a0a4f3e45ada4c9b964790c648ab747c0454a"),
+    "src/GloomhavenVR/Core/SteamLink/SteamLinkCompositorMonitor.cs": (18537, "f531a1879e625ad2b9c5f82638bf66f91855e97e71e7e5d5e95fdbee10401b37"),
+    "src/GloomhavenVR/Core/SteamLink/SteamLinkProjectionProbe.cs": (14676, "c8d93a9a95e2d0b5ff76ffc1b16e2031c0a96ee95539a6fc2d676755d47ae182"),
+    "src/GloomhavenVR/Core/SteamLink/SteamLinkResolutionPolicy.cs": (1130, "e1c52d442c1f675a4b6f83d33d90e096f569b1228734b927782d5f1f72fc3460"),
+    "src/GloomhavenVR/Core/SteamLink/SteamLinkStreamQuality.cs": (24809, "59648a23cee13f86f6e67afa19b5b658e21817cf5da860d37117db098989a301"),
+    "src/GloomhavenVR/Rig/VRRigDriver.MenuCamera.cs": (2052, "25474cc9d00ab4b7c22935cbb0baae02428b519d8569cd84468488b763ae454e"),
+    "src/GloomhavenVR/WorldUI/Options/VROptionsTab.SteamLinkProjectionProbe.cs": (2308, "3dc9536c07deb7b9bf090f9693bbeb030515827b9ea58b7c7aa6a99a79a89049"),
+}
 
 
 PROMOTIONAL_ASSETS = {'tools/quest-wizard-ui/assets/promo/' + name for name in (
@@ -214,6 +240,36 @@ def movie_recipe_closure(repo, rows):
         raise BuildError('Builder movie recipe is incomplete or invalid.') from exc
 
 
+def _retired_source_witness(path, relative):
+    expected = RETIRED_B713_INPUTS.get(relative)
+    if expected is None:
+        raise BuildError('Unlisted builder release file: ' + relative
+                         + '. Extract the new Builder into a clean folder; keep its separate work folder for reuse.')
+    path = ordinary(path)
+    before = path.lstat()
+    stamp = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+    if (not stat.S_ISREG(before.st_mode) or before.st_size != expected[0]
+            or digest(path) != expected[1] or stamp(before) != stamp(path.lstat())):
+        raise BuildError('Retired B713 Builder file was modified: ' + relative
+                         + '. Extract the new Builder into a clean folder; keep its separate work folder for reuse.')
+    return path, stamp(before)
+
+
+def _remove_retired_sources(retired):
+    for path, witness in retired:
+        ordinary(path)
+        value = path.lstat()
+        stamp = (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        if stamp != witness:
+            raise BuildError('Retired Builder file changed during verification: ' + str(path))
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise BuildError('Cannot remove the verified obsolete Builder file: ' + str(path)
+                             + '. Close other Builder windows or extract the new Builder into a clean folder;'
+                             + ' keep its separate work folder for reuse.') from exc
+
+
 def verified_source_inventory(repo):
     """Validate all delivered bytes, reject unlisted source; never infer Git state."""
     repo = ordinary(repo); path = ordinary(repo / MANIFEST)
@@ -246,6 +302,7 @@ def verified_source_inventory(repo):
         raise BuildError('Cross-platform builder release is missing its Linux launcher.')
     # Traverse without following junctions; ignore only declared per-user generated
     # directories. Unknown files in source-bearing roots are a tampered release.
+    retired = []
     for directory, dirs, files in os.walk(repo, followlinks=False):
         rel = Path(directory).relative_to(repo)
         kept = []
@@ -260,8 +317,9 @@ def verified_source_inventory(repo):
             if relative in names: continue
             # Even excluded binaries in a shipped input root are rejected. Local
             # dependency trees above are the only assembly exceptions.
-            parts = safe_name(relative).parts
-            raise BuildError('Unlisted builder release file: ' + relative)
+            safe_name(relative)
+            retired.append(_retired_source_witness(repo / relative, relative))
+    _remove_retired_sources(retired)
     return [*rows, record_file(path, MANIFEST)], value['sourceCommit'], False
 
 
