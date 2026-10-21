@@ -283,6 +283,17 @@ class InstalledSourceTests(unittest.TestCase):
         self.assertGreater(len(self.android.transfers), previous)
         self.assertEqual(self.android.body, path.read_bytes())
 
+    def test_local_mutation_during_metadata_inspection_is_not_published(self):
+        builder = installer.builder_module()
+        original = builder.apk_updates.inspect_base
+        def mutate(path):
+            result = original(path)
+            with Path(path).open("ab") as stream: stream.write(b"changed-during-inspection")
+            return result
+        with mock.patch.object(installer, "builder_module", return_value=builder), mock.patch.object(builder.apk_updates, "inspect_base", side_effect=mutate):
+            self.expect_reason("local-source-changed", self.acquire)
+        self.assertEqual([], list((self.root / "state").rglob("source.json")))
+
     @unittest.skipIf(sys.platform == "win32", "Requires a symlink-capable test account")
     def test_linked_cache_cannot_overwrite_another_directory(self):
         target = self.root / "other"; target.mkdir()

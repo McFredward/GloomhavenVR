@@ -201,6 +201,7 @@ def _chunk(adb, address, remote, offset, count):
 
 
 def _qualified(adb, address, selected, apk, receipt, *, reused, resumed_bytes):
+    local_before = _stat(apk)
     builder = _installer().builder_module()
     try: base = builder.apk_updates.inspect_base(apk)
     except (OSError, RuntimeError, ValueError) as error:
@@ -219,6 +220,8 @@ def _qualified(adb, address, selected, apk, receipt, *, reused, resumed_bytes):
     try: seed = builder._local_helper("update_seed").inspect_seed(apk, base)
     except (FileNotFoundError, ImportError, AttributeError):
         seed = {"available": False, "reason": "seed-reader-unavailable"}
+    if _stat(apk) != local_before:
+        raise InstalledSourceError("The local Quest APK changed while its update metadata was being inspected. Retry to reacquire that input from the headset.", "local-source-changed")
     return {**selected, "apk": str(apk), "path": str(apk), "identity": identity, "base": base,
             "seed": seed, "receipt": str(receipt), "reused": reused, "resumedBytes": resumed_bytes}
 

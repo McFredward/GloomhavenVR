@@ -89,7 +89,7 @@ silently start a full asset rebuild.
 
 ## Focused evidence
 
-`tests/quest-installer/test_installed_source.py` passes 25 protocol tests using
+`tests/quest-installer/test_installed_source.py` passes 26 protocol tests using
 the actual `installer.Adb`, APK native-header/contract inspection and real ZIP
 fixtures. They cover USB/remembered transport aliases, read-only discovery,
 actual 8-MiB binary chunks, exact byte progress, missing/split/unsafe sources,
@@ -98,9 +98,10 @@ retries, closing package/device changes and unchanged closed-import reuse. A
 real host `sh`/`dd` witness also merges raw stdout/stderr and verifies that the
 fixed script suppresses `dd`'s footer before it can enter the binary channel.
 
-Seven compiling causal controls remove headset identity, closing package witness,
+Eight compiling causal controls remove headset identity, closing package witness,
 binary byte-count qualification, native version binding, local cache witness or
-cancellation, or allow the raw channel's `dd` footer into APK bytes. Each is
+cancellation, remove the closing local-file witness, or allow the raw channel's
+`dd` footer into APK bytes. Each is
 detected by its selected behavior test. Test subprocesses
 are reaped and the common `cleanup_completed_run` API is called. Fixtures are
 removed by their owning temporary-directory contexts; no Unity project is built.
