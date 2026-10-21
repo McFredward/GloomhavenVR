@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "status": "V16: UI-only inventory and stronger real attack. Keep the approved cinematic card near 1:30 and HUDless/decorative shots. Twelve native UI windows in eight action groups remain; use existing material first.",
-  "date": "2026-10-19",
+  "status": "V17 reviewed and published: all planned single-player replacements complete; only FG39–FG41 multiplayer footage remains outstanding. Approved FG12/30/31 original views are retained.",
+  "date": "2026-10-21",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
   "source_duration_seconds": 246.861,
@@ -15,7 +15,7 @@
     "motion_quality": "V9 root review covers all762 changed component frames,139 whole-film Watch cues and21 native witness contacts/eight full-size witnesses. Independent visual review, all14810-frame technical/footer checks and actual browser playback pass; user acceptance is not claimed."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
-  "timing_note": "V16 changes only 175 frames in FG07 [4359,4534) against V15. Preserve 14,810 frames at 60fps, the original 246.861s AAC and source motion at 1x. The other 14,635 frame addresses remain inherited.",
+  "timing_note": "V17 changes 1682 frame addresses in six bounded components against V16, retaining 13128 addresses. The map transition includes nine additional background-repair frames while preserving original Victory UI. Keep 14810 frames at 60fps, the 246.861s original AAC and all real gameplay at 1x.",
   "voice": {
     "mode": "Keep original English text/timing, user confirmed; small GloomhavenVR substitutions only",
     "patches": [
@@ -78,7 +78,7 @@
     "this_v8_reserved_usd": 5.5
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
-  "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
+  "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/NAECHSTE-AUFNAHMEN.txt",
   "incoming": ".planning/debug/trailer/remake-v1/incoming/",
   "scenes": [
     {
@@ -2468,22 +2468,22 @@
     "cleanup_authority": "Latest explicit unused-video/resource deletion instruction overrides historical preserve-all-AI policy. Retain selected used sources and all fal run recovery metadata."
   },
   "current_working_cut": {
-    "phase": "genuine-vr-gameplay-v7",
-    "status": "provisional-material-trial-reviewed-and-published",
-    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/full-timeline-v1/reference-remake-vr-v16.mp4",
-    "sha256": "3c38629aecd0acf4ad7c335c20d54efe6097a771882c7f4bc50836874ab44234",
-    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v7/REVIEW.html",
-    "base_phase": "genuine VR material trial v15, accepted cinematics inherited",
-    "base_sha256": "a9423dc88ed5dc2175f00d6d18b53d050e446c5c0142b8fe59aa306dcaa287ed",
+    "phase": "genuine-vr-gameplay-v8",
+    "status": "reviewed-and-published-awaiting-multiplayer-captures",
+    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/full-timeline-v1/reference-remake-vr-v17.mp4",
+    "sha256": "0c2b7b2fe96e485bb0a67b40f02a81042f30863554283dc08ceff48fb88e4a36",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/REVIEW.html",
+    "base_phase": "genuine VR material trial v16 with accepted cinematics inherited",
+    "base_sha256": "3c38629aecd0acf4ad7c335c20d54efe6097a771882c7f4bc50836874ab44234",
     "frames": 14810,
     "fps": 60,
     "container_seconds": 246.861,
     "new_paid_calls": 0,
     "user_acceptance_claimed": false,
     "provisional_material_trial": true,
-    "bytes": 293193204,
+    "bytes": 298014250,
     "review_published": true,
-    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v7/REVIEW.html"
+    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v8/REVIEW.html"
   },
   "genuine_vr_gameplay_pass_v1": {
     "date": "2026-10-16",
@@ -3365,6 +3365,192 @@
       "owned_worker_worktrees_removed": 2,
       "used_media_deleted": false,
       "shared_game_references_modified": false
+    },
+    "superseded_by": "genuine_vr_gameplay_pass_v8"
+  },
+  "genuine_vr_gameplay_pass_v8": {
+    "date": "2026-10-21",
+    "status": "single-player-scope-complete-reviewed-and-published-awaiting-real-multiplayer",
+    "selection_rule": "Use equivalent meaningful real actions, with explicit generic substitutions for trap disarming and the system mosaic. Preserve original map-right pattern; only genuine multiplayer footage remains outstanding.",
+    "private_selection": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/editor/selection-final.json",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/REVIEW.html",
+    "private_ui_inventory": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/inventory/ui-only-inventory.json",
+    "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/NAECHSTE-AUFNAHMEN.txt",
+    "source": ".planning/debug/trailer/gameplay/2026-10-21 19-57-22.mp4",
+    "source_sha256": "cd5c5895940724f25a383b22b6e3deb6b7dda085032b029f5b6ff818b392b210",
+    "source_frames": 39809,
+    "source_fps": 30,
+    "changed_components": [
+      {
+        "id": "FG10",
+        "start_frame": 4965,
+        "end_frame_exclusive": 5112,
+        "frames": 147,
+        "sha256": "fb337b38143bf0ebb0563a67a400d4c491831bfb9f30482191a7c651cba23965"
+      },
+      {
+        "id": "FG21",
+        "start_frame": 7470,
+        "end_frame_exclusive": 7554,
+        "frames": 84,
+        "sha256": "36b177ec4ee6261e768c78cce44fbbda43bc19003bebda73c66f07f53698b3e3"
+      },
+      {
+        "id": "FG22",
+        "start_frame": 7554,
+        "end_frame_exclusive": 7670,
+        "frames": 116,
+        "sha256": "1162ab89c40af2878335bc98b96531028c9fdcd5195e90678dfad3b4443f5244"
+      },
+      {
+        "id": "FG23",
+        "start_frame": 7670,
+        "end_frame_exclusive": 7808,
+        "frames": 138,
+        "sha256": "e2f9b7fd3c56528ae8d2a626a858b6af0941a9b88beca08f52acb5494a4f4427"
+      },
+      {
+        "id": "MAP",
+        "start_frame": 8758,
+        "end_frame_exclusive": 9718,
+        "frames": 960,
+        "sha256": "b224b6883bfc56a8c5fce140d573fea3e6c06a89df98a43122e8b1c6cdc7bdac"
+      },
+      {
+        "id": "MOSAIC",
+        "start_frame": 11952,
+        "end_frame_exclusive": 12189,
+        "frames": 237,
+        "sha256": "10c0e4f5bdb2263db4e22527fc4df0ef0df78fb13f9d763a4e1fc00574588386"
+      }
+    ],
+    "changed_frames": 1682,
+    "unchanged_frames": 13128,
+    "source_playback_rate": 1,
+    "ui_counts": {
+      "phases": 33,
+      "genuine_vr": 28,
+      "accepted_native": 2,
+      "outstanding_multiplayer": 3
+    },
+    "remaining_capture_ids": [
+      "FG39",
+      "FG40",
+      "FG41"
+    ],
+    "remaining_capture_window": [
+      12522,
+      13032
+    ],
+    "remaining_capture_seconds": [
+      208.7,
+      217.2
+    ],
+    "remaining_capture_groups": 1,
+    "explicit_original_exceptions": [
+      "FG12",
+      "FG30",
+      "FG31"
+    ],
+    "semantic_substitutions": [
+      "Trap disarming becomes actual Oozing Manifestation / Slime Spirit summon.",
+      "Quest Complete becomes actual mercenary creation and offered personal-quest choices; no newly earned quest reward or confirmed quest choice is claimed.",
+      "25 mosaic tiles are different real VR captures, not synchronized multiplayer POVs."
+    ],
+    "map_provenance": {
+      "starts_seconds": [
+        69.6,
+        598.7,
+        719.4,
+        376.5,
+        493.3,
+        923.0
+      ],
+      "main_beat_frames": [
+        64,
+        157,
+        139,
+        157,
+        183,
+        251
+      ],
+      "additional_transition_tail_frames": 9,
+      "all_six_source_windows_unused_elsewhere": true,
+      "map3_upper_contour_opens_for_both_scaling_hands": true,
+      "original_victory_ui_preserved_frames": [
+        9709,
+        9718
+      ],
+      "all_base_pictures_inherited_from_frame": 9718,
+      "city_reference_native_frame": 9800
+    },
+    "source_clock_qc": {
+      "private_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/source-analysis/worker/source-clock-qc.json",
+      "status": "pass",
+      "component_frames": 485,
+      "untreated_source_comparisons": 437,
+      "rgb_transition_reference_comparisons": 231,
+      "all_four_adjacent_source_frame_negative_controls_rejected": true,
+      "initial_resampling_domain_failure_preserved": true,
+      "component_mutation_or_threshold_relaxation": false
+    },
+    "new_paid_calls": 0,
+    "new_reserved_usd": 0,
+    "user_acceptance_claimed": false,
+    "runtime_or_headset_gate_claimed": false,
+    "historical_inventory_note": "41 legacy content rows are not the current UI-only capture request; only the remaining multiplayer group requires new recording.",
+    "technical": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/qc-independent/technical-final.json",
+      "status": "passed",
+      "total_decoded_frames": 14810,
+      "outside_frames": 13128,
+      "outside_max_mae": 0.8980497685185185,
+      "component_frames": 1682,
+      "component_max_mae": 1.416147,
+      "threshold": 2.0,
+      "unchanged_aac_packets": 11573,
+      "continuous_fanmark": true,
+      "validation_mode": "Composed evidence: original14810-frame outside/AAC/footer run plus1107-frame exact-assembler colour-path check. No repeated full-frame gate claimed.",
+      "normalized_followup_frames": 1107,
+      "initial_comparison_failed_frames": 17,
+      "master_or_components_changed": false
+    },
+    "browser": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/browser-review/final-review.json",
+      "status": "passed",
+      "contexts_played_at_1x": 12,
+      "paused_chapter_checks": 50,
+      "time_state_comparisons": 12,
+      "http_range_checks": 70,
+      "source_and_hash_navigation": true,
+      "personally_viewed_media_screenshots": 68,
+      "personally_viewed_long_page_header_footer_regions": true,
+      "hardware_playback_claimed": false,
+      "final_navigation_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/browser-review/final-navigation.json",
+      "postpublication_paused_chapter_checks": 50,
+      "postpublication_http_range_checks": 90,
+      "postpublication_playback_runs_added": 0,
+      "separate_intro_section_byte_identical": true
+    },
+    "visual": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/qc-root/visual-review.json",
+      "root_actual_export_watch_cues": 81,
+      "root_exact_export_witnesses": 81,
+      "root_source_overview_cues": 46,
+      "root_encoded_map_witnesses": 46,
+      "root_encoded_mosaic_witnesses": 30,
+      "all_frames_manually_watched": false
+    },
+    "cleanup": {
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v8/editor/protected-media-final.json",
+      "status": "complete",
+      "protected_media_hashes": 51,
+      "owned_worker_worktrees_removed": 3,
+      "owned_worker_branches_removed": 3,
+      "used_media_deleted": false,
+      "shared_game_references_modified": false,
+      "canonical_cleanup_completed": true,
+      "unused_map_attempt_and_private_cache_bytes_removed": 347693138
     }
   }
 }

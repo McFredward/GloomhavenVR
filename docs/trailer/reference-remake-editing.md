@@ -3,23 +3,24 @@
 The accepted opening also supplies the first-save campaign intro, with a native-style
 GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
 
-The current v16 pass inventories actual visible game UI. It excludes HUDless
-combat, decorative map illustrations and the maintainer's explicitly approved
-cinematic card near 1:30. Thirty-three UI inventory phases remain relevant:
-21 already contain genuine VR and twelve native windows form eight outstanding
-action groups. This replaces the old 41-row coverage count as the current work
-list. An outstanding edit does not automatically require another recording.
-Existing Victory, card fans, combat turns and many montage elements can be reused;
-equipment assignment, enhancement and genuine cooperative POVs need new captures.
+The current v17 pass leaves only genuine multiplayer captures outstanding:
+FG39–FG41, 3:28.70–3:37.20. The October 21 recording supplies actual equipping,
+enhancement and summoning. Recruitment replaces the Quest Complete panel with
+an honestly named Create Mercenary confirmation and personal-quest options.
+Six previously unused VR excerpts replace the combat beside the original map
+on the right; the card-list/system montage is rebuilt with 25 genuine VR tiles.
+The maintainer explicitly keeps the campaign Victory/overview, Guildmaster
+region/missions and cinematic card near 1:30. The UI inventory now records
+28 VR phases, two approved original views and three pending cooperative phases.
 
-V16 also replaces the weak one-damage hit during “spot some weaknesses” with
-Cragheart's actual Avalanche: two Living Bones each take five damage, collapse
-and leave gold. Only `[4359,4534)` changes against v15. All source motion stays
-at 1x with ordinary 30-to-60fps repeats; the native outgoing flare remains.
-Accepted cinematics, original AAC, full-trailer fan mark and the separate game
-intro are inherited. The active review is `vr-gameplay-v7/REVIEW.html`, with
-nineteen chapter buttons, source comparisons, an updated capture list and
-`inventory/INVENTAR-UI.html` for the complete UI-only inventory.
+Six bounded components change 1,682 frames against v16, preserving the other
+13,128 addresses. All gameplay clocks stay at 1x with ordinary 30-to-60fps
+repeats. Native optical timing is preserved at the gold wipe, map entry/exit
+and mosaic zooms. A nine-frame map-transition tail preserves native Victory UI
+while removing the last old-room residue. Accepted cinematics, v16's strong Avalanche attack, original
+AAC, full-trailer fan mark and the separate game intro are inherited.
+The active review is `vr-gameplay-v8/REVIEW.html`, with 25 chapter buttons,
+source comparisons and an updated multiplayer-only capture list.
 No paid inference or runtime change is used. See
 [vr-gameplay-replacement.md](vr-gameplay-replacement.md) for exact evidence.
 

@@ -1,5 +1,115 @@
 # Genuine VR gameplay replacement
 
+## October 21 single-player completion pass (v17)
+
+The maintainer explicitly keeps the campaign Victory/map overview (FG30),
+Guildmaster region/missions (FG31) and previously approved cinematic card
+(FG12). Generic VR gameplay is authorized for the card-list/system montage,
+and another special action may replace trap disarming. The current outstanding
+capture list is therefore **multiplayer only**, FG39–FG41 `[12522,13032)`.
+These are three presentation phases in one 8.5-second cooperative passage.
+
+The new `2026-10-21 19-57-22.mp4` recording supplies actual equipment
+reassignment, a confirmed Wound enhancement purchase, a Slime Spirit summon,
+six previously unused map-side excerpts and most of a rebuilt VR mosaic.
+Its SHA256 is
+`cd5c5895940724f25a383b22b6e3deb6b7dda085032b029f5b6ff818b392b210`.
+Source review uses 636 focused cues rather than claiming continuous viewing
+of the entire 22-minute recording. Root independently views 46 overview cues
+and selected action/source/component witnesses.
+
+| Trailer | Window at 60fps | Actual replacement |
+| --- | --- | --- |
+| 1:22.75–1:25.20 | `[4965,5112)` | Oozing Manifestation summons Slime Spirit, with a visible purple burst and XP result. This deliberately replaces trap disarming with another special action. |
+| 2:04.50–2:05.90 | `[7470,7554)` | Major Healing Potion equipment reassignment. The original gold-wipe geometry is recreated between genuine VR merchant and inventory pictures; its first two frames precede the former FG21 boundary. |
+| 2:05.90–2:07.83 | `[7554,7670)` | Actual 200-gold Wound enhancement confirmation, closing dialog and magical effect. The later gold balance is outside this cut. |
+| 2:07.83–2:10.13 | `[7670,7808)` | Real Create Mercenary confirmation and subsequent personal-quest options, from the October 17 09:44 recording. This shows recruitment/progression, not a newly completed quest or confirmed personal-quest choice. |
+| 2:25.97–2:41.97 | `[8758,9718)` | Six new VR windows on the left: Temple Bless, melee shield effect, two-handed board scaling, area/condition effects, physical card placement and rune-hand card selection. Original illustrated map and route remain on the right; the final nine frames repair the outgoing room residue while preserving the original Victory UI. |
+| 3:19.20–3:23.15 | `[11952,12189)` | A physical fan opens into a moving 25-tile VR mosaic and zooms into a real close-combat impact. Different recordings illustrate features; these are not claimed as synchronized players. |
+
+The map-side source starts are 69.6, 598.7, 719.4, 376.5, 493.3 and 923.0
+seconds, for 64/157/139/157/183/251 main-beat delivery frames respectively,
+followed by nine optical tail frames. They are
+exclusive source windows and do not repeat footage used elsewhere. The organic
+cutout is derived from original map artwork, with a locally wider upper edge
+in the scaling shot to keep both hands visible. The accepted Victory UI starts
+at frame 9709 and is retained from the base; only its outgoing background is
+repaired through frame 9717. Every base picture from 9718 onward is inherited.
+
+The six components change 1,682 frame addresses against v16; 13,128 addresses
+remain inherited. All gameplay clocks stay at exactly 1x with native 30fps
+pictures repeated at 60fps. FG10 uses twelve-frame optical entry/exit smears
+from its live VR pictures and adjacent row palettes. No gameplay interpolation,
+speed fitting or ending hold is introduced. Original AAC, accepted cinematics
+and the separate approved game intro are retained. There are no paid calls.
+
+The revised UI inventory has 33 phases: 28 genuine VR, two explicitly accepted
+native views and three pending cooperative phases. The additional six map-side
+shots are tracked separately rather than inflating that UI count. Review,
+selection and capture list live under `vr-gameplay-v8/`; older sections below
+remain historical evidence and are not the current recording request.
+
+Independent source-clock validation decodes all 485 menu/summon/recruitment
+component frames and compares 437 untreated pictures with exact sequential
+original-source frames. All four deliberately shifted next-frame controls are
+rejected. The 231 transition-component pictures also pass against lossless RGB
+references. An initial comparison used a different YUV/RGB scaling order and
+failed; its report is retained. Matching the producer's RGB scaling order passes
+without changing components or increasing the 2.0 MAE limit. The source-clock
+receipt is `vr-gameplay-v8/source-analysis/worker/source-clock-qc.json`.
+
+The map author decodes all 960 component pictures. Right-map maximum MAE is
+1.59329, native Victory UI across nine tail frames is 1.50650, and the last
+component frame differs from its base by 1.06850 at the comparison scale.
+The bottom black bar has no leftover video strip. Root views all 46 exact
+encoded map witnesses, including the two scaling hands and full optical exit.
+See `vr-gameplay-v8/map-composite/{technical-receipt.json,encoded-contacts/}`.
+
+V17 SHA256 is
+`0c2b7b2fe96e485bb0a67b40f02a81042f30863554283dc08ceff48fb88e4a36`.
+The 298,014,250-byte export retains 14,810 frames at 1080p60 and the original
+246.861-second AAC tail. All 13 assembler checks pass. Independent sequential
+validation covers all frames, all 13,128 outside-window pictures, every inserted
+picture, the continuous fan mark and all 11,573 identical AAC packets including
+clocks/configuration. Maximum 320-by-180 MAE is 0.89805 outside and 1.41615
+inside, below the unchanged 2.0 threshold. This measures lossy image fidelity,
+not byte identity of reencoded pictures.
+
+The evidence is composed: the first complete run passes outside pictures, AAC,
+footer and four components, while 17 saturated smear/light frames in FG10/MAP
+fail a direct component-color comparison. A focused comparison of all 1,107
+FG10/MAP pictures uses the exact assembler RGBA/overlay/YUV pipeline and passes;
+the 17 deliberate matrix controls establish the conversion cause. The first
+failure remains recorded. No master, component or threshold changes, and no
+second complete gate is claimed. The final authority is
+`vr-gameplay-v8/qc-independent/technical-final.json`.
+
+Root additionally views 81 actual-export Watch cues and 81 exactly decoded
+boundary/result witnesses, including the complete critical Victory transition.
+This is focused media evidence, with unchanged v16 creative review inherited;
+it is not a game-runtime or headset gate. The visual authority is
+`vr-gameplay-v8/qc-root/visual-review.json`.
+
+Desktop Chromium and mobile emulation each play all six new passages at 1x.
+Fifty paused chapter checks, twelve time/state-preserving source comparisons
+and 70 HTTP/Range checks pass without JavaScript errors. Actual inventory links
+seek to the summon and multiplayer passages; back navigation and hash-change
+pause/seek also pass. The independent reviewer views 68 media/compare pictures
+and header/footer regions from four long pages; full-size reading of unseen
+page regions is not claimed. Root independently views four browser media
+pictures, the desktop page-header/footer montage and mobile layout.
+See `vr-gameplay-v8/browser-review/final-review.json`.
+
+Postpublication navigation passes 50 paused chapter checks and 90 HTTP/Range
+requests from the actual homepage, including the capture list and inventory.
+No additional playback run is added. The separate intro section remains
+byte-identical. All three completed clean worker worktrees and branches are
+removed; owned processes are reaped and the canonical cleanup API has run.
+Cleanup removes 347,693,138 bytes of unused map attempts and private caches; selected
+sources, current/previous masters, two final normalized references and compact
+failure evidence remain. All 51 protected media hashes and sizes still match.
+See `vr-gameplay-v8/{browser-review/final-navigation.json,editor/protected-media-final.json}`.
+
 ## UI-only inventory and stronger attack (v16)
 
 The maintainer explicitly keeps the cinematic card near 1:30 (FG12) and requests
