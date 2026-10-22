@@ -427,6 +427,9 @@ def main():
                 ("haptic-repeat", "TransferDetector.cs", "if (!wasHovering)", "if (true)", "continued shared hover emits no repeated haptic"),
                 ("ignore-closer-ui", "TransferDetector.cs", "if (free.RayUgui.HasHit)", "if (free.RayUgui.HasHit && free.WorldScale < 0)", "nearer native UI retains the trigger"),
                 ("ignore-modal", "TransferDetector.cs", " || _modalInputBlocked", "", "modal decision keeps transfer input blocked"),
+                ("ignore-live-figure-offer", "TransferDetector.cs", " || free.Grabber.FigureGrabOffered", "", "live miniature pickup retains its trigger over a competing held-card transfer"),
+                ("hover-commits-trigger", "TransferDetector.cs", 'free.Ray.SuppressWorldFarClick("held card transfer hover");', 'free.Ray.SuppressWorldFarClick("held card transfer hover"); free.Ray.ClaimTrigger("held card transfer hover");', "transfer hover protects the world without committing the trigger"),
+                ("transfer-unclaimed", "TransferDetector.cs", 'free.Ray.ClaimTrigger("held card transfer");', '_ = free;', "an actual hand transfer explicitly commits its trigger once"),
             ]
     if args.suite == "shared-interaction":
         variants = [("production", None, None, None, "")]
