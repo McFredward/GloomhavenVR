@@ -12,14 +12,19 @@ cp "$repo_root/tests/GloomhavenVR.FlightTimingTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.FlightTimingTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.FlightTimingTests.csproj" --configuration Release
 if [[ "${FLIGHT_NEGATIVE_CONTROLS:-1}" != 1 ]]; then exit 0; fi
-for mutation in missing-transfer stale-repaint missing-arrival-gate old-generation-reclaim missing-retirement drawn-home active-grace active-generation local-handover local-vanish local-callback local-alpha local-body; do
-    mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote" "$work_dir/source/src/GloomhavenVR/Cards"
+for mutation in missing-transfer stale-repaint missing-arrival-gate old-generation-reclaim missing-retirement drawn-home active-grace active-generation local-handover local-vanish local-callback local-alpha local-body dismiss-capture dismiss-once dismiss-width; do
+    mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote" "$work_dir/source/src/GloomhavenVR/Cards" "$work_dir/source/src/GloomhavenVR/Defaults"
     cp "$repo_root/src/GloomhavenVR/Cards/VRCard.cs" "$work_dir/source/src/GloomhavenVR/Cards/"
     cp "$repo_root/src/GloomhavenVR/Net/Remote/RemoteBoardCard.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteCardFx.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteControlBoard.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteHandFan.cs" "$repo_root/src/GloomhavenVR/Net/Remote/RemoteActiveCards.cs" "$work_dir/source/src/GloomhavenVR/Net/Remote/"
+    cp "$repo_root/src/GloomhavenVR/Net/Remote/RemoteActiveDepartures.cs" "$work_dir/source/src/GloomhavenVR/Net/Remote/"
+    cp "$repo_root/src/GloomhavenVR/Defaults/Defaults.Cards.cs" "$work_dir/source/src/GloomhavenVR/Defaults/"
     python3 - "$work_dir/source/src/GloomhavenVR/Net/Remote" "$mutation" <<'PY'
 import pathlib,sys
 root=pathlib.Path(sys.argv[1]); mutation=sys.argv[2]
 file,old,new={
+'dismiss-capture': ('RemoteCardFx.cs','if (!f.SourceTransferred && f.FromDismissBerth && f.FaceCard != null','if (bool.Parse("false") && !f.SourceTransferred && f.FromDismissBerth && f.FaceCard != null'),
+'dismiss-once': ('RemoteCardFx.cs','if (!f.SourceTransferred && f.FromDismissBerth && f.FaceCard != null','if (f.FromDismissBerth && f.FaceCard != null'),
+'dismiss-width': ('RemoteActiveDepartures.cs','width = origin.Width * Mathf.Abs(berth.lossyScale.x);','width = origin.Width;'),
 'local-handover': ('../../Cards/VRCard.cs','        PrepareFlightVisual();','        // PrepareFlightVisual();'),
 'local-vanish': ('../../Cards/VRCard.cs','        _vanishing = false;','        // _vanishing = false;'),
 'local-callback': ('../../Cards/VRCard.cs','        _vanishDone = null;','        // _vanishDone = null;'),
@@ -44,6 +49,9 @@ PY
         fi
     fi
     case "$mutation" in
+        dismiss-capture) expected='Dismiss handover must capture the current retained original pose';;
+        dismiss-once) expected='Transferred dismiss must not recapture a replacement or later source pose';;
+        dismiss-width) expected='Missed staging width must preserve absolute berth scale';;
         local-handover) expected='Local flight must restore its visible surface before taking ownership';;
         local-vanish) expected='Flight must retire both competing presentation timelines';;
         local-callback) expected='Flight must discard obsolete vanish parking without invoking it';;

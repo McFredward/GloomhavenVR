@@ -10,11 +10,13 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal sealed class ExtrasFragments
 {
-    // Complete cloth controls, held item101 and float tuning249 raise the legal maximum
-    // to 7700 bytes. 8000 retains the writer's 257-byte margin within ten existing
-    // four-chunk datagrams. Rounding to8192 adds an eleventh saturated presence
-    // turn and exceeds its unchanged five-second assembly deadline at full load.
-    internal const int MaxSnapshotBytes = 8000;
+    // Exact dismissal origins122 add at most4741 bytes to the prior7774 worst case.
+    // Actual12515 fits12800; allocation-only12772 retains257 spare bytes. The unchanged
+    // envelope still carries at most four200-byte chunks per datagram. Presence assembly
+    // time scales by encoded length above the old8000-byte/five-second allowance;
+    // other presentation streams retain their explicitly configured lifetime behavior.
+    internal const int LegacyPresenceSnapshotBytes = 8000;
+    internal const int MaxSnapshotBytes = 12800;
     internal const int MaxDatagramBytes = 864;
     internal const int ChunkBytes = 200;
     private const int MetadataBytes = 12; // sequence:u64, snapshot length:u16, offset:u16
@@ -27,6 +29,7 @@ internal sealed class ExtrasFragments
     internal const double PresentationAssemblyLifetime = 32;
     private readonly double _assemblyLifetime;
     private readonly int _lifetimeSizeBase;
+    private readonly bool _presenceLifetime;
     private readonly Dictionary<int, Pending> _peers = new();
     private readonly byte _payloadType;
     private readonly byte _envelopeType;
@@ -44,7 +47,9 @@ internal sealed class ExtrasFragments
             throw new ArgumentOutOfRangeException(nameof(lifetimeSizeBase));
         _snapshotLimit = snapshotLimit;
         _assemblyLifetime = assemblyLifetime;
-        _lifetimeSizeBase = lifetimeSizeBase;
+        _presenceLifetime = lifetimeSizeBase == 0 && payloadType == NetProtocol.MsgExtras;
+        _lifetimeSizeBase = lifetimeSizeBase == 0 && payloadType == NetProtocol.MsgExtras
+            ? LegacyPresenceSnapshotBytes : lifetimeSizeBase;
     }
 
     private sealed class Pending
@@ -226,12 +231,26 @@ internal sealed class ExtrasFragments
             : NetPacket.PeekType(complete, complete.Length) == _payloadType ? complete : null;
     }
 
+    // Build718 adds exact durable dismissal origins. Six additional four-chunk presence pages
+    // traverse21 scheduler turns at two presence turns per cycle and50ms per event. The actual
+    // all32-maxima proof measures8.055556s for12800 bytes and9.5s with all town lanes occupied,
+    // beyond the naive8s linear allowance.
+    // Keep the original five seconds through8000 encoded bytes, add only the additional page
+    // turns plus a bounded handshake/next-turn allowance. Compressed raw size grants no time.
     // Build 610's board may carry original rules beyond its legacy 40 KiB cap. Synthetic sustained
     // maximum traffic takes 43 s (50 s with town traffic), so 32 s discarded valid queued boards.
     // Only that assembler opts in; smaller/compressed boards keep 32 s. Scale from
     // validated ENCODED bytes, never raw size or subsequent activity. Memory/peers remain bounded.
-    private double AssemblyLifetime(int encodedLength) => _lifetimeSizeBase > 0 && encodedLength > _lifetimeSizeBase
-        ? _assemblyLifetime * (encodedLength / (double)_lifetimeSizeBase) : _assemblyLifetime;
+    private double AssemblyLifetime(int encodedLength)
+    {
+        if (_presenceLifetime && encodedLength > LegacyPresenceSnapshotBytes)
+        {
+            int extraPages = (encodedLength + 799) / 800 - LegacyPresenceSnapshotBytes / 800;
+            return _assemblyLifetime + extraPages * (21 * .05 / 2) + 1.0 + 21 * .05;
+        }
+        return _lifetimeSizeBase > 0 && encodedLength > _lifetimeSizeBase
+            ? _assemblyLifetime * (encodedLength / (double)_lifetimeSizeBase) : _assemblyLifetime;
+    }
 
     /// <summary>Validate every compressed page's routing metadata before selecting an assembler.</summary>
     internal static int CompressedPayloadType(byte[] packet, int length)

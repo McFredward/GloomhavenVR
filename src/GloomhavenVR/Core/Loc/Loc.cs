@@ -624,6 +624,8 @@ internal static partial class Loc
         // itself has no word for — the game's use-item widgets carry no label at all (see
         // NetProtocol's note on UIUseSlot<T>).
         ["item_use_area"] = Pair("USE", "BENUTZEN"),
+        ["active_dismiss_confirm"] = Pair("END EFFECT", "EFFEKT BEENDEN"),
+        ["summon_dismiss_confirm"] = Pair("DISMISS", "ENTLASSEN"),
         ["item_surrender"] = Pair("SURRENDER ITEM", "ITEM ABGEBEN"),
         ["item_refresh_confirm"] = Pair("REFRESH ITEM", "ITEM AUFFRISCHEN"),
         ["item_surrender_demand"] = Pair("Surrender an item", "Gib einen Gegenstand ab"),

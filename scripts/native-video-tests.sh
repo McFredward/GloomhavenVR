@@ -4,6 +4,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 project="$repo_root/tests/GloomhavenVR.NativeVideoTests/GloomhavenVR.NativeVideoTests.csproj"
 source_file="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs"
+video_test_mode="${1:-all}"
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
 # Execute the actual orphan sweep beside the actual movie owner. The containing modal
@@ -39,15 +40,18 @@ start = source.index('    private static void ReleaseAllWindows(')
 assert 'NativeVideoWindow.Shutdown();' in source[start:source.index('WindowMaterialise.CancelAll(reason);', start)]
 PY
 dotnet run --project "$project" --configuration Release \
+    --property:VideoPlacementSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.SharedPlacement.cs" \
     --property:ChromeSweepSource="$mutation_dir/ChromeSweep.fixture" \
     --property:PointerGuardSource="$mutation_dir/PointerGuard.fixture"
 python3 "$repo_root/tests/GloomhavenVR.NativeVideoTests/MoviePackagingTests.py" "$repo_root"
 cp "$repo_root/tests/GloomhavenVR.NativeVideoTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in premature-frame orphan-sweep retirement-sweep scene-lifetime content-binding pointer-guard hero-stop stereo-aspect stereo-attach stereo-dispose stereo-left-uv stereo-dimensions stereo-skip native-skip opening-routing; do
+for mutation in premature-frame orphan-sweep retirement-sweep scene-lifetime content-binding pointer-guard hero-stop stereo-aspect stereo-attach stereo-dispose stereo-left-uv stereo-dimensions stereo-skip native-skip opening-routing shared-host-decoder-cycle shared-remote-home shared-pending-native shared-pending-visible shared-pending-orphan shared-first-snap shared-repeated-initial shared-session-end; do
+    if [[ "$video_test_mode" == "--shared-placement-only" && "$mutation" != shared-* ]]; then continue; fi
     python3 - "$source_file" "$mutation_dir/NativeVideoWindow.fixture" "$mutation" <<'PY'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
+placement = pathlib.Path(sys.argv[1]).with_name('NativeVideoWindow.SharedPlacement.cs').read_text()
 mutations = {
     'premature-frame': ('|| source.frame < 0', ''),
     'content-binding': ('ContentGraphic = _image,', ''),
@@ -62,11 +66,32 @@ mutations = {
     'native-skip': ('string key = NativeVideoMovies.CanonicalKey(PlaybackKey);', 'string key = PlaybackKey == NativeVideoMovies.StereoIntroKey ? NativeVideoMovies.IntroKey : PlaybackKey;'),
     'opening-routing': ('(_stereo != null ? "stereo" : "left-only")', '(_stereo != null ? "stereo" : "stereo")'),
 }
+shared_window = {
+    'shared-host-decoder-cycle': ('&& !_remotePoseReady && !SharedPlacementRequired', '&& !_remotePoseReady'),
+    'shared-remote-home': ('if (source == _remoteSource && !SharedPlacementRequired)\n        {\n            position = _remotePosition;', 'if (source == _remoteSource)\n        {\n            position = _remotePosition;'),
+    'shared-pending-visible': ('&& _panel != null && !_panel.RenderHidden;', '&& _panel != null;'),
+    'shared-pending-orphan': ('OwnsGrab(GrabbableModal grab) => _root != null &&', 'OwnsGrab(GrabbableModal grab) => Visible &&'),
+}
+shared_placement = {
+    'shared-pending-native': ('_sharedPlacementPending = SharedPlacementRequired && !SharedWindowSpawnBridge.IsInitialAuthor;', '_sharedPlacementPending = false;'),
+    'shared-first-snap': ('_grab.SnapFrameTo(position, rotation);', '/* first physical snap omitted */'),
+    'shared-repeated-initial': ('if (_panel.SharedSpawnPoseReady) return true;', 'if (_panel.SharedSpawnPoseReady && bool.Parse("false")) return true;'),
+    'shared-session-end': ('_panel.SharedSpawnPoseReady = false;\n            if (_panel.RenderHidden)', '_panel.SharedSpawnPoseReady = false;\n            if (_panel.RenderHidden && SharedPlacementRequired)'),
+}
 if sys.argv[3] in mutations:
     before, after = mutations[sys.argv[3]]
     assert source.count(before) == 1
     source = source.replace(before, after)
+if sys.argv[3] in shared_window:
+    before, after = shared_window[sys.argv[3]]
+    assert source.count(before) == 1
+    source = source.replace(before, after)
+if sys.argv[3] in shared_placement:
+    before, after = shared_placement[sys.argv[3]]
+    assert placement.count(before) == 1
+    placement = placement.replace(before, after)
 pathlib.Path(sys.argv[2]).write_text(source)
+pathlib.Path(sys.argv[2]).with_name('VideoPlacement.fixture').write_text(placement)
 PY
     sweep="$mutation_dir/ChromeSweep.fixture"
     pointer_guard="$mutation_dir/PointerGuard.fixture"
@@ -85,9 +110,17 @@ PY
         stereo-skip) expected='versioned stereo native intro still dispatches its exact canonical native skip callback' ;;
         native-skip) expected='movie laser click calls the original active intro escape' ;;
         opening-routing) expected='window opening reports selected stereo key and actual left-only fallback routing' ;;
+        shared-host-decoder-cycle) expected='shared host can reveal a cosmetic decoder before any peer physical pose exists' ;;
+        shared-remote-home) expected="shared movie's first physical placement follows the host head even with a remote decoder" ;;
+        shared-pending-native|shared-pending-visible) expected='shared native follower stays hidden until the matching host physical pose arrives' ;;
+        shared-pending-orphan) expected='pending shared video retains its exact grab holder through the orphan sweep' ;;
+        shared-first-snap) expected='first shared movie picture and interaction frame use the exact host pose and factor' ;;
+        shared-repeated-initial) expected='an initialized shared movie is never reseated by a repeated initial-pose callback' ;;
+        shared-session-end) expected='ending the shared session cannot strand a prepared movie behind its initial pose gate' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$mutation_dir/NativeVideoWindow.fixture" \
+        --property:VideoPlacementSource="$mutation_dir/VideoPlacement.fixture" \
         --property:MovieSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs" \
         --property:MovieKeySource="$repo_root/src/GloomhavenVR/Net/VideoWindowState.cs" \
         --property:ReviewSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoReview.cs" \
@@ -104,6 +137,7 @@ PY
     fi
     echo "Native video negative control: $mutation rejected."
 done
+if [[ "$video_test_mode" == "--shared-placement-only" ]]; then exit 0; fi
 
 # Intercept the actual patched caller: a direct helper-only assertion would stay green
 # if Harmony stopped replacing the setter, broadened the requested name or left peers native.
@@ -146,6 +180,7 @@ PY
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$source_file" \
+        --property:VideoPlacementSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.SharedPlacement.cs" \
         --property:MovieSource="$mutation_dir/NativeVideoMovies.fixture" \
         --property:MovieKeySource="$repo_root/src/GloomhavenVR/Net/VideoWindowState.cs" \
         --property:ReviewSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoReview.cs" \
@@ -203,6 +238,7 @@ PY
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$mutation_dir/ReviewWindow.mutant" \
+        --property:VideoPlacementSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.SharedPlacement.cs" \
         --property:MovieSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs" \
         --property:MovieKeySource="$repo_root/src/GloomhavenVR/Net/VideoWindowState.cs" \
         --property:ReviewSource="$mutation_dir/Review.mutant" \

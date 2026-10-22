@@ -65,7 +65,7 @@ namespace GloomhavenVR.Net;
 /// path does, and a client that cannot place a window simply keeps its own placement. Nothing
 /// about the pose can gate, delay or block anybody's advance.</para>
 /// </summary>
-internal static class RemoteStorySync
+internal static partial class RemoteStorySync
 {
     /// <summary>How long a peer's story record stays believed after its last packet. Matches the
     /// env-clock staleness window: the extras packet runs at
@@ -122,7 +122,7 @@ internal static class RemoteStorySync
     private readonly struct PeerStory
     {
         public PeerStory(byte flags, byte page, byte pageCount, uint key, byte poseStamp,
-                         byte sizeCode, RigPose pose, float at, uint openingEpoch, uint openingToken)
+                         byte sizeCode, RigPose pose, float at, uint openingEpoch, uint openingToken, SharedWindowPoseContext? context, float referenceScale)
         {
             Flags = flags;
             Page = page;
@@ -130,7 +130,13 @@ internal static class RemoteStorySync
             Key = key;
             PoseStamp = poseStamp;
             SizeCode = sizeCode;
-            Pose = pose;
+            Context = context;
+            ReferenceScale = referenceScale;
+            RigPose world = pose;
+            Canonical = context.HasValue && context.Value.ToWorld(in pose, out world);
+            Initial = context.HasValue && context.Value.IsInitial(1);
+            Pose = world;
+            if (!Canonical || !(referenceScale >= 0.0001f && referenceScale <= 1000000f)) Flags = (byte)(Flags & ~NetProtocol.StoryPoseBit);
             At = at;
             OpeningEpoch = openingEpoch;
             OpeningToken = openingToken;
@@ -143,6 +149,9 @@ internal static class RemoteStorySync
         public readonly byte PoseStamp;
         public readonly byte SizeCode;
         public readonly RigPose Pose;
+        internal readonly SharedWindowPoseContext? Context;
+        internal readonly float ReferenceScale;
+        internal readonly bool Canonical, Initial;
         public readonly uint OpeningEpoch, OpeningToken;
 
         /// <summary>Local unscaled time this arrived — the staleness clock and, for the pose, the
@@ -428,12 +437,15 @@ internal static class RemoteStorySync
         // elects the room's last mover and would let two draggers trade the window at the send rate.
         // A mid-drag record carries a FRESH POSE under an UNCHANGED STAMP, which is why ResolvePose
         // now elects on the stamp and decides whether to apply on the pose VALUE.
-        if ((_localPoseOwned || _localMoving)
+        bool initial = !_localPoseOwned && !_localMoving
+            && SharedWindowSpawnAuthority.MayPublishInitial(SharedWindowKind.ScenarioStory);
+        if ((_localPoseOwned || _localMoving || initial)
             && ModalFallback.TryGetStoryGrab(out GrabbableModal? grab) && grab != null
             && SharedWindowFrame.TryRead(grab, out Vector3 pos, out Quaternion rot, out float size)
             && TryToAnchor(pos, rot, out Vector3 localPos, out Quaternion localRot))
         {
             extras.StoryFlags |= NetProtocol.StoryPoseBit;
+            extras.StoryInitialPose = initial;
             extras.StoryPoseStamp = _localPoseStamp;
             extras.StorySizeCode = NetProtocol.EncodeStorySize(size);
             extras.StoryPose = new RigPose { Position = localPos, Rotation = localRot };
@@ -473,7 +485,7 @@ internal static class RemoteStorySync
             return;
         }
 
-        float eps = MoveEpsilonMeters * Mathf.Max(PanelLayout.WorldScale, 0.01f);
+        float eps = MoveEpsilonMeters * Mathf.Max(SharedWindowSize.ReferenceWorldScale, 0.01f);
         bool moved = grab.IsGrabbed || _localMoving
             ? !pos.Equals(_lastFramePos) || !rot.Equals(_lastFrameRot) || size != _lastFrameSize
             : (pos - _lastFramePos).sqrMagnitude > eps * eps
@@ -549,9 +561,10 @@ internal static class RemoteStorySync
         return true;
     }
 
-    /// <summary>The inverse of <see cref="TryToAnchor"/>, against the RECEIVER's own seat and own
-    /// zoom — which is the whole point: the same record puts the window at the same apparent place
-    /// and the same apparent size in every headset.</summary>
+    /// <summary>The historical receiver-seat inverse, retained for legacy descriptions.
+    /// Build717 requires record119 and reconstructs against the AUTHOR frame before pose
+    /// selection. Applying this inverse to another player's pose would reintroduce the measured
+    /// zoom/seat divergence; it is never a canonical-pose fallback.</summary>
     private static bool TryToWorld(Vector3 localPos, Quaternion localRot,
                                    out Vector3 worldPos, out Quaternion worldRot)
     {
@@ -592,7 +605,7 @@ internal static class RemoteStorySync
 
         MapStoryLifecycle.PoseOpening(in p, p.StoryKey, out uint openingEpoch, out uint openingToken);
         Peers[senderId] = new PeerStory(p.StoryFlags, p.StoryPage, p.StoryPageCount, p.StoryKey,
-                                        p.StoryPoseStamp, p.StorySizeCode, p.StoryPose, now, openingEpoch, openingToken);
+                                        p.StoryPoseStamp, p.StorySizeCode, p.StoryPose, now, openingEpoch, openingToken, p.WindowPoseContext, p.WindowScales?.Reference(1) ?? 0f);
 
         if ((p.StoryFlags & NetProtocol.StoryPoseBit) == 0)
         {
@@ -822,6 +835,7 @@ internal static class RemoteStorySync
         // one whose stamp changed most recently.
         int bestPeer = 0;
         float bestAt = float.NegativeInfinity;
+        bool bestInitial = true;
         foreach (KeyValuePair<int, PeerStory> kv in Peers)
         {
             PeerStory s = kv.Value;
@@ -831,10 +845,13 @@ internal static class RemoteStorySync
                 continue;
             if (!PeerPoseChangedAt.TryGetValue(kv.Key, out float at))
                 continue;
-            if (at > bestAt)
+            if (s.Initial && !SharedWindowSpawnAuthority.AcceptInitial(kv.Key, s.Context, 1)) continue;
+            if (bestPeer != 0 && s.Initial && !bestInitial) continue;
+            if ((!s.Initial && bestInitial) || at > bestAt)
             {
                 bestAt = at;
                 bestPeer = kv.Key;
+                bestInitial = s.Initial;
             }
         }
         if (bestPeer == 0)
@@ -842,7 +859,7 @@ internal static class RemoteStorySync
 
         // Our own move outranks a peer move that is older than it. Ownership is per-open, so
         // "older" is measured on the same local clock the peer's arrival is measured on.
-        if (_localPoseOwned && bestAt < _localMoveSettleAt)
+        if (_localPoseOwned && (bestInitial || bestAt < _localMoveSettleAt))
             return;
 
         PeerStory owner = Peers[bestPeer];
@@ -858,18 +875,27 @@ internal static class RemoteStorySync
                         "never hold anybody up");
             return;
         }
+        grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);
         float size = NetProtocol.DecodeStorySize(owner.SizeCode);
         if (_poseTrackPeer != bestPeer)
         {
             PoseTrack.Reset();
-            if (_haveFrameBaseline && TryToAnchor(_lastFramePos, _lastFrameRot, out Vector3 seedPos, out Quaternion seedRot))
-                PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, _lastFrameSize, Time.unscaledTime);
+            if (_haveFrameBaseline)
+            {
+                if (owner.Canonical)
+                    PoseTrack.Seed(new RigPose { Position = _lastFramePos, Rotation = _lastFrameRot },
+                        _lastFrameSize, Time.unscaledTime);
+                else if (TryToAnchor(_lastFramePos, _lastFrameRot, out Vector3 seedPos, out Quaternion seedRot))
+                    PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, _lastFrameSize, Time.unscaledTime);
+            }
             _poseTrackPeer = bestPeer;
         }
         RigPose displayed = PoseTrack.Sample(owner.Pose, size, Time.unscaledTime, out size);
         size = WorldUI.SharedWindowSizeLaw.SharedGrabFactor(size); // baseline records the actual displayed grid value
-        if (!TryToWorld(displayed.Position, displayed.Rotation,
-                        out Vector3 worldPos, out Quaternion worldRot))
+        Vector3 worldPos = displayed.Position;
+        Quaternion worldRot = displayed.Rotation;
+        if (!owner.Canonical && !TryToWorld(displayed.Position, displayed.Rotation,
+                        out worldPos, out worldRot))
         {
             NoteIgnored($"player {bestPeer} published a window pose but this client has no seat " +
                         "anchor yet (PanelLayout.TryGetAnchor false — no rig/camera controller) — " +

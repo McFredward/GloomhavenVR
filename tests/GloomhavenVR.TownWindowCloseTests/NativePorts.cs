@@ -46,6 +46,12 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.WorldUI.MapRoom
 {
     using UnityEngine.UI;
+    // These native service windows are not quest-confirmation windows. The dedicated
+    // map-quest-selection runtime suite executes the actual shared-quest close handler.
+    internal static class MapLocationInteractor
+    {
+        internal static bool HandleSharedQuestClose(UIWindow? window) => false;
+    }
     internal static class GuildmasterDestinations
     {
         internal static Action<UIWindow>? Leave;

@@ -292,12 +292,18 @@ namespace GloomhavenVR.WorldUI
         internal UnityEngine.Vector3 Position;
         internal UnityEngine.Quaternion Rotation;
         internal int Placements;
+        internal void ApplySharedReferenceWorldScale(float reference) { }
         internal void PlaceFrameAt(UnityEngine.Vector3 position, UnityEngine.Quaternion rotation)
         { Position = position; Rotation = rotation; Placements++; }
     }
-    internal sealed class ConvertedPanel { internal bool RevealPending = true; }
+    // Geometry/host-spawn kernels execute in shared-reward-placement-runtime and the actual
+    // Unity geometry suite. This native continuation harness supplies their resolved boundary.
+    internal static class SharedWindowSpawnBridge { internal static bool IsInitialAuthor => !FFSNetwork.IsOnline; }
+    internal sealed class ConvertedPanel { internal bool RevealPending = true, SharedSpawnPoseReady; }
     internal static partial class ModalFallback
     {
+        internal static bool EnsureRewardHostSpawn(ConvertedPanel panel)
+        { panel.SharedSpawnPoseReady = true; return true; }
         internal static int SpentAnchors;
         internal static UnityEngine.UI.UIWindow? PolledWindow;
         private static bool _rewardShowcaseOpen;

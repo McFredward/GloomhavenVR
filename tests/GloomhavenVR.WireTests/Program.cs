@@ -80,6 +80,7 @@ internal static class Program
             TownActivityVectors.Run(t);
             DecisionAttributionVectors.Run(t);
             CardFlightHistoryVectors.Run(t);
+            CardDismissOriginVectors.Run(t);
         CardBurnCompletionVectors.Run(t);
             BurnFlightCompletionVectors.Run(t, repoRoot);
             GoldenVectors.Run(t);
@@ -91,6 +92,7 @@ internal static class Program
             // and a truncated entry that ended the walk would swallow the FINISHED bit that clears
             // an ActionProcessor halt — a stuck party, with nothing thrown and nothing logged.
             MapSyncVectors.Run(t);
+            ActiveDismissBerthVectors.Run(t);
             SharedWindowMotionVectors.Run(t);
             MapContinuationVectors.Run(t);
             MapLoadoutCountVectors.Run(t);
@@ -150,6 +152,9 @@ internal static class Program
             UseBarAnimationVectors.Run(t);
             UseBarAnimationPlaybackVectors.Run(t);
             SharedWindowPoseVectors.Run(t);
+            SharedWindowContextVectors.Run(t);
+            SharedWindowScaleContextVectors.Run(t);
+            SharedQuestSelectionVersionVectors.Run(t);
             VideoWindowVectors.Run(t);
             RewardWindowVectors.Run(t, repoRoot);
             RewardPoseHandshakeVectors.Run(t);

@@ -68,6 +68,15 @@ Die Stapel für **abgeworfene Karten**, **verbrannte Karten** und **Gegenstände
 Fächer. Auf dem Brett liegen auch **aktive Karten**, **Rückgängig**, **Überspringen**, Rast-Tasten
 und der Entscheidungsbereich.
 
+Um einen aktiven Karteneffekt zu beenden oder eine lebende Beschwörung zu entlassen, nimm ihre
+Karte aus dem aktiven Bereich und lege sie in die hervorgehobene Gegenstandsablage unter dem
+Brett. Bestätige mit **Effekt beenden** oder **Entlassen**. Nimm die Karte vor der Bestätigung
+wieder heraus, um abzubrechen. Die Ablagehilfe erscheint nur, wenn das Spiel das Beenden erlaubt.
+
+Beim Ablegen einer Gegenstandskarte in ihrer Nutzungsablage schließt sich der Itemfächer
+automatisch. Die abgelegte Karte und eine eventuell erforderliche Auswahl bleiben verfügbar;
+bestätige die Nutzung oder nimm die Karte zum Abbrechen wieder heraus.
+
 Szenarioregeln bleiben neben dem Brett sichtbar. Lange Regeln enden mit **...**; zeige auf den
 Text zum Ausklappen oder klicke, damit er geöffnet bleibt. Ein weiterer Klick löst das
 Festhalten. Persönliche Quest und Elemente rücken darunter; Mitspieler sehen dieselbe Änderung.

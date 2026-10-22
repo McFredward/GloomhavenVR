@@ -5368,6 +5368,10 @@ internal static partial class ModalFallback
             SharedWindowKind kind = SharedWindows.KindOf(wp.Window);
             if (kind == SharedWindowKind.None || !SharedWindows.ParticipatesHere(kind))
                 continue;
+            // Build717: host-gaze openings are fixed at their accepted spawn. A later
+            // legacy averaged-seat decision must not refloat a standing shared window.
+            if (SharedWindowSpawnBridge.Handles(wp.Panel)
+                || kind == SharedWindowKind.RewardShowcase) continue;
             seen++;
             string name = wp.Window.name;
             if (SharedAnchorSpent.Contains(kind))

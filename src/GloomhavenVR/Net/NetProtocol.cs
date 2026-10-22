@@ -176,6 +176,23 @@ internal static class NetProtocol
     public const byte ExtIdTownCardReturnOrigin = 116;
     // Exact owner-authored offered-card hover activation and native waveform basis.
     public const byte ExtIdTownOfferedHover = 117;
+    /// <summary>Active ability-card dismissal at the shared item-use berth. Seven bytes:
+    /// flags (bit0=ability-card berth, bit1=nearby landing preview), stable actorI32LE, active-card
+    /// population, staged seat (255 means held guide only). Gameplay uses native synchronization;
+    /// this record describes the same original card's local presentation only.</summary>
+    public const byte ExtIdActiveDismissBerth = 118;
+    public const int ActiveDismissBerthRecordBytes = 7;
+    /// <summary>Atomic author seat/zoom and initial-pose roles for unchanged shared-window records.</summary>
+    public const byte ExtIdSharedWindowPoseContext = 119;
+    /// <summary>Authenticated map browsing event counter and exact parent opening token.</summary>
+    public const byte ExtIdSharedQuestSelectionVersion = 120;
+    public const int SharedQuestSelectionVersionBytes = 12;
+    /// <summary>Captured render reference for each posed shared-window kind, independent of
+    /// record119's coordinate scale: six-bit mask followed by ascending-kind IEEE floats.</summary>
+    public const byte ExtIdSharedWindowScaleContext = 121;
+    /// <summary>Exact physical dismissal departure origins, attached atomically to the
+    /// unchanged recent-flight and durable native-burn records.</summary>
+    public const byte ExtIdCardFlightOrigins = 122;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -612,7 +629,93 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 715;
+    public const ushort ModBuild = 721;
+
+    // ModBuild721 — release1.2.1 identity for the reviewed Build720 development frontier.
+    // Ships physical active-card/summon dismissal and original local/remote pile flights,
+    // automatic item-fan closure, host-authored shared windows with absolute geometry and
+    // opening distance, quest/latejoin recovery and accepted item-surrender cleanup.
+    // Hosted fixture repairs use the installed SDK and the current flight-source boundary;
+    // no gameplay/presentation/default/asset change after720. Version3, next-free123.
+    // English player highlights: packaging/release-highlights/1.2.1.md. Release provenance,
+    // focused local evidence and mandatory exact-source hosted proof: RELEASE-1.2.1.md.
+
+    // ModBuild720 — accepted item surrender cannot strand the Use berth after its result.
+    // Build719 logs show a native accepted demand followed by the off-turn placement retirement.
+    // Keep a confirmed burn/tap chip and its parent until its own native FX completion callback;
+    // it is presentation, no longer a cancellable placement. Completion releases the berth even
+    // without an action hand; a following demand retains its own ask. Capture demand kind before
+    // invoking the original native callback, which may synchronously replace the picker.
+    // Native selection/confirmation/authority and unconfirmed cancellation stay unchanged.
+    // No wire/default/asset change; version3, next-free123. See ITEM720-SURRENDER-CLEANUP.md
+    // for the focused regression evidence and hardware limitations.
+
+    // ModBuild719 — shared-window spawn distance is independent of the host's zoom too.
+    // Both supplied717 logs confirm fixed shared geometry and one host author, but the
+    // placement producer still multiplied its reading distance by PanelLayout.WorldScale.
+    // Use the window's captured common render reference for initial distance and clamping;
+    // final-fit replay retains the original head/gaze and cannot restore a zoom-bearing raw
+    // anchor. Apply the same distance metric to shared native videos and reward openings.
+    // Keep private placement, host/surrogate election, captured dimensions, native callbacks,
+    // manual move/resize and existing board/readability constraints. No periodic re-placement.
+    // No wire/default/asset change; version3, next-free123. Focused checks and the limits of
+    // hardware evidence are recorded in MP719-SHARED-WINDOW-DISTANCE.md.
+
+    // ModBuild718 — the original dismissed active card flies from its physical berth.
+    // Detach the staged original before hiding its berth parent; wait for the original
+    // native callback to commit a discard/lost destination, including delayed burn artwork.
+    // Retain the actual launch pose even when confirmation occurs during the settle glide.
+    // Remote playback transfers the same original panel, preserving native destination,
+    // ownership, artwork readiness and burn timing rather than creating a flight copy.
+    // Additive paged122 carries exact departure geometry and original-pool provenance
+    // with its same-packet62/75 cohort; legacy endpoints, flags and record bytes stay fixed.
+    // Durable burn completion retains this context after the two-second recent history.
+    // The bounded presence envelope grows only for exact optional context; its assembly
+    // lifetime scales from validated encoded bytes above the previous8000-byte boundary.
+    // Wire version3; next-free123. Automated and hardware evidence remain distinguished
+    // in ACTIVE-CARD-DISMISS718.md; ordinary native gameplay timeouts are unchanged.
+
+    // ModBuild717 — shared windows occupy one fixed world frame and spawn from the host.
+    // The four-player715 hardware session used independent rig zooms: the old pixel/real-mm
+    // audit divided out the very per-viewer scale that made the actual windows disagree.
+    // Shared render scale now uses common scene geometry, never a viewer's zoom. Existing
+    // synchronized manual move/resize remains; private windows retain their local placement.
+    // Only the host supplies initial gaze placement (one compatible VR surrogate when the
+    // native host is flat). Followers adopt the fitted current-opening pose before reveal;
+    // native continuation is independent. Videos and rewards retain their original playback,
+    // capability/decline and completion handoffs with the same placement/size contract.
+    // Additive119 carries the AUTHOR seat origin/yaw/zoom and initial-role mask atomically
+    // with existing19/21/72/73. Legacy bytes and coordinate meaning remain unchanged; the new
+    // receiver reconstructs actual game-world geometry instead of applying its own seat.
+    // Additive120 authenticates a browsing event through the native full-width sender ID,
+    // monotonic counter and exact parent opening. It prevents delayed or concurrent clears
+    // from retiring a different quest occurrence. Read-only selected relays retain the opening's
+    // original full-width author/counter when that author leaves; adoption mints no human event.
+    // Native unready acknowledgements release
+    // their own masks before a retained, subject-qualified selection is applied. Committed
+    // host proposals keep their original readiness/decline flow under incidental table/X input.
+    // A latejoin whose native card presenter remains foreign now requests the ordinary
+    // SwitchHand for its first living owned selection hand. Revalidate the queued callback;
+    // never grant input to a read-only hand or bypass ownership/phase/native modal gates.
+    // Additive121 carries each posed window's actual captured render reference, independently
+    // of119's coordinate zoom. Receivers require that same-packet reference for geometry;
+    // a later scene-scale change never replaces the original physical render domain.
+    // Wire version3; next-free122. Actual extras worst7774, allocation8031 preserves257 spare
+    // bytes; fragment reassembly remains8000 (226 spare). Planning records test boundaries
+    // and required headset outcomes separately from source/log/automated evidence.
+
+    // ModBuild716 — explicitly dismiss active cards through the shared physical item berth.
+    // The maintainer chose place-then-confirm, with the existing item landing preview, sound,
+    // haptics and cap feedback, rather than a control beside a card still held in the main hand.
+    // Capture only the original synchronous active-card confirmation; the explicit berth cap
+    // invokes its original accepted callback after live permission revalidation. Taking the
+    // card back or losing the offer cancels without changing gameplay. No automatic acceptance
+    // or direct game-state writes. The same card stays active until the original game commits.
+    // TLV118 describes its rectangular preview/staged actor-qualified counted seat, reusing
+    // the original active panel and existing cap text/press feedback. Version3; next-free119.
+    // Successfully placing any item card now closes its fan while preserving the placed card,
+    // its live decision and retrieval, including choice, bonus, demand and take-damage flows.
+    // Focused/complete check scope and remaining headset checks are recorded in planning.
 
     // ModBuild715 — publish the reviewed 1.2.0 release candidate.
     // The maintainer requested the current dev tree as 1.2.0, highlighting native

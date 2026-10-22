@@ -142,7 +142,8 @@ internal static partial class RemoteMapStory
 
     private readonly struct PeerEntry
     {
-        public PeerEntry(in SharedWindowEntry e, float at, uint openingEpoch = 0, uint openingToken = 0)
+        public PeerEntry(in SharedWindowEntry e, float at, uint openingEpoch = 0, uint openingToken = 0,
+            SharedWindowPoseContext? context = null, int kind = 0, float referenceScale = 0f)
         {
             Flags = e.Flags;
             Page = e.Page;
@@ -150,9 +151,21 @@ internal static partial class RemoteMapStory
             ContentKey = e.ContentKey;
             PoseStamp = e.PoseStamp;
             SizeCode = e.SizeCode;
+            Context = context;
+            ReferenceScale = referenceScale;
+            Initial = context.HasValue && context.Value.IsInitial(kind);
             Frame = e.Frame;
             Pose = e.Pose;
+            if (!context.HasValue || !context.Value.Valid || !(referenceScale >= 0.0001f && referenceScale <= 1000000f))
+                Flags = (byte)(Flags & ~NetProtocol.SharedPoseBit);
+            if (context.HasValue && e.Frame == NetProtocol.SharedFrameSeatAnchor)
+            {
+                if (context.Value.ToWorld(in e.Pose, out RigPose world))
+                { Frame = NetProtocol.RewardFrameScenario; Pose = world; }
+                else Flags = (byte)(Flags & ~NetProtocol.SharedPoseBit);
+            }
             At = at;
+            ReceiptFrame = Time.frameCount;
             OpeningEpoch = openingEpoch;
             OpeningToken = openingToken;
         }
@@ -165,7 +178,11 @@ internal static partial class RemoteMapStory
         public readonly byte SizeCode;
         public readonly byte Frame;
         public readonly RigPose Pose;
+        internal readonly SharedWindowPoseContext? Context;
+        internal readonly float ReferenceScale;
+        internal readonly bool Initial;
         public readonly float At;
+        internal readonly int ReceiptFrame;
         public readonly uint OpeningEpoch, OpeningToken;
 
         public bool Open => (Flags & NetProtocol.SharedOpenBit) != 0;
@@ -211,6 +228,8 @@ internal static partial class RemoteMapStory
         internal Quaternion FrameRot = Quaternion.identity;
         internal float FrameSize = 1f;
         internal bool HaveBaseline;
+        internal GrabbableModal? InitialGrab;
+        internal int InitialReceiptFrame;
 
         /// <summary>
         /// THE GRAB FRAME THE BASELINE ABOVE WAS TAKEN FROM. The ModBuild 237 fix, and the reason the
@@ -280,6 +299,8 @@ internal static partial class RemoteMapStory
             FollowedStamp = 0;
             MoveSettleAt = 0f;
             Grab = null;
+            InitialGrab = null;
+            InitialReceiptFrame = 0;
             LastWindow = null;
             SwapFrame = int.MinValue;
             ForgetPose();
@@ -1110,7 +1131,8 @@ internal static partial class RemoteMapStory
     /// </summary>
     private static void WritePose(SharedWindowKind kind, Local local, ref SharedWindowEntry entry)
     {
-        if (!local.PoseOwned && !local.Moving)
+        bool initial = !local.PoseOwned && !local.Moving && SharedWindowSpawnAuthority.MayPublishInitial(kind);
+        if (!local.PoseOwned && !local.Moving && !initial)
             return;
         if (!SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null)
             return;
@@ -1127,6 +1149,7 @@ internal static partial class RemoteMapStory
             _storyPublishedMoving = local.Moving;
         }
         entry.Flags |= NetProtocol.SharedPoseBit;
+        entry.InitialPose = initial;
         entry.PoseStamp = local.PoseStamp;
         entry.SizeCode = NetProtocol.EncodeStorySize(size);
         entry.Frame = frame;
@@ -1171,7 +1194,7 @@ internal static partial class RemoteMapStory
             return;
         }
 
-        float eps = MoveEpsilonMeters * Mathf.Max(PanelLayout.WorldScale, 0.01f);
+        float eps = MoveEpsilonMeters * Mathf.Max(SharedWindowSize.ReferenceWorldScale, 0.01f);
         bool moved = grab.IsGrabbed || local.Moving
             ? !pos.Equals(local.FramePos) || !rot.Equals(local.FrameRot) || size != local.FrameSize
             : (pos - local.FramePos).sqrMagnitude > eps * eps
@@ -1217,12 +1240,11 @@ internal static partial class RemoteMapStory
         VRLog.Info(Scope, $"MAP ROOM shared window MOVED locally: {kind} — pose stamp "
                           + $"{local.PoseStamp}, record 21 starts carrying a pose block for it and "
                           + "this client becomes the LAST MOVER everyone in the room follows. The "
-                          + "pose travels PARCHMENT-LOCAL (frame 1): origin the parchment's own "
-                          + "world bounds centre, unit the room's derived seat scale — both pure "
-                          + "functions of the SAME shared map, so 'where you put it' means the same "
-                          + "physical place on every table. Record 19's seat-anchor frame is NOT "
-                          + "used here: its origin is the orbit camera's focal point, which every "
-                          + "player pans for themselves.");
+                          + "pose uses the author's seat frame plus record119 source origin/yaw/zoom "
+                          + "(rewards use the common world frame). Every observer reconstructs the "
+                          + "same world pose; its own seat, zoom and local parchment are excluded. "
+                          + "Record121 retains this opening's captured render reference. Legacy "
+                          + "PARCHMENT-LOCAL (frame1) remains readable for earlier records.");
     }
 
     /// <summary>How many frames after an identity change this kind stays silent in BOTH directions —
@@ -1317,29 +1339,14 @@ internal static partial class RemoteMapStory
 
     // ---- the shared frame ---------------------------------------------------------------------
 
-    /// <summary>
-    /// World pose → the frame the record travels in, and WHICH frame that was.
-    ///
-    /// <para>Frame 1 (PARCHMENT-LOCAL) whenever the map room can measure its parchment, which is
-    /// the whole life of the room; frame 0 (record 19's seat anchor) only as the fallback for the
-    /// frames in which it cannot. Writing the frame down as a BYTE is what makes that fallback
-    /// safe — a receiver decodes with the frame the sender used, not with the one it assumes.</para>
-    /// </summary>
+    /// <summary>Use the author's seat frame plus its same-packet record119 source context.
+    /// Observers can be in either the 2D or 3D map: a local parchment is not required to decode
+    /// an active shared window. Rewards retain their existing common game-world frame.</summary>
     private static bool ToShared(Vector3 worldPos, Quaternion worldRot,
                                  out Vector3 localPos, out Quaternion localRot, out byte frame, bool scenarioFrame = false)
     {
         localPos = Vector3.zero;
         localRot = Quaternion.identity;
-        frame = NetProtocol.SharedFrameParchment;
-        if (MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale))
-        {
-            localPos = (worldPos - center) / Mathf.Max(scale, 0.0001f);
-            // Rotation travels as an ABSOLUTE world rotation: world axes are already shared (the
-            // mod's avatar poses have always travelled that way), so there is nothing to rotate
-            // out of and nothing per-client to rotate back in.
-            localRot = worldRot;
-            return true;
-        }
         // Scenario rewards share the game's coordinate system, like figures and avatar poses.
         // A per-viewer orbit focus/seat would place the same window at different map locations.
         if (scenarioFrame)
@@ -1373,7 +1380,7 @@ internal static partial class RemoteMapStory
             worldRot = localRot;
             return true;
         }
-        if (scenarioFrame && frame == NetProtocol.RewardFrameScenario)
+        if (frame == NetProtocol.RewardFrameScenario)
         {
             WorldAnchor.Instance.ToWorld(localPos, localRot, out worldPos, out worldRot);
             return true;
@@ -1414,20 +1421,20 @@ internal static partial class RemoteMapStory
                     case NetProtocol.SharedWindowKindMapStory:
                         sawStory = true;
                         MapStoryLifecycle.PoseOpening(in p, e.ContentKey, out uint openingEpoch, out uint openingToken);
-                        StoryPeers[senderId] = new PeerEntry(in e, now, openingEpoch, openingToken);
+                        StoryPeers[senderId] = new PeerEntry(in e, now, openingEpoch, openingToken, p.WindowPoseContext, (int)SharedWindowKind.MapStory, p.WindowScales?.Reference((int)SharedWindowKind.MapStory) ?? 0f);
                         if (MapStoryLifecycle.MatchesPose(true, senderId, openingEpoch, openingToken))
                             ObserveReflowPose(senderId, SharedWindowKind.MapStory, in e, StoryStamp);
                         NoteStamp(senderId, in e, StoryStamp, StoryStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindQuestConfirm:
                         sawQuest = true;
-                        QuestPeers[senderId] = new PeerEntry(in e, now);
+                        QuestPeers[senderId] = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.QuestConfirm, referenceScale: p.WindowScales?.Reference((int)SharedWindowKind.QuestConfirm) ?? 0f);
                         ObserveReflowPose(senderId, SharedWindowKind.QuestConfirm, in e, QuestStamp);
                         NoteStamp(senderId, in e, QuestStamp, QuestStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindEncounter:
                         sawEncounter = true;
-                        EncounterPeers[senderId] = new PeerEntry(in e, now);
+                        EncounterPeers[senderId] = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.Encounter, referenceScale: p.WindowScales?.Reference((int)SharedWindowKind.Encounter) ?? 0f);
                         ObserveReflowPose(senderId, SharedWindowKind.Encounter, in e, EncounterStamp);
                         NoteStamp(senderId, in e, EncounterStamp, EncounterStampAt, now);
                         break;
@@ -1957,6 +1964,7 @@ internal static partial class RemoteMapStory
         // one whose stamp changed most recently.
         int bestPeer = 0;
         float bestAt = float.NegativeInfinity;
+        bool bestInitial = true;
         foreach (KeyValuePair<int, PeerEntry> kv in peers)
         {
             PeerEntry s = kv.Value;
@@ -1967,22 +1975,25 @@ internal static partial class RemoteMapStory
                 continue;
             if (!at.TryGetValue(kv.Key, out float when))
                 continue;
-            if (when > bestAt)
+            if (s.Initial && !SharedWindowSpawnAuthority.AcceptInitial(kv.Key, s.Context, (int)kind)) continue;
+            if (bestPeer != 0 && s.Initial && !bestInitial) continue;
+            if ((!s.Initial && bestInitial) || when > bestAt)
             {
                 bestAt = when;
                 bestPeer = kv.Key;
+                bestInitial = s.Initial;
             }
         }
         if (bestPeer == 0)
             return;
-        if (local.PoseOwned && bestAt < local.MoveSettleAt)
+        if (local.PoseOwned && (bestInitial || bestAt < local.MoveSettleAt))
             return; // our own move is the newer one
 
         PeerEntry owner = peers[bestPeer];
 
         // The start/settle stamps elect the last mover. A held drag keeps its stamp while
-        // poses advance. Interpolation uses the sender's shared frame, so this viewer's zoom
-        // reprojects the displayed pose immediately instead of entering the animation itself.
+        // poses advance. Interpolation uses parchment-local or the author's reconstructed
+        // common world frame. No observer seat or zoom participates in that reconstruction.
         if (!SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null)
         {
             Note($"player {bestPeer} published a pose for the {kind} window but this client has no "
@@ -1991,14 +2002,22 @@ internal static partial class RemoteMapStory
                  + "hold anybody up");
             return;
         }
+        grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);
         float size = NetProtocol.DecodeStorySize(owner.SizeCode);
         if (local.PoseTrackPeer != bestPeer || local.PoseTrackFrame != owner.Frame)
         {
             local.PoseTrack.Reset();
-            if (local.HaveBaseline && ToShared(local.FramePos, local.FrameRot,
-                    out Vector3 seedPos, out Quaternion seedRot, out byte seedFrame,
-                    scenarioFrame: kind == SharedWindowKind.RewardShowcase) && seedFrame == owner.Frame)
-                local.PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, local.FrameSize, Time.unscaledTime);
+            if (local.HaveBaseline)
+            {
+                if (owner.Frame == NetProtocol.RewardFrameScenario)
+                {
+                    WorldAnchor.Instance.ToAnchor(local.FramePos, local.FrameRot, out Vector3 seedPos, out Quaternion seedRot);
+                    local.PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, local.FrameSize, Time.unscaledTime);
+                }
+                else if (ToShared(local.FramePos, local.FrameRot, out Vector3 seedPos, out Quaternion seedRot,
+                             out byte seedFrame) && seedFrame == owner.Frame)
+                    local.PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, local.FrameSize, Time.unscaledTime);
+            }
             local.PoseTrackPeer = bestPeer;
             local.PoseTrackFrame = owner.Frame;
         }
@@ -2091,16 +2110,14 @@ internal static partial class RemoteMapStory
         VRLog.Info(Scope, $"MAP ROOM shared window POSE APPLIED: {kind} (content key 0x{key:X8}) "
                           + $"follows player {bestPeer} (pose stamp {owner.PoseStamp}, the most "
                           + $"recently CHANGED stamp in the room), frame {owner.Frame} "
-                          + $"({(owner.Frame == NetProtocol.SharedFrameParchment ? "parchment-local" : "seat-anchor")}) "
+                          + $"({(owner.Frame == NetProtocol.SharedFrameParchment ? "parchment-local" : owner.Frame == NetProtocol.RewardFrameScenario ? "common-world" : "seat-anchor")}) "
                           + $"({owner.Pose.Position.x:0.00},{owner.Pose.Position.y:0.00},"
-                          + $"{owner.Pose.Position.z:0.00}) m, size {size:0.00}x → world "
+                          + $"{owner.Pose.Position.z:0.00}) shared units, size {size:0.00}x → world "
                           + $"({worldPos.x:0.00},{worldPos.y:0.00},{worldPos.z:0.00}). "
-                          + "A SHARED WINDOW'S POSE CHANGES FOR EXACTLY TWO REASONS: a hand on this "
-                          + "client, or a hand on a peer's. Neither is the mod re-arranging "
-                          + "anything, which is what the ModBuild 193 ruling ('ohne explizite "
-                          + "Bewegung vom User sollen sie ihre Position nicht verändern') forbade — "
-                          + "a remote player deliberately dragging this window IS an explicit user "
-                          + "movement, simply a different user's.");
+                          + "POSE CHANGES FOR EXACTLY TWO REASONS: a deliberate hand move/resize or "
+                          + "the elected author's opening-time placement/layout. "
+                          + $"Captured render reference {owner.ReferenceScale:F3}. "
+                          + "The observer's seat and zoom do not transform it.");
     }
 
     /// <summary>

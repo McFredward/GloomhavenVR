@@ -29,6 +29,7 @@ internal sealed class CardsModule : IVRModule
     public void Init()
     {
         CardsConfig.Bind();
+        VRSession.Harmony?.PatchAll(typeof(ActiveDismissConfirmation));
         VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_OnEnable_CensusLifetime));
         VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_Init_CensusLifetime));
         VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_OnDestroy_CensusLifetime));

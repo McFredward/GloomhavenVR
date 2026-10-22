@@ -16,19 +16,23 @@ internal readonly struct CardBurnCompletion
     internal readonly float Time;
     internal readonly int ActorId, SourceActorId;
     internal readonly ushort PoolSeat, PoolCount;
+    // Decoded through additive122; never appended to the frozen twenty-one-byte75 entry.
+    internal readonly CardDismissFlightOrigin? DismissOrigin;
+    internal bool FromDismissBerth => DismissOrigin != null;
     internal CardBurnCompletion(byte sequence, byte endpoints, byte flags, float time,
-        int actor, int sourceActor, ushort poolSeat, ushort poolCount, byte seat, byte count)
+        int actor, int sourceActor, ushort poolSeat, ushort poolCount, byte seat, byte count,
+        CardDismissFlightOrigin? dismissOrigin = null)
     {
         Sequence=sequence; Endpoints=endpoints; Flags=flags; Time=time;
         ActorId=actor; SourceActorId=sourceActor; PoolSeat=poolSeat; PoolCount=poolCount;
-        Seat=seat; Count=count;
+        Seat=seat; Count=count; DismissOrigin=dismissOrigin;
     }
     internal CardFlightSource Source => new(ActorId, Seat, Count);
     internal (int Actor, int Source, ushort Seat, ushort Count) Key => (ActorId, SourceActorId, PoolSeat, PoolCount);
     internal CardBurnCompletion WithSequence(byte sequence) => new CardBurnCompletion(sequence, Endpoints, Flags, Time,
-        ActorId, SourceActorId, PoolSeat, PoolCount, Seat, Count);
+        ActorId, SourceActorId, PoolSeat, PoolCount, Seat, Count, DismissOrigin);
     internal CardBurnCompletion WithRecentFlight(bool recent) => new CardBurnCompletion(Sequence, Endpoints,
-        (byte)((Flags & ~RecentFlightBit) | (recent ? RecentFlightBit : 0)), Time, ActorId, SourceActorId, PoolSeat, PoolCount, Seat, Count);
+        (byte)((Flags & ~RecentFlightBit) | (recent ? RecentFlightBit : 0)), Time, ActorId, SourceActorId, PoolSeat, PoolCount, Seat, Count, DismissOrigin);
     internal bool Valid() => !float.IsNaN(Time) && !float.IsInfinity(Time) && Time >= 0f
         && ActorId != 0 && SourceActorId != 0 && PoolCount > 0 && PoolCount <= 32768
         && (PoolSeat & 32767) < PoolCount && Source.Validate()

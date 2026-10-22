@@ -71,7 +71,12 @@ public static class AssetsProof
                 &&remote.triangles.SequenceEqual(source.Triangles),"exact original packed geometry and UV match: "+source.Name);
             Check(receiver.Key(remote)==source.Key,"native atlas clone uses exact source identity: "+source.Name);
         }
-        elapsed.Stop();Check(elapsed.Elapsed.TotalSeconds<1,"all895 original cold native atlas members resolve in less than1 second");
+        elapsed.Stop();
+        string seconds=elapsed.Elapsed.TotalSeconds.ToString("R",System.Globalization.CultureInfo.InvariantCulture);
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(output),"cold-resolution-timing.json"),
+            "{\"members\":895,\"seconds\":"+seconds+",\"limit_seconds\":1}\n");
+        UnityEngine.Debug.Log("Native atlas cold resolution: members=895 seconds="+seconds+" limit_seconds=1");
+        Check(elapsed.Elapsed.TotalSeconds<1,"all895 original cold native atlas members resolve in less than1 second; actual="+seconds+"s");
         int before=Resources.FindObjectsOfTypeAll<Sprite>().Count(x=>x.name.EndsWith("(Clone)",StringComparison.Ordinal));
         for(int i=0;i<4;i++)
         {

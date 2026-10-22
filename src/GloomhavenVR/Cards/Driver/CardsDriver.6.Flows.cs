@@ -2079,6 +2079,10 @@ internal sealed partial class CardsDriver
     // CardsGameApi.SelectionHandDrift, so the pump can never perform a switch the game
     // itself would have refused; it is deliberately NOT gated on any menu/window state (the
     // ruling above). Genuine blockers (story/results — never the options family) defer it.
+    // Build717 extends the same level-triggered repair to late ownership assignment whose
+    // native handler left BOTH selection and presentation foreign/missing. SelectionHandDrift
+    // resolves the owned candidate; CurrentHand and the read-only floor remain unchanged until
+    // the real native SwitchHand succeeds. No timer grants permission to a fallback picture.
     private float _selSwitchNextTry;   // throttle for the queued game call (reads stay per-tick)
     private bool _selSwitchQueued;     // at most one queued switch in flight
     private int _selSwitchDriftFrame = -1; // first frame the drift was seen (-1 = none)
@@ -2109,22 +2113,33 @@ internal sealed partial class CardsDriver
         _selSwitchNextTry = now + 0.5f;
         _selSwitchQueued = true;
         bool switched = false;
-        string who = CardsGameApi.ActorLabel(drift);
+        string who = "";
+        bool assignmentFallback = false;
         CardActionQueue.Enqueue(
             () =>
             {
                 // Re-resolve INSIDE the queued action (it runs a frame later, behind any
                 // pending card selects): the drift may have healed or a gate risen meanwhile.
                 CPlayerActor? fresh = CardsGameApi.SelectionHandDrift();
-                if (fresh != null)
+                if (fresh != null && !WorldUI.ModalFallback.BlockingWindowModalActive)
+                {
+                    who = CardsGameApi.ActorLabel(fresh);
+                    assignmentFallback = !ReferenceEquals(CardsGameApi.SelectedActor(), fresh);
                     switched = CardsGameApi.SwitchHandTo(fresh);
+                }
             },
             () =>
             {
                 _selSwitchQueued = false;
                 if (switched)
                 {
-                    VRLog.Warn("Cards", "Hand-switch watchdog: presented hand had DIVERGED from the " +
+                    if (assignmentFallback)
+                        VRLog.Note("Cards", "SELECTION HAND RECOVERED after ownership assignment: " +
+                            $"native selection/presenter named no locally controlled hand; switched to '{who}' " +
+                            "through the original SwitchHand callback. The native card-selection, live " +
+                            "ownership, decision, message and control-ability gates remain in force.");
+                    else
+                        VRLog.Warn("Cards", "Hand-switch watchdog: presented hand had DIVERGED from the " +
                                         $"selected character '{who}' during card selection (the game's " +
                                         "portrait-click SwitchHand edge was swallowed) — drove the game's " +
                                         "own SwitchHand to re-converge the fan/board cards. Ruling: the " +

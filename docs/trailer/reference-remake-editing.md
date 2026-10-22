@@ -3,25 +3,25 @@
 The accepted opening also supplies the first-save campaign intro, with a native-style
 GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
 
-The current v16 pass inventories actual visible game UI. It excludes HUDless
-combat, decorative map illustrations and the maintainer's explicitly approved
-cinematic card near 1:30. Thirty-three UI inventory phases remain relevant:
-21 already contain genuine VR and twelve native windows form eight outstanding
-action groups. This replaces the old 41-row coverage count as the current work
-list. An outstanding edit does not automatically require another recording.
-Existing Victory, card fans, combat turns and many montage elements can be reused;
-equipment assignment, enhancement and genuine cooperative POVs need new captures.
+The current v22 cut restores only the original first three-second PEGI slate,
+gives the six-damage gameplay shot 2.1 seconds and a settled camera endpoint, and
+replaces the first two cooperative takes with natural board-height hand poses.
+The following genuine damage-choice/collapse take remains continuous at 1x.
+The accepted final four-person cooperative view retains its source and timing.
 
-V16 also replaces the weak one-damage hit during “spot some weaknesses” with
-Cragheart's actual Avalanche: two Living Bones each take five damage, collapse
-and leave gold. Only `[4359,4534)` changes against v15. All source motion stays
-at 1x with ordinary 30-to-60fps repeats; the native outgoing flare remains.
-Accepted cinematics, original AAC, full-trailer fan mark and the separate game
-intro are inherited. The active review is `vr-gameplay-v7/REVIEW.html`, with
-nineteen chapter buttons, source comparisons, an updated capture list and
-`inventory/INVENTAR-UI.html` for the complete UI-only inventory.
-No paid inference or runtime change is used. See
-[vr-gameplay-replacement.md](vr-gameplay-replacement.md) for exact evidence.
+Three selected components cover 1,004 frame addresses against V21, inheriting
+13,806. The original 14,810-frame/60fps timeline, AAC and actual game speed remain.
+The later GloomhavenVR title, spoken name, ending, accepted cinematics and
+separate approved game intro are retained. The lower-right full-trailer fan
+mark remains. There is no paid inference or runtime/build change.
+
+All 33 UI phases remain resolved: 31 genuine VR and two explicitly accepted native
+campaign/Guildmaster views. No recording requirement remains. The active review
+is `vr-gameplay-v13/REVIEW.html`, with 26 chapters, three direct revision buttons
+and comparisons. Independent actual-export/source-clock checks and focused
+desktop/mobile browser review pass. New user review is pending. See
+[vr-gameplay-replacement.md](vr-gameplay-replacement.md) for source timing,
+bounded QC and retained-media evidence. No headset result is claimed.
 
 The historical v10 first pass used 20 inserts covering 25 of 41 inventory regions; 16
 regions retain their previous pictures pending suitable captures. The accepted

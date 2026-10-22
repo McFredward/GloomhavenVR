@@ -113,10 +113,12 @@ internal sealed class AdventureMapUIManager : Singleton<AdventureMapUIManager>
     public bool IsLocked;
     public void SelectNative(MapLocation location)
     {
-        if (!ReferenceEquals(LocationToTravel, location)) LocationToTravel?.Deselect();
+        if (!ReferenceEquals(LocationToTravel, location) && LocationToTravel != null && LocationToTravel.IsSelected)
+            LocationToTravel.Deselect(); // original AdventureMapUIManager.DeselectCurrentMapLocation admission
         LocationToTravel = location;
     }
-    public void DeselectCurrentMapLocation() => LocationToTravel?.Deselect();
+    public void DeselectCurrentMapLocation()
+    { if (LocationToTravel != null && LocationToTravel.IsSelected) LocationToTravel.Deselect(); }
     public void OnCancelTravelButtonClick() => DeselectCurrentMapLocation();
 }
 internal enum EReadyUpToggleStates { Quests }
@@ -171,6 +173,9 @@ internal class Presenter
 }
 internal sealed class MapChoreographer : Singleton<MapChoreographer>
 {
+    private bool m_Initialised = true;
+    public void SetInitialised(bool value) => m_Initialised = value;
+    public bool TestInitialised => m_Initialised;
     public bool Linked;
     public bool IsChoosingLinkedQuestOption() => Linked;
     public void DeterminePlayerToggleInteractability() { }
@@ -195,14 +200,54 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.Hands { internal class VRHand { public string Side = "Left"; } }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
-    internal static class MapRoomDriver { public static bool Active = true; }
+    internal static class MapRoomDriver
+    {
+        public static bool Active = true;
+        public static MapLocationInteractor ActiveLocations;
+        public static MapChoreographer Choreographer => Singleton<MapChoreographer>.Instance;
+        public static bool SurfaceAvailable = true;
+        public static bool SurfaceAdmitted = true;
+        public static int SurfacePresses;
+        public static bool PressGuildmasterMode(EGuildmasterMode mode, string source)
+        {
+            SurfacePresses++;
+            if (!SurfaceAvailable) return false;
+            if (!SurfaceAdmitted) return true; // cap exists, but its unchanged native availability refuses
+            // Native MapTransitioner locks synchronously; its later callback/ACK is explicit.
+            Singleton<AdventureMapUIManager>.Instance.IsLocked = true;
+            return true;
+        }
+    }
+    internal static class MapParchment
+    {
+        public static bool NativeCity;
+        public static GameObject ResolveActiveMapGo(MapChoreographer native, out bool city)
+        { city = NativeCity; return native.gameObject; }
+    }
+    internal static class MapRoomHand { public static uint LocalFanCharacterKey = 0; }
     internal static class MapQuestReadyUp
     {
         public static readonly List<(string, string)> Edges = new();
-        public static void OnQuestDecisionChanged(string previous, string current) => Edges.Add((previous, current));
+        // Readiness transport boundary: the existing ready-runtime fixture separately runs
+        // production OnQuestDecisionChanged + native ReadyUp. No automatic ACK is simulated.
+        public static bool UnreadyRequested;
+        public static void OnQuestDecisionChanged(string previous, string current)
+        { Edges.Add((previous, current)); UnreadyRequested = true; }
     }
     internal sealed partial class MapLocationInteractor
     {
+        private readonly List<MapLocation> _locations = new();
+        public void CompleteNativeCensus(params MapLocation[] rows)
+        {
+            bool changed = rows.Length != _locations.Count;
+            for (int i = 0; !changed && i < rows.Length; i++)
+                changed = !ReferenceEquals(rows[i], _locations[i]);
+            _locations.Clear(); _locations.AddRange(rows); if (changed) ScanGeneration++;
+            RecordCompletedSelectionScan();
+        }
+        public int PointerDispatches;
+        public int ScanGeneration { get; set; }
+        public MapLocation Hover => _hover;
         private MapLocation _hover = null;
         public GloomhavenVR.Hands.VRHand Press;
         private GloomhavenVR.Hands.VRHand TriggerEdgeHand() => Press;
@@ -212,14 +257,91 @@ namespace GloomhavenVR.WorldUI.MapRoom
         public void Sample() => TickQuestDecision();
         public string SettledId => _publishedDecisionId;
         public void DeselectTick() => TickDeselect();
+        public void NativeSelectionTick() => TickAdoptGameSelection();
         public bool PopupOpen() => QuestPopupOpen();
         public void Arm(MapLocation location)
         { _selected = location; _selectedDecisionId = DecisionIdOf(location); _selectedAt = Time.unscaledTime; _dispatchedHere++; }
         // Downstream pointer dispatch terminates at the verbatim native Select in this
         // fixture; the production AdoptSelection admission and Deselect run unchanged.
         private void Dispatch(MapLocation location, string source)
-        { location.Select(); if (location.IsSelected) Arm(location); }
+        { PointerDispatches++; location.Select(); if (location.IsSelected) Arm(location); }
         public static void ClearStatic()
         { _publishedDecisionEver = false; _publishedDecisionId = null; _publishedBySettle = false; _publishedAt = 0; }
+    }
+    internal static class MapIconLayer
+    {
+        internal enum MapSurface { Unknown, World, City }
+        public static MapSurface CurrentSurface = MapSurface.World;
+    }
+}
+namespace GloomhavenVR.WorldUI
+{
+    internal static class StoryComposite { public static bool PointOfNoReturn; }
+}
+namespace GloomhavenVR.Net
+{
+    using GloomhavenVR.WorldUI.MapRoom;
+    internal static class NetProtocol
+    {
+        public const byte MapRoomInRoomBit = 1, MapRoomHostBit = 2, MapRoomSurfaceKnownBit = 4,
+            MapRoomSurfaceCityBit = 8, MapRoomPickValidBit = 16, MapRoomPickStagedBit = 32, MapRoomGazeValidBit = 64;
+        // Identity transport boundary only. Resolver tests use stable native location IDs.
+        public static uint HashMapKey(string id)
+        { uint hash = 2166136261; foreach (char c in id) hash = (hash ^ c) * 16777619; return hash == 0 ? 1u : hash; }
+    }
+    internal struct PresenceState
+    {
+        public bool HasMapRoom, HasMapSelectionVersion;
+        public byte MapRoomFlags, MapRoomSurfaceStamp, MapRoomSelectStamp, MapRoomGazeYaw;
+        public uint MapRoomPickKey, MapRoomSelectKey, MapRoomFanCharacterKey, MapSelectionRevision, MapSelectionParent;
+        public int MapSelectionParentAuthor;
+    }
+    internal static class RemoteSharedGaze
+    {
+        public static void Forget(int id) { }
+        public static byte SampleHostYaw(out bool valid) { valid = false; return 0; }
+        public static void Observe(int id, in PresenceState state) { }
+    }
+    internal static partial class RemoteMapRoom
+    {
+        private static readonly Dictionary<int, PeerRoom> Peers = new();
+        private static readonly Dictionary<int, byte> ConsumedStamp = new(), SeenStamp = new();
+        private static readonly List<MapLocation> CacheLocations = new();
+        private static readonly List<uint> CacheKeys = new();
+        private static string NameOf(MapLocation location, uint key) => location?.name ?? "none";
+        private static string Describe(uint key) => key.ToString();
+        private static void Note(string message) { }
+        public static void Tick() { RefreshCache(); ResolveSelection(); }
+        public static void TickSurfacePacket() { RefreshCache(); ResolveSurface(); ResolveSelection(); }
+        public static void TickSurfaceOnly() => ResolveSurface();
+        public static void Packet(int peer, byte stamp, MapLocation location) => Peers[peer] = new(1, 0, 0, stamp, KeyOf(location), 0, Time.unscaledTime);
+        public static void Leave(int peer) => Forget(peer);
+        public static bool Pending => _pendingSelectInteractor != null || _unresolvedSelectInteractor != null;
+        public static uint VersionClock => SelectionVersions.Clock;
+        public static bool HasAuthoredVersion => SelectionVersions.HasOwn;
+        public static PresenceState Snapshot(int localPlayer)
+        { PresenceState value = default; Sample(ref value, localPlayer); return value; }
+        public static void Receive(int sender, PresenceState value) => Observe(sender, in value);
+        public static bool EchoSuppressed => _hasAdoptedSelect && _adoptedSelectKey == 0 && _adoptedSelectAt >= 0;
+        public static void Begin(MapLocationInteractor observer, params MapLocation[] locations)
+        {
+            Peers.Clear(); SeenSelectStamp.Clear(); ConsumedSelectStamp.Clear(); SeenSelectKey.Clear();
+            ClearPendingSelection(); ClearUnresolvedSelection(); CacheLocations.Clear(); CacheKeys.Clear();
+            _cacheValid = false; _cacheGeneration = int.MinValue;
+            _wantSurface = MapIconLayer.MapSurface.Unknown; _wantAttempts = 0; _wantNextAttempt = 0;
+            SelectionVersions.Reset(); _versionVisitLive = _versionLocalObserved = _versionDirty = false;
+            _versionMapIdentity = null; _displayedSelectKey = 0; _displayedSelectOpening = 0;
+            _versionCarrier = _versionLocalPlayer = 0; _versionSuspended = false;
+            _versionInputInteractor = null; _versionLocalInputRevision = 0;
+            _versionLocalPublicationRevision = 0;
+            _publishedSelectValid = _sentValid = false; _versionPublishWarned = false;
+            _localSelectStamp = _localSurfaceStamp = 0; _publishedSelectKey = _sentSelectKey = _sentFanCharacterKey = 0;
+            _publishedSurface = _adoptedSurface = MapIconLayer.MapSurface.Unknown;
+            _hasAdoptedSelect = false; _adoptedSelectAt = 0;
+            MapRoomDriver.ActiveLocations = observer; MapIconLayer.CurrentSurface = MapIconLayer.MapSurface.World;
+            MapParchment.NativeCity = false; MapRoomDriver.SurfaceAvailable = MapRoomDriver.SurfaceAdmitted = true;
+            MapRoomDriver.SurfacePresses = 0;
+            observer.CompleteNativeCensus(locations); RefreshCache();
+        }
     }
 }

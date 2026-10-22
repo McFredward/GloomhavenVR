@@ -20,8 +20,16 @@ namespace GloomhavenVR.Hands
         internal int Haptics;
         internal void SendHaptic(HapticPreset _) => Haptics++;
     }
-    internal sealed class Grabber { internal IGrabbable? Held; }
-    internal sealed class Ray { internal bool Enabled=true; internal int Claims; internal void SuppressFarClick()=>Claims++; }
+    internal sealed class Grabber { internal IGrabbable? Held; internal bool FigureGrabOffered; }
+    internal sealed class Ray
+    {
+        internal bool Enabled=true;
+        internal int Claims, WorldHoverSuppressions;
+        // These are distinct production ports: a hover protects a world far-click but does not
+        // commit the trigger against a live miniature pickup; an actual transfer does both.
+        internal void SuppressWorldFarClick(string _) => WorldHoverSuppressions++;
+        internal void ClaimTrigger(string _) => Claims++;
+    }
     internal sealed class UiRay { internal bool HasHit; }
     internal sealed class HandRig { internal Transform IndexTip=null!, PalmCenter=null!, Root=null!, GrabAnchor=null!; }
     internal static class VRHands { internal static VRHand? Left,Right; internal static VRHand? Primary => Right; }
@@ -120,20 +128,27 @@ public static partial class MirrorProgram
             var driver=new CardsDriver();
             right.Rig.IndexTip.position=Vector3.one*scale;right.Rig.PalmCenter.position=Vector3.one*scale;
             right.TriggerDown=true;driver.Step();
-            Check(probe.Adoptions==0&&right.Haptics==0&&right.Ray.Claims==0,"far hands cannot transfer or claim a trigger");
+            Check(probe.Adoptions==0&&right.Haptics==0&&right.Ray.Claims==0&&right.Ray.WorldHoverSuppressions==0,"far hands cannot transfer or claim a trigger");
             right.Rig.IndexTip.position=Vector3.right*.01f*scale;right.TriggerDown=false;driver.Step();
-            Check(right.Haptics==1&&right.Ray.Claims==1,"either fingertip or palm contact admits transfer");
+            Check(right.Haptics==1&&right.Ray.WorldHoverSuppressions==1,"either fingertip or palm contact admits transfer");
+            Check(right.Ray.Claims==0,"transfer hover protects the world without committing the trigger");
             driver.Step();Check(right.Haptics==1,"continued shared hover emits no repeated haptic");
+            int hoverSuppressions=right.Ray.WorldHoverSuppressions;
+            right.Grabber.FigureGrabOffered=true;right.TriggerDown=true;driver.Step();
+            Check(probe.Adoptions==0&&right.Ray.Claims==0&&right.Ray.WorldHoverSuppressions==hoverSuppressions,
+                "live miniature pickup retains its trigger over a competing held-card transfer");
+            right.Grabber.FigureGrabOffered=false;
             right.RayUgui.HasHit=true;right.TriggerDown=true;driver.Step();
-            Check(probe.Adoptions==0,"nearer native UI retains the trigger");
+            Check(probe.Adoptions==0&&right.Ray.Claims==0,"nearer native UI retains the trigger");
             right.RayUgui.HasHit=false;driver.Step(modal:true);
-            Check(probe.Adoptions==0,"modal decision keeps transfer input blocked");
+            Check(probe.Adoptions==0&&right.Ray.Claims==0,"modal decision keeps transfer input blocked");
             driver.Step();Check(probe.Adoptions==1&&ReferenceEquals(right.Grabber.Held,probe)&&left.Grabber.Held==null,
                 "all three card kinds transfer through the same detector");
+            Check(right.Ray.Claims==1,"an actual hand transfer explicitly commits its trigger once");
             // Reverse transfer can be palm-only, with the fingertip beyond contact range.
             left.Rig.IndexTip.position=Vector3.one*scale;left.Rig.PalmCenter.position=Vector3.right*.1f*scale;
             left.TriggerDown=true;right.TriggerDown=false;driver.Step();
-            Check(probe.Adoptions==2&&ReferenceEquals(left.Grabber.Held,probe),"reverse hand transfer uses the existing palm contact reach");
+            Check(probe.Adoptions==2&&ReferenceEquals(left.Grabber.Held,probe)&&left.Ray.Claims==1,"reverse hand transfer uses the existing palm contact reach");
         }
         VRHands.Left=VRHands.Right=null;
     }

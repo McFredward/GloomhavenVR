@@ -1,5 +1,416 @@
 # Genuine VR gameplay replacement
 
+## October 22 opening slate, damage pacing and cooperative poses (v22)
+
+V22 addresses three bounded review requests against V21. The selected windows
+contain 1,004 frame addresses; the other 13,806 addresses inherit the accepted
+cut. The final master remains 14,810 frames at 1080p60 with the original
+246.861-second container and unchanged AAC. Its SHA256 is
+`ba84666301c41f9fa53cb89a14ec41beb124793e939aa541d7ef138914ce1c3b`.
+
+The first three seconds, `[0,180)`, now use the unmodified original PEGI 12
+rating slate and its fade to black, downsampled from 4K. This replaces only the
+separate initial GloomhavenVR slate. The later GloomhavenVR title around
+7–9 seconds, accepted cinematic opening, spoken name and end logo are retained.
+The continuous lower-right full-trailer fan mark still applies. The separately
+approved game intro and its landing section are untouched.
+
+FG04 `[3776,4088)` remains 312 frames. Its six-damage shot now lasts 126 frames
+(2.1 seconds), up from 84, using October 21 source 690.1–692.2 seconds. It ends
+after the head turn has settled. The original 35-frame gold entrance remains.
+The following 186 frames use October 19 source 518.5–521.6: the genuine VR ray
+selects RECEIVE DAMAGE 2, Mindthief falls from 2 to 0 HP, then collapses amid native
+golden particles. The decision and consequence are one continuous take; residual
+particles remain at the endpoint. The hard cut between these different battles
+moves from frame 3860 to 3902 (1:05.033). Neither shot is slowed or sped up, and
+the earlier six damage is not claimed to cause this later collapse.
+
+The first two cooperative takes are replaced with naturally low hands and
+unobstructed masks. The 512-frame component `[12520,13032)` retains its original
+internal cuts at 12624/12805, 15-frame title entrance and exit into accepted A04.
+
+| Take | October 22 source start | Output frames | Visible content |
+| --- | --- | --- | --- |
+| FG39 | 209.0 s / frame 6270 | 104 | One white remote mask with hands near the campaign table. |
+| FG40 | 2411.8 s / frame 72354 | 181 | Horned and helmet masks with hands low over their own control boards. |
+| FG41 | 2423.0 s / frame 72690 | 227 | Accepted three-remote-mask view plus recording player, retained from V21. |
+
+These remain genuine full-frame recordings from one viewpoint per take.
+Native 30fps source pictures repeat at 60fps; no flow interpolation, temporal
+stretch, fabricated extra viewpoint or paid generation is used. The third take
+is unchanged at the authored-frame level; final export is a lossy reencode.
+
+Independent source-clock comparison passes all 954 pure pictures, excluding only
+the declared 35 gold-wipe and 15 title-entrance frames. Actual-export checks cover
+all 14,810 frames, the 13,806 inherited addresses, continuous fan mark and all
+11,573 original AAC packets and clocks. Root personally inspects focused Watch
+cues, exact sequential export witnesses and browser screenshots; desktop/mobile
+browser checks cover the three changed contexts at 1x, 26 chapters and comparison
+controls. The initial raw comparison flagged 15 saturated transition frames. A bounded
+824-frame follow-up uses the identical unchanged assembler colour path at the
+same 2.0 MAE limit; initial failure evidence is retained and the whole gate is not
+repeated. Detailed counts and comparison limits are retained in the receipts.
+This is focused media evidence, not a continuous manual whole-film viewing,
+runtime gate or headset result.
+
+All 33 inventoried UI phases remain resolved: 31 genuine VR and two explicitly
+retained native campaign/Guildmaster views. The accepted 1:30 card, remaining
+gameplay, map-location montage, burning-card zoom and separate intro remain.
+The new revision awaits user review; user acceptance is not claimed.
+
+Active private review: `vr-gameplay-v13/REVIEW.html`. Receipts relative to that
+folder: `qc-independent/technical-final.json`, `qc-independent/source-clock-final.json`,
+`browser-review/final-review.json`, `browser-review/final-navigation.json`,
+`qc-root/visual-review.json`, `editor/protected-media-final.json` and
+`editor/final-delivery-check.json`. Used sources/current deliverables survive
+owned worker/cache cleanup. No runtime source or build change.
+
+## Historical October 22 final multiplayer capture exchange (v21)
+
+V21 resolves the final three cooperative UI phases with the supplied
+`2026-10-22 19-47-55.mp4` session and replaces the requested card scene around
+0:54. Two components select 655 frame addresses against V20, inheriting 14,155
+of the 14,810 frames at 1080p60. The original AAC and 246.861-second container
+clock remain. Master SHA256 is `c270c6c64033e0ff341b99e7d3a086ae3082fedd75279de36467f9e98a8a0b78`.
+
+FG01 `[3129,3272)` uses source frame 38399 (1279.966667 seconds) for 143 output
+frames. The player lifts Brute's readable Skirmishing Maneuver from the
+fan, places it beside Brute Force, then withdraws the hand. This demonstrates
+ability preparation with a continuous physical gesture, rather than the former
+static Spellweaver fan. No executed attack is claimed.
+
+FG39–41 uses `[12520,13032)` for 512 frames. The two-frame extension includes the
+original pure outgoing title and replaces the first formerly mixed Flat frame
+at 12521. A bounded 15-frame optical entrance rebuilds the incoming VR picture
+under the original title emphasis; native source time advances throughout.
+The original internal cuts at 12624 and 12805 and hard exit into accepted A04
+at 13032 remain. The three takes are:
+
+| Original UI phase | Genuine recording start | Output frames | Visible cooperative evidence |
+| --- | --- | --- | --- |
+| FG39 | 170.0 s / frame 5100 | 104 | One remote white mask with expressive rune hands over the campaign table. |
+| FG40 | 930.0 s / frame 27900 | 181 | Two remote masks with independent hands and physical boards over the same dungeon. |
+| FG41 | 2423.0 s / frame 72690 | 227 | Three simultaneous remote masks, hands and boards; with the recording participant, four people are visibly supported. |
+
+These are full-frame views from the real recording. The former 2/3/4-POV panel
+layout is replaced by the actual growing group; one recorded viewpoint is never
+duplicated into invented independent players. Near the last frame the native
+camera looks down, partly cropping the high masks while retaining boards; the
+preceding wide view clearly establishes all three remote masks.
+
+Root reviews 85 overview cues across the 42-minute capture. Two independent
+source workers inspect its halves and dense candidate contexts. This is sampled
+and targeted visual evidence, not continuous manual viewing of the entire
+recording. Other possible swaps were reconsidered; the accepted current shots
+better demonstrate their explanations, so no further substitution is made.
+The new recording SHA256 is `507866c1fcd0a38ed9ad9b7289388923f8ff24e1bc98acdb891648813b6c4650`.
+
+All 33 inventoried UI phases are now resolved: 31 genuine VR phases and the two
+explicitly retained native campaign/Victory and Guildmaster-region views. The
+additional accepted cinematic card around 1:30, non-UI footage, V20 burning-card
+zoom and varied map montage remain. There are no open capture requirements.
+The final cut is ready for the maintainer's review; user acceptance of V21 is
+not claimed, and retained native exceptions are not described as VR footage.
+
+Independent source comparisons pass all 640 untreated new pictures at exact 1x.
+The complete actual-export pass checks all 14,810 frames, 14,155 inherited
+addresses, the continuous fan mark and all 11,573 AAC packets with original
+clocks/configuration. Six saturated entrance frames need the unchanged
+assembler colour path as their comparison reference. A bounded 512-frame MP
+follow-up passes at the original 2.0 MAE limit; initial evidence is retained,
+with no media change or repeated complete run claimed. Root views 38 final
+Watch cues, 74 exact export witnesses and five additional full-size pictures.
+Desktop/mobile-emulated browser checks cover both new contexts at 1x, 26 chapter
+links, comparisons and the completed capture status. A plain-text UTF-8 decoding
+issue is corrected with a BOM and rechecked only on that status link. These are
+focused media/browser checks, without a new runtime, headset or continuous
+whole-film manual-review claim.
+
+The active private review is `vr-gameplay-v12/REVIEW.html`. Receipts are
+`qc-independent/technical-final.json`, `browser-review/final-review.json`,
+`browser-review/final-navigation.json`, `qc-root/visual-review.json` and
+`editor/protected-media-final.json`, relative to that folder. All used recordings,
+components, current authorities and separate approved intro remain after owned
+cleanup; completed worker worktrees are removed. No paid inference, runtime
+source or mod build change.
+
+## Historical October 22 travelling montage and burning-card zoom (v20)
+
+V20 changes four bounded components against V19: FG14–16 `[5690,6067)` and
+MAP2 `[8822,8979)`, MAP4 `[9118,9275)`, MAP5 `[9275,9458)`. This selects 874
+frame addresses and inherits 13,936, retaining the 14,810-frame, 1080p60 timeline.
+
+Around 1:38, a spatial push-in emphasizes the actual played-loss Rock Tunnel
+card. The original reference briefly enlarges its burning Shield Bash card;
+the adaptation follows our selected VR card's real glow and upward loss flight.
+The zoom starts at global frame 5786 (96.433 s), reaches 1.85× at frame 5828
+(97.133 s) with a quintic ease, and holds through the existing gold wipe
+`[5899,5923)`. The top/right capture edges remain visible so the departing
+card stays in frame. Incoming potion pixels remain unzoomed. Source clocks,
+the wipe and subsequent physical Minor Healing Potion use remain unchanged.
+
+The map-side passage around 2:26 now alternates **Temple → Forest → Dungeon →
+Merchant → Forest → Dungeon**. No adjacent shots show the same place.
+The three new windows use two different forest combat moments and a merchant
+camp overview, rather than consecutive views of the same dungeon. The original
+right-side paper, travelling route and standard organic contour remain intact.
+MAP1, the accepted MAP3 correction, MAP6 and the outgoing Victory transition
+are inherited from V19. Each new source interval and its native frame clock is
+recorded in `map-variety/components.json` and the individual component metadata.
+MAP2 and MAP5 start at 130.0 and 454.8 seconds in the October 17 09:50:43
+recording; MAP4 starts at 209.0 seconds in the October 17 09:44:07 recording.
+The forest pictures use a uniform 1.25× spatial enlargement and crop origin
+(830, 135) in the enlarged image, providing real source pixels under the entire
+original map aperture. The merchant uses scale 1 with origin (350, 0).
+No stretched edge fill is retained in these new excerpts.
+
+All gameplay remains 1x; the card zoom changes framing only. Original AAC,
+accepted cinematics, continuous full-trailer fan mark and the separate approved
+game intro remain. V20 SHA256 is `9b4af250c888dcf8aff78004e262ef54d512097a88ad986fbcdf4a26af8616e8`.
+
+The independent actual-export pass checks all 14,810 frame addresses directly:
+13,936 inherited pictures reach maximum MAE 0.71019 and all 874 selected
+component pictures reach 1.82505, below the unchanged 2.0 threshold. No colour-path
+follow-up or second master render is needed. All 11,573 original AAC packets,
+their clocks/configuration and the continuous fan mark pass. Independent
+paper-mask checks cover all 497 newly composed map frames (maximum MAE 0.96794,
+99th-percentile channel error at most 5). Root views 32 actual-export Watch cues,
+75 exact boundary/zoom/place witnesses and four additional full-size frames;
+independent desktop and mobile-emulated browser review checks both passages at
+1x, chapter navigation
+and comparisons. Unchanged creative review is inherited. This is media/browser
+evidence, without a new game-runtime, headset or continuous whole-film manual
+review claim. Detailed results remain in
+`qc-independent/technical-final.json`.
+
+The active review is `vr-gameplay-v11/REVIEW.html`. Receipts also include
+`browser-review/final-review.json`, `browser-review/final-navigation.json`,
+`qc-root/visual-review.json` and `editor/protected-media-final.json`, relative
+to that folder. All used sources and protected authorities are retained after
+completed owned cleanup. No paid inference or mod build change. Only multiplayer
+FG39–FG41 still needs recording; FG12/30/31 and the separate intro retain their
+explicit exceptions. User acceptance of V20 is not claimed.
+
+## Historical October 22 shorter choice sequence and forest angle (v19)
+
+V19 replaces only FG04 `[3776,4088)` (1:02.93–1:08.13) and FG10
+`[4965,5112)` (1:22.75–1:25.20) against V18: 459 selected frame addresses,
+14,351 inherited addresses and the original 14,810-frame/60fps timeline.
+
+The former 5.2-second exhaustion view is a two-shot edit. The first 84 frames
+use October 21 source 689.9–691.3: A character receives 6 damage and
+the visible health bar falls 9 → 3. Actor class and faction are not asserted.
+This deliberately reuses an excerpt from the later mosaic. A rebuilt 35-frame
+native gold wipe overlays this new opening; it never shows later death pictures before
+the actual decision. A hard cut at frame 3860 (1:04.33) clearly changes scene.
+
+The following 228 frames use October 19 source 518.3–522.1 continuously at 1x.
+The player selects the genuine RECEIVE DAMAGE 2 button with the native VR ray;
+Mindthief's 2 HP fall to 0 and the same figure dissolves/collapses. This restores
+the real choice previously omitted by the 520.9-second in-point and removes
+the long aftermath. The two shots are separate fights: the first hit is not
+presented as the cause of Mindthief's exhaustion. No direct fingertip contact
+or permanent character death is asserted.
+
+FG10 now uses October 17 09:50:43 source 375.4–377.85: an actual Spellweaver ranged
+spell hits a Hound for 1 damage. The flatter, open forest view keeps both actors,
+the tracked hand, beam and impact readable. It replaces the tight diagonal
+summoning angle; it does not claim a stronger attack or trap disarming. Existing
+12-frame optical entry/exit smears retain their timing.
+
+All selected source clocks stay exactly 1x with ordinary 30-to-60fps repetition; the
+internal cut does not speed up either take. Original AAC, continuous fan mark,
+accepted cinematics, V18's restored map contour and the separate game intro
+are retained. V19 SHA256 is `af5c07772356d4155c9d949994c4febb55841814bc4cb2cba061a7158cacb6fb`.
+
+The assembler, frame-address/component comparison, continuous label check and
+all 11,573 original AAC packets pass. The initial full run passes inherited
+pictures, audio and fan mark; 14 saturated transition frames require the exact
+unchanged assembler colour path as their comparison reference. A focused 459-frame
+follow-up passes with maximum MAE 0.78012; inherited-picture maximum is 0.765625,
+under the unchanged 2.0 limit. The initial failure remains recorded, and no second
+complete run is claimed. Actual-export visual witnesses and desktop/
+mobile-emulated browser playback check the visible button before closure,
+subsequent zero HP/collapse, new internal cut and unobstructed forest action.
+Unchanged V18 creative review is inherited. These are focused media/browser
+checks, not a new game-runtime, headset or continuous whole-film manual review.
+
+The active review is `vr-gameplay-v10/REVIEW.html`. Authoritative receipts are
+`qc-independent/technical-final.json`, `browser-review/final-review.json`,
+`browser-review/final-navigation.json`, `qc-root/visual-review.json` and
+`editor/protected-media-final.json`, relative to that folder. All used sources
+and current authorities remain; completed owned worktrees and regenerable caches
+are removed. No paid inference or mod build change. Only multiplayer FG39–FG41
+still needs recording; original FG12/30/31 and the separate intro keep their
+explicit exceptions. User acceptance of V19 is not claimed.
+
+## Historical October 21 damage and map correction (v18)
+
+The maintainer requested only two further shot corrections. V18 replaces FG08
+`[4534,4779)` (1:15.57–1:19.65) and MAP3 `[8979,9118)`
+(2:29.65–2:31.97) against V17. The other 14,426 frame addresses remain inherited;
+384 addresses change, with the original cuts, 14,810-frame/60fps clock and AAC.
+
+At approximately 1:16, a Living Corpse hits an allied archer for **4 damage**;
+the native health indicator falls **6 → 2**. The target is a scenario ally,
+not an asserted playable mercenary class. October 21 source frames 20964 onward
+(698.8 seconds) supply the complete 245-frame beat at 1x. Its inherited nine-frame
+flare and eleven-frame outgoing smear retain the transition timing. The initial
+unused attempt had an incorrectly normalized outgoing palette; the corrected
+v2 is the selected component. Source review confirms all 225 untreated output
+frames against sequential source decoding and rejects shifted causal controls.
+
+At approximately 2:31, a previously unused magical close-combat moment with rune
+hands replaces the scaling gesture. October 21 source frames 33870 onward
+(1129 seconds) supply 139 frames at 1x. The original standard matte is restored:
+the previous upper widening for both hands had removed too much map artwork.
+V16 supplies the native paper layer so the mountains, route, city and original
+contour return. All 732,228 pure native-map pixels per frame are exactly retained
+before encoding. All 139 encoded component
+frames pass the unchanged 2.0-MAE comparison, including the restored paper area;
+the maximum restored-area MAE is 1.39584 at 320×180. An independent 960×540
+final-export comparison restores 34,088 paper pixels removed by the old matte;
+all 139 final frames pass its declared 3.0-MAE paper threshold (restored-area
+maximum 2.67285). The first mixed-resampler diagnostic
+is retained and corrected through an identical measurement path, with no
+component or threshold change. Other five map-side shots and the accepted
+outgoing Victory transition are inherited from V17.
+
+V18 SHA256 is `77d90be7f70e47b8b7e821875e79ac4441c0f76dead580b89ba8799a69c9ea57`.
+The assembler and independent final-export checks pass for both new windows,
+all inherited frame addresses, the continuous fan-mod mark and original AAC.
+The first full run passes all outside-window pictures, MAP3, AAC and the footer;
+five saturated FG08 flare frames need the exact assembler colour path as their
+reference. A bounded 245-frame follow-up passes without changing media or the
+2.0 threshold; the initial failure remains recorded. Maximum final comparison
+MAE is 0.72722 outside and 1.50681 inside. This composes existing full-run evidence
+with the focused check; it does not claim another complete run.
+Root reviews 21 actual-export Watch cues and 44 exact sequential boundary/result
+witnesses; independent desktop/mobile-emulated browser review checks both new
+contexts at 1x, 25 chapters, comparisons and published navigation. This is focused
+media/browser evidence; unchanged creative review is inherited. No game-runtime,
+headset or continuous whole-film manual-viewing result is claimed.
+
+The active private review is `vr-gameplay-v9/REVIEW.html`. Final receipts are
+`qc-independent/technical-final.json`, `browser-review/final-review.json`,
+`browser-review/final-navigation.json`, `qc-root/visual-review.json` and
+`editor/protected-media-final.json`, relative to that folder. All used sources,
+previous deliverables and current authorities are preserved; completed owned
+worktrees and regenerable private caches are removed. No paid inference or mod
+build change is introduced. Multiplayer FG39–FG41 remains the only capture task;
+FG12/30/31 and the separate approved game intro retain their explicit exceptions.
+User acceptance of this new revision is not claimed.
+
+## Historical October 21 single-player completion pass (v17)
+
+The maintainer explicitly keeps the campaign Victory/map overview (FG30),
+Guildmaster region/missions (FG31) and previously approved cinematic card
+(FG12). Generic VR gameplay is authorized for the card-list/system montage,
+and another special action may replace trap disarming. The current outstanding
+capture list is therefore **multiplayer only**, FG39–FG41 `[12522,13032)`.
+These are three presentation phases in one 8.5-second cooperative passage.
+
+The new `2026-10-21 19-57-22.mp4` recording supplies actual equipment
+reassignment, a confirmed Wound enhancement purchase, a Slime Spirit summon,
+six previously unused map-side excerpts and most of a rebuilt VR mosaic.
+Its SHA256 is
+`cd5c5895940724f25a383b22b6e3deb6b7dda085032b029f5b6ff818b392b210`.
+Source review uses 636 focused cues rather than claiming continuous viewing
+of the entire 22-minute recording. Root independently views 46 overview cues
+and selected action/source/component witnesses.
+
+| Trailer | Window at 60fps | Actual replacement |
+| --- | --- | --- |
+| 1:22.75–1:25.20 | `[4965,5112)` | Oozing Manifestation summons Slime Spirit, with a visible purple burst and XP result. This deliberately replaces trap disarming with another special action. |
+| 2:04.50–2:05.90 | `[7470,7554)` | Major Healing Potion equipment reassignment. The original gold-wipe geometry is recreated between genuine VR merchant and inventory pictures; its first two frames precede the former FG21 boundary. |
+| 2:05.90–2:07.83 | `[7554,7670)` | Actual 200-gold Wound enhancement confirmation, closing dialog and magical effect. The later gold balance is outside this cut. |
+| 2:07.83–2:10.13 | `[7670,7808)` | Real Create Mercenary confirmation and subsequent personal-quest options, from the October 17 09:44 recording. This shows recruitment/progression, not a newly completed quest or confirmed personal-quest choice. |
+| 2:25.97–2:41.97 | `[8758,9718)` | Six new VR windows on the left: Temple Bless, melee shield effect, two-handed board scaling, area/condition effects, physical card placement and rune-hand card selection. Original illustrated map and route remain on the right; the final nine frames repair the outgoing room residue while preserving the original Victory UI. |
+| 3:19.20–3:23.15 | `[11952,12189)` | A physical fan opens into a moving 25-tile VR mosaic and zooms into a real close-combat impact. Different recordings illustrate features; these are not claimed as synchronized players. |
+
+The map-side source starts are 69.6, 598.7, 719.4, 376.5, 493.3 and 923.0
+seconds, for 64/157/139/157/183/251 main-beat delivery frames respectively,
+followed by nine optical tail frames. They are
+exclusive source windows and do not repeat footage used elsewhere. The organic
+cutout is derived from original map artwork, with a locally wider upper edge
+in the scaling shot to keep both hands visible. The accepted Victory UI starts
+at frame 9709 and is retained from the base; only its outgoing background is
+repaired through frame 9717. Every base picture from 9718 onward is inherited.
+
+The six components change 1,682 frame addresses against v16; 13,128 addresses
+remain inherited. All gameplay clocks stay at exactly 1x with native 30fps
+pictures repeated at 60fps. FG10 uses twelve-frame optical entry/exit smears
+from its live VR pictures and adjacent row palettes. No gameplay interpolation,
+speed fitting or ending hold is introduced. Original AAC, accepted cinematics
+and the separate approved game intro are retained. There are no paid calls.
+
+The revised UI inventory has 33 phases: 28 genuine VR, two explicitly accepted
+native views and three pending cooperative phases. The additional six map-side
+shots are tracked separately rather than inflating that UI count. Review,
+selection and capture list live under `vr-gameplay-v8/`; older sections below
+remain historical evidence and are not the current recording request.
+
+Independent source-clock validation decodes all 485 menu/summon/recruitment
+component frames and compares 437 untreated pictures with exact sequential
+original-source frames. All four deliberately shifted next-frame controls are
+rejected. The 231 transition-component pictures also pass against lossless RGB
+references. An initial comparison used a different YUV/RGB scaling order and
+failed; its report is retained. Matching the producer's RGB scaling order passes
+without changing components or increasing the 2.0 MAE limit. The source-clock
+receipt is `vr-gameplay-v8/source-analysis/worker/source-clock-qc.json`.
+
+The map author decodes all 960 component pictures. Right-map maximum MAE is
+1.59329, native Victory UI across nine tail frames is 1.50650, and the last
+component frame differs from its base by 1.06850 at the comparison scale.
+The bottom black bar has no leftover video strip. Root views all 46 exact
+encoded map witnesses, including the two scaling hands and full optical exit.
+See `vr-gameplay-v8/map-composite/{technical-receipt.json,encoded-contacts/}`.
+
+V17 SHA256 is
+`0c2b7b2fe96e485bb0a67b40f02a81042f30863554283dc08ceff48fb88e4a36`.
+The 298,014,250-byte export retains 14,810 frames at 1080p60 and the original
+246.861-second AAC tail. All 13 assembler checks pass. Independent sequential
+validation covers all frames, all 13,128 outside-window pictures, every inserted
+picture, the continuous fan mark and all 11,573 identical AAC packets including
+clocks/configuration. Maximum 320-by-180 MAE is 0.89805 outside and 1.41615
+inside, below the unchanged 2.0 threshold. This measures lossy image fidelity,
+not byte identity of reencoded pictures.
+
+The evidence is composed: the first complete run passes outside pictures, AAC,
+footer and four components, while 17 saturated smear/light frames in FG10/MAP
+fail a direct component-color comparison. A focused comparison of all 1,107
+FG10/MAP pictures uses the exact assembler RGBA/overlay/YUV pipeline and passes;
+the 17 deliberate matrix controls establish the conversion cause. The first
+failure remains recorded. No master, component or threshold changes, and no
+second complete gate is claimed. The final authority is
+`vr-gameplay-v8/qc-independent/technical-final.json`.
+
+Root additionally views 81 actual-export Watch cues and 81 exactly decoded
+boundary/result witnesses, including the complete critical Victory transition.
+This is focused media evidence, with unchanged v16 creative review inherited;
+it is not a game-runtime or headset gate. The visual authority is
+`vr-gameplay-v8/qc-root/visual-review.json`.
+
+Desktop Chromium and mobile emulation each play all six new passages at 1x.
+Fifty paused chapter checks, twelve time/state-preserving source comparisons
+and 70 HTTP/Range checks pass without JavaScript errors. Actual inventory links
+seek to the summon and multiplayer passages; back navigation and hash-change
+pause/seek also pass. The independent reviewer views 68 media/compare pictures
+and header/footer regions from four long pages; full-size reading of unseen
+page regions is not claimed. Root independently views four browser media
+pictures, the desktop page-header/footer montage and mobile layout.
+See `vr-gameplay-v8/browser-review/final-review.json`.
+
+Postpublication navigation passes 50 paused chapter checks and 90 HTTP/Range
+requests from the actual homepage, including the capture list and inventory.
+No additional playback run is added. The separate intro section remains
+byte-identical. All three completed clean worker worktrees and branches are
+removed; owned processes are reaped and the canonical cleanup API has run.
+Cleanup removes 347,693,138 bytes of unused map attempts and private caches; selected
+sources, current/previous masters, two final normalized references and compact
+failure evidence remain. All 51 protected media hashes and sizes still match.
+See `vr-gameplay-v8/{browser-review/final-navigation.json,editor/protected-media-final.json}`.
+
 ## UI-only inventory and stronger attack (v16)
 
 The maintainer explicitly keeps the cinematic card near 1:30 (FG12) and requests

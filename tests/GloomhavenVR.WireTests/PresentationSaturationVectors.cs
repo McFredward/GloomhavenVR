@@ -10,18 +10,21 @@ internal static class PresentationSaturationVectors
     internal static void Run(Harness t)
     {
         BoardDeadlines(t);
+        PresenceDeadlines(t);
         Saturated(t, 90, false);
         Saturated(t, 18, false);
         Saturated(t, 90, true);
         Saturated(t, 18, true);
+        Saturated(t, 90, true, exactDismiss: true);
+        Saturated(t, 18, true, exactDismiss: true);
     }
-    private static void Saturated(Harness t, int framesPerSecond, bool activeTown)
+    private static void Saturated(Harness t, int framesPerSecond, bool activeTown, bool exactDismiss = false)
     {
-        t.Case("presentation transport: all maximum-size streams at " + framesPerSecond + " Hz with announcements, town=" + activeTown);
+        t.Case("presentation transport: all maximum-size streams at " + framesPerSecond + " Hz with announcements, town=" + activeTown + " exactDismiss=" + exactDismiss);
         var scheduler = new ExtrasSendScheduler(32, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);
         // Town proof uses a representative 1 KiB presence packet; every cosmetic stream retains
         // its maximum. The original no-town case continues to fill all 32 maxima concurrently.
-        var payloads = new List<byte[]> { Packet(NetProtocol.MsgExtras, activeTown ? 1024 : ExtrasFragments.MaxSnapshotBytes),
+        var payloads = new List<byte[]> { Packet(NetProtocol.MsgExtras, activeTown && !exactDismiss ? 1024 : ExtrasFragments.MaxSnapshotBytes),
             Packet(NetProtocol.MsgUseBarAnimation, UseBarAnimationCodec.MaxSize),
             Packet(NetProtocol.MsgCardPlume, CardPlumeCodec.MaxSize), Packet(NetProtocol.MsgNativeBoard, NativeBoardCodec.MaxSize),
             Packet(NetProtocol.MsgCardAppearance, CardAppearanceCodec.MaxSize),
@@ -60,6 +63,8 @@ internal static class PresentationSaturationVectors
             TownServiceFrame.MaxBytes, TownServiceFragments.AssemblyLifetime);
         bool townComplete = false;
         int oldAt32 = -1;
+        var presenceStarts = new Dictionary<ulong, double>();
+        double firstPresenceFlight = -1;
         double horizon = Math.Ceiling(ExtrasFragments.PresentationAssemblyLifetime * NativeBoardCodec.MaxSize / NativeBoardCodec.LegacyMaxSize) + 1;
         double nextEnqueue = 0, nextAnnouncement = 0, previousEvent = -1;
         for (int frame = 0; frame < framesPerSecond * horizon; frame++)
@@ -92,6 +97,18 @@ internal static class PresentationSaturationVectors
                     continue;
                 }
                 int key = type == NetProtocol.MsgNativeUseBarFragments ? ExtrasFragments.NativeSlotStream(page, page.Length) : -type;
+                if (type == NetProtocol.MsgExtrasFragments)
+                {
+                    ulong sequence = BitConverter.ToUInt64(page, 8);
+                    if (!presenceStarts.ContainsKey(sequence)) presenceStarts[sequence] = now;
+                    int rawLength = page[16] | page[17] << 8, offset = page[18] | page[19] << 8;
+                    if (firstPresenceFlight < 0 && offset + 800 >= rawLength)
+                    {
+                        firstPresenceFlight = now - presenceStarts[sequence];
+                        Console.WriteLine("PRESENCE_SATURATION fps=" + framesPerSecond + " town=" + activeTown
+                            + " bytes=" + rawLength + " firstDuration=" + firstPresenceFlight.ToString("F6"));
+                    }
+                }
                 if (assemblers[key].Accept(123, page, page.Length, now) is byte[] full)
                 {
                     completed.Add(key);
@@ -103,6 +120,9 @@ internal static class PresentationSaturationVectors
         }
         t.Equal(31, oldAt32, "older presentation streams retain their original32-second completion bound");
         t.Equal(32, completed.Count, "large native board completes under unchanged sustained stream fairness");
+        if (!activeTown || exactDismiss)
+            t.True(firstPresenceFlight >= 0 && firstPresenceFlight <= 10.2,
+                "sixteen saturated presence pages finish within the finite additional-page allowance");
         t.True(completed.Contains(-NetProtocol.MsgNativeBoardFragments), "large board survives the new maximum frame duration");
         if (activeTown)
         {
@@ -153,7 +173,7 @@ internal static class PresentationSaturationVectors
             "compressed control uses actual packed transport grammar");
         t.True(Equal(packedRaw, FinishAt(BoardReceiver(), packed, 32)!), "compressed large-raw board remains valid and byte exact at32s");
         t.True(FinishAt(BoardReceiver(), packed, 32.001) == null, "small packed board retains32s even when raw output is65535 bytes");
-        var presence = new ExtrasFragments(); byte[] rawPresence = Packet(NetProtocol.MsgExtras, ExtrasFragments.MaxSnapshotBytes);
+        var presence = new ExtrasFragments(); byte[] rawPresence = Packet(NetProtocol.MsgExtras, ExtrasFragments.LegacyPresenceSnapshotBytes);
         t.True(Equal(rawPresence, FinishAt(presence, ExtrasFragments.Encode(rawPresence, rawPresence.Length, 33), 5)!),
             "presence accepts its original exact five-second boundary");
         presence = new ExtrasFragments();
@@ -168,6 +188,46 @@ internal static class PresentationSaturationVectors
         foreach (int invalid in new[] { -1, NativeBoardCodec.MaxSize + 1 })
         { bool rejected = false; try { _ = new ExtrasFragments(snapshotLimit: NativeBoardCodec.MaxSize, lifetimeSizeBase: invalid); }
           catch (ArgumentOutOfRangeException) { rejected = true; } t.True(rejected, "invalid lifetime size base is rejected"); }
+    }
+    private static void PresenceDeadlines(Harness t)
+    {
+        t.Case("dismiss presence: additional encoded pages retain a finite saturated deadline");
+        foreach (int length in new[] { 8001, 12515, 12800 })
+        {
+            byte[] raw = Packet(NetProtocol.MsgExtras, length);
+            byte[][] pages = ExtrasFragments.Encode(raw, length, 33);
+            int extraPages = pages.Length - 10;
+            double limit = 5 + extraPages * (21 * .05 / 2) + 1 + 21 * .05;
+            t.True(Equal(raw, FinishAt(new ExtrasFragments(), pages, limit)!),
+                "new encoded page count accepts exact bounded deadline " + length);
+            t.True(FinishAt(new ExtrasFragments(), pages, limit + .001) == null,
+                "new encoded page count expires immediately after deadline " + length);
+            var active = new ExtrasFragments(); active.Accept(123, pages[0], pages[0].Length, 0);
+            active.Accept(123, pages[1], pages[1].Length, limit - .1);
+            byte[]? completed = null;
+            for (int i = 2; i < pages.Length; i++)
+                completed = active.Accept(123, pages[i], pages[i].Length, limit + .001) ?? completed;
+            t.True(completed == null, "later progress cannot keep an incomplete dismissal snapshot alive");
+        }
+        byte[] packedRaw = Packet(NetProtocol.MsgExtras, 12800);
+        Array.Clear(packedRaw, 6000, packedRaw.Length - 6000);
+        byte[][] packed = ExtrasFragments.Encode(packedRaw, packedRaw.Length, 34, compress: true);
+        t.True(NetPacket.PeekType(packed[0], packed[0].Length) == NetProtocol.MsgPresentationCompression
+            && (packed[0][19] | packed[0][20] << 8) <= 8000,
+            "actual packed presence has large raw output and legacy-sized encoded input");
+        t.True(Equal(packedRaw, FinishAt(new ExtrasFragments(), packed, 5)!),
+            "small encoded data reassembles byte-exactly at the original five-second boundary");
+        t.True(FinishAt(new ExtrasFragments(), packed, 5.001) == null,
+            "advertised raw expansion cannot grant extra presence assembly lifetime");
+        packedRaw = Packet(NetProtocol.MsgExtras, 12800);
+        Array.Clear(packedRaw, 9000, packedRaw.Length - 9000);
+        packed = ExtrasFragments.Encode(packedRaw, packedRaw.Length, 35, compress: true);
+        int encoded = packed[0][19] | packed[0][20] << 8;
+        double encodedLimit = 5 + ((encoded + 799) / 800 - 10) * (21 * .05 / 2) + 1 + 21 * .05;
+        t.True(encoded > 8000 && encoded < packedRaw.Length && Equal(packedRaw,
+            FinishAt(new ExtrasFragments(), packed, encodedLimit)!), "large encoded input receives only its exact page-count allowance");
+        t.True(FinishAt(new ExtrasFragments(), packed, encodedLimit + .001) == null,
+            "compressed raw12800 cannot borrow the larger uncompressed deadline");
     }
     private static byte[] Packet(byte type, int length)
     {

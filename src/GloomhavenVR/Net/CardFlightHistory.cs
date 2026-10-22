@@ -7,8 +7,12 @@ internal sealed class CardFlightEvent
 {
     internal readonly byte Sequence, Endpoints, Flags;
     internal readonly CardFlightSource? Source;
-    internal CardFlightEvent(byte sequence, byte endpoints, byte flags, CardFlightSource? source)
-    { Sequence = sequence; Endpoints = endpoints; Flags = flags; Source = source; }
+    // Record122 supplies this companion; the established record62 layout remains ten bytes.
+    internal readonly CardDismissFlightOrigin? DismissOrigin;
+    internal bool FromDismissBerth => DismissOrigin != null;
+    internal CardFlightEvent(byte sequence, byte endpoints, byte flags, CardFlightSource? source,
+        CardDismissFlightOrigin? dismissOrigin = null)
+    { Sequence = sequence; Endpoints = endpoints; Flags = flags; Source = source; DismissOrigin = dismissOrigin; }
 }
 
 /// <summary>Recent semantic flights survive presence coalescing and packet loss together.

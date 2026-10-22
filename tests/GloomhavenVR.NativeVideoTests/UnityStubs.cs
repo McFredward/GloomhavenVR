@@ -33,13 +33,14 @@ namespace UnityEngine
     public class Transform : Component
     {
         public Vector3 position;
+        public Quaternion rotation;
         public Vector3 localScale;
         private Transform? _parent;
         public Transform? parent => _parent;
         public Transform root => _parent?.root ?? this;
         public Transform(GameObject go) { gameObject = go; }
         public void SetParent(Transform parent, bool preserve) { _parent = parent; }
-        public void SetPositionAndRotation(Vector3 p, Quaternion q) { position = p; }
+        public void SetPositionAndRotation(Vector3 p, Quaternion q) { position = p; rotation = q; }
     }
     public sealed class RectTransform : Transform
     {
@@ -240,11 +241,16 @@ namespace GloomhavenVR.WorldUI
         internal static readonly HashSet<ConvertedPanel> Ordered = new();
         internal static void RegisterStandalonePanelOrder(ConvertedPanel panel) => Ordered.Add(panel);
         internal static void UnregisterStandalonePanelOrder(ConvertedPanel panel) => Ordered.Remove(panel);
+        internal static void SetPanelRenderVisible(ConvertedPanel panel, bool visible)
+        { panel.RenderHidden = !visible; panel.HostCanvas.enabled = visible; panel.HostRaycaster.enabled = visible; }
     }
     internal static class PanelLayout { internal static float WorldScale => 1; }
+    // Scene geometry is a stable fixture input; real capture/domain behavior executes in Unity.
+    internal static class SharedWindowSize { internal static float ReferenceWorldScale => 1; }
     internal static class PanelPlacement
     {
-        internal static void Spawn(UnityEngine.Camera head, float scale, out UnityEngine.Vector3 p, out UnityEngine.Quaternion q) { p = new(); q = new(); }
+        internal static void Spawn(UnityEngine.Camera head, float scale, out UnityEngine.Vector3 p, out UnityEngine.Quaternion q)
+        { p = head.transform.position; p.z += 1.3f * scale; q = head.transform.rotation; }
     }
     internal sealed class ConvertedPanel
     {
@@ -255,6 +261,8 @@ namespace GloomhavenVR.WorldUI
         public UnityEngine.UI.GraphicRaycaster HostRaycaster = null!;
         public UnityEngine.UI.RawImage? ContentGraphic = null;
         public int BaseSortingOrder;
+        public bool RenderHidden, RevealPending, SharedSpawnPoseReady;
+        public SharedWindowKind SharedDesignKind;
     }
     internal sealed class GrabbableModal : GloomhavenVR.Hands.Interact.IPanelGrabOwner
     {
@@ -263,9 +271,14 @@ namespace GloomhavenVR.WorldUI
         internal static int LiveCount => LiveHolders.Count;
         internal string LogName = "Menu";
         internal bool Destroyed;
+        private ConvertedPanel? _panel;
+        internal bool GrabVisible => _panel != null && !_panel.RenderHidden;
+        internal float SharedReferenceWorldScale { get; private set; }
         internal void Build(ConvertedPanel p, float s, string n)
         {
             LogName = n;
+            _panel = p;
+            SharedReferenceWorldScale = SharedWindowSize.ReferenceWorldScale;
             GrabRoot!.SetPositionAndRotation(p.HostGo.transform.position, new UnityEngine.Quaternion());
             LiveHolders.Add(this);
         }
@@ -297,6 +310,20 @@ namespace GloomhavenVR.WorldUI
     {
         internal static float SharedGrabFactor(float factor) => factor;
         internal static float ExtraScale(UnityEngine.Vector2 size, float mm) => 1 / mm;
+    }
+    internal enum SharedWindowKind { None, ScenarioStory, MapStory, QuestConfirm, Encounter, Video, RewardShowcase }
+    internal static class SharedWindows
+    {
+        internal static bool Online;
+        internal static bool ParticipatesHere(SharedWindowKind kind) => Online && kind != SharedWindowKind.None;
+    }
+    internal static class SharedWindowSpawnBridge
+    {
+        internal delegate bool InitialPoseReader(SharedWindowKind kind, out UnityEngine.Vector3 position,
+            out UnityEngine.Quaternion rotation, out float factor);
+        internal static Func<bool>? InitialAuthor;
+        internal static InitialPoseReader? TryInitialPose;
+        internal static bool IsInitialAuthor => InitialAuthor?.Invoke() == true;
     }
 }
 

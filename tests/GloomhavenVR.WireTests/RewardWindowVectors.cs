@@ -165,13 +165,16 @@ internal static class RewardWindowVectors
             && code.Contains("RewardShowcasePlacement.LocalPlacementFailed != _rewardSentUnavailable"),
             "production advertises readiness changes urgently and resets reveal authority on teardown");
         string driver = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Avatar/NetAvatarDriver.cs"));
-        t.True(driver.Contains("VersionGuard.PeerBuild(pair.Key) >= NetProtocol.RewardWindowMinPeerBuild"),
-            "older VR peers cannot hold the new reward readiness gate indefinitely");
+        string version = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/VersionGuard.cs"));
+        t.True(StableRewardMembers(driver, version),
+            "reward readiness uses the stable exact-build census, including a compatible host without an avatar");
+        t.True(!StableRewardMembers(driver, version.Replace("PeerBuild(id) == NetProtocol.ModBuild", "PeerBuild(id) >= NetProtocol.RewardWindowMinPeerBuild")),
+            "negative control: admitting incompatible census members cannot satisfy the reward readiness source contract");
         string shared = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteMapStory.cs"));
-        t.True(shared.Contains("if (scenarioFrame && frame == NetProtocol.RewardFrameScenario)")
-            && shared.Contains("WorldAnchor.Instance.ToAnchor(worldPos, worldRot, out localPos, out localRot)")
-            && shared.Contains("WorldAnchor.Instance.ToWorld(localPos, localRot, out worldPos, out worldRot)"),
-            "reward scenario poses use the avatar's common game-world anchor, never a viewer's orbit focus or seat");
+        t.True(CommonRewardFrame(shared),
+            "reward poses always write the common game-world frame and decode the named frame independently of the viewer's map mode");
+        t.True(!CommonRewardFrame(shared.Replace("if (scenarioFrame)", "if (false)")),
+            "negative control: removing the actual reward world-frame branch cannot satisfy the source contract");
         t.True(NetProtocol.SharedFrameMax == 1 && NetProtocol.RewardFrameScenario == 2,
             "new reward coordinate frame does not widen the frozen legacy21 grammar");
         t.True(code.Contains("ResolvePose(SharedWindowKind.RewardShowcase")
@@ -181,4 +184,39 @@ internal static class RewardWindowVectors
     private static bool ForgetsAbsent(string code) => code.Contains("if (!presence.HasRewardWindow")
         && code.Contains("{ ForgetReward(sender); return; }")
         && code.Contains("Forget(sender, RewardPeers, RewardStamp, RewardStampAt)");
+
+    private static bool StableRewardMembers(string driver, string version)
+    {
+        string collector = Body(driver, "internal static void CollectRewardPosePeers(");
+        string census = Body(version, "internal static void CollectContinuationPeers(");
+        return collector == "VersionGuard.CollectContinuationPeers(into,NetPlayerActors.LocalPlayerId());"
+            && census.Contains("into.Clear();") && census.Contains("i<CensusRoster.Count")
+            && census.Contains("intid=CensusRoster[i].Id;")
+            && census.Contains("id>0&&id!=localPlayerId&&PeerBuild(id)==NetProtocol.ModBuild")
+            && census.Contains("into.Add(id);");
+    }
+
+    private static bool CommonRewardFrame(string source)
+    {
+        string writer = Body(source, "private static bool ToShared(");
+        string reader = Body(source, "private static bool ToWorld(");
+        return writer.Contains("if(scenarioFrame){frame=NetProtocol.RewardFrameScenario;WorldAnchor.Instance.ToAnchor(worldPos,worldRot,outlocalPos,outlocalRot);returntrue;}")
+            && !writer.Contains("TryGetParchmentFrame")
+            && reader.Contains("if(frame==NetProtocol.RewardFrameScenario){WorldAnchor.Instance.ToWorld(localPos,localRot,outworldPos,outworldRot);returntrue;}");
+    }
+
+    private static string Body(string source, string signature)
+    {
+        source = Regex.Replace(source, @"/\*[\s\S]*?\*/|//[^\r\n]*", "");
+        int start = source.IndexOf(signature, StringComparison.Ordinal);
+        if (start < 0) return "";
+        start = source.IndexOf('{', start); if (start < 0) return "";
+        int end = start + 1, depth = 1;
+        while (end < source.Length && depth > 0)
+        {
+            if (source[end] == '{') depth++; else if (source[end] == '}') depth--;
+            end++;
+        }
+        return depth == 0 ? Regex.Replace(source.Substring(start + 1, end - start - 2), @"\s+", "") : "";
+    }
 }

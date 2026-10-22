@@ -20,6 +20,7 @@ static class Program
         FlatScreen.Requests = 0;
         FlatScreen.LastReason = "";
         GuildmasterDestinations.Exits = GuildmasterDestinations.LeaveCalls = 0;
+        MapLocationInteractor.Handled = null; MapLocationInteractor.Calls = 0;
         MapRoomDriver.Active = true;
         VRLog.Lines.Clear();
         Singleton<MapStoryController>.Instance = null!;
@@ -120,6 +121,14 @@ static class Program
         other.Hide();
         ModalFallback.TickRescueForTest();
         Check(FlatScreen.RescueScreenActive, "direct close rescue never releases another requester's latch");
+        Reset();
+        var sharedQuest = new UIWindow { escapeKeyAction = UIWindow.EscapeKeyAction.None };
+        MapLocationInteractor.Handled = sharedQuest;
+        ModalFallback.CloseFloatedWindow(sharedQuest);
+        Check(MapLocationInteractor.Calls == 1 && sharedQuest.IsOpen && sharedQuest.Hides == 0
+            && sharedQuest.Escapes == 0 && !ModalFallback.Panel.UserClosing
+            && !FlatScreen.RescueScreenActive && GuildmasterDestinations.LeaveCalls == 0,
+            "shared quest semantic close must stop local-only modal release");
         Console.WriteLine($"Modal close: {_assertions} assertions passed.");
     }
 }

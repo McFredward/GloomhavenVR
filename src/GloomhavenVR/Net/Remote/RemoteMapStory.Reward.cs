@@ -144,7 +144,7 @@ internal static partial class RemoteMapStory
         SharedWindowEntry entry = presence.RewardWindow.Window;
         if (RewardPeers.TryGetValue(sender, out PeerEntry previous) && previous.ContentKey != entry.ContentKey)
             ForgetReward(sender);
-        RewardPeers[sender] = new PeerEntry(in entry, Time.unscaledTime);
+        RewardPeers[sender] = new PeerEntry(in entry, Time.unscaledTime, context: presence.WindowPoseContext, kind: (int)SharedWindowKind.RewardShowcase, referenceScale: presence.WindowScales?.Reference((int)SharedWindowKind.RewardShowcase) ?? 0f);
         RewardMoved[sender] = presence.RewardWindow.Moved;
         RewardUnavailable[sender] = presence.RewardWindow.Unavailable;
         RewardReady[sender] = presence.RewardWindow.Ready;
@@ -245,12 +245,12 @@ internal static partial class RemoteMapStory
                 if (pair.Value.HasPose && pair.Value.At > newest)
                 { newest = pair.Value.At; key = pair.Value.ContentKey; }
         }
-        if (TryRewardInitialPose(key, out Vector3 position, out Quaternion rotation, out float size, out bool ready))
-            RewardShowcasePlacement.SetInitialPose(key, position, rotation, size, ready);
+        if (TryRewardInitialPose(key, out Vector3 position, out Quaternion rotation, out float size, out bool ready, out float referenceScale))
+            RewardShowcasePlacement.SetInitialPose(key, position, rotation, size, ready, referenceScale);
     }
-    private static bool TryRewardInitialPose(uint key, out Vector3 position, out Quaternion rotation, out float size, out bool ready)
+    private static bool TryRewardInitialPose(uint key, out Vector3 position, out Quaternion rotation, out float size, out bool ready, out float referenceScale)
     {
-        position = Vector3.zero; rotation = Quaternion.identity; size = 1f; ready = false;
+        position = Vector3.zero; rotation = Quaternion.identity; size = 1f; ready = false; referenceScale = 0f;
         SelectRewardCandidates(key, _rewardPlayerId);
         int best = 0; float latest = float.NegativeInfinity;
         foreach (var pair in RewardCandidates)
@@ -260,6 +260,7 @@ internal static partial class RemoteMapStory
         }
         if (best == 0) return false;
         PeerEntry owner = RewardCandidates[best];
+        referenceScale = owner.ReferenceScale;
         ready = RewardReady.TryGetValue(best, out bool value) && value;
         size = NetProtocol.DecodeStorySize(owner.SizeCode);
         return ToWorld(owner.Frame, owner.Pose.Position, owner.Pose.Rotation, out position, out rotation, scenarioFrame: true);

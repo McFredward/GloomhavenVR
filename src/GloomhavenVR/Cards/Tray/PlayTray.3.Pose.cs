@@ -652,6 +652,7 @@ internal sealed partial class PlayTray
             // (Core.TmpFit.Fit leaves enableAutoSizing on) re-fits the new string inside the same
             // cap, which is what the rebuild used to be doing the long way round.
             _itemUseConfirm.SetLabel(_itemUseConfirmLabel ?? Core.Loc.Mod("item_use_area"));
+            _itemUseConfirm.SetClickAction(BindItemUseConfirmation(_itemUseConfirmAction));
             // …AND THE CAPTION ENGRAVED UNDER THE RECESS, IN THE SAME STATEMENT GROUP. The cap and
             // the caption name ONE zone; relabelling only the cap is precisely what shipped (the cap
             // read "ITEM ABGEBEN" while the engraving under it still read "BENUTZEN"). Keeping the

@@ -91,6 +91,15 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.WorldUI.MapRoom
 {
     using UnityEngine.UI;
+    // The actual native quest identity/admission runs in map-quest-selection-runtime.
+    // This boundary verifies that the complete modal closer honors its semantic result.
+    public static class MapLocationInteractor
+    {
+        public static UIWindow? Handled;
+        public static int Calls;
+        public static bool HandleSharedQuestClose(UIWindow window)
+        { Calls++; return ReferenceEquals(window, Handled); }
+    }
     public static class MapRoomDriver { public static bool Active = true; }
     public static class GuildmasterDestinations
     {

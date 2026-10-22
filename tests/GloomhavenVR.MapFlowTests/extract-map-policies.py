@@ -23,12 +23,12 @@ def code(source):
 # The bool helper alone cannot establish that icon dispatch uses it. Each existing
 # route must admit input before its first externally observable effect.
 checks = [
-    ('internal bool AdoptSelection(', 'if (MapInputGate.IsBlocked) return false;', 'if (ReferenceEquals(loc, _selected))'),
+    ('internal bool AdoptSelection(', 'if (MapInputGate.IsBlocked) return false;', 'if (!newOpening && ReferenceEquals(loc, _selected))'),
     ('private MapLocation? PickFrom(', 'if (MapInputGate.IsBlocked) { how = "the native map interaction mask is locked"; return null; }', 'if (hand == null'),
     ('internal void SetHover(', 'if (want != null && MapInputGate.IsBlocked) want = null;', 'if (ReferenceEquals(want, _hover))'),
     ('private void TickDeselect()', 'if (MapInputGate.IsBlocked) return;', 'if (Time.unscaledTime - _selectedAt'),
     ('private void Deselect(', 'if (MapInputGate.IsBlocked) return;', 'MapLocation? sel = _selected;'),
-    ('internal void Dispatch(', 'if (MapInputGate.IsBlocked) return;', 'if (loc == null)'),
+    ('internal void Dispatch(', 'if (MapInputGate.IsBlocked || NativeMapQuestSelection.BlocksSharedBrowsing) return;', 'if (loc == null)'),
 ]
 for signature, guard, effect in checks:
     body = ' '.join(code(method(interactor, signature)).split())

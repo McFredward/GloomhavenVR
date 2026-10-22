@@ -137,6 +137,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     // gate exactly like the fan counts and the card-FX events do. One byte on a gesture nobody makes
     // twice a second; it cannot become a stream.
     private int _lastSentItemClip = -1;
+    private bool _lastSentActiveDismissBerth;
+    private bool _lastSentActiveDismissGhost;
+    private int _lastSentActiveDismissActor;
+    private byte _lastSentActiveDismissCount;
+    private byte _lastSentActiveDismissSeat = byte.MaxValue;
 
     // Pile-browse (Abgelegt / Verbrannt reading fan): the last broadcast (kind, count) so opening,
     // switching and closing a browser also pre-empts the 5 Hz gate — the fan's EMERGE animation is
@@ -701,13 +706,10 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     /// players and older clients never block a new window's first reveal.</summary>
     internal static void CollectRewardPosePeers(List<int> into)
     {
-        into.Clear();
-        NetAvatarDriver? driver = _instance;
-        if (driver == null) return;
-        foreach (var pair in driver._avatars)
-            if (pair.Value.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds
-                && VersionGuard.PeerBuild(pair.Key) >= NetProtocol.RewardWindowMinPeerBuild)
-                into.Add(pair.Key);
+        // A native scene load can suspend rig/avatars while the same participant still owns
+        // the next reward. Placement and continuation use the stable compatible session
+        // census; explicit reward declines handle a host that has no native window here.
+        VersionGuard.CollectContinuationPeers(into, NetPlayerActors.LocalPlayerId());
     }
 
     /// <summary>
@@ -1410,6 +1412,15 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         if (itemsCount > 0 && itemClip >= itemsCount)
             itemClip = -1;
         bool itemClipChanged = itemClip != _lastSentItemClip;
+
+        bool dismissBerth = CardsDriver.ActiveDismissBerthActive;
+        bool dismissGhost = dismissBerth && CardsDriver.ActiveDismissGhostShown;
+        int dismissActor = dismissBerth ? CardsDriver.ActiveDismissActorId : 0;
+        byte dismissCount = dismissBerth ? CardsDriver.ActiveDismissListCount : (byte)0;
+        byte dismissSeat = dismissBerth ? CardsDriver.ActiveDismissSeat : byte.MaxValue;
+        bool dismissChanged = dismissBerth != _lastSentActiveDismissBerth
+            || dismissGhost != _lastSentActiveDismissGhost || dismissActor != _lastSentActiveDismissActor
+            || dismissCount != _lastSentActiveDismissCount || dismissSeat != _lastSentActiveDismissSeat;
 
         // PILE BROWSE (user request "Auf-/Zuklappen der Fächer im Multiplayer"): the discard/burnt
         // reading fan. Read through the PileBrowser.Current seam — the browser instance itself is a
@@ -2160,7 +2171,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             && !decisionChanged && !decisionStateChanged && !decisionWidgetChanged
             && !useBarsChanged
             && !capLabelsChanged && !focusChanged && !trackSelChanged && !trackOrderChanged
-            && !emptyFanHintChanged && !tuningChanged && !itemClipChanged
+            && !emptyFanHintChanged && !tuningChanged && !itemClipChanged && !dismissChanged
             // THE FOUR HELD-CARD EDGES (records 36, 39, 41, 43) — the N7 ruling; see the
             // sampling block above for why each is discrete and what it costs.
             && !heldFaceChanged && !sacrificeSeatChanged && !spentHalfChanged
@@ -2196,7 +2207,21 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
 
         var extras = default(PresenceState);
 
-        FillEnvironmentRecords(ref extras);
+        // The mode, proximity preview and counted public seat are one owner-authored picture.
+        // Emit edges immediately and repeat current state on cadence; absence clears a remote
+        // stage, and the native game's action replication remains the sole gameplay authority.
+        extras.HasActiveDismissBerth = dismissBerth;
+        extras.ActiveDismissGhostShown = dismissGhost;
+        extras.ActiveDismissActorId = dismissActor;
+        extras.ActiveDismissListCount = dismissCount;
+        extras.ActiveDismissSeat = dismissSeat;
+        _lastSentActiveDismissBerth = dismissBerth;
+        _lastSentActiveDismissGhost = dismissGhost;
+        _lastSentActiveDismissActor = dismissActor;
+        _lastSentActiveDismissCount = dismissCount;
+        _lastSentActiveDismissSeat = dismissSeat;
+
+        FillEnvironmentRecords(ref extras, _transport.LocalPlayerId);
         RemoteVideoPlayback.Sample(ref extras, _transport.LocalPlayerId);
         RemoteMapStory.SampleReward(ref extras, _transport.LocalPlayerId);
         MapStoryLifecycle.Sample(ref extras, _transport.LocalPlayerId);
@@ -3351,6 +3376,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         }
         extras.FlightHistory = NetCardFx.History;
         extras.BurnCompletions = NetCardFx.BurnCompletions;
+        extras.FlightOrigins = NetCardFx.FlightOrigins;
         if (_hasFx)
         {
             extras.HasCardFx = true;
@@ -3616,6 +3642,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         extras.ModBuild = NetProtocol.ModBuild;
         extras.ModVersionText = MyPluginInfo.PLUGIN_VERSION;
 
+        SharedWindowSpawnAuthority.SampleContext(ref extras);
         int len = PresenceSerializer.Write(in extras, _sendBuffer);
         _transport.Send(_sendBuffer, len);
     }
@@ -3843,7 +3870,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     /// really stands, so the packet bytes are what they were. Order within the packet is the
     /// serializer's, not this method's.
     /// </summary>
-    private static void FillEnvironmentRecords(ref PresenceState extras)
+    private static void FillEnvironmentRecords(ref PresenceState extras, int localPlayerId)
     {
         // SHARED ENVIRONMENT CLOCK (extension record 31). USER REQUEST, verbatim: "Mond und
         // Lichtstrahlen sollen im Multiplayer (falls beide Spieler die selbe Umgebung ausgewählt
@@ -3901,7 +3928,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // contracts in RemoteMapRoom / RemoteMapStory and NetProtocol.ExtIdMapRoom /
         // NetProtocol.ExtIdSharedWindow.
         RemoteTownResidents.Sample(ref extras);
-        RemoteMapRoom.Sample(ref extras);
+        RemoteMapRoom.Sample(ref extras, localPlayerId);
         RemoteMapStory.Sample(ref extras);
     }
 

@@ -211,6 +211,7 @@ internal sealed class NetModule : IVRModule
     public void Init()
     {
         BindConfig();
+        SharedWindowSpawnAuthority.Bind(() => _transport != null && _transport.IsOnline);
 
         // BEFORE the kill-switch, deliberately. This watches the GAME's netcode, not the mod's
         // avatar sync — and "turn the VR networking off because multiplayer is misbehaving" is

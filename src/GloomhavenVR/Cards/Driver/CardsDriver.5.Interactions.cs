@@ -247,6 +247,8 @@ internal sealed partial class CardsDriver
         // an open browse (ForeignInteraction) nor poke the pick-reopen seam; the trigger that
         // caused it was consumed by the transfer (see UpdateHeldCardTransfer).
         bool transferring = ReferenceEquals(card, _transferCard);
+        if (!transferring)
+            TakeBackActiveDismissCard(card);
         // More-card-sounds: soft pick tick on every card grab (fan pluck, slot pluck, pile/
         // active read-grab — proximity and laser alike; also the adopting grab of a hand-to-hand
         // transfer, where it doubles as the audible handover feedback). Edge-triggered by nature:
@@ -389,6 +391,8 @@ internal sealed partial class CardsDriver
         // pile browse arc.
         if (_active.IsShown && _active.Contains(card))
         {
+            if (TryStageActiveDismissCard(card, hand))
+                return;
             _active.Add(card);
             return;
         }

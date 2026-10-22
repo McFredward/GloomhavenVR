@@ -66,6 +66,8 @@
     <Compile Include="TownOriginalDelivery638Vectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarState.cs" Link="wire\AvatarState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarSerializer.cs" Link="wire\AvatarSerializer.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\SharedWindowPoseContext.cs" Link="wire\SharedWindowPoseContext.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\SharedWindowScaleContext.cs" Link="wire\SharedWindowScaleContext.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\PresenceState.cs" Link="wire\PresenceState.cs" />
     <!-- Record 45's SHAPE and fold. Split out of UseBarSlotSymbol.cs precisely so that
          PresenceState can be compiled here: the other half names CActiveBonus, CItem and
@@ -260,6 +262,7 @@
     <Compile Include="GoldenVectors.cs" />
     <Compile Include="StoryVectors.cs" />
     <Compile Include="MapSyncVectors.cs" />
+    <Compile Include="ActiveDismissBerthVectors.cs" />
     <Compile Include="RelaunchVectors.cs" />
     <Compile Include="FrameLaunchVectors.cs" />
     <Compile Include="ConfigStepVectors.cs" />
@@ -323,6 +326,9 @@
     <Compile Include="UseBarAnimationPlaybackVectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationPlaybackClock.cs" Link="wire\UseBarAnimationPlaybackClock.cs" />
     <Compile Include="SharedWindowPoseVectors.cs" />
+    <Compile Include="SharedWindowContextVectors.cs" />
+    <Compile Include="SharedWindowScaleContextVectors.cs" />
+    <Compile Include="SharedQuestSelectionVersionVectors.cs" />
     <Compile Include="FanReflowVectors.cs" />
     <Compile Include="FanInteractionVectors.cs" />
     <Compile Include="FanInsertionGapVectors.cs" />
@@ -646,6 +652,8 @@
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Cards/BurnFlightCompletion.cs" />
     <Compile Include="BurnFlightCompletionVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardFlightHistory.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardDismissFlightOrigin.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardFlightOrigins.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardBurnCompletionHistory.cs" />
     <Compile Include="DamageDecisionPreviewVectors.cs" />
     <Compile Include="HeldFaceAtomicVectors.cs" />
@@ -671,6 +679,7 @@
     <Compile Include="PresentationCompressionVectors.cs" />
     <Compile Include="DecisionAttributionVectors.cs" />
     <Compile Include="CardFlightHistoryVectors.cs" />
+    <Compile Include="CardDismissOriginVectors.cs" />
     <Compile Include="CardBurnCompletionVectors.cs" />
     <Compile Include="SharedWindowMotionVectors.cs" />
     <Compile Include="MapLoadoutCountVectors.cs" />

@@ -23,7 +23,7 @@ dotnet run --project "$project" --configuration Release --property:CloseSource="
     --property:CloseScopeSource="$source_root/src/GloomhavenVR/WorldUI/MapRoom/TownWindowCloseScope.cs"
 cp "$repo_root/tests/GloomhavenVR.ModalCloseTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in missing-guard late-guard no-rescue hide-before-rescue; do
+for mutation in missing-guard late-guard no-rescue hide-before-rescue shared-quest-fallthrough; do
     python3 - "$mutation_dir" "$mutation" <<'PY'
 import pathlib, sys
 out = pathlib.Path(sys.argv[1])
@@ -36,6 +36,7 @@ mutations = {
     'late-guard': (guard, 'FindPanel(window)!.UserClosing = true;\n' + guard),
     'no-rescue': ('RescueForMandatoryDecision(window, mandatoryReason, 0f, "a mod close request");', '{}'),
     'hide-before-rescue': ('RescueForMandatoryDecision(window, mandatoryReason, 0f, "a mod close request");', 'window.Hide(); RescueForMandatoryDecision(window, mandatoryReason, 0f, "a mod close request");'),
+    'shared-quest-fallthrough': ('        if (MapRoom.MapLocationInteractor.HandleSharedQuestClose(window))\n            return;', ''),
 }
 a, b = mutations[sys.argv[2]]
 assert s.count(a) == 1
@@ -44,6 +45,7 @@ PY
     case "$mutation" in
         missing-guard|hide-before-rescue) expected='stale close plate cannot hide a newly mandatory pooled dialog' ;;
         late-guard|no-rescue) expected='pooled policy change is rechecked before conversion release' ;;
+        shared-quest-fallthrough) expected='shared quest semantic close must stop local-only modal release' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.ModalCloseTests.csproj" --configuration Release \
         --property:CloseSource="$mutation_dir/Close.mutant" \

@@ -192,8 +192,11 @@ def main():
     if not args.no_negative_controls and not args.lifecycle_only and not args.bank_split_only:
         variants += [
             ('published-baseline', 'TownServiceMirror.cs',
-             'byte[] packet = WriteCatalogPacket(emitted, send);',
-             'if (completeOriginal) { module.Baseline = emitted; module.NextBaseline = float.PositiveInfinity; }\n                    byte[] packet = WriteCatalogPacket(emitted, send);',
+             # Fault only the rejected-publication transition. Writing Baseline before native
+             # encoding also changes its live repair/receipt bookkeeping on successful sends,
+             # which fails the earlier warmed-delivery contract before this recovery case runs.
+             'send(packet, packet.Length, emitted);',
+             'try { send(packet, packet.Length, emitted); }\n                    catch { if (completeOriginal) { module.Baseline = emitted; module.NextBaseline = float.PositiveInfinity; } throw; }',
              'rejected publication cannot invent an undelivered original baseline'),
             ('all-prepared-picture', 'TownServiceMirror.NativeTemplateState.cs',
              'foreach (ushort id in session.RequiredVisibleModules ?? session.Modules)',

@@ -136,7 +136,8 @@ internal static class RemoteMapRoom
     private readonly struct PeerRoom
     {
         public PeerRoom(byte flags, byte surfaceStamp, uint pickKey, byte selectStamp,
-                        uint selectKey, uint fanCharacterKey, float at)
+                        uint selectKey, uint fanCharacterKey, float at,
+                        bool hasVersion = false, uint version = 0, uint parent = 0, int parentAuthor = 0)
         {
             Flags = flags;
             SurfaceStamp = surfaceStamp;
@@ -145,6 +146,7 @@ internal static class RemoteMapRoom
             SelectKey = selectKey;
             FanCharacterKey = fanCharacterKey;
             At = at;
+            HasVersion = hasVersion; Version = version; Parent = parent; ParentAuthor = parentAuthor;
         }
 
         public readonly byte Flags;
@@ -165,6 +167,9 @@ internal static class RemoteMapRoom
         public readonly uint FanCharacterKey;
 
         public readonly float At;
+        public readonly bool HasVersion;
+        public readonly uint Version, Parent;
+        public readonly int ParentAuthor;
 
         public bool InRoom => (Flags & NetProtocol.MapRoomInRoomBit) != 0;
         public bool IsHost => (Flags & NetProtocol.MapRoomHostBit) != 0;
@@ -190,6 +195,34 @@ internal static class RemoteMapRoom
 
     /// <inheritdoc cref="SeenStamp"/>
     private static readonly Dictionary<int, byte> SeenSelectStamp = new();
+
+    // A clear belongs to the sender's preceding subject, never whichever unrelated quest
+    // happens to be open when a delayed packet arrives. First sight only establishes history.
+    private static readonly Dictionary<int, uint> SeenSelectKey = new();
+    private static MapLocationInteractor? _pendingSelectInteractor;
+    private static int _pendingSelectGeneration;
+    private static int _pendingSelectRevision;
+    private static MapIconLayer.MapSurface _pendingSelectSurface;
+    private static uint _pendingSelectKey, _pendingSelectPriorKey;
+    private static MapLocation? _pendingSelectPriorLocation;
+    private static int _pendingSelectPeer;
+    private static bool _pendingSelectVersioned, _pendingSelectReopen;
+    private static ulong _pendingSelectToken;
+    private static readonly SharedQuestSelectionVersion SelectionVersions = new();
+    private static bool _versionVisitLive, _versionLocalObserved, _versionDirty, _versionPublishWarned, _versionSuspended;
+    private static object? _versionMapIdentity;
+    private static int _versionLocalRevision, _versionCarrier, _versionLocalPlayer;
+    private static MapLocationInteractor? _versionInputInteractor;
+    private static int _versionLocalInputRevision;
+    private static int _versionLocalPublicationRevision;
+    private static uint _displayedSelectKey;
+    private static ulong _displayedSelectOpening;
+    private static MapLocationInteractor? _unresolvedSelectInteractor;
+    private static object? _unresolvedSelectMap;
+    private static int _unresolvedSelectRevision, _unresolvedSelectScan;
+    private static ulong _unresolvedSelectOpening;
+    private static MapIconLayer.MapSurface _unresolvedSelectSurface;
+    private static bool _unresolvedSelectSurfaceAttempted, _unresolvedSelectTargetSeen, _unresolvedSelectMiss;
 
     // ---- local state ------------------------------------------------------------------------
 
@@ -272,10 +305,10 @@ internal static class RemoteMapRoom
     private static int _wantAttempts;
 
     // ---- the key cache ----------------------------------------------------------------------
-    // MANDATORY, not an optimisation: MapChoreographer.InitMap destroys and respawns every
-    // location on a quest unlock, a city<->world switch and a travel animation, so a key->location
-    // map that is not rebuilt points at dead objects. The rebuild trigger is the interactor's own
-    // ScanGeneration, which it bumps exactly when it REPLACES the set.
+    // MANDATORY, not an optimisation: native InitMap fills its rows across multiple frames;
+    // quest updates add rows, and world/city switching changes which existing rows are active.
+    // This cache contains only the interactor's active census. Its set generation rebuilds
+    // lookups; a completed initialized census separately qualifies missing-key admission.
 
     private static readonly List<uint> CacheKeys = new(64);
     private static readonly List<MapLocation> CacheLocations = new(64);
@@ -304,6 +337,18 @@ internal static class RemoteMapRoom
         SeenStamp.Clear();
         ConsumedSelectStamp.Clear();
         SeenSelectStamp.Clear();
+        SeenSelectKey.Clear();
+        ClearPendingSelection();
+        ClearUnresolvedSelection();
+        SelectionVersions.Reset();
+        _versionVisitLive = _versionLocalObserved = _versionDirty = _versionPublishWarned = _versionSuspended = false;
+        _versionMapIdentity = null;
+        _displayedSelectKey = 0u;
+        _displayedSelectOpening = 0ul;
+        _versionCarrier = _versionLocalPlayer = 0;
+        _versionInputInteractor = null;
+        _versionLocalInputRevision = 0;
+        _versionLocalPublicationRevision = 0;
         _publishedSurface = MapIconLayer.MapSurface.Unknown;
         _localSurfaceStamp = 0;
         _adoptedSurface = MapIconLayer.MapSurface.Unknown;
@@ -363,6 +408,7 @@ internal static class RemoteMapRoom
             MapLocationInteractor? locations = MapRoomDriver.ActiveLocations;
             MapLocation? staged = locations != null ? locations.Staged : null;
             return KeyOf(staged) != _sentSelectKey
+                   || (locations != null && locations.SelectionRevision != _versionLocalRevision)
                    || WorldUI.MapRoom.MapRoomHand.LocalFanCharacterKey != _sentFanCharacterKey;
         }
     }
@@ -383,10 +429,12 @@ internal static class RemoteMapRoom
     /// the packet byte-identical to ModBuild 221's — whenever this client's own 3D map room is not
     /// standing.
     /// </summary>
-    internal static void Sample(ref PresenceState extras)
+    internal static void Sample(ref PresenceState extras, int localPlayerId = 0)
     {
+        _versionLocalPlayer = localPlayerId;
         if (!MapRoomDriver.Active)
         {
+            SuspendOrRetireVersionVisit();
             // Leaving the room forgets our own publishing state, so re-entering it does not send a
             // stamp edge nobody made. BOTH stamps: a player who walks out with a quest selected and
             // comes back would otherwise publish "I just selected this" on their first packet, and
@@ -448,23 +496,70 @@ internal static class RemoteMapRoom
         // _adoptedSelectKey), then compare against what was last PUBLISHED, then bump the stamp
         // only for a change a human at THIS table made.
         uint selectKey = KeyOf(staged);
+        bool versionVisit = EnsureVersionVisit();
+        int localRevision = locations?.SelectionRevision ?? 0;
+        int localInputRevision = locations?.LocalSelectionInputRevision ?? 0;
+        int localPublicationRevision = locations?.SelectionPublicationRevision ?? 0;
+        int priorInputRevision = ReferenceEquals(locations, _versionInputInteractor)
+            ? _versionLocalInputRevision : 0;
         if (_hasAdoptedSelect && Time.unscaledTime - _adoptedSelectAt > AdoptedSuppressSeconds)
             _hasAdoptedSelect = false;   // the adoption was refused and produced no change at all
         bool adoptedSelect = _hasAdoptedSelect && selectKey == _adoptedSelectKey;
         _hasAdoptedSelect = false;
-        if (!_publishedSelectValid)
+        bool localIntent = !adoptedSelect && ((_versionLocalObserved && localPublicationRevision != _versionLocalPublicationRevision)
+            || localInputRevision != priorInputRevision);
+        _versionLocalObserved = true;
+        _versionLocalRevision = localRevision;
+        _versionLocalPublicationRevision = localPublicationRevision;
+        _versionInputInteractor = locations;
+        _versionLocalInputRevision = localInputRevision;
+        if (versionVisit && !_publishedSelectValid && !localIntent)
         {
-            // FIRST SAMPLE IN THIS ROOM IS NOT A CHANGE. Whatever is selected when the room comes
-            // up was selected before anybody could have watched it happen.
+            SelectionVersions.BindBaseline(selectKey);
+            if (_displayedSelectKey != selectKey)
+                _displayedSelectOpening = 0ul;
+            _displayedSelectKey = selectKey;
+        }
+        if (versionVisit && staged != null && !staged.IsSelected
+            && !_pendingSelectVersioned && _unresolvedSelectInteractor == null)
+        {
+            SelectionVersions.RetireOwn();
+            SelectionVersions.RetireCurrent();
+            _displayedSelectOpening = 0ul;
+        }
+        if (!_publishedSelectValid && !localIntent)
+        {
+            // A native-only initial snapshot is a baseline. An accepted local input counted
+            // above remains a real action even if it precedes the first presence census.
             _publishedSelectValid = true;
             _publishedSelectKey = selectKey;
         }
-        else if (selectKey != _publishedSelectKey)
+        else if (selectKey != _publishedSelectKey || localIntent)
         {
+            _publishedSelectValid = true;
             uint had = _publishedSelectKey;
             _publishedSelectKey = selectKey;
-            if (!adoptedSelect)
+            if (versionVisit && localIntent)
             {
+                if (SelectionVersions.TryPublish(localPlayerId, selectKey, _displayedSelectOpening, out var own))
+                {
+                    bool won = SelectionVersions.HasCurrent && SelectionVersions.Current.Token == own.Token;
+                    _versionDirty = !won;
+                    if (won)
+                    {
+                        ClearPendingSelection();
+                        ClearUnresolvedSelection();
+                    }
+                    _displayedSelectKey = selectKey;
+                    _displayedSelectOpening = selectKey != 0u ? own.Opening : 0ul;
+                }
+                else if (!_versionPublishWarned)
+                {
+                    _versionPublishWarned = true;
+                    VRLog.Warn(Scope, "MAP ROOM causal selection was not published: native player identity "
+                        + "is unavailable or the session counter is exhausted. No identity was truncated "
+                        + "and no old opening token was reused; one report per session.");
+                }
                 unchecked { _localSelectStamp++; }
                 VRLog.Info(Scope, "MAP ROOM selection CHANGED here: "
                                   + $"{Describe(had)} → {NameOf(staged, selectKey)} — record 20's "
@@ -474,13 +569,23 @@ internal static class RemoteMapRoom
                                   + "everybody sees it). Key 0 on an edge is a DESELECTION, which "
                                   + "is how 'nur eine einzige Auswahl' holds in both directions.");
             }
-            else
+            else if (adoptedSelect)
             {
                 VRLog.Info(Scope, "MAP ROOM selection changed here to "
                                   + $"{NameOf(staged, selectKey)} because THIS CLIENT ADOPTED a "
                                   + "peer's edge — so NO stamp is published for it. That "
                                   + "suppression is what stops two clients from bouncing one "
                                   + "selection between them for ever; do not remove it.");
+            }
+            else
+            {
+                // Native unready/quest commitment can retire a subject without a new user
+                // browsing action. Do not forge a human clear that cancels pending replacement B.
+                SelectionVersions.RetireOwn();
+                if (!_pendingSelectVersioned && _unresolvedSelectInteractor == null)
+                    SelectionVersions.RetireCurrent();
+                _displayedSelectKey = selectKey;
+                _displayedSelectOpening = 0ul;
             }
         }
 
@@ -510,6 +615,25 @@ internal static class RemoteMapRoom
         extras.MapRoomPickKey = key;
         extras.MapRoomSelectStamp = _localSelectStamp;
         extras.MapRoomSelectKey = selectKey;
+        if (versionVisit && SelectionVersions.HasCurrent)
+        {
+            var current = SelectionVersions.Current;
+            if (current.Counter != 0u && current.Key == selectKey
+                && (current.Key == 0u || current.Opening == _displayedSelectOpening))
+            {
+                extras.HasMapSelectionVersion = true;
+                extras.MapSelectionRevision = current.Counter;
+                extras.MapSelectionParent = current.ParentCounter;
+                extras.MapSelectionParentAuthor = current.ParentAuthor;
+                if (current.Key != 0u && current.Author != localPlayerId)
+                {
+                    // Explicit read-only opening relay. Counter equality distinguishes it
+                    // from a human event; adoption creates no new opening or Lamport counter.
+                    extras.MapSelectionParent = current.Counter;
+                    extras.MapSelectionParentAuthor = current.Author;
+                }
+            }
+        }
         // Which party member THIS client's map fan is showing. Costs nothing to sample — the hand
         // keeps the key beside the character it already resolved — and it saves the receiver from
         // deducing the fan's owner from its card count, a deduction whose tie-break assumes you only
@@ -548,7 +672,9 @@ internal static class RemoteMapRoom
         }
         Peers[senderId] = new PeerRoom(p.MapRoomFlags, p.MapRoomSurfaceStamp, p.MapRoomPickKey,
                                        p.MapRoomSelectStamp, p.MapRoomSelectKey,
-                                       p.MapRoomFanCharacterKey, Time.unscaledTime);
+                                       p.MapRoomFanCharacterKey, Time.unscaledTime,
+                                       p.HasMapSelectionVersion, p.MapSelectionRevision,
+                                       p.MapSelectionParent, p.MapSelectionParentAuthor);
         // ---- shared-gaze hunk: the same packet, read for the two facts that decision needs (is
         // this peer in the room, and is it the host publishing a gaze yaw). Fed from HERE rather
         // than from a second parse so the two views of "who is in the room" cannot drift apart.
@@ -583,6 +709,13 @@ internal static class RemoteMapRoom
         // change made while they were unheard-of is missed, which the next real click corrects.
         ConsumedSelectStamp.Remove(senderId);
         SeenSelectStamp.Remove(senderId);
+        SeenSelectKey.Remove(senderId);
+        if (_pendingSelectPeer == senderId)
+        {
+            if (_pendingSelectVersioned && SelectionVersions.HasCurrent)
+                _versionDirty = true; // another live carrier may retain this same agreed opening
+            ClearPendingSelection();
+        }
     }
 
     /// <summary>
@@ -603,6 +736,8 @@ internal static class RemoteMapRoom
             Placards.ReleaseAll();
             _wantSurface = MapIconLayer.MapSurface.Unknown;
             _adoptedSurface = MapIconLayer.MapSurface.Unknown;
+            ClearPendingSelection();
+            SuspendOrRetireVersionVisit();
             return;
         }
         // ONE cache rebuild per frame, ahead of both consumers: the selection resolver and the
@@ -732,53 +867,134 @@ internal static class RemoteMapRoom
     // ---- THE ROOM'S ONE SELECTION (report 13) ------------------------------------------------
 
     /// <summary>
-    /// Adopt a peer's SELECTION edge — at most one per frame, through the game's own click seam.
+    /// Adopt the agreed browsing opening through the game's own click seam. Record120 is an
+    /// opening-qualified causal register: remote adoption relays that opening without minting
+    /// a human action. Concurrent selections converge, and a late clear cannot close a newer
+    /// opening of the same quest. Record20 byte edges remain the conservative legacy fallback.
     ///
-    /// <para>Structurally identical to <see cref="ResolveSurface"/>, deliberately: the same
+    /// <para>The legacy path is structurally identical to <see cref="ResolveSurface"/>: the same
     /// first-sight-is-not-an-edge rule, the same consume-once bookkeeping, the same last-edge-wins
     /// walk over at most three peers, and the same accepted one-time swap if two people act in the
     /// very same instant. The differences are what an edge names (a location key, where 0 means
     /// "nothing") and how it is applied (<c>MapLocationInteractor.AdoptSelection</c>, which is the
     /// game's own <c>pointerClickHandler</c> / <c>Deselect()</c> and nothing else).</para>
     ///
-    /// <para>AN EDGE IS CONSUMED EVEN WHEN IT CANNOT BE APPLIED. A key that resolves to no live
-    /// location here means the peer is on the other map surface, or our location set has churned;
-    /// re-trying it on every later packet would either do nothing for ever or fire late, on a map
-    /// the selection was never made on. It is dropped with a stated reason, and the peer's next
-    /// real click is a new edge.</para>
+    /// <para>A missing location still consumes the edge. A native lock instead retains ONE
+    /// subject-qualified request for this exact map generation. Build715's paired hardware logs
+    /// show why: a client accepted the browsed quest before the host, native OnReady locked its
+    /// map, and this resolver discarded the host's later deselection. The selection observer
+    /// could only withdraw readiness AFTER adoption, which the lock prevented. Ask the existing
+    /// native readiness seam once, then wait for the game's own unready reply to release its
+    /// mask. Never unlock it ourselves, retry a click every frame, or replay onto a new quest.</para>
     /// </summary>
     private static void ResolveSelection()
     {
         MapLocationInteractor? interactor = MapRoomDriver.ActiveLocations;
         if (interactor == null)
+        {
+            ClearPendingSelection();
+            ClearUnresolvedSelection();
             return;
+        }
+
+        bool versionAllowed = EnsureVersionVisit();
+        // During PartialUILoad the original multiplayer canvas/controller can be absent.
+        // Unknown proposal identity cannot authorize a click or permanently fence a peer's
+        // still-current opening. Keep only its latest authenticated snapshot until measured.
+        if (!NativeMapQuestSelection.TryGetHostProposal(out _, out _))
+        {
+            if (!_pendingSelectVersioned)
+                ClearPendingSelection(); // legacy byte edges retain their stricter one-shot retirement
+            return;
+        }
+        bool beforePresent = SelectionVersions.HasCurrent;
+        var beforeVersion = SelectionVersions.Current;
+        foreach (KeyValuePair<int, PeerRoom> kv in Peers)
+        {
+            PeerRoom peer = kv.Value;
+            if (!peer.InRoom || !peer.HasVersion)
+                continue;
+            SelectionVersions.Observe(kv.Key, peer.Version, peer.Parent, peer.ParentAuthor,
+                peer.SelectKey, out _);
+            ulong peerOpening = peer.SelectKey != 0u && peer.Parent < peer.Version
+                ? SharedQuestSelectionVersion.TokenOf(peer.Version, kv.Key)
+                : SharedQuestSelectionVersion.TokenOf(peer.Parent, peer.ParentAuthor);
+            if (SelectionVersions.HasCurrent && SelectionVersions.Current.Opening == peerOpening
+                && SelectionVersions.Current.Key == peer.SelectKey)
+                _versionCarrier = kv.Key;
+        }
+        bool versionChanged = SelectionVersions.HasCurrent && (!beforePresent
+            || beforeVersion.Opening != SelectionVersions.Current.Opening
+            || beforeVersion.Key != SelectionVersions.Current.Key);
+        if (versionChanged)
+        {
+            ClearPendingSelection();
+            ClearUnresolvedSelection();
+            _versionDirty = versionAllowed;
+            if (!versionAllowed)
+                SelectionVersions.RetireCurrent();
+        }
+        if (_versionDirty)
+        {
+            ResolveVersionedSelection(interactor);
+            return;
+        }
 
         bool have = false;
         uint wantKey = 0u;
+        uint priorKey = 0u;
         int fromPeer = 0;
         foreach (KeyValuePair<int, PeerRoom> kv in Peers)
         {
             PeerRoom s = kv.Value;
-            if (!s.InRoom)
+            if (!s.InRoom || s.HasVersion)
                 continue;
             if (!SeenSelectStamp.TryGetValue(kv.Key, out byte seen))
             {
                 SeenSelectStamp[kv.Key] = s.SelectStamp;
                 ConsumedSelectStamp[kv.Key] = s.SelectStamp;
+                SeenSelectKey[kv.Key] = s.SelectKey;
                 continue;
             }
-            if (seen == s.SelectStamp)
+            // The stamp wraps. A delayed older packet must not undo a newer selection, and
+            // equality alone mistakes 7 -> 6 -> 7 reordering for two new human actions.
+            int forward = unchecked((byte)(s.SelectStamp - seen));
+            if (forward == 0)
+            {
+                // Adopted room selections intentionally do not bump the sender's stamp
+                // (echo suppression). They still become the subject of its next real clear.
+                SeenSelectKey[kv.Key] = s.SelectKey;
                 continue;
+            }
+            if (forward >= 128)
+                continue;
+            uint previousKey = SeenSelectKey.TryGetValue(kv.Key, out uint previous) ? previous : 0u;
             SeenSelectStamp[kv.Key] = s.SelectStamp;
+            SeenSelectKey[kv.Key] = s.SelectKey;
             if (ConsumedSelectStamp.TryGetValue(kv.Key, out byte done) && done == s.SelectStamp)
                 continue;
             ConsumedSelectStamp[kv.Key] = s.SelectStamp;
             have = true;
             wantKey = s.SelectKey;
+            priorKey = previousKey;
             fromPeer = kv.Key;
         }
         if (!have)
+        {
+            ResolvePendingSelection(interactor);
             return;
+        }
+
+        // Every newer human edge supersedes the pending predecessor, including an edge that
+        // native permission rejects. Keeping the old request would replay an obsolete intent.
+        ClearPendingSelection();
+        uint currentKey = KeyOf(interactor.Staged);
+        if (wantKey == 0u && priorKey != currentKey)
+        {
+            Note($"player {fromPeer}'s selection clear belonged to 0x{priorKey:X8}, while this "
+                 + $"table now shows 0x{currentKey:X8}; the old subject cannot close the new one");
+            return;
+        }
 
         MapLocation? want = null;
         if (wantKey != 0u && (!TryResolveKey(wantKey, out want) || want == null))
@@ -791,12 +1007,103 @@ internal static class RemoteMapRoom
             return;
         }
 
+        RequestSelection(interactor, want, wantKey, fromPeer);
+    }
+
+    private static void RequestSelection(MapLocationInteractor interactor, MapLocation? want,
+        uint wantKey, int fromPeer, bool reopen = false, ulong versionToken = 0ul)
+    {
+        uint currentKey = KeyOf(interactor.Staged);
+        if (MapInputGate.IsBlocked)
+        {
+            _pendingSelectInteractor = interactor;
+            _pendingSelectGeneration = interactor.ScanGeneration;
+            _pendingSelectRevision = interactor.SelectionRevision;
+            _pendingSelectSurface = MapIconLayer.CurrentSurface;
+            _pendingSelectKey = wantKey;
+            _pendingSelectPriorKey = currentKey;
+            _pendingSelectPriorLocation = interactor.Staged;
+            _pendingSelectPeer = fromPeer;
+            _pendingSelectReopen = reopen;
+            _pendingSelectVersioned = versionToken != 0ul;
+            _pendingSelectToken = versionToken;
+            // This calls only the same native unready seam the settled decision observer uses.
+            // Other native lock holders and committed proposals remain authoritative.
+            if (!interactor.PrepareSharedSelectionChange(want, reopen))
+                ClearPendingSelection();
+            else
+                VRLog.Info(Scope, $"MAP ROOM selection WAIT from player {fromPeer}: "
+                    + $"0x{currentKey:X8} -> 0x{wantKey:X8}; waiting for the native map mask to "
+                    + "release after the original quest-unready request. This exact subject, "
+                    + "surface and map generation must still match; no native lock was changed.");
+            ResolvePendingSelection(interactor);
+            return;
+        }
+
+        ApplySelection(interactor, want, wantKey, fromPeer, reopen, versionToken);
+    }
+
+    private static void ClearPendingSelection()
+    {
+        _pendingSelectInteractor = null;
+        _pendingSelectPriorLocation = null;
+        _pendingSelectPeer = 0;
+        _pendingSelectVersioned = _pendingSelectReopen = false;
+        _pendingSelectToken = 0ul;
+    }
+
+    private static void ResolvePendingSelection(MapLocationInteractor interactor)
+    {
+        if (_pendingSelectInteractor == null)
+            return;
+        uint currentKey = KeyOf(interactor.Staged);
+        // Native host OnReady(false) calls DeselectCurrentMapLocation itself. Its
+        // authorized retirement of A must not lose a pending replacement B. Explicit
+        // later local input and A -> B -> A change SelectionRevision and still retire it.
+        bool sameSubject = currentKey == _pendingSelectPriorKey
+            || (currentKey == 0u && _pendingSelectPriorLocation != null
+                && !_pendingSelectPriorLocation.IsSelected);
+        if (!MapRoomDriver.Active || !ReferenceEquals(interactor, _pendingSelectInteractor)
+            || interactor.ScanGeneration != _pendingSelectGeneration
+            || interactor.SelectionRevision != _pendingSelectRevision
+            || MapIconLayer.CurrentSurface != _pendingSelectSurface
+            || !sameSubject
+            || (_pendingSelectPeer != _versionLocalPlayer
+                && (!Peers.TryGetValue(_pendingSelectPeer, out PeerRoom peer) || !peer.InRoom))
+            || StoryComposite.PointOfNoReturn
+            || !NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) || proposal != null)
+        {
+            ClearPendingSelection();
+            return;
+        }
+        if (MapInputGate.IsBlocked)
+            return;
+        uint wantKey = _pendingSelectKey;
+        int fromPeer = _pendingSelectPeer;
+        bool reopen = _pendingSelectReopen;
+        ulong versionToken = _pendingSelectToken;
+        ClearPendingSelection(); // consume before callbacks; there is never a per-frame click loop
+        MapLocation? want = null;
+        if (wantKey != 0u && (!TryResolveKey(wantKey, out want) || want == null))
+            return;
+        ApplySelection(interactor, want, wantKey, fromPeer, reopen, versionToken);
+    }
+
+    private static void ApplySelection(MapLocationInteractor interactor, MapLocation? want,
+        uint wantKey, int fromPeer, bool reopen = false, ulong versionToken = 0ul)
+    {
         // Suppress the echo BEFORE driving: AdoptSelection runs the game's click path
         // synchronously, so the local selection can already have changed by the time it returns.
         _adoptedSelectKey = wantKey;
         _hasAdoptedSelect = true;
         _adoptedSelectAt = Time.unscaledTime;
-        bool drove = interactor.AdoptSelection(want, $"player {fromPeer}'s selection edge");
+        bool drove = interactor.AdoptSelection(want, $"player {fromPeer}'s selection edge", reopen);
+        if (versionToken != 0ul && (!reopen || drove) && KeyOf(interactor.Staged) == wantKey)
+        {
+            _displayedSelectKey = wantKey;
+            _displayedSelectOpening = wantKey != 0u && SelectionVersions.HasCurrent
+                ? SelectionVersions.Current.Opening : 0ul;
+        }
         VRLog.Info(Scope, $"MAP ROOM selection EDGE from player {fromPeer}: "
                           + $"{NameOf(want, wantKey)}. "
                           + (drove
@@ -806,8 +1113,11 @@ internal static class RemoteMapRoom
                                 + "own click action still decide. If nothing visibly happened, the "
                                 + "game refused it and would have refused the same click here."
                               : MapInputGate.IsBlocked
-                              ? "The native map interaction mask is locked; this edge was consumed "
-                                + "without changing selection and will not be replayed after unlock."
+                              ? "The native map interaction mask refused this selection."
+                              : NativeMapQuestSelection.BlocksSharedBrowsing
+                              ? "The native host proposal still owns this decision; no browsing change was driven."
+                              : !ReferenceEquals(want, interactor.Staged)
+                              ? "The original native selection/deselection permission refused this change."
                               : "ALREADY the selection at this table — nothing was driven. An edge "
                                 + "that arrives twice therefore costs one comparison, which is why "
                                 + "a duplicated packet cannot double-click anything.")
@@ -815,6 +1125,212 @@ internal static class RemoteMapRoom
                           + "re-asserts it, because a level would be a write war and an edge "
                           + "consumed on arrival cannot oscillate.");
     }
+
+    private static bool EnsureVersionVisit()
+    {
+        if (!MapRoomDriver.Active || !FFSNetwork.IsOnline || StoryComposite.PointOfNoReturn)
+        {
+            SuspendOrRetireVersionVisit();
+            return false;
+        }
+        object? identity = VersionMapIdentity();
+        if (identity == null)
+            return false; // unknown native initialization is not a new map opening
+        if (_versionVisitLive && !ReferenceEquals(identity, _versionMapIdentity))
+            RetireVersionVisit();
+        if (!NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _))
+            return false; // initialization is unknown, never proof of a committed/retired opening
+        if (proposal != null)
+        {
+            RetireVersionVisit();
+            return false;
+        }
+        if (!_versionVisitLive)
+        {
+            _versionVisitLive = true;
+            _versionMapIdentity = identity;
+            _versionLocalObserved = false;
+        }
+        if (_versionSuspended)
+        {
+            _versionSuspended = false;
+            if (SelectionVersions.HasCurrent
+                && KeyOf(MapRoomDriver.ActiveLocations?.Staged) != SelectionVersions.Current.Key)
+                _versionDirty = true;
+        }
+        return true;
+    }
+
+    private static object? VersionMapIdentity()
+    {
+        if (!Singleton<global::MapChoreographer>.IsInitialized)
+            return null;
+        global::MapChoreographer native = Singleton<global::MapChoreographer>.Instance;
+        return native != null ? native : null;
+    }
+
+    private static void SuspendOrRetireVersionVisit()
+    {
+        object? identity = VersionMapIdentity();
+        bool proposal = NativeMapQuestSelection.TryGetHostProposal(out var selected, out _) && selected != null;
+        if (StoryComposite.PointOfNoReturn || !FFSNetwork.IsOnline || identity == null
+            || !ReferenceEquals(identity, _versionMapIdentity) || proposal)
+            RetireVersionVisit();
+        else
+        {
+            // A 2D/3D presentation toggle does not retire the game's native map or its opening.
+            // Keep its clock and state; an actual scene/proposal/commit retirement fences it.
+            _versionLocalObserved = false;
+            _versionSuspended = true;
+            ClearPendingSelection();
+        }
+    }
+
+    private static void RetireVersionVisit()
+    {
+        if (!_versionVisitLive)
+            return;
+        SelectionVersions.RetireOwn();
+        SelectionVersions.RetireCurrent();
+        _versionVisitLive = _versionLocalObserved = _versionDirty = _versionSuspended = false;
+        _versionMapIdentity = null;
+        _displayedSelectKey = 0u;
+        _displayedSelectOpening = 0ul;
+        ClearPendingSelection();
+        ClearUnresolvedSelection();
+    }
+
+    private static void ResolveVersionedSelection(MapLocationInteractor interactor)
+    {
+        if (!EnsureVersionVisit() || !SelectionVersions.HasCurrent)
+        { _versionDirty = false; ClearUnresolvedSelection(); return; }
+        var desired = SelectionVersions.Current;
+        MapIconLayer.MapSurface surface = MapIconLayer.CurrentSurface;
+        if (_unresolvedSelectInteractor != null
+            && (!ReferenceEquals(_unresolvedSelectInteractor, interactor)
+                || !ReferenceEquals(_unresolvedSelectMap, VersionMapIdentity())
+                || _unresolvedSelectRevision != interactor.SelectionRevision
+                || _unresolvedSelectOpening != desired.Opening
+                || (_unresolvedSelectTargetSeen && surface != MapIconLayer.MapSurface.Unknown
+                    && surface != _unresolvedSelectSurface)))
+        {
+            RetireUnresolvedSelection();
+            return;
+        }
+        int carrier = _versionCarrier;
+        if (carrier != _versionLocalPlayer && (!Peers.TryGetValue(carrier, out PeerRoom live) || !live.InRoom))
+            return; // keep the dirty state until an authenticated live carrier is available
+        MapIconLayer.MapSurface advertised = Peers.TryGetValue(carrier, out PeerRoom peer) && peer.SurfaceKnown
+            ? peer.IsCity ? MapIconLayer.MapSurface.City : MapIconLayer.MapSurface.World : surface;
+        if (_unresolvedSelectInteractor != null && _unresolvedSelectSurface == MapIconLayer.MapSurface.Unknown
+            && advertised != MapIconLayer.MapSurface.Unknown)
+            _unresolvedSelectSurface = advertised; // first measured surface is initialization, not supersession
+        if (_unresolvedSelectInteractor != null && advertised != MapIconLayer.MapSurface.Unknown
+            && advertised != _unresolvedSelectSurface)
+        {
+            RetireUnresolvedSelection(); // this carrier's newer surface no longer describes the held intent
+            return;
+        }
+
+        if (desired.Key != 0u)
+        {
+            if (_unresolvedSelectInteractor == null)
+            {
+                _unresolvedSelectInteractor = interactor;
+                _unresolvedSelectMap = VersionMapIdentity();
+                _unresolvedSelectRevision = interactor.SelectionRevision;
+                _unresolvedSelectOpening = desired.Opening;
+                _unresolvedSelectSurface = advertised;
+                _unresolvedSelectTargetSeen = advertised != MapIconLayer.MapSurface.Unknown && surface == advertised;
+                // A readied A can lock the very cap needed to reveal City B. Withdraw only
+                // this client's original readiness once, before waiting for B's missing row.
+                if (MapInputGate.IsBlocked && (KeyOf(interactor.Staged) != desired.Key
+                    || _displayedSelectOpening != desired.Opening))
+                    interactor.PrepareSharedSelectionChange(null);
+            }
+            if (surface != MapIconLayer.MapSurface.Unknown && surface == _unresolvedSelectSurface)
+                _unresolvedSelectTargetSeen = true;
+
+            bool scanned = interactor.CompletedSelectionScanReady
+                && ReferenceEquals(interactor.CompletedSelectionScanMap, _unresolvedSelectMap);
+            if (!scanned || MapInputGate.IsBlocked || surface == MapIconLayer.MapSurface.Unknown)
+                return;
+            int scan = interactor.CompletedSelectionScan;
+            if (surface != _unresolvedSelectSurface)
+            {
+                if (!_unresolvedSelectSurfaceAttempted)
+                {
+                    _unresolvedSelectSurfaceAttempted = true;
+                    _unresolvedSelectScan = scan;
+                    // A record20 surface edge may already be executing this same native cap.
+                    // Late visitors have no such edge; the live selected opening supplies one
+                    // qualified request, still through the cap's unchanged availability gates.
+                    if (_wantSurface != _unresolvedSelectSurface)
+                    {
+                        _adoptedSurface = _unresolvedSelectSurface;
+                        EGuildmasterMode mode = _unresolvedSelectSurface == MapIconLayer.MapSurface.City
+                            ? EGuildmasterMode.City : EGuildmasterMode.WorldMap;
+                        if (!MapRoomDriver.PressGuildmasterMode(mode, "the live shared quest opening's map surface"))
+                            RetireUnresolvedSelection();
+                    }
+                }
+                else if (scan != _unresolvedSelectScan)
+                    RetireUnresolvedSelection(); // one completed native pass confirms the cap did not admit this surface
+                return;
+            }
+            if (interactor.CompletedSelectionScanSurface != _unresolvedSelectSurface)
+                return; // map changed after the previous active-only census
+            if (_unresolvedSelectMiss && scan == _unresolvedSelectScan)
+                return; // no lookup loop between actual native censuses
+        }
+        MapLocation? want = null;
+        if (desired.Key != 0u && (!TryResolveKey(desired.Key, out want) || want == null))
+        {
+            if (!_unresolvedSelectMiss)
+            {
+                _unresolvedSelectMiss = true;
+                _unresolvedSelectScan = interactor.CompletedSelectionScan;
+            }
+            else
+                RetireUnresolvedSelection(); // a fresh initialized census of this surface still has no such native key
+            return;
+        }
+        bool reopen = desired.Key != 0u && KeyOf(interactor.Staged) == desired.Key
+            && _displayedSelectOpening != desired.Opening;
+        ClearUnresolvedSelection();
+        _versionDirty = false; // this exact version is consumed before original callbacks
+        RequestSelection(interactor, want, desired.Key, carrier, reopen, desired.Token);
+    }
+
+    private static void ClearUnresolvedSelection()
+    {
+        _unresolvedSelectInteractor = null;
+        _unresolvedSelectMap = null;
+        _unresolvedSelectOpening = 0ul;
+        _unresolvedSelectSurface = MapIconLayer.MapSurface.Unknown;
+        _unresolvedSelectSurfaceAttempted = _unresolvedSelectTargetSeen = _unresolvedSelectMiss = false;
+    }
+
+    private static void RetireUnresolvedSelection()
+    {
+        SelectionVersions.RetireCurrent();
+        _versionDirty = false;
+        ClearPendingSelection();
+        ClearUnresolvedSelection();
+    }
+
+    /// <summary>The actual displayed browsing opening, for opening-qualified shared pose reads.</summary>
+    internal static bool TryReadQuestSelectionOpening(uint key, out ulong opening)
+    {
+        opening = 0ul;
+        MapLocation? staged = MapRoomDriver.ActiveLocations?.Staged;
+        if (!MapRoomDriver.Active || StoryComposite.PointOfNoReturn || key == 0u || key != _displayedSelectKey
+            || _displayedSelectOpening == 0ul || staged == null || !staged.IsSelected || KeyOf(staged) != key)
+            return false;
+        opening = _displayedSelectOpening;
+        return true;
+    }
+
 
     // ---- 2c: the peers' hovers, as the game's OWN placards -----------------------------------
 
@@ -967,9 +1483,9 @@ internal static class RemoteMapRoom
                           + $"{CacheKeys.Count} live location(s) keyed by FNV-1a of their own "
                           + "CLocationState.ID, the same string the GAME sends in a LocationToken "
                           + "for SelectQuest. REBUILT ON THE SET CHANGE, not on a cadence: "
-                          + "MapChoreographer.InitMap destroys and respawns every location on a "
-                          + "quest unlock, a city↔world switch and a travel animation, so a cache "
-                          + "that survives one points at dead objects."
+                          + "Native InitMap fills rows across multiple frames, quest updates add "
+                          + "rows, and world↔city switching activates/deactivates existing rows. "
+                          + "A ready surface census, rather than a set generation alone, qualifies selection delivery."
                           + (collisions > 0
                               ? $" WARNING: {collisions} key collision(s) — {collided}. First wins, "
                                 + "the same order the game's own resolver uses (m_Scenarios then "

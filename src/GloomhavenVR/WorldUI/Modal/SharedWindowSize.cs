@@ -5,6 +5,12 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
+/// Build717 additionally fixes the actual shared world multiplier through common scene
+/// geometry. Matching normalized millimetres alone did not prove matching world geometry:
+/// dividing by each observer's zoom hid the very difference reported in the four-player715 run.
+/// The historical pixel/design reasoning below still applies; ReferenceWorldScale and
+/// RenderWorldScale implement the newer zoom-independent world-size contract.
+///
 /// <b>THE ONE PLACE A CLIENT-LOCAL PIXEL COUNT IS ALLOWED TO REACH A SHARED WINDOW'S WORLD SIZE —
 /// AND THE PLACE THAT REFUSES IT.</b> <see cref="SharedWindowSizeLaw"/> holds the arithmetic and
 /// the user ruling; this file holds the Unity half: which frame the arithmetic is fed, and how that
@@ -162,6 +168,10 @@ internal static class SharedWindowSize
     {
         if (panel == null)
             return;
+        // The native window is still in its original hierarchy here. Build runs before the
+        // modal's first SyncSharedState, so neither that later cache nor an ancestry lookup
+        // after reparenting can identify its initial render scale reliably.
+        panel.SharedDesignKind = SharedWindows.KindOf(window);
         if (!TryDesignFrame(window, target, out Vector2 designPx, out SharedWindowKind kind,
                             out string source))
         {
@@ -232,6 +242,79 @@ internal static class SharedWindowSize
     internal static bool IsArmed(ConvertedPanel? panel) =>
         panel != null && panel.SharedDesignFrame.x >= MinDesignPx
         && panel.SharedDesignFrame.y >= MinDesignPx;
+
+    /// <summary>Shared world units per design metre, independent of every visitor's zoom.
+    ///
+    /// Build 715 divided its size diagnostic by the same local zoom that the renderer had
+    /// multiplied in. All three logs consequently printed matching millimetres while the
+    /// actual scenario Story Window had different world extents. A shared object instead
+    /// uses the original map bounds or scenario hex geometry, which are common game data.
+    /// The native Hex width excludes saved/current pinch zoom and rig lifetime; a literal one would make
+    /// these windows tiny beside the scenario. Private windows keep their captured zoom.
+    /// </summary>
+    internal static float ReferenceWorldScale
+    {
+        get
+        {
+            if (MapRoom.MapRoomDriver.TryGetParchmentFrame(out Vector3 _, out float scale))
+                return Mathf.Max(scale, 0.01f);
+            return NativeHexReferenceWorldScale();
+        }
+    }
+
+    private static float NativeHexScale = 0f;
+    private static bool NativeHexReadAttempted = false;
+
+    /// <summary>Read the same original Hex width as UnityGameEditorRuntime.Initialise and
+    /// VRRigDriver.ResolveWorldScale. A menu rig has base1 and a torn-down rig base0; neither
+    /// is scenario geometry. Native initialization reads this resource once in Main.Start,
+    /// so its successful geometry reference intentionally survives every later rig/scene.
+    /// This read-only pre-initialization path never calls the original initializer or writes
+    /// its tile size/LOS scalar. Missing original assets retain the game's own 12x fallback.</summary>
+    private static float NativeHexReferenceWorldScale()
+    {
+        if (NativeHexScale > 0f) return NativeHexScale;
+        float width = UnityGameEditorRuntime.s_TileSize.x;
+        if (width <= 0.001f && !NativeHexReadAttempted)
+        {
+            NativeHexReadAttempted = true;
+            try
+            {
+                GameObject? hex = Resources.Load<GameObject>("Hex");
+                if (hex != null)
+                {
+                    Vector3 size = Vector3.zero;
+                    BoxCollider? collider = hex.GetComponent<BoxCollider>();
+                    if (collider != null) size = collider.size;
+                    if (size == Vector3.zero)
+                    {
+                        Renderer? renderer = hex.GetComponent<Renderer>();
+                        if (renderer != null) size = renderer.bounds.size;
+                    }
+                    width = size.x;
+                }
+            }
+            catch (System.Exception error)
+            {
+                VRLog.Info("WorldUI", "SHARED WINDOW HEX REFERENCE: original Hex could not be read; "
+                    + $"using native fallback12 until its original tile width is available ({error.GetType().Name}).");
+            }
+        }
+        if (width > 0.001f)
+            return NativeHexScale = Mathf.Clamp(width / 0.15f, 1f, 100f);
+        return 12f;
+    }
+
+    internal static bool UsesSharedWorldFrame(ConvertedPanel? panel) =>
+        panel != null && SharedWindows.ParticipatesHere(panel.SharedDesignKind);
+
+    /// <summary>Actual render multiplier. The private reference is captured once at Build;
+    /// a session/identity transition changes only the shared policy, never that private value.</summary>
+    internal static float RenderWorldScale(ConvertedPanel? panel, float privateScale,
+                                           float sharedScale = 0f) =>
+        UsesSharedWorldFrame(panel)
+            ? sharedScale > 0f ? sharedScale : ReferenceWorldScale
+            : privateScale;
 
     // =============================================================================================
     // THE TWO-HAND RESIZE - ONE OWNER FOR THE 1:1 LINE, WHOEVER PULLED

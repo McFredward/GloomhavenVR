@@ -210,6 +210,7 @@ static class Program
             Check(!NativeVideoWindow.IsPlaybackKey(key), "non-native path rejected: " + key);
         StereoPresentation();
         MovieReviewTests.Run(Check);
+        SharedVideoPlacementTests.Run(Check);
         Console.WriteLine($"Native video production harness: {_assertions} assertions passed.");
     }
 

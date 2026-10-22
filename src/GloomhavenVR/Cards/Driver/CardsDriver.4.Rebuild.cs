@@ -516,6 +516,8 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void RebuildBoard()
     {
+        ResetActiveDismiss(); // cancel the old berth reservation before its card/parent is parked
+        _dismissFlightOriginals.Clear(); // no departure survives destruction of its board frame
         // The poke-toggle pile browse fan is parented under the board root (so it inherits the
         // board's live scale/pose) — a board switch DestroyImmediates that root. Close the browse
         // FIRST (it does not touch the cards' parents), so the park loop below still catches the
@@ -1244,6 +1246,7 @@ internal sealed partial class CardsDriver
         // membership has to be current for THIS rebuild before the browser filters against it.
         // Every other board zone (_halfBuffer, tray slots, _fieldCards, _shortRestCard) is
         // already resolved above.
+        AdvanceCommittedActiveDismiss(hand);
         UpdateActive(hand);
         _burnHoldPruneScratch.Clear();
         foreach (AbilityCardUI widget in _activeExitOrigins.Keys)
@@ -1251,9 +1254,9 @@ internal sealed partial class CardsDriver
             if (widget is null) continue;
             CAbilityCard? model = widget != null ? widget.AbilityCard : null;
             CCharacterClass? cc = widget != null ? widget.PlayerActor?.CharacterClass : null;
-            if (model == null || cc == null || cc.HandAbilityCards.Contains(model)
+            if (!_dismissFlightOriginals.ContainsKey(widget!) && (model == null || cc == null || cc.HandAbilityCards.Contains(model)
                 || cc.RoundAbilityCards.Contains(model) || cc.ExtraTurnCards.Contains(model)
-                || cc.ActivatedCards.Contains(model)) _burnHoldPruneScratch.Add(widget!);
+                || cc.ActivatedCards.Contains(model))) _burnHoldPruneScratch.Add(widget!);
         }
         for (int i = 0; i < _burnHoldPruneScratch.Count; i++)
             _activeExitOrigins.Remove(_burnHoldPruneScratch[i]);
@@ -1266,7 +1269,8 @@ internal sealed partial class CardsDriver
             if (previous == null || previous.GameCard == null || _active.Contains(previous)) continue;
             RoundCardExit exit = RoundCardExitOf(hand, previous, out CPlayerActor? owner);
             if (exit is RoundCardExit.Discarded or RoundCardExit.Lost or RoundCardExit.PermanentlyLost)
-                _activeExitOrigins[previous.GameCard] = CapturedActiveSource(previous.GameCard, owner);
+                if (!_activeExitOrigins.ContainsKey(previous.GameCard))
+                    _activeExitOrigins[previous.GameCard] = CapturedActiveSource(previous.GameCard, owner);
         }
 
         // Pile browse (test #21): refresh content or close — BEFORE the zone flags
@@ -1285,6 +1289,8 @@ internal sealed partial class CardsDriver
             // park sweep must not re-park it (double-hide) while it shrinks out.
             if (card.IsFlying || card.IsVanishing)
                 continue;
+            if (_dismissCommitted && ReferenceEquals(card, _dismissCard))
+                continue; // native active/pile handoff gap: the accepted berth still owns this original
             if (card.GameCard != null && _burnHoldSince.ContainsKey(card.GameCard))
                 continue; // the native burn owns its original surface until the global hold pump releases it
             // Same rule, one more owner (character-swap exchange, 2026-08-09): a card the hand fan
@@ -2647,6 +2653,8 @@ internal sealed partial class CardsDriver
         if (!_piles.TryGetPileWorld(fate, out Vector3 worldPos, out float slabWidth))
             return false; // pile offscreen / not built → fall back to the instant hide
 
+        PreserveActiveDismissFlightPose(card);
+
         // ─── A BURN IS A BURN "EGAL AUS WELCHEM GRUND", INCLUDING THIS ONE ──────────────────────
         // (2026-09-07 round, item 8: "Prüfe das nochmal bei allen Verbrennen-Flows!")
         //
@@ -2744,7 +2752,8 @@ internal sealed partial class CardsDriver
             ? Net.CardFlightVisibility.ConsumeBurn(card.GameCard?.AbilityCard) : (byte)0;
         float completionTime = fate == PileKind.Burnt && card.GameCard != null
             ? Net.CardAppearanceSampler.RetainBurnCompletion(card.GameCard, card.FullCard) : -1f;
-        ReportCardFx(flightOrigin, PileAnchor(fate), flightFlags, FlightSourceOf(card.GameCard), completionTime);
+        ReportCardFx(flightOrigin, PileAnchor(fate), flightFlags, FlightSourceOf(card.GameCard), completionTime,
+            TakeActiveDismissFlightOrigin(card.GameCard, card));
         CardFlightLedger.Note("own", fate.ToString(),
             wasActive ? "own-active-expiry" : wasPickField ? "own-pick-field-commit" : "own-turn-clear",
             CardsGameApi.CardName(card.GameCard!));
@@ -3048,6 +3057,7 @@ internal sealed partial class CardsDriver
             return false; // burnt pile off / not built — no destination to fly to
 
         AbilityCardUI widget = card.GameCard!;
+        PreserveActiveDismissFlightPose(card);
         // ORDER OF THE BURN (same ruling as TryAnimateBurn): the park sweep can see the fresh burn
         // BEFORE the pile watcher does (Rebuild runs first in the frame, and the game commits the
         // pile move frames ahead of starting the card's burn timeline). Flying here immediately
@@ -3077,7 +3087,7 @@ internal sealed partial class CardsDriver
         byte flightFlags = Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard);
         float completionTime = Net.CardAppearanceSampler.RetainBurnCompletion(widget, card.FullCard);
         ReportCardFx(BurnOrPileOrigin(widget, _tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
-            flightFlags, FlightSourceOf(widget), completionTime);
+            flightFlags, FlightSourceOf(widget), completionTime, TakeActiveDismissFlightOrigin(widget, card));
         LogBurnAttribution(widget, "park-sweep");
         CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
         VRCard flying = card;
@@ -3515,7 +3525,8 @@ internal sealed partial class CardsDriver
     /// the owning client still reports its own flights on its own board exactly as before.</para>
     /// </summary>
     private static void ReportCardFx(Net.CardFxAnchor from, Net.CardFxAnchor to, byte flags = 0,
-                                     Net.CardFlightSource? source = null, float completionTime = -1f)
+                                     Net.CardFlightSource? source = null, float completionTime = -1f,
+                                     Net.CardDismissFlightOrigin? dismissOrigin = null)
     {
         if (source.HasValue)
         {
@@ -3525,7 +3536,7 @@ internal sealed partial class CardsDriver
             if (!CardsGameApi.ControlsActor(actor)) return;
         }
         else if (Board.CharacterFocus.ReadOnlyView) return;
-        Net.NetCardFx.Report(from, to, flags, source, completionTime);
+        Net.NetCardFx.Report(from, to, flags, source, completionTime, dismissOrigin);
     }
 
     /// <summary>Wire anchor for a board slot index (-1 → the generic board anchor).</summary>
@@ -3947,6 +3958,8 @@ internal sealed partial class CardsDriver
 
         VRCard? card = _factory.Find(widget);
 
+        if (card != null) PreserveActiveDismissFlightPose(card);
+
         // ORDER OF THE BURN (user ruling 2026-08-03: "Ich möchte, dass die Karte erst liegen
         // bleibt, man auf der Karte selber die Verbrannt-Animation abwartet und DANN in das
         // jeweilige Pile geht").
@@ -4017,7 +4030,7 @@ internal sealed partial class CardsDriver
             byte liveFlightFlags = Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard);
             float completionTime = Net.CardAppearanceSampler.RetainBurnCompletion(widget, card.FullCard);
             ReportCardFx(BurnOrPileOrigin(widget, _tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
-                liveFlightFlags, FlightSourceOf(widget), completionTime);
+                liveFlightFlags, FlightSourceOf(widget), completionTime, TakeActiveDismissFlightOrigin(widget, card));
             LogBurnAttribution(widget, origin);
             CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
             card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
@@ -4046,6 +4059,7 @@ internal sealed partial class CardsDriver
         Quaternion fromRot = _lastCardWorldRot.TryGetValue(widget, out Quaternion r) ? r : Quaternion.identity;
         float fromWidth = _lastCardWorldWidth.TryGetValue(widget, out float rememberedWidth)
             ? rememberedWidth : CardsConfig.CardWidth.Value * (AnchorParent()?.lossyScale.x ?? 1f);
+        Net.CardDismissFlightOrigin? dismissOrigin = TakeActiveDismissFlightOrigin(widget, null);
         _lastCardWorldPos.Remove(widget); // consumed either way
         _lastCardWorldRot.Remove(widget);
         _lastCardWorldWidth.Remove(widget);
@@ -4076,7 +4090,7 @@ internal sealed partial class CardsDriver
         // approximation item 5's fix exists to remove.
         float slabCompletionTime = Net.CardAppearanceSampler.RetainBurnCompletion(widget, card != null ? card.FullCard : null);
         ReportCardFx(BurnOrPileOrigin(widget, -1), Net.CardFxAnchor.Burnt,
-            flightFlags, FlightSourceOf(widget), slabCompletionTime);
+            flightFlags, FlightSourceOf(widget), slabCompletionTime, dismissOrigin);
         // MB490: a recycled VRCard never justified losing its original front. The transient
         // owns an inert native clone and releases it on destruction; the source stays untouched.
         VRLog.Note("Cards", $"CARD FACE RULE [{origin}/slab]: '{CardsGameApi.CardName(widget)}' " +

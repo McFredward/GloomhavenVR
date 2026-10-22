@@ -8,6 +8,9 @@ def method(text, signature):
     while depth:
         depth += (text[end] == '{') - (text[end] == '}'); end += 1
     return text[start:end]
+departures = source('RemoteActiveDepartures')
+def declaration(text, signature):
+    return re.search(re.escape(signature) + r'[^;]*;', text).group(0)
 card = source('RemoteBoardCard'); fx=source('RemoteCardFx'); board=source('RemoteControlBoard'); fan=source('RemoteHandFan'); active=source('RemoteActiveCards')
 transfer=method(card,'internal int TransferToFlight(')
 set_prefix=method(card,'public void Set(').split('if (empty == _shownEmpty')[0]
@@ -91,6 +94,23 @@ public void SeatSlots(CPlayerActor actor,bool front,bool exhausted) { _cards[0].
 }
 internal sealed class OwnerFixture {
 public BoardFixture Board=new(); public DummyFan HandFan=new();
+// Renderer/native hierarchy reads are the boundary; the pose resolver and handover below
+// execute the production methods, including retained-original and berth fallback branches.
+public Transform? ItemUseRecess;
+public CAbilityCard? VisibleDismissCard;
+public Vector3 VisibleDismissPosition;
+public Quaternion VisibleDismissRotation=Quaternion.identity;
+public float VisibleDismissWidth;
+public int DismissPoseReads;
+public bool TryDismissPose(CAbilityCard card,out Vector3 at,out Quaternion facing,out float width) {
+    DismissPoseReads++; at=VisibleDismissPosition; facing=VisibleDismissRotation; width=VisibleDismissWidth;
+    return ReferenceEquals(card,VisibleDismissCard);
+}
+public float BoardScale=1, DrawnScale=1;
+public bool HasDrawnPose=true;
+public bool TryDrawnBoardPose(out Vector3 at,out Quaternion facing,out float scale) {
+    at=default; facing=Quaternion.identity; scale=DrawnScale; return HasDrawnPose;
+}
 public int TransferCardToFlight(CardFxAnchor from,int id,CPlayerActor? actor,long generation) => Board.TransferCardToFlight(from,id,actor,generation);
 public void BeginFlightArrival(int slot,CPlayerActor? actor,long generation) => Board.BeginFlightArrival(slot,actor,generation);
 public bool OwnsFlightSlot(int slot,CPlayerActor? actor,long generation) => Board.OwnsFlightSlot(slot,actor,generation);
@@ -98,11 +118,28 @@ public void BeginActiveFlight(int id,CPlayerActor? actor,long generation) => Boa
 public bool OwnsActiveFlight(int id,CPlayerActor? actor,long generation) => Board.OwnsActiveFlight(id,actor,generation);
 public void SuppressBurnRecess(int slot) => Board.SuppressBurnRecess(slot);
 }
-internal sealed class Flight { public long Generation=1; public bool Active=true,Drawable=true,SourceTransferred; public DummyRoot Go=new(); public CPlayerActor? SourceActor; public CAbilityCard? FaceCard; public int TransferredCardId=int.MinValue, ActiveCardId=int.MinValue; public byte Endpoints; }
+internal sealed class CardDismissFlightOrigin { public Pose BerthPose; public float Width; }
+internal struct Pose { public Vector3 Position; public Quaternion Rotation; }
+internal static class RemoteActiveDepartures {
+""" + method(departures,'internal static bool TryDismissPose(').replace('RemoteAvatar owner','OwnerFixture owner').replace('berth.lossyScale.x','berth.lossyScale.X') + """
+}
+internal static class Defaults {
+""" + declaration((root / 'src/GloomhavenVR/Defaults/Defaults.Cards.cs').read_text(),'internal const float CardWidth =') + """
+}
+internal static class RemoteHandFan {
+""" + declaration(fan,'internal const float DefaultCardWidth =') + """
+}
+internal sealed class Flight {
+public bool FromDismissBerth; public CardDismissFlightOrigin? DismissOrigin;
+public Vector3 From,To; public Quaternion Rotation=Quaternion.identity; public float FromWidth,Arc;
+public long Generation=1; public bool Active=true,Drawable=true,SourceTransferred; public DummyRoot Go=new(); public CPlayerActor? SourceActor; public CAbilityCard? FaceCard; public int TransferredCardId=int.MinValue, ActiveCardId=int.MinValue; public byte Endpoints; }
 internal sealed class FxFixture {
-public OwnerFixture _owner=new(); private static bool CanDrawFlight(Flight f) => f.Drawable && f.Active;
+public OwnerFixture _owner=new();
+""" + declaration(fx,'private const float ArcFraction =') + declaration(fx,'private const float MinArcCardHeights =') + declaration(fx,'private float CardHeight =>') + declaration(fx,'private float DrawnBoardScale =>') + """
+private float _cardWidth=Defaults.CardWidth;
+private static bool CanDrawFlight(Flight f) => f.Drawable && f.Active;
 public void Apply(Flight f) => TransferVisibleFlight(f);
-""" + method(fx,'private void TransferVisibleFlight(') + """
+""" + method(fx,'private void TransferVisibleFlight(').replace('Vector3.one','Vector3.One') + """
 }
 """
 fixture=fixture.replace('public bool Visible, Vanishing;','public bool Visible, Vanishing; public bool FlightTransferred => _flightDepartedId != int.MinValue; private bool _materialiseSeeded; public bool Seeded => _materialiseSeeded;')
@@ -131,12 +168,15 @@ public System.Numerics.Quaternion Value;
 public static Quaternion identity => new(){Value=System.Numerics.Quaternion.Identity};
 public static Quaternion AroundZ(float radians) => new(){Value=System.Numerics.Quaternion.CreateFromAxisAngle(System.Numerics.Vector3.UnitZ,radians)};
 public static Quaternion operator*(Quaternion a,Quaternion b) => new(){Value=a.Value*b.Value};
+public static Vector3 operator*(Quaternion a,Vector3 b) => System.Numerics.Vector3.Transform(b,a.Value);
 }
-internal static class Mathf { public static float Max(float a,float b)=>Math.Max(a,b); }
+internal static class Mathf { public static float Max(float a,float b)=>Math.Max(a,b); public static float Abs(float a)=>Math.Abs(a); }
 internal sealed class Transform {
 public System.Numerics.Vector3 position;
 public Quaternion rotation=Quaternion.identity;
 public float scale=1;
+public Vector3 lossyScale => new Vector3(scale);
+public void SetPositionAndRotation(Vector3 at,Quaternion facing) { position=at; rotation=facing; }
 public System.Numerics.Vector3 localPosition,localScale; public Quaternion localRotation=Quaternion.identity;
 public System.Numerics.Vector3 TransformPoint(System.Numerics.Vector3 local) => position + System.Numerics.Vector3.Transform(local*scale,rotation.Value);
 }

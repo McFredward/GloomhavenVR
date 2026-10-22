@@ -32,13 +32,13 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**210 patch classes, 308 patched methods.**
+**211 patch classes, 309 patched methods.**
 
 ## Board
 
 | Patch class | Target | Kind | Registered by |
 |---|---|---|---|
-| `Controller_CommonLoop_Patch`<br/><sub>src/GloomhavenVR/Board/BoardClickDriver.cs:789</sub> | `Controller.CommonLoop()` *(private)* | postfix | `BoardModule`:115 |
+| `Controller_CommonLoop_Patch`<br/><sub>src/GloomhavenVR/Board/BoardClickDriver.cs:792</sub> | `Controller.CommonLoop()` *(private)* | postfix | `BoardModule`:115 |
 | `ActorBehaviour_HeldTransform_Patch`<br/><sub>src/GloomhavenVR/Board/FigureGrab/ActorBehaviour_HeldTransform_Patch.cs:42</sub> | `ActorBehaviour.Update()` *(private)* | prefix | `BoardModule`:118 |
 | &nbsp; | `ActorBehaviour.LateUpdate()` *(private)* | prefix | &nbsp; |
 | &nbsp; | `ActorBehaviour.SetLocoTarget()` | prefix | &nbsp; |
@@ -75,46 +75,47 @@ runtime, which is why a runtime audit could never do this job (see
 
 | Patch class | Target | Kind | Registered by |
 |---|---|---|---|
-| `BurnArtwork.AbilityCardUI_Init_HistoricalBurn_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:119</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `CardsModule`:93 |
-| `BurnArtwork.ToggleEffect_PreserveSpentStart_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:309</sub> | `CardEffects.ToggleEffect()` | prefix | `CardsModule`:90 |
-| `BurnArtwork.ToggleAdditiveEffect_PreservePlayback_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:333</sub> | `CardEffects.ToggleAdditiveEffect()` | prefix | `CardsModule`:91 |
-| `BurnArtwork.RestoreCard_PreservePlayback_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:348</sub> | `CardEffects.RestoreCard()` | prefix | `CardsModule`:92 |
-| `BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:387</sub> | `CardEffects.BurnCardTimeline()` | prefix | `CardsModule`:95 |
+| `BurnArtwork.AbilityCardUI_Init_HistoricalBurn_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:119</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `CardsModule`:94 |
+| `BurnArtwork.ToggleEffect_PreserveSpentStart_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:309</sub> | `CardEffects.ToggleEffect()` | prefix | `CardsModule`:91 |
+| `BurnArtwork.ToggleAdditiveEffect_PreservePlayback_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:333</sub> | `CardEffects.ToggleAdditiveEffect()` | prefix | `CardsModule`:92 |
+| `BurnArtwork.RestoreCard_PreservePlayback_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:348</sub> | `CardEffects.RestoreCard()` | prefix | `CardsModule`:93 |
+| `BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch`<br/><sub>src/GloomhavenVR/Cards/BurnArtwork.cs:387</sub> | `CardEffects.BurnCardTimeline()` | prefix | `CardsModule`:96 |
 | &nbsp; | `CardEffects.BurnCardTimeline()` | postfix | &nbsp; |
-| `ItemBurnPlayback.ToggleEffect_Once`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:107</sub> | `ItemCardEffects.ToggleEffect()` | prefix | `CardsModule`:97 |
-| `ItemBurnPlayback.ToggleAdditiveEffect_Once`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:114</sub> | `ItemCardEffects.ToggleAdditiveEffect()` | prefix | `CardsModule`:98 |
-| `ItemBurnPlayback.RestoreCard_Once`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:121</sub> | `ItemCardEffects.RestoreCard()` | prefix | `CardsModule`:99 |
-| `ItemBurnPlayback.ReturnedToPool_Retire`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:128</sub> | `ItemCardUI.OnReturnedToPool()` | prefix | `CardsModule`:100 |
-| `ItemBurnPlayback.BurnCardTimeline_Track`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:135</sub> | `ItemCardEffects.BurnCardTimeline()` | postfix | `CardsModule`:96 |
-| `FullAbilityCard_UpdateScale_AdoptedLayout`<br/><sub>src/GloomhavenVR/Cards/Patches/AdoptedCardLayoutPatches.cs:33</sub> | `FullAbilityCard.UpdateScale()` *(private)* | prefix | `CardsModule`:88 |
-| `FullAbilityCard_UpdatePosition_AdoptedLayout`<br/><sub>src/GloomhavenVR/Cards/Patches/AdoptedCardLayoutPatches.cs:39</sub> | `FullAbilityCard.UpdatePosition()` *(private)* | prefix | `CardsModule`:89 |
-| `FullAbilityCard_ShowCard_ArtGuard`<br/><sub>src/GloomhavenVR/Cards/Patches/CardArtPatches.cs:23</sub> | `FullAbilityCard.ShowCard()` | prefix | `CardsModule`:87 |
-| `FullAbilityCard_OnEnable_CensusLifetime`<br/><sub>src/GloomhavenVR/Cards/Patches/CardArtPatches.cs:29</sub> | `FullAbilityCard.OnEnable()` *(private)* | postfix | `CardsModule`:32 |
-| `FullAbilityCard_Init_CensusLifetime`<br/><sub>src/GloomhavenVR/Cards/Patches/CardArtPatches.cs:35</sub> | `FullAbilityCard.Init()` | postfix | `CardsModule`:33 |
-| `FullAbilityCard_OnDestroy_CensusLifetime`<br/><sub>src/GloomhavenVR/Cards/Patches/CardArtPatches.cs:41</sub> | `FullAbilityCard.OnDestroy()` *(private)* | prefix | `CardsModule`:34 |
-| `ObjectPool_RecycleCard_NativeHierarchy`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:8</sub> | `ObjectPool.RecycleCard()` | prefix | `CardsModule`:49 |
-| `ObjectPool_GetCardInstance_NativeHierarchy`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:24</sub> | `ObjectPool.GetCardInstance()` *(private)* | prefix | `CardsModule`:50 |
-| `AbilityCardUI_OnReturnedToPool_BurnLifetime`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:34</sub> | `AbilityCardUI.OnReturnedToPool()` | prefix | `CardsModule`:94 |
-| `CardsHandUI_OnDestroy_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:58</sub> | `CardsHandUI.OnDestroy()` *(private)* | prefix | `CardsModule`:51 |
-| `CardsHandUI_DestroyCardUI_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:71</sub> | `CardsHandUI.DestroyCardUI()` | prefix | `CardsModule`:52 |
-| `SceneController_LoadScene_CardLifetime`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:97</sub> | `SceneController.LoadSceneCoroutine()` *(private)* | postfix | `CardsModule`:48 |
-| `CardsHandUI_OnLoseCardClick_Gate`<br/><sub>src/GloomhavenVR/Cards/Patches/DamageFlowPatches.cs:42</sub> | `CardsHandUI.OnLoseCardClick()` *(private)* | prefix | `CardsModule`:54 |
-| `TakeDamagePanel_BurnHover_Skip`<br/><sub>src/GloomhavenVR/Cards/Patches/DamageFlowPatches.cs:591</sub> | `TakeDamagePanel.OnMouseEnterBurnOne()` | prefix | `CardsModule`:55 |
+| `ItemBurnPlayback.ToggleEffect_Once`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:107</sub> | `ItemCardEffects.ToggleEffect()` | prefix | `CardsModule`:98 |
+| `ItemBurnPlayback.ToggleAdditiveEffect_Once`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:114</sub> | `ItemCardEffects.ToggleAdditiveEffect()` | prefix | `CardsModule`:99 |
+| `ItemBurnPlayback.RestoreCard_Once`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:121</sub> | `ItemCardEffects.RestoreCard()` | prefix | `CardsModule`:100 |
+| `ItemBurnPlayback.ReturnedToPool_Retire`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:128</sub> | `ItemCardUI.OnReturnedToPool()` | prefix | `CardsModule`:101 |
+| `ItemBurnPlayback.BurnCardTimeline_Track`<br/><sub>src/GloomhavenVR/Cards/ItemBurnPlayback.cs:135</sub> | `ItemCardEffects.BurnCardTimeline()` | postfix | `CardsModule`:97 |
+| `ActiveDismissConfirmation`<br/><sub>src/GloomhavenVR/Cards/Patches/ActiveDismissConfirmation.cs:17</sub> | `UIConfirmationBoxManager.ShowCancelActiveAbility()` | prefix | `CardsModule`:32 |
+| `FullAbilityCard_UpdateScale_AdoptedLayout`<br/><sub>src/GloomhavenVR/Cards/Patches/AdoptedCardLayoutPatches.cs:33</sub> | `FullAbilityCard.UpdateScale()` *(private)* | prefix | `CardsModule`:89 |
+| `FullAbilityCard_UpdatePosition_AdoptedLayout`<br/><sub>src/GloomhavenVR/Cards/Patches/AdoptedCardLayoutPatches.cs:39</sub> | `FullAbilityCard.UpdatePosition()` *(private)* | prefix | `CardsModule`:90 |
+| `FullAbilityCard_ShowCard_ArtGuard`<br/><sub>src/GloomhavenVR/Cards/Patches/CardArtPatches.cs:23</sub> | `FullAbilityCard.ShowCard()` | prefix | `CardsModule`:88 |
+| `FullAbilityCard_OnEnable_CensusLifetime`<br/><sub>src/GloomhavenVR/Cards/Patches/CardArtPatches.cs:29</sub> | `FullAbilityCard.OnEnable()` *(private)* | postfix | `CardsModule`:33 |
+| `FullAbilityCard_Init_CensusLifetime`<br/><sub>src/GloomhavenVR/Cards/Patches/CardArtPatches.cs:35</sub> | `FullAbilityCard.Init()` | postfix | `CardsModule`:34 |
+| `FullAbilityCard_OnDestroy_CensusLifetime`<br/><sub>src/GloomhavenVR/Cards/Patches/CardArtPatches.cs:41</sub> | `FullAbilityCard.OnDestroy()` *(private)* | prefix | `CardsModule`:35 |
+| `ObjectPool_RecycleCard_NativeHierarchy`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:8</sub> | `ObjectPool.RecycleCard()` | prefix | `CardsModule`:50 |
+| `ObjectPool_GetCardInstance_NativeHierarchy`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:24</sub> | `ObjectPool.GetCardInstance()` *(private)* | prefix | `CardsModule`:51 |
+| `AbilityCardUI_OnReturnedToPool_BurnLifetime`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:34</sub> | `AbilityCardUI.OnReturnedToPool()` | prefix | `CardsModule`:95 |
+| `CardsHandUI_OnDestroy_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:58</sub> | `CardsHandUI.OnDestroy()` *(private)* | prefix | `CardsModule`:52 |
+| `CardsHandUI_DestroyCardUI_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:71</sub> | `CardsHandUI.DestroyCardUI()` | prefix | `CardsModule`:53 |
+| `SceneController_LoadScene_CardLifetime`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:97</sub> | `SceneController.LoadSceneCoroutine()` *(private)* | postfix | `CardsModule`:49 |
+| `CardsHandUI_OnLoseCardClick_Gate`<br/><sub>src/GloomhavenVR/Cards/Patches/DamageFlowPatches.cs:42</sub> | `CardsHandUI.OnLoseCardClick()` *(private)* | prefix | `CardsModule`:55 |
+| `TakeDamagePanel_BurnHover_Skip`<br/><sub>src/GloomhavenVR/Cards/Patches/DamageFlowPatches.cs:591</sub> | `TakeDamagePanel.OnMouseEnterBurnOne()` | prefix | `CardsModule`:56 |
 | &nbsp; | `TakeDamagePanel.OnMouseEnterBurnTwo()` | prefix | &nbsp; |
 | &nbsp; | `TakeDamagePanel.OnMouseExitBurnOne()` | prefix | &nbsp; |
 | &nbsp; | `TakeDamagePanel.OnMouseExitBurnTwo()` | prefix | &nbsp; |
-| `DialogPopup_Show_HoverStrip`<br/><sub>src/GloomhavenVR/Cards/Patches/DamageFlowPatches.cs:625</sub> | `DialogPopup.Show(List<GameObject>, DialogOption[], bool, int, UnityAction)` | postfix | `CardsModule`:56 |
-| `MapPartyEnhancementShopService_AddEnhancement_FanRefresh`<br/><sub>src/GloomhavenVR/Cards/Patches/EnhancementCommitPatch.cs:36</sub> | `MapPartyEnhancementShopService.AddEnhancement()` | postfix | `CardsModule`:107 |
-| `FullCardEventPusher_Enter_LaserGeometric`<br/><sub>src/GloomhavenVR/Cards/Patches/HalfHoverPatches.cs:37</sub> | `FullCardEventPusher.OnPointerEnter()` | prefix | `CardsModule`:72 |
-| `FullCardEventPusher_Exit_LaserGeometric`<br/><sub>src/GloomhavenVR/Cards/Patches/HalfHoverPatches.cs:48</sub> | `FullCardEventPusher.OnPointerExit()` | prefix | `CardsModule`:73 |
-| `FullAbilityCard_Enter_HalfHoverSync`<br/><sub>src/GloomhavenVR/Cards/Patches/HalfHoverPatches.cs:68</sub> | `FullAbilityCard.OnPointerEnter()` | postfix | `CardsModule`:79 |
-| `FullAbilityCard_Exit_HalfHoverSync`<br/><sub>src/GloomhavenVR/Cards/Patches/HalfHoverPatches.cs:77</sub> | `FullAbilityCard.OnPointerExit()` | postfix | `CardsModule`:80 |
-| `CardsHandManager_ShowList_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/HandSuppressionPatches.cs:60</sub> | `CardsHandManager.Show(CPlayerActor, CardHandMode, CardPileType, List<CardPileType>, int, bool, bool, bool, CardsHandUI.CardActionsCommand, bool, bool, Action<AbilityCardUI>, Func<CAbilityCard, bool>)` | postfix | `CardsModule`:45 |
-| `CardsHandManager_ShowAll_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/HandSuppressionPatches.cs:79</sub> | `CardsHandManager.Show(CardHandMode, CardPileType, List<CardPileType>, int, bool, bool, bool)` | postfix | `CardsModule`:46 |
-| `CardsHandManager_ShowHands_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/HandSuppressionPatches.cs:94</sub> | `CardsHandManager.ShowHands()` *(private)* | postfix | `CardsModule`:47 |
-| `CardsHandUI_HandleLongRest_PickFlowEnd`<br/><sub>src/GloomhavenVR/Cards/Patches/PickFlowPatches.cs:902</sub> | `CardsHandUI.HandleLongRest()` *(private)* | prefix | `CardsModule`:67 |
-| `CardsHandUI_UpdateView_PickFlowOpen`<br/><sub>src/GloomhavenVR/Cards/Patches/PickFlowPatches.cs:922</sub> | `CardsHandUI.UpdateView(CardHandMode, bool, CardPileType, List<CardPileType>, int, bool, bool, CardsHandUI.CardActionsCommand, bool, Action<AbilityCardUI>, Func<CAbilityCard, bool>)` | postfix | `CardsModule`:61 |
-| `CardsHandUI_Hide_PickFlowEnd`<br/><sub>src/GloomhavenVR/Cards/Patches/PickFlowPatches.cs:936</sub> | `CardsHandUI.Hide()` | postfix | `CardsModule`:62 |
+| `DialogPopup_Show_HoverStrip`<br/><sub>src/GloomhavenVR/Cards/Patches/DamageFlowPatches.cs:625</sub> | `DialogPopup.Show(List<GameObject>, DialogOption[], bool, int, UnityAction)` | postfix | `CardsModule`:57 |
+| `MapPartyEnhancementShopService_AddEnhancement_FanRefresh`<br/><sub>src/GloomhavenVR/Cards/Patches/EnhancementCommitPatch.cs:36</sub> | `MapPartyEnhancementShopService.AddEnhancement()` | postfix | `CardsModule`:108 |
+| `FullCardEventPusher_Enter_LaserGeometric`<br/><sub>src/GloomhavenVR/Cards/Patches/HalfHoverPatches.cs:37</sub> | `FullCardEventPusher.OnPointerEnter()` | prefix | `CardsModule`:73 |
+| `FullCardEventPusher_Exit_LaserGeometric`<br/><sub>src/GloomhavenVR/Cards/Patches/HalfHoverPatches.cs:48</sub> | `FullCardEventPusher.OnPointerExit()` | prefix | `CardsModule`:74 |
+| `FullAbilityCard_Enter_HalfHoverSync`<br/><sub>src/GloomhavenVR/Cards/Patches/HalfHoverPatches.cs:68</sub> | `FullAbilityCard.OnPointerEnter()` | postfix | `CardsModule`:80 |
+| `FullAbilityCard_Exit_HalfHoverSync`<br/><sub>src/GloomhavenVR/Cards/Patches/HalfHoverPatches.cs:77</sub> | `FullAbilityCard.OnPointerExit()` | postfix | `CardsModule`:81 |
+| `CardsHandManager_ShowList_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/HandSuppressionPatches.cs:60</sub> | `CardsHandManager.Show(CPlayerActor, CardHandMode, CardPileType, List<CardPileType>, int, bool, bool, bool, CardsHandUI.CardActionsCommand, bool, bool, Action<AbilityCardUI>, Func<CAbilityCard, bool>)` | postfix | `CardsModule`:46 |
+| `CardsHandManager_ShowAll_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/HandSuppressionPatches.cs:79</sub> | `CardsHandManager.Show(CardHandMode, CardPileType, List<CardPileType>, int, bool, bool, bool)` | postfix | `CardsModule`:47 |
+| `CardsHandManager_ShowHands_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/HandSuppressionPatches.cs:94</sub> | `CardsHandManager.ShowHands()` *(private)* | postfix | `CardsModule`:48 |
+| `CardsHandUI_HandleLongRest_PickFlowEnd`<br/><sub>src/GloomhavenVR/Cards/Patches/PickFlowPatches.cs:902</sub> | `CardsHandUI.HandleLongRest()` *(private)* | prefix | `CardsModule`:68 |
+| `CardsHandUI_UpdateView_PickFlowOpen`<br/><sub>src/GloomhavenVR/Cards/Patches/PickFlowPatches.cs:922</sub> | `CardsHandUI.UpdateView(CardHandMode, bool, CardPileType, List<CardPileType>, int, bool, bool, CardsHandUI.CardActionsCommand, bool, Action<AbilityCardUI>, Func<CAbilityCard, bool>)` | postfix | `CardsModule`:62 |
+| `CardsHandUI_Hide_PickFlowEnd`<br/><sub>src/GloomhavenVR/Cards/Patches/PickFlowPatches.cs:936</sub> | `CardsHandUI.Hide()` | postfix | `CardsModule`:63 |
 
 ## Compat
 
@@ -237,8 +238,8 @@ runtime, which is why a runtime audit could never do this job (see
 | `MapItemConfirmationRequestObserver`<br/><sub>src/GloomhavenVR/WorldUI/Composites/MapDialogSeat.cs:708</sub> | `UIItemConfirmationBox.ShowConfirmation()` | prefix | `WorldUIModule`:84 |
 | `QuestPreparationHint`<br/><sub>src/GloomhavenVR/WorldUI/Composites/QuestPreparationHint.cs:22</sub> | `UIIntroduceBase.Show(IntroductionConfigUI, Action)` *(private)* | prefix | `WorldUIModule`:148 |
 | `NativeStartupMoviePatch`<br/><sub>src/GloomhavenVR/WorldUI/FlatScreen/NativeEmbeddedMoviePatches.cs:10</sub> | `IntroPlayer.ShowVideo()` *(private)* | prefix | `WorldUIModule`:182 |
-| `NativeVideoMoviePatch`<br/><sub>src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs:258</sub> | `VideoCamera.PlayFullscreenVideo()` | transpiler | `WorldUIModule`:179 |
-| `NativeAmbientMoviePatch`<br/><sub>src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs:299</sub> | `BackgroundView.Update()` *(private)* | transpiler | `WorldUIModule`:181 |
+| `NativeVideoMoviePatch`<br/><sub>src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs:281</sub> | `VideoCamera.PlayFullscreenVideo()` | transpiler | `WorldUIModule`:179 |
+| `NativeAmbientMoviePatch`<br/><sub>src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs:322</sub> | `BackgroundView.Update()` *(private)* | transpiler | `WorldUIModule`:181 |
 | `InputManager_SetGamepadInputDevice_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:75</sub> | `InputManager.SetGamepadInputDevice()` | prefix | `WorldUIModule`:79 |
 | `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:80 |
 | `VrGamepadConnectionActivateGuard`<br/><sub>src/GloomhavenVR/WorldUI/Grab/VrGamepadConnectionGuard.cs:20</sub> | `GamepadConnectionBox.Activate()` | prefix | `WorldUIModule`:81 |
@@ -382,7 +383,7 @@ runtime, which is why a runtime audit could never do this job (see
 | Module file | Patch classes registered |
 |---|---|
 | `src/GloomhavenVR/Board/BoardModule.cs` | `ActorBehaviour_HeldTransform_Patch`, `AllCardsViewerBlock`, `CharacterManager_OnControlReleased_Fallback`, `Choreographer_HeldFigureAction_Patch`, `Choreographer_TileHandler_OwnershipGuard`, `Controller_CommonLoop_Patch`, `HexHoverClear`, `HexSelect_ProjectorMaterialAdjustment_Patch`, `HoverPickPatch`, `InitiativeTrackPlayerAvatar_OnClick_Guard`, `InitiativeTrack_ShowMonsterClasses_ArmSkip`, `InitiativeTrack_Update_TickSkip`, `InputManager_CursorPosition_Patch`, `InteractabilityManager_PortraitFocusBypass`, `MF_FindInteractableAtMousePosition_Patch`, `MF_HeldFigureAnimation_Patch`, `PingNameTag_Patch`, `Placement_Click_Diagnostics`, `Placement_Hover_Diagnostics`, `Placement_UpdateGate_Diagnostics`, `ProjectorModifier_Awake_Patch`, `UIManager_IsPointerOverUI_Patch` |
-| `src/GloomhavenVR/Cards/CardsModule.cs` | `AbilityCardUI_Init_HistoricalBurn_Patch`, `AbilityCardUI_OnReturnedToPool_BurnLifetime`, `BurnCardTimeline_PreserveSpentStart_Patch`, `BurnCardTimeline_Track`, `CardsHandManager_ShowAll_Patch`, `CardsHandManager_ShowHands_Patch`, `CardsHandManager_ShowList_Patch`, `CardsHandUI_DestroyCardUI_Patch`, `CardsHandUI_HandleLongRest_PickFlowEnd`, `CardsHandUI_Hide_PickFlowEnd`, `CardsHandUI_OnDestroy_Patch`, `CardsHandUI_OnLoseCardClick_Gate`, `CardsHandUI_UpdateView_PickFlowOpen`, `DialogPopup_Show_HoverStrip`, `FullAbilityCard_Enter_HalfHoverSync`, `FullAbilityCard_Exit_HalfHoverSync`, `FullAbilityCard_Init_CensusLifetime`, `FullAbilityCard_OnDestroy_CensusLifetime`, `FullAbilityCard_OnEnable_CensusLifetime`, `FullAbilityCard_ShowCard_ArtGuard`, `FullAbilityCard_UpdatePosition_AdoptedLayout`, `FullAbilityCard_UpdateScale_AdoptedLayout`, `FullCardEventPusher_Enter_LaserGeometric`, `FullCardEventPusher_Exit_LaserGeometric`, `MapPartyEnhancementShopService_AddEnhancement_FanRefresh`, `ObjectPool_GetCardInstance_NativeHierarchy`, `ObjectPool_RecycleCard_NativeHierarchy`, `RestoreCard_Once`, `RestoreCard_PreservePlayback_Patch`, `ReturnedToPool_Retire`, `SceneController_LoadScene_CardLifetime`, `TakeDamagePanel_BurnHover_Skip`, `ToggleAdditiveEffect_Once`, `ToggleAdditiveEffect_PreservePlayback_Patch`, `ToggleEffect_Once`, `ToggleEffect_PreserveSpentStart_Patch` |
+| `src/GloomhavenVR/Cards/CardsModule.cs` | `AbilityCardUI_Init_HistoricalBurn_Patch`, `AbilityCardUI_OnReturnedToPool_BurnLifetime`, `ActiveDismissConfirmation`, `BurnCardTimeline_PreserveSpentStart_Patch`, `BurnCardTimeline_Track`, `CardsHandManager_ShowAll_Patch`, `CardsHandManager_ShowHands_Patch`, `CardsHandManager_ShowList_Patch`, `CardsHandUI_DestroyCardUI_Patch`, `CardsHandUI_HandleLongRest_PickFlowEnd`, `CardsHandUI_Hide_PickFlowEnd`, `CardsHandUI_OnDestroy_Patch`, `CardsHandUI_OnLoseCardClick_Gate`, `CardsHandUI_UpdateView_PickFlowOpen`, `DialogPopup_Show_HoverStrip`, `FullAbilityCard_Enter_HalfHoverSync`, `FullAbilityCard_Exit_HalfHoverSync`, `FullAbilityCard_Init_CensusLifetime`, `FullAbilityCard_OnDestroy_CensusLifetime`, `FullAbilityCard_OnEnable_CensusLifetime`, `FullAbilityCard_ShowCard_ArtGuard`, `FullAbilityCard_UpdatePosition_AdoptedLayout`, `FullAbilityCard_UpdateScale_AdoptedLayout`, `FullCardEventPusher_Enter_LaserGeometric`, `FullCardEventPusher_Exit_LaserGeometric`, `MapPartyEnhancementShopService_AddEnhancement_FanRefresh`, `ObjectPool_GetCardInstance_NativeHierarchy`, `ObjectPool_RecycleCard_NativeHierarchy`, `RestoreCard_Once`, `RestoreCard_PreservePlayback_Patch`, `ReturnedToPool_Retire`, `SceneController_LoadScene_CardLifetime`, `TakeDamagePanel_BurnHover_Skip`, `ToggleAdditiveEffect_Once`, `ToggleAdditiveEffect_PreservePlayback_Patch`, `ToggleEffect_Once`, `ToggleEffect_PreserveSpentStart_Patch` |
 | `src/GloomhavenVR/Compat/CompatModule.cs` | `InitialInputSkip`, `LevelEventsController_MessageWasDismissed_Patch`, `LevelEventsController_MessageWasDisplayed_Patch`, `LevelEventsController_StartListeningForEvents_Patch`, `LevelMessagePageUI_OnLanguageChanged_Patch`, `LevelMessageUILayoutGroup_Show_Patch`, `LevelMessageUILayout_Title_Patch`, `LoadoutHostingGuard`, `MaterialLoader_LoadMaterials_RegisterPatch`, `NativeBugFixes_ItemReplayActor`, `NativeBugFixes_ShowUsableItemsActor`, `NativeCardsRestorePhaseFix`, `TutorialChainHold`, `TutorialService_StartTutorial_Patch`, `WallFadeDisable` |
 | `src/GloomhavenVR/Core/Events/VREventsModule.cs` | `Choreographer_ProcessMessage_Patch`, `Choreographer_SetChoreographerState_Patch`, `UIManager_ToggleLockUI_Patch`, `UIWindow_Transition_Patch` |
 | `src/GloomhavenVR/Core/Perf/ScenarioDecorativePlacement.cs` | `ApparanceEntity_DecorativePlacementPatch`, `ApparanceEntity_ObjectPlacementContextPatch` |

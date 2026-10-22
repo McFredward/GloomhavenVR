@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <VideoSource Condition="'$(VideoSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs</VideoSource>
+    <VideoPlacementSource Condition="'$(VideoPlacementSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.SharedPlacement.cs</VideoPlacementSource>
     <MovieSource Condition="'$(MovieSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs</MovieSource>
     <MovieKeySource Condition="'$(MovieKeySource)' == ''">../../src/GloomhavenVR/Net/VideoWindowState.cs</MovieKeySource>
     <ReviewSource Condition="'$(ReviewSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoReview.cs</ReviewSource>
@@ -12,6 +13,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(VideoSource)" Link="Production/NativeVideoWindow.cs" />
+    <Compile Include="$(VideoPlacementSource)" Link="Production/NativeVideoWindow.SharedPlacement.cs" />
     <Compile Include="$(MovieSource)" Link="Production/NativeVideoMovies.cs" />
     <Compile Include="$(ReviewSource)" Link="Production/NativeVideoReview.cs" />
     <Compile Include="$(EmbeddedSource)" Link="Production/NativeEmbeddedMoviePatches.cs" />

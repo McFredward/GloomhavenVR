@@ -142,6 +142,12 @@ internal static class CardsGameApi
     /// hand must exist (<c>GetHand</c>).</item>
     /// </list>
     /// Null in the steady state (presentation follows selection) or while any gate holds.
+    /// During card selection, a newly assigned guest can instead have no owned native selection
+    /// at all: the native ownership callback retains a stale foreign hand or picks the first
+    /// living one without testing ownership. Only while the presenter is also foreign/missing,
+    /// recover the first locally owned living selection-mode hand through the same native seam.
+    /// A live deciding flow, an already owned presenter, or any original seam gate defers this
+    /// fallback; the presentation floor remains read-only until the native switch completes.
     /// Verified: <c>public CMessageData LastMessage { get; set; }</c> (Choreographer.cs:602),
     /// <c>CMessageData.MessageType</c> members StartTurn/ActionSelectionPhaseStart/
     /// CheckForInitiativeAdjustments (CMessageData.cs:13/188/176),
@@ -152,21 +158,53 @@ internal static class CardsGameApi
     {
         if (PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
             return null;
-        if (!(SelectedActor() is CPlayerActor selected) || selected.IsDead)
-            return null;
-        // F5: the game's partitioned MyControllables list, not the stale-able CActor flag.
-        if (!ControlsActor(selected))
-            return null;
         CardsHandManager manager = CardsHandManager.Instance;
         if (manager == null)
             return null;
         CardsHandUI current = manager.CurrentHand;
+        CPlayerActor? selected = SelectedActor() as CPlayerActor;
+        if (selected == null || selected.IsDead || !ControlsActor(selected))
+        {
+            // Build715 four-VR-player report (2026-10-22): the last guest owned Cryonaris,
+            // but native ownership refresh kept Berserker presented until a manual figure
+            // click. OnMyControllableOwnershipChanged clears selection, then retains the
+            // current hand using the stale IsUnderMyControl flag or chooses the FIRST living
+            // hand without an ownership test. The existing watchdog only accepted an already
+            // owned selection, so the read-only presentation floor could never become playable.
+            // Recover the native presenter, not CurrentHand's authority filter or the floor's
+            // read-only rule. An already owned presenter needs no fallback; a genuine deciding
+            // flow must retain its own hand. The native phase/message/control-ability gates
+            // below still apply, and the queued caller re-resolves everything before switching.
+            if (current != null && ControlsActor(current.PlayerActor) && !current.PlayerActor.IsDead)
+                return null;
+            if (DecidingHand() != null)
+                return null;
+            selected = null;
+            List<CardsHandUI>? hands = manager.CardHandsUI;
+            if (hands == null)
+                return null;
+            for (int i = 0; i < hands.Count; i++)
+            {
+                CardsHandUI candidate = hands[i];
+                CPlayerActor? actor = candidate != null ? candidate.PlayerActor : null;
+                if (actor != null && !actor.IsDead && ControlsActor(actor)
+                    && candidate!.currentMode == CardHandMode.CardsSelection)
+                {
+                    selected = actor;
+                    break;
+                }
+            }
+            if (selected == null)
+                return null;
+        }
         if (current != null && ReferenceEquals(current.PlayerActor, selected))
             return null; // presentation already follows the selection — the steady state
         if (manager.GetHand(selected) == null)
             return null;
         Choreographer c = Choreographer.s_Choreographer;
-        CMessageData? last = c != null ? c.LastMessage : null;
+        if (c == null)
+            return null; // SwitchHand calls OnSwitchHand: the native presenter must be live
+        CMessageData? last = c.LastMessage;
         if (last != null && (last.m_Type == CMessageData.MessageType.StartTurn
                              || last.m_Type == CMessageData.MessageType.ActionSelectionPhaseStart
                              || last.m_Type == CMessageData.MessageType.CheckForInitiativeAdjustments))
@@ -4298,6 +4336,190 @@ internal static class CardsGameApi
     /// </summary>
     internal static void GetActiveHalves(CardsHandUI hand, CAbilityCard card, out bool top, out bool bottom)
         => ActiveCardSet.ActiveHalves(hand.PlayerActor, card, out top, out bottom);
+
+    // ------------------------------------------------------- active-card dismissal --
+
+    /// <summary>
+    /// Whether this exact, locally owned active ability card may be offered to the dismissal
+    /// recess. The native manager owns phase, ready and damage-response permission through
+    /// EnableCancelActiveAbilities; do not replace it with a turn-only or busy approximation.
+    /// Read the model membership, not AbilityCardUI.CardType (a presentation cache), and retain
+    /// PersistentAbilitiesUI's CannotCancel rule for every bonus on the card.
+    /// </summary>
+    internal static bool CanDismissActiveCard(CardsHandUI? hand, AbilityCardUI? widget)
+    {
+        if (!VRSession.IsRunning || hand == null || widget == null)
+            return false;
+        try
+        {
+            CardsHandManager manager = CardsHandManager.Instance;
+            Choreographer choreographer = Choreographer.s_Choreographer;
+            CPlayerActor? actor = hand.PlayerActor;
+            CAbilityCard? card = widget.AbilityCard;
+            if (manager == null || !manager.EnableCancelActiveAbilities
+                || choreographer == null || PhaseManager.CurrentPhase == null
+                || actor == null || actor.IsDead || !ControlsActor(actor)
+                || !ReferenceEquals(manager.GetHand(actor), hand)
+                || !ReferenceEquals(widget.playerActor, actor)
+                || !hand.cardsUI.Contains(widget) || card == null || card.SelectedAction == null
+                || !ActiveCardSet.IsActive(actor, card))
+                return false;
+
+            // Flat hides hand tabs outside round selection and presents the acting hand. VR's
+            // independent multi-character focus must not turn a previous hand's stale selectable
+            // flag into permission to cancel another controlled hero's effects online. This is
+            // the selection/current-caster boundary of PersistentAbilityPreviewUI.CanCancelActivesMP;
+            // CurrentPlayerActor deliberately maps a hero-summon's turn back to its summoner.
+            // Do not copy that icon's affected-target ownership check: an owned card can carry an
+            // aura on a foreign ally, and the original active-CARD click cancels the whole card.
+            if (FFSNetwork.IsOnline && !choreographer.PlayerToSelectAbilityCardsOrLongRest
+                && !ReferenceEquals(choreographer.CurrentPlayerActor, actor))
+                return false;
+
+            // A reserved board card must not replace an unrelated native confirmation.
+            if (!Singleton<UIConfirmationBoxManager>.IsInitialized)
+                return false;
+            UIConfirmationBoxManager confirmation = Singleton<UIConfirmationBoxManager>.Instance;
+            if (confirmation == null || confirmation.IsOpen || confirmation.IsRequested)
+                return false;
+
+            List<CActiveBonus> bonuses = card.ActiveBonuses;
+            bool live = false;
+            for (int i = 0; i < bonuses.Count; i++)
+            {
+                CActiveBonus bonus = bonuses[i];
+                if (bonus == null || bonus.Ability == null || bonus.Ability.ActiveBonusData == null
+                    || bonus.Ability.ActiveBonusData.CannotCancel)
+                    return false;
+                if (!bonus.Finished() && !bonus.Finishing())
+                    live = true;
+            }
+            return live;
+        }
+        catch
+        {
+            // Scenario teardown and an in-flight native card refresh revoke the offer.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Arm the original game's dismissal confirmation without opening a second popup. Placing a
+    /// card is not consent: only ActiveCardDismissal.Confirm, called by the explicit board cap,
+    /// may invoke the captured original affirmative callback. A failed capture returns null and
+    /// never accepts anything. Ordinary native confirmations remain untouched by the narrow scope.
+    /// </summary>
+    internal static ActiveCardDismissal? RequestDismissActiveCard(CardsHandUI? hand, AbilityCardUI? widget)
+    {
+        if (!CanDismissActiveCard(hand, widget))
+            return null;
+        var pending = new ActiveCardDismissal(hand!, widget!);
+        try
+        {
+            if (Patches.ActiveDismissConfirmation.Capture(pending, () =>
+                pending.Manager.DiscardActiveAbilityCard(pending.Actor, pending.Card))
+                && pending.CanConfirm)
+                return pending;
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Cards", $"ACTIVE dismiss preparation failed ({e.Message}).");
+        }
+        pending.Cancel();
+        return null;
+    }
+
+    /// <summary>
+    /// A one-shot, exact-object native confirmation lease. No game-model mutation lives here:
+    /// CardsHandManager.DiscardActiveAbilityCard supplies the real closure which cancels the
+    /// bonuses, refreshes native UI, sets its choreography continuation and replicates through
+    /// NetworkCancelingActiveBonuses (including the Guildmaster ModelInstanceID path).
+    /// </summary>
+    internal sealed class ActiveCardDismissal
+    {
+        private readonly CardsHandUI _hand;
+        private readonly AbilityCardUI _widget;
+        private readonly Choreographer _choreographer;
+        private readonly object _phase;
+        private readonly CardHandMode _mode;
+        private readonly UIConfirmationBoxManager _confirmation;
+        private UnityEngine.Events.UnityAction? _confirm;
+        private UnityEngine.Events.UnityAction? _cancel;
+        private bool _finished;
+
+        internal CardsHandManager Manager { get; }
+        internal CPlayerActor Actor { get; }
+        internal CAbilityCard Card { get; }
+        internal bool IsPending => !_finished && _confirm != null;
+        internal bool DismissesSummon { get; }
+        internal bool LosesCard { get; }
+
+        internal ActiveCardDismissal(CardsHandUI hand, AbilityCardUI widget)
+        {
+            _hand = hand;
+            _widget = widget;
+            Manager = CardsHandManager.Instance;
+            Actor = hand.PlayerActor;
+            Card = widget.AbilityCard;
+            _choreographer = Choreographer.s_Choreographer;
+            _phase = PhaseManager.CurrentPhase;
+            _mode = hand.currentMode;
+            _confirmation = Singleton<UIConfirmationBoxManager>.Instance;
+            LosesCard = Card.SelectedAction.CardPile != CBaseCard.ECardPile.Discarded;
+            List<CActiveBonus> bonuses = Card.ActiveBonuses;
+            for (int i = 0; i < bonuses.Count; i++)
+                if (bonuses[i] != null && bonuses[i].Duration == CActiveBonus.EActiveBonusDurationType.Summon)
+                    DismissesSummon = true;
+        }
+
+        internal bool CanConfirm => IsPending
+            && ReferenceEquals(CardsHandManager.Instance, Manager)
+            && ReferenceEquals(Choreographer.s_Choreographer, _choreographer)
+            && ReferenceEquals(PhaseManager.CurrentPhase, _phase)
+            && _hand.currentMode == _mode
+            && Singleton<UIConfirmationBoxManager>.IsInitialized
+            && ReferenceEquals(Singleton<UIConfirmationBoxManager>.Instance, _confirmation)
+            && ReferenceEquals(_hand.PlayerActor, Actor)
+            && ReferenceEquals(_widget.AbilityCard, Card)
+            && CanDismissActiveCard(_hand, _widget);
+
+        internal bool Capture(UIConfirmationBoxManager manager,
+                              UnityEngine.Events.UnityAction confirm,
+                              UnityEngine.Events.UnityAction? cancel)
+        {
+            if (_finished || _confirm != null || confirm == null || !ReferenceEquals(manager, _confirmation))
+                return false;
+            _confirm = confirm;
+            _cancel = cancel;
+            return true;
+        }
+
+        internal bool Confirm()
+        {
+            if (!CanConfirm)
+            {
+                Cancel();
+                return false;
+            }
+            UnityEngine.Events.UnityAction action = _confirm!;
+            _finished = true;
+            _confirm = null;
+            _cancel = null;
+            action();
+            return true;
+        }
+
+        internal void Cancel()
+        {
+            if (_finished)
+                return;
+            UnityEngine.Events.UnityAction? action = _cancel;
+            _finished = true;
+            _confirm = null;
+            _cancel = null;
+            action?.Invoke();
+        }
+    }
 
     // ---------------------------------------------------------------------- misc --
 

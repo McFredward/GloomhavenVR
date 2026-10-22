@@ -48,7 +48,7 @@ internal sealed partial class CardsDriver
                 // Previously-burnt cards browsed from the lost pile never qualify as fresh.
                 if (card.IsHeld || !IsFreshBurn(_boundHand, card)
                     || HasBurnHold(widget)) continue;
-                if (_active.Contains(card))
+                if (_active.Contains(card) && !_activeExitOrigins.ContainsKey(widget))
                     _activeExitOrigins[widget] = CapturedActiveSource(widget, widget.PlayerActor);
                 _burnHoldSince[widget] = new BurnHold(Time.unscaledTime, artworkSeen: artworkPlaying);
             }

@@ -324,6 +324,7 @@ internal sealed partial class CardsDriver
         _lastHalfCards.Clear();
         _lastActiveCards.Clear();
         _activeExitOrigins.Clear();
+        _dismissFlightOriginals.Clear();
         _activeCellSources.Clear();
         _lastTrayCards.Clear(); // issue 1
         _lastVisibleCards.Clear();
@@ -357,6 +358,7 @@ internal sealed partial class CardsDriver
         _browser.Destroy();
         _half.Destroy();
         _rest.Destroy();
+        DestroyActiveDismiss();
         _active.Destroy(); // before the tray — the column lives under its ActiveMount
         _piles.Destroy(); // before the tray — the stacks live under its PileMount
         _tray.Destroy();
@@ -457,6 +459,7 @@ internal sealed partial class CardsDriver
             if (widget is null) continue;
             ClearBurnHold(widget);
             _activeExitOrigins.Remove(widget);
+            _dismissFlightOriginals.Remove(widget);
             _activeCellSources.Remove(widget);
             _lastCardWorldPos.Remove(widget);
             _lastCardWorldRot.Remove(widget);
@@ -507,6 +510,7 @@ internal sealed partial class CardsDriver
 
     private void OnCardRecycling(AbilityCardUI widget)
     {
+        ForgetActiveDismissFlight(widget); // native pooling retires this exact original/widget lease
         VRCard? card = _factory.Find(widget);
         if (card != null)
         {
@@ -583,6 +587,8 @@ internal sealed partial class CardsDriver
     {
         CardsDriver? driver = Instance;
         if (driver == null) return;
+        driver.ResetActiveDismiss();
+        driver._dismissFlightOriginals.Clear();
         driver._sceneFacesReturned = true;
         driver._factory.ReturnBorrowedFacesBeforeSceneLoad();
         Core.TickGuard.Run("Cards.SceneNativeHierarchy", NativeCardPoolLifetime.ReturnSceneHands, "Cards");
@@ -934,6 +940,7 @@ internal sealed partial class CardsDriver
         // can arrive at scenario start before any pile UI has shown.
         if (_tray.IsVisible)
             _piles.TickItemDemand(_fakeActive ? null : hand);
+        TickActiveDismiss(_fakeActive ? null : presented);
         UpdateInitiativeTodo(); // item 6: glow the initiative-order characters who still owe cards
         // Item 8b: the cross-client "which card is active" census. DELIBERATELY OUTSIDE the
         // _tray.IsVisible gate above — the whole point of the line is that a seat which is drawing

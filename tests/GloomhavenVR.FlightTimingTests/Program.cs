@@ -117,6 +117,61 @@ Check(activeFx._owner.Board._active.Refreshes==before+1,"Latest exact active com
 var oldActiveDeparture=new Flight { SourceActor=a, FaceCard=first,Generation=21, Endpoints=(byte)((int)CardFxAnchor.Active|((int)CardFxAnchor.Discard<<4)) };
 activeFx.Apply(oldActiveDeparture);
 Check(!oldActiveDeparture.Active,"Older delayed active departure must not fly after a newer arrival owns that card");
+// Delayed dismissal artwork must capture the retained original at the actual handover.
+// Native renderer reads are explicit spies; production TryDismissPose and
+// TransferVisibleFlight perform all source selection and world geometry calculations.
+var dismissFx=new FxFixture(); RemoteBoardFocus.Current=a;
+dismissFx._owner.DrawnScale=2; dismissFx._owner.BoardScale=7;
+dismissFx._owner.VisibleDismissCard=first;
+dismissFx._owner.VisibleDismissPosition=new System.Numerics.Vector3(4,5,6);
+dismissFx._owner.VisibleDismissRotation=Quaternion.AroundZ(.7f);
+dismissFx._owner.VisibleDismissWidth=.127f;
+var dismiss=new Flight { SourceActor=a,FaceCard=first,FromDismissBerth=true,Generation=30,
+    Drawable=false,From=new System.Numerics.Vector3(-1),To=new System.Numerics.Vector3(5,5,6),
+    DismissOrigin=new CardDismissFlightOrigin { Width=.02f, BerthPose=new Pose { Rotation=Quaternion.identity } },
+    Endpoints=(byte)((int)CardFxAnchor.Active|((int)CardFxAnchor.Discard<<4)) };
+dismissFx.Apply(dismiss);
+Check(!dismiss.SourceTransferred && dismissFx._owner.DismissPoseReads==0,"Unavailable artwork must not transfer or capture the dismissed source");
+dismiss.Drawable=true; RemoteBoardFocus.Current=b; dismissFx.Apply(dismiss);
+Check(!dismiss.SourceTransferred && dismissFx._owner.DismissPoseReads==0,"Another focused actor must not capture the dismissed source");
+RemoteBoardFocus.Current=a; dismissFx.Apply(dismiss);
+Check(dismiss.SourceTransferred && dismiss.From==dismissFx._owner.VisibleDismissPosition,"Dismiss handover must capture the current retained original pose");
+Check(MathF.Abs(System.Numerics.Quaternion.Dot(dismiss.Rotation.Value,dismissFx._owner.VisibleDismissRotation.Value))>.99999f,"Dismiss handover must capture the current original facing");
+Check(MathF.Abs(dismiss.FromWidth-.0635f)<.00001f,"Dismiss width must use the drawn board scale instead of its newer target");
+Check(MathF.Abs(dismiss.Arc-.55f)<.00001f,"Dismiss arc must use the new captured source and original distance fraction");
+Check(dismiss.Go.transform.position==dismiss.From && MathF.Abs(dismiss.Go.transform.localScale.X-2)<.00001f,"Dismiss drawable must take the same original world pose and physical width");
+Check(dismissFx._owner.OwnsActiveFlight(first.CardInstanceID,a,30),"Dismiss source must retain its generation lease");
+int poseReads=dismissFx._owner.DismissPoseReads;
+dismissFx._owner.VisibleDismissPosition=new System.Numerics.Vector3(99);
+dismissFx._owner.VisibleDismissWidth=.5f;
+dismissFx.Apply(dismiss);
+Check(dismissFx._owner.DismissPoseReads==poseReads && dismiss.From==new System.Numerics.Vector3(4,5,6),"Transferred dismiss must not recapture a replacement or later source pose");
+
+foreach (float berthScale in new[]{3f,-3f}) {
+    var fallbackFx=new FxFixture(); fallbackFx._owner.DrawnScale=2;
+    fallbackFx._owner.ItemUseRecess=new Transform { position=new System.Numerics.Vector3(10,20,30),
+        rotation=Quaternion.AroundZ(MathF.PI/2),scale=berthScale };
+    var origin=new CardDismissFlightOrigin { Width=.05f, BerthPose=new Pose {
+        Position=new System.Numerics.Vector3(1,2,3),Rotation=Quaternion.AroundZ(MathF.PI/4) } };
+    var fallback=new Flight { SourceActor=a,FaceCard=first,FromDismissBerth=true,DismissOrigin=origin,
+        To=new System.Numerics.Vector3(20,20,30),Endpoints=dismiss.Endpoints };
+    fallbackFx.Apply(fallback);
+    var expected=fallbackFx._owner.ItemUseRecess.TransformPoint(origin.BerthPose.Position);
+    Check(System.Numerics.Vector3.Distance(fallback.From,expected)<.00001f,"Missed staging must resolve the original berth-relative source");
+    Check(MathF.Abs(System.Numerics.Quaternion.Dot(fallback.Rotation.Value,Quaternion.AroundZ(3*MathF.PI/4).Value))>.99999f,"Missed staging must compose berth and original rotations");
+    Check(MathF.Abs(fallback.FromWidth-.075f)<.00001f,"Missed staging width must preserve absolute berth scale");
+    Check(MathF.Abs(fallback.Arc-Math.Max(.264f,System.Numerics.Vector3.Distance(expected,fallback.To)*.55f))<.0001f,"Missed staging arc must be recalculated from the resolved source");
+    Check(MathF.Abs(fallback.Go.transform.localScale.X-(.15f/.0635f))<.0001f,"Missed staging drawable must keep the physical original width");
+}
+var refusedFx=new FxFixture();
+var refusedOrigin=new CardDismissFlightOrigin { Width=.1f,BerthPose=new Pose { Rotation=Quaternion.identity } };
+Check(!RemoteActiveDepartures.TryDismissPose(refusedFx._owner,first,refusedOrigin,out _,out _,out _),"Missing berth must refuse an unresolvable original source");
+refusedFx._owner.ItemUseRecess=new Transform();
+Check(!RemoteActiveDepartures.TryDismissPose(refusedFx._owner,first,null,out _,out _,out _),"Missing origin must not invent a source at the berth centre");
+refusedOrigin.Width=0;
+Check(!RemoteActiveDepartures.TryDismissPose(refusedFx._owner,first,refusedOrigin,out _,out _,out _),"Zero original width must refuse an invalid source");
+refusedFx._owner.VisibleDismissCard=next;
+Check(!RemoteActiveDepartures.TryDismissPose(refusedFx._owner,first,null,out _,out _,out _),"Another retained original must not supply this card's source");
 Console.WriteLine($"Flight timing production policies: {assertions} assertions.");
 
 foreach (bool appearing in new[]{false,true})

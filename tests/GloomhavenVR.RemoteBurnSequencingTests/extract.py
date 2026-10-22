@@ -16,7 +16,8 @@ assert avatar.index('_burnFx.PreparePresentation();') < avatar.index('_handFan.T
 assert 'Handover(' not in method(burn,'private bool TryApplyRelease('), 'Receiving release must not bypass native playback'
 drive=method(burn,'private void Drive(')
 assert 'BurnReleasePolicy.RetireWithoutFlight(b.ObservedOwnerProgress || durableNoFlight, ownerRunning,' in drive, 'Remote no-flight retirement uses the exact causal policy'
-assert 'bool release = b.OwnerReleased && (b.CompletionTime < 0f' in drive and 'CardAppearanceMirror.HasPresentedThrough(b.PresentationPlayer, actor, card, b.CompletionTime)' in drive, 'Burn flight must wait for exact native completion'
+release=expression(burn,'private static bool MayReleaseOwnerBurn(')
+assert 'bool release = MayReleaseOwnerBurn(b, actor, card);' in drive and 'burn.OwnerReleased && (burn.CompletionTime < 0f' in release and 'CardAppearanceMirror.HasPresentedThrough(burn.PresentationPlayer, actor, card, burn.CompletionTime)' in release, 'Burn flight must wait for exact native completion'
 assert drive.index('_owner.SuppressBurnActiveCard(b.CardId)') < drive.index('b.Go.SetActive(showSlab)'), 'Active burn must remove original renderer before showing its slab'
 assert method(fan,'public void Tick(').index('_owner.HoldsBurnCardLayout') < method(fan,'public void Tick(').index('BeginSwap('), 'Burn hold must precede fan exchange'
 assert method(browse,'public void Tick(').index('_owner.HoldsBurnCardLayout') < method(browse,'public void Tick(').index('BeginEmerge('), 'Burn hold must precede pile fan rebuild'
@@ -42,6 +43,9 @@ internal sealed class Panel { internal int Holds; internal void HoldBurnPresenta
 internal sealed class Owner { internal int PlayerId=7; internal bool HoldsBurnCardLayout; internal bool BurnOwnsRecess(int i)=>false; }
 internal sealed class ActiveFixture {
 internal Owner _owner=new(); internal List<Panel> _cards=new(){new(),new()}; internal int Reflows, Pulses; private void DrivePulse(CPlayerActor actor) {Pulses++;}
+// Exact staged-original retention is executed by active-dismiss-remote-runtime. This
+// boundary preserves this fixture's unchanged burn-layout early-return/reflow scope.
+private void RetainDismissPanels() {}
 '''+gate(active,'public void Refresh(','bool showFronts =')+'''Reflows++; }
 }
 internal sealed class BoardFixture {
@@ -71,7 +75,9 @@ fixture += 'internal static class BurnReleasePolicy {'+expression(source('BurnRe
 fixture += """
 namespace ScenarioRuleLibrary { internal static class ScenarioManager {internal static object? Scenario=new();} }
 internal readonly record struct CardFlightSource(int ActorId,byte Seat,byte Count);
+internal sealed class CardDismissFlightOrigin {}
 internal readonly record struct CardBurnCompletion(byte Sequence,int ActorId,int SourceActorId,ushort PoolSeat,ushort PoolCount,float Time,bool InProgress=false,bool NoFlightCompleted=false) {
+internal CardDismissFlightOrigin? DismissOrigin=>null;
 internal (int,int,ushort,ushort) Key=>(ActorId,SourceActorId,PoolSeat,PoolCount);
 internal byte Endpoints=>0x41; internal byte Flags=>0; internal byte FlightFlags=>0;
 internal CardFlightSource Source=>new(ActorId,0,0);
@@ -81,7 +87,7 @@ internal static class CardFlightVisibility {internal static void ObserveOwnerRel
 internal static class NetAvatarDriver {
 internal static bool OwnershipReady=true; internal static RemoteAvatar? Controller;
 internal static bool TryGetCharacterDecisionOwner(CPlayerActor actor,out RemoteAvatar? controller) {controller=Controller;return OwnershipReady;}
-internal static void MirrorCharacterCardFlight(RemoteAvatar sender,byte endpoints,byte flags,CardFlightSource source,float time,CAbilityCard card) {}
+internal static void MirrorCharacterCardFlight(RemoteAvatar sender,byte endpoints,byte flags,CardFlightSource source,float time,CAbilityCard card,CardDismissFlightOrigin? dismissOrigin=null) {}
 }
 internal sealed class RemoteAvatar {
 internal int PlayerId=7; internal BurnFixture _burnFx=new(); internal int Dispatched;
@@ -91,15 +97,16 @@ private HashSet<int> _burnProgressActors=new();
 private Dictionary<(int Actor,int Source,ushort Seat,ushort Count),float> _burnProgressKeys=new();
 private Dictionary<(int Actor,int Source,ushort Seat,ushort Count),float> _burnNoFlightCompletions=new();
 internal bool HasBurnInProgress(int actorId)=>_burnProgressActors.Contains(actorId);
-private void PlayMirroredCardFlight(byte endpoints,byte flags,CardFlightSource source,float time,int player,CAbilityCard card) {Dispatched++;}
+private void PlayMirroredCardFlight(byte endpoints,byte flags,CardFlightSource source,float time,int player,CAbilityCard card,CardDismissFlightOrigin? dismissOrigin=null) {Dispatched++;}
 """ + method(avatar,'internal bool TryBurnNoFlightCompletion(').replace('ScenarioRuleLibrary.CAbilityCard','CAbilityCard') + method(avatar,'private void ApplyBurnCompletions(').replace('private void ApplyBurnCompletions','internal void ApplyBurnCompletions') + "\n}\n"
 fixture += """
 internal static class Time {internal static float unscaledTime;}
 internal sealed class RunningFlightFixture {
 internal Owner _owner=new(); internal int ActiveTicks, Admissions; const float ResolveSeconds=2f;
-internal readonly record struct PendingFlight(byte Endpoints, byte Flags, object? Source, long Generation) {internal float ReceivedAt {get;}=Time.unscaledTime;}
+internal readonly record struct PendingFlight(byte Endpoints, byte Flags, object? Source, long Generation,CardDismissFlightOrigin? DismissOrigin=null,CAbilityCard? OriginalCard=null,int PresentationPlayer=0,object? Scenario=null) {internal float ReceivedAt {get;}=Time.unscaledTime;}
 internal List<PendingFlight> _pending=new(){new(0,0,null,1)};
-private bool TryPlay(byte ends,byte flags,object? source,long generation){Admissions++;return true;}
+private bool TryPlay(byte ends,byte flags,object? source,long generation,CardDismissFlightOrigin? dismissOrigin=null,CAbilityCard? originalCard=null,int presentationPlayer=0){Admissions++;return true;}
+private static bool KeepDismissFlight(byte endpoints,object? source,CardDismissFlightOrigin origin,CAbilityCard? card,object? scenario,int player,bool committed)=>throw new NotSupportedException("Dismissal lease is covered by the dedicated production remote-dismiss fixture; this adapter exercises unmarked legacy queues only.");
 """+gate(fx,'public void Tick(','for (int i = 0; i < _flights.Count; i++)')+"ActiveTicks++; }\n}\n"
 art=source('Remote/RemoteCardArt.Native.cs')
 assert 'DiscoverBurns(actor);' in method(burn,'private void Watch('), 'Lost-card discovery must use the original-identity ledger'

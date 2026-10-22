@@ -119,6 +119,10 @@ internal struct PresenceState
     public byte FlightSourceSeq;
     public CardFlightHistory? FlightHistory;
     public CardBurnCompletionHistory? BurnCompletions;
+    public CardFlightOrigins? FlightOrigins;
+    public CardDismissFlightOrigin? FxDismissOrigin;
+    internal bool FlightOriginsInvalid;
+    internal bool FlightOriginsSeen;
 
     /// <summary>
     /// True when the sender has a control-board PILE BROWSER open this packet (the "Abgelegt" /
@@ -977,6 +981,15 @@ internal struct PresenceState
     /// as it does for <see cref="FanHighlightIndex"/>.</summary>
     public byte ItemUseClipIndex;
 
+    /// <summary>Presence-only active-ability dismissal berth, never a gameplay command. Its
+    /// stable actor plus counted seat addresses that actor's public activated-ability list;
+    /// 255 means no staged card. Actor provenance cannot be inferred from focus or list length.</summary>
+    public bool HasActiveDismissBerth;
+    public bool ActiveDismissGhostShown;
+    public int ActiveDismissActorId;
+    public byte ActiveDismissListCount;
+    public byte ActiveDismissSeat;
+
     /// <summary>
     /// True when this packet names what the sender's CONFIRM board cap actually reads (extension
     /// record <see cref="NetProtocol.ExtIdCapLabels"/>, mask bit 0). Absence keeps the receiver's
@@ -1183,6 +1196,13 @@ internal struct PresenceState
     /// pre-record behaviour: a purely local dialog nobody else can advance.</summary>
     public bool HasStorySync;
 
+    /// <summary>Record119: the sender frame, never the observer frame; absent on idle packets.</summary>
+    public SharedWindowPoseContext? WindowPoseContext;
+    /// <summary>Record121: the actual captured render reference of each posed window kind.</summary>
+    public SharedWindowScaleContext? WindowScales;
+    // Local sampling metadata only. The additive context carries this bit, never legacy19.
+    public bool StoryInitialPose;
+
     /// <summary>Story-sync flags byte (<see cref="NetProtocol.StoryOpenBit"/> /
     /// <see cref="NetProtocol.StoryPoseBit"/> / <see cref="NetProtocol.StoryFinishedBit"/>), masked
     /// with <see cref="NetProtocol.StoryDefinedMask"/> on write AND on read.</summary>
@@ -1257,6 +1277,12 @@ internal struct PresenceState
     /// <see cref="NetProtocol.ExtIdMapRoom"/> for why this fact is not on the game's own wire.</summary>
     public uint MapRoomSelectKey;
 
+    // Record120 qualifies the same-packet browsing edge, including its exact parent opening.
+    // The candidate author is the authenticated transport sender, never a truncated player ID.
+    public bool HasMapSelectionVersion;
+    public uint MapSelectionRevision, MapSelectionParent;
+    public int MapSelectionParentAuthor;
+
     /// <summary><c>FNV-1a(CMapCharacter.CharacterName)</c> of the party member whose loadout the
     /// sender's 3D-map card fan is showing, or <b>0 meaning "I have no map fan open"</b>.
     ///
@@ -1308,6 +1334,9 @@ internal struct PresenceState
 /// </summary>
 internal struct SharedWindowEntry
 {
+    // Local-only sampling metadata, encoded exclusively in additive context119.
+    public bool InitialPose;
+
     /// <summary><see cref="NetProtocol.SharedWindowKindMapStory"/> or
     /// <see cref="NetProtocol.SharedWindowKindQuestConfirm"/>.</summary>
     public byte Kind;
@@ -1901,9 +1930,12 @@ internal static class PresenceSerializer
     /// every optional record on the tail put together.</para></summary>
     // Base6869 + residents79(147 including complete anchored cloth controls) + faces80(96)
     // + activity81(55) + public map loadout88(3) + native opening histories83/84(510)
-    // + held item101(15) + sparse float249(5) = 7700. Keep the largest-record
-    // margin257 in the writer and bounded8000 fragment reassembly.
-    public const int MaxSize = 7957;
+    // + held item101(15) + sparse float249(5) = 7700;
+    // + active-dismiss berth118(9) + shared author-frame119(24) + quest edge120(14)
+    // + captured window references121(27) = 7774.
+    // Exact recent and durable dismissal origins122: 7774 + 4741 = 12515 bytes.
+    // Allocation retains257 spare; the bounded12800-byte envelope leaves285.
+    public const int MaxSize = 12772;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1932,6 +1964,7 @@ internal static class PresenceSerializer
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
         bool extensions = state.HasDecisionAttribution || state.DamageDecisionPreview != null || state.FlightHistory != null || state.BurnCompletions != null
+            || state.FlightOrigins?.Matches(in state) == true
             || (state.HasCardFx && state.FlightSource.HasValue) || state.DecisionHighlight != null || (state.HasCardFx && state.HasCardFxVisibility) || UseBarWidgetCodec.ValidSnapshot(state.UseBarWidgetStates) || state.ShortRestInProgress || state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
@@ -1946,6 +1979,7 @@ internal static class PresenceSerializer
                           // keeps every packet with an EMPTY recess (nearly all of them)
                           // byte-identical to the previous build's.
                           || state.HasItemUseClip
+                          || ValidActiveDismissBerth(in state)
                           // Record 14 also rides for the EMPTY-FAN placard alone (byte 1 bit 4),
                           // so the tail gate is the same OR its writer uses.
                           || state.EmptyFanHint
@@ -2079,6 +2113,9 @@ internal static class PresenceSerializer
                           // of every session without a narrative on screen — nearly all of them —
                           // byte-identical to the previous build's.
                           || state.HasStorySync
+                          || (state.WindowPoseContext.HasValue && state.WindowPoseContext.Value.Valid)
+                          || (state.WindowScales.HasValue && state.WindowScales.Value.Valid)
+                          || ValidMapSelectionVersion(in state)
                           // THE 3D MAP ROOM (20) and ITS SHARED WINDOWS (21): the same rule again —
                           // the emptiness test lives in the SAMPLERS (RemoteMapRoom.Sample /
                           // RemoteMapStory.Sample), which set these flags ONLY while this client's
@@ -3364,12 +3401,14 @@ internal static class PresenceSerializer
                 records++;
             }
         }
+        bool wroteCompletions = false, wroteHistory = false;
         if (state.BurnCompletions != null)
         {
             int written = state.BurnCompletions.Write(buffer, i);
             if (written > 0)
             {
                 i += written;
+                wroteCompletions = true;
                 records += (byte)System.Math.Max(1, (state.BurnCompletions.Entries.Length + CardBurnCompletionHistory.PageCount - 1)
                     / CardBurnCompletionHistory.PageCount);
             }
@@ -3383,6 +3422,7 @@ internal static class PresenceSerializer
                 buffer[i++] = NetProtocol.ExtIdCardFlightHistory;
                 buffer[i++] = (byte)payload;
                 i += payload;
+                wroteHistory = true;
                 records++;
             }
         }
@@ -3432,8 +3472,57 @@ internal static class PresenceSerializer
             state.HeldTownItem.Value.Write(buffer, ref i);
             records++;
         }
+        if (ValidActiveDismissBerth(in state)
+            && i + 2 + NetProtocol.ActiveDismissBerthRecordBytes <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdActiveDismissBerth;
+            buffer[i++] = NetProtocol.ActiveDismissBerthRecordBytes;
+            buffer[i++] = (byte)(1 | (state.ActiveDismissGhostShown ? 2 : 0));
+            AvatarSerializer.WriteI32(buffer, ref i, state.ActiveDismissActorId);
+            buffer[i++] = state.ActiveDismissListCount;
+            buffer[i++] = state.ActiveDismissSeat;
+            records++;
+        }
+        if (state.WindowPoseContext.HasValue
+            && SharedWindowPoseContext.Write(buffer, ref i, state.WindowPoseContext.Value))
+            records++;
+        if (ValidMapSelectionVersion(in state)
+            && i + 2 + NetProtocol.SharedQuestSelectionVersionBytes <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdSharedQuestSelectionVersion;
+            buffer[i++] = NetProtocol.SharedQuestSelectionVersionBytes;
+            AvatarSerializer.WriteU32(buffer, ref i, state.MapSelectionRevision);
+            AvatarSerializer.WriteU32(buffer, ref i, state.MapSelectionParent);
+            AvatarSerializer.WriteI32(buffer, ref i, state.MapSelectionParentAuthor);
+            records++;
+        }
+        if (state.WindowScales.HasValue
+            && SharedWindowScaleContext.Write(buffer, ref i, state.WindowScales.Value))
+            records++;
+
+        if (state.FlightOrigins?.Matches(in state) == true
+            && (!state.FlightOrigins.NeedsRecent || wroteHistory)
+            && (!state.FlightOrigins.NeedsDurable || wroteCompletions))
+        {
+            int written = state.FlightOrigins.Write(buffer, i, out byte originRecords);
+            if (written > 0) { i += written; records += originRecords; }
+        }
         return records;
     }
+
+    private static bool ValidMapSelectionVersion(in PresenceState state) => state.HasMapRoom
+        && state.HasMapSelectionVersion && state.MapSelectionRevision != 0
+        && (state.MapSelectionParent < state.MapSelectionRevision
+            || (state.MapSelectionParent == state.MapSelectionRevision && state.MapRoomSelectKey != 0))
+        && (state.MapSelectionParent == 0 ? state.MapSelectionParentAuthor == 0
+            : state.MapSelectionParentAuthor > 0);
+
+    private static bool ValidActiveDismissBerth(in PresenceState state) =>
+        state.HasActiveDismissBerth && state.ActiveDismissActorId != 0
+        && state.ActiveDismissListCount != 0
+        && (state.ActiveDismissSeat == byte.MaxValue
+            || state.ActiveDismissSeat < state.ActiveDismissListCount)
+        && (!state.ActiveDismissGhostShown || state.ActiveDismissSeat == byte.MaxValue);
 
     /// <summary>Is this pose's POSITION a real point? A NaN or infinite coordinate would move a
     /// board object out of the world, and for a prop that is permanent: nothing in the game ever
@@ -4061,8 +4150,10 @@ internal static class PresenceSerializer
                     // Remember the extension identity even when its length/payload is truncated.
                     // Otherwise valid79/80 followed by broken81 could masquerade as legacy face-only.
                     if (length > i && buffer[i] == NetProtocol.ExtIdTownActivity) state.TownActivityRecordSeen = true;
+                    if (length > i && buffer[i] == NetProtocol.ExtIdCardFlightOrigins) state.FlightOriginsSeen = true;
                     if (length < i + 2)
                     {
+                        if (state.FlightOriginsSeen) state.FlightOriginsInvalid = true;
                         if (length > i && (buffer[i] == NetProtocol.ExtIdFanInsertionGap || buffer[i] == NetProtocol.ExtIdTownItemHeld)) return false;
                         break;
                     }
@@ -4071,6 +4162,7 @@ internal static class PresenceSerializer
                     bool provenance = id == NetProtocol.ExtIdSecondHeldFaceActor || id == NetProtocol.ExtIdHeldMapCard || id == NetProtocol.ExtIdTownItemHeld;
                     if (length < i + len)
                     {
+                        if (id == NetProtocol.ExtIdCardFlightOrigins) state.FlightOriginsInvalid = true;
                         if (provenance || id == NetProtocol.ExtIdFanInsertionGap) return false;
                         break;
                     }
@@ -4108,6 +4200,21 @@ internal static class PresenceSerializer
         }
         if (state.HeldTownItem.HasValue && (!state.HasHeldCardFace
             || NetProtocol.HeldFaceList(state.SecondHeldFaceCode) != NetProtocol.HeldFaceListItems)) return false;
+        // Record order is additive: qualify120 only after20 had its chance to decode.
+        if (state.HasMapSelectionVersion && (!state.HasMapRoom
+            || (state.MapSelectionParent == state.MapSelectionRevision && state.MapRoomSelectKey == 0)))
+        {
+            state.HasMapSelectionVersion = false;
+            state.MapSelectionRevision = state.MapSelectionParent = 0;
+            state.MapSelectionParentAuthor = 0;
+        }
+        if (state.FlightOriginsSeen && (state.FlightOriginsInvalid || state.FlightOrigins?.Apply(ref state) != true))
+        {
+            // A known dismiss cohort cannot degrade to a runnable unmarked Active flight.
+            // The next complete presence is the recovery; never invent a canonical source.
+            state = default;
+            return false;
+        }
         return true;
     }
 
@@ -5208,6 +5315,61 @@ internal static class PresenceSerializer
             // is "the recess is empty", i.e. the pre-record rendering.
             state.HasItemUseClip = true;
             state.ItemUseClipIndex = buffer[i];
+        }
+        else if (id == NetProtocol.ExtIdSharedQuestSelectionVersion
+                 && len >= NetProtocol.SharedQuestSelectionVersionBytes)
+        {
+            int at = i;
+            uint revision = AvatarSerializer.ReadU32(buffer, ref at);
+            uint parent = AvatarSerializer.ReadU32(buffer, ref at);
+            int parentAuthor = AvatarSerializer.ReadI32(buffer, ref at);
+            if (revision != 0 && parent <= revision
+                && (parent == 0 ? parentAuthor == 0 : parentAuthor > 0))
+            {
+                state.HasMapSelectionVersion = true;
+                state.MapSelectionRevision = revision;
+                state.MapSelectionParent = parent;
+                state.MapSelectionParentAuthor = parentAuthor;
+            }
+        }
+        else if (id == NetProtocol.ExtIdSharedWindowPoseContext)
+        {
+            if (SharedWindowPoseContext.TryRead(buffer, i, len, out SharedWindowPoseContext context))
+                state.WindowPoseContext = context;
+        }
+        else if (id == NetProtocol.ExtIdSharedWindowScaleContext)
+        {
+            if (SharedWindowScaleContext.TryRead(buffer, i, len, out SharedWindowScaleContext context))
+                state.WindowScales = context;
+        }
+        else if (id == NetProtocol.ExtIdCardFlightOrigins)
+        {
+            if (!state.FlightOriginsInvalid && !CardFlightOrigins.ReadPage(buffer, i, len, ref state.FlightOrigins))
+            {
+                state.FlightOriginsInvalid = true;
+                state.FlightOrigins = null;
+            }
+        }
+        else if (id == NetProtocol.ExtIdActiveDismissBerth
+                 && len >= NetProtocol.ActiveDismissBerthRecordBytes)
+        {
+            byte flags = buffer[i];
+            int actorAt = i + 1;
+            int actorId = AvatarSerializer.ReadI32(buffer, ref actorAt);
+            byte count = buffer[i + 5];
+            byte seat = buffer[i + 6];
+            // Fail closed: an unknown mode, missing actor/list or contradictory staged/ghost
+            // state must never put an arbitrary active card on another player's board.
+            if ((flags & ~3) == 0 && (flags & 1) != 0 && actorId != 0 && count != 0
+                && (seat == byte.MaxValue || seat < count)
+                && ((flags & 2) == 0 || seat == byte.MaxValue))
+            {
+                state.HasActiveDismissBerth = true;
+                state.ActiveDismissGhostShown = (flags & 2) != 0;
+                state.ActiveDismissActorId = actorId;
+                state.ActiveDismissListCount = count;
+                state.ActiveDismissSeat = seat;
+            }
         }
         else if (id == NetProtocol.ExtIdEnvClock
                  && len >= NetProtocol.EnvClockRecordBytes)

@@ -726,6 +726,8 @@ internal sealed class PileViewer
         }
         else
         {
+            // Confirmed burn/tap results finish on their original chip, independently of this
+            // action-hand gate. Retirement only backs out an unconfirmed placement.
             _itemsBrowse.RetirePlacedCardIfAny(
                 "no locally-controlled hand is active (another player's turn) — the pile NUMBERS "
                 + "keep tracking the presented character, the item-use recess does not");

@@ -150,6 +150,16 @@ internal sealed class MapLocationInteractor
     /// </summary>
     internal MapLocation? Staged => _selected;
 
+    // Both genuine selection producers already count accepted armings. Bind a deferred close
+    // to that lifetime too: A -> B -> A is a newer opening despite the matching location ID.
+    internal int SelectionRevision => unchecked(_dispatchedHere + _adoptedFromGame + _manualSelectionRevision);
+    // Unlike native restored-selection adoption, an accepted VR dispatch before the first
+    // presence sample is a real local action. Remote dispatches remain echo-suppressed.
+    internal int LocalSelectionInputRevision => unchecked(_dispatchedHere + _acceptedManualSelectionRevision);
+    internal int SelectionPublicationRevision => unchecked(_dispatchedHere + _adoptedFromGame + _acceptedManualSelectionRevision);
+    private int _manualSelectionRevision;
+    private int _acceptedManualSelectionRevision;
+
     /// <summary>
     /// ADOPT THE ROOM'S SELECTION — the receiving half of record 20's selection edge.
     ///
@@ -169,9 +179,9 @@ internal sealed class MapLocationInteractor
     /// all, which is what makes an edge that arrives twice (a duplicated packet, two peers naming
     /// the same node) cost one comparison rather than a second click.</para>
     /// </summary>
-    /// <returns>True when something was actually driven — log material for the caller, which owns
+    /// <returns>True when the requested selection was actually adopted — log material for the caller, which owns
     /// the "once per change, naming the node" line.</returns>
-    internal bool AdoptSelection(MapLocation? loc, string why)
+    internal bool AdoptSelection(MapLocation? loc, string why, bool newOpening = false)
     {
         // A remote selection edge has the same admission rule as a local pointer. In
         // particular it must not deselect the committed quest behind a native map lock.
@@ -182,7 +192,7 @@ internal sealed class MapLocationInteractor
         // host's committed proposal while this client's native prompt is pending.
         if (NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) && proposal != null)
             return false;
-        if (ReferenceEquals(loc, _selected))
+        if (!newOpening && ReferenceEquals(loc, _selected))
             return false;
 
         // ORDER MATTERS: drop the old selection FIRST. Two selected locations is a state the game
@@ -190,10 +200,59 @@ internal sealed class MapLocationInteractor
         // the new one while the old one still stands would leave the old icon's own highlight and
         // quest marker up with nothing to take them down.
         if (_selected != null)
+        {
             Deselect($"adopted from the room: {why}");
+            if (_selected != null)
+                return false; // native Deselect declined; do not invent a second selection
+        }
         if (loc == null)
             return true;
         Dispatch(loc, $"adopted from the room ({why})");
+        return ReferenceEquals(_selected, loc);
+    }
+
+    /// <summary>
+    /// A peer changed an uncommitted browsing selection while this client had already readied.
+    /// Native OnReady owns that map lock; waiting for the local selection observer to unready
+    /// after adoption is circular because adoption correctly respects the lock. Withdraw only
+    /// this client's existing quest readiness through the original public seam, once per remote
+    /// edge. The caller still waits for native authorization and never releases the mask itself.
+    /// A real host proposal, unknown native identity, or a starting quest is not browsing.
+    /// </summary>
+    internal bool PrepareSharedSelectionChange(MapLocation? loc, bool newOpening = false)
+    {
+        if (!MapRoomDriver.Active || StoryComposite.PointOfNoReturn
+            || !NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) || proposal != null)
+            return false;
+        string? from = DecisionIdOf(_selected);
+        string? to = DecisionIdOf(loc);
+        if (!newOpening && string.Equals(from, to, System.StringComparison.Ordinal))
+            return false;
+        MapQuestReadyUp.OnQuestDecisionChanged(from, to);
+        return true;
+    }
+
+    /// <summary>Keep a shared quest X on the same native deselection path as a table click.</summary>
+    internal static bool HandleSharedQuestClose(UIWindow window)
+    {
+        if (!FFSNetwork.IsOnline || !MapRoomDriver.Active
+            || !NativeMapQuestSelection.IsConfirmationWindow(window))
+            return false;
+        MapLocationInteractor? interactor = MapRoomDriver.ActiveLocations;
+        if (interactor == null || MapInputGate.IsBlocked || NativeMapQuestSelection.BlocksSharedBrowsing
+            || StoryComposite.PointOfNoReturn)
+        {
+            VRLog.Info(Scope, "MAP QUEST SHARED CLOSE: incidental X kept the original quest "
+                + "window visible; its native map lock/proposal or starting quest still owns "
+                + "the decision. Use its original readiness/decline controls; no Hide was sent.");
+            return true;
+        }
+        interactor.TickAdoptGameSelection();
+        bool hadSelection = interactor._selected != null;
+        interactor._manualSelectionRevision++;
+        interactor.Deselect("the shared quest window's X requested its original browsing deselection");
+        if (hadSelection && interactor._selected == null)
+            interactor._acceptedManualSelectionRevision++;
         return true;
     }
 
@@ -207,8 +266,9 @@ internal sealed class MapLocationInteractor
         index >= 0 && index < _locations.Count ? _locations[index] : null;
 
     /// <summary>
-    /// Bumped once every time <see cref="Rescan"/> REPLACES the location set — a quest unlock, a
-    /// city↔world switch, a travel animation, i.e. every <c>MapChoreographer.InitMap</c>.
+    /// Bumped whenever <see cref="Rescan"/> replaces the active location set: initial native
+    /// row creation, quest updates and world↔city activation changes. A native surface switch
+    /// preserves its map instance and existing rows; it does not call InitMap again.
     ///
     /// <para>THIS IS WHAT MAKES A KEY→LOCATION CACHE SAFE, and it is not optional. Locations are
     /// destroyed and respawned wholesale, so a cache that is not rebuilt points at dead objects;
@@ -219,6 +279,53 @@ internal sealed class MapLocationInteractor
     internal int ScanGeneration => _scanGeneration;
 
     private int _scanGeneration;
+
+    // The set generation alone is insufficient: InitMap yields after individual rows, and a
+    // world/city change activates existing rows rather than constructing another native map.
+    // A resolver may only declare an unknown key invalid after a completed, initialized census
+    // of the requested surface. These facts describe the scan, not an arbitrary wait duration.
+    internal int CompletedSelectionScan => _completedSelectionScan;
+    internal object? CompletedSelectionScanMap => _completedSelectionScanMap;
+    internal MapIconLayer.MapSurface CompletedSelectionScanSurface => _completedSelectionScanSurface;
+    internal bool CompletedSelectionScanReady => _completedSelectionScanReady;
+    private int _completedSelectionScan;
+    private object? _completedSelectionScanMap;
+    private MapIconLayer.MapSurface _completedSelectionScanSurface;
+    private bool _completedSelectionScanReady;
+    private static readonly FieldInfo? NativeMapInitialised = typeof(global::MapChoreographer).GetField(
+        "m_Initialised", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+    private static bool _selectionScanReadWarned;
+
+    private void RecordCompletedSelectionScan()
+    {
+        global::MapChoreographer? native = MapRoomDriver.Choreographer;
+        _completedSelectionScanMap = native;
+        _completedSelectionScanReady = false;
+        _completedSelectionScanSurface = MapIconLayer.MapSurface.Unknown;
+        try
+        {
+            if (native != null)
+            {
+                GameObject? map = MapParchment.ResolveActiveMapGo(native, out bool city);
+                _completedSelectionScanSurface = map == null ? MapIconLayer.MapSurface.Unknown
+                    : city ? MapIconLayer.MapSurface.City : MapIconLayer.MapSurface.World;
+                _completedSelectionScanReady = NativeMapInitialised?.GetValue(native) is bool ready && ready;
+                if (NativeMapInitialised == null)
+                    throw new System.MissingFieldException("MapChoreographer.m_Initialised");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            if (!_selectionScanReadWarned)
+            {
+                _selectionScanReadWarned = true;
+                VRLog.Warn(Scope, "MAP ROOM native location-census readiness unavailable: "
+                    + ex.GetType().Name + ": " + ex.Message
+                    + ". Shared browsing waits for measured native readiness; one report per session.");
+            }
+        }
+        unchecked { _completedSelectionScan++; }
+    }
 
     /// <summary>
     /// Where a placard belongs for ANY location — the top-centre of its drawn icon plus the same
@@ -317,6 +424,7 @@ internal sealed class MapLocationInteractor
         {
             _scanFrame = Time.frameCount;
             Rescan();
+            RecordCompletedSelectionScan();
         }
 
         // THE MASK IS OWNED UNCONDITIONALLY, INCLUDING WHEN THERE ARE NO LOCATIONS — see ApplyMask.
@@ -1192,14 +1300,23 @@ internal sealed class MapLocationInteractor
         }
 
         // (1) a trigger pull that landed ON THE MAP OR THE TABLE, and on no location.
+        // A client may not dissolve its copy of a genuine host proposal independently.
+        // The original ready/decline controls, rather than an incidental table click, own it.
+        if (NativeMapQuestSelection.BlocksSharedBrowsing)
+            return;
         VRHand? clicking = TriggerEdgeHand();
         if (clicking == null)
             return;
         if (_hover != null)
             return; // an icon is under the ray: that press is a SELECTION, never a deselection
         if (RayOnMapOrTable(clicking, out string what, out float distance))
+        {
+            _manualSelectionRevision++;
             Deselect($"{clicking.Side} trigger pulled with the ray on {what} at {distance:F1} world "
                      + "units and on no location icon");
+            if (_selected == null)
+                _acceptedManualSelectionRevision++;
+        }
         else
             NoteDeselectRefused(clicking, what);
     }
@@ -1487,13 +1604,18 @@ internal sealed class MapLocationInteractor
         if (MapInputGate.IsBlocked)
             return;
         MapLocation? sel = _selected;
-        _selected = null;
-        _selectedDecisionId = null;
         if (sel == null)
             return;
         try
         {
-            sel.Deselect();
+            if (sel.IsSelected)
+                sel.Deselect();
+            // Native Deselect is void and may refuse on IsSelectable or m_OnClickAction.
+            // Only its actual result may retire our subject or authorize a replacement.
+            if (sel.IsSelected)
+                return;
+            _selected = null;
+            _selectedDecisionId = null;
             VRLog.Info(Scope, $"MAP ROOM location DESELECTED '{sel.name}' — {why}. Routed through the "
                               + "game's own MapLocation.Deselect, the exact counterpart of the Select() a "
                               + "click runs, so its guards still decide and nothing goes on the wire.");
@@ -2322,7 +2444,7 @@ internal sealed class MapLocationInteractor
         // OnPointerClick/OnMapLocationSelect do not test the map's interaction mask:
         // normal input cannot reach them through it. Gate BEFORE either the capital route
         // or pointer dispatch, including direct fingertip and remote selection calls.
-        if (MapInputGate.IsBlocked)
+        if (MapInputGate.IsBlocked || NativeMapQuestSelection.BlocksSharedBrowsing)
             return;
         if (loc == null)
             return;

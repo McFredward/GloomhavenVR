@@ -1,3 +1,135 @@
+**Release1.2.1 preparation, Build721, 2026-10-23.**
+
+The maintainer authorized publishing the current Build720 frontier. Semantic
+version already1.2.1; Build721 supplies release identity only. English highlights
+cover physical dismissal/flights, item-fan closure, shared windows/quest/latejoin
+and surrendered-item cleanup. Three hosted fixture blockers are repaired:
+flight-source context ports and SDK executable selection in dismissal/latejoin.
+Local16 source, strict release0W0E and306431 golden assertions pass, with focused
+fixture repairs verified. Compiled scope is release identity/flags only. No new
+gameplay/default/asset/wire behavior. Exact candidate hosted proof and
+dev→main merge/publication are required; see `RELEASE-1.2.1.md` and ignored
+`.planning/debug/release121/` receipts. No published-release claim yet.
+
+**Accepted item surrender cleanup, Build720, 2026-10-23.**
+
+Build719 logs show a natively accepted item surrender immediately reclassified
+as an off-turn cancelled placement. Its competing collapse bypassed native FX
+completion and stranded the Use berth. Confirmed results now retain their original
+chip/parent through native burn/tap completion, independently of the action hand;
+completion clears the survivor, remote index and overlay without character switching.
+Following demands keep their own ask. Native callback kind is captured before
+reentry, and teardown drops its finishing reference. Native authority and
+unconfirmed returns remain; no wire/default/asset change.
+
+Integrated item-placement608 assertions/12 causal controls and item-burn227/11
+pass, plus three affected item/active-dismiss suites. Source16/16, strict
+Release0W0E and complete unfiltered306431 golden assertions pass. Compiled review
+finds only ItemsPile behavior plus nine build-number-only types; surfaces/bundles
+are intact. Baseline719 reproduces the defect. See `ITEM720-SURRENDER-CLEANUP.md`
+for boundaries, receipts and the initial repaired fixture compile failure.
+This bounded repair reuses unchanged719 evidence; no new complete local-suite
+invocation or headset/native multiplayer acceptance is claimed. Completed test
+caches and the owned worker worktree are cleaned after byte-compared archival;
+hardware inputs, other worktrees and deliverables remain.
+
+**Fixed shared-window spawn distance, Build719, 2026-10-23.**
+
+The paired717 follow-up confirms common window size and host author, but its
+placement producer still multiplied distance by the host's live zoom. Shared
+modal/reward/video placement now uses the same captured common world reference
+as rendering. Fitted replay keeps the original gaze, with no old private raw
+offset/scale; fitted half-size retains its captured reference across scene
+changes. Host/surrogate election, existing family distances, private placement,
+manual move/resize and native callbacks remain. No wire/default/asset change.
+
+Expanded Unity4463 assertions/29 causal controls and portable588/29 pass;
+integrated719 production reruns pass4463/588 with matching worker input bodies.
+Eleven distinct affected suites have passing coverage, including complete
+repaired movie/reward fixture reruns. Source16/16, strict Release0W0E and all
+306431 unfiltered golden assertions pass. Compiled review finds two intended
+behavior types plus nine build-only changes; surfaces/bundles remain intact.
+Validation, paired-log limits and scope are recorded in
+`MP719-SHARED-WINDOW-DISTANCE.md`; no new complete local-suite invocation or
+headset acceptance is claimed. Actual production clamp/centre kernels replace
+the earlier stubbed-clamp/1.3-literal proof boundary. Caches and both completed
+owned worktrees are cleaned, with byte-compared evidence archives preserved.
+
+**Original active-card dismissal flights, Build718, 2026-10-22.**
+
+Explicitly dismissed ability/summon cards retain their physical original and
+fly from the berth into the original native discard/lost destination. Detach
+before berth closure, preserve the actual mid-settle pose and existing native
+burn-artwork hold, and never fly on an uncommitted or refused confirmation.
+Remote playback carries exact pool provenance and launch geometry through
+additive122, unchanged recent62 and durable75. Same-original renderer ownership
+survives missed staging, hidden berth parents and delayed native/public artwork;
+recovery, control, original identity and scenario lifetimes remain authoritative.
+
+Integrated affected coverage18 distinct suites, source16/16, strict Release0W0E
+and complete unfiltered306431 golden assertions pass. The local production flow
+executes83 assertions/12 causal controls; the final unfiltered remote proof
+passes63 assertions/all34 causal controls. Compiled/surface/bundle review passes
+with26 changed types, two added and no removal. Evidence and a repaired test-only
+failure binding are recorded in `ACTIVE-CARD-DISMISS718.md`. This bounded repair reuses
+unchanged Build717 coverage; no new complete240-suite invocation or headset
+visual acceptance is claimed. Test caches are cleaned with evidence retained;
+only completed owned worktrees are removed after byte-compared archival.
+
+**Shared multiplayer windows and latejoin hand recovery, Build717, 2026-10-22.**
+
+The four-player Build715 review exposed actual world-size/pose divergence hidden
+by normalized millimetre diagnostics, an unready/selection circular wait and a
+last guest whose native hand presenter remained foreign after ownership was
+already assigned. Shared windows now retain one captured world render reference
+and the host's initial gaze placement across independent zooms/map domains.
+Additive119/121 carry the author's pose frame and captured geometry; existing
+manual move/resize remains shared. Causal120 browsing openings converge under
+clear/reselect/reorder and survive native loading until the correct initialized
+surface has a completed location census. Missing controllers remain pending;
+real proposals keep original authority. The late guest requests the original
+owned SwitchHand with all native phase/modal/ownership checks intact.
+
+Strict Release0warnings/errors, source16/16 and final unfiltered301541 golden
+assertions pass. All240 local suites have passing coverage from the complete
+232-pass/eight-failure sweep plus verified bounded repairs and final affected
+runtime/Unity/causal checks. No new single green complete-invocation claim.
+Compiled/surface/bundle review is complete; no setting, patch or existing log
+marker was removed. Completed worker evidence is archived and byte-compared,
+with regenerable caches/worktrees removed. See `MP717-SHARED-WINDOWS.md`,
+`MP717-LATEJOIN.md` and `MP717-VALIDATION.md` for precise evidence and limits.
+The next four-player headset review remains required; automated success is not
+visual or native-network acceptance.
+
+**Active-card dismissal and item fan closure, Build716, 2026-10-22.**
+
+The maintainer chose the existing physical item berth for ending active ability
+cards and living summons: rectangular landing preview, then explicit native-cap
+confirmation. Capture and invoke only the original game's accepted callback;
+revalidate native permission/owner/lifetime and preserve original multiplayer
+actions. TLV118 mirrors the same original active card staged on the remote berth,
+without a second copy. Successful item placement closes the fan while keeping
+choice/demand/damage/bonus decisions and retrieval alive. Shared-berth handoffs,
+stale caps, board rebuild and scene load are covered explicitly. See
+`ACTIVE-CARD-DISMISS716.md` for implementation, evidence and hardware limits.
+Final TLV118 is actor-qualified flags/actorI32LE/count/seat; writer7966 remains
+inside8000. Strict Release0/0, source16/16 and all300693 direct golden assertions
+pass. All236 local suites have coverage from the complete sweep and bounded
+fixture repairs, with unchanged passing evidence retained; no new single green
+full-run claim. Final producer/consumer proofs cover52/6 and22/11 assertions/causal
+controls. Native/card/item proofs and the compiled/surface review are retained.
+Actual headset interaction and remote pictures still require hardware testing.
+
+**Shared XR GPU measurement repair, 2026-10-21 (development source).**
+
+Bind the current XRDisplaySubsystem GPU provider before the legacy XRStats API;
+convert provider seconds to the existing millisecond samples and retain explicit
+unavailable/legacy behavior. No graphics setting, image, gameplay or wire change.
+Strict Release0/0, source16/16 and actual-production probe12assertions/four causal
+controls pass; four actual SDK metadata checks are separately inherited by exact
+probe-body identity from the Quest investigation. No physical provider answer or
+new PC hardware artifact is claimed. See `XR-DISPLAY-TIMING-20261021.md`.
+
 **Release1.2.0 candidate, Build715, 2026-10-19.**
 The maintainer requests publication from the current dev frontier, with
 English-only highlights for native Steam Link passthrough and stereoscopic

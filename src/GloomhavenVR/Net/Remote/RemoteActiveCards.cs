@@ -118,6 +118,8 @@ internal sealed class RemoteActiveCards
     /// the old number and the growth path allocates only when it is actually exceeded.</para>
     /// </summary>
     private const int InitialSlots = 6;
+    // The local ability stage and the item berth use the same clear area / visible margin.
+    private const float UseSlotFit = RemoteBoardFurniture.UseSlotInnerFactor * 0.94f;
 
     /// <summary>Whose board this column belongs to — diagnostics only.</summary>
     private readonly int _playerId;
@@ -161,6 +163,10 @@ internal sealed class RemoteActiveCards
     /// <c>AbilityCard</c> can never answer this.</summary>
     private readonly List<Vector3> _cellPos = new(InitialSlots);
     private readonly List<CAbilityCard> _cellCard = new(InitialSlots);
+    private RemoteBoardCard? _dismissPanel;
+    private CAbilityCard? _dismissCard;
+    private readonly Dictionary<CAbilityCard, RemoteBoardCard> _retainedDismiss = new();
+    private readonly List<CAbilityCard> _retiredDismiss = new();
 
     public RemoteActiveCards(RemoteAvatar owner, int playerId, Transform boardRoot,
                              in RemoteBoardLayout layout)
@@ -376,12 +382,87 @@ internal sealed class RemoteActiveCards
     {
         if (_panelsByCard.TryGetValue(cardId, out RemoteBoardCard panel))
             panel.TransferToFlight(cardId, actor, generation);
+        _retiredDismiss.Clear();
+        foreach (var retained in _retainedDismiss)
+            if (retained.Key.CardInstanceID == cardId) _retiredDismiss.Add(retained.Key);
+        foreach (CAbilityCard card in _retiredDismiss) _retainedDismiss.Remove(card);
+        _retiredDismiss.Clear();
+    }
+
+    private void RetainDismissPanels()
+    {
+        // Native membership can disappear before public flight artwork is ready. Keep the
+        // original berth renderer out of the reusable active pool until its actual handover.
+        if (_dismissCard != null && _dismissPanel != null
+            && _owner.RetainsDismissOriginal(_dismissCard.CardInstanceID))
+            FreezeDismissOriginal(_dismissCard);
+        _retiredDismiss.Clear();
+        foreach (var retained in _retainedDismiss)
+            if (!_owner.RetainsDismissOriginal(retained.Key.CardInstanceID))
+            { retained.Value.Blank(); _retiredDismiss.Add(retained.Key); }
+        foreach (CAbilityCard card in _retiredDismiss) _retainedDismiss.Remove(card);
+        _retiredDismiss.Clear();
+    }
+
+    private bool IsRetainedDismiss(RemoteBoardCard panel) => _retainedDismiss.ContainsValue(panel);
+
+    internal void FreezeDismissOriginal(CAbilityCard card)
+    {
+        RemoteBoardCard? panel = _dismissPanel != null && ReferenceEquals(_dismissCard, card)
+            ? _dismissPanel : _retainedDismiss.TryGetValue(card, out RemoteBoardCard retained) ? retained : null;
+        if (panel == null || _root.parent == null) return;
+        panel.FreezePresentationParent(_root.parent);
+        _retainedDismiss[card] = panel;
+    }
+
+    private bool KeepRetainedDismissCard(CAbilityCard card, RemoteBoardCard panel, bool showFronts,
+        CPlayerActor actor)
+    {
+        if (!_retainedDismiss.TryGetValue(card, out RemoteBoardCard retained)
+            || !ReferenceEquals(retained, panel)) return false;
+        // The observer's native model may still contain the card after its accepted flight
+        // arrived. Refresh its original artwork/privacy, but do not reparent the frozen slab
+        // back under the closing berth or resume its previous active-cell glide.
+        panel.Set(card, showFronts, actor);
+        panel.MaintainMips();
+        panel.SetNativeCardAppearance(_playerId, actor, card);
+        _dismissPanel = panel; _dismissCard = card;
+        return true;
+    }
+
+    // A dismissal may be accepted while SetHome is still settling. Capture the panel the
+    // observer is actually looking at immediately before ownership changes; the active-grid
+    // centre and a freshly reconstructed berth both lose that intermediate pose.
+    internal bool TryDismissPose(CAbilityCard card, out Vector3 world, out Quaternion rotation,
+        out float width)
+    {
+        world = default; rotation = Quaternion.identity; width = 0f;
+        RemoteBoardCard? panel = _dismissPanel != null && ReferenceEquals(_dismissCard, card)
+            ? _dismissPanel : _retainedDismiss.TryGetValue(card, out RemoteBoardCard retained) ? retained : null;
+        if (panel == null) return false;
+        Transform slab = panel.PresentationTransform;
+        world = slab.position; rotation = slab.rotation;
+        width = _cardW * Mathf.Abs(slab.lossyScale.x);
+        return width > 0f;
     }
 
     internal CAbilityCard? PresentedSource(CardFlightSource? source)
     {
         if (!source.HasValue || source.Value.Count != _buffer.Count || source.Value.Seat >= _buffer.Count) return null;
         return _buffer[source.Value.Seat];
+    }
+
+    private int DismissSeat(CPlayerActor actor, Transform? dismissBerth)
+    {
+        int dismissSeat = _owner.ActiveDismissMatchesActor(actor) && dismissBerth != null
+            && _owner.ActiveDismissListCount == Count ? _owner.ActiveDismissSeat : -1;
+        // A coalesced accepted-flight snapshot may clear118 before the native pile catches up.
+        // Keep the original staged panel at its current berth until that semantic handover;
+        // returning it to the grid in this interval would launch the flight from a different card.
+        if (dismissSeat < 0 && dismissBerth != null && _dismissCard != null
+            && _owner.DismissFlightOwnsCard(_dismissCard.CardInstanceID))
+            dismissSeat = _buffer.IndexOf(_dismissCard);
+        return dismissSeat;
     }
 
     internal void SuppressBurnCard(int cardId)
@@ -399,6 +480,7 @@ internal sealed class RemoteActiveCards
             DrivePulse(actor);
             return;
         }
+        RetainDismissPanels();
         // THE CARVE-OUT FROM THE CARVE-OUT, asked of the one rule every peer-card surface asks. It
         // still needs a character to resolve against; the ONLY term it drops is the phase.
         //
@@ -439,6 +521,15 @@ internal sealed class RemoteActiveCards
         catch { _buffer.Clear(); }
 
         Count = _buffer.Count;
+
+        // A staged card remains a member of the original active list until native confirmation.
+        // Resolve only the exact producer actor and its counted public seat: a focus/burn/model
+        // ordering gap must never stage an equal-index card belonging to another character.
+        // The original panel moves, leaving its active-grid cell empty.
+        Transform? dismissBerth = _owner.ItemUseRecess;
+        int dismissSeat = DismissSeat(actor, dismissBerth);
+        _dismissPanel = null;
+        _dismissCard = null;
 
         // ─── THE CARD IN THE OWNER'S FIST IS NOT DRAWN IN THE MATRIX (report item 1, 2026-09-06) ─
         // "Durchsuche nochmal alles nach solchen ungewollten Kopien in der Hand die Karten kopieren
@@ -533,8 +624,12 @@ internal sealed class RemoteActiveCards
         if (!any)
         {
             _panelsByCard.Clear();
+            foreach (var retained in _retainedDismiss)
+                _panelsByCard[retained.Key.CardInstanceID] = retained.Value;
             for (int i = 0; i < _cards.Count; i++)
             {
+                if (IsRetainedDismiss(_cards[i])) continue;
+                _cards[i].SetPresentationParent(_root);
                 _cards[i].Set(null, showFronts, actor);
                 // ITEM 4 (2026-09-07): release the permanent look with the cell. Set(null)
                 // already drops it through ClearFace; this makes the release EXPLICIT at every
@@ -563,7 +658,7 @@ internal sealed class RemoteActiveCards
         // Grow the slot pool to whatever the owner is actually showing (see InitialSlots). Slots
         // are never returned: an active pile that reached N once will reach it again, and a
         // RemoteBoardCard owns hosted card faces whose teardown is Destroy()'s job.
-        while (_cards.Count < Count)
+        while (_cards.Count < Count + _retainedDismiss.Count)
             _cards.Add(new RemoteBoardCard(_root, Vector3.zero, _cardW, _cardH));
 
         // Reserve every resident panel before assigning any newcomer: otherwise inserting a
@@ -571,6 +666,7 @@ internal sealed class RemoteActiveCards
         // their identity even while their face is blank, just like the owner's VRCard object.
         _orderedPanels.Clear();
         _assignedPanels.Clear();
+        foreach (RemoteBoardCard retained in _retainedDismiss.Values) _assignedPanels.Add(retained);
         for (int i = 0; i < Count; i++)
         {
             RemoteBoardCard? panel = _panelsByCard.TryGetValue(_buffer[i].CardInstanceID,
@@ -589,7 +685,8 @@ internal sealed class RemoteActiveCards
             }
         }
         for (int i = 0; i < _cards.Count; i++)
-            if (!_assignedPanels.Contains(_cards[i])) _orderedPanels.Add(_cards[i]);
+            if (!_assignedPanels.Contains(_cards[i])
+                || IsRetainedDismiss(_cards[i]) && !_orderedPanels.Contains(_cards[i])) _orderedPanels.Add(_cards[i]);
         _cards.Clear();
         _cards.AddRange(_orderedPanels);
 
@@ -604,15 +701,20 @@ internal sealed class RemoteActiveCards
         {
             if (i >= Count)
             {
+                if (IsRetainedDismiss(_cards[i])) continue;
+                _cards[i].SetPresentationParent(_root);
                 _cards[i].Set(null, showFronts, actor);
                 _cards[i].SetActiveCardLook(_playerId, i, null, RemoteCardArt.CardFxLook.None);
                 continue;
             }
             Vector3 cellAt = CellLocal(i, Count, _cardW, _grid);
             int cardId = _buffer[i].CardInstanceID;
+            if (KeepRetainedDismissCard(_buffer[i], _cards[i], showFronts, actor)) continue;
             if (cardId == completedFlightCardId) _cards[i].PrepareFlightArrival();
             bool residentKeepsItsCard = _panelsByCard.ContainsKey(cardId);
             bool held = i == activeSeatA || i == activeSeatB;
+            bool staged = !held && i == dismissSeat && dismissBerth != null;
+            _cards[i].SetPresentationParent(staged ? dismissBerth! : _root);
             if (!held && _heldPoseSlots.TryGetValue(cardId, out int oldPoseSlot))
             {
                 Transform? releasedSlab = _owner.HeldSlab(oldPoseSlot);
@@ -626,8 +728,10 @@ internal sealed class RemoteActiveCards
             // THE OWNER'S OWN RATE, off his synced BoardTuning ([Cards] CardLerpSpeed, wire id
             // NetProtocol.TuneCardLerpSpeed) — never this client's config. A mirror may not read the
             // viewer's dial, and this is the very number VRCard.Update runs his glide at.
-            _cards[i].Move(cellAt, instant: !residentKeepsItsCard, _owner.BoardTuning.CardLerpSpeed);
-            if (held || _flyingSeats.Contains(i) || _owner.BurnOwnsActiveCard(cardId))
+            _cards[i].Move(staged ? Vector3.zero : cellAt, instant: !residentKeepsItsCard,
+                _owner.BoardTuning.CardLerpSpeed, staged ? UseSlotFit : 1f);
+            if (held || _flyingSeats.Contains(i) || _owner.BurnOwnsActiveCard(cardId)
+                || !staged && _owner.DismissFlightOwnsCard(cardId))
             {
                 // Either in their fist and not in their matrix, or still in the AIR on its way
                 // here (user item 2). Moved to its own cell first so the gap sits where the owner's
@@ -679,14 +783,27 @@ internal sealed class RemoteActiveCards
             // Recorded HERE rather than derived again later, so the position the driver matches on
             // is the very Vector3 the cell was moved to and not a second evaluation of the same
             // formula that could drift from it.
-            _cellPos.Add(cellAt);
+            if (staged)
+            {
+                _dismissPanel = _cards[i];
+                _dismissCard = _buffer[i];
+            }
+            else
+            {
+                _cellPos.Add(cellAt);
+                _cellCard.Add(_buffer[i]);
+            }
+            Vector3 departure = staged && _root.parent != null
+                ? _root.parent.InverseTransformPoint(_cards[i].PresentationTransform.position)
+                : _root.localPosition + _root.localScale.x * cellAt;
             RemoteActiveDepartures.Remember(_playerId, actor, _buffer[i],
-                _root.localPosition + _root.localScale.x * cellAt, (byte)i, (byte)_buffer.Count);
-            _cellCard.Add(_buffer[i]);
+                departure, (byte)i, (byte)_buffer.Count);
         }
         _panelsByCard.Clear();
         for (int i = 0; i < Count; i++)
             _panelsByCard[_buffer[i].CardInstanceID] = _cards[i];
+        foreach (var retained in _retainedDismiss)
+            _panelsByCard[retained.Key.CardInstanceID] = retained.Value;
 
         // The standing picture for the census — this population must NEVER read a BACK, in any
         // phase, and the line PeerCardFaceCensus prints says so in as many words. RealFaceCount is
@@ -733,6 +850,7 @@ internal sealed class RemoteActiveCards
     {
         _pulse.Begin();
         _pulse.DriveMatrix(_root, actor, _cellPos, _cellCard);
+        _pulse.DriveSingle(_dismissPanel?.PresentationTransform, actor, _dismissCard);
 
         // AND THE FIST. The seats come from the SAME record-36 read the blanking above uses, under
         // the SAME length belt: a seat only names a card while the sender's ActivatedCards walk and
@@ -896,7 +1014,14 @@ internal sealed class RemoteActiveCards
     public void Blank()
     {
         for (int i = 0; i < _cards.Count; i++)
+        {
+            _cards[i]?.SetPresentationParent(_root);
             _cards[i]?.Blank();
+        }
+        _dismissPanel = null;
+        _dismissCard = null;
+        _retainedDismiss.Clear();
+        _retiredDismiss.Clear();
         Count = 0;
     }
 

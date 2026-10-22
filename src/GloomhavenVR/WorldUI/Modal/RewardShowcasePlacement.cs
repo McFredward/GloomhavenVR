@@ -11,10 +11,14 @@ internal static class RewardShowcasePlacement
     private static Vector3 _position;
     private static Quaternion _rotation;
     private static float _size;
+    private static float _referenceScale;
     private static float _receivedAt;
     private static uint _authorityKey;
     private static bool _mayReveal;
     private static bool _poseReady;
+
+    internal static bool IsInitialAuthor => _authorityKey != 0 && _authorityKey == RewardShowcase.ContentKey
+        ? _mayReveal : SharedWindowSpawnBridge.IsInitialAuthor;
 
     internal static bool LocalPlacementFailed => ModalFallback.RewardPlacementFailed(RewardShowcase.Window);
     internal static bool LocalRevealPending => ModalFallback.PanelFor(RewardShowcase.Window)?.RevealPending == true;
@@ -31,17 +35,22 @@ internal static class RewardShowcasePlacement
         _mayReveal = false;
     }
 
-    internal static void SetInitialPose(uint key, Vector3 position, Quaternion rotation, float size, bool ready = true)
+    internal static void SetInitialPose(uint key, Vector3 position, Quaternion rotation, float size, bool ready = true, float referenceScale = 0f)
     {
         _key = key;
         _position = position;
         _rotation = rotation;
         _size = size;
+        _referenceScale = referenceScale;
         _receivedAt = Time.unscaledTime;
         _poseReady = ready;
     }
 
-    internal static void ClearInitialPose() => _key = 0;
+    internal static void ClearInitialPose()
+    {
+        _key = 0;
+        _referenceScale = 0f;
+    }
 
     /// <summary>Only a follower's first reveal waits; native confirmation and other panels do not.</summary>
     internal static bool TryReveal(ConvertedPanel panel)
@@ -52,13 +61,15 @@ internal static class RewardShowcasePlacement
         uint key = RewardShowcaseIdentity.ContentKey(window);
         // An absent/disabled net module must never turn a local native reward into a new deadlock.
         // Once net supplies an authority for this chest, only it may release this presentation gate.
-        if (key == 0 || _authorityKey != key) return true;
+        if (key == 0) return true;
+        if (_authorityKey != key)
+            return SharedWindowSpawnBridge.IsInitialAuthor && ModalFallback.EnsureRewardHostSpawn(panel);
         if (_poseReady && ModalFallback.TryGetGrabFor(window, out GrabbableModal? grab) && ApplyInitialPose(window, grab))
         {
             ModalFallback.PreserveRewardInitialPose(window);
             return true;
         }
-        return _mayReveal;
+        return _mayReveal && ModalFallback.EnsureRewardHostSpawn(panel);
     }
 
     internal static bool ApplyInitialPose(UIWindow window, GrabbableModal? grab)
@@ -69,8 +80,11 @@ internal static class RewardShowcasePlacement
             || RewardShowcaseIdentity.ContentKey(window) != _key) return false;
         Transform? root = ((IPanelGrabOwner)grab).GrabRoot;
         if (root == null) return false;
+        if (_referenceScale > 0f) grab.ApplySharedReferenceWorldScale(_referenceScale);
         root.localScale = Vector3.one * SharedWindowSizeLaw.SharedGrabFactor(_size);
         grab.PlaceFrameAt(_position, _rotation);
+        ConvertedPanel? panel = ModalFallback.PanelFor(window);
+        if (panel != null) panel.SharedSpawnPoseReady = true;
         ModalFallback.NoteSharedAnchorSpent(SharedWindowKind.RewardShowcase, "received reward pose before reveal");
         VRLog.Info("WorldUI", $"REWARD WINDOW INITIAL POSE: key={_key:X8}, applied before reveal");
         return true;
