@@ -190,6 +190,9 @@ internal static class NetProtocol
     /// <summary>Captured render reference for each posed shared-window kind, independent of
     /// record119's coordinate scale: six-bit mask followed by ascending-kind IEEE floats.</summary>
     public const byte ExtIdSharedWindowScaleContext = 121;
+    /// <summary>Exact physical dismissal departure origins, attached atomically to the
+    /// unchanged recent-flight and durable native-burn records.</summary>
+    public const byte ExtIdCardFlightOrigins = 122;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -626,7 +629,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 717;
+    public const ushort ModBuild = 718;
+
+    // ModBuild718 — the original dismissed active card flies from its physical berth.
+    // Detach the staged original before hiding its berth parent; wait for the original
+    // native callback to commit a discard/lost destination, including delayed burn artwork.
+    // Retain the actual launch pose even when confirmation occurs during the settle glide.
+    // Remote playback transfers the same original panel, preserving native destination,
+    // ownership, artwork readiness and burn timing rather than creating a flight copy.
+    // Additive paged122 carries exact departure geometry and original-pool provenance
+    // with its same-packet62/75 cohort; legacy endpoints, flags and record bytes stay fixed.
+    // Durable burn completion retains this context after the two-second recent history.
+    // The bounded presence envelope grows only for exact optional context; its assembly
+    // lifetime scales from validated encoded bytes above the previous8000-byte boundary.
+    // Wire version3; next-free123. Automated and hardware evidence remain distinguished
+    // in ACTIVE-CARD-DISMISS718.md; ordinary native gameplay timeouts are unchanged.
 
     // ModBuild717 — shared windows occupy one fixed world frame and spawn from the host.
     // The four-player715 hardware session used independent rig zooms: the old pixel/real-mm
