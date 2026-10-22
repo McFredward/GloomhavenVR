@@ -82,6 +82,12 @@ surrogate. Keep existing synchronized manual dragging/resizing and native actor
 authority. A browsing dismissal must converge for all participants; an incidental
 table/X click must not privately hide an accepted native quest proposal.
 
+The user's 2026-10-23 paired717 follow-up extends this to the host-to-window
+spawn distance: use the captured common world reference for distance and clamp
+inputs, independently of the host's live/saved zoom. Host gaze still supplies the
+opening's origin and facing. Final content fitting must retain that same metric;
+manual shared move/resize and existing board/readability constraints remain.
+
 The user's 2026-10-03 NPC review explicitly makes town **card pre-drop guides**
 visitor-local: do not synchronize the merchant/enchantress "place card here"
 guide. The user's 2026-10-04 paired-log review extends this exception to the

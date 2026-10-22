@@ -629,7 +629,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 718;
+    public const ushort ModBuild = 719;
+
+    // ModBuild719 — shared-window spawn distance is independent of the host's zoom too.
+    // Both supplied717 logs confirm fixed shared geometry and one host author, but the
+    // placement producer still multiplied its reading distance by PanelLayout.WorldScale.
+    // Use the window's captured common render reference for initial distance and clamping;
+    // final-fit replay retains the original head/gaze and cannot restore a zoom-bearing raw
+    // anchor. Apply the same distance metric to shared native videos and reward openings.
+    // Keep private placement, host/surrogate election, captured dimensions, native callbacks,
+    // manual move/resize and existing board/readability constraints. No periodic re-placement.
+    // No wire/default/asset change; version3, next-free123. Focused checks and the limits of
+    // hardware evidence are recorded in MP719-SHARED-WINDOW-DISTANCE.md.
 
     // ModBuild718 — the original dismissed active card flies from its physical berth.
     // Detach the staged original before hiding its berth parent; wait for the original
