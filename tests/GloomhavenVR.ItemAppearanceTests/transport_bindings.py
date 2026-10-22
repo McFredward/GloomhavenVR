@@ -1,6 +1,7 @@
 """Bind the executed native-item and transport harnesses to production routing."""
 from pathlib import Path
 import sys
+import re
 
 root = Path(sys.argv[1])
 net = root / 'src/GloomhavenVR/Net'
@@ -45,5 +46,19 @@ start = furniture.index('public void TickWire(')
 close = furniture.index('// ---- SYNCED CAP STATES', start)
 block = furniture[start:close]
 assert block.index('ItemAppearanceMirror.HoldsAnyClip(') > block.index('SetShown(_decision, true);')
-assert 'SetItemUseShown(!synced || (buttons & NetProtocol.BoardUiItemRecessBit) != 0 || retainItemClip, _settled);' in block
+def clip_parent_binding(source):
+    compact = re.sub(r'\s+', '', source)
+    assert 'SetItemUseShown(allowUseBerth&&(!synced||(buttons&NetProtocol.BoardUiItemRecessBit)!=0)||retainItemClip,_settled);' in compact, 'A retained native item clip must outlive berth admission and visibility edges'
+
+clip_parent_binding(block)
+for original, replacement in [('|| retainItemClip', '|| false'), ('allowUseBerth &&', 'false &&')]:
+    # Keep the active-card berth permission and retained terminal item clip independent.
+    # Either missing operand must fail this source connection before the runtime fixture runs.
+    assert original in block
+    try:
+        clip_parent_binding(block.replace(original, replacement))
+    except AssertionError as error:
+        assert str(error) == 'A retained native item clip must outlive berth admission and visibility edges'
+    else:
+        raise AssertionError('Missing clip retention or berth admission survived its integration control')
 print('Native item transport binding: bounded send, fragment routing, stream lifecycle and clip parent verified; missing-send negative control rejected.')
