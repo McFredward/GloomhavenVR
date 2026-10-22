@@ -79,6 +79,27 @@ def main():
         assert 'TickActiveDismiss(_fakeActive ? null : presented);' in update
         assert 'driver.ResetActiveDismiss();' in method(update, 'internal static void ReleaseCardsBeforeSceneLoad(')
         rebuild = (ROOT / 'src/GloomhavenVR/Cards/Driver/CardsDriver.4.Rebuild.cs').read_text()
+        departures = ('using GloomhavenVR.Core;\nusing ScenarioRuleLibrary;\nusing UnityEngine;\n'
+                      'namespace GloomhavenVR.Cards; internal sealed partial class CardsDriver {\n')
+        for signature in ('private enum RoundCardExit', 'private bool TryStartFlyToPile(',
+                          'private static RoundCardExit RoundCardExitOf(',
+                          'private Net.CardFlightSource CapturedActiveSource(',
+                          'private Net.CardFlightSource? FlightSourceOf(',
+                          'private static void ReportCardFx('):
+            if signature.startswith('private Net.CardFlightSource Captured'):
+                start = rebuild.index(signature)
+                end = rebuild.index(';', start) + 1
+                departures += rebuild[start:end] + '\n'
+            else:
+                departures += method(rebuild, signature) + '\n'
+        departures += '\n}\n'
+        zone_start = rebuild.index('        // Configure cards per zone; everything else parks invisibly.')
+        zone_end = rebuild.index('            // Same rule, one more owner', zone_start)
+        zone = rebuild[zone_start:zone_end]
+        departures = departures.rsplit('}', 1)[0] + '\ninternal void NativeHandoffZoneSweep() {\n' + zone + '\nif (_active.Contains(card)) continue;\n_factory.Park(card);\n}\n}\n}\n'
+        (project / 'Departures.cs').write_text(departures)
+        (sources / 'Rebuild.cs').write_text(rebuild)
+        assert rebuild.index('AdvanceCommittedActiveDismiss(hand);') < rebuild.index('UpdateActive(hand);')
         board_rebuild = method(rebuild, 'private void RebuildBoard(')
         assert board_rebuild.index('ResetActiveDismiss();') < board_rebuild.index('_factory.Park(card);')
         build = (ROOT / 'src/GloomhavenVR/Cards/Tray/PlayTray.6.Build.cs').read_text()
@@ -101,9 +122,23 @@ def main():
             ('unscaled-radius', 'ActiveDismissDropRadius * Mathf.Abs(berth.lossyScale.x)', 'ActiveDismissDropRadius', 'Drop capture must scale with the board'),
             ('missing-item-reservation', '|| presented == null || ItemOwnsDismissBerth()', '|| presented == null', 'A pending item owns the shared berth'),
             ('stale-cap-session', 'if (!ReferenceEquals(decision, expected))', 'if (bool.Parse("false"))', 'Old actual cap callback must not confirm a replacement card'),
+            ('hidden-berth-flight', 'private void PreserveActiveDismissFlightPose(VRCard card)\n    {',
+             'private void PreserveActiveDismissFlightPose(VRCard card)\n    { return;\n#pragma warning disable CS0162',
+             'Confirmed discard flies the same staged original from its actual mid-glide pose'),
+            ('native-pile-handoff', 'if (exit is not (RoundCardExit.Discarded or RoundCardExit.Lost or RoundCardExit.PermanentlyLost))',
+             'if (bool.Parse("false"))', 'Accepted card stays in its berth without a second confirm until native model retirement'),
+            ('native-zone-handoff', 'if (_dismissCommitted && ReferenceEquals(card, _dismissCard))',
+             'if (bool.Parse("false"))', 'Actual rebuild zone sweep keeps the accepted original visible across a native list handoff gap'),
+            ('original-counted-source', 'new Net.CardFlightSource(_dismissActorId, _dismissSeat, _dismissCount)',
+             'new Net.CardFlightSource(_dismissActorId, 0, 0)', 'Flight retains complete counted active seat and immutable original pool provenance before removal'),
+            ('actual-launch-origin', 'Position = berth.InverseTransformPoint(position)',
+             'Position = Vector3.zero', 'Remote origin records the actual launch pose relative to the berth'),
+            ('native-burn-order', '&& !TryTakeBurnFlightSlot(card.GameCard, card)',
+             '&& bool.Parse("false")', 'Native burn artwork holds the same detached original after berth and active-grid removal'),
         ]:
-            assert not old or old in flow, name
-            path.write_text(flow.replace(old, new) if old else flow)
+            assert not old or old in flow or old in departures, name
+            path.write_text(flow.replace(old, new) if old and old in flow else flow)
+            (project / 'Departures.cs').write_text(departures.replace(old, new) if old and old in departures else departures)
             code = execute([dotnet, 'run', '--project', str(project / 'GloomhavenVR.ActiveDismissFlowTests.csproj'),
                             '-c', 'Release'], run / (name + '.log'))
             text = (run / (name + '.log')).read_text()
@@ -111,14 +146,15 @@ def main():
                 if code:
                     raise RuntimeError(text)
                 print(text.rstrip(), flush=True)
-            elif code == 0 or expected not in text:
+            elif code == 0 or expected not in text or 'error CS' in text:
                 raise RuntimeError(name + ' failed without its expected causal assertion:\n' + text)
             else:
                 print('Active dismissal flow negative control: ' + name + ' failed as expected.', flush=True)
             cases.append({'case': name, 'exit_code': code, 'expected': expected})
         path.write_text(flow)
+        (project / 'Departures.cs').write_text(departures)
         (run / 'results.json').write_text(json.dumps({'cases': cases,
-            'scope': 'Actual physical-flow partial and actual PlayTray ownership methods. Explicit engine, native adapter and active-grid boundary; no rendered pixels/headset/network acceptance.'}, indent=2) + '\n')
+            'scope': 'Actual physical-flow partial, native-membership classifier, pile launcher, counted source/metadata handoff and PlayTray ownership methods. Explicit Unity interpolation, native callback adapter and active-grid renderer boundaries; no rendered pixels/headset/network acceptance.'}, indent=2) + '\n')
         result = 0
         return 0
     finally:

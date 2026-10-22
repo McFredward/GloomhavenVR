@@ -81,7 +81,7 @@ static class Program
             "Accepted card stays in its berth without a second confirm until native model retirement");
         d.Grab(card,hand);card.Holder=null;Check(d.Drop(card,hand)&&CardsGameApi.Accepted==accepted+1,
             "Reading an accepted card returns it to berth without another native confirmation");
-        d.Presented!.PlayerActor.Cards.Remove(card.GameCard.AbilityCard);d.Tick();
+        CardsGameApi.Commit(d.Presented!.PlayerActor,card.GameCard.AbilityCard);d.Tick();
         Check(!d.Tray.Shown&&d.Active.StagedCard==null,"Delayed native model removal retires the same staged card");CardsGameApi.Deferred=false;
 
         d=new();d.Presented!.PlayerActor.Id=17;card=d.Card();Check(d.Drop(card,hand),"Stage before native scene load");oldCap=d.Tray.CapClick!;
@@ -92,6 +92,55 @@ static class Program
         CardsDriver.NativeSceneLoadInProgress=true;oldCap();d.Tick();
         Check(!d.Tray.Shown&&d.Active.StagedCard==null,"Scene loading revokes both physical reservation and stale cap");
         CardsDriver.NativeSceneLoadInProgress=false;
+        // The actual launcher/classifier now runs too. Native confirmation remains the sole
+        // gameplay authority; neither accepting a callback nor a temporary active gap is a flight.
+        d=new();card=d.Card();other=d.Card();d.Presented!.PlayerActor.Cards.Insert(0,new ScenarioRuleLibrary.CAbilityCard());
+        d.Tray.ItemUseSlotTransform!.position=new(.2f,.4f,.1f);
+        card.transform.position=d.Tray.ItemUseSlotTransform.position;
+        Check(d.Drop(card,hand),"Stage the same original before synchronous native removal");
+        card.transform.position=new(.23f,.42f,.1f); // cap pressed while the drop is still settling
+        var expectedStart=card.transform.position;
+        d.Tray.CapClick!();
+        Check(card.Flights==0,"Native callback forwarding alone must not launch a flight");
+        d.Tick();
+        Check(card.Flights==1&&card.FlightFrom==expectedStart&&card.FlightTo==new Vector3(2,0,0),"Confirmed discard flies the same staged original from its actual mid-glide pose");
+        Check(ReferenceEquals(card.transform.parent,d.Tray.Root)&&card.gameObject.activeInHierarchy,"Hiding the berth cannot hide or shrink its departing card");
+        Check(!d.Tray.Shown&&!d.Tray.ConfirmShown&&d.Active.StagedCard==null,"The flight owns the original before its berth retires");
+        Check(GloomhavenVR.Net.NetCardFx.Events.Count==1,"Only the actual launch publishes one flight");
+        var sent=GloomhavenVR.Net.NetCardFx.Events.Single();
+        Check(sent.From==GloomhavenVR.Net.CardFxAnchor.Active&&sent.To==GloomhavenVR.Net.CardFxAnchor.Discard,"Semantic active endpoint retains its meaning");
+        Check(sent.Source is {Seat:1,Count:3}&&sent.Dismiss is {PoolSeat:7,PoolCount:20},"Flight retains complete counted active seat and immutable original pool provenance before removal");
+        Check(sent.Dismiss!.BerthPose.Position==expectedStart-d.Tray.ItemUseSlotTransform.position,"Remote origin records the actual launch pose relative to the berth");
+        d.RebuildActiveRemoval();d.Tick();d.ContinueFlight(card);
+        Check(card.Flights==1&&GloomhavenVR.Net.NetCardFx.Events.Count==1,"A later rebuild or repeated accepted cap cannot duplicate the departure");
+        card.Land!();d.ContinueFlight(card);
+        Check(d.Parks==1&&!card.gameObject.activeInHierarchy&&card.Flights==1,"The original parks once on arrival and cannot re-fly from the pool");
+
+        foreach(int destination in new[]{1,2})
+        {
+            CardsGameApi.Destination=destination;CardsGameApi.Deferred=true;
+            d=new();card=d.Card(true);Check(d.Drop(card,hand),"Stage an asynchronous native burn dismissal");
+            d.Tray.CapClick!();d.Tick();
+            Check(card.Flights==0&&d.Active.StagedCard==card,"Accepted asynchronous callback keeps the original staged until native pile commit");
+            d.Presented!.PlayerActor.Cards.Remove(card.GameCard.AbilityCard);d.RebuildActiveRemoval();d.Tick();
+            Check(card.Flights==0&&d.Tray.Shown,"An active-list gap alone must not invent a pile destination");
+            Check(card.gameObject.activeInHierarchy&&d.Active.StagedCard==card,"Actual rebuild zone sweep keeps the accepted original visible across a native list handoff gap");
+            d.BurnReleased=false;CardsGameApi.Commit(d.Presented.PlayerActor,card.GameCard.AbilityCard);d.RebuildActiveRemoval();d.Tick();
+            Check(card.Flights==0&&card.gameObject.activeInHierarchy&&ReferenceEquals(card.transform.parent,d.Tray.Root),"Native burn artwork holds the same detached original after berth and active-grid removal");
+            d.BurnReleased=true;d.ContinueFlight(card);d.Tick();
+            Check(card.Flights==1&&card.FlightTo==new Vector3(3,0,0),"Lost and permanently lost dismissals fly only after original burn completion");
+            Check(GloomhavenVR.Net.NetCardFx.Events.Single() is {Completion:5f,Dismiss:not null},"Delayed burn preserves berth metadata and native completion on its actual event");
+            d.ContinueFlight(card);Check(card.Flights==1,"The completed burn claim prevents a duplicate flight");
+        }
+        CardsGameApi.Destination=0;CardsGameApi.Deferred=false;
+
+        d=new();card=d.Card();CardsGameApi.Reject=true;Check(d.Drop(card,hand),"Stage before a rejected native callback");
+        d.Tray.CapClick!();d.Tick();
+        Check(card.Flights==0&&GloomhavenVR.Net.NetCardFx.Events.Count==0&&d.Presented!.PlayerActor.Cards.Contains(card.GameCard.AbilityCard),"Rejected native callback must not move or announce the staged card");
+        CardsGameApi.Reject=false;
+        d=new();card=d.Card();Check(d.Drop(card,hand),"Stage before cancelling the offer");d.Reset();
+        CardsGameApi.Commit(d.Presented!.PlayerActor,card.GameCard.AbilityCard);d.Tick();
+        Check(card.Flights==0&&GloomhavenVR.Net.NetCardFx.Events.Count==0,"An unrelated native departure after cancellation must not inherit a berth flight");
         Console.WriteLine($"Active dismissal physical flow: {assertions} assertions passed.");
     }
 }

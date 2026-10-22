@@ -24,6 +24,17 @@ internal sealed partial class CardsDriver
     private byte _dismissCount;
     private byte _dismissSeat = byte.MaxValue;
     private int _dismissActorId;
+    private readonly System.Collections.Generic.Dictionary<AbilityCardUI, DismissFlightOriginal>
+        _dismissFlightOriginals = new();
+    private readonly System.Collections.Generic.List<AbilityCardUI> _dismissFlightPrune = new();
+    private sealed class DismissFlightOriginal
+    {
+        internal readonly Net.CardAppearanceState Address;
+        internal readonly CAbilityCard Card;
+        internal readonly CPlayerActor Actor;
+        internal DismissFlightOriginal(Net.CardAppearanceState address, CAbilityCard card, CPlayerActor actor)
+        { Address = address; Card = card; Actor = actor; }
+    }
 
     // One packet samples one live presentation. Addresses count the complete active ability-card
     // model population, including temporarily missing native UI artwork, exactly like held cards.
@@ -42,6 +53,7 @@ internal sealed partial class CardsDriver
 
     private void TickActiveDismiss(CardsHandUI? presented)
     {
+        PruneActiveDismissFlights();
         if (_fakeActive || NativeSceneLoadInProgress || !_tray.IsVisible || _tray.ItemUseSlotTransform == null
             || presented == null || ItemOwnsDismissBerth())
         {
@@ -49,9 +61,15 @@ internal sealed partial class CardsDriver
             return;
         }
 
+        // A native dismissal can retire between PollActive's dirty edge and the next rebuild.
+        // Its berth is an animated visibility parent, not a flight owner: hiding it used to
+        // shrink/hide the SAME card before the pile sweep could offer a flight (and also hid a
+        // flight that had already started). Transfer the original to the stable board root FIRST.
+        AdvanceCommittedActiveDismiss(presented);
+
         if (_dismissCommitted && (_dismissCard == null || _dismissHand == null
             || !ReferenceEquals(presented, _dismissHand)
-            || !ActiveCardSet.IsActive(_dismissHand.PlayerActor, _dismissCard.GameCard?.AbilityCard)))
+            || !_dismissFlightOriginals.ContainsKey(_dismissCard.GameCard!)))
             CancelActiveDismiss();
         if (_dismissDecision != null && (_dismissCard == null
             || !ReferenceEquals(presented, _dismissHand) || !_active.Contains(_dismissCard)
@@ -59,8 +77,9 @@ internal sealed partial class CardsDriver
             CancelActiveDismiss();
 
         VRCard? candidate = _dismissCard ?? HeldDismissCandidate(presented);
-        if (candidate == null || !TryAddressDismissCard(presented, candidate,
-            out _dismissCount, out byte seat))
+        byte seat = _dismissSeat;
+        if (candidate == null || (!_dismissCommitted && !TryAddressDismissCard(presented, candidate,
+            out _dismissCount, out seat)))
         {
             HideActiveDismissBerth();
             return;
@@ -190,6 +209,14 @@ internal sealed partial class CardsDriver
         _dismissDecision = null;
         _dismissConfirmAction = null;
         _dismissCommitted = true;
+        // Native UI refresh may be synchronous. Preserve both the complete active-list address
+        // and the immutable native pool address before invoking the only gameplay callback.
+        AbilityCardUI widget = card.GameCard!;
+        var original = new Net.CardAppearanceState { ActorId = _dismissActorId };
+        if (!Net.CardAppearanceProvenance.Capture(original, _dismissHand!.PlayerActor, widget.AbilityCard))
+            VRLog.Warn("Cards", "ACTIVE DISMISS: original pool provenance unavailable; local flight keeps its actual card, no guessed remote berth identity is sent.");
+        _dismissFlightOriginals[widget] = new DismissFlightOriginal(original, widget.AbilityCard, _dismissHand.PlayerActor);
+        _activeExitOrigins[widget] = new Net.CardFlightSource(_dismissActorId, _dismissSeat, _dismissCount);
         bool accepted = false;
         try
         {
@@ -211,11 +238,105 @@ internal sealed partial class CardsDriver
         }
     }
 
+    /// <summary>Only authoritative pile membership releases the staged original. An accepted
+    /// callback, an active-list gap or a hidden native widget does not invent a destination.</summary>
+    private void AdvanceCommittedActiveDismiss(CardsHandUI? presented)
+    {
+        VRCard? card = _dismissCard;
+        CardsHandUI? hand = _dismissHand;
+        if (!_dismissCommitted || card == null || hand == null || card.GameCard == null
+            || !ReferenceEquals(presented, hand) || card.IsHeld || NativeSceneLoadInProgress)
+            return;
+        RoundCardExit exit = RoundCardExitOf(hand, card, out _);
+        if (exit is not (RoundCardExit.Discarded or RoundCardExit.Lost or RoundCardExit.PermanentlyLost))
+            return;
+        Transform? root = _tray.Root;
+        PileKind pile = exit == RoundCardExit.Discarded ? PileKind.Discard : PileKind.Burnt;
+        if (root == null || !_piles.TryGetPileWorld(pile, out _, out _))
+            return;
+
+        // SetParent(true) retains the current drop/settle pose, including a fast mid-glide
+        // confirmation. The new home is that same pose; later active-grid or berth visibility
+        // changes cannot pull the card away while the existing native burn gate owns it.
+        PreserveActiveDismissFlightPose(card);
+        _active.StagedCard = null;
+        _dismissCard = null;
+        _dismissHand = null;
+        _dismissCommitted = false;
+        HideActiveDismissBerth();
+        TryStartFlyToPile(hand, card); // burn fate keeps its original artwork/completion hold
+    }
+
+    private void PreserveActiveDismissFlightPose(VRCard card)
+    {
+        Transform? root = _tray.Root;
+        if (card.GameCard == null || !_dismissFlightOriginals.ContainsKey(card.GameCard)
+            || root == null || ReferenceEquals(card.transform.parent, root))
+            return;
+        card.transform.SetParent(root, worldPositionStays: true);
+        card.SetHome(root, card.transform.localPosition, card.transform.localRotation,
+            card.transform.localScale.x, instant: true);
+        card.Grabbable = false;
+    }
+
+    private Net.CardDismissFlightOrigin? TakeActiveDismissFlightOrigin(AbilityCardUI? widget, VRCard? card)
+    {
+        if (widget == null || !_dismissFlightOriginals.TryGetValue(widget, out DismissFlightOriginal? captured)
+            || captured == null)
+            return null;
+        _dismissFlightOriginals.Remove(widget);
+        Net.CardAppearanceState original = captured.Address;
+        Transform? berth = _tray.ItemUseSlotTransform;
+        if (berth == null || original.SourceActorId == 0 || original.PoolCount == 0)
+            return null;
+        if (card == null && (!_lastCardWorldPos.ContainsKey(widget)
+            || !_lastCardWorldRot.ContainsKey(widget) || !_lastCardWorldWidth.ContainsKey(widget)))
+            return null; // no measured origin: never fabricate a berth-centre flight
+        Vector3 position = card != null ? card.transform.position : _lastCardWorldPos[widget];
+        Quaternion rotation = card != null ? card.transform.rotation : _lastCardWorldRot[widget];
+        float width = card != null ? card.transform.lossyScale.x * CardsConfig.CardWidth.Value : _lastCardWorldWidth[widget];
+        var pose = new Net.RigPose { Position = berth.InverseTransformPoint(position),
+            Rotation = Quaternion.Inverse(berth.rotation) * rotation };
+        return new Net.CardDismissFlightOrigin(original.SourceActorId, original.PoolSeat,
+            original.PoolCount, pose, width / Mathf.Max(0.00001f, Mathf.Abs(berth.lossyScale.x)));
+    }
+
+    private void ForgetActiveDismissFlight(AbilityCardUI widget)
+    {
+        if (_dismissFlightOriginals.Remove(widget)) _activeExitOrigins.Remove(widget);
+    }
+
+    private void PruneActiveDismissFlights()
+    {
+        _dismissFlightPrune.Clear();
+        foreach (var entry in _dismissFlightOriginals)
+        {
+            AbilityCardUI widget = entry.Key;
+            DismissFlightOriginal source = entry.Value;
+            CCharacterClass? character = source.Actor.CharacterClass;
+            if (character == null || widget == null || !ReferenceEquals(widget.AbilityCard, source.Card)
+                || !ReferenceEquals(widget.PlayerActor, source.Actor)
+                || character.HandAbilityCards.Contains(source.Card)
+                || character.RoundAbilityCards.Contains(source.Card) || character.ExtraTurnCards.Contains(source.Card)
+                || (!ReferenceEquals(_dismissCard?.GameCard, widget) && character.ActivatedCards.Contains(source.Card)))
+                _dismissFlightPrune.Add(widget!);
+        }
+        foreach (AbilityCardUI widget in _dismissFlightPrune) ForgetActiveDismissFlight(widget);
+        _dismissFlightPrune.Clear();
+    }
+
     private void CancelActiveDismiss()
     {
         VRCard? card = _dismissCard;
         CardsHandUI? hand = _dismissHand;
         CardsGameApi.ActiveCardDismissal? decision = _dismissDecision;
+        if (card?.GameCard != null)
+        {
+            _dismissFlightOriginals.Remove(card.GameCard);
+            // Cancelling an offer is not an active-card departure. A committed departure that
+            // has transferred to the flight owner has already cleared _dismissCard above.
+            _activeExitOrigins.Remove(card.GameCard);
+        }
         _dismissCard = null;
         _dismissHand = null;
         _dismissDecision = null;

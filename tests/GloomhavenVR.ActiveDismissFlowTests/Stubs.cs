@@ -13,25 +13,28 @@ namespace UnityEngine
     {
         public static Vector3 zero => new(0,0,0);
         public static Vector3 one => new(1,1,1);
+        public static Vector3 up => new(0,1,0);
+        public static float Distance(Vector3 a,Vector3 b)=>MathF.Sqrt((a-b).sqrMagnitude);
         public float sqrMagnitude => x*x+y*y+z*z;
         public static Vector3 operator -(Vector3 a,Vector3 b)=>new(a.x-b.x,a.y-b.y,a.z-b.z);
     }
-    public record struct Quaternion { public static Quaternion identity => new(); }
+    public record struct Quaternion { public static Quaternion identity => new(); public static Quaternion Inverse(Quaternion value)=>value; public static Quaternion operator *(Quaternion a,Quaternion b)=>a; }
     public record struct Color(float r,float g,float b,float a);
-    public static class Mathf { public static float Abs(float value)=>Math.Abs(value); }
+    public static class Mathf { public static float Abs(float value)=>Math.Abs(value); public static float Max(float a,float b)=>Math.Max(a,b); }
     public enum PrimitiveType { Quad }
     public class Transform
     {
         public readonly GameObject gameObject=new(false);
         public Vector3 position,localPosition,localScale=Vector3.one,lossyScale=Vector3.one;
-        public Quaternion localRotation;
+        public Quaternion localRotation,rotation;
+        public Vector3 InverseTransformPoint(Vector3 world)=>world-position;
         public Transform? parent;
         public void SetParent(Transform value,bool worldPositionStays)=>parent=value;
     }
     public class GameObject
     {
         public bool activeSelf=true;
-        public bool activeInHierarchy=>activeSelf;
+        public bool activeInHierarchy=>activeSelf&&(transform?.parent?.gameObject.activeInHierarchy??true);
         public string name="";
         public readonly Transform transform;
         public GameObject(bool hasTransform=true) { transform=hasTransform?new():null!; }
@@ -51,9 +54,10 @@ namespace ScenarioRuleLibrary
     public class CBaseCard { }
     public class CAbilityCard:CBaseCard { public readonly List<CActiveBonus> ActiveBonuses=new(); }
     public class CActiveBonus { public enum EActiveBonusDurationType { Summon,Persistent } public EActiveBonusDurationType Duration; }
-    public class CPlayerActor { public int Id=1; public readonly List<CBaseCard> Cards=new(); }
+    public class CCharacterClass { public readonly List<CBaseCard> ActivatedCards=new(); public readonly List<CAbilityCard> RoundAbilityCards=new(),ExtraTurnCards=new(),DiscardedAbilityCards=new(),LostAbilityCards=new(),PermanentlyLostAbilityCards=new(),HandAbilityCards=new(); }
+    public class CPlayerActor { public int Id=1; public readonly CCharacterClass CharacterClass=new(); public List<CBaseCard> Cards=>CharacterClass.ActivatedCards; }
 }
-public class AbilityCardUI { public CAbilityCard AbilityCard=new(); }
+public class AbilityCardUI { public CAbilityCard AbilityCard=new(); public CPlayerActor? PlayerActor; }
 public class CardsHandUI { public CPlayerActor PlayerActor=new(); }
 namespace GloomhavenVR.Hands
 {
@@ -71,7 +75,7 @@ namespace GloomhavenVR.Hands
 namespace GloomhavenVR.Core
 {
     public static class Loc { public static string Mod(string key)=>key; }
-    public static class VRLog { public static void Info(string scope,string text) { } public static void Warn(string scope,string text) { } }
+    public static class VRLog { public static void Info(string scope,string text) { } public static void Warn(string scope,string text) { } public static void Note(string scope,string text) { } }
     public static class VRLayers { public static void Apply(GameObject value) { } }
 }
 namespace GloomhavenVR.WorldUI
@@ -107,8 +111,16 @@ namespace GloomhavenVR.Cards
         internal float LastScale;
         internal void SetLaserHover(bool value) { }
         internal void ResetColliderRegion() { }
-        internal void SetHome(Transform parent,Vector3 position,Quaternion rotation,float scale)
+        internal void SetHome(Transform parent,Vector3 position,Quaternion rotation,float scale,bool instant=false)
         { transform.parent=parent;transform.localPosition=position;LastScale=scale;Homes++; }
+        internal bool Grabbable=true,IsFlying,IsVanishing=false;
+        internal string name=>"card";
+        internal object? FullCard=>null;
+        internal const float FlyArcHeightFraction=.2f;
+        internal int Flights;
+        internal Vector3 FlightFrom,FlightTo;
+        internal Action? Land;
+        internal void FlyToPile(Vector3 to,float width,float seconds,Vector3 up,Action done,float minArc) {IsFlying=true;Flights++;FlightFrom=transform.position;FlightTo=to;Land=done;}
     }
     internal sealed class ActivePileViewer
     {
@@ -123,6 +135,9 @@ namespace GloomhavenVR.Cards
     {
         internal bool IsVisible=true;
         private readonly Transform? _itemUseSlot=new();
+        internal readonly Transform Root=new();
+        internal int RecessSeatOfCard(VRCard card)=>-1;
+        internal int SlotOf(VRCard card)=>-1;
         internal Transform? ItemUseSlotTransform=>_itemUseSlot;
         private bool _activeDismissOwnsBerth;
         private bool _itemUseSlotWanted,_itemUseActive;
@@ -151,7 +166,12 @@ namespace GloomhavenVR.Cards
     {
         internal static bool Allowed=true;
         internal static int Requests,Accepted,Cancelled;
-        internal static bool Deferred;
+        internal static bool Deferred,Reject;
+        internal static int Destination;
+        internal static bool ControlsActor(CPlayerActor? actor)=>actor!=null;
+        internal static string ActorLabel(CPlayerActor actor)=>"actor";
+        internal static string CardName(AbilityCardUI card)=>"card";
+        internal static void Commit(CPlayerActor actor,CAbilityCard card) {actor.Cards.Remove(card); if(Destination==0)actor.CharacterClass.DiscardedAbilityCards.Add(card); else if(Destination==1)actor.CharacterClass.LostAbilityCards.Add(card); else actor.CharacterClass.PermanentlyLostAbilityCards.Add(card);}
         internal static bool CanDismissActiveCard(CardsHandUI hand,AbilityCardUI? card)=>Allowed&&card!=null&&hand.PlayerActor.Cards.Contains(card.AbilityCard);
         internal static ActiveCardDismissal? RequestDismissActiveCard(CardsHandUI hand,AbilityCardUI? card)
         { Requests++;return CanDismissActiveCard(hand,card)?new(hand,card!):null; }
@@ -160,7 +180,7 @@ namespace GloomhavenVR.Cards
             internal bool Pending=true;
             internal bool DismissesSummon=>card.AbilityCard.ActiveBonuses.Any(x=>x.Duration==CActiveBonus.EActiveBonusDurationType.Summon);
             internal bool CanConfirm=>Pending&&CanDismissActiveCard(hand,card);
-            internal bool Confirm() { if(!CanConfirm)return false;Pending=false;Accepted++;if(!Deferred)hand.PlayerActor.Cards.Remove(card.AbilityCard);return true; }
+            internal bool Confirm() { if(!CanConfirm)return false;if(Reject)return false;Pending=false;Accepted++;if(!Deferred)Commit(hand.PlayerActor,card.AbilityCard);return true; }
             internal void Cancel() { if(Pending){Pending=false;Cancelled++;} }
         }
     }
@@ -178,7 +198,7 @@ namespace GloomhavenVR.Cards
         private CardsHandUI? PresentedHandForCardLayout(CardsHandUI? hand)=>Presented;
         private void RequestRebuild()=>Rebuilds++;
         private static void PlayCardSound(string sound,Transform transform)=>Sounds++;
-        internal CardsDriver() { Instance=this;ItemsPile.RecessOwner=new();VRHands.Left=VRHands.Right=null; }
+        internal CardsDriver() { Net.NetCardFx.Events.Clear();Instance=this;ItemsPile.RecessOwner=new();VRHands.Left=VRHands.Right=null; }
         internal PlayTray Tray=>_tray;
         internal ActivePileViewer Active=>_active;
         internal GameObject? Ghost=>_dismissGhost;
@@ -192,7 +212,7 @@ namespace GloomhavenVR.Cards
         {
             var card=new VRCard();
             if(summon)card.GameCard.AbilityCard.ActiveBonuses.Add(new(){Duration=CActiveBonus.EActiveBonusDurationType.Summon});
-            Presented!.PlayerActor.Cards.Add(card.GameCard.AbilityCard);_active.Cards.Add(card);return card;
+            card.GameCard.PlayerActor=Presented!.PlayerActor;Presented.PlayerActor.Cards.Add(card.GameCard.AbilityCard);_active.Cards.Add(card);_factory.All.Add(card);return card;
         }
     }
 }

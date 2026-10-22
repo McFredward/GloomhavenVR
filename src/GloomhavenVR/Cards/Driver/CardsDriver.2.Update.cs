@@ -324,6 +324,7 @@ internal sealed partial class CardsDriver
         _lastHalfCards.Clear();
         _lastActiveCards.Clear();
         _activeExitOrigins.Clear();
+        _dismissFlightOriginals.Clear();
         _activeCellSources.Clear();
         _lastTrayCards.Clear(); // issue 1
         _lastVisibleCards.Clear();
@@ -458,6 +459,7 @@ internal sealed partial class CardsDriver
             if (widget is null) continue;
             ClearBurnHold(widget);
             _activeExitOrigins.Remove(widget);
+            _dismissFlightOriginals.Remove(widget);
             _activeCellSources.Remove(widget);
             _lastCardWorldPos.Remove(widget);
             _lastCardWorldRot.Remove(widget);
@@ -508,6 +510,7 @@ internal sealed partial class CardsDriver
 
     private void OnCardRecycling(AbilityCardUI widget)
     {
+        ForgetActiveDismissFlight(widget); // native pooling retires this exact original/widget lease
         VRCard? card = _factory.Find(widget);
         if (card != null)
         {
@@ -585,6 +588,7 @@ internal sealed partial class CardsDriver
         CardsDriver? driver = Instance;
         if (driver == null) return;
         driver.ResetActiveDismiss();
+        driver._dismissFlightOriginals.Clear();
         driver._sceneFacesReturned = true;
         driver._factory.ReturnBorrowedFacesBeforeSceneLoad();
         Core.TickGuard.Run("Cards.SceneNativeHierarchy", NativeCardPoolLifetime.ReturnSceneHands, "Cards");
