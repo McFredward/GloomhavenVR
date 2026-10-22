@@ -14,10 +14,10 @@ assert a.index('ApplyBurnCompletions(p.BurnCompletions);') < a.index('foreach (C
 assert 'completions.Covers(sequence, endpoints, flags, source)' in a, 'Missing capture must retain the legacy release path'
 assert '(initial || _burnProgressKeys.ContainsKey(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card))' in a, 'Joining must not invent a historical burn hold'
 assert 'ObserveOwnerRelease(entry.ActorId, entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, card)' in a, 'Read-only local boards need exact native completion provenance'
-assert 'PlayMirroredCardFlight(entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, PlayerId, card)' in a, 'Original board dispatch carries exact original, clock and peer'
-assert 'ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer, originalCard)' in a, 'Burn ownership receives exact completion identity'
+assert 'PlayMirroredCardFlight(entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, PlayerId, card, entry.DismissOrigin)' in a, 'Original board dispatch carries exact original, clock, peer and dismissal origin'
+assert 'ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer, originalCard, dismissOrigin)' in a, 'Burn ownership receives exact completion identity and origin'
 b=(r/'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.CardAppearance.cs').read_text()
-assert 'viewer.PlayMirroredCardFlight(endpoints, flags, source, completionTime, sender.PlayerId, originalCard)' in b, 'Foreign-focus boards retain the actual appearance publisher'
+assert 'viewer.PlayMirroredCardFlight(endpoints, flags, source, completionTime, sender.PlayerId, originalCard, dismissOrigin)' in b, 'Foreign-focus boards retain the actual appearance publisher and dismissal origin'
 hook=(r/'src/GloomhavenVR/Cards/BurnArtwork.cs').read_text()
 assert 'if (burnAnim && running && !followsOriginal) Net.CardAppearanceSampler.ObserveNativeBurnStart(__instance);' in hook, 'Native progress must be registered at the actual first running burn step'
 assert 'bool firstStep = true;' in hook and 'firstStep = false;' in hook, 'Native progress registration is once per iterator'
