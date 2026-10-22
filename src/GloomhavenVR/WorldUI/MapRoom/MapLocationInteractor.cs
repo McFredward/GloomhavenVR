@@ -176,7 +176,7 @@ internal sealed class MapLocationInteractor
     /// </summary>
     /// <returns>True when the requested selection was actually adopted — log material for the caller, which owns
     /// the "once per change, naming the node" line.</returns>
-    internal bool AdoptSelection(MapLocation? loc, string why)
+    internal bool AdoptSelection(MapLocation? loc, string why, bool newOpening = false)
     {
         // A remote selection edge has the same admission rule as a local pointer. In
         // particular it must not deselect the committed quest behind a native map lock.
@@ -187,7 +187,7 @@ internal sealed class MapLocationInteractor
         // host's committed proposal while this client's native prompt is pending.
         if (NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) && proposal != null)
             return false;
-        if (ReferenceEquals(loc, _selected))
+        if (!newOpening && ReferenceEquals(loc, _selected))
             return false;
 
         // ORDER MATTERS: drop the old selection FIRST. Two selected locations is a state the game
@@ -214,14 +214,14 @@ internal sealed class MapLocationInteractor
     /// edge. The caller still waits for native authorization and never releases the mask itself.
     /// A real host proposal, unknown native identity, or a starting quest is not browsing.
     /// </summary>
-    internal bool PrepareSharedSelectionChange(MapLocation? loc)
+    internal bool PrepareSharedSelectionChange(MapLocation? loc, bool newOpening = false)
     {
         if (!MapRoomDriver.Active || StoryComposite.PointOfNoReturn
             || !NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) || proposal != null)
             return false;
         string? from = DecisionIdOf(_selected);
         string? to = DecisionIdOf(loc);
-        if (string.Equals(from, to, System.StringComparison.Ordinal))
+        if (!newOpening && string.Equals(from, to, System.StringComparison.Ordinal))
             return false;
         MapQuestReadyUp.OnQuestDecisionChanged(from, to);
         return true;

@@ -398,13 +398,220 @@ internal static class Program
             "Native proposal cancellation immediately restores ordinary shared browsing");
     }
 
+    private static void VersionPolicy()
+    {
+        var a = new SharedQuestSelectionVersion.Event(1, 1001, 0, 0, 11);
+        var b = new SharedQuestSelectionVersion.Event(2, 2002, 1, 1001, 22);
+        var clearA = new SharedQuestSelectionVersion.Event(2, 3003, 1, 1001, 0);
+        var clearB = new SharedQuestSelectionVersion.Event(3, 4004, 2, 2002, 0);
+        var reopenA = new SharedQuestSelectionVersion.Event(4, 5005, 3, 4004, 11);
+        var oldClearA = new SharedQuestSelectionVersion.Event(5, 6006, 1, 1001, 0);
+        void Observe(SharedQuestSelectionVersion register, SharedQuestSelectionVersion.Event e) =>
+            register.Observe(e.Author, e.Counter, e.ParentCounter, e.ParentAuthor, e.Key, out _);
+        void Permute(SharedQuestSelectionVersion.Event[] events, int index, uint expectedKey, ulong expectedOpening)
+        {
+            if (index == events.Length)
+            {
+                var register = new SharedQuestSelectionVersion(); register.BindBaseline(11);
+                foreach (var e in events) { Observe(register, e); Observe(register, e); }
+                Check(register.HasCurrent && register.Current.Key == expectedKey && register.Current.Opening == expectedOpening,
+                    "Opening register must converge across reordered and duplicate causal events");
+                return;
+            }
+            for (int i = index; i < events.Length; i++)
+            {
+                (events[index], events[i]) = (events[i], events[index]);
+                Permute(events, index + 1, expectedKey, expectedOpening);
+                (events[index], events[i]) = (events[i], events[index]);
+            }
+        }
+        Permute(new[] { a, b, clearA }, 0, 22, b.Opening);
+        Permute(new[] { a, b, clearB }, 0, 0, b.Opening);
+        Permute(new[] { a, b, clearA, clearB, reopenA, oldClearA }, 0, 11, reopenA.Opening);
+        var missing = new SharedQuestSelectionVersion(); Observe(missing, a); Observe(missing, clearB);
+        Check(missing.Current.Key == 0 && missing.Current.Opening == b.Opening,
+            "Clear must retain its causal opening when its selection snapshot was missed");
+        Observe(missing, b);
+        Check(missing.Current.Key == 0, "A late duplicate opening must not resurrect its accepted clear");
+        var fullId = new SharedQuestSelectionVersion();
+        Check(fullId.TryPublish(int.MaxValue, 7, 0, out var own) && own.Author == int.MaxValue
+            && (uint)own.Token == int.MaxValue,
+            "Causal author identity must preserve full native ConnectionId bits");
+        fullId.RetireOwn();
+        Check(!fullId.HasOwn && !fullId.HasCurrent && fullId.Clock == 1,
+            "Native own-opening retirement must preserve the session clock without publishing a clear");
+        Observe(fullId, own);
+        Check(!fullId.HasCurrent, "A retired native opening must not replay after map stand-down");
+        Check(fullId.TryPublish(1001, 8, 0, out var next) && next.Counter == 2 && fullId.Current.Key == 8,
+            "A fresh human selection after native retirement must receive a new session counter");
+        var malformed = new SharedQuestSelectionVersion();
+        foreach (var e in new[] { new SharedQuestSelectionVersion.Event(0, 1, 0, 0, 1),
+            new SharedQuestSelectionVersion.Event(1, 0, 0, 0, 1),
+            new SharedQuestSelectionVersion.Event(2, 1, 3, 1, 1),
+            new SharedQuestSelectionVersion.Event(2, 1, 2, 1, 0),
+            new SharedQuestSelectionVersion.Event(2, 1, 0, 1, 1),
+            new SharedQuestSelectionVersion.Event(2, 1, 1, 0, 1) })
+            Check(!malformed.Observe(e.Author, e.Counter, e.ParentCounter, e.ParentAuthor, e.Key, out _)
+                && !malformed.HasCurrent, "Malformed causal ancestry must not create a browsing event");
+        malformed.Observe(1, uint.MaxValue, 0, 0, 2, out _);
+        Check(!malformed.TryPublish(1, 3, 0, out _) && malformed.Current.Key == 2,
+            "Exhausted counter must not wrap into an earlier quest opening");
+
+        var relay = new SharedQuestSelectionVersion();
+        Check(relay.Observe(9009, 7, 7, int.MaxValue, 77, out var relayed)
+            && relayed.Opening == SharedQuestSelectionVersion.TokenOf(7, int.MaxValue)
+            && !relay.HasOwn && relay.Clock == 7,
+            "Selected relay must retain original full author and counter without minting a human event");
+        relay.RetireCurrent();
+        Check(!relay.Observe(9010, 7, 7, int.MaxValue, 77, out _),
+            "A different live carrier must not resurrect a retired native opening");
+    }
+
+    private static (MapLocationInteractor Observer, MapLocation First, MapLocation Second) VersionWorld(int localPlayer)
+    {
+        var observer = Reset(client: true);
+        MapLocation first = new("version-A", "quest-A"), second = new("version-B", "quest-B");
+        RemoteMapRoom.Begin(observer, first, second);
+        var initial = RemoteMapRoom.Snapshot(localPlayer);
+        Check(!initial.HasMapSelectionVersion, "Native initial baseline must not invent a human opening");
+        return (observer, first, second);
+    }
+
+    private static PresenceState VersionEvent(int sender, uint counter, uint parent, int parentAuthor, MapLocation? location)
+    {
+        return new PresenceState { HasMapRoom = true, MapRoomFlags = 1, HasMapSelectionVersion = true,
+            MapRoomSelectKey = location == null ? 0 : NetProtocol.HashMapKey(location.Location.ID),
+            MapSelectionRevision = counter, MapSelectionParent = parent, MapSelectionParentAuthor = parentAuthor };
+    }
+
+    private static void VersionDelivery()
+    {
+        const int owner = 1001001, carrier = 2002002, secondCarrier = 2502502, visitor = 3003003;
+        var source = VersionWorld(owner);
+        source.Observer.AdoptSelection(source.First, "local physical select");
+        Check(RemoteMapRoom.SendDue, "A real local opening must preempt the presence cadence");
+        PresenceState opened = RemoteMapRoom.Snapshot(owner);
+        Check(opened.HasMapSelectionVersion && opened.MapSelectionRevision == 1
+            && opened.MapSelectionParent == 0 && opened.MapSelectionParentAuthor == 0,
+            "First human selection must author one authenticated full-ID opening");
+        Check(RemoteMapRoom.TryReadQuestSelectionOpening(opened.MapRoomSelectKey, out ulong opening)
+            && opening == SharedQuestSelectionVersion.TokenOf(1, owner),
+            "Pose accessor must expose the opening actually displayed by the owner");
+        MapLocationInteractor.HandleSharedQuestClose(Popups.Selected.Window);
+        PresenceState cleared = RemoteMapRoom.Snapshot(owner);
+        Check(cleared.HasMapSelectionVersion && cleared.MapRoomSelectKey == 0
+            && cleared.MapSelectionRevision == 2 && cleared.MapSelectionParent == 1
+            && cleared.MapSelectionParentAuthor == owner,
+            "A physical close must name the exact displayed opening");
+        source.Observer.AdoptSelection(source.First, "local reopening of same physical card");
+        PresenceState reopened = RemoteMapRoom.Snapshot(owner);
+        Check(reopened.MapSelectionRevision == 3 && reopened.MapRoomSelectKey == opened.MapRoomSelectKey,
+            "Reopening the same quest must receive a new causal token");
+
+        var mirror = VersionWorld(carrier);
+        RemoteMapRoom.Receive(owner, opened); RemoteMapRoom.Tick();
+        Check(mirror.First.IsSelected && RemoteMapRoom.TryReadQuestSelectionOpening(opened.MapRoomSelectKey, out ulong mirrored)
+            && mirrored == opening, "Receiver must adopt the exact authenticated owner opening");
+        PresenceState relayed = RemoteMapRoom.Snapshot(carrier);
+        Check(relayed.HasMapSelectionVersion && relayed.MapSelectionRevision == 1
+            && relayed.MapSelectionParent == 1 && relayed.MapSelectionParentAuthor == owner
+            && relayed.MapRoomSelectStamp == 0 && !RemoteMapRoom.HasAuthoredVersion,
+            "Adoption must publish an explicit full-ID relay without minting a human selection");
+        RemoteMapRoom.Leave(owner);
+        PresenceState afterLeave = RemoteMapRoom.Snapshot(carrier);
+        Check(mirror.First.IsSelected && afterLeave.HasMapSelectionVersion && afterLeave.MapSelectionParentAuthor == owner,
+            "Agreed shared opening must survive its original author leaving");
+
+        var secondMirror = VersionWorld(secondCarrier);
+        RemoteMapRoom.Receive(owner, opened); RemoteMapRoom.Receive(carrier, relayed); RemoteMapRoom.Tick();
+        RemoteMapRoom.Snapshot(secondCarrier);
+        RemoteMapRoom.Leave(owner); RemoteMapRoom.Leave(carrier);
+        PresenceState secondRelay = RemoteMapRoom.Snapshot(secondCarrier);
+        Check(secondMirror.First.IsSelected && secondRelay.HasMapSelectionVersion
+            && secondRelay.MapSelectionRevision == 1 && secondRelay.MapSelectionParent == 1
+            && secondRelay.MapSelectionParentAuthor == owner && !RemoteMapRoom.HasAuthoredVersion,
+            "Two surviving adopters must retain the original opening when author and other carrier leave");
+
+        var late = VersionWorld(visitor); Map.IsLocked = true;
+        RemoteMapRoom.Receive(secondCarrier, secondRelay); RemoteMapRoom.Tick();
+        Check(RemoteMapRoom.Pending && !late.First.IsSelected,
+            "Late visitor must retain a valid live-carrier opening through native loading locks");
+        Map.IsLocked = false; RemoteMapRoom.Tick();
+        Check(late.First.IsSelected && RemoteMapRoom.TryReadQuestSelectionOpening(opened.MapRoomSelectKey, out ulong lateOpening)
+            && lateOpening == opening && RemoteMapRoom.VersionClock == 1,
+            "Late visitor must adopt the original opening from a live carrier after author departure");
+        RemoteMapRoom.Snapshot(visitor);
+        RemoteMapRoom.Receive(owner, reopened); RemoteMapRoom.Tick();
+        int dismissals = late.First.DeselectCalls;
+        Check(late.First.IsSelected && dismissals == 1
+            && RemoteMapRoom.TryReadQuestSelectionOpening(opened.MapRoomSelectKey, out ulong newOpening)
+            && newOpening == SharedQuestSelectionVersion.TokenOf(3, owner),
+            "Same-key new opening must re-enter its original native selection lifecycle");
+        RemoteMapRoom.Receive(owner, cleared); RemoteMapRoom.Tick();
+        Check(late.First.IsSelected && late.First.DeselectCalls == dismissals,
+            "Delayed incoming clear must not close a newer opening of the same quest");
+        PresenceState newestRelay = RemoteMapRoom.Snapshot(visitor);
+        Check(newestRelay.MapSelectionRevision == 3 && newestRelay.MapSelectionParent == 3
+            && !RemoteMapRoom.HasAuthoredVersion,
+            "Same-key remote reopening must remain a relay rather than a newly authored event");
+
+        var replacing = VersionWorld(visitor);
+        RemoteMapRoom.Receive(owner, opened); RemoteMapRoom.Tick(); RemoteMapRoom.Snapshot(visitor);
+        Map.IsLocked = true;
+        RemoteMapRoom.Receive(carrier, VersionEvent(carrier, 2, 1, owner, replacing.Second)); RemoteMapRoom.Tick();
+        replacing.First.Deselect(); Map.IsLocked = false; Time.unscaledTime = 2;
+        replacing.Observer.DeselectTick();
+        PresenceState retiredWhilePending = RemoteMapRoom.Snapshot(visitor);
+        Check(RemoteMapRoom.Pending && !retiredWhilePending.HasMapSelectionVersion
+            && !RemoteMapRoom.HasAuthoredVersion && RemoteMapRoom.VersionClock == 2,
+            "Native unready cleanup must not mint a human clear over the pending replacement");
+        RemoteMapRoom.Tick();
+        Check(replacing.Second.IsSelected && RemoteMapRoom.Snapshot(visitor).MapSelectionParent == 2,
+            "Versioned replacement must survive native unready retirement and preserve its original opening");
+
+        foreach (bool clearFirst in new[] { false, true })
+        {
+            var room = VersionWorld(visitor);
+            RemoteMapRoom.Receive(owner, opened); RemoteMapRoom.Tick(); RemoteMapRoom.Snapshot(visitor);
+            var b = VersionEvent(carrier, 2, 1, owner, room.Second);
+            if (clearFirst) { RemoteMapRoom.Receive(owner, cleared); RemoteMapRoom.Tick(); }
+            RemoteMapRoom.Receive(carrier, b); RemoteMapRoom.Tick();
+            if (!clearFirst) { RemoteMapRoom.Receive(owner, cleared); RemoteMapRoom.Tick(); }
+            Check(room.Second.IsSelected && !room.First.IsSelected,
+                "Concurrent select and clear must converge on the new opening in both native arrival orders");
+        }
+
+        var returned = VersionWorld(visitor);
+        RemoteMapRoom.Receive(owner, opened); RemoteMapRoom.Tick(); RemoteMapRoom.Snapshot(visitor);
+        MapRoomDriver.Active = false;
+        Check(!RemoteMapRoom.Snapshot(visitor).HasMapRoom, "Presentation stand-down must publish no map-room participation");
+        MapRoomDriver.Active = true;
+        var resumed = RemoteMapRoom.Snapshot(visitor);
+        Check(resumed.HasMapSelectionVersion && resumed.MapSelectionRevision == 1
+            && resumed.MapSelectionParent == 1 && returned.First.IsSelected,
+            "Presentation-only map return must retain its native opening without minting or replay");
+        StoryComposite.PointOfNoReturn = true;
+        Check(!RemoteMapRoom.Snapshot(visitor).HasMapSelectionVersion && RemoteMapRoom.VersionClock == 1,
+            "Native quest commitment must retire browsing publication without a fabricated human clear");
+        StoryComposite.PointOfNoReturn = false;
+        Singleton<MapChoreographer>.Instance = new();
+        returned.First.Deselect(); Time.unscaledTime = 2; returned.Observer.DeselectTick();
+        RemoteMapRoom.Snapshot(visitor);
+        RemoteMapRoom.Receive(owner, opened); RemoteMapRoom.Tick();
+        Check(!returned.First.IsSelected && !RemoteMapRoom.Pending,
+            "Old map-opening snapshot must not reappear after native retirement and return");
+        RemoteMapRoom.Receive(owner, reopened); RemoteMapRoom.Tick();
+        Check(returned.First.IsSelected,
+            "A new authenticated opening after map return must remain usable");
+    }
+
     public static void Main()
     {
         foreach (bool flatHost in new[] { true, false })
         foreach (bool flatCompanion in new[] { true, false })
         foreach (bool reconnect in new[] { true, false }) Client(flatHost, flatCompanion, reconnect);
         Host(true); Host(false);
-        DelayedInitialization(); LinkedQuest(); UncommittedBrowsing(); LockedDelivery();
+        DelayedInitialization(); LinkedQuest(); UncommittedBrowsing(); LockedDelivery(); VersionPolicy(); VersionDelivery();
         System.Console.WriteLine($"Map quest selection runtime: {_assertions} assertions; {_roles} host/client/reconnect paths; original native proposal, preview, cancel and selection methods.");
     }
 }

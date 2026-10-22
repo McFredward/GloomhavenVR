@@ -62,11 +62,21 @@ internal sealed partial class MapLocationInteractor
 remote = Path(sys.argv[3]).read_text()
 methods = ('private static void ResolveSelection()', 'private static void ClearPendingSelection()',
            'private static void ResolvePendingSelection(', 'private static void ApplySelection(',
-           'private static uint KeyOf(', 'private static void Forget(')
+           'private static uint KeyOf(', 'private static void Forget(', 'private static void RequestSelection(',
+           'private static bool EnsureVersionVisit()', 'private static void RetireVersionVisit()',
+           'private static void ResolveVersionedSelection(', 'private static void SuspendOrRetireVersionVisit()',
+           'private static object? VersionMapIdentity()',
+           'internal static bool TryReadQuestSelectionOpening(', 'internal static void Sample(',
+           'internal static void Observe(', 'internal static bool SendDue', 'private readonly struct PeerRoom')
 fields = ('SeenSelectKey', '_pendingSelectInteractor', '_pendingSelectGeneration', '_pendingSelectRevision',
           '_pendingSelectSurface', '_pendingSelectKey', '_pendingSelectPriorLocation', '_pendingSelectPeer',
           'SeenSelectStamp', 'ConsumedSelectStamp', '_adoptedSelectKey', '_hasAdoptedSelect',
-          '_adoptedSelectAt', 'Scope')
+          '_adoptedSelectAt', 'Scope', '_pendingSelectVersioned', '_pendingSelectToken', 'SelectionVersions',
+          '_versionVisitLive', '_versionMapIdentity', '_versionLocalRevision', '_displayedSelectKey',
+          '_displayedSelectOpening',
+          '_publishedSurface', '_localSurfaceStamp', '_adoptedSurface', '_publishedSelectKey',
+          '_publishedSelectValid', '_localSelectStamp', '_sentValid', '_sentSelectKey', '_sentFanCharacterKey',
+          'AdoptedSuppressSeconds')
 body = '\n'.join(method(remote, signature) for signature in methods)
 for field in fields:
     matches = re.findall(r'^    private (?:static |const |readonly )*[^\n;]+\b' + field + r'\b[^\n]*;', remote, re.M)

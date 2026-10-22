@@ -195,7 +195,13 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.Hands { internal class VRHand { public string Side = "Left"; } }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
-    internal static class MapRoomDriver { public static bool Active = true; public static MapLocationInteractor ActiveLocations; }
+    internal static class MapRoomDriver
+    {
+        public static bool Active = true;
+        public static MapLocationInteractor ActiveLocations;
+        public static MapChoreographer Choreographer => Singleton<MapChoreographer>.Instance;
+    }
+    internal static class MapRoomHand { public static uint LocalFanCharacterKey = 0; }
     internal static class MapQuestReadyUp
     {
         public static readonly List<(string, string)> Edges = new();
@@ -208,6 +214,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
     internal sealed partial class MapLocationInteractor
     {
         public int ScanGeneration { get; set; }
+        public MapLocation Hover => _hover;
         private MapLocation _hover = null;
         public GloomhavenVR.Hands.VRHand Press;
         private GloomhavenVR.Hands.VRHand TriggerEdgeHand() => Press;
@@ -242,36 +249,56 @@ namespace GloomhavenVR.Net
     using GloomhavenVR.WorldUI.MapRoom;
     internal static class NetProtocol
     {
+        public const byte MapRoomInRoomBit = 1, MapRoomHostBit = 2, MapRoomSurfaceKnownBit = 4,
+            MapRoomSurfaceCityBit = 8, MapRoomPickValidBit = 16, MapRoomPickStagedBit = 32, MapRoomGazeValidBit = 64;
         // Identity transport boundary only. Resolver tests use stable native location IDs.
         public static uint HashMapKey(string id)
         { uint hash = 2166136261; foreach (char c in id) hash = (hash ^ c) * 16777619; return hash == 0 ? 1u : hash; }
     }
-    internal static class RemoteSharedGaze { public static void Forget(int id) { } }
+    internal struct PresenceState
+    {
+        public bool HasMapRoom, HasMapSelectionVersion;
+        public byte MapRoomFlags, MapRoomSurfaceStamp, MapRoomSelectStamp, MapRoomGazeYaw;
+        public uint MapRoomPickKey, MapRoomSelectKey, MapRoomFanCharacterKey, MapSelectionRevision, MapSelectionParent;
+        public int MapSelectionParentAuthor;
+    }
+    internal static class RemoteSharedGaze
+    {
+        public static void Forget(int id) { }
+        public static byte SampleHostYaw(out bool valid) { valid = false; return 0; }
+        public static void Observe(int id, in PresenceState state) { }
+    }
     internal static partial class RemoteMapRoom
     {
-        private readonly struct PeerRoom
-        {
-            public PeerRoom(byte stamp, uint key) { SelectStamp = stamp; SelectKey = key; InRoom = true; }
-            public readonly byte SelectStamp;
-            public readonly uint SelectKey;
-            public readonly bool InRoom;
-        }
         private static readonly Dictionary<int, PeerRoom> Peers = new();
         private static readonly Dictionary<int, byte> ConsumedStamp = new(), SeenStamp = new();
         private static readonly List<MapLocation> CacheLocations = new();
         private static bool TryResolveKey(uint key, out MapLocation location)
         { location = CacheLocations.Find(item => KeyOf(item) == key); return location != null; }
         private static string NameOf(MapLocation location, uint key) => location?.name ?? "none";
+        private static string Describe(uint key) => key.ToString();
         private static void Note(string message) { }
         public static void Tick() => ResolveSelection();
-        public static void Packet(int peer, byte stamp, MapLocation location) => Peers[peer] = new(stamp, KeyOf(location));
+        public static void Packet(int peer, byte stamp, MapLocation location) => Peers[peer] = new(1, 0, 0, stamp, KeyOf(location), 0, Time.unscaledTime);
         public static void Leave(int peer) => Forget(peer);
         public static bool Pending => _pendingSelectInteractor != null;
+        public static uint VersionClock => SelectionVersions.Clock;
+        public static bool HasAuthoredVersion => SelectionVersions.HasOwn;
+        public static PresenceState Snapshot(int localPlayer)
+        { PresenceState value = default; Sample(ref value, localPlayer); return value; }
+        public static void Receive(int sender, PresenceState value) => Observe(sender, in value);
         public static bool EchoSuppressed => _hasAdoptedSelect && _adoptedSelectKey == 0 && _adoptedSelectAt >= 0;
         public static void Begin(MapLocationInteractor observer, params MapLocation[] locations)
         {
             Peers.Clear(); SeenSelectStamp.Clear(); ConsumedSelectStamp.Clear(); SeenSelectKey.Clear();
             ClearPendingSelection(); CacheLocations.Clear(); CacheLocations.AddRange(locations);
+            SelectionVersions.Reset(); _versionVisitLive = _versionLocalObserved = _versionDirty = false;
+            _versionMapIdentity = null; _displayedSelectKey = 0; _displayedSelectOpening = 0;
+            _versionCarrier = _versionLocalPlayer = 0; _versionSuspended = false;
+            _publishedSelectValid = _sentValid = false; _versionPublishWarned = false;
+            _localSelectStamp = _localSurfaceStamp = 0; _publishedSelectKey = _sentSelectKey = _sentFanCharacterKey = 0;
+            _publishedSurface = _adoptedSurface = MapIconLayer.MapSurface.Unknown;
+            _hasAdoptedSelect = false; _adoptedSelectAt = 0;
             MapRoomDriver.ActiveLocations = observer; MapIconLayer.CurrentSurface = MapIconLayer.MapSurface.World;
         }
     }

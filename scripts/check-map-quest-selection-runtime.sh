@@ -167,3 +167,47 @@ PY
     fi
     echo "Shared quest delivery negative control rejected: $mutation"
 done
+
+# Exercise defects in the real causal register and its actual sampler/receiver integration.
+for mutation in event-order-instead-of-opening resurrect-closed-opening relay-carrier-as-author missing-retirement-fence stripped-selected-relay truncated-native-author forged-native-clear; do
+    python3 - "$repo_root" "$temporary" "$mutation" <<'PYVERSION'
+from pathlib import Path
+import sys
+root, out = map(Path, sys.argv[1:3]); mutation = sys.argv[3]
+version = (root/'src/GloomhavenVR/Net/SharedQuestSelectionVersion.cs').read_text()
+remote = (root/'src/GloomhavenVR/Net/Remote/RemoteMapRoom.cs').read_text()
+changes = {
+ 'event-order-instead-of-opening': ('version', 'internal ulong Opening => Key != 0u ? Token : TokenOf(ParentCounter, ParentAuthor);', 'internal ulong Opening => Token;'),
+ 'resurrect-closed-opening': ('version', 'if (_current.Key == 0u && candidate.Key != 0u)', 'if (bool.Parse("false") && _current.Key == 0u && candidate.Key != 0u)'),
+ 'relay-carrier-as-author': ('version', 'relay ? new Event(counter, parentAuthor, 0u, 0, key)', 'relay ? new Event(counter, sender, 0u, 0, key)'),
+ 'missing-retirement-fence': ('version', 'if (_haveRetirement && candidate.Opening <= _retiredThrough)', 'if (bool.Parse("false") && _haveRetirement && candidate.Opening <= _retiredThrough)'),
+ 'stripped-selected-relay': ('remote', 'if (current.Key != 0u && current.Author != localPlayerId)', 'if (bool.Parse("false") && current.Key != 0u && current.Author != localPlayerId)'),
+ 'truncated-native-author': ('remote', 'SelectionVersions.TryPublish(localPlayerId, selectKey, _displayedSelectOpening, out var own)', 'SelectionVersions.TryPublish(unchecked((byte)localPlayerId), selectKey, _displayedSelectOpening, out var own)'),
+ 'forged-native-clear': ('remote', 'bool localIntent = _versionLocalObserved && localRevision != _versionLocalRevision && !adoptedSelect;', 'bool localIntent = _versionLocalObserved && !adoptedSelect && (localRevision != _versionLocalRevision || selectKey != _publishedSelectKey);'),
+}
+name, needle, replacement = changes[mutation]
+source = version if name == 'version' else remote
+assert source.count(needle) == 1, 'Causal version mutation seam changed: ' + mutation
+source = source.replace(needle, replacement)
+if name == 'version': version = source
+else: remote = source
+(out/'Version.cs').write_text(version); (out/'RemoteRoom.cs').write_text(remote)
+PYVERSION
+    if dotnet run --project "$project" --configuration Release \
+        --property:VersionSource="$temporary/Version.cs" --property:RemoteRoomSource="$temporary/RemoteRoom.cs" \
+        > "$temporary/mutant.log" 2>&1; then
+        echo "FAIL: causal quest version mutation survived: $mutation" >&2; exit 1
+    fi
+    case "$mutation" in
+        event-order-instead-of-opening|resurrect-closed-opening) expected='Opening register must converge across reordered and duplicate causal events' ;;
+        relay-carrier-as-author) expected='Selected relay must retain original full author and counter without minting a human event' ;;
+        missing-retirement-fence) expected='A retired native opening must not replay after map stand-down' ;;
+        stripped-selected-relay) expected='Adoption must publish an explicit full-ID relay without minting a human selection' ;;
+        truncated-native-author) expected='First human selection must author one authenticated full-ID opening' ;;
+        forged-native-clear) expected='Native unready cleanup must not mint a human clear over the pending replacement' ;;
+    esac
+    if ! rg -qF "Unhandled exception. System.InvalidOperationException: $expected" "$temporary/mutant.log"; then
+        cat "$temporary/mutant.log"; echo "FAIL: causal version control did not reach injected defect: $mutation" >&2; exit 1
+    fi
+    echo "Causal quest version negative control rejected: $mutation"
+done

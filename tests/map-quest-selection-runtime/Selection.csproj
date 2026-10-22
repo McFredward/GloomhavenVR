@@ -7,6 +7,7 @@
     <SelectionSource Condition="'$(SelectionSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/NativeMapQuestSelection.cs</SelectionSource>
     <InteractorSource Condition="'$(InteractorSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapLocationInteractor.cs</InteractorSource>
     <RemoteRoomSource Condition="'$(RemoteRoomSource)' == ''">../../src/GloomhavenVR/Net/Remote/RemoteMapRoom.cs</RemoteRoomSource>
+    <VersionSource Condition="'$(VersionSource)' == ''">../../src/GloomhavenVR/Net/SharedQuestSelectionVersion.cs</VersionSource>
     <BoundarySource Condition="'$(BoundarySource)' == ''">Boundary.cs</BoundarySource>
   </PropertyGroup>
   <ItemGroup>
@@ -14,6 +15,7 @@
     <Compile Include="$(BoundarySource)" Link="Boundary.cs" />
     <Compile Include="$(SelectionSource)" Link="Production/NativeMapQuestSelection.cs" />
     <Compile Include="../../src/GloomhavenVR/WorldUI/MapRoom/MapInputGate.cs" Link="Production/MapInputGate.cs" />
+    <Compile Include="$(VersionSource)" Link="Production/SharedQuestSelectionVersion.cs" />
     <Compile Include="$(IntermediateOutputPath)Observer.g.cs" />
   </ItemGroup>
   <Target Name="ExtractObserver" BeforeTargets="BeforeCompile">
