@@ -3,33 +3,25 @@
 The accepted opening also supplies the first-save campaign intro, with a native-style
 GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
 
-The current v21 cut completes the real-VR capture exchange. The requested
-0:54 scene now shows the Brute physically selecting Skirmishing Maneuver from
-the fan and placing it beside Brute Force. The final cooperative passage uses
-the October 22 recording: one, two and three remote masks with hands and boards,
-plus the recording player. Genuine full-frame group views replace the original
-2/3/4-view panel layout without inventing extra independent perspectives.
+The current v22 cut restores only the original first three-second PEGI slate,
+gives the six-damage gameplay shot 2.1 seconds and a settled camera endpoint, and
+replaces the first two cooperative takes with natural board-height hand poses.
+The following genuine damage-choice/collapse take remains continuous at 1x.
+The accepted final four-person cooperative view retains its source and timing.
 
-The MP component starts two frames before the former FG39 boundary to replace
-all incoming Flat transition pixels. Its native title emphasis and 15-frame
-optical entrance are rebuilt over advancing VR footage. Original internal cuts
-and the hard exit into accepted A04 remain. Two components select 655 frames
-against V20 and inherit 14,155; the 14,810-frame/60fps timeline, original AAC
-and actual source speed are retained. There is no paid inference.
+Three selected components cover 1,004 frame addresses against V21, inheriting
+13,806. The original 14,810-frame/60fps timeline, AAC and actual game speed remain.
+The later GloomhavenVR title, spoken name, ending, accepted cinematics and
+separate approved game intro are retained. The lower-right full-trailer fan
+mark remains. There is no paid inference or runtime/build change.
 
-All 33 UI phases are resolved: 31 genuine VR and two explicitly accepted native
-campaign/Guildmaster views. No new recording requirement remains. FG12 and
-accepted non-UI/cinematic views, the V20 card zoom/location montage and separate
-approved intro retain their exceptions. Other source candidates were reviewed
-without replacing already clearer demonstrations.
-
-The active review is `vr-gameplay-v12/REVIEW.html`, with 26 chapters, two direct
-new-passage buttons and comparisons. Actual-export/source-clock checks and
-desktop/mobile-emulated browser review pass. Six saturated entrance frames use
-a bounded exact-colour-path comparison follow-up; no media change or repeated
-complete gate is claimed. The new cut awaits the user's review. See
-[vr-gameplay-replacement.md](vr-gameplay-replacement.md) for provenance and
-delivery evidence. No new runtime or headset result is claimed.
+All 33 UI phases remain resolved: 31 genuine VR and two explicitly accepted native
+campaign/Guildmaster views. No recording requirement remains. The active review
+is `vr-gameplay-v13/REVIEW.html`, with 26 chapters, three direct revision buttons
+and comparisons. Independent actual-export/source-clock checks and focused
+desktop/mobile browser review pass. New user review is pending. See
+[vr-gameplay-replacement.md](vr-gameplay-replacement.md) for source timing,
+bounded QC and retained-media evidence. No headset result is claimed.
 
 The historical v10 first pass used 20 inserts covering 25 of 41 inventory regions; 16
 regions retain their previous pictures pending suitable captures. The accepted
