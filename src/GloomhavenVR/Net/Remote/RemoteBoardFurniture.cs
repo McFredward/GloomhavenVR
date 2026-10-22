@@ -605,6 +605,8 @@ internal sealed class RemoteBoardFurniture
     private readonly InertCap? _longRest;
 
     private readonly Transform _itemUse;
+    private GameObject? _activeDismissGhost;
+    private Material? _activeDismissGhostMaterial;
 
     /// <summary>The mirrored berth's arrival/departure driver — see <see cref="BuildItemUseRecess"/>.
     /// Null only in a shader-less environment where the generated cue art could not be built; the
@@ -1848,6 +1850,7 @@ internal sealed class RemoteBoardFurniture
         bool retainItemClip = ItemAppearanceMirror.HoldsAnyClip(owner.PlayerId,
             RemoteBoardFocus.DisplayedActor(owner, out _));
         SetItemUseShown(!synced || (buttons & NetProtocol.BoardUiItemRecessBit) != 0 || retainItemClip, _settled);
+        ApplyActiveDismissGhost(owner);
 
         // ---- SYNCED CAP STATES (record 4 byte 2 — "every cap looks enabled and un-accented") --
         ApplyCapStates(owner);
@@ -2264,6 +2267,37 @@ internal sealed class RemoteBoardFurniture
     {
         if (root != null && root.gameObject.activeSelf != shown)
             root.gameObject.SetActive(shown);
+    }
+
+    /// <summary>The owner-authored landing preview is tall like the ability card. Never infer
+    /// proximity from the observing player's hands or add a collider/controller to this mirror.</summary>
+    private void ApplyActiveDismissGhost(RemoteAvatar owner)
+    {
+        bool shown = owner.ActiveDismissBerthActive && owner.ActiveDismissGhostShown;
+        if (shown && _activeDismissGhost == null)
+        {
+            var ghost = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            ghost.name = "ActiveDismissGhost";
+            Object.Destroy(ghost.GetComponent<Collider>());
+            ghost.transform.SetParent(_itemUse, worldPositionStays: false);
+            ghost.transform.localPosition = new Vector3(0f, 0f, -0.004f);
+            ghost.transform.localRotation = Quaternion.identity;
+            float fit = UseSlotInnerFactor * 0.94f;
+            ghost.transform.localScale = new Vector3(_itemCardW * fit, _itemCardH * fit, 1f);
+            MeshRenderer renderer = ghost.GetComponent<MeshRenderer>();
+            Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+            if (shader != null)
+            {
+                _activeDismissGhostMaterial = new Material(shader)
+                    { color = new Color(0.92f, 0.85f, 0.5f, 0.34f) };
+                renderer.sharedMaterial = _activeDismissGhostMaterial;
+            }
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            Core.VRLayers.Apply(ghost);
+            _activeDismissGhost = ghost;
+        }
+        if (_activeDismissGhost != null && _activeDismissGhost.activeSelf != shown)
+            _activeDismissGhost.SetActive(shown);
     }
 
     /// <summary>
@@ -4681,6 +4715,7 @@ internal sealed class RemoteBoardFurniture
     /// </summary>
     public void Destroy()
     {
+        if (_activeDismissGhostMaterial != null) Object.Destroy(_activeDismissGhostMaterial);
         _characterDecision.Destroy();
         _decisionPrompt.Destroy();
         if (_characterDecisionMount != null) Object.Destroy(_characterDecisionMount.gameObject);

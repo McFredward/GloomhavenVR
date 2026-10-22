@@ -137,6 +137,10 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     // gate exactly like the fan counts and the card-FX events do. One byte on a gesture nobody makes
     // twice a second; it cannot become a stream.
     private int _lastSentItemClip = -1;
+    private bool _lastSentActiveDismissBerth;
+    private bool _lastSentActiveDismissGhost;
+    private byte _lastSentActiveDismissCount;
+    private byte _lastSentActiveDismissSeat = byte.MaxValue;
 
     // Pile-browse (Abgelegt / Verbrannt reading fan): the last broadcast (kind, count) so opening,
     // switching and closing a browser also pre-empts the 5 Hz gate — the fan's EMERGE animation is
@@ -1411,6 +1415,14 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             itemClip = -1;
         bool itemClipChanged = itemClip != _lastSentItemClip;
 
+        bool dismissBerth = CardsDriver.ActiveDismissBerthActive;
+        bool dismissGhost = dismissBerth && CardsDriver.ActiveDismissGhostShown;
+        byte dismissCount = dismissBerth ? CardsDriver.ActiveDismissListCount : (byte)0;
+        byte dismissSeat = dismissBerth ? CardsDriver.ActiveDismissSeat : byte.MaxValue;
+        bool dismissChanged = dismissBerth != _lastSentActiveDismissBerth
+            || dismissGhost != _lastSentActiveDismissGhost
+            || dismissCount != _lastSentActiveDismissCount || dismissSeat != _lastSentActiveDismissSeat;
+
         // PILE BROWSE (user request "Auf-/Zuklappen der Fächer im Multiplayer"): the discard/burnt
         // reading fan. Read through the PileBrowser.Current seam — the browser instance itself is a
         // private of CardsDriver. Gated on Count > 0 because the arc's content only fills in the
@@ -2160,7 +2172,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             && !decisionChanged && !decisionStateChanged && !decisionWidgetChanged
             && !useBarsChanged
             && !capLabelsChanged && !focusChanged && !trackSelChanged && !trackOrderChanged
-            && !emptyFanHintChanged && !tuningChanged && !itemClipChanged
+            && !emptyFanHintChanged && !tuningChanged && !itemClipChanged && !dismissChanged
             // THE FOUR HELD-CARD EDGES (records 36, 39, 41, 43) — the N7 ruling; see the
             // sampling block above for why each is discrete and what it costs.
             && !heldFaceChanged && !sacrificeSeatChanged && !spentHalfChanged
@@ -2195,6 +2207,18 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         _lastSentItemCount = itemsCount;
 
         var extras = default(PresenceState);
+
+        // The mode, proximity preview and counted public seat are one owner-authored picture.
+        // Emit edges immediately and repeat current state on cadence; absence clears a remote
+        // stage, and the native game's action replication remains the sole gameplay authority.
+        extras.HasActiveDismissBerth = dismissBerth;
+        extras.ActiveDismissGhostShown = dismissGhost;
+        extras.ActiveDismissListCount = dismissCount;
+        extras.ActiveDismissSeat = dismissSeat;
+        _lastSentActiveDismissBerth = dismissBerth;
+        _lastSentActiveDismissGhost = dismissGhost;
+        _lastSentActiveDismissCount = dismissCount;
+        _lastSentActiveDismissSeat = dismissSeat;
 
         FillEnvironmentRecords(ref extras);
         RemoteVideoPlayback.Sample(ref extras, _transport.LocalPlayerId);

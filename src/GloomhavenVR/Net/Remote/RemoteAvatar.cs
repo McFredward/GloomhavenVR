@@ -365,6 +365,11 @@ internal sealed class RemoteAvatar
     /// </summary>
     public int ItemUseClipIndex { get; private set; } = -1;
 
+    internal bool ActiveDismissBerthActive { get; private set; }
+    internal bool ActiveDismissGhostShown { get; private set; }
+    internal int ActiveDismissListCount { get; private set; }
+    internal int ActiveDismissSeat { get; private set; } = -1;
+
     /// <summary>
     /// WHICH positions of that item fan are wearing the owner's gold "you can play this NOW" frame,
     /// as a bitmask over the peer's <c>Inventory.AllItems</c> RAW index (extension record 35), or 0
@@ -1893,6 +1898,12 @@ internal sealed class RemoteAvatar
         // renderer keeps it out of the fold-in and re-adopts it on the next rebuild), and that
         // renderer is still the only place the value is range-checked.
         ItemUseClipIndex = p.HasItemUseClip ? p.ItemUseClipIndex : -1;
+
+        ActiveDismissBerthActive = p.HasActiveDismissBerth;
+        ActiveDismissGhostShown = p.HasActiveDismissBerth && p.ActiveDismissGhostShown;
+        ActiveDismissListCount = p.HasActiveDismissBerth ? p.ActiveDismissListCount : 0;
+        ActiveDismissSeat = p.HasActiveDismissBerth && p.ActiveDismissSeat != byte.MaxValue
+            ? p.ActiveDismissSeat : -1;
 
         // PER-ITEM USABLE MASK (extension record 35): which of this peer's equipped items their own
         // board is framing this instant. Written unconditionally from the parsed state — a packet

@@ -100,6 +100,7 @@ internal sealed class RemoteBoardCard
     /// space, and whether the panel is still on its way there. See <see cref="TickGlide"/> for the
     /// expression and the 1:1 reason it exists at all.</summary>
     private Vector3 _glideTo;
+    private float _glideScale = 1f;
     private bool _gliding;
     private bool _returningPose;
 
@@ -251,6 +252,19 @@ internal sealed class RemoteBoardCard
         _root.SetActive(false);
     }
 
+    /// <summary>The owned visual slab, exposed only to presentation composition and active-half
+    /// highlighting. It has no gameplay controller or input callback.</summary>
+    internal Transform PresentationTransform => _root.transform;
+
+    /// <summary>Move this same slab between its active cell and the shared dismissal berth.
+    /// Preserve the current world pose so the ordinary home glide supplies the whole transition.</summary>
+    internal void SetPresentationParent(Transform parent)
+    {
+        if (_root.transform.parent == parent) return;
+        _root.transform.SetParent(parent, worldPositionStays: true);
+        _returningPose = true;
+    }
+
     /// <summary>
     /// Re-seat the panel (the active-card grid relays its cards as the pile changes) — INSTANTLY for
     /// a cell that is taking a different card, and on the OWNER'S OWN HOME GLIDE for one that is
@@ -279,9 +293,10 @@ internal sealed class RemoteBoardCard
     /// client's — a mirror may not read the viewer's dial, and this is the very number the owner's
     /// own glide runs at.</para>
     /// </summary>
-    public void Move(Vector3 localPos, bool instant, float lerpSpeed)
+    public void Move(Vector3 localPos, bool instant, float lerpSpeed, float targetScale = 1f)
     {
         _glideTo = localPos;
+        _glideScale = targetScale > 0f ? targetScale : 1f;
         _glideSpeed = lerpSpeed > 0f ? lerpSpeed : Defaults.CardLerpSpeed;
         if (instant)
         {
@@ -289,7 +304,7 @@ internal sealed class RemoteBoardCard
             _returningPose = false;
             _root.transform.localPosition = localPos;
             _root.transform.localRotation = Quaternion.identity;
-            _root.transform.localScale = Vector3.one;
+            _root.transform.localScale = Vector3.one * _glideScale;
             return;
         }
         // Already there (the ordinary case — this runs on every content refresh, and a column that
@@ -347,12 +362,13 @@ internal sealed class RemoteBoardCard
         if (_returningPose)
         {
             t.localRotation = Quaternion.Slerp(t.localRotation, Quaternion.identity, blend);
-            t.localScale = Vector3.Lerp(t.localScale, Vector3.one, blend);
+            Vector3 targetScale = Vector3.one * _glideScale;
+            t.localScale = Vector3.Lerp(t.localScale, targetScale, blend);
             if (Quaternion.Angle(t.localRotation, Quaternion.identity) < 0.01f
-                && (t.localScale - Vector3.one).sqrMagnitude <= GlideEpsilonSq)
+                && (t.localScale - targetScale).sqrMagnitude <= GlideEpsilonSq)
             {
                 t.localRotation = Quaternion.identity;
-                t.localScale = Vector3.one;
+                t.localScale = targetScale;
                 _returningPose = false;
             }
         }

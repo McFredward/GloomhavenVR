@@ -118,6 +118,8 @@ internal sealed class RemoteActiveCards
     /// the old number and the growth path allocates only when it is actually exceeded.</para>
     /// </summary>
     private const int InitialSlots = 6;
+    // The local ability stage and the item berth use the same clear area / visible margin.
+    private const float UseSlotFit = RemoteBoardFurniture.UseSlotInnerFactor * 0.94f;
 
     /// <summary>Whose board this column belongs to — diagnostics only.</summary>
     private readonly int _playerId;
@@ -161,6 +163,8 @@ internal sealed class RemoteActiveCards
     /// <c>AbilityCard</c> can never answer this.</summary>
     private readonly List<Vector3> _cellPos = new(InitialSlots);
     private readonly List<CAbilityCard> _cellCard = new(InitialSlots);
+    private RemoteBoardCard? _dismissPanel;
+    private CAbilityCard? _dismissCard;
 
     public RemoteActiveCards(RemoteAvatar owner, int playerId, Transform boardRoot,
                              in RemoteBoardLayout layout)
@@ -440,6 +444,15 @@ internal sealed class RemoteActiveCards
 
         Count = _buffer.Count;
 
+        // A staged card remains a member of the original active list until native confirmation.
+        // Resolve only the sender's counted public seat: a model/wire ordering gap must never
+        // stage a different card. The original panel moves, leaving its active-grid cell empty.
+        Transform? dismissBerth = _owner.ItemUseRecess;
+        int dismissSeat = _owner.ActiveDismissBerthActive && dismissBerth != null
+            && _owner.ActiveDismissListCount == Count ? _owner.ActiveDismissSeat : -1;
+        _dismissPanel = null;
+        _dismissCard = null;
+
         // ─── THE CARD IN THE OWNER'S FIST IS NOT DRAWN IN THE MATRIX (report item 1, 2026-09-06) ─
         // "Durchsuche nochmal alles nach solchen ungewollten Kopien in der Hand die Karten kopieren
         // statt sie aus einem Faecher zu nehmen." Fifth copy of one membership defect and the one
@@ -535,6 +548,7 @@ internal sealed class RemoteActiveCards
             _panelsByCard.Clear();
             for (int i = 0; i < _cards.Count; i++)
             {
+                _cards[i].SetPresentationParent(_root);
                 _cards[i].Set(null, showFronts, actor);
                 // ITEM 4 (2026-09-07): release the permanent look with the cell. Set(null)
                 // already drops it through ClearFace; this makes the release EXPLICIT at every
@@ -604,6 +618,7 @@ internal sealed class RemoteActiveCards
         {
             if (i >= Count)
             {
+                _cards[i].SetPresentationParent(_root);
                 _cards[i].Set(null, showFronts, actor);
                 _cards[i].SetActiveCardLook(_playerId, i, null, RemoteCardArt.CardFxLook.None);
                 continue;
@@ -613,6 +628,8 @@ internal sealed class RemoteActiveCards
             if (cardId == completedFlightCardId) _cards[i].PrepareFlightArrival();
             bool residentKeepsItsCard = _panelsByCard.ContainsKey(cardId);
             bool held = i == activeSeatA || i == activeSeatB;
+            bool staged = !held && i == dismissSeat && dismissBerth != null;
+            _cards[i].SetPresentationParent(staged ? dismissBerth! : _root);
             if (!held && _heldPoseSlots.TryGetValue(cardId, out int oldPoseSlot))
             {
                 Transform? releasedSlab = _owner.HeldSlab(oldPoseSlot);
@@ -626,7 +643,8 @@ internal sealed class RemoteActiveCards
             // THE OWNER'S OWN RATE, off his synced BoardTuning ([Cards] CardLerpSpeed, wire id
             // NetProtocol.TuneCardLerpSpeed) — never this client's config. A mirror may not read the
             // viewer's dial, and this is the very number VRCard.Update runs his glide at.
-            _cards[i].Move(cellAt, instant: !residentKeepsItsCard, _owner.BoardTuning.CardLerpSpeed);
+            _cards[i].Move(staged ? Vector3.zero : cellAt, instant: !residentKeepsItsCard,
+                _owner.BoardTuning.CardLerpSpeed, staged ? UseSlotFit : 1f);
             if (held || _flyingSeats.Contains(i) || _owner.BurnOwnsActiveCard(cardId))
             {
                 // Either in their fist and not in their matrix, or still in the AIR on its way
@@ -679,10 +697,21 @@ internal sealed class RemoteActiveCards
             // Recorded HERE rather than derived again later, so the position the driver matches on
             // is the very Vector3 the cell was moved to and not a second evaluation of the same
             // formula that could drift from it.
-            _cellPos.Add(cellAt);
+            if (staged)
+            {
+                _dismissPanel = _cards[i];
+                _dismissCard = _buffer[i];
+            }
+            else
+            {
+                _cellPos.Add(cellAt);
+                _cellCard.Add(_buffer[i]);
+            }
+            Vector3 departure = staged && _root.parent != null
+                ? _root.parent.InverseTransformPoint(_cards[i].PresentationTransform.position)
+                : _root.localPosition + _root.localScale.x * cellAt;
             RemoteActiveDepartures.Remember(_playerId, actor, _buffer[i],
-                _root.localPosition + _root.localScale.x * cellAt, (byte)i, (byte)_buffer.Count);
-            _cellCard.Add(_buffer[i]);
+                departure, (byte)i, (byte)_buffer.Count);
         }
         _panelsByCard.Clear();
         for (int i = 0; i < Count; i++)
@@ -733,6 +762,7 @@ internal sealed class RemoteActiveCards
     {
         _pulse.Begin();
         _pulse.DriveMatrix(_root, actor, _cellPos, _cellCard);
+        _pulse.DriveSingle(_dismissPanel?.PresentationTransform, actor, _dismissCard);
 
         // AND THE FIST. The seats come from the SAME record-36 read the blanking above uses, under
         // the SAME length belt: a seat only names a card while the sender's ActivatedCards walk and
@@ -896,7 +926,12 @@ internal sealed class RemoteActiveCards
     public void Blank()
     {
         for (int i = 0; i < _cards.Count; i++)
+        {
+            _cards[i]?.SetPresentationParent(_root);
             _cards[i]?.Blank();
+        }
+        _dismissPanel = null;
+        _dismissCard = null;
         Count = 0;
     }
 

@@ -977,6 +977,13 @@ internal struct PresenceState
     /// as it does for <see cref="FanHighlightIndex"/>.</summary>
     public byte ItemUseClipIndex;
 
+    /// <summary>Presence-only active-ability dismissal berth, never a gameplay command. Its
+    /// counted seat addresses the public activated-ability list; 255 means no staged card.</summary>
+    public bool HasActiveDismissBerth;
+    public bool ActiveDismissGhostShown;
+    public byte ActiveDismissListCount;
+    public byte ActiveDismissSeat;
+
     /// <summary>
     /// True when this packet names what the sender's CONFIRM board cap actually reads (extension
     /// record <see cref="NetProtocol.ExtIdCapLabels"/>, mask bit 0). Absence keeps the receiver's
@@ -1901,9 +1908,10 @@ internal static class PresenceSerializer
     /// every optional record on the tail put together.</para></summary>
     // Base6869 + residents79(147 including complete anchored cloth controls) + faces80(96)
     // + activity81(55) + public map loadout88(3) + native opening histories83/84(510)
-    // + held item101(15) + sparse float249(5) = 7700. Keep the largest-record
+    // + held item101(15) + sparse float249(5) = 7700;
+    // + active-dismiss berth118(5) = 7705. Keep the largest-record
     // margin257 in the writer and bounded8000 fragment reassembly.
-    public const int MaxSize = 7957;
+    public const int MaxSize = 7962;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1946,6 +1954,7 @@ internal static class PresenceSerializer
                           // keeps every packet with an EMPTY recess (nearly all of them)
                           // byte-identical to the previous build's.
                           || state.HasItemUseClip
+                          || ValidActiveDismissBerth(in state)
                           // Record 14 also rides for the EMPTY-FAN placard alone (byte 1 bit 4),
                           // so the tail gate is the same OR its writer uses.
                           || state.EmptyFanHint
@@ -3432,8 +3441,24 @@ internal static class PresenceSerializer
             state.HeldTownItem.Value.Write(buffer, ref i);
             records++;
         }
+        if (ValidActiveDismissBerth(in state)
+            && i + 2 + NetProtocol.ActiveDismissBerthRecordBytes <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdActiveDismissBerth;
+            buffer[i++] = NetProtocol.ActiveDismissBerthRecordBytes;
+            buffer[i++] = (byte)(1 | (state.ActiveDismissGhostShown ? 2 : 0));
+            buffer[i++] = state.ActiveDismissListCount;
+            buffer[i++] = state.ActiveDismissSeat;
+            records++;
+        }
         return records;
     }
+
+    private static bool ValidActiveDismissBerth(in PresenceState state) =>
+        state.HasActiveDismissBerth && state.ActiveDismissListCount != 0
+        && (state.ActiveDismissSeat == byte.MaxValue
+            || state.ActiveDismissSeat < state.ActiveDismissListCount)
+        && (!state.ActiveDismissGhostShown || state.ActiveDismissSeat == byte.MaxValue);
 
     /// <summary>Is this pose's POSITION a real point? A NaN or infinite coordinate would move a
     /// board object out of the world, and for a prop that is permanent: nothing in the game ever
@@ -5208,6 +5233,24 @@ internal static class PresenceSerializer
             // is "the recess is empty", i.e. the pre-record rendering.
             state.HasItemUseClip = true;
             state.ItemUseClipIndex = buffer[i];
+        }
+        else if (id == NetProtocol.ExtIdActiveDismissBerth
+                 && len >= NetProtocol.ActiveDismissBerthRecordBytes)
+        {
+            byte flags = buffer[i];
+            byte count = buffer[i + 1];
+            byte seat = buffer[i + 2];
+            // Fail closed: an unknown mode, missing public list or contradictory staged/ghost
+            // state must never put an arbitrary active card on another player's board.
+            if ((flags & ~3) == 0 && (flags & 1) != 0 && count != 0
+                && (seat == byte.MaxValue || seat < count)
+                && ((flags & 2) == 0 || seat == byte.MaxValue))
+            {
+                state.HasActiveDismissBerth = true;
+                state.ActiveDismissGhostShown = (flags & 2) != 0;
+                state.ActiveDismissListCount = count;
+                state.ActiveDismissSeat = seat;
+            }
         }
         else if (id == NetProtocol.ExtIdEnvClock
                  && len >= NetProtocol.EnvClockRecordBytes)
