@@ -69,6 +69,31 @@ vectors pass306431 assertions, including frozen old bytes, exact122 cohort and
 page permutations, terminal history expiry, malformed-data quarantine and
 saturated assembly. Final remote proof and compiled review follow below.
 
+The final private717-to718 compiled review contains26 changed types and two
+added types, with no removal. Six differences contain only the inlined build
+number; four contain only the inlined presence capacity/build number. The rest
+implement the reviewed dismissal ownership, exact source context or bounded
+assembly behavior. All669 configuration keys,242 patches and4816 log tokens
+remain; bundle-format and source-surface checks pass. The final snapshot
+includes the retained-panel guard before ordinary active-parent/glide writes.
+
+Integrated existing remote burn sequencing and completion suites pass; the
+final remote selection rerun passes. The first expanded remote run passed its
+63 production assertions, then found a stale expected-message binding in the
+retention negative control: the new earlier frozen-panel assertion correctly
+rejected that mutation first. Production code did not change for this fixture
+repair. Preserve that failed receipt and the final complete remote rerun.
+
+The final unfiltered remote rerun passes63 production assertions and all34
+compiling causal controls in113 seconds. Integrated affected coverage now has
+18 distinct passing local suites across the retained focused runs, plus the
+final remote-selection rerun, source16/16 and306431 unfiltered golden assertions.
+The failed intermediate test-binding receipt is retained, never counted as a
+pass. Final receipts, compiled/surface review, archived worker evidence and
+deliverable hashes live below `.planning/debug/dismiss718/`; every completed
+fixture run records canonical cache cleanup. This is focused coverage with
+unchanged717 evidence, not a new full240-suite invocation.
+
 Unchanged areas inherit the explicitly composed Build717 coverage described in
 `MP717-VALIDATION.md`; this is not a new complete local suite invocation. Test
 completion uses canonical cache cleanup, retaining logs, sources and result

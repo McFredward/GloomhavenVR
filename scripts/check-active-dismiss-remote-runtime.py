@@ -163,7 +163,7 @@ internal bool RefreshRetained(CAbilityCard card, RemoteBoardCard panel, CPlayerA
             ('handover-recaptures', 'Flight.cs', '!f.SourceTransferred && f.FromDismissBerth', 'f.FromDismissBerth', 'handover never recaptures after the original renderer was transferred'),
             ('handover-skips-source-transfer', 'Flight.cs', '_owner.TransferCardToFlight(', '_owner.ObserveWithoutTransfer(', 'first drawable flight transfers the exact original once'),
             ('pending-stage-returns-grid', 'Capture.cs', '_owner.DismissFlightOwnsCard(_dismissCard.CardInstanceID)', 'false', 'accepted pending flight retains its original staged card after118 clears'),
-            ('pending-stage-recycled', 'Capture.cs', '_retainedDismiss[card] = panel;', '{}', 'native retirement retains the actual staged renderer while flight artwork loads'),
+            ('pending-stage-recycled', 'Capture.cs', '_retainedDismiss[card] = panel;', '{}', 'native active refresh preserves the frozen original before ordinary parent and glide writes'),
             ('pending-stage-leaks', 'Capture.cs', '_retainedDismiss.Remove(card);', '_retainedDismiss.ContainsKey(card);', 'completed or expired handover releases its retained original panel'),
             ('retained-stays-under-hidden-berth', 'Capture.cs', 'panel.FreezePresentationParent(_root.parent);', '{}', 'accepted original survives hidden berth without changing its frozen world pose'),
             ('active-model-reattaches-retained-card', 'Capture.cs', 'if (!_retainedDismiss.TryGetValue(card, out RemoteBoardCard? retained)\n            || !ReferenceEquals(retained, panel)) return false;', 'if (bool.Parse("true")) return false;', 'native active refresh preserves the frozen original before ordinary parent and glide writes'),

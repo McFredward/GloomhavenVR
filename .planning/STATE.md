@@ -1,3 +1,24 @@
+**Original active-card dismissal flights, Build718, 2026-10-22.**
+
+Explicitly dismissed ability/summon cards retain their physical original and
+fly from the berth into the original native discard/lost destination. Detach
+before berth closure, preserve the actual mid-settle pose and existing native
+burn-artwork hold, and never fly on an uncommitted or refused confirmation.
+Remote playback carries exact pool provenance and launch geometry through
+additive122, unchanged recent62 and durable75. Same-original renderer ownership
+survives missed staging, hidden berth parents and delayed native/public artwork;
+recovery, control, original identity and scenario lifetimes remain authoritative.
+
+Integrated affected coverage18 distinct suites, source16/16, strict Release0W0E
+and complete unfiltered306431 golden assertions pass. The local production flow
+executes83 assertions/12 causal controls; the final unfiltered remote proof
+passes63 assertions/all34 causal controls. Compiled/surface/bundle review passes
+with26 changed types, two added and no removal. Evidence and a repaired test-only
+failure binding are recorded in `ACTIVE-CARD-DISMISS718.md`. This bounded repair reuses
+unchanged Build717 coverage; no new complete240-suite invocation or headset
+visual acceptance is claimed. Test caches are cleaned with evidence retained;
+only completed owned worktrees are removed after byte-compared archival.
+
 **Shared multiplayer windows and latejoin hand recovery, Build717, 2026-10-22.**
 
 The four-player Build715 review exposed actual world-size/pose divergence hidden
