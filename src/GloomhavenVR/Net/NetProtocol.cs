@@ -184,6 +184,9 @@ internal static class NetProtocol
     public const int ActiveDismissBerthRecordBytes = 7;
     /// <summary>Atomic author seat/zoom and initial-pose roles for unchanged shared-window records.</summary>
     public const byte ExtIdSharedWindowPoseContext = 119;
+    /// <summary>Authenticated map browsing event counter and exact parent opening token.</summary>
+    public const byte ExtIdSharedQuestSelectionVersion = 120;
+    public const int SharedQuestSelectionVersionBytes = 12;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -621,6 +624,30 @@ internal static class NetProtocol
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
     public const ushort ModBuild = 717;
+
+    // ModBuild717 — shared windows occupy one fixed world frame and spawn from the host.
+    // The four-player715 hardware session used independent rig zooms: the old pixel/real-mm
+    // audit divided out the very per-viewer scale that made the actual windows disagree.
+    // Shared render scale now uses common scene geometry, never a viewer's zoom. Existing
+    // synchronized manual move/resize remains; private windows retain their local placement.
+    // Only the host supplies initial gaze placement (one compatible VR surrogate when the
+    // native host is flat). Followers adopt the fitted current-opening pose before reveal;
+    // native continuation is independent. Videos and rewards retain their original playback,
+    // capability/decline and completion handoffs with the same placement/size contract.
+    // Additive119 carries the AUTHOR seat origin/yaw/zoom and initial-role mask atomically
+    // with existing19/21/72/73. Legacy bytes and coordinate meaning remain unchanged; the new
+    // receiver reconstructs actual game-world geometry instead of applying its own seat.
+    // Additive120 authenticates a browsing event through the native full-width sender ID,
+    // monotonic counter and exact parent opening. It prevents delayed or concurrent clears
+    // from retiring a different quest occurrence. Native unready acknowledgements release
+    // their own masks before a retained, subject-qualified selection is applied. Committed
+    // host proposals keep their original readiness/decline flow under incidental table/X input.
+    // A latejoin whose native card presenter remains foreign now requests the ordinary
+    // SwitchHand for its first living owned selection hand. Revalidate the queued callback;
+    // never grant input to a read-only hand or bypass ownership/phase/native modal gates.
+    // Wire version3; next-free121. Actual extras worst7747, allocation8004 preserves257 spare
+    // bytes; fragment reassembly remains8000 (253 spare). Planning records test boundaries
+    // and required headset outcomes separately from source/log/automated evidence.
 
     // ModBuild716 — explicitly dismiss active cards through the shared physical item berth.
     // The maintainer chose place-then-confirm, with the existing item landing preview, sound,

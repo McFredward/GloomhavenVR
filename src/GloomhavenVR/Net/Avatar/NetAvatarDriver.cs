@@ -706,13 +706,10 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     /// players and older clients never block a new window's first reveal.</summary>
     internal static void CollectRewardPosePeers(List<int> into)
     {
-        into.Clear();
-        NetAvatarDriver? driver = _instance;
-        if (driver == null) return;
-        foreach (var pair in driver._avatars)
-            if (pair.Value.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds
-                && VersionGuard.PeerBuild(pair.Key) >= NetProtocol.RewardWindowMinPeerBuild)
-                into.Add(pair.Key);
+        // A native scene load can suspend rig/avatars while the same participant still owns
+        // the next reward. Placement and continuation use the stable compatible session
+        // census; explicit reward declines handle a host that has no native window here.
+        VersionGuard.CollectContinuationPeers(into, NetPlayerActors.LocalPlayerId());
     }
 
     /// <summary>
@@ -2224,7 +2221,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         _lastSentActiveDismissCount = dismissCount;
         _lastSentActiveDismissSeat = dismissSeat;
 
-        FillEnvironmentRecords(ref extras);
+        FillEnvironmentRecords(ref extras, _transport.LocalPlayerId);
         RemoteVideoPlayback.Sample(ref extras, _transport.LocalPlayerId);
         RemoteMapStory.SampleReward(ref extras, _transport.LocalPlayerId);
         MapStoryLifecycle.Sample(ref extras, _transport.LocalPlayerId);
@@ -3872,7 +3869,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     /// really stands, so the packet bytes are what they were. Order within the packet is the
     /// serializer's, not this method's.
     /// </summary>
-    private static void FillEnvironmentRecords(ref PresenceState extras)
+    private static void FillEnvironmentRecords(ref PresenceState extras, int localPlayerId)
     {
         // SHARED ENVIRONMENT CLOCK (extension record 31). USER REQUEST, verbatim: "Mond und
         // Lichtstrahlen sollen im Multiplayer (falls beide Spieler die selbe Umgebung ausgewählt
@@ -3930,7 +3927,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // contracts in RemoteMapRoom / RemoteMapStory and NetProtocol.ExtIdMapRoom /
         // NetProtocol.ExtIdSharedWindow.
         RemoteTownResidents.Sample(ref extras);
-        RemoteMapRoom.Sample(ref extras);
+        RemoteMapRoom.Sample(ref extras, localPlayerId);
         RemoteMapStory.Sample(ref extras);
     }
 

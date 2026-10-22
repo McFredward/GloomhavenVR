@@ -1271,6 +1271,12 @@ internal struct PresenceState
     /// <see cref="NetProtocol.ExtIdMapRoom"/> for why this fact is not on the game's own wire.</summary>
     public uint MapRoomSelectKey;
 
+    // Record120 qualifies the same-packet browsing edge, including its exact parent opening.
+    // The candidate author is the authenticated transport sender, never a truncated player ID.
+    public bool HasMapSelectionVersion;
+    public uint MapSelectionRevision, MapSelectionParent;
+    public int MapSelectionParentAuthor;
+
     /// <summary><c>FNV-1a(CMapCharacter.CharacterName)</c> of the party member whose loadout the
     /// sender's 3D-map card fan is showing, or <b>0 meaning "I have no map fan open"</b>.
     ///
@@ -1919,9 +1925,10 @@ internal static class PresenceSerializer
     // Base6869 + residents79(147 including complete anchored cloth controls) + faces80(96)
     // + activity81(55) + public map loadout88(3) + native opening histories83/84(510)
     // + held item101(15) + sparse float249(5) = 7700;
-    // + active-dismiss berth118(9) + shared author-frame119(24) = 7733. Keep the largest-record
-    // margin257 in the writer and bounded8000 fragment reassembly.
-    public const int MaxSize = 7990;
+    // + active-dismiss berth118(9) + shared author-frame119(24) + quest edge120(14) = 7747.
+    // Allocation8004 keeps the257-byte spare-record margin. Actual packets remain below
+    // unchanged8000-byte fragment reassembly (253 bytes spare); allocation is not an MTU.
+    public const int MaxSize = 8004;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -2099,6 +2106,7 @@ internal static class PresenceSerializer
                           // byte-identical to the previous build's.
                           || state.HasStorySync
                           || (state.WindowPoseContext.HasValue && state.WindowPoseContext.Value.Valid)
+                          || ValidMapSelectionVersion(in state)
                           // THE 3D MAP ROOM (20) and ITS SHARED WINDOWS (21): the same rule again —
                           // the emptiness test lives in the SAMPLERS (RemoteMapRoom.Sample /
                           // RemoteMapStory.Sample), which set these flags ONLY while this client's
@@ -3466,8 +3474,25 @@ internal static class PresenceSerializer
         if (state.WindowPoseContext.HasValue
             && SharedWindowPoseContext.Write(buffer, ref i, state.WindowPoseContext.Value))
             records++;
+        if (ValidMapSelectionVersion(in state)
+            && i + 2 + NetProtocol.SharedQuestSelectionVersionBytes <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdSharedQuestSelectionVersion;
+            buffer[i++] = NetProtocol.SharedQuestSelectionVersionBytes;
+            AvatarSerializer.WriteU32(buffer, ref i, state.MapSelectionRevision);
+            AvatarSerializer.WriteU32(buffer, ref i, state.MapSelectionParent);
+            AvatarSerializer.WriteI32(buffer, ref i, state.MapSelectionParentAuthor);
+            records++;
+        }
         return records;
     }
+
+    private static bool ValidMapSelectionVersion(in PresenceState state) => state.HasMapRoom
+        && state.HasMapSelectionVersion && state.MapSelectionRevision != 0
+        && (state.MapSelectionParent < state.MapSelectionRevision
+            || (state.MapSelectionParent == state.MapSelectionRevision && state.MapRoomSelectKey != 0))
+        && (state.MapSelectionParent == 0 ? state.MapSelectionParentAuthor == 0
+            : state.MapSelectionParentAuthor > 0);
 
     private static bool ValidActiveDismissBerth(in PresenceState state) =>
         state.HasActiveDismissBerth && state.ActiveDismissActorId != 0
@@ -4149,6 +4174,14 @@ internal static class PresenceSerializer
         }
         if (state.HeldTownItem.HasValue && (!state.HasHeldCardFace
             || NetProtocol.HeldFaceList(state.SecondHeldFaceCode) != NetProtocol.HeldFaceListItems)) return false;
+        // Record order is additive: qualify120 only after20 had its chance to decode.
+        if (state.HasMapSelectionVersion && (!state.HasMapRoom
+            || (state.MapSelectionParent == state.MapSelectionRevision && state.MapRoomSelectKey == 0)))
+        {
+            state.HasMapSelectionVersion = false;
+            state.MapSelectionRevision = state.MapSelectionParent = 0;
+            state.MapSelectionParentAuthor = 0;
+        }
         return true;
     }
 
@@ -5249,6 +5282,22 @@ internal static class PresenceSerializer
             // is "the recess is empty", i.e. the pre-record rendering.
             state.HasItemUseClip = true;
             state.ItemUseClipIndex = buffer[i];
+        }
+        else if (id == NetProtocol.ExtIdSharedQuestSelectionVersion
+                 && len >= NetProtocol.SharedQuestSelectionVersionBytes)
+        {
+            int at = i;
+            uint revision = AvatarSerializer.ReadU32(buffer, ref at);
+            uint parent = AvatarSerializer.ReadU32(buffer, ref at);
+            int parentAuthor = AvatarSerializer.ReadI32(buffer, ref at);
+            if (revision != 0 && parent <= revision
+                && (parent == 0 ? parentAuthor == 0 : parentAuthor > 0))
+            {
+                state.HasMapSelectionVersion = true;
+                state.MapSelectionRevision = revision;
+                state.MapSelectionParent = parent;
+                state.MapSelectionParentAuthor = parentAuthor;
+            }
         }
         else if (id == NetProtocol.ExtIdSharedWindowPoseContext)
         {

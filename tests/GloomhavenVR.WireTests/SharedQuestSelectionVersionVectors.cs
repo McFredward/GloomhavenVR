@@ -6,7 +6,8 @@ namespace GloomhavenVR.WireTests;
 
 /// <summary>Independent record120 grammar. The candidate author is the authenticated transport
 /// sender; the payload contains its counter and the exact parent(counter,author) only. The
-/// nonwrapping shared clock requires a nonzero child counter strictly above its parent.</summary>
+/// nonwrapping clock requires a human child above its parent. Equal counters with a selected
+/// subject explicitly relay the named opening without minting or truncating its original author.</summary>
 internal static class SharedQuestSelectionVersionVectors
 {
     private static byte[] MapPacket() => Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 14 10 01 07 44 33 22 11 09 88 77 66 55 00 00 00 00 00");
@@ -31,6 +32,7 @@ internal static class SharedQuestSelectionVersionVectors
     internal static void Run(Harness t)
     {
         Literal(t);
+        Relay(t);
         Malformed(t);
         Absence(t);
         Atomic(t);
@@ -64,6 +66,38 @@ internal static class SharedQuestSelectionVersionVectors
         }
     }
 
+    private static void Relay(Harness t)
+    {
+        t.Case("shared quest120: selected opening relay preserves its original full author");
+        var relay = Map(); relay.HasMapSelectionVersion = true;
+        relay.MapSelectionRevision = relay.MapSelectionParent = 0x04030201;
+        relay.MapSelectionParentAuthor = int.MaxValue;
+        byte[] record = Hex.Bytes("78 0C 01 02 03 04 01 02 03 04 FF FF FF 7F");
+        byte[] expected = MapPacket().Concat(record).ToArray(); expected[10] = 2;
+        var bytes = new byte[PresenceSerializer.MaxSize]; int length = PresenceSerializer.Write(relay, bytes);
+        t.Wire(expected, bytes, length, "equal nonzero counters explicitly relay selected opening(counter, full parent author)");
+        t.True(PresenceSerializer.TryRead(expected, expected.Length, out var read)
+            && read.HasMapSelectionVersion && read.MapSelectionRevision == 0x04030201
+            && read.MapSelectionParent == 0x04030201 && read.MapSelectionParentAuthor == int.MaxValue
+            && read.MapRoomSelectKey == 0x55667788,
+            "an adopted opening survives without inventing a new author or human click");
+        // Equality is a selected-state relay only. A clear must name a strictly earlier opening.
+        byte[] clearedMap = MapPacket(); Array.Clear(clearedMap, 20, 4);
+        relay.MapRoomSelectKey = 0;
+        length = PresenceSerializer.Write(relay, bytes);
+        t.Wire(clearedMap, bytes, length, "equal-counter clear is invalid and cannot close its own opening");
+        byte[] invalid = expected.ToArray(); Array.Clear(invalid, 20, 4);
+        t.True(PresenceSerializer.TryRead(invalid, invalid.Length, out read)
+            && read.HasMapRoom && !read.HasMapSelectionVersion && read.MapSelectionRevision == 0
+            && read.MapSelectionParent == 0 && read.MapSelectionParentAuthor == 0,
+            "equal-counter clear is rejected after reading its same-packet selection key");
+        byte[] reordered = new byte[expected.Length]; Array.Copy(expected, reordered, 11);
+        Array.Copy(record, 0, reordered, 11, 14); Array.Copy(MapPacket(), 11, reordered, 25, 18);
+        t.True(PresenceSerializer.TryRead(reordered, reordered.Length, out read)
+            && read.HasMapSelectionVersion && read.MapRoomSelectKey == 0x55667788,
+            "selected relay qualification is independent of TLV ordering");
+    }
+
     private static void Malformed(Harness t)
     {
         t.Case("shared quest120: malformed ancestry cannot become a shared selection event");
@@ -83,7 +117,6 @@ internal static class SharedQuestSelectionVersionVectors
             Hex.Bytes("02 00 00 00 01 00 00 00 00 00 00 00"), // parent counter with absent author
             Hex.Bytes("02 00 00 00 01 00 00 00 FF FF FF FF"), // negative parent author
             Hex.Bytes("02 00 00 00 01 00 00 00 00 00 00 80"), // signed minimum parent author
-            Hex.Bytes("01 00 00 00 01 00 00 00 01 00 00 00"), // self-parent counter
             Hex.Bytes("01 00 00 00 02 00 00 00 01 00 00 00"), // backward parent counter
             Hex.Bytes("01 00 00 00 FF FF FF FF 01 00 00 00"), // wrapped child is forbidden
         })
@@ -129,7 +162,7 @@ internal static class SharedQuestSelectionVersionVectors
         foreach (var invalid in new (bool enabled, uint revision, uint parent, int author)[] { (false, 1u, 0u, 0),
             (true, 0u, 0u, 0), (true, 0u, 1u, 1), (true, 1u, 0u, 1),
             (true, 2u, 1u, 0), (true, 2u, 1u, -1), (true, 2u, 1u, int.MinValue),
-            (true, 1u, 1u, 1), (true, 1u, 2u, 1), (true, 1u, uint.MaxValue, 1) })
+            (true, 1u, 2u, 1), (true, 1u, uint.MaxValue, 1) })
         {
             var state = Map(); state.HasMapSelectionVersion = invalid.enabled;
             state.MapSelectionRevision = invalid.revision; state.MapSelectionParent = invalid.parent;

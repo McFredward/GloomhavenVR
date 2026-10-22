@@ -47,12 +47,15 @@ internal static class SharedWindowSpawnAuthority
         && sender == AuthorId && context.Value.Host == (sender == PlayerRegistry.HostPlayerID);
 
     internal static bool MayPublishInitial(SharedWindowKind kind) => IsInitialAuthor()
-        && ModalFallback.SharedInitialPoseReady(kind);
+        && (kind == SharedWindowKind.Video ? NativeVideoWindow.SharedInitialPoseReady
+            : ModalFallback.SharedInitialPoseReady(kind));
 
     private static bool TryInitialPose(SharedWindowKind kind, out Vector3 position,
         out Quaternion rotation, out float factor) => kind == SharedWindowKind.ScenarioStory
         ? RemoteStorySync.TryInitialPose(out position, out rotation, out factor)
-        : RemoteMapStory.TryInitialPose(kind, out position, out rotation, out factor);
+        : kind == SharedWindowKind.Video
+            ? RemoteMapStory.TryVideoSharedInitialPose(out position, out rotation, out factor)
+            : RemoteMapStory.TryInitialPose(kind, out position, out rotation, out factor);
 
     internal static void SampleContext(ref PresenceState presence)
     {

@@ -48,7 +48,7 @@ internal static class ExtrasFragmentVectors
         t.True(!ExtrasVersionAnnouncement.TryRead(extended, extended.Length, out _), "trailing bytes not a handshake");
 
         t.Case("extras envelopes: bounded events and atomic reordered snapshots");
-        foreach (int size in new[] { 8, 199, 200, 201, 800, 801, 1801, 3449, 4096, 4133, 4177, 4352, 6865, 7168, 7379, 7680, 7694, 7700, 7709, 7966, 8000 })
+        foreach (int size in new[] { 8, 199, 200, 201, 800, 801, 1801, 3449, 4096, 4133, 4177, 4352, 6865, 7168, 7379, 7680, 7694, 7700, 7709, 7733, 7747, 7966, 7990, 8000 })
         {
             byte[] original = Snapshot(size);
             byte[][] pages = ExtrasFragments.Encode(original, size, 42);

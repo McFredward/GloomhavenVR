@@ -559,9 +559,10 @@ internal static partial class RemoteStorySync
         return true;
     }
 
-    /// <summary>The inverse of <see cref="TryToAnchor"/>, against the RECEIVER's own seat and own
-    /// zoom — which is the whole point: the same record puts the window at the same apparent place
-    /// and the same apparent size in every headset.</summary>
+    /// <summary>The historical receiver-seat inverse, retained for legacy descriptions.
+    /// Build717 requires record119 and reconstructs against the AUTHOR frame before pose
+    /// selection. Applying this inverse to another player's pose would reintroduce the measured
+    /// zoom/seat divergence; it is never a canonical-pose fallback.</summary>
     private static bool TryToWorld(Vector3 localPos, Quaternion localRot,
                                    out Vector3 worldPos, out Quaternion worldRot)
     {

@@ -849,7 +849,9 @@ internal static partial class ModalFallback
         int staggerIndex = 0, Vector2 halfSize = default, ConvertedPanel? self = null,
         bool levelMessage = false, SpawnAnchor? replay = null)
     {
-        if (SharedWindowSpawnBridge.Handles(self))
+        if (SharedWindowSpawnBridge.Handles(self)
+            || (SharedWindowSize.UsesSharedWorldFrame(self)
+                && self!.SharedDesignKind == SharedWindowKind.RewardShowcase))
             return ComputeSharedHostSpawn(self!, replay, halfSize, out pos, out rot, out scale);
         Vector3 headPos, fwd;
         // The world yaw this spawn's gaze points along — the frame the half-circle allocator seats

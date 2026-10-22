@@ -164,6 +164,7 @@ internal static partial class RemoteMapStory
                 else Flags = (byte)(Flags & ~NetProtocol.SharedPoseBit);
             }
             At = at;
+            ReceiptFrame = Time.frameCount;
             OpeningEpoch = openingEpoch;
             OpeningToken = openingToken;
         }
@@ -179,6 +180,7 @@ internal static partial class RemoteMapStory
         internal readonly SharedWindowPoseContext? Context;
         internal readonly bool Initial;
         public readonly float At;
+        internal readonly int ReceiptFrame;
         public readonly uint OpeningEpoch, OpeningToken;
 
         public bool Open => (Flags & NetProtocol.SharedOpenBit) != 0;
@@ -224,6 +226,8 @@ internal static partial class RemoteMapStory
         internal Quaternion FrameRot = Quaternion.identity;
         internal float FrameSize = 1f;
         internal bool HaveBaseline;
+        internal GrabbableModal? InitialGrab;
+        internal int InitialReceiptFrame;
 
         /// <summary>
         /// THE GRAB FRAME THE BASELINE ABOVE WAS TAKEN FROM. The ModBuild 237 fix, and the reason the
@@ -293,6 +297,8 @@ internal static partial class RemoteMapStory
             FollowedStamp = 0;
             MoveSettleAt = 0f;
             Grab = null;
+            InitialGrab = null;
+            InitialReceiptFrame = 0;
             LastWindow = null;
             SwapFrame = int.MinValue;
             ForgetPose();
@@ -2000,8 +2006,8 @@ internal static partial class RemoteMapStory
         PeerEntry owner = peers[bestPeer];
 
         // The start/settle stamps elect the last mover. A held drag keeps its stamp while
-        // poses advance. Interpolation uses the sender's shared frame, so this viewer's zoom
-        // reprojects the displayed pose immediately instead of entering the animation itself.
+        // poses advance. Interpolation uses parchment-local or the author's reconstructed
+        // common world frame. No observer seat or zoom participates in that reconstruction.
         if (!SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null)
         {
             Note($"player {bestPeer} published a pose for the {kind} window but this client has no "
@@ -2014,10 +2020,17 @@ internal static partial class RemoteMapStory
         if (local.PoseTrackPeer != bestPeer || local.PoseTrackFrame != owner.Frame)
         {
             local.PoseTrack.Reset();
-            if (local.HaveBaseline && ToShared(local.FramePos, local.FrameRot,
-                    out Vector3 seedPos, out Quaternion seedRot, out byte seedFrame,
-                    scenarioFrame: owner.Frame == NetProtocol.RewardFrameScenario) && seedFrame == owner.Frame)
-                local.PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, local.FrameSize, Time.unscaledTime);
+            if (local.HaveBaseline)
+            {
+                if (owner.Frame == NetProtocol.RewardFrameScenario)
+                {
+                    WorldAnchor.Instance.ToAnchor(local.FramePos, local.FrameRot, out Vector3 seedPos, out Quaternion seedRot);
+                    local.PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, local.FrameSize, Time.unscaledTime);
+                }
+                else if (ToShared(local.FramePos, local.FrameRot, out Vector3 seedPos, out Quaternion seedRot,
+                             out byte seedFrame) && seedFrame == owner.Frame)
+                    local.PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, local.FrameSize, Time.unscaledTime);
+            }
             local.PoseTrackPeer = bestPeer;
             local.PoseTrackFrame = owner.Frame;
         }

@@ -22,7 +22,7 @@ namespace GloomhavenVR.WorldUI
         internal static MapStoryOpening[] SampleCompletions() => Ledger.Sample(_opening);
         internal static void ObserveCompletions(int sender, MapStoryOpening[] entries) => Ledger.Observe(sender, entries);
     }
-    internal enum SharedWindowKind { RewardShowcase }
+    internal enum SharedWindowKind { RewardShowcase = 6 }
     internal sealed class GrabbableModal { internal bool IsGrabbed => false; }
     internal static class RewardShowcase { internal static object? Window; internal static uint ContentKey; }
     internal static class RewardShowcasePlacement
@@ -55,7 +55,8 @@ namespace GloomhavenVR.Net
     internal struct RigPose { internal UnityEngine.Vector3 Position; internal UnityEngine.Quaternion Rotation; }
     internal struct SharedWindowEntry { internal uint ContentKey; internal byte Flags, Page, SizeCode, Frame, PoseStamp; internal RigPose Pose; }
     internal struct RewardWindowState { internal bool Unavailable, Moved, Ready; internal SharedWindowEntry Window; }
-    internal struct PresenceState { internal bool HasRewardWindow, HasRewardPoseHandshake, HasRewardContinuation; internal MapStoryOpening[]? RewardContinuationEntries; internal RewardWindowState RewardWindow; internal RewardPoseHandshakeState RewardPoseHandshake; }
+    internal readonly struct SharedWindowPoseContext { }
+    internal struct PresenceState { internal SharedWindowPoseContext? WindowPoseContext { get; set; } internal bool HasRewardWindow, HasRewardPoseHandshake, HasRewardContinuation; internal MapStoryOpening[]? RewardContinuationEntries; internal RewardWindowState RewardWindow; internal RewardPoseHandshakeState RewardPoseHandshake; }
     internal static class RewardWindowCodec { internal static bool Valid(in RewardWindowState state) => state.Window.ContentKey != 0; }
     internal sealed class RewardPoseHandoff { internal void Reset() { } internal void LocalMove() { } }
     internal static class RewardPosePolicy
@@ -98,7 +99,7 @@ namespace GloomhavenVR.Net
             internal readonly bool HasPose;
             internal readonly byte Frame, SizeCode;
             internal readonly RigPose Pose;
-            internal PeerEntry(in SharedWindowEntry e, float at) { ContentKey = e.ContentKey; At = at; HasPose = (e.Flags & 2) != 0; Frame = e.Frame; SizeCode = e.SizeCode; Pose = e.Pose; }
+            internal PeerEntry(in SharedWindowEntry e, float at, SharedWindowPoseContext? context = null, int kind = 0) { ContentKey = e.ContentKey; At = at; HasPose = (e.Flags & 2) != 0; Frame = e.Frame; SizeCode = e.SizeCode; Pose = e.Pose; }
         }
         private static void TrackFrame(GloomhavenVR.WorldUI.SharedWindowKind kind, Local local, bool reset) { local.HaveBaseline = true; }
         private static void WritePose(GloomhavenVR.WorldUI.SharedWindowKind kind, Local local, ref SharedWindowEntry entry) { if (local.PoseOwned) entry.Flags |= 2; entry.Frame = 2; entry.SizeCode = 1; entry.PoseStamp = 0; entry.Pose = new RigPose { Position = default, Rotation = default }; }

@@ -32,6 +32,9 @@ internal static partial class RemoteStorySync
         position = owner.Pose.Position; rotation = owner.Pose.Rotation;
         if (!owner.Canonical && !TryToWorld(position, rotation, out position, out rotation)) return false;
         factor = SharedWindowSizeLaw.SharedGrabFactor(NetProtocol.DecodeStorySize(owner.SizeCode));
+        _localKey = key;
+        _localPageCount = (byte)Mathf.Clamp(box!.dialogs!.Count, 0, NetProtocol.StoryPageMax);
+        _finishedUntil = Time.unscaledTime + FinishedLingerSeconds;
         _lastFramePos = position; _lastFrameRot = rotation; _lastFrameSize = factor;
         _haveFrameBaseline = true; _localMoving = _localPoseOwned = false;
         _followingPeer = best; _followedStamp = owner.PoseStamp; _followedStampValid = true;

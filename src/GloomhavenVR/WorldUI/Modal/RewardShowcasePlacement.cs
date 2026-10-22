@@ -16,6 +16,9 @@ internal static class RewardShowcasePlacement
     private static bool _mayReveal;
     private static bool _poseReady;
 
+    internal static bool IsInitialAuthor => _authorityKey != 0 && _authorityKey == RewardShowcase.ContentKey
+        ? _mayReveal : SharedWindowSpawnBridge.IsInitialAuthor;
+
     internal static bool LocalPlacementFailed => ModalFallback.RewardPlacementFailed(RewardShowcase.Window);
     internal static bool LocalRevealPending => ModalFallback.PanelFor(RewardShowcase.Window)?.RevealPending == true;
 
@@ -52,13 +55,15 @@ internal static class RewardShowcasePlacement
         uint key = RewardShowcaseIdentity.ContentKey(window);
         // An absent/disabled net module must never turn a local native reward into a new deadlock.
         // Once net supplies an authority for this chest, only it may release this presentation gate.
-        if (key == 0 || _authorityKey != key) return true;
+        if (key == 0) return true;
+        if (_authorityKey != key)
+            return SharedWindowSpawnBridge.IsInitialAuthor && ModalFallback.EnsureRewardHostSpawn(panel);
         if (_poseReady && ModalFallback.TryGetGrabFor(window, out GrabbableModal? grab) && ApplyInitialPose(window, grab))
         {
             ModalFallback.PreserveRewardInitialPose(window);
             return true;
         }
-        return _mayReveal;
+        return _mayReveal && ModalFallback.EnsureRewardHostSpawn(panel);
     }
 
     internal static bool ApplyInitialPose(UIWindow window, GrabbableModal? grab)
@@ -71,6 +76,8 @@ internal static class RewardShowcasePlacement
         if (root == null) return false;
         root.localScale = Vector3.one * SharedWindowSizeLaw.SharedGrabFactor(_size);
         grab.PlaceFrameAt(_position, _rotation);
+        ConvertedPanel? panel = ModalFallback.PanelFor(window);
+        if (panel != null) panel.SharedSpawnPoseReady = true;
         ModalFallback.NoteSharedAnchorSpent(SharedWindowKind.RewardShowcase, "received reward pose before reveal");
         VRLog.Info("WorldUI", $"REWARD WINDOW INITIAL POSE: key={_key:X8}, applied before reveal");
         return true;

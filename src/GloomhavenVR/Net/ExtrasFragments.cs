@@ -10,8 +10,9 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal sealed class ExtrasFragments
 {
-    // Complete cloth controls, held item101 and float tuning249 raise the legal maximum
-    // to 7700 bytes. 8000 retains the writer's 257-byte margin within ten existing
+    // Complete cloth, held item101, float tuning249, dismissal118, author-frame119 and
+    // quest-version120 have a7747-byte worst case.8000 retains253 bytes of transport headroom;
+    // allocation-only PresenceSerializer.MaxSize8004 separately keeps257 spare bytes. Ten existing
     // four-chunk datagrams. Rounding to8192 adds an eleventh saturated presence
     // turn and exceeds its unchanged five-second assembly deadline at full load.
     internal const int MaxSnapshotBytes = 8000;

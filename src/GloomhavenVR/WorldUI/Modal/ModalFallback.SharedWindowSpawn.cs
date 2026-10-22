@@ -22,7 +22,9 @@ internal static partial class ModalFallback
             rotation = panel.HostGo.transform.rotation;
             return true;
         }
-        if (!SharedWindowSpawnBridge.IsInitialAuthor)
+        bool author = panel.SharedDesignKind == SharedWindowKind.RewardShowcase
+            ? RewardShowcasePlacement.IsInitialAuthor : SharedWindowSpawnBridge.IsInitialAuthor;
+        if (!author)
             return true; // never revealed or interactive until TryReveal applies the shared pose
 
         Vector3 headPosition, headForward, raw;
@@ -64,9 +66,29 @@ internal static partial class ModalFallback
         VRLog.Info("WorldUI", $"SHARED WINDOW HOST SPAWN: kind={panel.SharedDesignKind}, "
             + $"stage={(replay.HasValue ? "final-fit" : "spawn")}, "
             + $"position=({position.x:F3},{position.y:F3},{position.z:F3}), "
-            + $"yaw={rotation.eulerAngles.y:F2}, fixedScale={SharedWindowSize.ReferenceWorldScale:F3}; "
+            + $"yaw={rotation.eulerAngles.y:F2}, fixedScale={SharedWindowSize.ReferenceWorldScale:F3}, "
+            + $"worldSize=({halfSize.x * 2f:F3},{halfSize.y * 2f:F3}); "
             + "only the elected author's gaze places this opening; viewer zoom never sizes it.");
         return true;
+    }
+
+    internal static bool EnsureRewardHostSpawn(ConvertedPanel panel)
+    {
+        if (panel.SharedSpawnPoseReady) return true;
+        foreach (WindowPanel wp in Converted)
+        {
+            if (!ReferenceEquals(wp.Panel, panel) || wp.Grab == null || wp.Grab.IsGrabbed) continue;
+            Vector2 half = PanelWorldHalfSize(panel, SharedWindowSize.ReferenceWorldScale * wp.ExtraScale);
+            SpawnAnchor? replay = wp.SpawnAnchor.Valid ? wp.SpawnAnchor : null;
+            if (!ComputeSharedHostSpawn(panel, replay, half, out Vector3 position,
+                                        out Quaternion rotation, out _)) return false;
+            wp.Grab.SnapFrameTo(position, rotation);
+            wp.SpawnAnchor = default;
+            wp.PoseRePlaceDone = true;
+            panel.SharedSpawnPoseReady = true;
+            return true;
+        }
+        return false;
     }
 
     internal static bool SharedInitialPoseReady(SharedWindowKind kind)
@@ -102,6 +124,10 @@ internal static partial class ModalFallback
             wp.PoseRePlaceDone = true;
             panel.SharedSpawnPoseReady = true;
             NoteSharedAnchorSpent(panel.SharedDesignKind, "current opening's initial author pose applied");
+            VRLog.Info("WorldUI", $"SHARED WINDOW INITIAL POSE: kind={panel.SharedDesignKind}, "
+                + $"position=({position.x:F3},{position.y:F3},{position.z:F3}), "
+                + $"yaw={rotation.eulerAngles.y:F2}, fixedScale={SharedWindowSize.ReferenceWorldScale:F3}, "
+                + $"factor={factor:F2}; adopted the room's world pose before reveal.");
             return true;
         }
         return false;

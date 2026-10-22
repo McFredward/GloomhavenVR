@@ -5,6 +5,12 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
+/// Build717 additionally fixes the actual shared world multiplier through common scene
+/// geometry. Matching normalized millimetres alone did not prove matching world geometry:
+/// dividing by each observer's zoom hid the very difference reported in the four-player715 run.
+/// The historical pixel/design reasoning below still applies; ReferenceWorldScale and
+/// RenderWorldScale implement the newer zoom-independent world-size contract.
+///
 /// <b>THE ONE PLACE A CLIENT-LOCAL PIXEL COUNT IS ALLOWED TO REACH A SHARED WINDOW'S WORLD SIZE —
 /// AND THE PLACE THAT REFUSES IT.</b> <see cref="SharedWindowSizeLaw"/> holds the arithmetic and
 /// the user ruling; this file holds the Unity half: which frame the arithmetic is fed, and how that

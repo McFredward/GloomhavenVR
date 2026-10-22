@@ -40,16 +40,46 @@ internal static partial class RemoteMapStory
         return ToWorld(entry.Frame, entry.Pose.Position, entry.Pose.Rotation, out pos, out rot);
     }
 
+    internal static bool TryVideoSharedInitialPose(out Vector3 position, out Quaternion rotation, out float factor)
+    {
+        position = Vector3.zero; rotation = Quaternion.identity; factor = 1f;
+        uint key = VideoLocal.Key;
+        if (key == 0) return false;
+        int best = 0; float latest = float.NegativeInfinity; bool initial = true;
+        foreach (var pair in VideoPeers)
+        {
+            PeerEntry peer = pair.Value;
+            if (peer.ContentKey != key || !peer.HasPose || Time.unscaledTime - peer.At > PeerStaleSeconds) continue;
+            if (peer.Initial && !SharedWindowSpawnAuthority.AcceptInitial(pair.Key, peer.Context, (int)SharedWindowKind.Video)) continue;
+            if (!VideoStampAt.TryGetValue(pair.Key, out float at)) continue;
+            if (best != 0 && peer.Initial && !initial) continue;
+            if ((!peer.Initial && initial) || at > latest)
+            { best = pair.Key; latest = at; initial = peer.Initial; }
+        }
+        if (best == 0) return false;
+        PeerEntry owner = VideoPeers[best];
+        if (!ToWorld(owner.Frame, owner.Pose.Position, owner.Pose.Rotation, out position, out rotation)) return false;
+        factor = SharedWindowSizeLaw.SharedGrabFactor(NetProtocol.DecodeStorySize(owner.SizeCode));
+        if (SharedWindows.TryGetGrab(SharedWindowKind.Video, out GrabbableModal? grab) && grab != null)
+        {
+            VideoLocal.Grab = grab;
+            VideoLocal.LastWindow = SharedWindows.WindowOf(SharedWindowKind.Video);
+            VideoLocal.SwapFrame = int.MinValue;
+        }
+        VideoLocal.FramePos = position; VideoLocal.FrameRot = rotation; VideoLocal.FrameSize = factor;
+        VideoLocal.HaveBaseline = true; VideoLocal.Moving = VideoLocal.PoseOwned = false;
+        VideoLocal.FollowingPeer = best; VideoLocal.FollowedStamp = owner.PoseStamp; VideoLocal.FollowedStampValid = true;
+        VideoLocal.PoseTrack.Reset(); VideoLocal.PoseTrackPeer = 0;
+        return true;
+    }
+
     internal static void SampleVideoPose(uint key, bool source, ref SharedWindowEntry entry)
     {
         SetVideoIdentity(key);
         entry.ContentKey = key;
         TrackFrame(SharedWindowKind.Video, VideoLocal, reset: key == 0);
-        // Unlike old map windows, a video's first visible placement is shared too. The native
-        // source establishes it once; subsequent ownership comes from actual grabs, unchanged.
-        if (source && VideoLocal.HaveBaseline && VideoLocal.FollowingPeer == 0
-            && (VideoLocal.SwapFrame == int.MinValue || Time.frameCount - VideoLocal.SwapFrame > IdentitySettleFrames))
-            VideoLocal.PoseOwned = true;
+        // Playback-source election is independent of physical placement. Even a host showing
+        // another player's mirror authors the first pose; only a real later grab owns a move.
         WritePose(SharedWindowKind.Video, VideoLocal, ref entry);
     }
 

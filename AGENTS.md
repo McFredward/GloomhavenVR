@@ -74,6 +74,14 @@ to Codex and record the user's instructions of 2026-09-08.
 
 ## Multiplayer visual parity
 
+The user's four-player Build715 review (2026-10-22) requires shared multiplayer
+windows to have identical absolute world geometry despite independent player zoom.
+Only the host's gaze establishes a new opening; its render scale is independent
+of the host's zoom too. A native flat host needs one compatible VR placement
+surrogate. Keep existing synchronized manual dragging/resizing and native actor
+authority. A browsing dismissal must converge for all participants; an incidental
+table/X click must not privately hide an accepted native quest proposal.
+
 The user's 2026-10-03 NPC review explicitly makes town **card pre-drop guides**
 visitor-local: do not synchronize the merchant/enchantress "place card here"
 guide. The user's 2026-10-04 paired-log review extends this exception to the

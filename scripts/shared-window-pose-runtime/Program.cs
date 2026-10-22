@@ -258,6 +258,18 @@ internal static class Program
             Proof.Check(RemoteMapStory.TryInitialPose(kind,out pos,out rot,out factor)&&Proof.Same(pos,Proof.HandPose.Position),"map late join follows the actual manual mover ahead of a newer host initial stamp");
             Proof.Snap(follower,pos,rot,factor);RemoteMapStory.Apply(kind);Time.unscaledTime+=.3f;RemoteMapStory.Apply(kind);
             Proof.Check(Proof.Same(follower.Root.position,Proof.HandPose.Position),"live map election preserves the manual pose in its actual decoded coordinate frame");
+            if(kind is SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter)
+            {
+                Time.frameCount += 10;
+                SharedWindows.Grabs[kind] = new GrabbableModal();
+                Proof.Check(!RemoteMapStory.TryInitialPose(kind,out _,out _,out _),
+                    "same-key reopened quest or encounter rejects cached prior-float pose");
+                var reopened = RemoteMapStory.Peer(1,kind,Proof.HostPose,true,9,
+                    explicitFrame:parchment?NetProtocol.SharedFrameParchment:NetProtocol.SharedFrameSeatAnchor);
+                RemoteMapStory.Observe(1,reopened);
+                Proof.Check(RemoteMapStory.TryInitialPose(kind,out pos,out rot,out factor)&&Proof.Same(pos,Proof.HostPose.Position),
+                    "same-key reopened quest or encounter accepts ordinary fresh author snapshot");
+            }
             foreach(string invalid in new[]{"missing","wrong-key","stale","wrong-author"})
             {
                 Proof.Configure(2);RemoteMapStory.Fresh();MapRoomDriver.Active=parchment;key=RemoteMapStory.Key(kind);Proof.Opening(1,key,true);

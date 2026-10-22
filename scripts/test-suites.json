@@ -2963,6 +2963,41 @@
         "ci"
       ],
       "weight": 4
+    },
+    {
+      "id": "selection-latejoin",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.SelectionLateJoinTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 4
+    },
+    {
+      "id": "shared-window-geometry-runtime",
+      "command": [
+        "python3",
+        "scripts/check-shared-window-geometry-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "shared-window-pose-runtime",
+      "command": [
+        "python3",
+        "scripts/check-shared-window-pose-runtime.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 4
     }
   ]
 }

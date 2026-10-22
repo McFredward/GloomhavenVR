@@ -21,12 +21,14 @@ the first visible snap not being republished as a new local drag, and decoder
 source independence for shared movie placement. Mutations must compile and fail
 their named assertion; a compiler error is never a passing negative control.
 
-Same-content quest/encounter reopen provenance is a separate integration concern.
-The four-kind kernel snapshot initially qualified quest/event poses by content
-key and age; a repeated selection with the same key could reuse a prior opening's
-cached pose. Story openings use the production opening ledger. Any later causal
-quest opening record must be connected to pose eligibility and tested separately;
-this harness must not be cited as proof of that unimplemented connection.
+Quest/encounter first reveal also captures the exact local grab lifetime and
+requires a snapshot received during that opening. A same-key reopen cannot reveal
+an older cached pose while waiting for the next normal author snapshot. The proof
+executes both refusal and subsequent fresh delivery for both coordinate frames;
+a compiling mutation removing the receipt gate fails the reopened-float assertion.
+This is a cached-pose lifetime fence, not a new native encounter identity protocol.
+Story openings retain their existing opening ledger; causal quest browsing
+selection has its separate production register and tests.
 
 Every generated run retains source snapshots, hashes, build/runtime logs and
 results. Completion invokes the canonical cache cleanup after reaping children.

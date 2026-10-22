@@ -153,6 +153,9 @@ def main():
              'live map election preserves the manual pose in its actual decoded coordinate frame'),
             ('wrong-initial-kind-sampling', 'Authority.cs', 'SharedWindowPoseContext.KindBit(entry.Kind + 1)', 'SharedWindowPoseContext.KindBit(entry.Kind)',
              'actual presence sampler tags all six initial window kinds atomically with the sender frame'),
+            ('reopened-float-reuses-old-pose', 'MapInitial.cs',
+             'if (requireOpeningReceipt && unchecked(peer.ReceiptFrame - local.InitialReceiptFrame) < 0) continue;', '',
+             'same-key reopened quest or encounter rejects cached prior-float pose'),
             ('story-initial-key-not-adopted', 'StoryInitial.cs', '_localKey = key;', '_localKey = 0;',
              'a genuine local grab publishes a manual pose after initial adoption'),
         ]
