@@ -142,6 +142,12 @@ internal static class CardsGameApi
     /// hand must exist (<c>GetHand</c>).</item>
     /// </list>
     /// Null in the steady state (presentation follows selection) or while any gate holds.
+    /// During card selection, a newly assigned guest can instead have no owned native selection
+    /// at all: the native ownership callback retains a stale foreign hand or picks the first
+    /// living one without testing ownership. Only while the presenter is also foreign/missing,
+    /// recover the first locally owned living selection-mode hand through the same native seam.
+    /// A live deciding flow, an already owned presenter, or any original seam gate defers this
+    /// fallback; the presentation floor remains read-only until the native switch completes.
     /// Verified: <c>public CMessageData LastMessage { get; set; }</c> (Choreographer.cs:602),
     /// <c>CMessageData.MessageType</c> members StartTurn/ActionSelectionPhaseStart/
     /// CheckForInitiativeAdjustments (CMessageData.cs:13/188/176),
@@ -152,21 +158,53 @@ internal static class CardsGameApi
     {
         if (PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
             return null;
-        if (!(SelectedActor() is CPlayerActor selected) || selected.IsDead)
-            return null;
-        // F5: the game's partitioned MyControllables list, not the stale-able CActor flag.
-        if (!ControlsActor(selected))
-            return null;
         CardsHandManager manager = CardsHandManager.Instance;
         if (manager == null)
             return null;
         CardsHandUI current = manager.CurrentHand;
+        CPlayerActor? selected = SelectedActor() as CPlayerActor;
+        if (selected == null || selected.IsDead || !ControlsActor(selected))
+        {
+            // Build715 four-VR-player report (2026-10-22): the last guest owned Cryonaris,
+            // but native ownership refresh kept Berserker presented until a manual figure
+            // click. OnMyControllableOwnershipChanged clears selection, then retains the
+            // current hand using the stale IsUnderMyControl flag or chooses the FIRST living
+            // hand without an ownership test. The existing watchdog only accepted an already
+            // owned selection, so the read-only presentation floor could never become playable.
+            // Recover the native presenter, not CurrentHand's authority filter or the floor's
+            // read-only rule. An already owned presenter needs no fallback; a genuine deciding
+            // flow must retain its own hand. The native phase/message/control-ability gates
+            // below still apply, and the queued caller re-resolves everything before switching.
+            if (current != null && ControlsActor(current.PlayerActor) && !current.PlayerActor.IsDead)
+                return null;
+            if (DecidingHand() != null)
+                return null;
+            selected = null;
+            List<CardsHandUI>? hands = manager.CardHandsUI;
+            if (hands == null)
+                return null;
+            for (int i = 0; i < hands.Count; i++)
+            {
+                CardsHandUI candidate = hands[i];
+                CPlayerActor? actor = candidate != null ? candidate.PlayerActor : null;
+                if (actor != null && !actor.IsDead && ControlsActor(actor)
+                    && candidate!.currentMode == CardHandMode.CardsSelection)
+                {
+                    selected = actor;
+                    break;
+                }
+            }
+            if (selected == null)
+                return null;
+        }
         if (current != null && ReferenceEquals(current.PlayerActor, selected))
             return null; // presentation already follows the selection — the steady state
         if (manager.GetHand(selected) == null)
             return null;
         Choreographer c = Choreographer.s_Choreographer;
-        CMessageData? last = c != null ? c.LastMessage : null;
+        if (c == null)
+            return null; // SwitchHand calls OnSwitchHand: the native presenter must be live
+        CMessageData? last = c.LastMessage;
         if (last != null && (last.m_Type == CMessageData.MessageType.StartTurn
                              || last.m_Type == CMessageData.MessageType.ActionSelectionPhaseStart
                              || last.m_Type == CMessageData.MessageType.CheckForInitiativeAdjustments))
