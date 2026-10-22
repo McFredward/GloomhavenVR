@@ -34,11 +34,25 @@ internal static partial class RemoteMapStory
             default: return false;
         }
         if (key == 0) return false;
+        bool requireOpeningReceipt = kind is SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter;
+        if (requireOpeningReceipt)
+        {
+            if (!SharedWindows.TryGetGrab(kind, out GrabbableModal? openingGrab) || openingGrab == null) return false;
+            if (!ReferenceEquals(local.InitialGrab, openingGrab))
+            {
+                local.InitialGrab = openingGrab;
+                local.InitialReceiptFrame = Time.frameCount;
+            }
+        }
         int best = 0; float latest = float.NegativeInfinity; bool initial = true;
         foreach (var pair in peers)
         {
             PeerEntry peer = pair.Value;
             if (peer.ContentKey != key || !peer.HasPose || Time.unscaledTime - peer.At > PeerStaleSeconds) continue;
+            // Reopening the same native quest/event is a new physical float. Its first reveal
+            // cannot reuse an older cached pose merely because the content key matches. Wait
+            // for a normal current-opening snapshot; no arbitrary grace timeout or head refloat.
+            if (requireOpeningReceipt && unchecked(peer.ReceiptFrame - local.InitialReceiptFrame) < 0) continue;
             if (kind == SharedWindowKind.MapStory
                 && !MapStoryLifecycle.MatchesPose(true, pair.Key, peer.OpeningEpoch, peer.OpeningToken)) continue;
             if (peer.Initial && !SharedWindowSpawnAuthority.AcceptInitial(pair.Key, peer.Context, (int)kind)) continue;
