@@ -4315,15 +4315,27 @@ internal static class CardsGameApi
         try
         {
             CardsHandManager manager = CardsHandManager.Instance;
+            Choreographer choreographer = Choreographer.s_Choreographer;
             CPlayerActor? actor = hand.PlayerActor;
             CAbilityCard? card = widget.AbilityCard;
             if (manager == null || !manager.EnableCancelActiveAbilities
-                || Choreographer.s_Choreographer == null || PhaseManager.CurrentPhase == null
+                || choreographer == null || PhaseManager.CurrentPhase == null
                 || actor == null || actor.IsDead || !ControlsActor(actor)
                 || !ReferenceEquals(manager.GetHand(actor), hand)
                 || !ReferenceEquals(widget.playerActor, actor)
                 || !hand.cardsUI.Contains(widget) || card == null || card.SelectedAction == null
                 || !ActiveCardSet.IsActive(actor, card))
+                return false;
+
+            // Flat hides hand tabs outside round selection and presents the acting hand. VR's
+            // independent multi-character focus must not turn a previous hand's stale selectable
+            // flag into permission to cancel another controlled hero's effects online. This is
+            // the selection/current-caster boundary of PersistentAbilityPreviewUI.CanCancelActivesMP;
+            // CurrentPlayerActor deliberately maps a hero-summon's turn back to its summoner.
+            // Do not copy that icon's affected-target ownership check: an owned card can carry an
+            // aura on a foreign ally, and the original active-CARD click cancels the whole card.
+            if (FFSNetwork.IsOnline && !choreographer.PlayerToSelectAbilityCardsOrLongRest
+                && !ReferenceEquals(choreographer.CurrentPlayerActor, actor))
                 return false;
 
             // A reserved board card must not replace an unrelated native confirmation.

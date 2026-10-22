@@ -67,6 +67,8 @@ controls = [
     ("repeated-confirm", "Production.cs",
      "_finished = true;\n            _confirm = null;\n            _cancel = null;\n            action();",
      "action();", "Completed confirmations must not call cancel afterwards"),
+    ("wrong-online-turn", "Production.cs", "!ReferenceEquals(choreographer.CurrentPlayerActor, actor)",
+     "!ControlsActor(actor)", "Another controlled hero's turn must revoke the previous hero's staged dismissal online"),
 ]
 if control_filter is not None and control_filter not in {entry[0] for entry in controls}:
     raise ValueError(f"Unknown control: {control_filter}")

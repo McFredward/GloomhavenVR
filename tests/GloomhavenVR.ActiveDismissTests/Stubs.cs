@@ -55,7 +55,10 @@ public sealed class Choreographer
 {
     public static Choreographer s_Choreographer = new();
     public bool ForceEnterToCardSelection;
+    public bool PlayerToSelectAbilityCardsOrLongRest;
+    public CPlayerActor? CurrentPlayerActor;
 }
+public static class FFSNetwork { public static bool IsOnline; }
 public static class PhaseManager { public static object CurrentPhase = new(); }
 public static class Singleton<T> where T : class, new()
 {

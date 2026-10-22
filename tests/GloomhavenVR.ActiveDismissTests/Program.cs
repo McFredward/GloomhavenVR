@@ -15,11 +15,13 @@ static class Program
     private static (CardsHandUI hand, AbilityCardUI widget) Setup()
     {
         VRSession.IsRunning = true;
+        FFSNetwork.IsOnline = false;
         Singleton<UIConfirmationBoxManager>.IsInitialized = true;
         Singleton<UIConfirmationBoxManager>.Instance = new();
         Choreographer.s_Choreographer = new();
         PhaseManager.CurrentPhase = new();
         var actor = new CPlayerActor(); // Guildmaster may have no character name.
+        Choreographer.s_Choreographer.CurrentPlayerActor = actor;
         var card = new CAbilityCard();
         actor.Active.Add(card);
         var widget = new AbilityCardUI { playerActor = actor, AbilityCard = card };
@@ -107,6 +109,23 @@ static class Program
         (hand, widget) = Setup();
         widget.AbilityCard!.ActiveBonuses[0].Ability!.ActiveBonusData!.CannotCancel = true;
         Check(!CardsGameApi.CanDismissActiveCard(hand, widget), "CannotCancel must be enforced before placing");
+
+        (hand, widget) = Setup();
+        FFSNetwork.IsOnline = true;
+        pending = Arm(hand, widget);
+        Choreographer.s_Choreographer.CurrentPlayerActor = new() { Controlled = true };
+        Check(!pending.CanConfirm && !pending.Confirm() && CardsHandManager.Instance.NativeAccepted == 0,
+            "Another controlled hero's turn must revoke the previous hero's staged dismissal online");
+        Check(!CardsGameApi.CanDismissActiveCard(hand, widget),
+            "Independent VR focus must not offer another controlled hero's dismissal online");
+        Choreographer.s_Choreographer.PlayerToSelectAbilityCardsOrLongRest = true;
+        pending = Arm(hand, widget);
+        Check(pending.Confirm() && CardsHandManager.Instance.NativeAccepted == 1,
+            "Online round selection must still allow every owned hero's eligible active card");
+        (hand, widget) = Setup();
+        Choreographer.s_Choreographer.CurrentPlayerActor = new();
+        Check(CardsGameApi.CanDismissActiveCard(hand, widget),
+            "Offline cancellation must retain the native absence of the multiplayer caster gate");
 
         (hand, widget) = Setup();
         CardsHandManager.Instance.ThrowAfterRequest = true;
