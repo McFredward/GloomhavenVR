@@ -50,7 +50,7 @@ import sys
 source = Path(sys.argv[1]).read_text()
 for needle in ('private CQuestState questState;', 'private UIQuestPopup selectedQuestPopup',
                'private IQuest selectedQuest;', 'private CQuestState clientSelectedQuest;',
-               'private MapLocation hostSelectedLocation;'):
+               'private MapLocation hostSelectedLocation;', 'private bool m_Initialised = true;'):
     assert source.count(needle) == 1, 'Publicized metadata seam changed: ' + needle
     source = source.replace(needle, needle.replace('private ', 'public ', 1))
 Path(sys.argv[2]).write_text(source)
@@ -216,4 +216,55 @@ PYVERSION
         cat "$temporary/mutant.log"; echo "FAIL: causal version control did not reach injected defect: $mutation" >&2; exit 1
     fi
     echo "Causal quest version negative control rejected: $mutation"
+done
+
+# Readiness is supplied by the native InitMap completion and an actual surface census.
+for mutation in native-initialisation-ignored stale-native-cache immediate-key-retirement omit-cross-surface-unready repeat-latejoin-cap omit-unresolved-local-fence omit-unresolved-surface-fence omit-local-publish-retirement unknown-controller-merge unknown-controller-retirement; do
+    python3 - "$repo_root" "$temporary" "$mutation" <<'PYREADINESS'
+from pathlib import Path
+import sys
+root, out = map(Path, sys.argv[1:3]); mutation = sys.argv[3]
+remote = (root/'src/GloomhavenVR/Net/Remote/RemoteMapRoom.cs').read_text()
+interactor = (root/'src/GloomhavenVR/WorldUI/MapRoom/MapLocationInteractor.cs').read_text()
+changes = {
+ 'unknown-controller-merge': ('remote', 'if (!NativeMapQuestSelection.TryGetHostProposal(out _, out _))', 'if (bool.Parse("false") && !NativeMapQuestSelection.TryGetHostProposal(out _, out _))'),
+ 'unknown-controller-retirement': ('remote', 'if (!NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _))\n            return false; // initialization is unknown, never proof of a committed/retired opening', 'if (!NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _))\n        { RetireVersionVisit(); return false; }'),
+ 'native-initialisation-ignored': ('interactor', 'NativeMapInitialised?.GetValue(native) is bool ready && ready;', 'bool.Parse("true");'),
+ 'stale-native-cache': ('remote', 'if (_cacheValid && generation == _cacheGeneration)', 'if (_cacheValid)'),
+ 'immediate-key-retirement': ('remote', 'if (!_unresolvedSelectMiss)\n            {', 'if (bool.Parse("false") && !_unresolvedSelectMiss)\n            {'),
+ 'omit-cross-surface-unready': ('remote', 'interactor.PrepareSharedSelectionChange(null);', 'System.GC.KeepAlive(interactor);'),
+ 'repeat-latejoin-cap': ('remote', 'if (!_unresolvedSelectSurfaceAttempted)', 'if (bool.Parse("true"))'),
+ 'omit-unresolved-local-fence': ('remote', '|| _unresolvedSelectRevision != interactor.SelectionRevision', '|| false'),
+ 'omit-unresolved-surface-fence': ('remote', 'if (_unresolvedSelectInteractor != null && advertised != MapIconLayer.MapSurface.Unknown', 'if (bool.Parse("false") && _unresolvedSelectInteractor != null && advertised != MapIconLayer.MapSurface.Unknown'),
+ 'omit-local-publish-retirement': ('remote', 'if (won)\n                    {\n                        ClearPendingSelection();\n                        ClearUnresolvedSelection();\n                    }', 'if (won)\n                    {\n                        ClearPendingSelection();\n                    }'),
+}
+name, needle, replacement = changes[mutation]
+source = remote if name == 'remote' else interactor
+assert source.count(needle) == 1, 'Native readiness mutation seam changed: ' + mutation
+source = source.replace(needle, replacement)
+if name == 'remote': remote = source
+else: interactor = source
+(out/'RemoteRoom.cs').write_text(remote); (out/'Interactor.cs').write_text(interactor)
+PYREADINESS
+    if dotnet run --project "$project" --configuration Release \
+        --property:InteractorSource="$temporary/Interactor.cs" --property:RemoteRoomSource="$temporary/RemoteRoom.cs" \
+        > "$temporary/mutant.log" 2>&1; then
+        echo "FAIL: native quest readiness mutation survived: $mutation" >&2; exit 1
+    fi
+    case "$mutation" in
+        unknown-controller-merge) expected='Missing native proposal controller must hold the latest peer snapshot without merging or fencing it' ;;
+        unknown-controller-retirement) expected='An accepted opening must survive temporary native-controller absence with its original relay token' ;;
+        native-initialisation-ignored) expected='Partial native census must retain the same live opening while InitMap is still constructing rows' ;;
+        stale-native-cache) expected='A completed initialized census must deliver the original opening even when the row set generation did not change' ;;
+        immediate-key-retirement) expected='A ready cache miss must retain its opening until one fresh qualified census' ;;
+        omit-cross-surface-unready) expected='Readied World A must request original unready before waiting for an unresolved City B or its locked cap' ;;
+        repeat-latejoin-cap) expected='Unavailable native surface cap must never be pressed again for the same opening' ;;
+        omit-unresolved-local-fence) expected='Obsolete unresolved opening must retire before native delivery: local-refusal' ;;
+        omit-unresolved-surface-fence) expected='Obsolete unresolved opening must retire before native delivery: carrier-surface' ;;
+        omit-local-publish-retirement) expected='Obsolete unresolved opening must retire before native delivery: local-selection' ;;
+    esac
+    if ! rg -qF "Unhandled exception. System.InvalidOperationException: $expected" "$temporary/mutant.log"; then
+        cat "$temporary/mutant.log"; echo "FAIL: readiness control did not reach injected defect: $mutation" >&2; exit 1
+    fi
+    echo "Native quest readiness negative control rejected: $mutation"
 done

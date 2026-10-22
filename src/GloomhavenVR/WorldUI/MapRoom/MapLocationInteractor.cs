@@ -266,8 +266,9 @@ internal sealed class MapLocationInteractor
         index >= 0 && index < _locations.Count ? _locations[index] : null;
 
     /// <summary>
-    /// Bumped once every time <see cref="Rescan"/> REPLACES the location set — a quest unlock, a
-    /// city↔world switch, a travel animation, i.e. every <c>MapChoreographer.InitMap</c>.
+    /// Bumped whenever <see cref="Rescan"/> replaces the active location set: initial native
+    /// row creation, quest updates and world↔city activation changes. A native surface switch
+    /// preserves its map instance and existing rows; it does not call InitMap again.
     ///
     /// <para>THIS IS WHAT MAKES A KEY→LOCATION CACHE SAFE, and it is not optional. Locations are
     /// destroyed and respawned wholesale, so a cache that is not rebuilt points at dead objects;
@@ -278,6 +279,53 @@ internal sealed class MapLocationInteractor
     internal int ScanGeneration => _scanGeneration;
 
     private int _scanGeneration;
+
+    // The set generation alone is insufficient: InitMap yields after individual rows, and a
+    // world/city change activates existing rows rather than constructing another native map.
+    // A resolver may only declare an unknown key invalid after a completed, initialized census
+    // of the requested surface. These facts describe the scan, not an arbitrary wait duration.
+    internal int CompletedSelectionScan => _completedSelectionScan;
+    internal object? CompletedSelectionScanMap => _completedSelectionScanMap;
+    internal MapIconLayer.MapSurface CompletedSelectionScanSurface => _completedSelectionScanSurface;
+    internal bool CompletedSelectionScanReady => _completedSelectionScanReady;
+    private int _completedSelectionScan;
+    private object? _completedSelectionScanMap;
+    private MapIconLayer.MapSurface _completedSelectionScanSurface;
+    private bool _completedSelectionScanReady;
+    private static readonly FieldInfo? NativeMapInitialised = typeof(global::MapChoreographer).GetField(
+        "m_Initialised", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+    private static bool _selectionScanReadWarned;
+
+    private void RecordCompletedSelectionScan()
+    {
+        global::MapChoreographer? native = MapRoomDriver.Choreographer;
+        _completedSelectionScanMap = native;
+        _completedSelectionScanReady = false;
+        _completedSelectionScanSurface = MapIconLayer.MapSurface.Unknown;
+        try
+        {
+            if (native != null)
+            {
+                GameObject? map = MapParchment.ResolveActiveMapGo(native, out bool city);
+                _completedSelectionScanSurface = map == null ? MapIconLayer.MapSurface.Unknown
+                    : city ? MapIconLayer.MapSurface.City : MapIconLayer.MapSurface.World;
+                _completedSelectionScanReady = NativeMapInitialised?.GetValue(native) is bool ready && ready;
+                if (NativeMapInitialised == null)
+                    throw new System.MissingFieldException("MapChoreographer.m_Initialised");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            if (!_selectionScanReadWarned)
+            {
+                _selectionScanReadWarned = true;
+                VRLog.Warn(Scope, "MAP ROOM native location-census readiness unavailable: "
+                    + ex.GetType().Name + ": " + ex.Message
+                    + ". Shared browsing waits for measured native readiness; one report per session.");
+            }
+        }
+        unchecked { _completedSelectionScan++; }
+    }
 
     /// <summary>
     /// Where a placard belongs for ANY location — the top-centre of its drawn icon plus the same
@@ -376,6 +424,7 @@ internal sealed class MapLocationInteractor
         {
             _scanFrame = Time.frameCount;
             Rescan();
+            RecordCompletedSelectionScan();
         }
 
         // THE MASK IS OWNED UNCONDITIONALLY, INCLUDING WHEN THERE ARE NO LOCATIONS — see ApplyMask.

@@ -51,7 +51,7 @@ changes = {
     'unrelated-curtain-escape': (0, 'return ReferenceEquals(candidate, container);', 'return true;'),
     'missing-party-container': (0, 'if (ReferenceEquals(candidate, owner) || candidate.transform.IsChildOf(owner.transform))', 'return ReferenceEquals(candidate, owner) || candidate.transform.IsChildOf(owner.transform);\n#pragma warning disable CS0162\n        if (ReferenceEquals(candidate, owner) || candidate.transform.IsChildOf(owner.transform))'),
     'native-lock-bypass': (2, 'manager != null && manager.IsLocked;', 'manager != null && false;'),
-    'missing-dispatch-admission': (3, 'if (MapInputGate.IsBlocked)\n            return;\n        if (loc == null)', '// if (MapInputGate.IsBlocked) return;\n        if (loc == null)'),
+    'missing-dispatch-admission': (3, 'if (MapInputGate.IsBlocked || NativeMapQuestSelection.BlocksSharedBrowsing)\n            return;\n        if (loc == null)', '// if (MapInputGate.IsBlocked || NativeMapQuestSelection.BlocksSharedBrowsing) return;\n        if (loc == null)'),
     'failed-travel-fallback': (4, '_standDown || _parkStandDown || !MapRoomDriver.Active', '_standDown || !MapRoomDriver.Active'),
     'stale-travel-failure': (4, '_parkStandDown = false;\n        MapQuestReadyUp.Reset();', 'MapQuestReadyUp.Reset();'),
     'offline-travel-bypass': (4, 'mgr != null && !MapInputGate.IsBlockedBy(mgr)', 'mgr != null'),

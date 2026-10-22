@@ -217,6 +217,12 @@ internal static class RemoteMapRoom
     private static int _versionLocalPublicationRevision;
     private static uint _displayedSelectKey;
     private static ulong _displayedSelectOpening;
+    private static MapLocationInteractor? _unresolvedSelectInteractor;
+    private static object? _unresolvedSelectMap;
+    private static int _unresolvedSelectRevision, _unresolvedSelectScan;
+    private static ulong _unresolvedSelectOpening;
+    private static MapIconLayer.MapSurface _unresolvedSelectSurface;
+    private static bool _unresolvedSelectSurfaceAttempted, _unresolvedSelectTargetSeen, _unresolvedSelectMiss;
 
     // ---- local state ------------------------------------------------------------------------
 
@@ -299,10 +305,10 @@ internal static class RemoteMapRoom
     private static int _wantAttempts;
 
     // ---- the key cache ----------------------------------------------------------------------
-    // MANDATORY, not an optimisation: MapChoreographer.InitMap destroys and respawns every
-    // location on a quest unlock, a city<->world switch and a travel animation, so a key->location
-    // map that is not rebuilt points at dead objects. The rebuild trigger is the interactor's own
-    // ScanGeneration, which it bumps exactly when it REPLACES the set.
+    // MANDATORY, not an optimisation: native InitMap fills its rows across multiple frames;
+    // quest updates add rows, and world/city switching changes which existing rows are active.
+    // This cache contains only the interactor's active census. Its set generation rebuilds
+    // lookups; a completed initialized census separately qualifies missing-key admission.
 
     private static readonly List<uint> CacheKeys = new(64);
     private static readonly List<MapLocation> CacheLocations = new(64);
@@ -333,6 +339,7 @@ internal static class RemoteMapRoom
         SeenSelectStamp.Clear();
         SeenSelectKey.Clear();
         ClearPendingSelection();
+        ClearUnresolvedSelection();
         SelectionVersions.Reset();
         _versionVisitLive = _versionLocalObserved = _versionDirty = _versionPublishWarned = _versionSuspended = false;
         _versionMapIdentity = null;
@@ -513,7 +520,8 @@ internal static class RemoteMapRoom
                 _displayedSelectOpening = 0ul;
             _displayedSelectKey = selectKey;
         }
-        if (versionVisit && staged != null && !staged.IsSelected && !_pendingSelectVersioned)
+        if (versionVisit && staged != null && !staged.IsSelected
+            && !_pendingSelectVersioned && _unresolvedSelectInteractor == null)
         {
             SelectionVersions.RetireOwn();
             SelectionVersions.RetireCurrent();
@@ -537,6 +545,11 @@ internal static class RemoteMapRoom
                 {
                     bool won = SelectionVersions.HasCurrent && SelectionVersions.Current.Token == own.Token;
                     _versionDirty = !won;
+                    if (won)
+                    {
+                        ClearPendingSelection();
+                        ClearUnresolvedSelection();
+                    }
                     _displayedSelectKey = selectKey;
                     _displayedSelectOpening = selectKey != 0u ? own.Opening : 0ul;
                 }
@@ -569,7 +582,7 @@ internal static class RemoteMapRoom
                 // Native unready/quest commitment can retire a subject without a new user
                 // browsing action. Do not forge a human clear that cancels pending replacement B.
                 SelectionVersions.RetireOwn();
-                if (!_pendingSelectVersioned)
+                if (!_pendingSelectVersioned && _unresolvedSelectInteractor == null)
                     SelectionVersions.RetireCurrent();
                 _displayedSelectKey = selectKey;
                 _displayedSelectOpening = 0ul;
@@ -880,10 +893,20 @@ internal static class RemoteMapRoom
         if (interactor == null)
         {
             ClearPendingSelection();
+            ClearUnresolvedSelection();
             return;
         }
 
         bool versionAllowed = EnsureVersionVisit();
+        // During PartialUILoad the original multiplayer canvas/controller can be absent.
+        // Unknown proposal identity cannot authorize a click or permanently fence a peer's
+        // still-current opening. Keep only its latest authenticated snapshot until measured.
+        if (!NativeMapQuestSelection.TryGetHostProposal(out _, out _))
+        {
+            if (!_pendingSelectVersioned)
+                ClearPendingSelection(); // legacy byte edges retain their stricter one-shot retirement
+            return;
+        }
         bool beforePresent = SelectionVersions.HasCurrent;
         var beforeVersion = SelectionVersions.Current;
         foreach (KeyValuePair<int, PeerRoom> kv in Peers)
@@ -906,6 +929,7 @@ internal static class RemoteMapRoom
         if (versionChanged)
         {
             ClearPendingSelection();
+            ClearUnresolvedSelection();
             _versionDirty = versionAllowed;
             if (!versionAllowed)
                 SelectionVersions.RetireCurrent();
@@ -1104,8 +1128,7 @@ internal static class RemoteMapRoom
 
     private static bool EnsureVersionVisit()
     {
-        if (!MapRoomDriver.Active || !FFSNetwork.IsOnline || StoryComposite.PointOfNoReturn
-            || NativeMapQuestSelection.BlocksSharedBrowsing)
+        if (!MapRoomDriver.Active || !FFSNetwork.IsOnline || StoryComposite.PointOfNoReturn)
         {
             SuspendOrRetireVersionVisit();
             return false;
@@ -1115,6 +1138,13 @@ internal static class RemoteMapRoom
             return false; // unknown native initialization is not a new map opening
         if (_versionVisitLive && !ReferenceEquals(identity, _versionMapIdentity))
             RetireVersionVisit();
+        if (!NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _))
+            return false; // initialization is unknown, never proof of a committed/retired opening
+        if (proposal != null)
+        {
+            RetireVersionVisit();
+            return false;
+        }
         if (!_versionVisitLive)
         {
             _versionVisitLive = true;
@@ -1142,8 +1172,9 @@ internal static class RemoteMapRoom
     private static void SuspendOrRetireVersionVisit()
     {
         object? identity = VersionMapIdentity();
+        bool proposal = NativeMapQuestSelection.TryGetHostProposal(out var selected, out _) && selected != null;
         if (StoryComposite.PointOfNoReturn || !FFSNetwork.IsOnline || identity == null
-            || !ReferenceEquals(identity, _versionMapIdentity) || NativeMapQuestSelection.BlocksSharedBrowsing)
+            || !ReferenceEquals(identity, _versionMapIdentity) || proposal)
             RetireVersionVisit();
         else
         {
@@ -1166,27 +1197,126 @@ internal static class RemoteMapRoom
         _displayedSelectKey = 0u;
         _displayedSelectOpening = 0ul;
         ClearPendingSelection();
+        ClearUnresolvedSelection();
     }
 
     private static void ResolveVersionedSelection(MapLocationInteractor interactor)
     {
         if (!EnsureVersionVisit() || !SelectionVersions.HasCurrent)
-        { _versionDirty = false; return; }
+        { _versionDirty = false; ClearUnresolvedSelection(); return; }
         var desired = SelectionVersions.Current;
+        MapIconLayer.MapSurface surface = MapIconLayer.CurrentSurface;
+        if (_unresolvedSelectInteractor != null
+            && (!ReferenceEquals(_unresolvedSelectInteractor, interactor)
+                || !ReferenceEquals(_unresolvedSelectMap, VersionMapIdentity())
+                || _unresolvedSelectRevision != interactor.SelectionRevision
+                || _unresolvedSelectOpening != desired.Opening
+                || (_unresolvedSelectTargetSeen && surface != MapIconLayer.MapSurface.Unknown
+                    && surface != _unresolvedSelectSurface)))
+        {
+            RetireUnresolvedSelection();
+            return;
+        }
         int carrier = _versionCarrier;
         if (carrier != _versionLocalPlayer && (!Peers.TryGetValue(carrier, out PeerRoom live) || !live.InRoom))
             return; // keep the dirty state until an authenticated live carrier is available
+        MapIconLayer.MapSurface advertised = Peers.TryGetValue(carrier, out PeerRoom peer) && peer.SurfaceKnown
+            ? peer.IsCity ? MapIconLayer.MapSurface.City : MapIconLayer.MapSurface.World : surface;
+        if (_unresolvedSelectInteractor != null && _unresolvedSelectSurface == MapIconLayer.MapSurface.Unknown
+            && advertised != MapIconLayer.MapSurface.Unknown)
+            _unresolvedSelectSurface = advertised; // first measured surface is initialization, not supersession
+        if (_unresolvedSelectInteractor != null && advertised != MapIconLayer.MapSurface.Unknown
+            && advertised != _unresolvedSelectSurface)
+        {
+            RetireUnresolvedSelection(); // this carrier's newer surface no longer describes the held intent
+            return;
+        }
+
+        if (desired.Key != 0u)
+        {
+            if (_unresolvedSelectInteractor == null)
+            {
+                _unresolvedSelectInteractor = interactor;
+                _unresolvedSelectMap = VersionMapIdentity();
+                _unresolvedSelectRevision = interactor.SelectionRevision;
+                _unresolvedSelectOpening = desired.Opening;
+                _unresolvedSelectSurface = advertised;
+                _unresolvedSelectTargetSeen = advertised != MapIconLayer.MapSurface.Unknown && surface == advertised;
+                // A readied A can lock the very cap needed to reveal City B. Withdraw only
+                // this client's original readiness once, before waiting for B's missing row.
+                if (MapInputGate.IsBlocked && (KeyOf(interactor.Staged) != desired.Key
+                    || _displayedSelectOpening != desired.Opening))
+                    interactor.PrepareSharedSelectionChange(null);
+            }
+            if (surface != MapIconLayer.MapSurface.Unknown && surface == _unresolvedSelectSurface)
+                _unresolvedSelectTargetSeen = true;
+
+            bool scanned = interactor.CompletedSelectionScanReady
+                && ReferenceEquals(interactor.CompletedSelectionScanMap, _unresolvedSelectMap);
+            if (!scanned || MapInputGate.IsBlocked || surface == MapIconLayer.MapSurface.Unknown)
+                return;
+            int scan = interactor.CompletedSelectionScan;
+            if (surface != _unresolvedSelectSurface)
+            {
+                if (!_unresolvedSelectSurfaceAttempted)
+                {
+                    _unresolvedSelectSurfaceAttempted = true;
+                    _unresolvedSelectScan = scan;
+                    // A record20 surface edge may already be executing this same native cap.
+                    // Late visitors have no such edge; the live selected opening supplies one
+                    // qualified request, still through the cap's unchanged availability gates.
+                    if (_wantSurface != _unresolvedSelectSurface)
+                    {
+                        _adoptedSurface = _unresolvedSelectSurface;
+                        EGuildmasterMode mode = _unresolvedSelectSurface == MapIconLayer.MapSurface.City
+                            ? EGuildmasterMode.City : EGuildmasterMode.WorldMap;
+                        if (!MapRoomDriver.PressGuildmasterMode(mode, "the live shared quest opening's map surface"))
+                            RetireUnresolvedSelection();
+                    }
+                }
+                else if (scan != _unresolvedSelectScan)
+                    RetireUnresolvedSelection(); // one completed native pass confirms the cap did not admit this surface
+                return;
+            }
+            if (interactor.CompletedSelectionScanSurface != _unresolvedSelectSurface)
+                return; // map changed after the previous active-only census
+            if (_unresolvedSelectMiss && scan == _unresolvedSelectScan)
+                return; // no lookup loop between actual native censuses
+        }
         MapLocation? want = null;
         if (desired.Key != 0u && (!TryResolveKey(desired.Key, out want) || want == null))
         {
-            SelectionVersions.RetireCurrent();
-            _versionDirty = false;
+            if (!_unresolvedSelectMiss)
+            {
+                _unresolvedSelectMiss = true;
+                _unresolvedSelectScan = interactor.CompletedSelectionScan;
+            }
+            else
+                RetireUnresolvedSelection(); // a fresh initialized census of this surface still has no such native key
             return;
         }
         bool reopen = desired.Key != 0u && KeyOf(interactor.Staged) == desired.Key
             && _displayedSelectOpening != desired.Opening;
+        ClearUnresolvedSelection();
         _versionDirty = false; // this exact version is consumed before original callbacks
         RequestSelection(interactor, want, desired.Key, carrier, reopen, desired.Token);
+    }
+
+    private static void ClearUnresolvedSelection()
+    {
+        _unresolvedSelectInteractor = null;
+        _unresolvedSelectMap = null;
+        _unresolvedSelectOpening = 0ul;
+        _unresolvedSelectSurface = MapIconLayer.MapSurface.Unknown;
+        _unresolvedSelectSurfaceAttempted = _unresolvedSelectTargetSeen = _unresolvedSelectMiss = false;
+    }
+
+    private static void RetireUnresolvedSelection()
+    {
+        SelectionVersions.RetireCurrent();
+        _versionDirty = false;
+        ClearPendingSelection();
+        ClearUnresolvedSelection();
     }
 
     /// <summary>The actual displayed browsing opening, for opening-qualified shared pose reads.</summary>
@@ -1353,9 +1483,9 @@ internal static class RemoteMapRoom
                           + $"{CacheKeys.Count} live location(s) keyed by FNV-1a of their own "
                           + "CLocationState.ID, the same string the GAME sends in a LocationToken "
                           + "for SelectQuest. REBUILT ON THE SET CHANGE, not on a cadence: "
-                          + "MapChoreographer.InitMap destroys and respawns every location on a "
-                          + "quest unlock, a city↔world switch and a travel animation, so a cache "
-                          + "that survives one points at dead objects."
+                          + "Native InitMap fills rows across multiple frames, quest updates add "
+                          + "rows, and world↔city switching activates/deactivates existing rows. "
+                          + "A ready surface census, rather than a set generation alone, qualifies selection delivery."
                           + (collisions > 0
                               ? $" WARNING: {collisions} key collision(s) — {collided}. First wins, "
                                 + "the same order the game's own resolver uses (m_Scenarios then "

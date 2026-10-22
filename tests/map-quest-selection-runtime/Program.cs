@@ -647,6 +647,7 @@ internal static class Program
             "Native quest commitment must retire browsing publication without a fabricated human clear");
         StoryComposite.PointOfNoReturn = false;
         Singleton<MapChoreographer>.Instance = new();
+        returned.Observer.CompleteNativeCensus(returned.First, returned.Second);
         returned.First.Deselect(); Time.unscaledTime = 2; returned.Observer.DeselectTick();
         RemoteMapRoom.Snapshot(visitor);
         RemoteMapRoom.Receive(owner, opened); RemoteMapRoom.Tick();
@@ -657,13 +658,214 @@ internal static class Program
             "A new authenticated opening after map return must remain usable");
     }
 
+    private static PresenceState OnSurface(PresenceState state, bool city, byte stamp = 0)
+    {
+        state.MapRoomFlags |= NetProtocol.MapRoomSurfaceKnownBit;
+        if (city) state.MapRoomFlags |= NetProtocol.MapRoomSurfaceCityBit;
+        else state.MapRoomFlags &= unchecked((byte)~NetProtocol.MapRoomSurfaceCityBit);
+        state.MapRoomSurfaceStamp = stamp;
+        return state;
+    }
+
+    private static void NativeSurface(bool city)
+    {
+        MapParchment.NativeCity = city;
+        MapIconLayer.CurrentSurface = city ? MapIconLayer.MapSurface.City : MapIconLayer.MapSurface.World;
+        Map.IsLocked = false; // explicit original MapTransitioner final callback/ACK boundary
+    }
+
+    private static void NativeCensusDelivery()
+    {
+        const int owner = 1001001, local = 3003003;
+        MapLocation a = new("census-A", "quest-A"), b = new("census-B", "quest-B"), c = new("census-C", "quest-C");
+        var observer = Reset(client: true);
+        Singleton<MapChoreographer>.Instance.SetInitialised(false);
+        RemoteMapRoom.Begin(observer); RemoteMapRoom.Snapshot(local);
+        PresenceState selected = OnSurface(VersionEvent(owner, 1, 0, 0, b), false);
+        RemoteMapRoom.Receive(owner, selected); RemoteMapRoom.Tick();
+        Check(RemoteMapRoom.Pending && observer.PointerDispatches == 0,
+            "First zero-row native census must retain a valid incoming opening without a native click");
+        observer.CompleteNativeCensus(a); RemoteMapRoom.Tick();
+        Check(RemoteMapRoom.Pending && observer.PointerDispatches == 0,
+            "Partial native census must retain the same live opening while InitMap is still constructing rows");
+        observer.CompleteNativeCensus(a, b); RemoteMapRoom.Tick();
+        Check(RemoteMapRoom.Pending && observer.PointerDispatches == 0,
+            "Even complete-looking rows cannot replace native m_Initialised admission");
+        Singleton<MapChoreographer>.Instance.SetInitialised(true); RemoteMapRoom.Tick();
+        Check(observer.PointerDispatches == 0,
+            "Native initialization requires an actual completed ready census before delivery");
+        int sameSetGeneration = observer.ScanGeneration;
+        observer.CompleteNativeCensus(a, b); RemoteMapRoom.Tick();
+        Check(b.IsSelected && observer.PointerDispatches == 1 && observer.ScanGeneration == sameSetGeneration
+            && RemoteMapRoom.TryReadQuestSelectionOpening(selected.MapRoomSelectKey, out ulong delivered)
+            && delivered == SharedQuestSelectionVersion.TokenOf(1, owner),
+            "A completed initialized census must deliver the original opening even when the row set generation did not change");
+        RemoteMapRoom.Tick(); RemoteMapRoom.Tick();
+        Check(observer.PointerDispatches == 1, "Census readiness must never become a repeated native click loop");
+
+        foreach (bool committed in new[] { false, true })
+        {
+            observer = Reset(client: true); a = new("initial-controller-A", "A"); b = new("initial-controller-B", "B");
+            RemoteMapRoom.Begin(observer, a, b); RemoteMapRoom.Snapshot(local);
+            Singleton<UIMapMultiplayerController>.Instance = null!;
+            RemoteMapRoom.Receive(owner, OnSurface(VersionEvent(owner, 1, 0, 0, b), false)); RemoteMapRoom.Tick();
+            RemoteMapRoom.Snapshot(local);
+            Check(observer.PointerDispatches == 0 && RemoteMapRoom.VersionClock == 0,
+                "Missing native proposal controller must hold the latest peer snapshot without merging or fencing it");
+            Singleton<UIMapMultiplayerController>.Instance = new();
+            if (committed) Multiplayer.ProxyHostSelectedLocation(a);
+            RemoteMapRoom.Tick();
+            Check(committed ? observer.PointerDispatches == 0 && !b.IsSelected
+                    : observer.PointerDispatches == 1 && b.IsSelected,
+                "Native controller initialization must distinguish ordinary browsing from a genuine host proposal");
+            if (!committed)
+            {
+                RemoteMapRoom.Snapshot(local); Singleton<UIMapMultiplayerController>.Instance = null!;
+                RemoteMapRoom.Tick(); RemoteMapRoom.Snapshot(local);
+                Singleton<UIMapMultiplayerController>.Instance = new(); RemoteMapRoom.Tick();
+                PresenceState resumedOpening = RemoteMapRoom.Snapshot(local);
+                Check(b.IsSelected && observer.PointerDispatches == 1 && resumedOpening.HasMapSelectionVersion
+                    && resumedOpening.MapSelectionRevision == 1 && resumedOpening.MapSelectionParent == 1,
+                    "An accepted opening must survive temporary native-controller absence with its original relay token");
+            }
+            if (committed)
+            {
+                Multiplayer.CancelNativeProposal(); RemoteMapRoom.Tick();
+                Check(!b.IsSelected, "A measured committed proposal must retire preceding browsing rather than replay it after cancellation");
+            }
+        }
+
+        observer = Reset(client: true); b = new("unknown-initial-surface", "B");
+        RemoteMapRoom.Begin(observer, b); RemoteMapRoom.Snapshot(local);
+        MapIconLayer.CurrentSurface = MapIconLayer.MapSurface.Unknown;
+        RemoteMapRoom.Receive(owner, VersionEvent(owner, 1, 0, 0, b)); RemoteMapRoom.Tick();
+        Check(RemoteMapRoom.Pending && observer.PointerDispatches == 0,
+            "Unknown initial surface must retain the opening without guessing or pressing a cap");
+        NativeSurface(false); RemoteMapRoom.Tick();
+        Check(b.IsSelected && observer.PointerDispatches == 1 && MapRoomDriver.SurfacePresses == 0,
+            "First measured native surface must complete initialization rather than retire its pending opening");
+
+        observer = Reset(client: true); a = new("atomic-world", "world"); b = new("atomic-city", "city");
+        RemoteMapRoom.Begin(observer, a); RemoteMapRoom.Snapshot(local);
+        PresenceState world = OnSurface(default, false); world.HasMapRoom = true; world.MapRoomFlags |= 1;
+        RemoteMapRoom.Receive(owner, world); RemoteMapRoom.TickSurfaceOnly();
+        PresenceState city = OnSurface(VersionEvent(owner, 1, 0, 0, b), true, 1);
+        RemoteMapRoom.Receive(owner, city); RemoteMapRoom.TickSurfacePacket();
+        Check(MapRoomDriver.SurfacePresses == 1 && Map.IsLocked && RemoteMapRoom.Pending && observer.PointerDispatches == 0,
+            "Atomic surface-switch and selection packet must survive the original transition mask and old cache");
+        NativeSurface(true); RemoteMapRoom.TickSurfacePacket();
+        Check(RemoteMapRoom.Pending && observer.PointerDispatches == 0,
+            "A changed native surface must wait for its own active-row census before lookup");
+        observer.CompleteNativeCensus(b); RemoteMapRoom.TickSurfacePacket();
+        Check(b.IsSelected && observer.PointerDispatches == 1 && MapRoomDriver.SurfacePresses == 1,
+            "Atomic City switch must dispatch its selected opening once after the actual City census");
+
+        observer = Reset(client: true); a = new("ready-world", "world"); b = new("ready-city", "city");
+        RemoteMapRoom.Begin(observer, a); RemoteMapRoom.Snapshot(local);
+        RemoteMapRoom.Receive(owner, OnSurface(VersionEvent(owner, 1, 0, 0, a), false));
+        RemoteMapRoom.Tick(); RemoteMapRoom.Snapshot(local); Map.IsLocked = true;
+        RemoteMapRoom.Receive(owner, OnSurface(VersionEvent(owner, 2, 1, owner, b), true)); RemoteMapRoom.Tick();
+        Check(RemoteMapRoom.Pending && MapQuestReadyUp.UnreadyRequested && MapQuestReadyUp.Edges.Count == 1
+            && a.IsSelected && MapRoomDriver.SurfacePresses == 0,
+            "Readied World A must request original unready before waiting for an unresolved City B or its locked cap");
+        RemoteMapRoom.Tick();
+        Check(MapQuestReadyUp.Edges.Count == 1 && MapRoomDriver.SurfacePresses == 0,
+            "Unresolved cross-surface readiness withdrawal must run once and await native authorization");
+        a.Deselect(); Map.IsLocked = false; Time.unscaledTime = 2; observer.DeselectTick();
+        PresenceState cleanup = RemoteMapRoom.Snapshot(local);
+        Check(RemoteMapRoom.Pending && !cleanup.HasMapSelectionVersion && !RemoteMapRoom.HasAuthoredVersion,
+            "Native unready retirement must preserve the unresolved cross-surface opening without minting a clear");
+        RemoteMapRoom.Tick();
+        Check(MapRoomDriver.SurfacePresses == 1 && Map.IsLocked && !b.IsSelected,
+            "Late visitor may request one native surface cap after original unready authorization");
+        NativeSurface(true); observer.CompleteNativeCensus(b); RemoteMapRoom.Tick();
+        Check(b.IsSelected && observer.PointerDispatches == 2 && a.DeselectCalls == 1 && MapQuestReadyUp.Edges.Count == 1,
+            "Readied cross-surface replacement must enter the original selected card once without duplicating retirement: "
+            + $"selected={b.IsSelected}, dispatch={observer.PointerDispatches}, nativeDeselect={a.DeselectCalls}, readyEdges={MapQuestReadyUp.Edges.Count}");
+
+        foreach (bool capExists in new[] { false, true })
+        {
+            observer = Reset(client: true); a = new("unavailable-world", "world"); b = new("unavailable-city", "city");
+            RemoteMapRoom.Begin(observer, a); RemoteMapRoom.Snapshot(local);
+            MapRoomDriver.SurfaceAvailable = capExists; MapRoomDriver.SurfaceAdmitted = false;
+            RemoteMapRoom.Receive(owner, OnSurface(VersionEvent(owner, 1, 0, 0, b), true)); RemoteMapRoom.Tick();
+            RemoteMapRoom.Tick(); RemoteMapRoom.Tick();
+            Check(MapRoomDriver.SurfacePresses == 1 && observer.PointerDispatches == 0,
+                "Unavailable native surface cap must never be pressed again for the same opening");
+            observer.CompleteNativeCensus(a); RemoteMapRoom.Tick();
+            Check(!RemoteMapRoom.Pending && !b.IsSelected,
+                "A fresh ready census after cap refusal must retire the undeliverable opening");
+            NativeSurface(true); observer.CompleteNativeCensus(b); RemoteMapRoom.Tick();
+            Check(!b.IsSelected && observer.PointerDispatches == 0,
+                "A refused opening must not replay after a later unrelated map switch");
+        }
+
+        observer = Reset(client: true); a = new("delayed-A", "A"); b = new("delayed-B", "B");
+        RemoteMapRoom.Begin(observer, a); RemoteMapRoom.Snapshot(local);
+        RemoteMapRoom.Receive(owner, OnSurface(VersionEvent(owner, 1, 0, 0, b), false)); RemoteMapRoom.Tick();
+        Check(RemoteMapRoom.Pending && observer.PointerDispatches == 0,
+            "A ready cache miss must retain its opening until one fresh qualified census");
+        observer.CompleteNativeCensus(a, b); RemoteMapRoom.Tick();
+        Check(b.IsSelected && observer.PointerDispatches == 1,
+            "A row arriving after the packet must remain deliverable in its next qualified census");
+
+        foreach (string supersession in new[] { "local-refusal", "local-selection", "new-opening", "surface", "carrier-surface", "interactor", "map", "proposal" })
+        {
+            observer = Reset(client: true); a = new("obsolete-A", "A"); b = new("obsolete-B", "B"); c = new("obsolete-C", "C");
+            RemoteMapRoom.Begin(observer, a, c); RemoteMapRoom.Snapshot(local);
+            if (supersession == "local-refusal")
+            {
+                observer.AdoptSelection(a, "physical old selection"); RemoteMapRoom.Snapshot(local);
+                MapRoomDriver.SurfaceAdmitted = false;
+            }
+            bool wantsCity = supersession == "local-refusal";
+            uint counter = wantsCity ? 2u : 1u;
+            PresenceState pending = OnSurface(VersionEvent(owner, counter, wantsCity ? 1u : 0u, wantsCity ? local : 0, b), wantsCity);
+            RemoteMapRoom.Receive(owner, pending); RemoteMapRoom.Tick();
+            Check(RemoteMapRoom.Pending, "Supersession case must contain a genuinely unresolved opening: " + supersession);
+            switch (supersession)
+            {
+                case "local-refusal":
+                    a.Selectable = false; MapLocationInteractor.HandleSharedQuestClose(Popups.Selected.Window);
+                    RemoteMapRoom.Snapshot(local); a.Selectable = true;
+                    NativeSurface(true); observer.CompleteNativeCensus(b); break;
+                case "local-selection": observer.AdoptSelection(c, "physical newer local choice"); RemoteMapRoom.Snapshot(local); break;
+                case "new-opening": RemoteMapRoom.Receive(owner, OnSurface(VersionEvent(owner, 2, 1, owner, c), false)); break;
+                case "surface": NativeSurface(true); break;
+                case "carrier-surface": pending = OnSurface(pending, true); RemoteMapRoom.Receive(owner, pending); break;
+                case "interactor": MapRoomDriver.ActiveLocations = new(); break;
+                case "map": Singleton<MapChoreographer>.Instance = new(); break;
+                case "proposal": Multiplayer.ProxyHostSelectedLocation(c); break;
+            }
+            RemoteMapRoom.Tick();
+            Check(!RemoteMapRoom.Pending && !b.IsSelected,
+                "Obsolete unresolved opening must retire before native delivery: " + supersession);
+            if (supersession == "new-opening" || supersession == "local-selection")
+                Check(c.IsSelected, "New accepted local or remote opening must replace obsolete unresolved delivery");
+            if (supersession == "proposal") Multiplayer.CancelNativeProposal();
+            if (supersession == "interactor") MapRoomDriver.ActiveLocations = observer;
+            NativeSurface(false); observer.CompleteNativeCensus(a, b, c); RemoteMapRoom.Receive(owner, pending); RemoteMapRoom.Tick();
+            Check(!b.IsSelected, "Superseded unresolved opening must not replay in later native rows: " + supersession);
+        }
+
+        observer = Reset(client: true); a = new("invalid-A", "A"); b = new("invalid-B", "B");
+        RemoteMapRoom.Begin(observer, a); RemoteMapRoom.Snapshot(local);
+        selected = OnSurface(VersionEvent(owner, 1, 0, 0, b), false);
+        RemoteMapRoom.Receive(owner, selected); RemoteMapRoom.Tick();
+        observer.CompleteNativeCensus(a); RemoteMapRoom.Tick();
+        Check(!RemoteMapRoom.Pending && observer.PointerDispatches == 0,
+            "A fresh initialized census that still lacks the key must consume the invalid opening");
+        observer.CompleteNativeCensus(a, b); RemoteMapRoom.Receive(owner, selected); RemoteMapRoom.Tick();
+        Check(!b.IsSelected, "Consumed invalid opening must not replay onto an unrelated future native location");
+    }
+
     public static void Main()
     {
         foreach (bool flatHost in new[] { true, false })
         foreach (bool flatCompanion in new[] { true, false })
         foreach (bool reconnect in new[] { true, false }) Client(flatHost, flatCompanion, reconnect);
         Host(true); Host(false);
-        DelayedInitialization(); LinkedQuest(); UncommittedBrowsing(); LockedDelivery(); VersionPolicy(); VersionDelivery();
+        DelayedInitialization(); LinkedQuest(); UncommittedBrowsing(); LockedDelivery(); VersionPolicy(); VersionDelivery(); NativeCensusDelivery();
         System.Console.WriteLine($"Map quest selection runtime: {_assertions} assertions; {_roles} host/client/reconnect paths; original native proposal, preview, cancel and selection methods.");
     }
 }

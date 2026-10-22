@@ -24,11 +24,13 @@ methods = ('private void TickQuestDecision()', 'private void PublishDecision(',
            'private static string? DecisionIdOf(', 'private void TickAdoptGameSelection()',
            'private void TickDeselect()', 'private void Deselect(', 'private bool QuestPopupOpen()',
            'internal bool AdoptSelection(', 'internal bool PrepareSharedSelectionChange(',
-           'internal static bool HandleSharedQuestClose(')
+           'internal static bool HandleSharedQuestClose(', 'private void RecordCompletedSelectionScan()')
 fields = ('_selected', '_selectedAt', '_selectedDecisionId', '_decisionId', '_decisionEver',
           '_decisionNullSince', '_publishedDecisionId', '_publishedDecisionEver', '_publishedBySettle',
           '_publishedAt', '_lastDispatchFrame', '_adoptedFromGame', '_dispatchedHere',
-          'DecisionSettleSeconds', 'SelectionGraceSeconds', '_manualSelectionRevision', '_acceptedManualSelectionRevision', 'Scope')
+          'DecisionSettleSeconds', 'SelectionGraceSeconds', '_manualSelectionRevision', '_acceptedManualSelectionRevision',
+          '_completedSelectionScan', '_completedSelectionScanMap', '_completedSelectionScanSurface',
+          '_completedSelectionScanReady', '_selectionScanReadWarned', 'Scope')
 body = '\n'.join(method(source, signature) for signature in methods)
 staged = '    internal MapLocation? Staged => _selected;'
 assert source.count(staged) == 1, 'Production staged selection read seam changed'
@@ -42,6 +44,16 @@ body += '\n' + input_revision[0]
 publication_revision = re.findall(r'^    internal int SelectionPublicationRevision => [^\n]+;', source, re.M)
 assert len(publication_revision) == 1, 'Production accepted publication seam changed'
 body += '\n' + publication_revision[0]
+for signature in ('internal int CompletedSelectionScan =>', 'internal object? CompletedSelectionScanMap =>',
+                  'internal MapIconLayer.MapSurface CompletedSelectionScanSurface =>',
+                  'internal bool CompletedSelectionScanReady =>', 'internal int LocationCount =>'):
+    line = next(line for line in source.splitlines() if signature in line)
+    body += '\n' + line
+body += '\n' + source[source.index('    internal MapLocation? LocationAt('):source.index(';', source.index('    internal MapLocation? LocationAt(')) + 1]
+start = source.index('    private static readonly FieldInfo? NativeMapInitialised')
+body += '\n' + source[start:source.index(';', start) + 1]
+tick = method(source, 'internal void Tick()')
+assert 'Rescan();\n            RecordCompletedSelectionScan();' in tick, 'A census may be marked complete only after the native-row scan returns'
 dispatch = method(source, 'internal void Dispatch(')
 assert 'if (MapInputGate.IsBlocked || NativeMapQuestSelection.BlocksSharedBrowsing)' in dispatch, 'Original VR click dispatcher must reject incidental native-proposal browsing'
 close = Path(__file__).resolve().parents[2]/'src/GloomhavenVR/WorldUI/Modal/ModalFallback.7.Close.cs'
@@ -54,6 +66,7 @@ for field in fields:
 Path(sys.argv[2]).parent.mkdir(parents=True, exist_ok=True)
 Path(sys.argv[2]).write_text('''#nullable enable
 using System;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 using GloomhavenVR.Core;
@@ -72,6 +85,8 @@ methods = ('private static void ResolveSelection()', 'private static void ClearP
            'private static bool EnsureVersionVisit()', 'private static void RetireVersionVisit()',
            'private static void ResolveVersionedSelection(', 'private static void SuspendOrRetireVersionVisit()',
            'private static object? VersionMapIdentity()',
+           'private static void ClearUnresolvedSelection()', 'private static void RetireUnresolvedSelection()',
+           'private static void RefreshCache()', 'private static bool TryResolveKey(', 'private static void ResolveSurface()',
            'internal static bool TryReadQuestSelectionOpening(', 'internal static void Sample(',
            'internal static void Observe(', 'internal static bool SendDue', 'private readonly struct PeerRoom')
 fields = ('SeenSelectKey', '_pendingSelectInteractor', '_pendingSelectGeneration', '_pendingSelectRevision',
@@ -80,6 +95,9 @@ fields = ('SeenSelectKey', '_pendingSelectInteractor', '_pendingSelectGeneration
           '_adoptedSelectAt', 'Scope', '_pendingSelectVersioned', '_pendingSelectToken', 'SelectionVersions',
           '_versionVisitLive', '_versionMapIdentity', '_versionLocalRevision', '_displayedSelectKey',
           '_versionInputInteractor', '_versionLocalInputRevision', '_versionLocalPublicationRevision',
+          '_unresolvedSelectInteractor', '_unresolvedSelectMap', '_unresolvedSelectRevision', '_unresolvedSelectOpening',
+          '_unresolvedSelectSurface', '_unresolvedSelectSurfaceAttempted', '_cacheGeneration', '_cacheValid',
+          'SurfaceRetrySeconds', 'SurfaceMaxAttempts', '_wantSurface', '_wantFromPeer', '_wantNextAttempt', '_wantAttempts',
           '_displayedSelectOpening',
           '_publishedSurface', '_localSurfaceStamp', '_adoptedSurface', '_publishedSelectKey',
           '_publishedSelectValid', '_localSelectStamp', '_sentValid', '_sentSelectKey', '_sentFanCharacterKey',
