@@ -25,6 +25,17 @@ internal static class Program
         Check(owner.ActiveDismissGhostShown && owner.ActiveDismissSeat == -1,
             "near preview has no staged public card");
 
+        // A card can already be at the destination POSITION while still needing rotation/scale
+        // correction. The parent's changed frame, rather than a nonzero translation, owns that glide.
+        var coincidentGrid = new FixtureTransform { localScale = FixtureVector.one * 1.4f };
+        var coincidentBerth = new FixtureTransform { localScale = FixtureVector.one * .83f };
+        var coincidentPanel = new RemoteBoardCard(coincidentGrid, FixtureVector.zero);
+        coincidentPanel.SetPresentationParent(coincidentBerth);
+        coincidentPanel.Move(FixtureVector.zero, false, 8, 1.04f * .94f);
+        for (int i = 0; i < 500; i++) coincidentPanel.TickGlide();
+        Check(Math.Abs(coincidentPanel.PresentationTransform.localScale.x - 1.04f * .94f) < 1e-5f,
+            "zero-distance reparent still settles its changed frame scale");
+
         var grid = new FixtureTransform { localPosition = new(1, 2, 3), localScale = FixtureVector.one * 1.4f,
             localRotation = FixtureRotation.Yaw(-.4f) };
         var panel = new RemoteBoardCard(grid, new(.1f, .05f, -.001f));

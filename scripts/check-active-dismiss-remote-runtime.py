@@ -72,7 +72,8 @@ internal RemoteBoardCard(Transform parent, Vector3 position) { _root.transform.p
         mutations = [
             ('production', '', '', '', ''),
             ('parent-teleports', 'Card.cs', 'worldPositionStays: true', 'worldPositionStays: false', 'reparent preserves the complete current world pose'),
-            ('animated-wrong-scale', 'Card.cs', 'Vector3 targetScale = Vector3.one * _glideScale;', 'Vector3 targetScale = Vector3.one;', 'ability slab settles to the exact owner-authored berth fit'),
+            ('reparent-does-not-settle', 'Card.cs', '_returningPose = true;', '_returningPose = false;', 'zero-distance reparent still settles its changed frame scale'),
+            ('animated-wrong-scale', 'Card.cs', 'Vector3 targetScale = Vector3.one * _glideScale;', 'Vector3 targetScale = Vector3.one;', 'zero-distance reparent still settles its changed frame scale'),
             ('seed-wrong-scale', 'Card.cs', '_root.transform.localScale = Vector3.one * _glideScale;', '_root.transform.localScale = Vector3.one;', 'freshly seeded stage uses the same fit'),
             ('receiver-latches-absence', 'Receiver.cs', 'ActiveDismissBerthActive = p.HasActiveDismissBerth;', 'ActiveDismissBerthActive |= p.HasActiveDismissBerth;', 'absent state clears the previous remote reservation'),
             ('wrong-public-list', 'Receiver.cs', 'ActiveDismissListCount == count', 'true', 'active-list count mismatch cannot stage a different card'),

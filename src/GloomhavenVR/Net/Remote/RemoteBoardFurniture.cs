@@ -2294,6 +2294,12 @@ internal sealed class RemoteBoardFurniture
             }
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             Core.VRLayers.Apply(ghost);
+            // The regular board sweep also finds this child, but register its initial frame
+            // explicitly like the local PlayTray.AdoptFurniture path. This is this peer's board
+            // cluster/depth tier, never the observing player's local tray or graphics settings.
+            if (renderer.sharedMaterial != null && renderer.sharedMaterial.renderQueue > 2500)
+                WorldUI.CanvasConversion.RegisterFurniture(owner.BoardFurnitureAnchor, renderer,
+                    BoardVisual.TierOn(_root, ghost.transform));
             _activeDismissGhost = ghost;
         }
         if (_activeDismissGhost != null && _activeDismissGhost.activeSelf != shown)

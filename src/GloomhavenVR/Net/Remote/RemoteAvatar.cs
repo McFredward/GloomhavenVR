@@ -891,6 +891,9 @@ internal sealed class RemoteAvatar
     /// </summary>
     internal UnityEngine.Transform? ItemUseRecess => _controlBoard.ItemUseRecess;
 
+    /// <summary>The existing remote-board cluster owns late-created transparent furniture too.</summary>
+    internal WorldUI.IFurnitureOrderAnchor BoardFurnitureAnchor => _controlBoard;
+
     /// <summary>True while the sender has a control-board PILE BROWSER open (the "Abgelegt" /
     /// "Verbrannt" reading fan). False for peers that predate the field — they simply show no fan.
     /// Rendered by <see cref="RemoteBrowserFan"/> as backs only.</summary>
