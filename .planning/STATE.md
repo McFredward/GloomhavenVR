@@ -1,3 +1,25 @@
+**Accepted item surrender cleanup, Build720, 2026-10-23.**
+
+Build719 logs show a natively accepted item surrender immediately reclassified
+as an off-turn cancelled placement. Its competing collapse bypassed native FX
+completion and stranded the Use berth. Confirmed results now retain their original
+chip/parent through native burn/tap completion, independently of the action hand;
+completion clears the survivor, remote index and overlay without character switching.
+Following demands keep their own ask. Native callback kind is captured before
+reentry, and teardown drops its finishing reference. Native authority and
+unconfirmed returns remain; no wire/default/asset change.
+
+Integrated item-placement608 assertions/12 causal controls and item-burn227/11
+pass, plus three affected item/active-dismiss suites. Source16/16, strict
+Release0W0E and complete unfiltered306431 golden assertions pass. Compiled review
+finds only ItemsPile behavior plus nine build-number-only types; surfaces/bundles
+are intact. Baseline719 reproduces the defect. See `ITEM720-SURRENDER-CLEANUP.md`
+for boundaries, receipts and the initial repaired fixture compile failure.
+This bounded repair reuses unchanged719 evidence; no new complete local-suite
+invocation or headset/native multiplayer acceptance is claimed. Completed test
+caches and the owned worker worktree are cleaned after byte-compared archival;
+hardware inputs, other worktrees and deliverables remain.
+
 **Fixed shared-window spawn distance, Build719, 2026-10-23.**
 
 The paired717 follow-up confirms common window size and host author, but its
