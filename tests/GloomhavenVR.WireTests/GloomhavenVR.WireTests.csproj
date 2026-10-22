@@ -326,6 +326,7 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationPlaybackClock.cs" Link="wire\UseBarAnimationPlaybackClock.cs" />
     <Compile Include="SharedWindowPoseVectors.cs" />
     <Compile Include="SharedWindowContextVectors.cs" />
+    <Compile Include="SharedQuestSelectionVersionVectors.cs" />
     <Compile Include="FanReflowVectors.cs" />
     <Compile Include="FanInteractionVectors.cs" />
     <Compile Include="FanInsertionGapVectors.cs" />

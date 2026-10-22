@@ -220,8 +220,11 @@ internal static class SharedWindowContextVectors
     private static void Fragmented(Harness t)
     {
         t.Case("shared context119: complete source snapshot retains the unchanged8000-byte envelope bound");
-        t.True(PresenceSerializer.MaxSize <= 8000, "full snapshot stays inside the unchanged reassembly capacity");
-        foreach (int length in new[] { Packet().Length, PresenceSerializer.MaxSize, 8000 })
+        const int documentedWorst = 7747;
+        t.True(documentedWorst <= 8000, "the documented encoded worst case stays inside the unchanged reassembly capacity");
+        t.True(PresenceSerializer.MaxSize >= documentedWorst + 257,
+            "allocation-only writer buffer retains a complete257-byte spare record beyond the documented worst case");
+        foreach (int length in new[] { Packet().Length, documentedWorst, 8000 })
         {
             byte[] snapshot = new byte[length]; Array.Copy(Packet(), snapshot, Packet().Length);
             byte[][] fragments = ExtrasFragments.Encode(snapshot, snapshot.Length, (ulong)length);
