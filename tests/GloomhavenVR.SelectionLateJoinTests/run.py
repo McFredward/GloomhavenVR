@@ -49,7 +49,8 @@ def main():
     (project / 'ProductionApi.cs').write_text('using System.Collections.Generic; using ScenarioRuleLibrary; namespace GloomhavenVR.Cards; internal static partial class CardsGameApi {\n' + api_methods + '\n}')
     (project / 'ProductionDriver.cs').write_text('using ScenarioRuleLibrary; using UnityEngine; using GloomhavenVR.Core; namespace GloomhavenVR.Cards; internal sealed partial class CardsDriver {\n' + driver_methods + '\n}')
     (run / 'source-manifest.json').write_text(json.dumps({str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in (api_path, flow_path, update_path)}, indent=2) + '\n')
-    command = [str(Path.home() / '.dotnet/dotnet'), 'run', '--project', str(project / 'SelectionLateJoin.csproj'), '-c', 'Release']
+    dotnet = os.environ.get('DOTNET') or shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
+    command = [dotnet, 'run', '--project', str(project / 'SelectionLateJoin.csproj'), '-c', 'Release']
 
     def execute(label):
         log = run / (label + '.log')

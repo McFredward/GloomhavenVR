@@ -21,8 +21,8 @@ end = source.index("    // -----------------------------------------------------
 (PROJECT / "Production.cs").write_text("using System.Collections.Generic;\nusing ScenarioRuleLibrary;\nusing GloomhavenVR.Core;\nnamespace GloomhavenVR.Cards;\ninternal static partial class CardsGameApi {\n" + source[start:end] + "}\n")
 shutil.copy2(ROOT / "src/GloomhavenVR/Cards/Patches/ActiveDismissConfirmation.cs", PROJECT / "Capture.cs")
 environment = dict(os.environ)
-environment["DOTNET_ROOT"] = str(Path.home() / ".dotnet")
-command = [str(Path.home() / ".dotnet/dotnet"), "run", "--project", str(PROJECT / "ActiveDismiss.csproj"), "-c", "Release"]
+dotnet = os.environ.get("DOTNET") or shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
+command = [dotnet, "run", "--project", str(PROJECT / "ActiveDismiss.csproj"), "-c", "Release"]
 spec = importlib.util.spec_from_file_location("retention", ROOT / "scripts/town_run_retention.py")
 retention = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(retention)
