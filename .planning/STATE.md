@@ -1,3 +1,14 @@
+**Release1.2.1 preparation, Build721, 2026-10-23.**
+
+The maintainer authorized publishing the current Build720 frontier. Semantic
+version already1.2.1; Build721 supplies release identity only. English highlights
+cover physical dismissal/flights, item-fan closure, shared windows/quest/latejoin
+and surrendered-item cleanup. Three hosted fixture blockers are being repaired:
+flight-source context ports and SDK executable selection in dismissal/latejoin.
+No new gameplay/default/asset/wire behavior. Exact candidate hosted proof and
+dev→main merge/publication are required; see `RELEASE-1.2.1.md` and ignored
+`.planning/debug/release121/` receipts. No published-release claim yet.
+
 **Accepted item surrender cleanup, Build720, 2026-10-23.**
 
 Build719 logs show a natively accepted item surrender immediately reclassified

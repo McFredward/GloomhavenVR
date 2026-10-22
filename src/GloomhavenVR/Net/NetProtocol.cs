@@ -629,7 +629,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 720;
+    public const ushort ModBuild = 721;
+
+    // ModBuild721 — release1.2.1 identity for the reviewed Build720 development frontier.
+    // Ships physical active-card/summon dismissal and original local/remote pile flights,
+    // automatic item-fan closure, host-authored shared windows with absolute geometry and
+    // opening distance, quest/latejoin recovery and accepted item-surrender cleanup.
+    // Hosted fixture repairs use the installed SDK and the current flight-source boundary;
+    // no gameplay/presentation/default/asset change after720. Version3, next-free123.
+    // English player highlights: packaging/release-highlights/1.2.1.md. Release provenance,
+    // focused local evidence and mandatory exact-source hosted proof: RELEASE-1.2.1.md.
 
     // ModBuild720 — accepted item surrender cannot strand the Use berth after its result.
     // Build719 logs show a native accepted demand followed by the off-turn placement retirement.
