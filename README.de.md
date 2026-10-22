@@ -48,12 +48,12 @@
   <img src="docs/img/divider.png" width="600" alt="">
 </p>
 
-<table>
-<tr>
-<td width="50%"><video src="https://github.com/user-attachments/assets/e03c2053-7da2-48c4-a022-05af58362b09" controls muted loop></video></td>
-<td width="50%"><video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video></td>
-</tr>
-</table>
+<p align="center">
+  <a href="https://youtu.be/tLRm7zcW5Aw">
+    <img src="https://i.ytimg.com/vi/tLRm7zcW5Aw/maxresdefault.jpg" width="720" alt="GloomhavenVR – offizieller Trailer"><br>
+    <b>▶ Offiziellen Trailer auf YouTube ansehen</b>
+  </a>
+</p>
 
 Heb eine Figur hoch, und sie kommt vom Brett in deine Hand. Sie bleibt so groß, wie du sie gezogen
 hast, und ihre Karte kommt mit: Gesundheit, Bewegung, Angriff, Modifikatoren und der Zug, den sie

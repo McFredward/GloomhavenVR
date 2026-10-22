@@ -48,12 +48,12 @@
   <img src="docs/img/divider.png" width="600" alt="">
 </p>
 
-<table>
-<tr>
-<td width="50%"><video src="https://github.com/user-attachments/assets/e03c2053-7da2-48c4-a022-05af58362b09" controls muted loop></video></td>
-<td width="50%"><video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video></td>
-</tr>
-</table>
+<p align="center">
+  <a href="https://youtu.be/tLRm7zcW5Aw">
+    <img src="https://i.ytimg.com/vi/tLRm7zcW5Aw/maxresdefault.jpg" width="720" alt="GloomhavenVR – official trailer"><br>
+    <b>▶ Watch the official trailer on YouTube</b>
+  </a>
+</p>
 
 Pick up a figure and it comes off the board into your hand. It stays whatever size you pulled it
 to, and its card follows it: health, movement, attack, modifiers, and the turn it is about to take.
