@@ -149,6 +149,30 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// </summary>
     private float _spawnWorldScale = 1f;
     private float _spawnSharedWorldScale = 1f;
+
+    /// <summary>The actual reference captured by this opening, including an adopted author's
+    /// reference. A movie may survive leaving the map room; publishing today's ambient map/Hex
+    /// reference would resize its followers even though this window itself has stayed fixed.</summary>
+    internal float SharedReferenceWorldScale => _spawnSharedWorldScale;
+
+    /// <summary>Adopt the author's absolute render reference before applying its physical pose.
+    /// Different local map modes/build phases can capture parchment versus Hex geometry for the
+    /// same opening. Change only the size chain here: never advance a pose glide, resample a head,
+    /// move the frame, or consume its manual resize factor.</summary>
+    internal void ApplySharedReferenceWorldScale(float reference)
+    {
+        if (float.IsNaN(reference) || float.IsInfinity(reference) || reference <= 0f
+            || _spawnSharedWorldScale == reference) return;
+        _spawnSharedWorldScale = reference;
+        if (_panel == null || !_panel.IsAlive || _panel.HostGo == null || _panel.HostRect == null
+            || !SharedWindowSize.UsesSharedWorldFrame(_panel)) return;
+        float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
+        float unit = metersPerPixel * reference * _extraScale;
+        // Keep the currently drawn manual factor, including an unfinished remote resize glide.
+        _panel.HostGo.transform.localScale = Vector3.one * (unit * _visualScale);
+        Rect rect = _panel.HostRect.rect;
+        SyncBar(rect.height * unit * 0.5f, rect.width * unit, reference, rect, unit);
+    }
     private string _logName = "Menu";
 
     /// <summary>DIAG-throttle (spam fix): seconds between MODAL DIAG snapshot lines while the host moves.</summary>

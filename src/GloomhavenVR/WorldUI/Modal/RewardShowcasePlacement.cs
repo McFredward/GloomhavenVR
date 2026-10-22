@@ -11,6 +11,7 @@ internal static class RewardShowcasePlacement
     private static Vector3 _position;
     private static Quaternion _rotation;
     private static float _size;
+    private static float _referenceScale;
     private static float _receivedAt;
     private static uint _authorityKey;
     private static bool _mayReveal;
@@ -34,17 +35,22 @@ internal static class RewardShowcasePlacement
         _mayReveal = false;
     }
 
-    internal static void SetInitialPose(uint key, Vector3 position, Quaternion rotation, float size, bool ready = true)
+    internal static void SetInitialPose(uint key, Vector3 position, Quaternion rotation, float size, bool ready = true, float referenceScale = 0f)
     {
         _key = key;
         _position = position;
         _rotation = rotation;
         _size = size;
+        _referenceScale = referenceScale;
         _receivedAt = Time.unscaledTime;
         _poseReady = ready;
     }
 
-    internal static void ClearInitialPose() => _key = 0;
+    internal static void ClearInitialPose()
+    {
+        _key = 0;
+        _referenceScale = 0f;
+    }
 
     /// <summary>Only a follower's first reveal waits; native confirmation and other panels do not.</summary>
     internal static bool TryReveal(ConvertedPanel panel)
@@ -74,6 +80,7 @@ internal static class RewardShowcasePlacement
             || RewardShowcaseIdentity.ContentKey(window) != _key) return false;
         Transform? root = ((IPanelGrabOwner)grab).GrabRoot;
         if (root == null) return false;
+        if (_referenceScale > 0f) grab.ApplySharedReferenceWorldScale(_referenceScale);
         root.localScale = Vector3.one * SharedWindowSizeLaw.SharedGrabFactor(_size);
         grab.PlaceFrameAt(_position, _rotation);
         ConvertedPanel? panel = ModalFallback.PanelFor(window);
