@@ -1240,12 +1240,10 @@ internal static partial class RemoteMapStory
         VRLog.Info(Scope, $"MAP ROOM shared window MOVED locally: {kind} — pose stamp "
                           + $"{local.PoseStamp}, record 21 starts carrying a pose block for it and "
                           + "this client becomes the LAST MOVER everyone in the room follows. The "
-                          + "pose travels PARCHMENT-LOCAL (frame 1): origin the parchment's own "
-                          + "world bounds centre, unit the room's derived seat scale — both pure "
-                          + "functions of the SAME shared map, so 'where you put it' means the same "
-                          + "physical place on every table. Record 19's seat-anchor frame is NOT "
-                          + "used here: its origin is the orbit camera's focal point, which every "
-                          + "player pans for themselves.");
+                          + "pose uses the author's seat frame plus record119 source origin/yaw/zoom "
+                          + "(rewards use the common world frame). Every observer reconstructs the "
+                          + "same world pose; its own seat, zoom and local parchment are excluded. "
+                          + "Record121 retains this opening's captured render reference.");
     }
 
     /// <summary>How many frames after an identity change this kind stays silent in BOTH directions —
@@ -2111,16 +2109,13 @@ internal static partial class RemoteMapStory
         VRLog.Info(Scope, $"MAP ROOM shared window POSE APPLIED: {kind} (content key 0x{key:X8}) "
                           + $"follows player {bestPeer} (pose stamp {owner.PoseStamp}, the most "
                           + $"recently CHANGED stamp in the room), frame {owner.Frame} "
-                          + $"({(owner.Frame == NetProtocol.SharedFrameParchment ? "parchment-local" : "seat-anchor")}) "
+                          + $"({(owner.Frame == NetProtocol.SharedFrameParchment ? "parchment-local" : owner.Frame == NetProtocol.RewardFrameScenario ? "common-world" : "seat-anchor")}) "
                           + $"({owner.Pose.Position.x:0.00},{owner.Pose.Position.y:0.00},"
-                          + $"{owner.Pose.Position.z:0.00}) m, size {size:0.00}x → world "
+                          + $"{owner.Pose.Position.z:0.00}) shared units, size {size:0.00}x → world "
                           + $"({worldPos.x:0.00},{worldPos.y:0.00},{worldPos.z:0.00}). "
-                          + "A SHARED WINDOW'S POSE CHANGES FOR EXACTLY TWO REASONS: a hand on this "
-                          + "client, or a hand on a peer's. Neither is the mod re-arranging "
-                          + "anything, which is what the ModBuild 193 ruling ('ohne explizite "
-                          + "Bewegung vom User sollen sie ihre Position nicht verändern') forbade — "
-                          + "a remote player deliberately dragging this window IS an explicit user "
-                          + "movement, simply a different user's.");
+                          + $"Captured render reference {owner.ReferenceScale:F3}; a manual move "
+                          + "or the elected opening-time layout author supplies the shared endpoint. "
+                          + "The observer's seat and zoom do not transform it.");
     }
 
     /// <summary>
