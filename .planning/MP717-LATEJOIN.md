@@ -55,7 +55,12 @@ The fixture does not run the native ownership callback itself, SRL ownership
 replication, transport or headset rendering. The native decompile and supplied
 paired logs establish the callback's output; the fixture executes the repair
 from that boundary. Strict Release passes with zero warnings/errors. Focused
-native card-selection regression evidence is recorded separately by the runner.
+native card-selection regression passes3,496 assertions/ten causal controls;
+the remote-board overlay/card runtime passes836 assertions/11 causal controls.
+The central runner records2/2 passing suites as explicitly partial coverage in
+`.planning/debug/test-runs/20261022-212149-e96382b0/results.json` and removes
+their finished generated caches. These runtime proofs retain their documented
+native/hierarchy boundaries and make no new headset/transport assertion.
 No new complete local gate or physical multiplayer acceptance is claimed here.
 
 Worker evidence: `.planning/debug/mp717-latejoin/` (native decompiles, source
