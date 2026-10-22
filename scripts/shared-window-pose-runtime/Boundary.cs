@@ -33,6 +33,7 @@ namespace UnityEngine
     {
         internal N.Quaternion Value;
         internal Quaternion(float x,float y,float z,float w) { Value=new N.Quaternion(x,y,z,w); }
+        internal float x=>Value.X; internal float y=>Value.Y; internal float z=>Value.Z; internal float w=>Value.W;
         internal static Quaternion identity => new() { Value = N.Quaternion.Identity };
         internal static Quaternion Euler(float x, float y, float z) => new() { Value = N.Quaternion.CreateFromYawPitchRoll(y*MathF.PI/180,x*MathF.PI/180,z*MathF.PI/180) };
         internal Vector3 eulerAngles => new(0,(MathF.Atan2(2*(Value.W*Value.Y+Value.X*Value.Z),1-2*(Value.Y*Value.Y+Value.X*Value.X))*180/MathF.PI+360)%360,0);
@@ -83,9 +84,14 @@ namespace GloomhavenVR.WorldUI
     {
         internal readonly Transform Root=new();
         internal bool Visible = true, IsGrabbed = false;
+        internal float SharedReferenceWorldScale { get; private set; } = 11.47f;
+        internal float ReferenceAtLastPlacement;
+        internal int ReferenceApplications;
+        internal void ApplySharedReferenceWorldScale(float reference)
+        { SharedReferenceWorldScale=reference; ReferenceApplications++; }
         Transform? IPanelGrabOwner.GrabRoot => Root;
         bool IPanelGrabOwner.GrabVisible => Visible;
-        internal void PlaceFrameAt(Vector3 pos,Quaternion rot) {Root.position=pos;Root.rotation=rot;}
+        internal void PlaceFrameAt(Vector3 pos,Quaternion rot) {ReferenceAtLastPlacement=SharedReferenceWorldScale;Root.position=pos;Root.rotation=rot;}
     }
     internal static class SharedWindows
     {
@@ -122,7 +128,29 @@ namespace GloomhavenVR.WorldUI
         internal static bool Available=true;
         internal static bool TryGetAnchor(out Vector3 origin,out Quaternion yaw) {origin=Origin;yaw=Yaw;return Available;}
     }
-    internal static class RewardShowcasePlacement { internal static bool LocalRevealPending=false; }
+    internal static class RewardShowcasePlacement
+    {
+        internal static bool LocalRevealPending=false, LocalPlacementFailed=false;
+        internal static float CachedReference,CachedFactor; internal static uint CachedKey;
+        internal static Vector3 CachedPosition; internal static Quaternion CachedRotation;
+        internal static void ClearInitialPose() { CachedReference=0; CachedKey=0; }
+        internal static void ClearInitialAuthority() { }
+        internal static void SetInitialAuthority(uint key,bool mayReveal) { }
+        internal static void SetInitialPose(uint key,Vector3 position,Quaternion rotation,float size,bool ready=true,float referenceScale=0)
+        { CachedKey=key; CachedReference=referenceScale; CachedPosition=position; CachedRotation=rotation; CachedFactor=size; }
+    }
+    internal static class RewardShowcase { internal static object? Window=new(); internal static uint ContentKey=606; }
+    // Native post-quest completion is a boundary; this transport proof exercises chest/map reward
+    // placement, while the native reward suites retain opening/confirmation ownership.
+    internal static class PostQuestRewardSync
+    {
+        internal static object? Opening=>null;
+        internal static bool SendDue=>false;
+        internal static void Reset() { }
+        internal static GloomhavenVR.Net.MapStoryOpening[] SampleCompletions()=>Array.Empty<GloomhavenVR.Net.MapStoryOpening>();
+        internal static void ObserveCompletions(int sender,GloomhavenVR.Net.MapStoryOpening[] entries) { }
+        internal static bool MatchesPose(int sender,int local,uint key,GloomhavenVR.Net.MapStoryOpening[]? entries)=>true;
+    }
     internal static class NativeVideoWindow { internal static bool SharedInitialPoseReady=>ModalFallback.Ready; }
 }
 namespace GloomhavenVR.WorldUI.MapRoom
@@ -166,14 +194,18 @@ namespace GloomhavenVR.Net
     internal struct FixtureVideo { internal SharedWindowEntry Window; }
     internal struct PresenceState
     {
-        internal bool HasStorySync,StoryInitialPose,HasSharedWindow,HasVideoWindow,HasRewardWindow,HasMapStoryLifecycle;
+        internal bool HasStorySync,StoryInitialPose,HasSharedWindow,HasVideoWindow,HasRewardWindow,HasMapStoryLifecycle,HasRewardPoseHandshake,HasRewardContinuation;
         internal byte StoryFlags,StoryPage,StoryPageCount,StoryPoseStamp,StorySizeCode;
         internal uint StoryKey;
         internal RigPose StoryPose;
         internal SharedWindowEntry[]? SharedWindowEntries;
         internal int SharedWindowCount;
-        internal FixtureVideo VideoWindow,RewardWindow;
+        internal FixtureVideo VideoWindow;
+        internal RewardWindowState RewardWindow;
+        internal RewardPoseHandshakeState RewardPoseHandshake;
+        internal MapStoryOpening[]? RewardContinuationEntries;
         internal SharedWindowPoseContext? WindowPoseContext;
+        internal SharedWindowScaleContext? WindowScales;
         internal MapStoryOpening[]? MapStoryLifecycleEntries;
     }
     internal static partial class MapStoryLifecycle
@@ -181,10 +213,6 @@ namespace GloomhavenVR.Net
         internal static MapStoryOpeningLedger Ledger=new(112);
         internal static object Current=new();
         internal static bool MatchesPose(bool map,int sender,uint epoch,uint token)=>Ledger.MatchesPose(Current,sender,NetPlayerActors.Id,epoch,token);
-    }
-    internal sealed class RewardPoseHandoff
-    {
-        internal RigPose Sample(SharedWindowPoseTrack track,RigPose pose,float size,float at,bool pending,out float shown)=>track.Sample(pose,size,at,out shown);
     }
     internal static partial class RemoteStorySync
     {
@@ -215,7 +243,6 @@ namespace GloomhavenVR.Net
         private static readonly Dictionary<int,float> StoryStampAt=new(),QuestStampAt=new(),EncounterStampAt=new();
         private static readonly Dictionary<int,byte> StoryStamp=new(),QuestStamp=new(),EncounterStamp=new();
         private static readonly List<int> Scratch=new();
-        private static readonly RewardPoseHandoff RewardHandoff=new();
         private static int _storyPublishedFrame,_storyAppliedFrame,_storyAppliedPeer;
         private static byte _storyPublishedStamp,_storyAppliedStamp;
         private static bool _storyPublishedMoving;

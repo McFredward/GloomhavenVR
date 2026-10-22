@@ -53,7 +53,7 @@ def main():
     hashes = {}
     try:
         files = {
-            'context': 'Net/SharedWindowPoseContext.cs', 'authority': 'Net/SharedWindowSpawnAuthority.cs',
+            'context': 'Net/SharedWindowPoseContext.cs', 'scales': 'Net/SharedWindowScaleContext.cs', 'authority': 'Net/SharedWindowSpawnAuthority.cs',
             'story': 'Net/Remote/RemoteStorySync.cs', 'story_initial': 'Net/Remote/RemoteStorySync.InitialPose.cs',
             'map': 'Net/Remote/RemoteMapStory.cs', 'map_initial': 'Net/Remote/RemoteMapStory.InitialPose.cs',
             'track': 'Net/SharedWindowPoseTrack.cs', 'frame': 'Net/Remote/SharedWindowFrame.cs',
@@ -63,7 +63,9 @@ def main():
             'anchor': 'Net/Board/IBoardAnchor.cs', 'protocol': 'Net/NetProtocol.cs',
             'law': 'WorldUI/Modal/SharedWindowSizeLaw.cs', 'sender': 'Net/Avatar/NetAvatarDriver.cs',
             'presence': 'Net/PresenceState.cs', 'module': 'Net/NetModule.cs',
-            'video': 'Net/Remote/RemoteMapStory.Video.cs',
+            'video': 'Net/Remote/RemoteMapStory.Video.cs', 'playback': 'Net/Remote/RemoteVideoPlayback.cs',
+            'reward': 'Net/Remote/RemoteMapStory.Reward.cs', 'reward_window': 'Net/RewardWindowState.cs',
+            'reward_handshake': 'Net/RewardPoseHandshake.cs', 'reward_handoff': 'Net/RewardPoseHandoff.cs',
         }
         original = {name: (root / 'src/GloomhavenVR' / path).read_text() for name, path in files.items()}
         hashes = {files[name]: hashlib.sha256(code.encode()).hexdigest() for name, code in original.items()}
@@ -77,6 +79,8 @@ def main():
         assert 'SharedWindowSpawnAuthority.Bind(' in original['module']
         assert 'SharedWindowPoseContext.Write(buffer, ref i, state.WindowPoseContext.Value)' in original['presence']
         assert 'SharedWindowPoseContext.TryRead(buffer, i, len, out SharedWindowPoseContext context)' in original['presence']
+        assert 'SharedWindowScaleContext.Write(buffer, ref i, state.WindowScales.Value)' in original['presence']
+        assert 'SharedWindowScaleContext.TryRead(buffer, i, len, out SharedWindowScaleContext context)' in original['presence']
         for source in ('story', 'map'):
             assert 'p.WindowPoseContext' in original[source]
         prefix = 'using System; using System.Collections.Generic; using UnityEngine; using UnityEngine.UI; using GloomhavenVR.Core; using GloomhavenVR.WorldUI; using GloomhavenVR.WorldUI.MapRoom; namespace GloomhavenVR.Net { '
@@ -93,19 +97,23 @@ def main():
             'internal static void WriteU32(', 'internal static uint ReadU32(',
             'internal static void WriteF32(', 'internal static float ReadF32('))
         protocol = '\n'.join(re.search(r'public const (?:byte|ushort|float) ' + name + r' = [^;]+;', original['protocol'])[0] for name in (
-            'ModBuild', 'ExtIdSharedWindowPoseContext', 'StorySizeMinCode', 'StorySizeMaxCode', 'StorySizeDefaultCode',
+            'ModBuild', 'ExtIdSharedWindowPoseContext', 'ExtIdSharedWindowScaleContext', 'StorySizeMinCode', 'StorySizeMaxCode', 'StorySizeDefaultCode',
             'StoryOpenBit', 'StoryPoseBit', 'StoryFinishedBit', 'StoryPageNone', 'StoryPageMax',
             'SharedOpenBit', 'SharedPoseBit', 'SharedFinishedBit', 'SharedWindowKindMapStory',
             'SharedWindowKindQuestConfirm', 'SharedWindowKindEncounter', 'SharedFrameSeatAnchor', 'SharedFrameParchment',
-            'RewardFrameScenario', 'SendRateHz'))
+            'RewardFrameScenario', 'SendRateHz', 'ExtIdRewardPoseHandshake'))
         for signature in ('public static byte EncodeStorySize(', 'public static byte EncodeStoryPage('):
             protocol += '\n' + block(original['protocol'], signature)
         protocol += '\n' + re.search(r'public static float DecodeStorySize\([\s\S]*?;', original['protocol'])[0]
         version = block(original['version'], 'internal static void CollectContinuationPeers(')
         version += '\n' + re.search(r'internal static int PeerBuild\([\s\S]*?;', original['version'])[0]
         lifecycle = block(original['lifecycle'], 'internal static void PoseOpening(')
+        # Native decoder/content lifecycle is covered by VideoPlaybackTests. Execute its exact
+        # pose-forwarding tail here with real peer storage, codecs and first-reveal adoption.
+        video_observe = block(original['playback'], 'internal static void Observe(')
+        video_tail = video_observe[video_observe.rindex('        if (extras.HasVideoWindow)'):-1]
         sources = {
-            'Context.cs': original['context'], 'Authority.cs': original['authority'],
+            'Context.cs': original['context'], 'Scales.cs': original['scales'], 'Authority.cs': original['authority'],
             'Story.cs': prefix + 'internal static partial class RemoteStorySync {\n' + story + '\n}}',
             'Map.cs': prefix + 'internal static partial class RemoteMapStory {\n' + mapped + '\n}}',
             'StoryInitial.cs': original['story_initial'], 'MapInitial.cs': original['map_initial'],
@@ -117,7 +125,11 @@ def main():
             'Codec.cs': prefix + 'internal static unsafe class AvatarSerializer {\n' + codec + '\n}}',
             'Protocol.cs': prefix + 'internal static class NetProtocol {\n' + protocol + '\n}}',
             'Anchor.cs': original['anchor'], 'Law.cs': original['law'],
-            'Video.cs': original['video'],
+            'VideoReceipt.cs': prefix + 'internal static class VideoPoseReceipt { internal static void Observe(int sender, in PresenceState extras) {\n' + video_tail + '\n}}}',
+            'Video.cs': original['video'], 'Reward.cs': original['reward'],
+            'RewardHandshake.cs': original['reward_handshake'], 'RewardHandoff.cs': original['reward_handoff'],
+            'RewardWindow.cs': prefix + block(original['reward_window'], 'internal struct RewardWindowState') + '\n' + block(original['reward_window'], 'internal static class RewardPosePolicy') + '\ninternal static class RewardWindowCodec {\n' + block(original['reward_window'], 'internal static bool Valid(') + '\n' + re.search(r'private static bool Finite\([^;]+;', original['reward_window'])[0] + '\n}}',
+            'RewardCensus.cs': prefix + 'internal static class NetAvatarDriver {\n' + block(original['sender'], 'internal static void CollectRewardPosePeers(') + '\n}}',
         }
         variants = [
             ('production', '', '', '', ''),
@@ -143,9 +155,9 @@ def main():
             ('map-canonical-frame-rejected', 'Map.cs', 'if (frame == NetProtocol.RewardFrameScenario)',
              'if (scenarioFrame && frame == NetProtocol.RewardFrameScenario)',
              'map initial handoff reconstructs the same sender pose in parchment and normalized fallback frames'),
-            ('story-missing-context', 'Story.cs', 'if (!Canonical) Flags =', 'if (bool.Parse("false")) Flags =',
+            ('story-missing-context', 'Story.cs', 'if (!Canonical || !(referenceScale >= 0.0001f && referenceScale <= 1000000f)) Flags =', 'if (bool.Parse("false")) Flags =',
              'missing or foreign initial scenario provenance stays pending: missing'),
-            ('map-missing-context', 'Map.cs', 'if (!context.HasValue || !context.Value.Valid)', 'if (bool.Parse("false"))',
+            ('map-missing-context', 'Map.cs', 'if (!context.HasValue || !context.Value.Valid || !(referenceScale >= 0.0001f && referenceScale <= 1000000f))', 'if (bool.Parse("false"))',
              'missing or foreign map initial provenance stays pending: MapStory missing'),
             ('story-live-host-overrides-manual', 'Story.cs', 'if (bestPeer != 0 && s.Initial && !bestInitial) continue;', '',
              'live scenario pose election also keeps the manual mover ahead of repeated host initialization'),
@@ -158,6 +170,30 @@ def main():
              'same-key reopened quest or encounter rejects cached prior-float pose'),
             ('story-initial-key-not-adopted', 'StoryInitial.cs', '_localKey = key;', '_localKey = 0;',
              'a genuine local grab publishes a manual pose after initial adoption'),
+            ('captured-scale-sampling-lost', 'Authority.cs', 'references.Set((int)kind, grab.SharedReferenceWorldScale);', 'references.Set((int)kind, SharedWindowSize.ReferenceWorldScale);',
+             "the actual presence sampler publishes each posed grab's captured reference rather than ambient geometry"),
+            ('story-initial-scale-lost', 'StoryInitial.cs', 'grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);', '',
+             'scenario121 adoption changes the pending grab reference before its first physical snap or reveal'),
+            ('map-initial-scale-lost', 'MapInitial.cs', 'grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);', '',
+             'map121 adoption reconstructs Seat0 without a local parchment and sets the pending grab reference before reveal'),
+            ('video-initial-scale-lost', 'Video.cs', 'grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);', '',
+             'video121 adoption resolves a3D-map host for a2D-map observer before the first reveal'),
+            ('story-live-scale-lost', 'Story.cs', 'grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);', '',
+             'live scenario placement adopts the winning packet reference before writing its physical pose'),
+            ('map-live-scale-lost', 'Map.cs', 'grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);', '',
+             'live map placement adopts the winning packet reference before writing its physical pose'),
+            ('story-missing-scale-accepted', 'Story.cs', 'if (!Canonical || !(referenceScale >= 0.0001f && referenceScale <= 1000000f)) Flags =', 'if (!Canonical) Flags =',
+             'scenario missing or invalid121 remains pending: missing'),
+            ('map-missing-scale-accepted', 'Map.cs', 'if (!context.HasValue || !context.Value.Valid || !(referenceScale >= 0.0001f && referenceScale <= 1000000f))', 'if (!context.HasValue || !context.Value.Valid)',
+             'map missing or invalid121 remains pending: MapStory missing'),
+            ('reward-initial-scale-lost', 'Reward.cs', 'referenceScale = owner.ReferenceScale;', 'referenceScale = 0f;',
+             'actual reward121 receive and initial publication retain reference and WorldFrame2 pose before conversion exists'),
+            ('video-scale-receipt-lost', 'VideoReceipt.cs', 'extras.WindowScales?.Reference((int)SharedWindowKind.Video) ?? 0f', '0f',
+             'video121 adoption resolves a3D-map host for a2D-map observer before the first reveal'),
+            ('map-writer-parchment-domain', 'Map.cs', 'frame = NetProtocol.SharedFrameSeatAnchor;\n        if (!PanelLayout.TryGetAnchor', 'if (MapRoomDriver.TryGetParchmentFrame(out Vector3 c, out float scale)) { frame = NetProtocol.SharedFrameParchment; localPos = (worldPos-c)/scale; localRot = worldRot; return true; }\n        frame = NetProtocol.SharedFrameSeatAnchor;\n        if (!PanelLayout.TryGetAnchor',
+             'current map writer uses source Seat0 even while a parchment frame is available'),
+            ('reward-writer-seat-domain', 'Map.cs', 'if (scenarioFrame)', 'if (scenarioFrame && bool.Parse("false"))',
+             'the actual reward sampler keeps WorldFrame2 even while parchment geometry is available'),
         ]
         if args.case:
             unknown = set(args.case) - {item[0] for item in variants}

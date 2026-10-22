@@ -48,6 +48,21 @@ internal static class Proof
             "actual context parser reads the same packet's source frame");
         return read;
     }
+    internal static SharedWindowScaleContext? WireScales(SharedWindowScaleContext? scales)
+    {
+        if(!scales.HasValue)return null;
+        var bytes=new byte[SharedWindowScaleContext.MaxPayloadBytes+2];int at=0;
+        Check(SharedWindowScaleContext.Write(bytes,ref at,scales.Value)&&bytes[0]==121,
+            "actual additive121 writer emits the captured window references");
+        Check(SharedWindowScaleContext.TryRead(bytes,2,bytes[1],out SharedWindowScaleContext read),
+            "actual additive121 parser reads the same presence cohort");
+        return read;
+    }
+    internal static SharedWindowScaleContext? ScalePacket(int kind,float reference=198.12f)
+    {
+        var scales=new SharedWindowScaleContext();scales.Set(kind,reference);
+        return WireScales(scales);
+    }
     internal static MapStoryOpening[] Opening(int sender,uint key,bool reset=false)
     {
         if(reset)
@@ -62,14 +77,15 @@ internal static class Proof
         return entries;
     }
     internal static PresenceState Story(int sender,RigPose pose,bool initial,byte stamp=1,
-        SharedWindowPoseContext? context=null,bool contextMissing=false,uint? contentKey=null)
+        SharedWindowPoseContext? context=null,bool contextMissing=false,uint? contentKey=null,
+        float reference=198.12f,bool scalesMissing=false)
     {
         uint key=contentKey??RemoteStorySync.HashDialog(RemoteStorySync.CurrentBox!.dialogs);
         SharedWindowPoseContext source=context??Context(sender,1,initial);
         RigPose relative=Relative(pose,source);
         return new PresenceState {HasStorySync=true,StoryFlags=3,StoryKey=key,StoryPage=0,StoryPageCount=1,
             StoryPoseStamp=stamp,StorySizeCode=127,StoryPose=relative,
-            WindowPoseContext=contextMissing?null:Wire(source),HasMapStoryLifecycle=true,
+            WindowPoseContext=contextMissing?null:Wire(source),WindowScales=scalesMissing?null:ScalePacket(1,reference),HasMapStoryLifecycle=true,
             MapStoryLifecycleEntries=Opening(sender,key)};
     }
     internal static void Snap(GrabbableModal grab,Vector3 pos,Quaternion rot,float factor)
@@ -93,6 +109,7 @@ namespace GloomhavenVR.Net
     }
     internal static partial class RemoteMapStory
     {
+        internal static void FreshReward()=>ResetRewardPose();
         internal static void Fresh()
         {
             StoryLocal.Reset();QuestLocal.Reset();EncounterLocal.Reset();
@@ -118,7 +135,7 @@ namespace GloomhavenVR.Net
                 kind switch {SharedWindowKind.MapStory=>StoryStampAt,SharedWindowKind.QuestConfirm=>QuestStampAt,_=>EncounterStampAt});
         }
         internal static PresenceState Peer(int sender,SharedWindowKind kind,RigPose pose,bool initial,byte stamp=1,
-            bool missing=false,byte? explicitFrame=null,uint? key=null)
+            bool missing=false,byte? explicitFrame=null,uint? key=null,float reference=198.12f,bool scalesMissing=false)
         {
             SharedWindowPoseContext context=Proof.Context(sender,(int)kind,initial);
             RigPose relative=Proof.Relative(pose,context);
@@ -128,7 +145,7 @@ namespace GloomhavenVR.Net
             var entry=new SharedWindowEntry {Kind=(byte)((int)kind-1),ContentKey=key??Key(kind),Flags=3,
                 PoseStamp=stamp,SizeCode=127,Frame=frame,Pose=relative};
             return new PresenceState {HasSharedWindow=true,SharedWindowCount=1,SharedWindowEntries=new[]{entry},
-                WindowPoseContext=missing?null:Proof.Wire(context),HasMapStoryLifecycle=true,
+                WindowPoseContext=missing?null:Proof.Wire(context),WindowScales=scalesMissing?null:Proof.ScalePacket((int)kind,reference),HasMapStoryLifecycle=true,
                 MapStoryLifecycleEntries=Proof.Opening(sender,entry.ContentKey)};
         }
     }
@@ -138,7 +155,7 @@ internal static class Program
 {
     private static void Main()
     {
-        Authority();ContextCases();Scenario();Map();Video();
+        Authority();ContextCases();Scenario();Map();Video();ReferencePipeline();
         Console.WriteLine($"Shared window pose runtime: {Proof.Checks} production assertions passed.");
     }
     private static void Authority()
@@ -190,7 +207,7 @@ internal static class Program
             HasSharedWindow=true,SharedWindowCount=3,SharedWindowEntries=new[]{
                 new SharedWindowEntry{Kind=1,Flags=3,InitialPose=true},new SharedWindowEntry{Kind=2,Flags=3,InitialPose=true},new SharedWindowEntry{Kind=3,Flags=3,InitialPose=true}},
             HasVideoWindow=true,VideoWindow=new FixtureVideo{Window=new SharedWindowEntry{Flags=3,InitialPose=true}},
-            HasRewardWindow=true,RewardWindow=new FixtureVideo{Window=new SharedWindowEntry{Flags=3,InitialPose=true}}};
+            HasRewardWindow=true,RewardWindow=new RewardWindowState{Window=new SharedWindowEntry{Flags=3,InitialPose=true}}};
         Proof.Configure(1,true);SharedWindowSpawnAuthority.SampleContext(ref state);
         Proof.Check(state.WindowPoseContext.HasValue&&state.WindowPoseContext.Value.Initial==63&&state.WindowPoseContext.Value.Host,
             "actual presence sampler tags all six initial window kinds atomically with the sender frame");
@@ -208,7 +225,7 @@ internal static class Program
         var follower=SharedWindows.Grabs[SharedWindowKind.ScenarioStory];follower.Visible=false;
         var empty=new PresenceState();RemoteStorySync.Sample(ref empty);
         Proof.Check((empty.StoryFlags&2)==0&&!RemoteStorySync.Owns,"hidden provisional follower frame cannot publish a manual move");
-        sampled.WindowPoseContext=Proof.Wire(sampled.WindowPoseContext);sampled.HasMapStoryLifecycle=true;sampled.MapStoryLifecycleEntries=Proof.Opening(1,key);
+        sampled.WindowPoseContext=Proof.Wire(sampled.WindowPoseContext);sampled.WindowScales=Proof.WireScales(sampled.WindowScales);sampled.HasMapStoryLifecycle=true;sampled.MapStoryLifecycleEntries=Proof.Opening(1,key);
         RemoteStorySync.Observe(1,sampled);
         Proof.Check(RemoteStorySync.TryInitialPose(out Vector3 pos,out Quaternion rot,out float factor)&&Proof.Same(pos,Proof.HostPose.Position)&&Proof.Same(rot,Proof.HostPose.Rotation)&&MathF.Abs(factor-1.27f)<.0001f,
             "actual scenario sampler and receiver hand the hidden observer the exact host-authored world pose");
@@ -280,6 +297,180 @@ internal static class Program
             }
         }
     }
+    private static PresenceState Decode(PresenceState state)
+    {
+        state.WindowPoseContext=Proof.Wire(state.WindowPoseContext);
+        state.WindowScales=Proof.WireScales(state.WindowScales);
+        return state;
+    }
+    private static void ReferencePipeline()
+    {
+        Proof.Configure(1,true);
+        var all=new PresenceState {HasStorySync=true,StoryFlags=3,StoryInitialPose=true,
+            HasSharedWindow=true,SharedWindowCount=3,SharedWindowEntries=new[]{
+                new SharedWindowEntry{Kind=1,Flags=3},new SharedWindowEntry{Kind=2,Flags=3},new SharedWindowEntry{Kind=3,Flags=3}},
+            HasVideoWindow=true,VideoWindow=new FixtureVideo{Window=new SharedWindowEntry{Flags=3}},
+            HasRewardWindow=true,RewardWindow=new RewardWindowState{Window=new SharedWindowEntry{Flags=3}}};
+        foreach(var pair in SharedWindows.Grabs)pair.Value.ApplySharedReferenceWorldScale(11.47f+(int)pair.Key*31.625f);
+        SharedWindowSize.ReferenceWorldScale=999f;MapRoomDriver.Active=false;
+        SharedWindowSpawnAuthority.SampleContext(ref all);all=Decode(all);
+        foreach(var pair in SharedWindows.Grabs)
+            Proof.Check(all.WindowScales!.Value.Reference((int)pair.Key)==pair.Value.SharedReferenceWorldScale,
+                "the actual presence sampler publishes each posed grab's captured reference rather than ambient geometry");
+        ScenarioReference();MapReference();VideoReference();RewardReference();MissingReference();
+        SharedWindowSize.ReferenceWorldScale=12;
+    }
+    private static void ScenarioReference()
+    {
+        Proof.Configure(1,true);RemoteStorySync.Fresh();
+        var host=SharedWindows.Grabs[SharedWindowKind.ScenarioStory];host.ApplySharedReferenceWorldScale(198.12f);
+        Proof.Snap(host,Proof.HostPose.Position,Proof.HostPose.Rotation,1.27f);
+        var sent=new PresenceState();RemoteStorySync.Sample(ref sent);SharedWindowSpawnAuthority.SampleContext(ref sent);sent=Decode(sent);
+        Proof.Configure(2);RemoteStorySync.Fresh();var follower=SharedWindows.Grabs[SharedWindowKind.ScenarioStory];follower.Visible=false;
+        uint key=RemoteStorySync.HashDialog(RemoteStorySync.CurrentBox!.dialogs);Proof.Opening(1,key,true);
+        sent.HasMapStoryLifecycle=true;sent.MapStoryLifecycleEntries=Proof.Opening(1,key);RemoteStorySync.Observe(1,sent);
+        Proof.Check(RemoteStorySync.TryInitialPose(out Vector3 pos,out Quaternion rot,out float factor)
+            &&follower.SharedReferenceWorldScale==198.12f&&!follower.Visible,
+            "scenario121 adoption changes the pending grab reference before its first physical snap or reveal");
+        Proof.Snap(follower,pos,rot,factor);
+        var manual=Proof.Story(3,Proof.HandPose,false,5,reference:123.45f);Time.unscaledTime+=1;RemoteStorySync.Observe(3,manual);
+        RemoteStorySync.Apply();Time.unscaledTime+=.3f;RemoteStorySync.Apply();
+        Proof.Check(follower.SharedReferenceWorldScale==123.45f&&follower.ReferenceAtLastPlacement==123.45f,
+            "live scenario placement adopts the winning packet reference before writing its physical pose");
+        follower.IsGrabbed=true;follower.Root.position=new Vector3(3,8,13);var echoed=new PresenceState();
+        RemoteStorySync.Sample(ref echoed);SharedWindowSpawnAuthority.SampleContext(ref echoed);echoed=Decode(echoed);
+        Proof.Check((echoed.StoryFlags&2)!=0&&!echoed.StoryInitialPose&&echoed.WindowScales!.Value.Reference(1)==123.45f,
+            "a scenario observer republishes its adopted reference when a genuine later hand claims the window");
+    }
+    private static void MapReference()
+    {
+        foreach(var kind in new[]{SharedWindowKind.MapStory,SharedWindowKind.QuestConfirm,SharedWindowKind.Encounter})
+        {
+            Proof.Configure(1,true);RemoteMapStory.Fresh();MapRoomDriver.Active=true;MapRoomDriver.Center=new Vector3(57,2,-28);
+            var host=SharedWindows.Grabs[kind];host.ApplySharedReferenceWorldScale(198.12f);Proof.Snap(host,Proof.HostPose.Position,Proof.HostPose.Rotation,1.27f);
+            var entry=RemoteMapStory.Publish(kind);
+            Proof.Check((entry.Flags&2)!=0&&entry.Frame==NetProtocol.SharedFrameSeatAnchor,
+                "current map writer uses source Seat0 even while a parchment frame is available");
+            var sent=new PresenceState{HasSharedWindow=true,SharedWindowCount=1,SharedWindowEntries=new[]{entry}};
+            SharedWindowSpawnAuthority.SampleContext(ref sent);sent=Decode(sent);
+            Proof.Configure(2);RemoteMapStory.Fresh();var follower=SharedWindows.Grabs[kind];follower.Visible=false;
+            uint key=RemoteMapStory.Key(kind);Proof.Opening(1,key,true);sent.HasMapStoryLifecycle=true;sent.MapStoryLifecycleEntries=Proof.Opening(1,key);
+            RemoteMapStory.Observe(1,sent);
+            Proof.Check(RemoteMapStory.TryInitialPose(kind,out Vector3 pos,out Quaternion rot,out float factor)
+                &&Proof.Same(pos,Proof.HostPose.Position)&&follower.SharedReferenceWorldScale==198.12f&&!follower.Visible,
+                "map121 adoption reconstructs Seat0 without a local parchment and sets the pending grab reference before reveal");
+            Proof.Snap(follower,pos,rot,factor);
+            var manual=RemoteMapStory.Peer(3,kind,Proof.HandPose,false,5,reference:123.45f);
+            Time.unscaledTime+=1;RemoteMapStory.Observe(3,manual);RemoteMapStory.Apply(kind);Time.unscaledTime+=.3f;RemoteMapStory.Apply(kind);
+            Proof.Check(follower.SharedReferenceWorldScale==123.45f&&follower.ReferenceAtLastPlacement==123.45f,
+                "live map placement adopts the winning packet reference before writing its physical pose");
+            follower.IsGrabbed=true;follower.Root.position=new Vector3(3,8,13);entry=RemoteMapStory.Publish(kind);
+            var echoed=new PresenceState{HasSharedWindow=true,SharedWindowCount=1,SharedWindowEntries=new[]{entry}};
+            SharedWindowSpawnAuthority.SampleContext(ref echoed);echoed=Decode(echoed);
+            Proof.Check((entry.Flags&2)!=0&&!entry.InitialPose&&echoed.WindowScales!.Value.Reference((int)kind)==123.45f,
+                "a map observer republishes the adopted reference on its later genuine manual move");
+        }
+    }
+    private static void VideoReference()
+    {
+        Proof.Configure(1,true);RemoteMapStory.ResetVideoPose();MapRoomDriver.Active=true;
+        var host=SharedWindows.Grabs[SharedWindowKind.Video];host.ApplySharedReferenceWorldScale(198.12f);
+        Proof.Snap(host,Proof.HostPose.Position,Proof.HostPose.Rotation,1.27f);
+        var entry=new SharedWindowEntry{Flags=1};RemoteMapStory.SampleVideoPose(901,false,ref entry);
+        Proof.Check(entry.Frame==NetProtocol.SharedFrameSeatAnchor,"current video writer uses Seat0 while the host is in the3D map");
+        var sent=new PresenceState{HasVideoWindow=true,VideoWindow=new FixtureVideo{Window=entry}};
+        SharedWindowSpawnAuthority.SampleContext(ref sent);sent=Decode(sent);
+        Proof.Configure(2);RemoteMapStory.ResetVideoPose();var follower=SharedWindows.Grabs[SharedWindowKind.Video];follower.Visible=false;
+        var outgoing=new SharedWindowEntry{Flags=1};RemoteMapStory.SampleVideoPose(901,true,ref outgoing);
+        VideoPoseReceipt.Observe(1,sent);
+        Proof.Check(RemoteMapStory.TryVideoSharedInitialPose(out Vector3 pos,out Quaternion rot,out float factor)
+            &&Proof.Same(pos,Proof.HostPose.Position)&&follower.SharedReferenceWorldScale==198.12f&&!MapRoomDriver.Active&&!follower.Visible,
+            "video121 adoption resolves a3D-map host for a2D-map observer before the first reveal");
+        Proof.Snap(follower,pos,rot,factor);outgoing=new SharedWindowEntry{Flags=1};RemoteMapStory.SampleVideoPose(901,true,ref outgoing);
+        Proof.Check((outgoing.Flags&2)==0,"reference adoption never turns the first movie snap into a manual echo");
+        var context=Proof.Context(3,5,false);var manual=new SharedWindowEntry{ContentKey=901,Flags=3,Frame=0,
+            Pose=Proof.Relative(Proof.HandPose,context),PoseStamp=5,SizeCode=127};
+        Time.unscaledTime+=1;RemoteMapStory.ObserveVideoPose(3,manual,Proof.Wire(context),Proof.ScalePacket(5,123.45f)!.Value.Reference(5));
+        RemoteMapStory.ResolveVideoPose(901);Time.unscaledTime+=.3f;RemoteMapStory.ResolveVideoPose(901);
+        Proof.Check(follower.SharedReferenceWorldScale==123.45f&&follower.ReferenceAtLastPlacement==123.45f,
+            "live video placement adopts the winning packet reference before writing its physical pose");
+        follower.IsGrabbed=true;follower.Root.position=new Vector3(3,8,13);outgoing=new SharedWindowEntry{Flags=1};RemoteMapStory.SampleVideoPose(901,true,ref outgoing);
+        var echoed=new PresenceState{HasVideoWindow=true,VideoWindow=new FixtureVideo{Window=outgoing}};
+        SharedWindowSpawnAuthority.SampleContext(ref echoed);echoed=Decode(echoed);
+        Proof.Check((outgoing.Flags&2)!=0&&!outgoing.InitialPose&&echoed.WindowScales!.Value.Reference(5)==123.45f,
+            "a video observer republishes the adopted render reference independently of decoder ownership");
+    }
+    private static void RewardReference()
+    {
+        Proof.Configure(1,true);RemoteMapStory.FreshReward();MapRoomDriver.Active=true;RewardShowcase.ContentKey=606;RewardShowcase.Window=new();
+        RewardShowcasePlacement.LocalRevealPending=false;
+        var host=SharedWindows.Grabs[SharedWindowKind.RewardShowcase];host.ApplySharedReferenceWorldScale(198.12f);
+        Proof.Snap(host,Proof.HostPose.Position,Proof.HostPose.Rotation,1.27f);
+        var sent=new PresenceState();RemoteMapStory.SampleReward(ref sent,1);SharedWindowSpawnAuthority.SampleContext(ref sent);sent=Decode(sent);
+        Proof.Check(sent.HasRewardWindow&&(sent.RewardWindow.Window.Flags&2)!=0
+            &&sent.RewardWindow.Window.Frame==NetProtocol.RewardFrameScenario,
+            "the actual reward sampler keeps WorldFrame2 even while parchment geometry is available");
+        Proof.Configure(2);RemoteMapStory.FreshReward();RewardShowcasePlacement.LocalRevealPending=true;
+        var follower=SharedWindows.Grabs[SharedWindowKind.RewardShowcase];follower.Visible=false;
+        var empty=new PresenceState();RemoteMapStory.SampleReward(ref empty,2);
+        SharedWindows.Grabs.Remove(SharedWindowKind.RewardShowcase);
+        RemoteMapStory.ObserveReward(1,sent);RemoteMapStory.ResolveReward(2);
+        Proof.Check(RewardShowcasePlacement.CachedKey==606&&RewardShowcasePlacement.CachedReference==198.12f
+            &&Proof.Same(RewardShowcasePlacement.CachedPosition,Proof.HostPose.Position),
+            "actual reward121 receive and initial publication retain reference and WorldFrame2 pose before conversion exists");
+        SharedWindows.Grabs[SharedWindowKind.RewardShowcase]=follower;
+        // Actual WorldUI cache-to-grab application executes separately in the Unity geometry proof.
+        follower.ApplySharedReferenceWorldScale(RewardShowcasePlacement.CachedReference);
+        Proof.Snap(follower,RewardShowcasePlacement.CachedPosition,RewardShowcasePlacement.CachedRotation,RewardShowcasePlacement.CachedFactor);
+        RewardShowcasePlacement.LocalRevealPending=false;empty=default;RemoteMapStory.SampleReward(ref empty,2);
+        Proof.Check((empty.RewardWindow.Window.Flags&2)==0,"the first cached reward snap does not acquire false manual movement ownership");
+        Time.frameCount+=3;RemoteMapStory.ResolveReward(2);
+        var manualContext=Proof.Context(3,6,false);
+        var manual=new PresenceState{HasRewardWindow=true,RewardWindow=new RewardWindowState{Moved=true,Ready=true,
+            Window=new SharedWindowEntry{ContentKey=606,Flags=3,Frame=NetProtocol.RewardFrameScenario,Pose=Proof.HandPose,SizeCode=127,PoseStamp=5}},
+            WindowPoseContext=Proof.Wire(manualContext),WindowScales=Proof.ScalePacket(6,123.45f)};
+        Time.unscaledTime+=1;RemoteMapStory.ObserveReward(3,manual);RemoteMapStory.ResolveReward(2);Time.unscaledTime+=.3f;RemoteMapStory.ResolveReward(2);
+        Proof.Check(follower.SharedReferenceWorldScale==123.45f&&RewardShowcasePlacement.CachedReference==123.45f,
+            "live reward election carries the manual winner's reference into both physical placement and future reveal cache");
+        follower.IsGrabbed=true;follower.Root.position=new Vector3(3,8,13);var echoed=new PresenceState();RemoteMapStory.SampleReward(ref echoed,2);
+        SharedWindowSpawnAuthority.SampleContext(ref echoed);echoed=Decode(echoed);
+        Proof.Check((echoed.RewardWindow.Window.Flags&2)!=0&&echoed.WindowScales!.Value.Reference(6)==123.45f,
+            "a reward observer republishes the adopted reference with its genuine later manual move");
+    }
+    private static void MissingReference()
+    {
+        foreach(string invalid in new[]{"missing","wrong-kind","invalid-float"})
+        {
+            SharedWindowScaleContext? scales=null;
+            if(invalid=="wrong-kind")scales=Proof.ScalePacket(6);
+            if(invalid=="invalid-float")
+            {
+                var context=new SharedWindowScaleContext();context.Set(1,198.12f);var bytes=new byte[7];int at=0;
+                Proof.Check(SharedWindowScaleContext.Write(bytes,ref at,context),"malformed reference control starts with an actual valid121 record");
+                bytes[3]=0;bytes[4]=0;bytes[5]=192;bytes[6]=127;
+                Proof.Check(!SharedWindowScaleContext.TryRead(bytes,2,5,out _),"malformed121 float is rejected before any window receives it");
+            }
+            Proof.Configure(2);RemoteStorySync.Fresh();uint key=RemoteStorySync.HashDialog(RemoteStorySync.CurrentBox!.dialogs);Proof.Opening(1,key,true);
+            var story=Proof.Story(1,Proof.HostPose,true);story.WindowScales=scales;RemoteStorySync.Observe(1,story);
+            Proof.Check(!RemoteStorySync.TryInitialPose(out _,out _,out _),"scenario missing or invalid121 remains pending: "+invalid);
+            foreach(var kind in new[]{SharedWindowKind.MapStory,SharedWindowKind.QuestConfirm,SharedWindowKind.Encounter})
+            {
+                Proof.Configure(2);RemoteMapStory.Fresh();Proof.Opening(1,RemoteMapStory.Key(kind),true);
+                var map=RemoteMapStory.Peer(1,kind,Proof.HostPose,true);map.WindowScales=scales;RemoteMapStory.Observe(1,map);
+                Proof.Check(!RemoteMapStory.TryInitialPose(kind,out _,out _,out _),"map missing or invalid121 remains pending: "+kind+" "+invalid);
+            }
+            Proof.Configure(2);RemoteMapStory.ResetVideoPose();var empty=new SharedWindowEntry{Flags=1};RemoteMapStory.SampleVideoPose(777,true,ref empty);
+            var video=new SharedWindowEntry{ContentKey=777,Flags=3,Frame=0,Pose=Proof.Relative(Proof.HostPose,Proof.Context(1,5,true)),SizeCode=127};
+            RemoteMapStory.ObserveVideoPose(1,video,Proof.Wire(Proof.Context(1,5,true)),scales?.Reference(5)??0);
+            Proof.Check(!RemoteMapStory.TryVideoSharedInitialPose(out _,out _,out _),"video missing or invalid121 remains pending: "+invalid);
+            Proof.Configure(2);RemoteMapStory.FreshReward();RewardShowcasePlacement.LocalRevealPending=true;
+            var reward=new PresenceState{HasRewardWindow=true,RewardWindow=new RewardWindowState{Ready=true,
+                Window=new SharedWindowEntry{ContentKey=606,Flags=3,Frame=2,Pose=Proof.HostPose,SizeCode=127}},
+                WindowPoseContext=Proof.Wire(Proof.Context(1,6,true)),WindowScales=invalid=="wrong-kind"?Proof.ScalePacket(1):scales};
+            RemoteMapStory.ObserveReward(1,reward);RemoteMapStory.ResolveReward(2);
+            Proof.Check(RewardShowcasePlacement.CachedKey==0,"reward missing or invalid121 cannot release its initial placement cache: "+invalid);
+        }
+    }
     private static void Video()
     {
         Proof.Configure(1,true);RemoteMapStory.ResetVideoPose();
@@ -293,7 +484,7 @@ internal static class Program
         var follower=SharedWindows.Grabs[SharedWindowKind.Video];follower.Visible=false;
         SharedWindowEntry empty=new() {Flags=1};RemoteMapStory.SampleVideoPose(77,true,ref empty);
         Proof.Check((empty.Flags&2)==0,"a native decoder source cannot invent physical window ownership before the host pose");
-        RemoteMapStory.ObserveVideoPose(1,entry,Proof.Wire(sent.WindowPoseContext));
+        RemoteMapStory.ObserveVideoPose(1,entry,Proof.Wire(sent.WindowPoseContext),Proof.WireScales(sent.WindowScales)!.Value.Reference(5));
         Proof.Check(RemoteMapStory.TryVideoSharedInitialPose(out Vector3 pos,out Quaternion rot,out float factor)
             &&Proof.Same(pos,Proof.HostPose.Position)&&Proof.Same(rot,Proof.HostPose.Rotation),
             "video's independent decoder election still receives the host's exact initial physical pose");
@@ -303,12 +494,12 @@ internal static class Program
         var hand=new SharedWindowEntry {ContentKey=77,Flags=3,Pose=Proof.Relative(Proof.HandPose,manualContext),
             Frame=NetProtocol.SharedFrameSeatAnchor,PoseStamp=5,SizeCode=127};
         RemoteMapStory.ResetVideoPose();empty=new SharedWindowEntry {Flags=1};RemoteMapStory.SampleVideoPose(77,true,ref empty);
-        RemoteMapStory.ObserveVideoPose(3,hand,Proof.Wire(manualContext));Time.unscaledTime+=1;
-        entry.PoseStamp=7;RemoteMapStory.ObserveVideoPose(1,entry,Proof.Wire(sent.WindowPoseContext));
+        RemoteMapStory.ObserveVideoPose(3,hand,Proof.Wire(manualContext),Proof.ScalePacket(5,198.12f)!.Value.Reference(5));Time.unscaledTime+=1;
+        entry.PoseStamp=7;RemoteMapStory.ObserveVideoPose(1,entry,Proof.Wire(sent.WindowPoseContext),Proof.WireScales(sent.WindowScales)!.Value.Reference(5));
         Proof.Check(RemoteMapStory.TryVideoSharedInitialPose(out pos,out rot,out factor)&&Proof.Same(pos,Proof.HandPose.Position),
             "late video observer follows a real manual move ahead of newer host initialization");
         RemoteMapStory.ResetVideoPose();empty=new SharedWindowEntry {Flags=1};RemoteMapStory.SampleVideoPose(99,true,ref empty);
-        RemoteMapStory.ObserveVideoPose(1,entry,Proof.Wire(sent.WindowPoseContext));
+        RemoteMapStory.ObserveVideoPose(1,entry,Proof.Wire(sent.WindowPoseContext),Proof.WireScales(sent.WindowScales)!.Value.Reference(5));
         Proof.Check(!RemoteMapStory.TryVideoSharedInitialPose(out _,out _,out _),"video initial pose cannot leak into another playback opening key");
     }
 }
