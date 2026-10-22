@@ -382,10 +382,37 @@ internal sealed class RemoteActiveCards
             panel.TransferToFlight(cardId, actor, generation);
     }
 
+    // A dismissal may be accepted while SetHome is still settling. Capture the panel the
+    // observer is actually looking at immediately before ownership changes; the active-grid
+    // centre and a freshly reconstructed berth both lose that intermediate pose.
+    internal bool TryDismissPose(CAbilityCard card, out Vector3 world, out Quaternion rotation,
+        out float width)
+    {
+        world = default; rotation = Quaternion.identity; width = 0f;
+        if (_dismissPanel == null || !ReferenceEquals(_dismissCard, card)) return false;
+        Transform slab = _dismissPanel.PresentationTransform;
+        world = slab.position; rotation = slab.rotation;
+        width = _cardW * Mathf.Abs(slab.lossyScale.x);
+        return width > 0f;
+    }
+
     internal CAbilityCard? PresentedSource(CardFlightSource? source)
     {
         if (!source.HasValue || source.Value.Count != _buffer.Count || source.Value.Seat >= _buffer.Count) return null;
         return _buffer[source.Value.Seat];
+    }
+
+    private int DismissSeat(CPlayerActor actor, Transform? dismissBerth)
+    {
+        int dismissSeat = _owner.ActiveDismissMatchesActor(actor) && dismissBerth != null
+            && _owner.ActiveDismissListCount == Count ? _owner.ActiveDismissSeat : -1;
+        // A coalesced accepted-flight snapshot may clear118 before the native pile catches up.
+        // Keep the original staged panel at its current berth until that semantic handover;
+        // returning it to the grid in this interval would launch the flight from a different card.
+        if (dismissSeat < 0 && dismissBerth != null && _dismissCard != null
+            && _owner.DismissFlightOwnsCard(_dismissCard.CardInstanceID))
+            dismissSeat = _buffer.IndexOf(_dismissCard);
+        return dismissSeat;
     }
 
     internal void SuppressBurnCard(int cardId)
@@ -449,8 +476,7 @@ internal sealed class RemoteActiveCards
         // ordering gap must never stage an equal-index card belonging to another character.
         // The original panel moves, leaving its active-grid cell empty.
         Transform? dismissBerth = _owner.ItemUseRecess;
-        int dismissSeat = _owner.ActiveDismissMatchesActor(actor) && dismissBerth != null
-            && _owner.ActiveDismissListCount == Count ? _owner.ActiveDismissSeat : -1;
+        int dismissSeat = DismissSeat(actor, dismissBerth);
         _dismissPanel = null;
         _dismissCard = null;
 
@@ -646,7 +672,8 @@ internal sealed class RemoteActiveCards
             // viewer's dial, and this is the very number VRCard.Update runs his glide at.
             _cards[i].Move(staged ? Vector3.zero : cellAt, instant: !residentKeepsItsCard,
                 _owner.BoardTuning.CardLerpSpeed, staged ? UseSlotFit : 1f);
-            if (held || _flyingSeats.Contains(i) || _owner.BurnOwnsActiveCard(cardId))
+            if (held || _flyingSeats.Contains(i) || _owner.BurnOwnsActiveCard(cardId)
+                || !staged && _owner.DismissFlightOwnsCard(cardId))
             {
                 // Either in their fist and not in their matrix, or still in the AIR on its way
                 // here (user item 2). Moved to its own cell first so the gap sits where the owner's

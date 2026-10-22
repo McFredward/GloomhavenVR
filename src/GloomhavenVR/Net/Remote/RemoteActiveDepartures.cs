@@ -79,6 +79,35 @@ internal static class RemoteActiveDepartures
         return found != null;
     }
 
+    // A previous staged snapshot is not guaranteed to arrive: presence coalescing can replace
+    // it with the accepted flight. Its independently validated immutable pool address supplies
+    // the original here. Native destination membership, never the cosmetic message, commits it.
+    internal static bool HasCommittedOriginal(CPlayerActor? actor, CAbilityCard? card,
+        CardFxAnchor destination, CardFlightSource? source)
+    {
+        if (actor == null || card == null || !source.HasValue || !source.Value.Validate() || source.Value.Count == 0
+            || source.Value.ActorId != NetFigures.StableActorId(actor)) return false;
+        CCharacterClass cc = actor.CharacterClass;
+        return !cc.ActivatedCards.Contains(card)
+            && (destination == CardFxAnchor.Discard ? cc.DiscardedAbilityCards.Contains(card)
+                : destination == CardFxAnchor.Burnt
+                  && (cc.LostAbilityCards.Contains(card) || cc.PermanentlyLostAbilityCards.Contains(card)));
+    }
+
+    internal static bool TryDismissPose(RemoteAvatar owner, CAbilityCard card,
+        CardDismissFlightOrigin? origin, out Vector3 world, out Quaternion rotation, out float width)
+    {
+        if (owner.TryDismissPose(card, out world, out rotation, out width)) return true;
+        Transform? berth = owner.ItemUseRecess;
+        if (berth == null || origin == null) return false;
+        // Exact original pose is relative to the owner's physical item berth, not its rig
+        // zoom or the obsolete active-grid seat. It survives a missed staging snapshot.
+        world = berth.TransformPoint(origin.BerthPose.Position);
+        rotation = berth.rotation * origin.BerthPose.Rotation;
+        width = origin.Width * Mathf.Abs(berth.lossyScale.x);
+        return width > 0f;
+    }
+
     private static void Prune() => Cells.RemoveAll(c => Time.unscaledTime - c.Seen > Lifetime
         || (!c.Actor.CharacterClass.ActivatedCards.Contains(c.Card)
             && (c.Actor.CharacterClass.HandAbilityCards.Contains(c.Card)

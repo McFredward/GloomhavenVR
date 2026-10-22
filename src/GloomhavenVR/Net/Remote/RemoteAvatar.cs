@@ -980,12 +980,19 @@ internal sealed class RemoteAvatar
     internal bool TryActiveCellLocal(int cardInstanceId, out UnityEngine.Vector3 boardLocal) =>
         _controlBoard.TryActiveCellLocal(cardInstanceId, out boardLocal);
 
+    internal bool TryDismissPose(ScenarioRuleLibrary.CAbilityCard card, out UnityEngine.Vector3 world,
+        out UnityEngine.Quaternion rotation, out float width) =>
+        _controlBoard.TryDismissPose(card, out world, out rotation, out width);
+
     /// <summary>The visible burn slab owns one recess until its animation finishes.</summary>
-    internal void PlayUnclaimedBurnEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null) => _cardFx.Play(endpoints, flags, source);
+    internal void PlayUnclaimedBurnEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null,
+        CardDismissFlightOrigin? dismissOrigin = null, ScenarioRuleLibrary.CAbilityCard? originalCard = null) =>
+        _cardFx.Play(endpoints, flags, source, dismissOrigin, originalCard);
 
     private long _flightOwnershipSequence;
     internal long NextFlightOwnership() => ++_flightOwnershipSequence;
     internal bool IsFlyingToHand(int cardId) => _cardFx.IsFlyingToHand(cardId);
+    internal bool DismissFlightOwnsCard(int cardId) => _cardFx.DismissOwnsCard(cardId) || _burnFx.DismissOwnsCard(cardId);
     internal bool FlightOwnsRecess(int recess) => _cardFx.OwnsRecess(recess);
     internal int TransferCardToFlight(CardFxAnchor from, int cardId, ScenarioRuleLibrary.CPlayerActor? actor, long generation) =>
         _controlBoard.TransferCardToFlight(from, cardId, actor, generation);
@@ -2364,13 +2371,13 @@ internal sealed class RemoteAvatar
             else
                 foreach (CardFlightEvent flight in p.FlightHistory.Since(_lastFxSeq))
                     PlayCardFlight(flight.Sequence, flight.Endpoints, flight.Flags, flight.Source,
-                        p.BurnCompletions);
+                        p.BurnCompletions, flight.DismissOrigin);
         }
         else if (p.HasCardFx)
         {
             byte flags = p.HasCardFxVisibility && p.FxVisibilitySeq == p.FxSeq ? p.FxVisibilityFlags : (byte)0;
             PlayCardFlight(p.FxSeq, p.FxEndpoints, flags, p.FlightSourceSeq == p.FxSeq ? p.FlightSource : null,
-                p.BurnCompletions);
+                p.BurnCompletions, p.FxDismissOrigin);
         }
     }
 
@@ -2429,8 +2436,8 @@ internal sealed class RemoteAvatar
             if (_burnCompletionTimes.Count >= CardBurnCompletionHistory.CountMax && !_burnCompletionTimes.ContainsKey(entry.Key)) continue;
             _burnCompletionTimes[entry.Key] = entry.Time;
             CardFlightVisibility.ObserveOwnerRelease(entry.ActorId, entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, card);
-            NetAvatarDriver.MirrorCharacterCardFlight(this, entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, card);
-            PlayMirroredCardFlight(entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, PlayerId, card);
+            NetAvatarDriver.MirrorCharacterCardFlight(this, entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, card, entry.DismissOrigin);
+            PlayMirroredCardFlight(entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, PlayerId, card, entry.DismissOrigin);
         }
         _burnProgressActors.Clear(); _burnProgressKeys.Clear(); _burnNoFlightCompletions.Clear();
         foreach (var entry in history.Entries)
@@ -2439,7 +2446,8 @@ internal sealed class RemoteAvatar
             else if (entry.NoFlightCompleted) _burnNoFlightCompletions[entry.Key] = entry.Time;
     }
 
-    private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source, CardBurnCompletionHistory? completions = null)
+    private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source,
+        CardBurnCompletionHistory? completions = null, CardDismissFlightOrigin? dismissOrigin = null)
     {
         const float completionTime = -1f; // Legacy events cannot borrow a clock from a wrapped sequence.
         if (!_fxSeqInit) { _fxSeqInit = true; _lastFxSeq = sequence; return; }
@@ -2464,19 +2472,29 @@ internal sealed class RemoteAvatar
         if (source.HasValue)
         {
             CardFlightVisibility.ObserveOwnerRelease(source.Value.ActorId, endpoints, flags, source, completionTime);
-            NetAvatarDriver.MirrorCharacterCardFlight(this, endpoints, flags, source.Value, completionTime);
+            NetAvatarDriver.MirrorCharacterCardFlight(this, endpoints, flags, source.Value, completionTime,
+                dismissOrigin: dismissOrigin);
         }
-        PlayMirroredCardFlight(endpoints, flags, source, completionTime, PlayerId);
+        PlayMirroredCardFlight(endpoints, flags, source, completionTime, PlayerId, dismissOrigin: dismissOrigin);
     }
 
     // Called only after the canonical sender's sequence and actual character ownership validate.
     // A foreign-focus board consumes the same semantic release without minting another sequence.
     internal void PlayMirroredCardFlight(byte endpoints, byte flags, CardFlightSource? source,
-        float completionTime = -1f, int presentationPlayer = 0, ScenarioRuleLibrary.CAbilityCard? originalCard = null)
+        float completionTime = -1f, int presentationPlayer = 0, ScenarioRuleLibrary.CAbilityCard? originalCard = null,
+        CardDismissFlightOrigin? dismissOrigin = null)
     {
+        if (dismissOrigin != null)
+        {
+            var resolved = CardAppearanceProvenance.Resolve(dismissOrigin.SourceActorId,
+                dismissOrigin.PoolSeat, dismissOrigin.PoolCount);
+            if (resolved != null && originalCard != null && !ReferenceEquals(resolved, originalCard)) return;
+            originalCard ??= resolved;
+            _burnFx.PrepareDismissRelease(endpoints, source, originalCard, dismissOrigin);
+        }
         _burnFx.PreparePresentation(); // Establish native burn ownership before any following flight.
-        if (!_burnFx.ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer, originalCard))
-            _cardFx.Play(endpoints, flags, source);
+        if (!_burnFx.ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer, originalCard, dismissOrigin))
+            _cardFx.Play(endpoints, flags, source, dismissOrigin, originalCard);
     }
 
     /// <summary>Card-FX events this client has SEEN arrive from that peer, and how many the

@@ -263,6 +263,9 @@ internal sealed class RemoteBurnFx
         /// all during the hold — see <see cref="Drive"/>.</summary>
         public int Recess;
         public bool FromActive;
+        public bool FromDismissBerth;
+        public CardDismissFlightOrigin? DismissOrigin;
+        public Quaternion Rotation;
         public Vector3 ActiveLocal;
 
         /// <summary>Card name, kept only so the hand-over line can name the same card the
@@ -329,6 +332,33 @@ internal sealed class RemoteBurnFx
     }
 
     private readonly Dictionary<CAbilityCard, float> _retiredNoFlight = new();
+    private readonly Dictionary<CAbilityCard, (CardFlightSource Source, CardDismissFlightOrigin Origin, bool Committed)> _dismissOrigins = new();
+
+    internal void PrepareDismissRelease(byte endpoints, CardFlightSource? source, CAbilityCard? originalCard,
+        CardDismissFlightOrigin? origin)
+    {
+        if (NetCardFx.From(endpoints) != CardFxAnchor.Active || NetCardFx.To(endpoints) != CardFxAnchor.Burnt
+            || !source.HasValue || source.Value.Count == 0 || originalCard == null || origin == null) return;
+        if (_dismissOrigins.Count >= CardBurnCompletionHistory.CountMax && !_dismissOrigins.ContainsKey(originalCard)) return;
+        bool committed = _dismissOrigins.TryGetValue(originalCard, out var previous) && previous.Committed
+            || RemoteActiveDepartures.HasCommittedOriginal(RemoteBoardFocus.ActorById(source.Value.ActorId),
+                originalCard, CardFxAnchor.Burnt, source);
+        _dismissOrigins[originalCard] = (source.Value, origin, committed);
+        foreach (Burn burn in _burns)
+            if (burn.Active && !burn.HandoverLogged && ReferenceEquals(burn.OriginalCard, originalCard)
+                && burn.ActorId == source.Value.ActorId)
+            { burn.FromDismissBerth = true; burn.DismissOrigin = origin; burn.FromActive = true; }
+    }
+
+    internal bool DismissOwnsCard(int cardId)
+    {
+        foreach (PendingRelease pending in _pendingReleases)
+            if (pending.OriginalCard is CAbilityCard card && card.CardInstanceID == cardId
+                && _dismissOrigins.ContainsKey(card)) return true;
+        foreach (Burn burn in _burns)
+            if (burn.Active && burn.FromDismissBerth && burn.CardId == cardId) return true;
+        return false;
+    }
     private readonly List<Burn> _burns = new(MaxBurns);
     private GameObject? _root;
 
@@ -519,13 +549,16 @@ internal sealed class RemoteBurnFx
         public int PresentationPlayer;
         public bool FallbackPlayed;
         public CAbilityCard? OriginalCard;
+        public CardDismissFlightOrigin? DismissOrigin;
     }
 
     private readonly List<PendingRelease> _pendingReleases = new(MaxBurns);
     private const float ReleaseResolveSeconds = 0.25f;
     private const float ReleaseMemorySeconds = 3f;
 
-    internal bool ConsumesWireEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null, float completionTime = -1f, int presentationPlayer = 0, CAbilityCard? originalCard = null)
+    internal bool ConsumesWireEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null,
+        float completionTime = -1f, int presentationPlayer = 0, CAbilityCard? originalCard = null,
+        CardDismissFlightOrigin? dismissOrigin = null)
     {
         if (NetCardFx.To(endpoints) != CardFxAnchor.Burnt)
             return false;
@@ -540,7 +573,7 @@ internal sealed class RemoteBurnFx
             PendingRelease oldest = _pendingReleases[0];
             if (!oldest.FallbackPlayed && oldest.CompletionTime < 0f && (oldest.Source.HasValue
                 || oldest.ActorId == NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _))))
-                _owner.PlayUnclaimedBurnEvent(oldest.Endpoints, oldest.Flags, oldest.Source);
+                _owner.PlayUnclaimedBurnEvent(oldest.Endpoints, oldest.Flags, oldest.Source, oldest.DismissOrigin, oldest.OriginalCard);
             _pendingReleases.RemoveAt(0);
         }
         _pendingReleases.Add(new PendingRelease
@@ -548,6 +581,7 @@ internal sealed class RemoteBurnFx
             Endpoints = endpoints, Flags = flags, Source = source, ActorId = actorId, ReceivedAt = Time.unscaledTime,
             CompletionTime = completionTime, PresentationPlayer = presentationPlayer,
             OriginalCard = originalCard ?? _owner.PresentedBurnSource(endpoints, source, actorId),
+            DismissOrigin = dismissOrigin,
         });
         _nextWalkAt = 0f;
         return true;
@@ -624,6 +658,12 @@ internal sealed class RemoteBurnFx
                 continue;
             }
             CPlayerActor? pendingActor = RemoteBoardFocus.ActorById(pending.ActorId);
+            if (pending.DismissOrigin != null)
+            {
+                pending.OriginalCard ??= CardAppearanceProvenance.Resolve(pending.DismissOrigin.SourceActorId,
+                    pending.DismissOrigin.PoolSeat, pending.DismissOrigin.PoolCount);
+                PrepareDismissRelease(pending.Endpoints, pending.Source, pending.OriginalCard, pending.DismissOrigin);
+            }
             if (pending.CompletionTime >= 0f && pendingActor != null && PendingRecovered(pending, pendingActor))
             {
                 _pendingReleases.RemoveAt(i);
@@ -638,7 +678,7 @@ internal sealed class RemoteBurnFx
             }
             if (age >= ReleaseResolveSeconds && pending.CompletionTime < 0f)
             {
-                _owner.PlayUnclaimedBurnEvent(pending.Endpoints, pending.Flags, pending.Source);
+                _owner.PlayUnclaimedBurnEvent(pending.Endpoints, pending.Flags, pending.Source, pending.DismissOrigin, pending.OriginalCard);
                 pending.FallbackPlayed = true;
             }
         }
@@ -698,8 +738,22 @@ internal sealed class RemoteBurnFx
             _shortRestCandidate = null;
     }
 
+    private void PruneDismissOrigins()
+    {
+        // Original recovery ends this use of the berth. A later ordinary burn of the same
+        // card must not inherit a previous dismissal's source or suppress its own animation.
+        _pruneScratch.Clear();
+        foreach (var entry in _dismissOrigins)
+            if (entry.Value.Committed && !RemoteActiveDepartures.HasCommittedOriginal(
+                RemoteBoardFocus.ActorById(entry.Value.Source.ActorId), entry.Key, CardFxAnchor.Burnt,
+                entry.Value.Source)) _pruneScratch.Add(entry.Key);
+        foreach (CAbilityCard card in _pruneScratch) _dismissOrigins.Remove(card);
+        _pruneScratch.Clear();
+    }
+
     internal void PreparePresentation()
     {
+        PruneDismissOrigins();
         try
         {
             ObserveShortRestContext();
@@ -860,7 +914,10 @@ internal sealed class RemoteBurnFx
         // being for "a burn nobody could place" fired on half the burns in the round.
         int cardId = CardInstanceIdOf(widget);
         int recess = _owner.RecessOfBurningCard(cardId, out string recessHow);
-        bool fromActive = widget.AbilityCard != null
+        var dismiss = widget.AbilityCard != null && _dismissOrigins.TryGetValue(widget.AbilityCard, out var captured)
+            ? captured : default;
+        bool fromDismiss = dismiss.Origin != null && dismiss.Source.ActorId == NetFigures.StableActorId(actor);
+        bool fromActive = fromDismiss || widget.AbilityCard != null
             && RemoteActiveDepartures.TryPose(_owner.PlayerId, widget.AbilityCard, out _);
         CardFxAnchor origin = recess == 0 ? CardFxAnchor.Slot0
             : recess == 1 ? CardFxAnchor.Slot1
@@ -897,6 +954,9 @@ internal sealed class RemoteBurnFx
         if (widget.AbilityCard != null)
             b.Art?.SetNativeAppearance(_owner.PlayerId, RemoteBoardFocus.ActorById(actorId), widget.AbilityCard);
         b.FromActive = fromActive;
+        b.FromDismissBerth = fromDismiss;
+        b.DismissOrigin = fromDismiss ? dismiss.Origin : null;
+        b.Rotation = DrawnBoardRotation;
         b.ActiveLocal = default;
         if (fromActive && widget.AbilityCard != null)
             RemoteActiveDepartures.TryPose(_owner.PlayerId, widget.AbilityCard, out b.ActiveLocal);
@@ -956,7 +1016,8 @@ internal sealed class RemoteBurnFx
         // board this client already knows the rotation of, and FlyToPile holds that orientation for
         // the whole flight ("orientation locked"). Facing it at the local head instead would be a
         // pose the owner never sees.
-        b.Go.transform.SetPositionAndRotation(from, DrawnBoardRotation);
+        if (fromDismiss) CaptureFlightPose(b);
+        b.Go.transform.SetPositionAndRotation(b.From, b.Rotation);
         // …AND IT STARTS HIDDEN, ALWAYS. Drive() is the one place that reveals it, and it reveals it
         // for exactly two pictures: the ARC, and — since ModBuild 475, item 8's "die sehen auch dass
         // die Karte kurz liegen bleibt" — the owner's own hold on a burn NO recess is drawing.
@@ -1015,7 +1076,8 @@ internal sealed class RemoteBurnFx
             Id = b.ClaimId, Name = name, MintedAt = _lastPresentedAt,
             ActorId = actorId, Recess = recess,
             FromActive = fromActive,
-            Source = widget?.AbilityCard != null ? RemoteActiveDepartures.SourceOf(_owner.PlayerId, widget.AbilityCard) : null,
+            Source = fromDismiss ? dismiss.Source
+                : widget?.AbilityCard != null ? RemoteActiveDepartures.SourceOf(_owner.PlayerId, widget.AbilityCard) : null,
         });
         // THE SAME CENSUS POPULATION RemoteCardFx REPORTS (2026-09-06 report item 5). A burn IS a
         // card flying into a stack, and it reaches the viewer through this class instead of that one
@@ -1136,8 +1198,7 @@ internal sealed class RemoteBurnFx
                     b.ArtworkObserved = true;
                 // The durable owner release and the displayed native completion are both
                 // required. Local proxy clocks and an empty slot cannot authorize an early flight.
-                bool release = b.OwnerReleased && (b.CompletionTime < 0f
-                    || CardAppearanceMirror.HasPresentedThrough(b.PresentationPlayer, actor, card, b.CompletionTime));
+                bool release = MayReleaseOwnerBurn(b, actor, card);
                 if (!release)
                 {
                     // WHO DRAWS THE CARD DURING THE HOLD. While the owner's recess is still drawing
@@ -1171,7 +1232,7 @@ internal sealed class RemoteBurnFx
                     else
                     {
                         b.StationaryShown += step;
-                        b.Go.transform.SetPositionAndRotation(b.From, DrawnBoardRotation);
+                        b.Go.transform.SetPositionAndRotation(b.From, b.Rotation);
                         // …AND ITS SIZE, PER FRAME, for the same reason the arc's is: the
                         // owner can be zooming their board while their card lies there,
                         // and this slab is not parented to the board root. It was written
@@ -1434,6 +1495,7 @@ internal sealed class RemoteBurnFx
             _burns[i].Art?.Destroy();
         _burns.Clear();
         _retiredNoFlight.Clear();
+        _dismissOrigins.Clear();
         _known.Clear();
         _burntBuf.Clear();
         _pruneScratch.Clear();
@@ -1517,15 +1579,29 @@ internal sealed class RemoteBurnFx
     {
         CardFxAnchor origin = b.Recess == 0 ? CardFxAnchor.Slot0
             : b.Recess == 1 ? CardFxAnchor.Slot1 : CardFxAnchor.Board;
-        if (b.FromActive && _owner.TryDrawnBoardPose(out Vector3 bp, out Quaternion br, out float bs))
+        if (b.FromDismissBerth && b.OriginalCard != null)
+        {
+            if (RemoteActiveDepartures.TryDismissPose(_owner, b.OriginalCard, b.DismissOrigin,
+                out Vector3 placed, out Quaternion facing, out float width))
+            {
+                b.From = placed; b.Rotation = facing;
+                b.FromWidth = width / Mathf.Max(1e-5f, DrawnBoardScale);
+            }
+        }
+        else if (b.FromActive && _owner.TryDrawnBoardPose(out Vector3 bp, out Quaternion br, out float bs))
             b.From = bp + br * (b.ActiveLocal * bs);
         else if (TryAnchor(origin, out Vector3 from)) b.From = from;
         if (TryAnchor(CardFxAnchor.Burnt, out Vector3 to)) b.To = to;
         float height = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth) * (88f / 63.5f);
         b.Arc = Mathf.Max(height * 1.5f * DrawnBoardScale,
             Vector3.Distance(b.From, b.To) * VRCard.FlyArcHeightFraction);
-        if (b.Go != null) b.Go.transform.rotation = DrawnBoardRotation;
+        if (!b.FromDismissBerth) b.Rotation = DrawnBoardRotation;
+        if (b.Go != null) b.Go.transform.rotation = b.Rotation;
     }
+
+    private static bool MayReleaseOwnerBurn(Burn burn, CPlayerActor? actor, CAbilityCard? card) =>
+        burn.OwnerReleased && (burn.CompletionTime < 0f
+            || CardAppearanceMirror.HasPresentedThrough(burn.PresentationPlayer, actor, card, burn.CompletionTime));
 
     /// <summary>
     /// THE HAND-OVER, AS MECHANISM: this presentation stops holding and its arc begins now.

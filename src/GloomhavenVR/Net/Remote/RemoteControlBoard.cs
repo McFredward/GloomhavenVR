@@ -653,6 +653,13 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// </summary>
     internal Transform? ItemUseRecess => _furniture?.ItemUseRecess;
 
+    internal bool TryDismissPose(CAbilityCard card, out Vector3 world, out Quaternion rotation,
+        out float width)
+    {
+        world = default; rotation = Quaternion.identity; width = 0f;
+        return _active != null && _active.TryDismissPose(card, out world, out rotation, out width);
+    }
+
     private readonly RemoteAvatar _owner;
 
     /// <summary>The peer's authored board layout — every dock seat on this board is derived from it
