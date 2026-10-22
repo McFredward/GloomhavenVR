@@ -74,6 +74,9 @@ def sources(root):
 
 def mutations():
     return [
+        ("category-ignores-figure-offer", "TownServiceCatalogCategory.cs", "||hand.Grabber.FigureGrabOffered", "", "a live miniature pickup prevents cabinet category hover and trigger theft"),
+        ("category-hover-claims-trigger", "TownServiceCatalogCategory.cs", "if(hand.TriggerDown){TownServicePhysicalRay.Claim(hand);target.OnPoke(hand);}", "if(hand.HasPose){TownServicePhysicalRay.Claim(hand);target.OnPoke(hand);}", "cabinet category hover publishes its real world hit without committing the trigger"),
+        ("category-press-unclaimed", "TownServiceCatalogCategory.cs", "TownServicePhysicalRay.Claim(hand);", "", "an explicit cabinet category press claims the trigger before selecting"),
         ("moving-category-disabled", "TownServiceMerchantDrawer.cs", "if (category < 0 || category >= 6 || _disposed || _hand != null || !_alive() || !_mayClose()) return false;", "if (category < 0 || category >= 6 || _disposed || _turning || _hand != null || !_alive() || !_mayClose()) return false;", "category press restarts a moving cabinet from the currently visible page"),
         ("stale-native-party", "TownServiceMerchantRows.cs", "if (_publicService != null && !ReferenceEquals(_publicParty, AdventureState.MapState.MapParty))", "if (_publicService != null && ReferenceEquals(_publicParty, AdventureState.MapState.MapParty))", "replacement native MapParty rebinds owned stock instead of reading the captured old party"),
         ("foreign-stock-double", "TownServiceCatalog.cs", "if (_display.gameObject.activeSelf == foreignStock) _display.gameObject.SetActive(!foreignStock);", "", "another visitor's live stock sample vacates the complete original shelf face body price and input"),

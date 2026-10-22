@@ -193,10 +193,13 @@ namespace GloomhavenVR.Hands
     internal class RayFixture {
         internal int Contacts; internal GloomhavenVR.Hands.Interact.RayInteractor.CardContact Contact;
         internal void StandDownForCardContact(string zone,UnityEngine.Object chip,GloomhavenVR.Hands.Interact.RayInteractor.CardContact contact){Contacts++;Contact=contact;}
-        internal bool Enabled,Active;internal float SolidOccluderDistance=float.PositiveInfinity;internal Vector3 UiHitOverride;internal void SuppressFarClick(){} }
+        internal bool Enabled,Active;internal float SolidOccluderDistance=float.PositiveInfinity;internal Vector3 UiHitOverride;
+        internal int WorldUiHits,TriggerClaims;
+        internal void SetWorldUiHit(Vector3 point,string label){UiHitOverride=point;WorldUiHits++;}
+        internal void SuppressFarClick(){TriggerClaims++;} }
     internal class RayUiFixture {internal bool HasHit,IsPressing;internal float HitDistance;}
     internal class RayGrabFixture {internal bool OwnsPointerFrame;}
-    internal class GrabberFixture{internal GloomhavenVR.Hands.Interact.IGrabbable? Held;internal bool ForceGrab(GloomhavenVR.Hands.Interact.IGrabbable g,bool releaseOnTriggerUp){Held=g;return true;}internal void CancelAll(){Held=null;}}
+    internal class GrabberFixture{internal GloomhavenVR.Hands.Interact.IGrabbable? Held;internal bool FigureGrabOffered;internal bool ForceGrab(GloomhavenVR.Hands.Interact.IGrabbable g,bool releaseOnTriggerUp){Held=g;return true;}internal void CancelAll(){Held=null;}}
     public class HandRig{public Transform GrabAnchor=new GameObject("Hand").transform;public Transform Root=>GrabAnchor;public Transform IndexTip=>GrabAnchor;public Transform PalmCenter=>GrabAnchor;public FingerJoints GetFinger(Finger f)=>default;}
 }
 namespace GloomhavenVR.Hands.Interact
@@ -237,7 +240,7 @@ namespace GloomhavenVR.WorldUI
     internal static class NativeTemplates{internal static UnityEngine.UI.UITooltip? Tooltip;internal sealed class Part{internal string Path="";}internal static System.Collections.Generic.IReadOnlyList<Part> Parts(string key)=>new[]{new Part()};internal static int Resolved;internal static void Resolve(byte service,ushort template,string address){Resolved++;} }
     internal static class TownServiceNativeAssets{internal static void PrepareItem(ItemCardUI i){}}
     internal class TownServiceSurface{}
-    internal static class TownServicePhysicalRay{internal static void Claim(GloomhavenVR.Hands.VRHand hand){}}
+    internal static class TownServicePhysicalRay{internal static void Claim(GloomhavenVR.Hands.VRHand hand){hand.Ray.TriggerClaims++;}}
     internal static class TownServiceAssets{internal static GameObject? Merchant;internal static AudioClip? Cabinet;internal static GameObject? Prefab(string n)=>Merchant;internal static AudioClip? Audio(string n)=>n=="cabinet-cycle"?Cabinet:null;}
     internal static class PanelLayout{internal static float WorldScale=>1f;}
 }

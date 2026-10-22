@@ -25,6 +25,46 @@ public static partial class InteractionProgram
         foreach (var entry in catalog.Entries) if (!entry.Selling && entry.ItemId == id) return entry;
         throw new Exception("Missing original item " + id);
     }
+    private static void CategoryLaserArbitration()
+    {
+        // Tracked input and final trigger-claim ports are boundaries; the visible collider,
+        // actual raycast/occlusion, figure-offer yield and category action compile from production.
+        var parent = new GameObject("Isolated category arbitration");
+        parent.transform.position = new Vector3(-10f, 10f, 0f);
+        var hand = new VRHand(); hand.Ray.Enabled = hand.Ray.Active = true;
+        VRHand? previous = VRHands.Primary;
+        try
+        {
+            using var rack = new TownServiceMerchantDrawer(parent.transform, 0, false, 0, "category arbitration", null,
+                () => true, () => true, _ => { });
+            using var button = new TownServiceCatalogCategory(parent.transform, 1, rack, () => true);
+            button.Tick(1f); Physics.SyncTransforms();
+            Vector3 centre = button.Root.GetComponent<BoxCollider>().bounds.center;
+            hand.Rig.GrabAnchor.SetPositionAndRotation(centre - Vector3.forward, Quaternion.identity);
+            VRHands.Primary = hand;
+            hand.Grabber.FigureGrabOffered = true; hand.TriggerDown = true;
+            TownServiceCatalogCategory.TickLaser();
+            Check(hand.Ray.WorldUiHits == 0 && hand.Ray.TriggerClaims == 0 && rack.TurnEpoch == 0,
+                "a live miniature pickup prevents cabinet category hover and trigger theft");
+            hand.Grabber.FigureGrabOffered = false; hand.TriggerDown = false;
+            TownServiceCatalogCategory.TickLaser();
+            Check(hand.Ray.WorldUiHits == 1 && hand.Ray.TriggerClaims == 0 && rack.TurnEpoch == 0,
+                "cabinet category hover publishes its real world hit without committing the trigger");
+            hand.TriggerDown = true; TownServiceCatalogCategory.TickLaser();
+            // The catalogue fixture resolves category selection locally; the control fixture
+            // binds the actual native network coordinator and deliberately rejects this isolated
+            // unregistered rack. Both paths must commit the physical press exactly once. Their
+            // existing mechanical/coordinator checks own page, epoch and authority outcomes.
+            Check(hand.Ray.TriggerClaims == 1 && hand.Ray.WorldUiHits == 2,
+                "an explicit cabinet category press claims the trigger before selecting");
+        }
+        finally
+        {
+            VRHands.Primary = previous;
+            UnityEngine.Object.DestroyImmediate(hand.Rig.GrabAnchor.gameObject);
+            UnityEngine.Object.DestroyImmediate(parent);
+        }
+    }
     private static void PublicPartyReplacement(UIShopItemInventory inventory, Transform anchor)
     {
         object originalParty = MapRuleLibrary.Adventure.AdventureState.MapState.MapParty;
@@ -507,6 +547,7 @@ public static partial class InteractionProgram
                 "all six category buttons start in their measured sculpt sockets");
         }
         catalog.SetVisibility(1f);Census(catalog);catalog.Tick(1f);
+        CategoryLaserArbitration();
         if(catalog.Entries.Count>12)
         {
             var coveredNextPage=catalog.Entries.FindEntry(12,false,0);
