@@ -9,6 +9,13 @@ without a second copy. Successful item placement closes the fan while keeping
 choice/demand/damage/bonus decisions and retrieval alive. Shared-berth handoffs,
 stale caps, board rebuild and scene load are covered explicitly. See
 `ACTIVE-CARD-DISMISS716.md` for implementation, evidence and hardware limits.
+Final TLV118 is actor-qualified flags/actorI32LE/count/seat; writer7966 remains
+inside8000. Strict Release0/0, source16/16 and all300693 direct golden assertions
+pass. All236 local suites have coverage from the complete sweep and bounded
+fixture repairs, with unchanged passing evidence retained; no new single green
+full-run claim. Final producer/consumer proofs cover52/6 and22/11 assertions/causal
+controls. Native/card/item proofs and the compiled/surface review are retained.
+Actual headset interaction and remote pictures still require hardware testing.
 
 **Shared XR GPU measurement repair, 2026-10-21 (development source).**
 

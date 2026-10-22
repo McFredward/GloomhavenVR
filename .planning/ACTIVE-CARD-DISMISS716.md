@@ -40,14 +40,16 @@ One berth author prevents alternating item/active pumps from hiding or relabelin
 it. An accepted item drop yields the active reservation before installing its
 own slot and cap; rejected item drops do not cancel anything.
 
-Optional presence TLV118 carries only flags (berth and approach preview), active
-ability-list population and staged counted seat (255 for guide only). The remote
+Optional presence TLV118 carries flags (berth and approach preview), the stable
+actorI32LE of the actual card producer, active ability-list population and staged
+counted seat (255 for guide only). The remote
 board moves its original active panel into the same berth, preserving world pose
 and owner tuning, with the same caption and existing cap press stream. No second
-card or gameplay command is introduced. Missing/malformed/count-mismatched state
-cannot select a different card. Version3 is unchanged; next free TLV119.
+card or gameplay command is introduced. Missing/malformed/actor- or count-mismatched state
+cannot select a different card. The same actor qualification protects the berth,
+preview, cap and caption during remote focus/burn retention. Version3 is unchanged; next free TLV119.
 
-The writer maximum grows by five bytes to7962 (worst documented presence7705),
+The writer maximum grows by nine bytes to7966 (worst documented presence7709),
 still below the existing8000-byte bounded fragment envelope. Ordinary inactive
 packets and original item26 remain byte-identical.
 
@@ -55,11 +57,11 @@ packets and original item26 remain byte-identical.
 
 Focused production-bound fixtures cover native capture with actual Harmony and
 simulated game callbacks (145 assertions, six causal controls), actual physical
-flow/shared-berth methods (47 assertions, six controls), item drop/close/survivor
+flow/shared-berth methods (52 assertions, six controls), item drop/close/survivor
 and active/item crossings (309 assertions, seven controls), and actual remote
-receive/reparent/settle kernels (14 assertions, six controls). Engine boundaries
+receive/reparent/settle kernels (22 assertions, eleven controls). Engine boundaries
 in these new fixtures are explicit; they do not establish headset pixels or real
-network timing. New codec golden vectors cover26 assertions.
+network timing. New codec golden vectors cover32 assertions.
 
 These fixtures join the normal local/CI inventories (236 local,107 CI,16 source).
 Integrated final gate evidence is recorded below when complete. The pre-change
@@ -67,6 +69,40 @@ compiled baseline is private to `active-dismiss-baseline`, taken from dev3b6ded1
 the shared historical baseline is not overwritten. Logs/sources/manifests/results
 are retained under `.planning/debug/active-dismiss716/` and each fixture's own
 debug run. Canonical completion cleanup removes owned generated test caches.
+
+## Integrated validation provenance
+
+The complete local sweep at c12896bd5 recorded all236 suites:179 passed and57
+failed. Fifty-five failures were existing town fixture port/control drift; their
+production bindings match pre-feature dev3b6ded192. The repaired family is covered
+by focused receipts for all55 suite IDs, retaining unchanged successful controls
+when one stale mutation was repaired. The environment suite likewise required a
+missing exact-terrain boundary port and an obsolete retired-tier hash control;
+production11478 assertions plus all95 causal controls are covered across its
+full and limited repair runs. No gameplay code was changed for those repairs.
+The remaining original failure, the strict native-atlas timing check, passes its
+serial actual-Unity rerun:4492 assertions, four causal controls,895 cold original
+members in0.5541712 seconds under the unchanged1-second limit. The initial parallel
+failure is retained; this does not establish its precise scheduling cause. This is composed validation,
+**not a new single green236-suite run**. The original failed reports remain.
+
+For the final actor-qualified implementation: strict Release has zero errors and
+warnings, all16 source gates pass, and the complete direct golden-vector binary
+passes300693 assertions. The focused52/6 local-flow and22/11 remote proofs cover
+the final producer/consumer changes; unchanged145/6 native and309/7 item evidence
+is retained. Bundle formats and surface comparison pass:669 config keys retained,
+one registered patch added, no removed log marker. Private compiled comparison
+covers1283 previous types and1284 current types:one added capture patch,23 changed
+feature/version/buffer/metadata types, no removal or unrelated behavior change.
+English/German guides and suite inventories also pass their focused checks.
+
+Receipts are kept in `active-dismiss716/full-local-results.json`,
+`validation-final.json`, `test-boundary-evidence/validation.json`, `actor-evidence/`,
+`runtime-boundary-evidence/`, final source/golden/
+strict/surface logs and `compiled-review-final.{json,diff}` below the ignored debug
+root. Worker archives retain generated sources, native inputs and captures with
+SHA256/compare receipts. A mistakenly duplicated initial full scheduler was
+cancelled promptly; its interrupted receipt is retained, never counted as a pass.
 
 Hardware remains to verify: finger/laser use on all three board types, reading
 and cancelling/replacing staged summons, rectangular preview and native loss
