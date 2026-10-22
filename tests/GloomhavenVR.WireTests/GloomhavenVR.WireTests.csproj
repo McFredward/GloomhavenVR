@@ -343,7 +343,6 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\CardPlumeCodec.cs" Link="wire\CardPlumeCodec.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\FanReflowMap.cs" Link="wire\FanReflowMap.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\SharedWindowPoseTrack.cs" Link="wire\SharedWindowPoseTrack.cs" />
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\SharedWindowPoseContext.cs" Link="wire\SharedWindowPoseContext.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationCodec.cs" Link="wire\UseBarAnimationCodec.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationState.cs" Link="wire\UseBarAnimationState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarWidgetCodec.cs" Link="wire\UseBarWidgetCodec.cs" />
