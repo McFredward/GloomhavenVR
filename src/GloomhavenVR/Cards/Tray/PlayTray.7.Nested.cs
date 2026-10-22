@@ -100,6 +100,8 @@ internal sealed partial class PlayTray
     internal sealed class BoardButton : PokeableBehaviour
     {
         private System.Action? _onClick;
+
+        internal void SetClickAction(System.Action action) => _onClick = action;
         private Material? _capMaterial;      // item 4: the TOP-plateau material (carries the state colour)
         private Material? _capBevelMaterial; // item 4: the BRIGHT parchment-lit bevel-ring material (boxy caps); null otherwise
         private Material? _capWallMaterial;  // item 4: the dark warm side-wall material (boxy caps); null otherwise

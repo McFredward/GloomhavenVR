@@ -609,8 +609,14 @@
     },
     {
       "id": "mr-backing-depth-runtime",
-      "command": ["python3", "scripts/check-mr-backing-depth-runtime.py", "--all"],
-      "groups": ["local"],
+      "command": [
+        "python3",
+        "scripts/check-mr-backing-depth-runtime.py",
+        "--all"
+      ],
+      "groups": [
+        "local"
+      ],
       "weight": 70
     },
     {
@@ -2909,6 +2915,54 @@
         "local"
       ],
       "weight": 40
+    },
+    {
+      "id": "active-dismiss-api",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.ActiveDismissTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 4
+    },
+    {
+      "id": "active-dismiss-flow",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.ActiveDismissFlowTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 4
+    },
+    {
+      "id": "active-dismiss-remote-runtime",
+      "command": [
+        "python3",
+        "scripts/check-active-dismiss-remote-runtime.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 4
+    },
+    {
+      "id": "item-placement",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.ItemPlacementTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 4
     }
   ]
 }

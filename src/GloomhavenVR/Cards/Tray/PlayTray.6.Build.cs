@@ -513,7 +513,7 @@ internal sealed partial class PlayTray
             // cap's live wording still rides wire record 13, so peers keep seeing the owner's
             // word — and the surrender picks still override the label entirely.
             _itemUseConfirmLabel ?? Core.Loc.Mod("item_use_area"),
-            () => _itemUseConfirmAction?.Invoke(),
+            BindItemUseConfirmation(_itemUseConfirmAction),
             round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
             capCategory: WorldUI.ButtonTuning.CapCategory.Board,
             capRole: CapRole.ItemUse, capStyle: active,

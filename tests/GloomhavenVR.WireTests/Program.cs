@@ -91,6 +91,7 @@ internal static class Program
             // and a truncated entry that ended the walk would swallow the FINISHED bit that clears
             // an ActionProcessor halt — a stuck party, with nothing thrown and nothing logged.
             MapSyncVectors.Run(t);
+            ActiveDismissBerthVectors.Run(t);
             SharedWindowMotionVectors.Run(t);
             MapContinuationVectors.Run(t);
             MapLoadoutCountVectors.Run(t);

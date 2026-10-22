@@ -176,6 +176,12 @@ internal static class NetProtocol
     public const byte ExtIdTownCardReturnOrigin = 116;
     // Exact owner-authored offered-card hover activation and native waveform basis.
     public const byte ExtIdTownOfferedHover = 117;
+    /// <summary>Active ability-card dismissal at the shared item-use berth. Three bytes:
+    /// flags (bit0=ability-card berth, bit1=nearby landing preview), complete active-card
+    /// population, staged seat (255 means held guide only). Gameplay uses native synchronization;
+    /// this record describes the same original card's local presentation only.</summary>
+    public const byte ExtIdActiveDismissBerth = 118;
+    public const int ActiveDismissBerthRecordBytes = 3;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -612,7 +618,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 715;
+    public const ushort ModBuild = 716;
+
+    // ModBuild716 — explicitly dismiss active cards through the shared physical item berth.
+    // The maintainer chose place-then-confirm, with the existing item landing preview, sound,
+    // haptics and cap feedback, rather than a control beside a card still held in the main hand.
+    // Capture only the original synchronous active-card confirmation; the explicit berth cap
+    // invokes its original accepted callback after live permission revalidation. Taking the
+    // card back or losing the offer cancels without changing gameplay. No automatic acceptance
+    // or direct game-state writes. The same card stays active until the original game commits.
+    // TLV118 describes its rectangular preview/staged counted seat on remote boards, reusing
+    // the original active panel and existing cap text/press feedback. Version3; next-free119.
+    // Successfully placing any item card now closes its fan while preserving the placed card,
+    // its live decision and retrieval, including choice, bonus, demand and take-damage flows.
+    // Focused/complete check scope and remaining headset checks are recorded in planning.
 
     // ModBuild715 — publish the reviewed 1.2.0 release candidate.
     // The maintainer requested the current dev tree as 1.2.0, highlighting native

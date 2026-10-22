@@ -357,6 +357,7 @@ internal sealed partial class CardsDriver
         _browser.Destroy();
         _half.Destroy();
         _rest.Destroy();
+        DestroyActiveDismiss();
         _active.Destroy(); // before the tray — the column lives under its ActiveMount
         _piles.Destroy(); // before the tray — the stacks live under its PileMount
         _tray.Destroy();
@@ -583,6 +584,7 @@ internal sealed partial class CardsDriver
     {
         CardsDriver? driver = Instance;
         if (driver == null) return;
+        driver.ResetActiveDismiss();
         driver._sceneFacesReturned = true;
         driver._factory.ReturnBorrowedFacesBeforeSceneLoad();
         Core.TickGuard.Run("Cards.SceneNativeHierarchy", NativeCardPoolLifetime.ReturnSceneHands, "Cards");
@@ -934,6 +936,7 @@ internal sealed partial class CardsDriver
         // can arrive at scenario start before any pile UI has shown.
         if (_tray.IsVisible)
             _piles.TickItemDemand(_fakeActive ? null : hand);
+        TickActiveDismiss(_fakeActive ? null : presented);
         UpdateInitiativeTodo(); // item 6: glow the initiative-order characters who still owe cards
         // Item 8b: the cross-client "which card is active" census. DELIBERATELY OUTSIDE the
         // _tray.IsVisible gate above — the whole point of the line is that a seat which is drawing

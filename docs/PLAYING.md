@@ -65,6 +65,14 @@ off restores your previous placement and Follow/Fixed choice. Other players see 
 The **discard**, **burnt** and **item** piles open as fans. The board also holds **active cards**,
 **Undo**, **Skip**, rest buttons and the decision area.
 
+To end an active card effect or dismiss a living summon, take its card from the active area
+and place it in the highlighted area used for items below the board. Press **End effect** or
+**Dismiss** to confirm. Take the card back before confirming to cancel. The guide appears only
+when the game permits ending that effect.
+
+Placing an item card in its use area automatically closes the item fan. The placed card and
+any required choice remain available; confirm its use or take it back to cancel.
+
 Scenario rules stay beside the board. Long rules end with **...**; point at the text to
 expand it, or click to keep it open. Click again to unpin it. The personal quest and elements
 move down while the text is expanded, and other players see the same change.

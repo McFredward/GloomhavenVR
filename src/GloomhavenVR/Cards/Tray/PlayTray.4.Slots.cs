@@ -568,6 +568,22 @@ internal sealed partial class PlayTray
     /// from (<see cref="ItemUseSlotShown"/>).</summary>
     private bool _itemUseSlotWanted;
 
+    // The two card families share one physical destination. Its active-card reservation has one
+    // author; the ordinary item pumps must not hide/relabel its confirmation on alternate ticks.
+    private bool _activeDismissOwnsBerth;
+
+    internal void SetActiveDismissPresentation(bool visible, string? caption = null,
+        string? confirmLabel = null, System.Action? confirm = null)
+    {
+        if (!visible && !_activeDismissOwnsBerth)
+            return;
+        _activeDismissOwnsBerth = false;
+        SetItemUseAreaLabel(visible ? caption : null);
+        SetItemUseConfirmVisible(visible && confirm != null, confirm, confirmLabel);
+        SetItemUseSlotVisible(visible);
+        _activeDismissOwnsBerth = visible;
+    }
+
     /// <summary>
     /// Build the ITEM-USE clip-in berth (items rework, requirement 3): a card-sized destination
     /// UNDER the board next to the Confirm/Undo buttons. Positioned at
@@ -625,6 +641,7 @@ internal sealed partial class PlayTray
     {
         if (_root == null)
             return;
+        _activeDismissOwnsBerth = false;
         float w = CardsConfig.CardWidth.Value;
         float h = CardsConfig.CardHeight;
 
@@ -769,6 +786,9 @@ internal sealed partial class PlayTray
     /// </summary>
     internal void SetItemUseConfirmVisible(bool visible, System.Action? onConfirm, string? label = null)
     {
+        if (_activeDismissOwnsBerth)
+            return;
+        bool actionChanged = visible && _itemUseActive && _itemUseConfirmAction != onConfirm;
         _itemUseConfirmAction = visible ? onConfirm : null;
         // Item-surrender pick (event mali): the button may carry a demand-specific label
         // ("ITEM ABGEBEN") instead of the default "USE" — the user must never read a
@@ -780,13 +800,18 @@ internal sealed partial class PlayTray
         // Requirement 9a: the "Use" confirm is a dynamic member of the generic cluster. Toggling it
         // changes the member COUNT (2 ↔ 3), so the whole Confirm/Undo/Use stack must re-lay-out (and the
         // caps re-size to fit) — rebuild the cluster on an actual change, then show/hide the fresh button.
-        if (visible != _itemUseActive || labelChanged)
+        if (visible != _itemUseActive || labelChanged || actionChanged)
         {
             _itemUseActive = visible;
             RebuildAttachedControls(); // rebuilds Confirm/Undo (+ Use when active) at the new count
         }
         _itemUseConfirm?.SetVisible(visible);
     }
+
+    // A dissolving old cap must retain its own decision. Dereferencing the mutable action field
+    // when that old cap is pressed could confirm a different card which replaced it meanwhile.
+    internal static System.Action BindItemUseConfirmation(System.Action? action) =>
+        () => action?.Invoke();
 
     /// <summary>
     /// THE WHOLE ITEM-USE AREA'S WORDING, in one call — the cap AND the caption engraved under the
@@ -808,6 +833,8 @@ internal sealed partial class PlayTray
     /// </summary>
     internal void SetItemUseAreaLabel(string? label)
     {
+        if (_activeDismissOwnsBerth)
+            return;
         if (_itemUseAreaLabel == label)
             return;
         _itemUseAreaLabel = label;
@@ -869,6 +896,8 @@ internal sealed partial class PlayTray
     /// </summary>
     internal void SetItemUseSlotVisible(bool visible)
     {
+        if (_activeDismissOwnsBerth)
+            return;
         if (_itemUseSlot == null)
             return;
         bool active = _itemUseSlot.gameObject.activeSelf;

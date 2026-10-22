@@ -260,6 +260,7 @@
     <Compile Include="GoldenVectors.cs" />
     <Compile Include="StoryVectors.cs" />
     <Compile Include="MapSyncVectors.cs" />
+    <Compile Include="ActiveDismissBerthVectors.cs" />
     <Compile Include="RelaunchVectors.cs" />
     <Compile Include="FrameLaunchVectors.cs" />
     <Compile Include="ConfigStepVectors.cs" />

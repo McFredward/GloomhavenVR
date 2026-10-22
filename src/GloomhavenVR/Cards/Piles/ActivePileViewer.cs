@@ -56,6 +56,10 @@ internal sealed class ActivePileViewer
     private TextMeshPro? _title;
     private bool _locHooked;
 
+    // Still a member of this grid, but its physical home is temporarily the shared confirmation
+    // berth. Retain the same cell/address while staged; a rebuild must never pull it back out.
+    internal VRCard? StagedCard { get; set; }
+
     internal bool IsShown => _root != null && _root.gameObject.activeSelf;
 
     internal bool Contains(VRCard card) => _cards.Contains(card);
@@ -143,6 +147,7 @@ internal sealed class ActivePileViewer
 
     internal void Destroy()
     {
+        StagedCard = null;
         if (_locHooked)
         {
             Core.Loc.OnChanged -= RefreshLabels;
@@ -277,6 +282,11 @@ internal sealed class ActivePileViewer
             VRCard card = _cards[i];
             if (card == null)
                 continue;
+            if (ReferenceEquals(card, StagedCard))
+            {
+                _seated.Add(card);
+                continue;
+            }
             if (card.IsHeld)
             {
                 // A held card is declined a cell but is still a MEMBER of the column, so its

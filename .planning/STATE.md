@@ -1,3 +1,15 @@
+**Active-card dismissal and item fan closure, Build716, 2026-10-22.**
+
+The maintainer chose the existing physical item berth for ending active ability
+cards and living summons: rectangular landing preview, then explicit native-cap
+confirmation. Capture and invoke only the original game's accepted callback;
+revalidate native permission/owner/lifetime and preserve original multiplayer
+actions. TLV118 mirrors the same original active card staged on the remote berth,
+without a second copy. Successful item placement closes the fan while keeping
+choice/demand/damage/bonus decisions and retrieval alive. Shared-berth handoffs,
+stale caps, board rebuild and scene load are covered explicitly. See
+`ACTIVE-CARD-DISMISS716.md` for implementation, evidence and hardware limits.
+
 **Shared XR GPU measurement repair, 2026-10-21 (development source).**
 
 Bind the current XRDisplaySubsystem GPU provider before the legacy XRStats API;

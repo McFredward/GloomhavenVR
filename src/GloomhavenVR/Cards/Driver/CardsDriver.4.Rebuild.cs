@@ -516,6 +516,7 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void RebuildBoard()
     {
+        ResetActiveDismiss(); // cancel the old berth reservation before its card/parent is parked
         // The poke-toggle pile browse fan is parented under the board root (so it inherits the
         // board's live scale/pose) — a board switch DestroyImmediates that root. Close the browse
         // FIRST (it does not touch the cards' parents), so the park loop below still catches the
