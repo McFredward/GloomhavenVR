@@ -1,6 +1,11 @@
 using System;
 using UnityEngine;
 
+internal static class UnityGameEditorRuntime
+{
+    internal static Vector3 s_TileSize = new(1.8f, 0f, 1f);
+}
+
 namespace GloomhavenVR.Core
 {
     internal static class VRLog
@@ -38,6 +43,19 @@ namespace GloomhavenVR.WorldUI
     internal static class PanelLayout { internal static float WorldScale = 12f; }
     internal sealed class Dial { internal float Value = 1f; }
     internal static class WorldUIConfig { internal static Dial CanvasScaleMm = new(); }
+    // Native asset lookup is an explicit boundary. The returned original-style object's actual
+    // Unity collider/bounds are read by the complete production resolver, without native writes.
+    internal static class Resources
+    {
+        internal static GameObject? Hex;
+        internal static int Reads;
+        internal static T? Load<T>(string name) where T : UnityEngine.Object
+        { Reads++; return name == "Hex" ? Hex as T : null; }
+    }
+    internal static class RewardShowcasePlacement
+    {
+        internal static bool IsInitialAuthor => SharedWindowSpawnBridge.IsInitialAuthor;
+    }
     internal sealed class ConvertedPanel
     {
         internal GameObject HostGo = null!;
@@ -127,6 +145,7 @@ namespace GloomhavenVR.WorldUI
             internal GrabbableModal? Grab;
             internal SpawnAnchor SpawnAnchor;
             internal bool PoseRePlaceDone = false;
+            internal float ExtraScale = 1f;
         }
         private static readonly System.Collections.Generic.List<WindowPanel> Converted = new();
         private static SpawnAnchor s_lastSpawnAnchor;

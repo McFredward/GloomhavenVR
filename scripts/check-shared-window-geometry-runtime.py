@@ -87,6 +87,8 @@ def main():
             'internal void SetExtraScale(', 'private void PinVisualToFrame(', 'private void WriteVisual()'))
         grab += '\n' + block(original['grab'], 'internal void SnapFrameTo(')
         size = '\n'.join(block(original['size'], signature) for signature in ('internal static float ReferenceWorldScale',))
+        size += '\n' + block(original['size'], 'private static float NativeHexReferenceWorldScale()')
+        size += '\n' + '\n'.join(re.search(r'private static (?:float|bool) ' + name + r' = [^;]+;', original['size'])[0] for name in ('NativeHexScale', 'NativeHexReadAttempted'))
         size += '\n' + re.search(r'internal static bool UsesSharedWorldFrame\([\s\S]*?;', original['size'])[0]
         size += '\n' + re.search(r'internal static float RenderWorldScale\([\s\S]*?;', original['size'])[0]
         codec = block(original['protocol'], 'public static byte EncodeStorySize(')
@@ -100,6 +102,7 @@ def main():
             'Codec.cs': 'using UnityEngine; namespace GloomhavenVR.Net { internal static class NetProtocol {\n' + codec + '\n}}',
             'Bridge.cs': original['bridge'],
             'Host.cs': original['host'],
+            'HostMeasure.cs': prefix + 'internal static partial class ModalFallback {\n' + block(original['spawn'], 'private static Vector2 PanelWorldHalfSize(') + '\n}}',
         }
         variants = [
             ('production', '', '', '', ''),
@@ -117,16 +120,26 @@ def main():
              'explicit shared resize stays quantized while independent zoom is ignored'),
             ('host-pose-lags-frame', 'Grab.cs', 'host.SetPositionAndRotation(_visualPos, _visualRot);', 'host.SetPositionAndRotation(Vector3.zero, _visualRot);',
              'physical shared drag writes the same actual host pose in Update and LateUpdate'),
-            ('follower-private-head', 'Host.cs', 'if (!SharedWindowSpawnBridge.IsInitialAuthor)', 'if (bool.Parse("false"))',
+            ('follower-private-head', 'Host.cs', 'if (!author)', 'if (bool.Parse("false"))',
              'follower never reads its own camera while awaiting the initial shared pose'),
             ('follower-reveal-without-author', 'Bridge.cs', 'if (!Handles(panel)) return true;', 'if (!Handles(panel) || !IsInitialAuthor) return true;',
              'follower stays hidden while the current opening has no initial author pose'),
-            ('follower-no-replay-retirement', 'Host.cs', 'wp.PoseRePlaceDone = true;', 'wp.PoseRePlaceDone = false;',
+            ('follower-no-replay-retirement', 'Host.cs', 'wp.PoseRePlaceDone = true;\n            panel.SharedSpawnPoseReady = true;\n            NoteSharedAnchorSpent', 'wp.PoseRePlaceDone = false;\n            panel.SharedSpawnPoseReady = true;\n            NoteSharedAnchorSpent',
              'adopting the first shared pose retires every provisional replay'),
             ('host-replay-live-head', 'Host.cs', 'if (replay.HasValue && replay.Value.Valid)', 'if (replay.HasValue && replay.Value.Valid && bool.Parse("false"))',
              'host final-fit replay retains the original opening gaze'),
             ('standing-author-never-ready', 'Host.cs', 'wp.Panel.SharedSpawnPoseReady = true;', 'wp.Panel.SharedSpawnPoseReady = false;',
              'already revealed host window becomes an initial pose publisher when a session starts'),
+            ('native-size-from-menu-rig', 'Size.cs', 'return NativeHexReferenceWorldScale();', 'return Rig.VRRigDriver.BaseWorldScale;',
+             'native Hex reference ignores menu and torn-down rig bases'),
+            ('native-reference-cache-lost', 'Size.cs', 'if (NativeHexScale > 0f) return NativeHexScale;', 'if (NativeHexScale > 0f && bool.Parse("false")) return NativeHexScale;',
+             'successful original Hex geometry survives later rig and native-field gaps'),
+            ('native-reference-writes-original', 'Size.cs', 'float width = UnityGameEditorRuntime.s_TileSize.x;', 'float width = UnityGameEditorRuntime.s_TileSize.x; UnityGameEditorRuntime.s_TileSize.x = 999f;',
+             'shared size never writes the native tile or LOS geometry'),
+            ('native-collider-world-bounds', 'Size.cs', 'if (collider != null) size = collider.size;', 'if (collider != null) size = collider.bounds.size;',
+             'pre-initialization reference reads the original collider size without prefab transform scale'),
+            ('native-renderer-fallback-lost', 'Size.cs', 'if (renderer != null) size = renderer.bounds.size;', 'if (renderer != null && bool.Parse("false")) size = renderer.bounds.size;',
+             'original renderer fallback matches native initialization when the Hex has no collider'),
         ]
         if args.case:
             unknown = set(args.case) - {item[0] for item in variants}
@@ -178,7 +191,7 @@ def main():
         return status
     finally:
         (run / 'source-hashes.json').write_text(json.dumps(locals().get('hashes', {}), indent=2) + '\n')
-        (run / 'cleanup.json').write_text(json.dumps(cleanup_completed_run('shared-window-geometry-runtime', status, completion, root, process_reaped=True), indent=2) + '\n')
+        (run / 'cleanup.json').write_text(json.dumps(cleanup_completed_run('shared-window-geometry-runtime', status, completion, ROOT, process_reaped=True), indent=2) + '\n')
         print('Evidence: ' + str(run), flush=True)
 
 

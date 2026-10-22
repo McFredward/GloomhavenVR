@@ -267,7 +267,7 @@ internal static class SharedWindowSize
 
     /// <summary>Read the same original Hex width as UnityGameEditorRuntime.Initialise and
     /// VRRigDriver.ResolveWorldScale. A menu rig has base1 and a torn-down rig base0; neither
-    /// is scenario geometry. Native initialization reads this resource once in Main.Awake,
+    /// is scenario geometry. Native initialization reads this resource once in Main.Start,
     /// so its successful geometry reference intentionally survives every later rig/scene.
     /// This read-only pre-initialization path never calls the original initializer or writes
     /// its tile size/LOS scalar. Missing original assets retain the game's own 12x fallback.</summary>

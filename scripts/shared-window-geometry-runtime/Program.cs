@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Reflection;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
 using UnityEngine.UI;
@@ -44,6 +45,7 @@ public static class InteractionProgram
     }
     public static IEnumerator Run()
     {
+        NativeGeometryReference();
         SharedWindows.Online = true; GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = false;
         GloomhavenVR.Rig.VRRigDriver.BaseWorldScale = 12f;
         Vector2[] frames = { new(1920,1080), new(512,1021), new(1096,233), new(802,126) };
@@ -159,5 +161,57 @@ public static class InteractionProgram
         Check(Vector3.Distance(standing.HostGo.transform.position, standingPosition) < .0001f,
             "session start publishes the existing host pose without a new gaze spawn");
         yield return null;
+    }
+
+    private static void ResetNativeReference()
+    {
+        typeof(SharedWindowSize).GetField("NativeHexScale", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, 0f);
+        typeof(SharedWindowSize).GetField("NativeHexReadAttempted", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, false);
+        GloomhavenVR.WorldUI.Resources.Reads = 0;
+        GloomhavenVR.WorldUI.Resources.Hex = null;
+        GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = false;
+    }
+
+    private static void NativeGeometryReference()
+    {
+        ResetNativeReference();
+        UnityGameEditorRuntime.s_TileSize = new Vector3(1.72f, 0, 1);
+        foreach (float rig in new[] { 0f, 1f, 28f })
+        {
+            GloomhavenVR.Rig.VRRigDriver.BaseWorldScale = rig;
+            Check(Close(SharedWindowSize.ReferenceWorldScale, 1.72f / .15f),
+                "native Hex reference ignores menu and torn-down rig bases");
+        }
+        Check(UnityGameEditorRuntime.s_TileSize.x == 1.72f,
+            "shared size never writes the native tile or LOS geometry");
+        UnityGameEditorRuntime.s_TileSize = Vector3.zero;
+        Check(Close(SharedWindowSize.ReferenceWorldScale, 1.72f / .15f),
+            "successful original Hex geometry survives later rig and native-field gaps");
+        ResetNativeReference();
+        var hex = new GameObject("original Hex collider");
+        hex.transform.localScale = new Vector3(4, 2, 3);
+        hex.AddComponent<BoxCollider>().size = new Vector3(1.72f, .1f, 1);
+        GloomhavenVR.WorldUI.Resources.Hex = hex;
+        Check(Close(SharedWindowSize.ReferenceWorldScale, 1.72f / .15f),
+            "pre-initialization reference reads the original collider size without prefab transform scale");
+        Check(UnityGameEditorRuntime.s_TileSize == Vector3.zero,
+            "pre-initialization asset reads leave original native state untouched");
+        SharedWindowSize.ReferenceWorldScale.ToString();
+        Check(GloomhavenVR.WorldUI.Resources.Reads == 1, "original Hex geometry is captured once and reused without resource scans");
+        ResetNativeReference();
+        var rendered = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        UnityEngine.Object.DestroyImmediate(rendered.GetComponent<BoxCollider>());
+        rendered.transform.localScale = new Vector3(3, 2, 1);
+        GloomhavenVR.WorldUI.Resources.Hex = rendered;
+        Check(Close(SharedWindowSize.ReferenceWorldScale, rendered.GetComponent<Renderer>().bounds.size.x / .15f),
+            "original renderer fallback matches native initialization when the Hex has no collider");
+        ResetNativeReference();
+        Check(SharedWindowSize.ReferenceWorldScale == 12f && SharedWindowSize.ReferenceWorldScale == 12f,
+            "missing original Hex preserves the native nonblocking 12x fallback");
+        Check(GloomhavenVR.WorldUI.Resources.Reads == 1, "missing original Hex does not trigger a repeated resource scan");
+        UnityGameEditorRuntime.s_TileSize = new Vector3(1.8f, 0, 1);
+        Check(Close(SharedWindowSize.ReferenceWorldScale, 12f), "late native initialization can fill an unavailable original reference");
+        ResetNativeReference();
+        UnityGameEditorRuntime.s_TileSize = new Vector3(1.8f, 0, 1);
     }
 }
