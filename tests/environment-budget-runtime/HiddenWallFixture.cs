@@ -8,6 +8,10 @@ namespace GloomhavenVR.Core
     internal static class ScenarioTerrainBudget
     {
         internal static bool HasCurrentRenderLease(Renderer renderer) => false;
+        // The independent terrain lane owns the real registry. This explicit
+        // boundary models exact live identity, never names or shared materials.
+        internal static readonly HashSet<Renderer> PrivateRenderers = new();
+        internal static bool IsPrivateRenderer(Renderer renderer) => PrivateRenderers.Contains(renderer);
     }
     internal static partial class WallDormantFixture
     {

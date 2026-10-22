@@ -132,6 +132,10 @@ def main():
     variants = [('production',source,'')]
     if not args.production_only:
         for name, before, after, expected in (
+            ('private-terrain-wall-read-guard-omitted',
+             'if (ScenarioTerrainBudget.IsPrivateRenderer(renderer)) return;',
+             '/* injected: detached terrain draw enrolled as a second native wall */',
+             'private terrain renderer is excluded from native wall capability reads'),
             ('hidden-wall-native-write-bridge-omitted',
              'ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);\n            if (r.enabled)',
              '{} // injected: actual enabled setter keeps a current chunk lease\n            if (r.enabled)',

@@ -4,6 +4,7 @@ public static partial class EnvironmentProgram
 {
     private static void HiddenWallCurrentLease()
     {
+        PrivateTerrainWallReads();
         using var room = new Room();
         var first = room.Floor(1f); var second = room.Floor(2f);
         using var wall = new WallDormantFixture.AttachmentFixture();
@@ -41,5 +42,28 @@ public static partial class EnvironmentProgram
             "next actual camera keeps the externally disabled source native after its synchronous consumer release");
         first.enabled = true; wall.Restore();
         Configure(false, false, 100); Tick();
+    }
+
+    private static void PrivateTerrainWallReads()
+    {
+        using var room = new Room();
+        using var wall = new WallDormantFixture.AttachmentFixture();
+        var material = room.Material(); material.SetFloat("_WallFade_On", 1f);
+        var original = room.Surface("NativeWall", material: material);
+        var privateDraw = room.Surface("NativeWall", material: material);
+        Check(wall.Capable(original), "authored native wall retains its actual material capability");
+        ScenarioTerrainBudget.PrivateRenderers.Add(privateDraw);
+        try
+        {
+            // Prime the shared read scratch with a native wall first. Excluding
+            // the private draw must clear that previous renderer's material too.
+            Check(!wall.Capable(privateDraw),
+                "private terrain renderer is excluded from native wall capability reads");
+            Check(wall.Capable(original),
+                "same-name same-material native wall never inherits another renderer's private ownership");
+        }
+        finally { ScenarioTerrainBudget.PrivateRenderers.Remove(privateDraw); }
+        Check(wall.Capable(privateDraw),
+            "released private renderer regains live native wall capability without a stale identity cache");
     }
 }

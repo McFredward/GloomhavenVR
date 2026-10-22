@@ -202,14 +202,34 @@ public static partial class EnvironmentProgram
             for(int i=0;i<sources.Length;i++)sources.GetValue(i)!.GetType().GetField("sha256")!.SetValue(sources.GetValue(i),saved[i]);
             Check(ScenarioEnvironmentMeshBank.TryGetExact(native,out Mesh again)&&again==exact,"valid original provenance recovers its exact shared mesh");
             Array variants=(Array)entry.GetType().GetField("variants")!.GetValue(entry)!;
+            int hashCases=0;
             foreach(object variant in variants)
             {
-                if((int)variant.GetType().GetField("tier")!.GetValue(variant)!=50)continue;
+                // Pillar detail tiers were retired. Bind the surviving exact
+                // stream explicitly; a missing tier must never skip this proof.
+                if((int)variant.GetType().GetField("tier")!.GetValue(variant)!=100)continue;
+                hashCases++;
                 string filename=(string)variant.GetType().GetField("file")!.GetValue(variant)!;
-                ((IDictionary)typeof(ScenarioEnvironmentMeshBank).GetField("Meshes",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!).Remove(filename);
-                variant.GetType().GetField("sha256")!.SetValue(variant,new string('0',64));
-                Check(!ScenarioEnvironmentMeshBank.TryGetDetail(native,50,out _),"corrupt prepared geometry hash keeps native rendering");
+                var meshes=(IDictionary)typeof(ScenarioEnvironmentMeshBank).GetField("Meshes",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+                var failures=(HashSet<string>)typeof(ScenarioEnvironmentMeshBank).GetField("Failed",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+                var digest=variant.GetType().GetField("sha256")!;object savedDigest=digest.GetValue(variant)!;
+                Mesh savedMesh=(Mesh)meshes[filename]!;Mesh attempted=null!;
+                meshes.Remove(filename);
+                try
+                {
+                    // The original bytes remain fully decodable. Only the SHA
+                    // expectation is wrong, isolating this guard from decoding.
+                    digest.SetValue(variant,new string('0',64));
+                    Check(!ScenarioEnvironmentMeshBank.TryGetExact(native,out attempted),"corrupt prepared geometry hash keeps native rendering");
+                }
+                finally
+                {
+                    digest.SetValue(variant,savedDigest);meshes.Remove(filename);failures.Remove(filename);
+                    if(attempted!=null&&attempted!=savedMesh)UnityEngine.Object.DestroyImmediate(attempted);
+                    meshes.Add(filename,savedMesh);
+                }
             }
+            Check(hashCases==1,"prepared geometry hash proof exercises the actual surviving exact bank variant");
             bool malformed=false;try{ScenarioEnvironmentMeshStream.Read(new byte[20]);}catch(InvalidDataException){malformed=true;}
             Check(malformed,"malformed private stream cannot create a native replacement");
         }
