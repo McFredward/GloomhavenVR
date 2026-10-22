@@ -265,6 +265,18 @@ internal sealed class RemoteBoardCard
         _returningPose = true;
     }
 
+    // An accepted dismissal owns this exact intermediate pose while native state/artwork
+    // catches up. The item berth may close meanwhile; its original card must stay visible
+    // without continuing a glide whose targets belonged to the previous parent frame.
+    internal void FreezePresentationParent(Transform parent)
+    {
+        _root.transform.SetParent(parent, worldPositionStays: true);
+        _gliding = false;
+        _returningPose = false;
+        _glideTo = _root.transform.localPosition;
+        _glideScale = _root.transform.localScale.x;
+    }
+
     /// <summary>
     /// Re-seat the panel (the active-card grid relays its cards as the pile changes) — INSTANTLY for
     /// a cell that is taking a different card, and on the OWNER'S OWN HOME GLIDE for one that is

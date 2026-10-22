@@ -102,6 +102,9 @@ internal sealed class RemoteCardFx
         public bool RecoveryHome;
         public bool FromDismissBerth;
         public CardDismissFlightOrigin? DismissOrigin;
+        public CardFlightSource? Source;
+        public object? Scenario;
+        public int PresentationPlayer;
         public float Arc;
         public float Elapsed;
         public float ArtworkWait;
@@ -137,14 +140,18 @@ internal sealed class RemoteCardFx
     private readonly struct PendingFlight
     {
         internal PendingFlight(byte endpoints, byte flags, CardFlightSource? source, long generation,
-            CardDismissFlightOrigin? dismissOrigin = null, ScenarioRuleLibrary.CAbilityCard? originalCard = null)
+            CardDismissFlightOrigin? dismissOrigin = null, ScenarioRuleLibrary.CAbilityCard? originalCard = null,
+            int presentationPlayer = 0, object? scenario = null)
         { Endpoints = endpoints; Flags = flags; Source = source; Generation = generation;
-          DismissOrigin = dismissOrigin; OriginalCard = originalCard; ReceivedAt = Time.unscaledTime; }
+          DismissOrigin = dismissOrigin; OriginalCard = originalCard; PresentationPlayer = presentationPlayer;
+          Scenario = scenario; ReceivedAt = Time.unscaledTime; }
         internal readonly long Generation;
         internal readonly byte Endpoints, Flags;
         internal readonly CardFlightSource? Source;
         internal readonly CardDismissFlightOrigin? DismissOrigin;
         internal readonly ScenarioRuleLibrary.CAbilityCard? OriginalCard;
+        internal readonly int PresentationPlayer;
+        internal readonly object? Scenario;
         internal readonly float ReceivedAt;
     }
     private readonly List<PendingFlight> _pending = new(MaxFlights);
@@ -171,6 +178,32 @@ internal sealed class RemoteCardFx
             if (flight.Active && flight.FromDismissBerth && !flight.SourceTransferred
                 && flight.FaceCard?.CardInstanceID == cardId) return true;
         return false;
+    }
+
+    private static bool KeepDismissFlight(byte endpoints, CardFlightSource? source,
+        CardDismissFlightOrigin origin, ScenarioRuleLibrary.CAbilityCard? originalCard, object? scenario,
+        int presentationPlayer, bool committed)
+    {
+        // A valid accepted dismissal may outrun native replication or original artwork by
+        // several seconds. Time alone cannot discard its only flight. Real scenario, actor,
+        // controller or original-card lifecycle changes still retire this bounded lease.
+        if (!ReferenceEquals(scenario, ScenarioRuleLibrary.ScenarioManager.Scenario)
+            || !source.HasValue || !source.Value.Validate()) return false;
+        var actor = RemoteBoardFocus.ActorById(source.Value.ActorId);
+        if (actor == null) return false;
+        if (NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out RemoteAvatar? controller)
+            && controller != null && controller.PlayerId != presentationPlayer) return false;
+        var resolved = CardAppearanceProvenance.Resolve(origin.SourceActorId, origin.PoolSeat, origin.PoolCount);
+        if (originalCard != null && resolved != null && !ReferenceEquals(originalCard, resolved)) return false;
+        var card = originalCard ?? resolved;
+        if (card == null) return true; // Its counted native pool is still being restored.
+        var cc = actor.CharacterClass;
+        if (cc.HandAbilityCards.Contains(card) || cc.RoundAbilityCards.Contains(card)
+            || cc.ExtraTurnCards.Contains(card) || committed && cc.ActivatedCards.Contains(card)) return false;
+        bool inAnyPile = cc.DiscardedAbilityCards.Contains(card) || cc.LostAbilityCards.Contains(card)
+            || cc.PermanentlyLostAbilityCards.Contains(card);
+        return cc.ActivatedCards.Contains(card) || !inAnyPile
+            || RemoteActiveDepartures.HasCommittedOriginal(actor, card, NetCardFx.To(endpoints), source);
     }
 
     // ---- THE FLYING CARD'S SIZE (extension record 28 id 70 + CardFace.VisibleFaceRect) ---------
@@ -227,16 +260,19 @@ internal sealed class RemoteCardFx
     /// flight is always better than a card arcing to the world origin.
     /// </summary>
     public void Play(byte endpoints, byte flags = 0, CardFlightSource? source = null,
-        CardDismissFlightOrigin? dismissOrigin = null, ScenarioRuleLibrary.CAbilityCard? originalCard = null)
+        CardDismissFlightOrigin? dismissOrigin = null, ScenarioRuleLibrary.CAbilityCard? originalCard = null,
+        int presentationPlayer = 0)
     {
         long generation = _owner.NextFlightOwnership();
-        if (TryPlay(endpoints, flags, source, generation, dismissOrigin, originalCard)) return;
+        if (TryPlay(endpoints, flags, source, generation, dismissOrigin, originalCard, presentationPlayer)) return;
         if (_pending.Count >= MaxFlights) _pending.RemoveAt(0);
-        _pending.Add(new PendingFlight(endpoints, flags, source, generation, dismissOrigin, originalCard));
+        _pending.Add(new PendingFlight(endpoints, flags, source, generation, dismissOrigin, originalCard,
+            presentationPlayer != 0 ? presentationPlayer : _owner.PlayerId, ScenarioRuleLibrary.ScenarioManager.Scenario));
     }
 
     private bool TryPlay(byte endpoints, byte flags, CardFlightSource? source, long generation,
-        CardDismissFlightOrigin? dismissOrigin = null, ScenarioRuleLibrary.CAbilityCard? originalCard = null)
+        CardDismissFlightOrigin? dismissOrigin = null, ScenarioRuleLibrary.CAbilityCard? originalCard = null,
+        int presentationPlayer = 0)
     {
         if (_owner.HoldsBurnCardLayout) return false;
 
@@ -270,6 +306,7 @@ internal sealed class RemoteCardFx
         }
         if (!TryResolve(from, out Vector3 a) || !TryResolve(to, out Vector3 b))
         {
+            if (fromDismissBerth) return false;
             VRLog.Info("Net", $"Remote card FX [player {_owner.PlayerId}]: {from} -> {to} SKIPPED " +
                               "(endpoint unresolved — no synced board pose or the hand is not tracked).");
             return true;
@@ -286,6 +323,7 @@ internal sealed class RemoteCardFx
                 dismissOrigin.PoolSeat, dismissOrigin.PoolCount);
             if (resolved == null || originalCard != null && !ReferenceEquals(originalCard, resolved)) return false;
             originalCard = resolved;
+            _owner.FreezeDismissOriginal(originalCard);
             if (from != CardFxAnchor.Active || !RemoteActiveDepartures.HasCommittedOriginal(
                 source.HasValue ? RemoteBoardFocus.ActorById(source.Value.ActorId) : null,
                 originalCard, to, source)) return false;
@@ -329,6 +367,8 @@ internal sealed class RemoteCardFx
         f.RecoveryHome = returning != null;
         f.FromDismissBerth = fromDismissBerth;
         f.DismissOrigin = dismissOrigin;
+        f.Source = source; f.Scenario = ScenarioRuleLibrary.ScenarioManager.Scenario;
+        f.PresentationPlayer = presentationPlayer != 0 ? presentationPlayer : _owner.PlayerId;
         f.SourceActor = source.HasValue ? RemoteBoardFocus.ActorById(source.Value.ActorId)
             : RemoteBoardFocus.DisplayedActor(_owner, out _);
         f.Endpoints = endpoints; f.Flags = flags; f.ArtworkWait = 0f;
@@ -901,22 +941,30 @@ internal sealed class RemoteCardFx
             {
                 PendingFlight pending = _pending[i];
                 _pending[i] = new PendingFlight(pending.Endpoints, pending.Flags, pending.Source, pending.Generation,
-                    pending.DismissOrigin, pending.OriginalCard);
+                    pending.DismissOrigin, pending.OriginalCard, pending.PresentationPlayer, pending.Scenario);
             }
         }
         // Already launched flights keep moving, just like their local VRCard counterparts.
         for (int i = 0; !_owner.HoldsBurnCardLayout && i < _pending.Count;)
         {
             PendingFlight pending = _pending[i];
-            if (Time.unscaledTime - pending.ReceivedAt > ResolveSeconds
-                || TryPlay(pending.Endpoints, pending.Flags, pending.Source, pending.Generation,
-                    pending.DismissOrigin, pending.OriginalCard)) _pending.RemoveAt(i);
+            if (pending.DismissOrigin != null ? !KeepDismissFlight(pending.Endpoints, pending.Source,
+                    pending.DismissOrigin, pending.OriginalCard, pending.Scenario, pending.PresentationPlayer, false)
+                    : Time.unscaledTime - pending.ReceivedAt > ResolveSeconds)
+            { _pending.RemoveAt(i); continue; }
+            if (TryPlay(pending.Endpoints, pending.Flags, pending.Source, pending.Generation,
+                    pending.DismissOrigin, pending.OriginalCard, pending.PresentationPlayer)) _pending.RemoveAt(i);
             else i++;
         }
         for (int i = 0; i < _flights.Count; i++)
         {
             Flight f = _flights[i];
             if (!f.Active) continue;
+            if (f.FromDismissBerth && !KeepDismissFlight(f.Endpoints, f.Source, f.DismissOrigin!,
+                f.FaceCard, f.Scenario, f.PresentationPlayer, true))
+            {
+                f.Active = false; f.Art?.HideFront(); f.Go?.SetActive(false); continue;
+            }
             if (f.Go == null)
             {
                 f.Active = false;
@@ -947,7 +995,7 @@ internal sealed class RemoteCardFx
                 // Withholding a public back must not consume the whole unseen arc. Allow the
                 // correct source to load, then start/resume movement; teardown remains bounded.
                 f.ArtworkWait += Mathf.Max(dt, 0f);
-                if (f.ArtworkWait >= ResolveSeconds)
+                if (!f.FromDismissBerth && f.ArtworkWait >= ResolveSeconds)
                 {
                     f.Active = false;
                     f.ActiveCardId = int.MinValue;

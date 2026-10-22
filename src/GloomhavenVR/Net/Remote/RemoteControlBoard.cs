@@ -660,6 +660,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         return _active != null && _active.TryDismissPose(card, out world, out rotation, out width);
     }
 
+    internal void FreezeDismissOriginal(CAbilityCard card) => _active?.FreezeDismissOriginal(card);
+
     private readonly RemoteAvatar _owner;
 
     /// <summary>The peer's authored board layout — every dock seat on this board is derived from it

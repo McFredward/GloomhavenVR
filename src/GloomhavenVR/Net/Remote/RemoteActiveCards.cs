@@ -395,7 +395,7 @@ internal sealed class RemoteActiveCards
         // original berth renderer out of the reusable active pool until its actual handover.
         if (_dismissCard != null && _dismissPanel != null
             && _owner.RetainsDismissOriginal(_dismissCard.CardInstanceID))
-            _retainedDismiss[_dismissCard] = _dismissPanel;
+            FreezeDismissOriginal(_dismissCard);
         _retiredDismiss.Clear();
         foreach (var retained in _retainedDismiss)
             if (!_owner.RetainsDismissOriginal(retained.Key.CardInstanceID))
@@ -405,6 +405,15 @@ internal sealed class RemoteActiveCards
     }
 
     private bool IsRetainedDismiss(RemoteBoardCard panel) => _retainedDismiss.ContainsValue(panel);
+
+    internal void FreezeDismissOriginal(CAbilityCard card)
+    {
+        RemoteBoardCard? panel = _dismissPanel != null && ReferenceEquals(_dismissCard, card)
+            ? _dismissPanel : _retainedDismiss.TryGetValue(card, out RemoteBoardCard retained) ? retained : null;
+        if (panel == null || _root.parent == null) return;
+        panel.FreezePresentationParent(_root.parent);
+        _retainedDismiss[card] = panel;
+    }
 
     // A dismissal may be accepted while SetHome is still settling. Capture the panel the
     // observer is actually looking at immediately before ownership changes; the active-grid

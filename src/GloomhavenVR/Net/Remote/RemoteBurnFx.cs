@@ -573,7 +573,7 @@ internal sealed class RemoteBurnFx
             PendingRelease oldest = _pendingReleases[0];
             if (!oldest.FallbackPlayed && oldest.CompletionTime < 0f && (oldest.Source.HasValue
                 || oldest.ActorId == NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _))))
-                _owner.PlayUnclaimedBurnEvent(oldest.Endpoints, oldest.Flags, oldest.Source, oldest.DismissOrigin, oldest.OriginalCard);
+                _owner.PlayUnclaimedBurnEvent(oldest.Endpoints, oldest.Flags, oldest.Source, oldest.DismissOrigin, oldest.OriginalCard, oldest.PresentationPlayer);
             _pendingReleases.RemoveAt(0);
         }
         _pendingReleases.Add(new PendingRelease
@@ -662,6 +662,7 @@ internal sealed class RemoteBurnFx
             {
                 pending.OriginalCard ??= CardAppearanceProvenance.Resolve(pending.DismissOrigin.SourceActorId,
                     pending.DismissOrigin.PoolSeat, pending.DismissOrigin.PoolCount);
+                if (pending.OriginalCard != null) _owner.FreezeDismissOriginal(pending.OriginalCard);
                 PrepareDismissRelease(pending.Endpoints, pending.Source, pending.OriginalCard, pending.DismissOrigin);
             }
             if (pending.CompletionTime >= 0f && pendingActor != null && PendingRecovered(pending, pendingActor))
@@ -678,7 +679,7 @@ internal sealed class RemoteBurnFx
             }
             if (age >= ReleaseResolveSeconds && pending.CompletionTime < 0f)
             {
-                _owner.PlayUnclaimedBurnEvent(pending.Endpoints, pending.Flags, pending.Source, pending.DismissOrigin, pending.OriginalCard);
+                _owner.PlayUnclaimedBurnEvent(pending.Endpoints, pending.Flags, pending.Source, pending.DismissOrigin, pending.OriginalCard, pending.PresentationPlayer);
                 pending.FallbackPlayed = true;
             }
         }

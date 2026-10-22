@@ -984,16 +984,19 @@ internal sealed class RemoteAvatar
         out UnityEngine.Quaternion rotation, out float width) =>
         _controlBoard.TryDismissPose(card, out world, out rotation, out width);
 
+    internal void FreezeDismissOriginal(ScenarioRuleLibrary.CAbilityCard card) => _controlBoard.FreezeDismissOriginal(card);
+
     /// <summary>The visible burn slab owns one recess until its animation finishes.</summary>
     internal void PlayUnclaimedBurnEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null,
-        CardDismissFlightOrigin? dismissOrigin = null, ScenarioRuleLibrary.CAbilityCard? originalCard = null) =>
-        _cardFx.Play(endpoints, flags, source, dismissOrigin, originalCard);
+        CardDismissFlightOrigin? dismissOrigin = null, ScenarioRuleLibrary.CAbilityCard? originalCard = null,
+        int presentationPlayer = 0) =>
+        _cardFx.Play(endpoints, flags, source, dismissOrigin, originalCard, presentationPlayer);
 
     private long _flightOwnershipSequence;
     internal long NextFlightOwnership() => ++_flightOwnershipSequence;
     internal bool IsFlyingToHand(int cardId) => _cardFx.IsFlyingToHand(cardId);
     internal bool DismissFlightOwnsCard(int cardId) => _cardFx.DismissOwnsCard(cardId) || _burnFx.DismissOwnsCard(cardId);
-    internal bool RetainsDismissOriginal(int cardId) => _cardFx.RetainsDismissOriginal(cardId);
+    internal bool RetainsDismissOriginal(int cardId) => _cardFx.RetainsDismissOriginal(cardId) || _burnFx.DismissOwnsCard(cardId);
     internal bool FlightOwnsRecess(int recess) => _cardFx.OwnsRecess(recess);
     internal int TransferCardToFlight(CardFxAnchor from, int cardId, ScenarioRuleLibrary.CPlayerActor? actor, long generation) =>
         _controlBoard.TransferCardToFlight(from, cardId, actor, generation);
@@ -2491,11 +2494,12 @@ internal sealed class RemoteAvatar
                 dismissOrigin.PoolSeat, dismissOrigin.PoolCount);
             if (resolved != null && originalCard != null && !ReferenceEquals(resolved, originalCard)) return;
             originalCard ??= resolved;
+            if (originalCard != null) FreezeDismissOriginal(originalCard);
             _burnFx.PrepareDismissRelease(endpoints, source, originalCard, dismissOrigin);
         }
         _burnFx.PreparePresentation(); // Establish native burn ownership before any following flight.
         if (!_burnFx.ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer, originalCard, dismissOrigin))
-            _cardFx.Play(endpoints, flags, source, dismissOrigin, originalCard);
+            _cardFx.Play(endpoints, flags, source, dismissOrigin, originalCard, presentationPlayer);
     }
 
     /// <summary>Card-FX events this client has SEEN arrive from that peer, and how many the
