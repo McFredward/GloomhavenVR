@@ -258,11 +258,51 @@ internal static class SharedWindowSize
         {
             if (MapRoom.MapRoomDriver.TryGetParchmentFrame(out Vector3 _, out float scale))
                 return Mathf.Max(scale, 0.01f);
-            // The native movie can survive the gap between rigs. Match the scenario rig's
-            // geometry fallback rather than admitting zero as a hundredth-sized shared frame.
-            float scenario = Rig.VRRigDriver.BaseWorldScale;
-            return scenario > 0.01f ? scenario : 12f;
+            return NativeHexReferenceWorldScale();
         }
+    }
+
+    private static float NativeHexScale = 0f;
+    private static bool NativeHexReadAttempted = false;
+
+    /// <summary>Read the same original Hex width as UnityGameEditorRuntime.Initialise and
+    /// VRRigDriver.ResolveWorldScale. A menu rig has base1 and a torn-down rig base0; neither
+    /// is scenario geometry. Native initialization reads this resource once in Main.Awake,
+    /// so its successful geometry reference intentionally survives every later rig/scene.
+    /// This read-only pre-initialization path never calls the original initializer or writes
+    /// its tile size/LOS scalar. Missing original assets retain the game's own 12x fallback.</summary>
+    private static float NativeHexReferenceWorldScale()
+    {
+        if (NativeHexScale > 0f) return NativeHexScale;
+        float width = UnityGameEditorRuntime.s_TileSize.x;
+        if (width <= 0.001f && !NativeHexReadAttempted)
+        {
+            NativeHexReadAttempted = true;
+            try
+            {
+                GameObject? hex = Resources.Load<GameObject>("Hex");
+                if (hex != null)
+                {
+                    Vector3 size = Vector3.zero;
+                    BoxCollider? collider = hex.GetComponent<BoxCollider>();
+                    if (collider != null) size = collider.size;
+                    if (size == Vector3.zero)
+                    {
+                        Renderer? renderer = hex.GetComponent<Renderer>();
+                        if (renderer != null) size = renderer.bounds.size;
+                    }
+                    width = size.x;
+                }
+            }
+            catch (System.Exception error)
+            {
+                VRLog.Info("WorldUI", "SHARED WINDOW HEX REFERENCE: original Hex could not be read; "
+                    + $"using native fallback12 until its original tile width is available ({error.GetType().Name}).");
+            }
+        }
+        if (width > 0.001f)
+            return NativeHexScale = Mathf.Clamp(width / 0.15f, 1f, 100f);
+        return 12f;
     }
 
     internal static bool UsesSharedWorldFrame(ConvertedPanel? panel) =>
