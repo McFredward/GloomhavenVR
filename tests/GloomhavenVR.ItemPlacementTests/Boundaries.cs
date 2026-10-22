@@ -59,16 +59,27 @@ namespace GloomhavenVR.Cards
     {
         internal static PlayTray? Current=new();
         internal Transform? Root=new(), ItemUseSlotTransform=new();
-        internal bool Confirm;
+        internal bool Confirm, ActiveDismissOwner;
+        internal int ActiveDismissCancels, ActiveDismissCommits;
         internal Action? OnConfirm;
-        internal void SetItemUseSlotVisible(bool value) => ItemUseSlotTransform!.gameObject.SetActive(value);
-        internal void SetItemUseConfirmVisible(bool value, Action? action) { Confirm=value; OnConfirm=action; }
+        internal void SetItemUseSlotVisible(bool value) { if(!ActiveDismissOwner)ItemUseSlotTransform!.gameObject.SetActive(value); }
+        internal void SetItemUseConfirmVisible(bool value, Action? action) { if(!ActiveDismissOwner){Confirm=value; OnConfirm=action;} }
         internal void SetItemUseAreaLabel(string? label) { }
+        internal void ReserveActiveDismiss() { ActiveDismissOwner=true;Confirm=true;OnConfirm=()=>ActiveDismissCommits++; }
+        internal void ReleaseActiveDismiss()
+        {
+            if(!ActiveDismissOwner)return;
+            ActiveDismissCancels++;
+            ActiveDismissOwner=false;
+            Confirm=false;OnConfirm=null;
+            ItemUseSlotTransform!.gameObject.SetActive(false);
+        }
     }
     internal static class CardsDriver
     {
-        internal static int Sounds;
+        internal static int Sounds, BerthClaims;
         internal static void PlayCardSound(string sound, Transform target) => Sounds++;
+        internal static void YieldActiveDismissBerthToItem() { BerthClaims++;PlayTray.Current!.ReleaseActiveDismiss(); }
     }
     internal static class CardsConfig
     {
@@ -137,7 +148,7 @@ namespace GloomhavenVR.Cards
         private string DemandConfirmLabel() => "surrender";
         internal static ItemsPile Create(string flow, out ItemChip card, out ItemChip sibling)
         {
-            PlayTray.Current=new(); CardsGameApi.Picker=new(); CardsGameApi.Deselects=CardsGameApi.Toggles=CardsDriver.Sounds=0;
+            PlayTray.Current=new(); CardsGameApi.Picker=new(); CardsGameApi.Deselects=CardsGameApi.Toggles=CardsDriver.Sounds=CardsDriver.BerthClaims=0;
             var pile=new ItemsPile();card=new();sibling=new();pile._chips.Add(sibling);pile._chips.Add(card);
             card.transform.parent=pile._root;
             pile._demandActive=flow=="demand";pile._tdActive=flow=="damage";

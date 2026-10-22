@@ -750,6 +750,19 @@ internal sealed partial class ItemsPile
     /// </summary>
     private void CloseAfterPlacement() => Close("item card placed in the use recess");
 
+    /// <summary>
+    /// Take the shared berth only after the item's own drop gates have accepted this placement.
+    /// An active-card dismissal may still own its cap when the other hand releases an item:
+    /// installing the item cap first would be suppressed, then lost when dismissal yields next
+    /// tick. Release that reservation synchronously before any item slot/cap writes. The reset
+    /// may hide the former overlay, so every accepted flow restores the item target here too.
+    /// </summary>
+    private static void ClaimUseBerthForPlacement()
+    {
+        CardsDriver.YieldActiveDismissBerthToItem();
+        PlayTray.Current?.SetItemUseSlotVisible(true);
+    }
+
     internal void Destroy()
     {
         ClearHandSweep();
@@ -2557,6 +2570,7 @@ internal sealed partial class ItemsPile
         if (_pendingUseChip != null && !ReferenceEquals(_pendingUseChip, chip))
             _pendingUseChip.ReturnToFan();
 
+        ClaimUseBerthForPlacement();
         _pendingUseChip = chip;
         chip.PendingUse = true;
         chip.CancelReleaseGlide(); // do NOT glide home — we clip into the slot instead
@@ -3656,6 +3670,7 @@ internal sealed partial class ItemsPile
         if (_pendingUseChip != null && !ReferenceEquals(_pendingUseChip, chip))
             CancelPlacedCard(_pendingUseChip, "another item card was placed in the recess");
 
+        ClaimUseBerthForPlacement();
         _pendingUseChip = chip;
         _pendingBonus = bonus;
         _pendingBonusToggled = false;
@@ -4398,6 +4413,7 @@ internal sealed partial class ItemsPile
             return; // the open arc glides home; a closed arc retires its survivor
         }
 
+        ClaimUseBerthForPlacement();
         _demandChip = chip;
         chip.PendingUse = true;
         chip.CancelReleaseGlide();
@@ -4708,6 +4724,7 @@ internal sealed partial class ItemsPile
             }
         }
 
+        ClaimUseBerthForPlacement();
         _tdChip = chip;
         chip.PendingUse = true;
         chip.CancelReleaseGlide();

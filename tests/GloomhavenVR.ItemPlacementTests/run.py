@@ -16,6 +16,7 @@ from town_run_retention import cleanup_completed_run
 
 METHODS = [
     'internal void Close(', 'private void CloseAfterPlacement()',
+    'private static void ClaimUseBerthForPlacement()',
     'internal void OnChipReleased(', 'private void HandleBonusDrop(',
     'private void HandleDemandDrop(', 'private void HandleTakeDamageDrop(',
     'private void AfterRefusedDrop(', 'private void TickPlacedWhileClosed(',
@@ -83,6 +84,8 @@ def main():
         mutations = [
             ('production', '', '', ''),
             ('missing-close', 'CloseAfterPlacement();', '_ = chip;', 'Accepted item placement must close the fan'),
+            ('missing-berth-yield', 'CardsDriver.YieldActiveDismissBerthToItem();', '_ = PlayTray.Current;', 'Accepted item must release active dismissal before installing its cap'),
+            ('missing-item-slot-restore', 'CardsDriver.YieldActiveDismissBerthToItem();\n        PlayTray.Current?.SetItemUseSlotVisible(true);', 'CardsDriver.YieldActiveDismissBerthToItem();', 'Placed item overlay must stay visible: demand'),
             ('missing-demand-survivor', '_pendingUseChip ?? _demandChip ?? _tdChip', '_pendingUseChip ?? _tdChip', 'Placed card must remain in its slot: demand'),
             ('missing-td-survivor', '_pendingUseChip ?? _demandChip ?? _tdChip', '_pendingUseChip ?? _demandChip', 'Placed card must remain in its slot: damage'),
             ('missing-closed-pump-owner', 'if (ReferenceEquals(chip, _demandChip) || ReferenceEquals(chip, _tdChip))', 'if (bool.Parse("false"))', 'Demand decision must remain owned while closed'),
