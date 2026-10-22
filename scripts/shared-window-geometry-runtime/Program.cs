@@ -104,6 +104,7 @@ public static class InteractionProgram
         CanvasConversion.WorldCamera = camera;
         camera.transform.SetPositionAndRotation(new Vector3(7,18,-4), Quaternion.Euler(25,61,9));
         var hostPanel = Panel(new Vector2(1096,233), SharedWindowKind.ScenarioStory);
+        hostPanel.RevealPending = true;
         var hostGrab = Build(hostPanel, 7.22f, 1f);
         ModalFallback.Register(hostPanel, hostGrab);
         SharedWindowSpawnBridge.InitialAuthor = () => true;
@@ -146,6 +147,17 @@ public static class InteractionProgram
         Check(SharedWindowSpawnBridge.TryReveal(unrelated), "private native windows never wait for shared transport");
         foreach (SharedWindowKind dedicated in new[] { SharedWindowKind.Video, SharedWindowKind.RewardShowcase })
             Check(SharedWindowSpawnBridge.TryReveal(Panel(new Vector2(400,300), dedicated)), "dedicated movie and reward handoffs retain their own reveal authority");
+        SharedWindows.Online = false;
+        var standing = Panel(new Vector2(802,126), SharedWindowKind.Encounter);
+        var standingGrab = Build(standing, 17.5f, 1f);
+        ModalFallback.Register(standing, standingGrab);
+        Vector3 standingPosition = standing.HostGo.transform.position;
+        SharedWindowSpawnBridge.InitialAuthor = () => true;
+        SharedWindows.Online = true;
+        Check(ModalFallback.SharedInitialPoseReady(SharedWindowKind.Encounter) && standing.SharedSpawnPoseReady,
+            "already revealed host window becomes an initial pose publisher when a session starts");
+        Check(Vector3.Distance(standing.HostGo.transform.position, standingPosition) < .0001f,
+            "session start publishes the existing host pose without a new gaze spawn");
         yield return null;
     }
 }

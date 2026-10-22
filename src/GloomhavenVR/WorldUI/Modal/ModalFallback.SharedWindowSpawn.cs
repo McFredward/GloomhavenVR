@@ -72,8 +72,18 @@ internal static partial class ModalFallback
     internal static bool SharedInitialPoseReady(SharedWindowKind kind)
     {
         foreach (WindowPanel wp in Converted)
-            if (wp.Panel.IsAlive && wp.Panel.SharedDesignKind == kind
-                && wp.Panel.SharedSpawnPoseReady) return true;
+        {
+            if (!wp.Panel.IsAlive || wp.Panel.SharedDesignKind != kind) continue;
+            // A native window can be converted and revealed while still private, then join a
+            // network session without reopening. There is no second CompleteReveal edge. The
+            // elected author's standing pose is already readable and remains authoritative;
+            // publishing it must not re-run gaze placement or import a follower's private seat.
+            if (!wp.Panel.SharedSpawnPoseReady && !wp.Panel.RevealPending
+                && SharedWindowSpawnBridge.Handles(wp.Panel)
+                && SharedWindowSpawnBridge.IsInitialAuthor)
+                wp.Panel.SharedSpawnPoseReady = true;
+            if (wp.Panel.SharedSpawnPoseReady) return true;
+        }
         return false;
     }
 

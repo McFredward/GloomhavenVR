@@ -42,6 +42,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/shared-window-geometry-runtime')
+    parser.add_argument('--case', action='append', help='Partial development run; repeat to choose cases')
     args = parser.parse_args()
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -124,7 +125,14 @@ def main():
              'adopting the first shared pose retires every provisional replay'),
             ('host-replay-live-head', 'Host.cs', 'if (replay.HasValue && replay.Value.Valid)', 'if (replay.HasValue && replay.Value.Valid && bool.Parse("false"))',
              'host final-fit replay retains the original opening gaze'),
+            ('standing-author-never-ready', 'Host.cs', 'wp.Panel.SharedSpawnPoseReady = true;', 'wp.Panel.SharedSpawnPoseReady = false;',
+             'already revealed host window becomes an initial pose publisher when a session starts'),
         ]
+        if args.case:
+            unknown = set(args.case) - {item[0] for item in variants}
+            if unknown:
+                parser.error('Unknown case: ' + ', '.join(sorted(unknown)))
+            variants = [item for item in variants if item[0] in args.case]
         unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
         managed = unity.parent / 'Data/Managed'
         game = root / 'ressources/GH_Data/Managed'
