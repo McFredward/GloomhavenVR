@@ -1,6 +1,59 @@
 # Genuine VR gameplay replacement
 
-## October 21 damage and map correction (v18)
+## October 22 shorter choice sequence and forest angle (v19)
+
+V19 replaces only FG04 `[3776,4088)` (1:02.93–1:08.13) and FG10
+`[4965,5112)` (1:22.75–1:25.20) against V18: 459 selected frame addresses,
+14,351 inherited addresses and the original 14,810-frame/60fps timeline.
+
+The former 5.2-second exhaustion view is a two-shot edit. The first 84 frames
+use October 21 source 689.9–691.3: A character receives 6 damage and
+the visible health bar falls 9 → 3. Actor class and faction are not asserted.
+This deliberately reuses an excerpt from the later mosaic. A rebuilt 35-frame
+native gold wipe overlays this new opening; it never shows later death pictures before
+the actual decision. A hard cut at frame 3860 (1:04.33) clearly changes scene.
+
+The following 228 frames use October 19 source 518.3–522.1 continuously at 1x.
+The player selects the genuine RECEIVE DAMAGE 2 button with the native VR ray;
+Mindthief's 2 HP fall to 0 and the same figure dissolves/collapses. This restores
+the real choice previously omitted by the 520.9-second in-point and removes
+the long aftermath. The two shots are separate fights: the first hit is not
+presented as the cause of Mindthief's exhaustion. No direct fingertip contact
+or permanent character death is asserted.
+
+FG10 now uses October 17 09:50:43 source 375.4–377.85: an actual Spellweaver ranged
+spell hits a Hound for 1 damage. The flatter, open forest view keeps both actors,
+the tracked hand, beam and impact readable. It replaces the tight diagonal
+summoning angle; it does not claim a stronger attack or trap disarming. Existing
+12-frame optical entry/exit smears retain their timing.
+
+All selected source clocks stay exactly 1x with ordinary 30-to-60fps repetition; the
+internal cut does not speed up either take. Original AAC, continuous fan mark,
+accepted cinematics, V18's restored map contour and the separate game intro
+are retained. V19 SHA256 is `af5c07772356d4155c9d949994c4febb55841814bc4cb2cba061a7158cacb6fb`.
+
+The assembler, frame-address/component comparison, continuous label check and
+all 11,573 original AAC packets pass. The initial full run passes inherited
+pictures, audio and fan mark; 14 saturated transition frames require the exact
+unchanged assembler colour path as their comparison reference. A focused 459-frame
+follow-up passes with maximum MAE 0.78012; inherited-picture maximum is 0.765625,
+under the unchanged 2.0 limit. The initial failure remains recorded, and no second
+complete run is claimed. Actual-export visual witnesses and desktop/
+mobile-emulated browser playback check the visible button before closure,
+subsequent zero HP/collapse, new internal cut and unobstructed forest action.
+Unchanged V18 creative review is inherited. These are focused media/browser
+checks, not a new game-runtime, headset or continuous whole-film manual review.
+
+The active review is `vr-gameplay-v10/REVIEW.html`. Authoritative receipts are
+`qc-independent/technical-final.json`, `browser-review/final-review.json`,
+`browser-review/final-navigation.json`, `qc-root/visual-review.json` and
+`editor/protected-media-final.json`, relative to that folder. All used sources
+and current authorities remain; completed owned worktrees and regenerable caches
+are removed. No paid inference or mod build change. Only multiplayer FG39–FG41
+still needs recording; original FG12/30/31 and the separate intro keep their
+explicit exceptions. User acceptance of V19 is not claimed.
+
+## Historical October 21 damage and map correction (v18)
 
 The maintainer requested only two further shot corrections. V18 replaces FG08
 `[4534,4779)` (1:15.57–1:19.65) and MAP3 `[8979,9118)`
