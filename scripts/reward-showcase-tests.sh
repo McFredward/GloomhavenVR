@@ -155,7 +155,7 @@ mutations = {
     'identity-block': ('Identity', '!choreographer.m_BlockClientMessageProcessing', 'false'),
     'placement-key': ('Placement', 'RewardShowcaseIdentity.ContentKey(window) != _key', 'false'),
     'poll-binding': ('Poll', 'RewardShowcase.Tick(inScenario && WorldUIConfig.ConversionActive);', 'RewardShowcase.Tick(false);'),
-    'premature-reveal': ('Placement', 'return _mayReveal;', 'return _mayReveal || true;'),
+    'premature-reveal': ('Placement', 'return _mayReveal && ModalFallback.EnsureRewardHostSpawn(panel);', 'return _mayReveal || ModalFallback.EnsureRewardHostSpawn(panel);'),
     'pending-pose': ('Placement', '_poseReady && ModalFallback.TryGetGrabFor', '(_poseReady || true) && ModalFallback.TryGetGrabFor'),
     'screen-unavailable': ('Poll', '!ConvertBaseActive || Failed.Contains(window)', '(!ConvertBaseActive && false) || Failed.Contains(window)'),
 }
