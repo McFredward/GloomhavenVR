@@ -139,6 +139,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     private int _lastSentItemClip = -1;
     private bool _lastSentActiveDismissBerth;
     private bool _lastSentActiveDismissGhost;
+    private int _lastSentActiveDismissActor;
     private byte _lastSentActiveDismissCount;
     private byte _lastSentActiveDismissSeat = byte.MaxValue;
 
@@ -1417,10 +1418,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
 
         bool dismissBerth = CardsDriver.ActiveDismissBerthActive;
         bool dismissGhost = dismissBerth && CardsDriver.ActiveDismissGhostShown;
+        int dismissActor = dismissBerth ? CardsDriver.ActiveDismissActorId : 0;
         byte dismissCount = dismissBerth ? CardsDriver.ActiveDismissListCount : (byte)0;
         byte dismissSeat = dismissBerth ? CardsDriver.ActiveDismissSeat : byte.MaxValue;
         bool dismissChanged = dismissBerth != _lastSentActiveDismissBerth
-            || dismissGhost != _lastSentActiveDismissGhost
+            || dismissGhost != _lastSentActiveDismissGhost || dismissActor != _lastSentActiveDismissActor
             || dismissCount != _lastSentActiveDismissCount || dismissSeat != _lastSentActiveDismissSeat;
 
         // PILE BROWSE (user request "Auf-/Zuklappen der Fächer im Multiplayer"): the discard/burnt
@@ -2213,10 +2215,12 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // stage, and the native game's action replication remains the sole gameplay authority.
         extras.HasActiveDismissBerth = dismissBerth;
         extras.ActiveDismissGhostShown = dismissGhost;
+        extras.ActiveDismissActorId = dismissActor;
         extras.ActiveDismissListCount = dismissCount;
         extras.ActiveDismissSeat = dismissSeat;
         _lastSentActiveDismissBerth = dismissBerth;
         _lastSentActiveDismissGhost = dismissGhost;
+        _lastSentActiveDismissActor = dismissActor;
         _lastSentActiveDismissCount = dismissCount;
         _lastSentActiveDismissSeat = dismissSeat;
 

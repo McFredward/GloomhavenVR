@@ -1,5 +1,6 @@
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
+using ScenarioRuleLibrary;
 using UnityEngine;
 
 namespace GloomhavenVR.Net;
@@ -367,8 +368,20 @@ internal sealed class RemoteAvatar
 
     internal bool ActiveDismissBerthActive { get; private set; }
     internal bool ActiveDismissGhostShown { get; private set; }
+    internal int ActiveDismissActorId { get; private set; }
     internal int ActiveDismissListCount { get; private set; }
     internal int ActiveDismissSeat { get; private set; } = -1;
+
+    /// <summary>Bind dismissal presentation to the original producer, never a focus fallback.
+    /// Different actors can have equal active counts while burn/focus packets arrive separately.</summary>
+    internal bool ActiveDismissMatchesActor(CPlayerActor? actor) =>
+        ActiveDismissBerthActive && ActiveDismissActorId != 0
+        && NetFigures.StableActorId(actor) == ActiveDismissActorId;
+
+    /// <summary>Ordinary item presentation keeps its existing fallback. Only a dismissal offer
+    /// requires the exact displayed-actor provenance before showing its berth, ghost or cap.</summary>
+    internal bool AllowsActiveDismissPresentation(CPlayerActor? actor) =>
+        !ActiveDismissBerthActive || ActiveDismissMatchesActor(actor);
 
     /// <summary>
     /// WHICH positions of that item fan are wearing the owner's gold "you can play this NOW" frame,
@@ -1904,6 +1917,7 @@ internal sealed class RemoteAvatar
 
         ActiveDismissBerthActive = p.HasActiveDismissBerth;
         ActiveDismissGhostShown = p.HasActiveDismissBerth && p.ActiveDismissGhostShown;
+        ActiveDismissActorId = p.HasActiveDismissBerth ? p.ActiveDismissActorId : 0;
         ActiveDismissListCount = p.HasActiveDismissBerth ? p.ActiveDismissListCount : 0;
         ActiveDismissSeat = p.HasActiveDismissBerth && p.ActiveDismissSeat != byte.MaxValue
             ? p.ActiveDismissSeat : -1;

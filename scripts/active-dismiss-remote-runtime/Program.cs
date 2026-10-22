@@ -9,21 +9,47 @@ internal static class Program
     private static bool Near(FixtureVector a, FixtureVector b) => (a - b).sqrMagnitude < 1e-7f;
     private static int Main()
     {
-        var owner = new RemoteAvatar();
-        owner.Apply(new PresenceState { HasActiveDismissBerth = true, ActiveDismissListCount = 4, ActiveDismissSeat = 2 });
+        var owner = new RemoteAvatar { ItemUseCapLabel = "Dismiss summon" };
+        var actor = new CPlayerActor { StableId = 101 };
+        var otherActor = new CPlayerActor { StableId = 202 };
+        owner.Apply(new PresenceState { HasActiveDismissBerth = true, ActiveDismissActorId = 101, ActiveDismissListCount = 4, ActiveDismissSeat = 2 });
         var berth = new FixtureTransform { localPosition = new(.23f, -.22f, -.02f), localScale = FixtureVector.one * .83f,
             localRotation = FixtureRotation.Yaw(.7f) };
-        Check(owner.ResolveDismissSeat(4, berth) == 2, "counted public seat stages the requested card");
-        Check(owner.ResolveDismissSeat(3, berth) == -1, "active-list count mismatch cannot stage a different card");
-        Check(owner.ResolveDismissSeat(4, null) == -1, "missing berth cannot stage a card");
+        Check(owner.ResolveDismissSeat(actor, 4, berth) == 2, "counted public seat stages the requested card");
+        Check(owner.ResolveDismissSeat(actor, 3, berth) == -1, "active-list count mismatch cannot stage a different card");
+        Check(owner.ResolveDismissSeat(actor, 4, null) == -1, "missing berth cannot stage a card");
+        Check(owner.ResolveDismissSeat(otherActor, 4, berth) == -1,
+            "same-count different actor cannot stage a card");
+        Check(owner.ResolveDismissSeat(null, 4, berth) == -1,
+            "missing displayed actor cannot inherit a dismissal");
+        var matchingPicture = RemoteFurniture.Picture(owner, actor, true, 12);
+        Check(matchingPicture.Berth && matchingPicture.Armed && matchingPicture.Caption == "Dismiss summon",
+            "matching exact actor retains the original dismissal presentation");
+        var wrongPicture = RemoteFurniture.Picture(owner, otherActor, true, 12);
+        Check(!wrongPicture.Berth && !wrongPicture.Ghost && !wrongPicture.Armed && wrongPicture.Caption == null,
+            "wrong actor hides its dismissal berth, preview, cap and caption");
         owner.Apply(default);
-        Check(!owner.ActiveDismissBerthActive && !owner.ActiveDismissGhostShown && owner.ActiveDismissListCount == 0
-            && owner.ActiveDismissSeat == -1 && owner.ResolveDismissSeat(4, berth) == -1,
+        Check(!owner.ActiveDismissBerthActive && !owner.ActiveDismissGhostShown && owner.ActiveDismissActorId == 0
+            && owner.ActiveDismissListCount == 0
+            && owner.ActiveDismissSeat == -1 && owner.ResolveDismissSeat(actor, 4, berth) == -1,
             "absent state clears the previous remote reservation");
+        owner.ItemCardCount = 2;
+        owner.ItemUseCapLabel = "Use";
+        var ordinary = RemoteFurniture.Picture(owner, null, false, 0);
+        Check(ordinary.Berth && ordinary.Armed && ordinary.Caption == "Use" && !ordinary.Ghost,
+            "ordinary item fallback remains unchanged without a dismissal record");
         owner.Apply(new PresenceState { HasActiveDismissBerth = true, ActiveDismissGhostShown = true,
-            ActiveDismissListCount = 4, ActiveDismissSeat = 255 });
+            ActiveDismissActorId = 101, ActiveDismissListCount = 4, ActiveDismissSeat = 255 });
         Check(owner.ActiveDismissGhostShown && owner.ActiveDismissSeat == -1,
             "near preview has no staged public card");
+        Check(RemoteFurniture.Picture(owner, actor, true, 12).Ghost,
+            "matching actor shows its original held-card preview");
+        Check(!RemoteFurniture.Picture(owner, otherActor, true, 12).Ghost,
+            "wrong actor cannot show the held-card landing preview");
+        owner.Apply(new PresenceState { HasActiveDismissBerth = true, ActiveDismissActorId = 0,
+            ActiveDismissListCount = 4, ActiveDismissSeat = 2 });
+        Check(owner.ResolveDismissSeat(new CPlayerActor(), 4, berth) == -1,
+            "zero provenance never matches an unresolved actor");
 
         // A card can already be at the destination POSITION while still needing rotation/scale
         // correction. The parent's changed frame, rather than a nonzero translation, owns that glide.

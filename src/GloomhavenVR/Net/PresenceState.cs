@@ -978,9 +978,11 @@ internal struct PresenceState
     public byte ItemUseClipIndex;
 
     /// <summary>Presence-only active-ability dismissal berth, never a gameplay command. Its
-    /// counted seat addresses the public activated-ability list; 255 means no staged card.</summary>
+    /// stable actor plus counted seat addresses that actor's public activated-ability list;
+    /// 255 means no staged card. Actor provenance cannot be inferred from focus or list length.</summary>
     public bool HasActiveDismissBerth;
     public bool ActiveDismissGhostShown;
+    public int ActiveDismissActorId;
     public byte ActiveDismissListCount;
     public byte ActiveDismissSeat;
 
@@ -1909,9 +1911,9 @@ internal static class PresenceSerializer
     // Base6869 + residents79(147 including complete anchored cloth controls) + faces80(96)
     // + activity81(55) + public map loadout88(3) + native opening histories83/84(510)
     // + held item101(15) + sparse float249(5) = 7700;
-    // + active-dismiss berth118(5) = 7705. Keep the largest-record
+    // + active-dismiss berth118(9) = 7709. Keep the largest-record
     // margin257 in the writer and bounded8000 fragment reassembly.
-    public const int MaxSize = 7962;
+    public const int MaxSize = 7966;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -3447,6 +3449,7 @@ internal static class PresenceSerializer
             buffer[i++] = NetProtocol.ExtIdActiveDismissBerth;
             buffer[i++] = NetProtocol.ActiveDismissBerthRecordBytes;
             buffer[i++] = (byte)(1 | (state.ActiveDismissGhostShown ? 2 : 0));
+            AvatarSerializer.WriteI32(buffer, ref i, state.ActiveDismissActorId);
             buffer[i++] = state.ActiveDismissListCount;
             buffer[i++] = state.ActiveDismissSeat;
             records++;
@@ -3455,7 +3458,8 @@ internal static class PresenceSerializer
     }
 
     private static bool ValidActiveDismissBerth(in PresenceState state) =>
-        state.HasActiveDismissBerth && state.ActiveDismissListCount != 0
+        state.HasActiveDismissBerth && state.ActiveDismissActorId != 0
+        && state.ActiveDismissListCount != 0
         && (state.ActiveDismissSeat == byte.MaxValue
             || state.ActiveDismissSeat < state.ActiveDismissListCount)
         && (!state.ActiveDismissGhostShown || state.ActiveDismissSeat == byte.MaxValue);
@@ -5238,16 +5242,19 @@ internal static class PresenceSerializer
                  && len >= NetProtocol.ActiveDismissBerthRecordBytes)
         {
             byte flags = buffer[i];
-            byte count = buffer[i + 1];
-            byte seat = buffer[i + 2];
-            // Fail closed: an unknown mode, missing public list or contradictory staged/ghost
+            int actorAt = i + 1;
+            int actorId = AvatarSerializer.ReadI32(buffer, ref actorAt);
+            byte count = buffer[i + 5];
+            byte seat = buffer[i + 6];
+            // Fail closed: an unknown mode, missing actor/list or contradictory staged/ghost
             // state must never put an arbitrary active card on another player's board.
-            if ((flags & ~3) == 0 && (flags & 1) != 0 && count != 0
+            if ((flags & ~3) == 0 && (flags & 1) != 0 && actorId != 0 && count != 0
                 && (seat == byte.MaxValue || seat < count)
                 && ((flags & 2) == 0 || seat == byte.MaxValue))
             {
                 state.HasActiveDismissBerth = true;
                 state.ActiveDismissGhostShown = (flags & 2) != 0;
+                state.ActiveDismissActorId = actorId;
                 state.ActiveDismissListCount = count;
                 state.ActiveDismissSeat = seat;
             }

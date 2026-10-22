@@ -1784,7 +1784,9 @@ internal sealed class RemoteBoardFurniture
     /// </summary>
     public void TickWire(RemoteAvatar owner, int slotMask)
     {
-        TickCharacterDecision(RemoteBoardFocus.DisplayedActor(owner, out _), owner);
+        CPlayerActor? displayedActor = RemoteBoardFocus.DisplayedActor(owner, out _);
+        TickCharacterDecision(displayedActor, owner);
+        bool allowUseBerth = owner.AllowsActiveDismissPresentation(displayedActor);
         bool slot0 = (slotMask & 1) != 0;
         bool slot1 = (slotMask & 2) != 0;
 
@@ -1847,10 +1849,10 @@ internal sealed class RemoteBoardFurniture
         // Item appearance can finish after the presence visibility edge. Keep the original
         // clip parent visible until the owner's final native output has actually been presented.
         // Re-evaluate even without another buttons packet so completion can hide the recess.
-        bool retainItemClip = ItemAppearanceMirror.HoldsAnyClip(owner.PlayerId,
-            RemoteBoardFocus.DisplayedActor(owner, out _));
-        SetItemUseShown(!synced || (buttons & NetProtocol.BoardUiItemRecessBit) != 0 || retainItemClip, _settled);
-        ApplyActiveDismissGhost(owner);
+        bool retainItemClip = ItemAppearanceMirror.HoldsAnyClip(owner.PlayerId, displayedActor);
+        SetItemUseShown(allowUseBerth && (!synced || (buttons & NetProtocol.BoardUiItemRecessBit) != 0)
+            || retainItemClip, _settled);
+        ApplyActiveDismissGhost(owner, allowUseBerth);
 
         // ---- SYNCED CAP STATES (record 4 byte 2 — "every cap looks enabled and un-accented") --
         ApplyCapStates(owner);
@@ -1861,7 +1863,7 @@ internal sealed class RemoteBoardFurniture
         // ---- SYNCED CAP LABELS (wire record 13 — task 4 "der Button-Text muss immer korrekt
         //      synchronisiert sein"). The owner's actually-displayed CONFIRM/SKIP wording, shown
         //      verbatim in their language; absent record = the neutral ApplyLabels fallback.
-        SetCapLabels(owner);
+        SetCapLabels(owner, allowUseBerth);
 
 
         // ---- SYNCED DECISION OPTION STATES (wire records 23/24) -------------------------------
@@ -1908,9 +1910,9 @@ internal sealed class RemoteBoardFurniture
         // `_itemUseSlotGlow` is the field quad's material and nothing reads it back). Their berth
         // therefore does not change appearance when a card is clipped in — the armed state is
         // carried by the USE keycap alone — so neither may its mirror.
-        bool armed = synced
+        bool armed = allowUseBerth && (synced
             ? (buttons & NetProtocol.BoardUiItemUseCapBit) != 0
-            : owner.ItemCardCount > 0;
+            : owner.ItemCardCount > 0);
         if (armed != _shownArmed)
         {
             _shownArmed = armed;
@@ -2104,7 +2106,7 @@ internal sealed class RemoteBoardFurniture
     /// writes are change-gated against the WIRE value, and <see cref="ApplyLabels"/> re-arms the
     /// gates on a language switch so the fallback re-localizes without clobbering a live label.
     /// </summary>
-    private void SetCapLabels(RemoteAvatar owner)
+    private void SetCapLabels(RemoteAvatar owner, bool allowUseBerth)
     {
         string? confirm = owner.ConfirmCapLabel;
         if (confirm != _appliedConfirmWire)
@@ -2131,7 +2133,7 @@ internal sealed class RemoteBoardFurniture
             _appliedUndoWire = undo;
             _undo.SetLabel(undo ?? Loc.Game("GUI_UNDO", "Undo"));
         }
-        string? use = owner.ItemUseCapLabel;
+        string? use = allowUseBerth ? owner.ItemUseCapLabel : null;
         if (use != _appliedUseWire)
         {
             _appliedUseWire = use;
@@ -2271,9 +2273,9 @@ internal sealed class RemoteBoardFurniture
 
     /// <summary>The owner-authored landing preview is tall like the ability card. Never infer
     /// proximity from the observing player's hands or add a collider/controller to this mirror.</summary>
-    private void ApplyActiveDismissGhost(RemoteAvatar owner)
+    private void ApplyActiveDismissGhost(RemoteAvatar owner, bool allowUseBerth)
     {
-        bool shown = owner.ActiveDismissBerthActive && owner.ActiveDismissGhostShown;
+        bool shown = allowUseBerth && owner.ActiveDismissBerthActive && owner.ActiveDismissGhostShown;
         if (shown && _activeDismissGhost == null)
         {
             var ghost = GameObject.CreatePrimitive(PrimitiveType.Quad);

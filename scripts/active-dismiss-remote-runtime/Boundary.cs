@@ -67,11 +67,20 @@ namespace GloomhavenVR.Net
     internal struct PresenceState
     {
         internal bool HasActiveDismissBerth, ActiveDismissGhostShown;
+        internal int ActiveDismissActorId;
         internal byte ActiveDismissListCount, ActiveDismissSeat;
+    }
+    internal static class NetFigures
+    {
+        internal static int StableActorId(CPlayerActor? actor) => actor?.StableId ?? 0;
     }
     internal sealed partial class RemoteAvatar
     {
         internal bool ActiveDismissBerthActive, ActiveDismissGhostShown;
-        internal int ActiveDismissListCount, ActiveDismissSeat = -1;
+        internal int ActiveDismissActorId, ActiveDismissListCount, ActiveDismissSeat = -1;
+        internal int ItemCardCount;
+        internal string? ItemUseCapLabel;
     }
 }
+
+internal sealed class CPlayerActor { internal int StableId; }

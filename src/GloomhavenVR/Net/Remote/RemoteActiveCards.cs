@@ -445,10 +445,11 @@ internal sealed class RemoteActiveCards
         Count = _buffer.Count;
 
         // A staged card remains a member of the original active list until native confirmation.
-        // Resolve only the sender's counted public seat: a model/wire ordering gap must never
-        // stage a different card. The original panel moves, leaving its active-grid cell empty.
+        // Resolve only the exact producer actor and its counted public seat: a focus/burn/model
+        // ordering gap must never stage an equal-index card belonging to another character.
+        // The original panel moves, leaving its active-grid cell empty.
         Transform? dismissBerth = _owner.ItemUseRecess;
-        int dismissSeat = _owner.ActiveDismissBerthActive && dismissBerth != null
+        int dismissSeat = _owner.ActiveDismissMatchesActor(actor) && dismissBerth != null
             && _owner.ActiveDismissListCount == Count ? _owner.ActiveDismissSeat : -1;
         _dismissPanel = null;
         _dismissCard = null;

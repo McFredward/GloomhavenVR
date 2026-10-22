@@ -50,10 +50,10 @@ def main():
     completion.write_text('Evidence: ' + str(run) + '\n')
     status, results = 1, []
     inputs = [root / 'src/GloomhavenVR/Net/Remote' / name for name in
-              ('RemoteBoardCard.cs', 'RemoteAvatar.cs', 'RemoteActiveCards.cs')]
+              ('RemoteBoardCard.cs', 'RemoteAvatar.cs', 'RemoteActiveCards.cs', 'RemoteBoardFurniture.cs')]
     hashes = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     try:
-        card, receiver, active = (path.read_text() for path in inputs)
+        card, receiver, active, furniture = (path.read_text() for path in inputs)
         methods = '\n'.join(block(card, signature) for signature in (
             'internal void SetPresentationParent(', 'public void Move(', 'internal void TickGlide('))
         alias = 'using System; using GloomhavenVR.Core; using Vector3 = FixtureVector; using Quaternion = FixtureRotation; using Transform = FixtureTransform; using Mathf = FixtureMath; using Time = FixtureClock;\n'
@@ -64,11 +64,27 @@ internal RemoteBoardCard(Transform parent, Vector3 position) { _root.transform.p
         begin = receiver.index('        ActiveDismissBerthActive = p.HasActiveDismissBerth;')
         end = receiver.index('\n\n', begin)
         apply = 'internal void Apply(in PresenceState p) {\n' + receiver[begin:end] + '\n}\n'
-        seat = re.search(r'        int dismissSeat = _owner.ActiveDismissBerthActive[\s\S]*?;', active)[0]
+        seat = re.search(r'        int dismissSeat = _owner.ActiveDismissMatchesActor[\s\S]*?;', active)[0]
         seat = seat.replace('_owner.', '').replace('Count', 'count').replace('ActiveDismissListcount', 'ActiveDismissListCount')
-        seat = 'internal int ResolveDismissSeat(int count, Transform? dismissBerth) {\n' + seat + '\nreturn dismissSeat; }\n'
+        seat = 'internal int ResolveDismissSeat(CPlayerActor? actor, int count, Transform? dismissBerth) {\n' + seat + '\nreturn dismissSeat; }\n'
+        matches = re.search(r'internal bool ActiveDismissMatchesActor\(CPlayerActor\? actor\)[\s\S]*?;', receiver)[0]
+        allows = re.search(r'internal bool AllowsActiveDismissPresentation\(CPlayerActor\? actor\)[\s\S]*?;', receiver)[0]
+        allow = re.search(r'        bool allowUseBerth = [^;]+;', furniture)[0]
+        shown = re.search(r'        bool shown = allowUseBerth[^;]+;', furniture)[0]
+        armed = re.search(r'        bool armed = allowUseBerth[\s\S]*?;', furniture)[0]
+        caption = re.search(r'        string\? use = allowUseBerth[^;]+;', furniture)[0]
+        berth = re.search(r'SetItemUseShown\((allowUseBerth[\s\S]*?), _settled\);', furniture)[1]
+        if 'SetCapLabels(owner, allowUseBerth);' not in furniture or 'ApplyActiveDismissGhost(owner, allowUseBerth);' not in furniture:
+            raise AssertionError('Live ghost/caption application must consume the same actor gate')
+        picture = 'internal static (bool Berth, bool Ghost, bool Armed, string? Caption) Picture(RemoteAvatar owner, CPlayerActor? displayedActor, bool synced, int buttons, bool retainItemClip = false) {\n' + allow + '\nbool berth = ' + berth + ';\n' + shown + '\n' + armed + '\n' + caption + '\nreturn (berth, shown, armed, use);\n}'
+        protocol_path = root / 'src/GloomhavenVR/Net/NetProtocol.cs'
+        inputs.append(protocol_path)
+        hashes[str(protocol_path)] = hashlib.sha256(protocol_path.read_bytes()).hexdigest()
+        protocol = protocol_path.read_text()
+        bits = '\n'.join(re.search(r'public const byte ' + name + r' = [^;]+;', protocol)[0] for name in ('BoardUiItemRecessBit', 'BoardUiItemUseCapBit'))
         sources = {'Card.cs': alias + 'namespace GloomhavenVR.Net { internal sealed class RemoteBoardCard {\n' + fields + methods + '\n}}',
-                   'Receiver.cs': alias + 'namespace GloomhavenVR.Net { internal sealed partial class RemoteAvatar {\n' + apply + seat + '\n}}'}
+                   'Receiver.cs': alias + 'namespace GloomhavenVR.Net { internal sealed partial class RemoteAvatar {\n' + apply + matches + '\n' + allows + '\n' + seat + '\n}}',
+                   'Furniture.cs': alias + 'namespace GloomhavenVR.Net { internal static class RemoteFurniture {\n' + picture + '\n} internal static class NetProtocol {\n' + bits + '\n}}'}
         mutations = [
             ('production', '', '', '', ''),
             ('parent-teleports', 'Card.cs', 'worldPositionStays: true', 'worldPositionStays: false', 'reparent preserves the complete current world pose'),
@@ -77,6 +93,11 @@ internal RemoteBoardCard(Transform parent, Vector3 position) { _root.transform.p
             ('seed-wrong-scale', 'Card.cs', '_root.transform.localScale = Vector3.one * _glideScale;', '_root.transform.localScale = Vector3.one;', 'freshly seeded stage uses the same fit'),
             ('receiver-latches-absence', 'Receiver.cs', 'ActiveDismissBerthActive = p.HasActiveDismissBerth;', 'ActiveDismissBerthActive |= p.HasActiveDismissBerth;', 'absent state clears the previous remote reservation'),
             ('wrong-public-list', 'Receiver.cs', 'ActiveDismissListCount == count', 'true', 'active-list count mismatch cannot stage a different card'),
+            ('wrong-public-actor', 'Receiver.cs', 'NetFigures.StableActorId(actor) == ActiveDismissActorId', 'true', 'same-count different actor cannot stage a card'),
+            ('stage-ignores-actor', 'Receiver.cs', 'int dismissSeat = ActiveDismissMatchesActor(actor)', 'int dismissSeat = ActiveDismissBerthActive', 'same-count different actor cannot stage a card'),
+            ('stale-dismissal-controls', 'Furniture.cs', 'bool allowUseBerth = owner.AllowsActiveDismissPresentation(displayedActor);', 'bool allowUseBerth = true;', 'wrong actor hides its dismissal berth, preview, cap and caption'),
+            ('stale-dismissal-caption', 'Furniture.cs', 'allowUseBerth ? owner.ItemUseCapLabel : null', 'owner.ItemUseCapLabel', 'wrong actor hides its dismissal berth, preview, cap and caption'),
+            ('stale-dismissal-preview', 'Furniture.cs', 'bool shown = allowUseBerth &&', 'bool shown =', 'wrong actor cannot show the held-card landing preview'),
         ]
         dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
         for name, filename, before, after, expected in mutations:
