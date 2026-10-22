@@ -629,7 +629,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 719;
+    public const ushort ModBuild = 720;
+
+    // ModBuild720 — accepted item surrender cannot strand the Use berth after its result.
+    // Build719 logs show a native accepted demand followed by the off-turn placement retirement.
+    // Keep a confirmed burn/tap chip and its parent until its own native FX completion callback;
+    // it is presentation, no longer a cancellable placement. Completion releases the berth even
+    // without an action hand; a following demand retains its own ask. Capture demand kind before
+    // invoking the original native callback, which may synchronously replace the picker.
+    // Native selection/confirmation/authority and unconfirmed cancellation stay unchanged.
+    // No wire/default/asset change; version3, next-free123. See ITEM720-SURRENDER-CLEANUP.md
+    // for the focused regression evidence and hardware limitations.
 
     // ModBuild719 — shared-window spawn distance is independent of the host's zoom too.
     // Both supplied717 logs confirm fixed shared geometry and one host author, but the

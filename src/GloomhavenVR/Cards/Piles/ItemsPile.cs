@@ -766,6 +766,7 @@ internal sealed partial class ItemsPile
     internal void Destroy()
     {
         ClearHandSweep();
+        _finishingUseChip = null; // teardown cannot leave an animation owner whose chip is destroyed below
         // The recess survivor is NOT in _chips (see _keptClip) and hangs off the board's use slot,
         // so ClearChips would leave it lying there after this pile is gone. There is no board left
         // to animate onto at teardown, so it goes with the rest.
@@ -1837,6 +1838,11 @@ internal sealed partial class ItemsPile
     /// </summary>
     internal void RetirePlacedCardIfAny(string why)
     {
+        // A confirmed result is no longer a cancellable placement. Its chip advances the native
+        // burn/tap itself, even after CurrentHand becomes null. Collapsing it here would bypass
+        // TickUseFx's completion callback and leave the berth wanted after the chip is gone.
+        if (UseAnimationPending)
+            return;
         if (_keptClip != null)
             CancelPlacedCard(_keptClip, why);
     }
@@ -4135,7 +4141,9 @@ internal sealed partial class ItemsPile
         chip.PendingUse = false;
         Transform? keep = PlayTray.Current?.Root != null ? PlayTray.Current!.Root : _anchor;
         if (keep != null) chip.transform.SetParent(keep, worldPositionStays: true);
-        PlayTray.Current?.SetItemUseSlotVisible(false);
+        // A following native demand may already own the ask; otherwise the finished result
+        // releases the berth here, without needing an action-turn tick or character switch.
+        PlayTray.Current?.SetItemUseSlotVisible(_demandActive);
         _useSlotShownLogged = false;
     }
 
@@ -4446,17 +4454,21 @@ internal sealed partial class ItemsPile
     private void ConfirmDemandPick()
     {
         ItemChip? chip = _demandChip;
+        // The native confirm can synchronously close/replace the picker. Result presentation
+        // belongs to the demand being confirmed, not the mutable context after that callback.
+        bool loseReward = _demandLoseReward;
+        bool refreshing = _demandRefreshing;
         _demandChip = null;
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
         // Flow 1 commits through ITS owning picker (ItemRewardLosePicker.ConfirmSelectedRewardItems
         // — RewardGroup removal + GameActionType.LoseItemReward + StepComplete); the refresh/
         // consume demand through ItemCardRefreshPicker.ConfirmSelectedCards as before.
-        bool fired = _demandLoseReward
+        bool fired = loseReward
             ? CardsGameApi.ConfirmLoseRewardPick()
             : CardsGameApi.ConfirmItemPick();
-        VRLog.Info("Cards", (_demandLoseReward ? "GOAL-CHEST FORFEIT CONFIRM → " : "ITEM SURRENDER CONFIRM → ") +
+        VRLog.Info("Cards", (loseReward ? "GOAL-CHEST FORFEIT CONFIRM → " : "ITEM SURRENDER CONFIRM → ") +
                             "game picker confirm " +
-                            (fired ? (_demandLoseReward
+                            (fired ? (loseReward
                                          ? "accepted (Reward removed from every RewardGroup + GameActionType." +
                                            "LoseItemReward IndexToken — outcome networked by the game, Choreographer released)."
                                          : "accepted (Inventory.UseItem/ReactivateItem + GameActionType.ConsumeItem/" +
@@ -4476,8 +4488,8 @@ internal sealed partial class ItemsPile
         // item always burns: it leaves the party for good, whatever its usage type says.
         CItem item = chip.Item;
         CItem.EUsageType usage = item.YMLData != null ? item.YMLData.Usage : CItem.EUsageType.None;
-        bool consumed = _demandLoseReward
-                        || (!_demandRefreshing
+        bool consumed = loseReward
+                        || (!refreshing
                             && (usage == CItem.EUsageType.Consumed
                                 || item.SlotState == CItem.EItemSlotState.Consumed));
         bool spent = !consumed;
@@ -4506,7 +4518,9 @@ internal sealed partial class ItemsPile
         }
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
         PlayTray.Current?.SetItemUseAreaLabel(null); // back to the neutral zone name
-        PlayTray.Current?.SetItemUseSlotVisible(false);
+        // Keep the original result chip's parent alive until its native animation completes.
+        // EndDemand closes the picker, not an already accepted burn/tap presentation.
+        PlayTray.Current?.SetItemUseSlotVisible(UseAnimationPending);
         _useSlotShownLogged = false;
         VRLog.Info("Cards", $"ITEM SURRENDER pick END ({why}).");
     }
