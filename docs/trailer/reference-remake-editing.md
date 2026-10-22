@@ -3,27 +3,34 @@
 The accepted opening also supplies the first-save campaign intro, with a native-style
 GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
 
-The current v18 correction changes only the heavy-damage shot near 1:16 and
-third map-side shot near 2:31. A Living Corpse deals 4 damage to an allied archer,
-reducing native HP 6 → 2. The other shot now shows an unused magical close-combat
-moment with rune hands. Its original map contour is restored after the previous
-wide upper opening removed too much paper. Mountains, route and city retain the
-native V16 framing; the other five map-side shots and Victory exit stay from V17.
+The current v19 pass shortens the held exhaustion view around 1:05 into an
+84-frame heavy-hit shot and 228-frame uninterrupted native damage choice.
+A character receives 6 damage (9 → 3 HP); a clear cut then shows the
+real RECEIVE DAMAGE 2 choice followed by Mindthief's 2 → 0 HP and collapse. The
+button is selected through the native VR ray. These are separate fights; the
+first hit is not the cause of Mindthief's exhaustion. The opening gold
+wipe is rebuilt over the new first take. The heavy hit is reused from the later
+mosaic deliberately; the previous long aftermath is removed.
 
-The two windows change 384 frame addresses against V17, retaining 14,426 addresses.
-Source tempo remains 1x, with ordinary 30-to-60fps repetition and existing optical
-transition timing. Original AAC, accepted cinematics, continuous full-trailer
-fan mark and separate approved intro are retained. Focused source/component,
-actual-export and desktop/mobile-emulated browser checks pass; this is not a new
-game-runtime or headset gate. The active review is `vr-gameplay-v9/REVIEW.html`,
-with 25 chapters and direct buttons for the two corrected passages. No paid calls.
+Around 1:24, a flatter forest angle replaces the tight diagonal summon view.
+Spellweaver's actual ranged spell and Hound impact remain readable, with both
+actors and a tracked hand visible. The hit deals 1 damage, without claiming a
+high-damage action or literal trap disarming. Original 12-frame transition
+smears are retained.
 
-Only multiplayer FG39–FG41 (3:28.70–3:37.20) needs new recordings. The UI inventory
-still records 28 VR phases, two approved original views and three cooperative
-phases. The maintainer keeps FG12/30/31. V17's equipment, enhancement, summoning,
-recruitment, other map-side shots and 25-tile genuine VR mosaic are inherited.
-See [vr-gameplay-replacement.md](vr-gameplay-replacement.md) for provenance,
-measured media checks and delivery receipts.
+Two bounded components select 459 frame addresses against V18, preserving 14,351
+addresses, 14,810 total frames at 60fps and the original AAC. All real gameplay
+stays 1x; internal cuts do not retime it. Accepted cinematics, V18's restored map
+contour, continuous fan mark and separate approved intro are inherited. Focused
+media and desktop/mobile-emulated browser checks pass; this is not a new runtime
+or headset gate. The active review is `vr-gameplay-v10/REVIEW.html`, with 25
+chapters, two direct passage buttons and source comparisons. No paid inference.
+
+Only multiplayer FG39–FG41 (3:28.70–3:37.20) needs new recordings. The 33-phase UI
+inventory remains 28 VR, two approved native views and three pending cooperative
+phases. FG12/30/31 retain their explicit exceptions. See
+[vr-gameplay-replacement.md](vr-gameplay-replacement.md) for exact provenance,
+measured checks and delivery receipts.
 
 The historical v10 first pass used 20 inserts covering 25 of 41 inventory regions; 16
 regions retain their previous pictures pending suitable captures. The accepted
