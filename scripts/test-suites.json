@@ -2998,6 +2998,18 @@
         "ci"
       ],
       "weight": 4
+    },
+    {
+      "id": "shared-reward-placement-runtime",
+      "command": [
+        "python3",
+        "scripts/check-shared-reward-placement-runtime.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 4
     }
   ]
 }

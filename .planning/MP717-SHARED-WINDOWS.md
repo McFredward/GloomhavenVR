@@ -11,7 +11,8 @@ has no VR head; one compatible VR presenter supplies placement in that combinati
 All four supplied clients ran release Build715. Main hardware inputs remain in
 `.planning/debug/`; the other three are in `remote/{1,2,3}`. Original logs and the
 42m20.6s recording under `trailer/gameplay/` are preserved. Local watch extraction
-used twelve overview frames plus six map/story-focused frames, without Whisper,
+used twelve overview frames, six map/story-focused frames and four later-session
+frames, without Whisper,
 network uploads or audio transcription. Sparse samples show the map quest window
 and subsequent encounter/story windows at the far side of the table. They do not
 establish every player's simultaneous picture or precise network delay.
@@ -42,7 +43,9 @@ No per-line wall-clock timing is invented from these logs.
 ## Implementation
 
 Shared rendered scale comes from common parchment/scenario base geometry, excluding
-saved and live pinch zoom. Private windows retain their captured local scale.
+saved and live pinch zoom. The native Hex width is read once and cached independently
+of menu rigs and scene teardown, including an exact read-only pre-initialization
+resource fallback. Private windows retain their captured local scale.
 One host gaze supplies the fitted spawn. Followers retain hidden, noninteractive
 frames until they adopt the current shared pose; reveal waits do not alter native
 continuation. Initial receipt adopts the movement baseline and native identity too,
@@ -69,7 +72,9 @@ therefore retains the native committed window and its original ready/decline con
 Additive TLV120 pairs each author's stable browsing event with its full-width native
 sender identity, nonwrapping counter and exact parent opening. The opening-based
 register converges under reordered selections, clears and reopens, including missing
-intermediate snapshots and same-content reuse. Remote adoption and native quest
+intermediate snapshots and same-content reuse. Explicit read-only selected-state
+relays preserve the original counter/full author after its source leaves, without
+minting an adopted click. Remote adoption and native quest
 retirement do not mint fake local clicks. Counter exhaustion fails closed. The final
 maximum extras sum is7747; allocation8004 retains the required257-byte spare record,
 while unchanged8000-byte transport reassembly has253 bytes of actual headroom.

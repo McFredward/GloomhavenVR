@@ -249,7 +249,7 @@ internal static class SharedWindowSize
     /// multiplied in. All three logs consequently printed matching millimetres while the
     /// actual scenario Story Window had different world extents. A shared object instead
     /// uses the original map bounds or scenario hex geometry, which are common game data.
-    /// BaseWorldScale excludes the saved/current pinch multiplier; a literal one would make
+    /// The native Hex width excludes saved/current pinch zoom and rig lifetime; a literal one would make
     /// these windows tiny beside the scenario. Private windows keep their captured zoom.
     /// </summary>
     internal static float ReferenceWorldScale

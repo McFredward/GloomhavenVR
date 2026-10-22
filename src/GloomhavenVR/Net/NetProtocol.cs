@@ -639,7 +639,9 @@ internal static class NetProtocol
     // receiver reconstructs actual game-world geometry instead of applying its own seat.
     // Additive120 authenticates a browsing event through the native full-width sender ID,
     // monotonic counter and exact parent opening. It prevents delayed or concurrent clears
-    // from retiring a different quest occurrence. Native unready acknowledgements release
+    // from retiring a different quest occurrence. Read-only selected relays retain the opening's
+    // original full-width author/counter when that author leaves; adoption mints no human event.
+    // Native unready acknowledgements release
     // their own masks before a retained, subject-qualified selection is applied. Committed
     // host proposals keep their original readiness/decline flow under incidental table/X input.
     // A latejoin whose native card presenter remains foreign now requests the ordinary
