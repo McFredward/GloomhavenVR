@@ -21,9 +21,9 @@ internal static partial class RemoteMapStory
         VideoStampAt.Clear();
     }
 
-    internal static void ObserveVideoPose(int sender, in SharedWindowEntry entry)
+    internal static void ObserveVideoPose(int sender, in SharedWindowEntry entry, SharedWindowPoseContext? context = null)
     {
-        VideoPeers[sender] = new PeerEntry(in entry, Time.unscaledTime);
+        VideoPeers[sender] = new PeerEntry(in entry, Time.unscaledTime, context: context, kind: (int)SharedWindowKind.Video);
         NoteStamp(sender, in entry, VideoStamp, VideoStampAt, Time.unscaledTime);
     }
 

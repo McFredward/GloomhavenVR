@@ -3644,6 +3644,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         extras.ModBuild = NetProtocol.ModBuild;
         extras.ModVersionText = MyPluginInfo.PLUGIN_VERSION;
 
+        SharedWindowSpawnAuthority.SampleContext(ref extras);
         int len = PresenceSerializer.Write(in extras, _sendBuffer);
         _transport.Send(_sendBuffer, len);
     }

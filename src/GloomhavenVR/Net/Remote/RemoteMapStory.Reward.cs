@@ -144,7 +144,7 @@ internal static partial class RemoteMapStory
         SharedWindowEntry entry = presence.RewardWindow.Window;
         if (RewardPeers.TryGetValue(sender, out PeerEntry previous) && previous.ContentKey != entry.ContentKey)
             ForgetReward(sender);
-        RewardPeers[sender] = new PeerEntry(in entry, Time.unscaledTime);
+        RewardPeers[sender] = new PeerEntry(in entry, Time.unscaledTime, context: presence.WindowPoseContext, kind: (int)SharedWindowKind.RewardShowcase);
         RewardMoved[sender] = presence.RewardWindow.Moved;
         RewardUnavailable[sender] = presence.RewardWindow.Unavailable;
         RewardReady[sender] = presence.RewardWindow.Ready;

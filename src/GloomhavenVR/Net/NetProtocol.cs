@@ -182,6 +182,8 @@ internal static class NetProtocol
     /// this record describes the same original card's local presentation only.</summary>
     public const byte ExtIdActiveDismissBerth = 118;
     public const int ActiveDismissBerthRecordBytes = 7;
+    /// <summary>Atomic author seat/zoom and initial-pose roles for unchanged shared-window records.</summary>
+    public const byte ExtIdSharedWindowPoseContext = 119;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -618,7 +620,7 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 716;
+    public const ushort ModBuild = 717;
 
     // ModBuild716 — explicitly dismiss active cards through the shared physical item berth.
     // The maintainer chose place-then-confirm, with the existing item landing preview, sound,

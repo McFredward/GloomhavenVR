@@ -142,7 +142,8 @@ internal static partial class RemoteMapStory
 
     private readonly struct PeerEntry
     {
-        public PeerEntry(in SharedWindowEntry e, float at, uint openingEpoch = 0, uint openingToken = 0)
+        public PeerEntry(in SharedWindowEntry e, float at, uint openingEpoch = 0, uint openingToken = 0,
+            SharedWindowPoseContext? context = null, int kind = 0)
         {
             Flags = e.Flags;
             Page = e.Page;
@@ -150,8 +151,18 @@ internal static partial class RemoteMapStory
             ContentKey = e.ContentKey;
             PoseStamp = e.PoseStamp;
             SizeCode = e.SizeCode;
+            Context = context;
+            Initial = context.HasValue && context.Value.IsInitial(kind);
             Frame = e.Frame;
             Pose = e.Pose;
+            if (!context.HasValue || !context.Value.Valid)
+                Flags = (byte)(Flags & ~NetProtocol.SharedPoseBit);
+            if (context.HasValue && e.Frame == NetProtocol.SharedFrameSeatAnchor)
+            {
+                if (context.Value.ToWorld(in e.Pose, out RigPose world))
+                { Frame = NetProtocol.RewardFrameScenario; Pose = world; }
+                else Flags = (byte)(Flags & ~NetProtocol.SharedPoseBit);
+            }
             At = at;
             OpeningEpoch = openingEpoch;
             OpeningToken = openingToken;
@@ -165,6 +176,8 @@ internal static partial class RemoteMapStory
         public readonly byte SizeCode;
         public readonly byte Frame;
         public readonly RigPose Pose;
+        internal readonly SharedWindowPoseContext? Context;
+        internal readonly bool Initial;
         public readonly float At;
         public readonly uint OpeningEpoch, OpeningToken;
 
@@ -1110,7 +1123,8 @@ internal static partial class RemoteMapStory
     /// </summary>
     private static void WritePose(SharedWindowKind kind, Local local, ref SharedWindowEntry entry)
     {
-        if (!local.PoseOwned && !local.Moving)
+        bool initial = !local.PoseOwned && !local.Moving && SharedWindowSpawnAuthority.MayPublishInitial(kind);
+        if (!local.PoseOwned && !local.Moving && !initial)
             return;
         if (!SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null)
             return;
@@ -1127,6 +1141,7 @@ internal static partial class RemoteMapStory
             _storyPublishedMoving = local.Moving;
         }
         entry.Flags |= NetProtocol.SharedPoseBit;
+        entry.InitialPose = initial;
         entry.PoseStamp = local.PoseStamp;
         entry.SizeCode = NetProtocol.EncodeStorySize(size);
         entry.Frame = frame;
@@ -1171,7 +1186,7 @@ internal static partial class RemoteMapStory
             return;
         }
 
-        float eps = MoveEpsilonMeters * Mathf.Max(PanelLayout.WorldScale, 0.01f);
+        float eps = MoveEpsilonMeters * Mathf.Max(SharedWindowSize.ReferenceWorldScale, 0.01f);
         bool moved = grab.IsGrabbed || local.Moving
             ? !pos.Equals(local.FramePos) || !rot.Equals(local.FrameRot) || size != local.FrameSize
             : (pos - local.FramePos).sqrMagnitude > eps * eps
@@ -1373,7 +1388,7 @@ internal static partial class RemoteMapStory
             worldRot = localRot;
             return true;
         }
-        if (scenarioFrame && frame == NetProtocol.RewardFrameScenario)
+        if (frame == NetProtocol.RewardFrameScenario)
         {
             WorldAnchor.Instance.ToWorld(localPos, localRot, out worldPos, out worldRot);
             return true;
@@ -1414,20 +1429,20 @@ internal static partial class RemoteMapStory
                     case NetProtocol.SharedWindowKindMapStory:
                         sawStory = true;
                         MapStoryLifecycle.PoseOpening(in p, e.ContentKey, out uint openingEpoch, out uint openingToken);
-                        StoryPeers[senderId] = new PeerEntry(in e, now, openingEpoch, openingToken);
+                        StoryPeers[senderId] = new PeerEntry(in e, now, openingEpoch, openingToken, p.WindowPoseContext, (int)SharedWindowKind.MapStory);
                         if (MapStoryLifecycle.MatchesPose(true, senderId, openingEpoch, openingToken))
                             ObserveReflowPose(senderId, SharedWindowKind.MapStory, in e, StoryStamp);
                         NoteStamp(senderId, in e, StoryStamp, StoryStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindQuestConfirm:
                         sawQuest = true;
-                        QuestPeers[senderId] = new PeerEntry(in e, now);
+                        QuestPeers[senderId] = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.QuestConfirm);
                         ObserveReflowPose(senderId, SharedWindowKind.QuestConfirm, in e, QuestStamp);
                         NoteStamp(senderId, in e, QuestStamp, QuestStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindEncounter:
                         sawEncounter = true;
-                        EncounterPeers[senderId] = new PeerEntry(in e, now);
+                        EncounterPeers[senderId] = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.Encounter);
                         ObserveReflowPose(senderId, SharedWindowKind.Encounter, in e, EncounterStamp);
                         NoteStamp(senderId, in e, EncounterStamp, EncounterStampAt, now);
                         break;
@@ -1957,6 +1972,7 @@ internal static partial class RemoteMapStory
         // one whose stamp changed most recently.
         int bestPeer = 0;
         float bestAt = float.NegativeInfinity;
+        bool bestInitial = true;
         foreach (KeyValuePair<int, PeerEntry> kv in peers)
         {
             PeerEntry s = kv.Value;
@@ -1967,15 +1983,18 @@ internal static partial class RemoteMapStory
                 continue;
             if (!at.TryGetValue(kv.Key, out float when))
                 continue;
-            if (when > bestAt)
+            if (s.Initial && !SharedWindowSpawnAuthority.AcceptInitial(kv.Key, s.Context, (int)kind)) continue;
+            if (bestPeer != 0 && s.Initial && !bestInitial) continue;
+            if ((!s.Initial && bestInitial) || when > bestAt)
             {
                 bestAt = when;
                 bestPeer = kv.Key;
+                bestInitial = s.Initial;
             }
         }
         if (bestPeer == 0)
             return;
-        if (local.PoseOwned && bestAt < local.MoveSettleAt)
+        if (local.PoseOwned && (bestInitial || bestAt < local.MoveSettleAt))
             return; // our own move is the newer one
 
         PeerEntry owner = peers[bestPeer];
@@ -1997,7 +2016,7 @@ internal static partial class RemoteMapStory
             local.PoseTrack.Reset();
             if (local.HaveBaseline && ToShared(local.FramePos, local.FrameRot,
                     out Vector3 seedPos, out Quaternion seedRot, out byte seedFrame,
-                    scenarioFrame: kind == SharedWindowKind.RewardShowcase) && seedFrame == owner.Frame)
+                    scenarioFrame: owner.Frame == NetProtocol.RewardFrameScenario) && seedFrame == owner.Frame)
                 local.PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, local.FrameSize, Time.unscaledTime);
             local.PoseTrackPeer = bestPeer;
             local.PoseTrackFrame = owner.Frame;

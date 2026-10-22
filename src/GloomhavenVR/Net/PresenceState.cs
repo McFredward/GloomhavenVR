@@ -1192,6 +1192,11 @@ internal struct PresenceState
     /// pre-record behaviour: a purely local dialog nobody else can advance.</summary>
     public bool HasStorySync;
 
+    /// <summary>Record119: the sender frame, never the observer frame; absent on idle packets.</summary>
+    public SharedWindowPoseContext? WindowPoseContext;
+    // Local sampling metadata only. The additive context carries this bit, never legacy19.
+    public bool StoryInitialPose;
+
     /// <summary>Story-sync flags byte (<see cref="NetProtocol.StoryOpenBit"/> /
     /// <see cref="NetProtocol.StoryPoseBit"/> / <see cref="NetProtocol.StoryFinishedBit"/>), masked
     /// with <see cref="NetProtocol.StoryDefinedMask"/> on write AND on read.</summary>
@@ -1317,6 +1322,9 @@ internal struct PresenceState
 /// </summary>
 internal struct SharedWindowEntry
 {
+    // Local-only sampling metadata, encoded exclusively in additive context119.
+    public bool InitialPose;
+
     /// <summary><see cref="NetProtocol.SharedWindowKindMapStory"/> or
     /// <see cref="NetProtocol.SharedWindowKindQuestConfirm"/>.</summary>
     public byte Kind;
@@ -1911,9 +1919,9 @@ internal static class PresenceSerializer
     // Base6869 + residents79(147 including complete anchored cloth controls) + faces80(96)
     // + activity81(55) + public map loadout88(3) + native opening histories83/84(510)
     // + held item101(15) + sparse float249(5) = 7700;
-    // + active-dismiss berth118(9) = 7709. Keep the largest-record
+    // + active-dismiss berth118(9) + shared author-frame119(24) = 7733. Keep the largest-record
     // margin257 in the writer and bounded8000 fragment reassembly.
-    public const int MaxSize = 7966;
+    public const int MaxSize = 7990;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -2090,6 +2098,7 @@ internal static class PresenceSerializer
                           // of every session without a narrative on screen — nearly all of them —
                           // byte-identical to the previous build's.
                           || state.HasStorySync
+                          || (state.WindowPoseContext.HasValue && state.WindowPoseContext.Value.Valid)
                           // THE 3D MAP ROOM (20) and ITS SHARED WINDOWS (21): the same rule again —
                           // the emptiness test lives in the SAMPLERS (RemoteMapRoom.Sample /
                           // RemoteMapStory.Sample), which set these flags ONLY while this client's
@@ -3454,6 +3463,9 @@ internal static class PresenceSerializer
             buffer[i++] = state.ActiveDismissSeat;
             records++;
         }
+        if (state.WindowPoseContext.HasValue
+            && SharedWindowPoseContext.Write(buffer, ref i, state.WindowPoseContext.Value))
+            records++;
         return records;
     }
 
@@ -5237,6 +5249,11 @@ internal static class PresenceSerializer
             // is "the recess is empty", i.e. the pre-record rendering.
             state.HasItemUseClip = true;
             state.ItemUseClipIndex = buffer[i];
+        }
+        else if (id == NetProtocol.ExtIdSharedWindowPoseContext)
+        {
+            if (SharedWindowPoseContext.TryRead(buffer, i, len, out SharedWindowPoseContext context))
+                state.WindowPoseContext = context;
         }
         else if (id == NetProtocol.ExtIdActiveDismissBerth
                  && len >= NetProtocol.ActiveDismissBerthRecordBytes)
