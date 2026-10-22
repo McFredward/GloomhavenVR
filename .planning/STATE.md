@@ -1,3 +1,25 @@
+**Fixed shared-window spawn distance, Build719, 2026-10-23.**
+
+The paired717 follow-up confirms common window size and host author, but its
+placement producer still multiplied distance by the host's live zoom. Shared
+modal/reward/video placement now uses the same captured common world reference
+as rendering. Fitted replay keeps the original gaze, with no old private raw
+offset/scale; fitted half-size retains its captured reference across scene
+changes. Host/surrogate election, existing family distances, private placement,
+manual move/resize and native callbacks remain. No wire/default/asset change.
+
+Expanded Unity4463 assertions/29 causal controls and portable588/29 pass;
+integrated719 production reruns pass4463/588 with matching worker input bodies.
+Eleven distinct affected suites have passing coverage, including complete
+repaired movie/reward fixture reruns. Source16/16, strict Release0W0E and all
+306431 unfiltered golden assertions pass. Compiled review finds two intended
+behavior types plus nine build-only changes; surfaces/bundles remain intact.
+Validation, paired-log limits and scope are recorded in
+`MP719-SHARED-WINDOW-DISTANCE.md`; no new complete local-suite invocation or
+headset acceptance is claimed. Actual production clamp/centre kernels replace
+the earlier stubbed-clamp/1.3-literal proof boundary. Caches and both completed
+owned worktrees are cleaned, with byte-compared evidence archives preserved.
+
 **Original active-card dismissal flights, Build718, 2026-10-22.**
 
 Explicitly dismissed ability/summon cards retain their physical original and
