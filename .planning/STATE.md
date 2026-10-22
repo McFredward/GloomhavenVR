@@ -1,15 +1,17 @@
-**Release1.2.1 preparation, Build721, 2026-10-23.**
+**Release1.2.1 published, Build721, 2026-10-23.**
 
-The maintainer authorized publishing the current Build720 frontier. Semantic
-version already1.2.1; Build721 supplies release identity only. English highlights
-cover physical dismissal/flights, item-fan closure, shared windows/quest/latejoin
-and surrendered-item cleanup. Three hosted fixture blockers are repaired:
-flight-source context ports and SDK executable selection in dismissal/latejoin.
-Local16 source, strict release0W0E and306431 golden assertions pass, with focused
-fixture repairs verified. Compiled scope is release identity/flags only. No new
-gameplay/default/asset/wire behavior. Exact candidate hosted proof and
-dev→main merge/publication are required; see `RELEASE-1.2.1.md` and ignored
-`.planning/debug/release121/` receipts. No published-release claim yet.
+Published from main7b173b376 via reviewed PR21, with the exact tested dev tree
+f46f368a6. Full hosted dev CI39867327604 passes all110 runtime suites and
+source/build gates; PR CI39869661955 reuses it, and Release39870344161 succeeds.
+The immutable v1.2.1 tag names that main commit. The complete1,421,389,293-byte
+ZIP is uploaded and publicly downloadable without authentication (HTTP200,
+matching Content-Length), with digest verified during publication. GitHub marks
+it as the latest public stable release; the body contains the exact English-only
+highlights. Post-publication bookkeeping records release ancestry and advances
+dev to1.2.2. Local focused/source/strict/golden evidence and preserved hardware
+limits are in `RELEASE-1.2.1.md` and ignored `.planning/debug/release121/`.
+Completed owned worker worktrees and regenerable test caches are cleaned;
+hardware inputs, other worktrees and current release deliverables remain.
 
 **Accepted item surrender cleanup, Build720, 2026-10-23.**
 

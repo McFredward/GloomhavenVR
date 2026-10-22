@@ -54,3 +54,28 @@ outputs are retained, and only completed owned worktrees may be removed after
 byte-compared archival. Other agents' worktrees, hardware logs and game references
 remain untouched. No local duplicate full movie archive is generated; the
 release workflow validates and uploads the complete package.
+
+## Publication completed
+
+Full dev CI39867327604 succeeds: all110 hosted runtime suites, source/build
+checks and the final full-check admission pass. PR21 CI39869661955 reuses that
+exact source proof and passes its main-base surface comparison. The normal merge
+creates main7b173b376f2ab45c997a109cd67cfd6b3a10b5ff, whose tree exactly matches
+the reviewed devf46f368a63eb1d3e46644b48f99f50c4c35bf4d8.
+
+Release39870344161 completes successfully, including fresh release build,
+package validation, immutable tag, verified upload, publication and dev
+bookkeeping. Tagv1.2.1 resolves to that main merge. The public latest stable
+release contains GloomhavenVR-1.2.1.zip,1,421,389,293 bytes, SHA256
+`cbc177972b22aa480b00482817c090176ca63aa46102b6e5c08fc8d7f9800a85`.
+Anonymous download HEAD returns200 with the exact archive size. The published
+body contains the exact English highlights. Dev is advanced to1.2.2 and retains
+the release ancestry; no tag was moved and no publication bypass was used.
+
+API receipts, complete hosted dev/release logs and anonymous-download
+verification are preserved in `.planning/debug/release121/`. The tester-default
+check found zero cfg entries and is not claimed as a hardware-profile comparison;
+Git confirms no Defaults/prebuilt/movie-manifest changes sincev1.2.0.
+No additional headset test is inferred from publication success.
+
+Release: https://github.com/McFredward/GloomhavenVR/releases/tag/v1.2.1
