@@ -10,12 +10,13 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal sealed class ExtrasFragments
 {
-    // Complete cloth, held item101, float tuning249, dismissal118, author-frame119 and
-    // quest-version120 and captured-scales121 have a7774-byte worst case.8000 retains226 bytes of transport headroom;
-    // allocation-only PresenceSerializer.MaxSize8004 separately keeps257 spare bytes. Ten existing
-    // four-chunk datagrams. Rounding to8192 adds an eleventh saturated presence
-    // turn and exceeds its unchanged five-second assembly deadline at full load.
-    internal const int MaxSnapshotBytes = 8000;
+    // Exact dismissal origins122 add at most4741 bytes to the prior7774 worst case.
+    // Actual12515 fits12800; allocation-only12772 retains257 spare bytes. The unchanged
+    // envelope still carries at most four200-byte chunks per datagram. Presence assembly
+    // time scales by encoded length above the old8000-byte/five-second allowance;
+    // other presentation streams retain their explicitly configured lifetime behavior.
+    internal const int LegacyPresenceSnapshotBytes = 8000;
+    internal const int MaxSnapshotBytes = 12800;
     internal const int MaxDatagramBytes = 864;
     internal const int ChunkBytes = 200;
     private const int MetadataBytes = 12; // sequence:u64, snapshot length:u16, offset:u16
@@ -45,7 +46,8 @@ internal sealed class ExtrasFragments
             throw new ArgumentOutOfRangeException(nameof(lifetimeSizeBase));
         _snapshotLimit = snapshotLimit;
         _assemblyLifetime = assemblyLifetime;
-        _lifetimeSizeBase = lifetimeSizeBase;
+        _lifetimeSizeBase = lifetimeSizeBase == 0 && payloadType == NetProtocol.MsgExtras
+            ? LegacyPresenceSnapshotBytes : lifetimeSizeBase;
     }
 
     private sealed class Pending

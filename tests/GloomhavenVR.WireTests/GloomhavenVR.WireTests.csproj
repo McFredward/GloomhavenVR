@@ -652,6 +652,8 @@
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Cards/BurnFlightCompletion.cs" />
     <Compile Include="BurnFlightCompletionVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardFlightHistory.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardDismissFlightOrigin.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardFlightOrigins.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardBurnCompletionHistory.cs" />
     <Compile Include="DamageDecisionPreviewVectors.cs" />
     <Compile Include="HeldFaceAtomicVectors.cs" />
@@ -677,6 +679,7 @@
     <Compile Include="PresentationCompressionVectors.cs" />
     <Compile Include="DecisionAttributionVectors.cs" />
     <Compile Include="CardFlightHistoryVectors.cs" />
+    <Compile Include="CardDismissOriginVectors.cs" />
     <Compile Include="CardBurnCompletionVectors.cs" />
     <Compile Include="SharedWindowMotionVectors.cs" />
     <Compile Include="MapLoadoutCountVectors.cs" />

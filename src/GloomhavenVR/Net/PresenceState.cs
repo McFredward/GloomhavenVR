@@ -119,6 +119,10 @@ internal struct PresenceState
     public byte FlightSourceSeq;
     public CardFlightHistory? FlightHistory;
     public CardBurnCompletionHistory? BurnCompletions;
+    public CardFlightOrigins? FlightOrigins;
+    public CardDismissFlightOrigin? FxDismissOrigin;
+    internal bool FlightOriginsInvalid;
+    internal bool FlightOriginsSeen;
 
     /// <summary>
     /// True when the sender has a control-board PILE BROWSER open this packet (the "Abgelegt" /
@@ -1929,9 +1933,9 @@ internal static class PresenceSerializer
     // + held item101(15) + sparse float249(5) = 7700;
     // + active-dismiss berth118(9) + shared author-frame119(24) + quest edge120(14)
     // + captured window references121(27) = 7774.
-    // Allocation8031 keeps the257-byte spare-record margin. Actual packets remain below
-    // unchanged8000-byte fragment reassembly (253 bytes spare); allocation is not an MTU.
-    public const int MaxSize = 8031;
+    // Exact recent and durable dismissal origins122: 7774 + 4741 = 12515 bytes.
+    // Allocation retains257 spare; the bounded12800-byte envelope leaves285.
+    public const int MaxSize = 12772;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1960,6 +1964,7 @@ internal static class PresenceSerializer
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
         bool extensions = state.HasDecisionAttribution || state.DamageDecisionPreview != null || state.FlightHistory != null || state.BurnCompletions != null
+            || state.FlightOrigins?.Matches(in state) == true
             || (state.HasCardFx && state.FlightSource.HasValue) || state.DecisionHighlight != null || (state.HasCardFx && state.HasCardFxVisibility) || UseBarWidgetCodec.ValidSnapshot(state.UseBarWidgetStates) || state.ShortRestInProgress || state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
@@ -3396,12 +3401,14 @@ internal static class PresenceSerializer
                 records++;
             }
         }
+        bool wroteCompletions = false, wroteHistory = false;
         if (state.BurnCompletions != null)
         {
             int written = state.BurnCompletions.Write(buffer, i);
             if (written > 0)
             {
                 i += written;
+                wroteCompletions = true;
                 records += (byte)System.Math.Max(1, (state.BurnCompletions.Entries.Length + CardBurnCompletionHistory.PageCount - 1)
                     / CardBurnCompletionHistory.PageCount);
             }
@@ -3415,6 +3422,7 @@ internal static class PresenceSerializer
                 buffer[i++] = NetProtocol.ExtIdCardFlightHistory;
                 buffer[i++] = (byte)payload;
                 i += payload;
+                wroteHistory = true;
                 records++;
             }
         }
@@ -3491,6 +3499,14 @@ internal static class PresenceSerializer
         if (state.WindowScales.HasValue
             && SharedWindowScaleContext.Write(buffer, ref i, state.WindowScales.Value))
             records++;
+
+        if (state.FlightOrigins?.Matches(in state) == true
+            && (!state.FlightOrigins.NeedsRecent || wroteHistory)
+            && (!state.FlightOrigins.NeedsDurable || wroteCompletions))
+        {
+            int written = state.FlightOrigins.Write(buffer, i, out byte originRecords);
+            if (written > 0) { i += written; records += originRecords; }
+        }
         return records;
     }
 
@@ -4134,8 +4150,10 @@ internal static class PresenceSerializer
                     // Remember the extension identity even when its length/payload is truncated.
                     // Otherwise valid79/80 followed by broken81 could masquerade as legacy face-only.
                     if (length > i && buffer[i] == NetProtocol.ExtIdTownActivity) state.TownActivityRecordSeen = true;
+                    if (length > i && buffer[i] == NetProtocol.ExtIdCardFlightOrigins) state.FlightOriginsSeen = true;
                     if (length < i + 2)
                     {
+                        if (state.FlightOriginsSeen) state.FlightOriginsInvalid = true;
                         if (length > i && (buffer[i] == NetProtocol.ExtIdFanInsertionGap || buffer[i] == NetProtocol.ExtIdTownItemHeld)) return false;
                         break;
                     }
@@ -4144,6 +4162,7 @@ internal static class PresenceSerializer
                     bool provenance = id == NetProtocol.ExtIdSecondHeldFaceActor || id == NetProtocol.ExtIdHeldMapCard || id == NetProtocol.ExtIdTownItemHeld;
                     if (length < i + len)
                     {
+                        if (id == NetProtocol.ExtIdCardFlightOrigins) state.FlightOriginsInvalid = true;
                         if (provenance || id == NetProtocol.ExtIdFanInsertionGap) return false;
                         break;
                     }
@@ -4188,6 +4207,13 @@ internal static class PresenceSerializer
             state.HasMapSelectionVersion = false;
             state.MapSelectionRevision = state.MapSelectionParent = 0;
             state.MapSelectionParentAuthor = 0;
+        }
+        if (state.FlightOriginsSeen && (state.FlightOriginsInvalid || state.FlightOrigins?.Apply(ref state) != true))
+        {
+            // A known dismiss cohort cannot degrade to a runnable unmarked Active flight.
+            // The next complete presence is the recovery; never invent a canonical source.
+            state = default;
+            return false;
         }
         return true;
     }
@@ -5315,6 +5341,14 @@ internal static class PresenceSerializer
         {
             if (SharedWindowScaleContext.TryRead(buffer, i, len, out SharedWindowScaleContext context))
                 state.WindowScales = context;
+        }
+        else if (id == NetProtocol.ExtIdCardFlightOrigins)
+        {
+            if (!state.FlightOriginsInvalid && !CardFlightOrigins.ReadPage(buffer, i, len, ref state.FlightOrigins))
+            {
+                state.FlightOriginsInvalid = true;
+                state.FlightOrigins = null;
+            }
         }
         else if (id == NetProtocol.ExtIdActiveDismissBerth
                  && len >= NetProtocol.ActiveDismissBerthRecordBytes)

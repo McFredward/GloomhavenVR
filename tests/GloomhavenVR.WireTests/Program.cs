@@ -80,6 +80,7 @@ internal static class Program
             TownActivityVectors.Run(t);
             DecisionAttributionVectors.Run(t);
             CardFlightHistoryVectors.Run(t);
+            CardDismissOriginVectors.Run(t);
         CardBurnCompletionVectors.Run(t);
             BurnFlightCompletionVectors.Run(t, repoRoot);
             GoldenVectors.Run(t);
