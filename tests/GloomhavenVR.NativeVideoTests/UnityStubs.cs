@@ -245,6 +245,8 @@ namespace GloomhavenVR.WorldUI
         { panel.RenderHidden = !visible; panel.HostCanvas.enabled = visible; panel.HostRaycaster.enabled = visible; }
     }
     internal static class PanelLayout { internal static float WorldScale => 1; }
+    // Scene geometry is a stable fixture input; real capture/domain behavior executes in Unity.
+    internal static class SharedWindowSize { internal static float ReferenceWorldScale => 1; }
     internal static class PanelPlacement
     {
         internal static void Spawn(UnityEngine.Camera head, float scale, out UnityEngine.Vector3 p, out UnityEngine.Quaternion q)
@@ -271,10 +273,12 @@ namespace GloomhavenVR.WorldUI
         internal bool Destroyed;
         private ConvertedPanel? _panel;
         internal bool GrabVisible => _panel != null && !_panel.RenderHidden;
+        internal float SharedReferenceWorldScale { get; private set; }
         internal void Build(ConvertedPanel p, float s, string n)
         {
             LogName = n;
             _panel = p;
+            SharedReferenceWorldScale = SharedWindowSize.ReferenceWorldScale;
             GrabRoot!.SetPositionAndRotation(p.HostGo.transform.position, new UnityEngine.Quaternion());
             LiveHolders.Add(this);
         }
