@@ -14,6 +14,18 @@ internal static partial class NativeVideoWindow
     internal static bool SharedInitialPoseReady => _root != null && _panel != null
         && _panel.SharedSpawnPoseReady;
 
+    /// <summary>Shared movie placement uses its fixed render domain for reading distance too.
+    /// Private movies retain their ordinary viewer-scale placement; neither path follows the
+    /// head again after this opening. Build runs before the new grab captures its reference.</summary>
+    private static void ComputeInitialSpawn(Camera head, out Vector3 position, out Quaternion rotation)
+    {
+        float placementScale = SharedPlacementRequired
+            ? _grab?.SharedReferenceWorldScale ?? SharedWindowSize.ReferenceWorldScale
+            : PanelLayout.WorldScale;
+        PanelPlacement.Spawn(head, placementScale, out position, out rotation);
+        position.y = head.transform.position.y;
+    }
+
     private static void PrepareSharedPlacement()
     {
         if (_panel == null) return;

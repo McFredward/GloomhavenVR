@@ -12,7 +12,10 @@ internal static partial class ModalFallback
     private static bool ComputeSharedHostSpawn(ConvertedPanel panel, SpawnAnchor? replay,
         Vector2 halfSize, out Vector3 position, out Quaternion rotation, out float placementScale)
     {
-        placementScale = PanelLayout.WorldScale;
+        // Build719: the preceding repair fixed the shared render multiplier, but left this
+        // reading distance and the clearance clamp multiplied by the host's private zoom.
+        // Use this opening's captured render reference for every placement length as well.
+        placementScale = SharedHostSpawnWorldScale(panel);
         rotation = Quaternion.identity;
         position = Vector3.zero;
         s_lastSpawnAnchor = default;
@@ -27,14 +30,12 @@ internal static partial class ModalFallback
         if (!author)
             return true; // never revealed or interactive until TryReveal applies the shared pose
 
-        Vector3 headPosition, headForward, raw;
+        Vector3 headPosition, headForward;
         if (replay.HasValue && replay.Value.Valid)
         {
             SpawnAnchor anchor = replay.Value;
             headPosition = anchor.HeadPos;
             headForward = anchor.HeadForward;
-            raw = anchor.RawPos;
-            placementScale = anchor.Scale;
         }
         else
         {
@@ -42,8 +43,11 @@ internal static partial class ModalFallback
             if (head == null) return false;
             headPosition = head.transform.position;
             headForward = head.transform.forward;
-            raw = headPosition + headForward * (WindowDistanceMeters * placementScale);
         }
+        // Replay the original gaze with the shared reference. A reward window can already
+        // have a private spawn anchor when its shared author is elected: replaying RawPos or
+        // Scale would import that earlier private zoom even though its render size is fixed.
+        Vector3 raw = headPosition + headForward * (WindowDistanceMeters * placementScale);
         s_lastSpawnAnchor = new SpawnAnchor
         {
             Valid = true, HeadPos = headPosition, HeadForward = headForward,
@@ -66,10 +70,25 @@ internal static partial class ModalFallback
         VRLog.Info("WorldUI", $"SHARED WINDOW HOST SPAWN: kind={panel.SharedDesignKind}, "
             + $"stage={(replay.HasValue ? "final-fit" : "spawn")}, "
             + $"position=({position.x:F3},{position.y:F3},{position.z:F3}), "
-            + $"yaw={rotation.eulerAngles.y:F2}, fixedScale={SharedWindowSize.ReferenceWorldScale:F3}, "
+            + $"yaw={rotation.eulerAngles.y:F2}, fixedScale={placementScale:F3}, "
+            + $"head=({headPosition.x:F3},{headPosition.y:F3},{headPosition.z:F3}), "
+            + $"worldDistance={(position - headPosition).magnitude:F3}, "
             + $"worldSize=({halfSize.x * 2f:F3},{halfSize.y * 2f:F3}); "
-            + "only the elected author's gaze places this opening; viewer zoom never sizes it.");
+            + "only the elected author's gaze places this opening; viewer zoom never sizes or distances it.");
         return true;
+    }
+
+    /// <summary>Use the same immutable geometry reference as this opening's grab/render chain.
+    /// The first conversion precedes grab construction; later fitted placement and reward
+    /// election retain its captured reference even if the ambient map/scenario changes.</summary>
+    private static float SharedHostSpawnWorldScale(ConvertedPanel panel)
+    {
+        foreach (WindowPanel wp in Converted)
+        {
+            if (ReferenceEquals(wp.Panel, panel) && wp.Grab != null)
+                return wp.Grab.SharedReferenceWorldScale;
+        }
+        return SharedWindowSize.ReferenceWorldScale;
     }
 
     internal static bool EnsureRewardHostSpawn(ConvertedPanel panel)
@@ -78,7 +97,7 @@ internal static partial class ModalFallback
         foreach (WindowPanel wp in Converted)
         {
             if (!ReferenceEquals(wp.Panel, panel) || wp.Grab == null || wp.Grab.IsGrabbed) continue;
-            Vector2 half = PanelWorldHalfSize(panel, SharedWindowSize.ReferenceWorldScale * wp.ExtraScale);
+            Vector2 half = PanelWorldHalfSize(panel, wp.Grab.SharedReferenceWorldScale * wp.ExtraScale);
             SpawnAnchor? replay = wp.SpawnAnchor.Valid ? wp.SpawnAnchor : null;
             if (!ComputeSharedHostSpawn(panel, replay, half, out Vector3 position,
                                         out Quaternion rotation, out _)) return false;

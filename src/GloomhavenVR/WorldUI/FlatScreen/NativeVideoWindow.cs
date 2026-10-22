@@ -261,8 +261,7 @@ internal static partial class NativeVideoWindow
         };
         VRLayers.Apply(root);
         Camera head = CanvasConversion.WorldCamera!;
-        PanelPlacement.Spawn(head, PanelLayout.WorldScale, out Vector3 position, out Quaternion rotation);
-        position.y = head.transform.position.y;
+        ComputeInitialSpawn(head, out Vector3 position, out Quaternion rotation);
         if (source == _remoteSource && !SharedPlacementRequired)
         {
             position = _remotePosition;

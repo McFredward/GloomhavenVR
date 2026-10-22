@@ -2290,7 +2290,8 @@ internal static partial class ModalFallback
         // Replay the spawn placement against the FINAL rect + FINAL extraScale. The grab carries
         // the scale (SetExtraScale, step 5b), so only position/rotation are re-derived here.
         Vector2 half = PanelWorldHalfSize(panel,
-            SharedWindowSize.RenderWorldScale(panel, anchor.Scale) * extraScale);
+            SharedWindowSize.RenderWorldScale(panel, anchor.Scale,
+                grab?.SharedReferenceWorldScale ?? 0f) * extraScale);
         if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _, 0, half, panel, false, anchor))
         {
             LatchPoseRePlace(panel, ref done, "skipped — no head pose available");
