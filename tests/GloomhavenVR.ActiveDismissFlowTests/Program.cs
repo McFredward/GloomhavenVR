@@ -11,7 +11,7 @@ static class Program
         var d=new CardsDriver();var hand=new VRHand();var card=d.Card(true);
         card.Holder=hand;d.Tick();
         Check(d.Tray.Shown&&!d.Tray.ConfirmShown,"Holding only offers the berth, never confirms");
-        Check(d.Tray.Caption=="summon_dismiss_area","Summons receive the dismiss caption");
+        Check(d.Tray.Caption=="summon_dismiss_confirm","Summons receive the dismiss caption");
         Check(CardsDriver.ActiveDismissSeat==255&&CardsDriver.ActiveDismissListCount==1,"Held guide publishes no staged seat");
         Check(d.Ghost!=null&&d.Ghost.activeSelf,"Approaching displays the landing preview");
         Check(d.Ghost!.transform.localScale.y>d.Ghost.transform.localScale.x,"Ability preview must be rectangular");
@@ -22,9 +22,10 @@ static class Program
         Check(ReferenceEquals(d.Active.StagedCard,card)&&ReferenceEquals(card.transform.parent,d.Tray.ItemUseSlotTransform),"Stage the same card, not a copy");
         Check(hand.Haptics==1&&CardsDriver.Sounds==1,"One accepted placement gives identical item feedback once");
         Check(!d.Ghost.activeSelf&&d.Tray.ConfirmShown&&d.Tray.ConfirmLabel=="summon_dismiss_confirm","Staging replaces preview with explicit dismiss cap");
+        Check(d.Tray.Caption==d.Tray.ConfirmLabel,"One transmitted wording must match destination and cap");
         Check(CardsDriver.ActiveDismissSeat==0,"Staged native seat must be published");
         d.Tray.SetItemUseSlotVisible(false);d.Tray.SetItemUseConfirmVisible(false,null);d.Tray.SetItemUseAreaLabel(null);
-        Check(d.Tray.Shown&&d.Tray.ConfirmShown&&d.Tray.Caption=="summon_dismiss_area","Item pumps must not hide or relabel a reserved berth");
+        Check(d.Tray.Shown&&d.Tray.ConfirmShown&&d.Tray.Caption=="summon_dismiss_confirm","Item pumps must not hide or relabel a reserved berth");
         var staleClick=d.Tray.CapClick!;
         d.Grab(card,hand);d.Tick();
         Check(CardsGameApi.Cancelled==1&&CardsGameApi.Accepted==0&&d.Active.StagedCard==null,"Taking back cancels without ending the effect");

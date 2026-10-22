@@ -68,9 +68,10 @@ internal sealed partial class CardsDriver
         _dismissSeat = _dismissCard != null ? seat : byte.MaxValue;
         bool summon = _dismissDecision != null ? _dismissDecision.DismissesSummon
             : DismissesSummon(candidate);
-        _tray.SetActiveDismissPresentation(true,
-            Loc.Mod(summon ? "summon_dismiss_area" : "active_dismiss_area"),
-            Loc.Mod(summon ? "summon_dismiss_confirm" : "active_dismiss_confirm"),
+        // Original record13 carries one wording for both the engraved destination and its cap.
+        // Keep that contract so an observer reads exactly the owner's visible action label.
+        string label = Loc.Mod(summon ? "summon_dismiss_confirm" : "active_dismiss_confirm");
+        _tray.SetActiveDismissPresentation(true, label, label,
             _dismissDecision != null ? _dismissConfirmAction : null);
         TickActiveDismissGhost(_dismissCard == null ? candidate : null);
     }
