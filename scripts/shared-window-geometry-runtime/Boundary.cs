@@ -52,9 +52,17 @@ namespace GloomhavenVR.WorldUI
         internal static T? Load<T>(string name) where T : UnityEngine.Object
         { Reads++; return name == "Hex" ? Hex as T : null; }
     }
-    internal static class RewardShowcasePlacement
+    internal sealed class UIWindow { }
+    // Native reward identity is a boundary; the complete cache/reveal/apply class executes below.
+    internal static class RewardShowcase
     {
-        internal static bool IsInitialAuthor => SharedWindowSpawnBridge.IsInitialAuthor;
+        internal static UIWindow? Window;
+        internal static uint ContentKey;
+    }
+    internal static class RewardShowcaseIdentity
+    {
+        internal static uint ContentKey(UIWindow? window) => ReferenceEquals(window, RewardShowcase.Window)
+            ? RewardShowcase.ContentKey : 0;
     }
     internal sealed class ConvertedPanel
     {
@@ -87,6 +95,7 @@ namespace GloomhavenVR.WorldUI
     {
         internal enum Writer { UserGrab, Placement }
         internal static void Announce(ConvertedPanel panel, Writer writer, string why) { }
+        internal static bool PlacementAnnounced(ConvertedPanel panel) => false;
     }
     internal interface IPanelGrabOwner { Transform? GrabRoot { get; } }
     internal sealed partial class GrabbableModal : IPanelGrabOwner
@@ -100,6 +109,7 @@ namespace GloomhavenVR.WorldUI
         private bool _shared, _visualValid, _easing, _updatePosValid;
         private SharedWindowKind _sharedKind;
         private bool UserMoved;
+        internal bool PeerPlaced;
         private Vector3 _visualPos, _updatePos;
         private Quaternion _visualRot = Quaternion.identity;
         private float _visualScale = 1f;
@@ -142,6 +152,7 @@ namespace GloomhavenVR.WorldUI
         private sealed class WindowPanel
         {
             internal ConvertedPanel Panel = null!;
+            internal UIWindow? Window;
             internal GrabbableModal? Grab;
             internal SpawnAnchor SpawnAnchor;
             internal bool PoseRePlaceDone = false;
@@ -154,9 +165,16 @@ namespace GloomhavenVR.WorldUI
         private static void ClampSpawnPose(Vector3 head, Vector3 forward, ref Vector3 pos,
             float scale, Vector2 half, float pitch, bool centreAtEyeLevel, out HeightDecision result)
         { result = default; if (centreAtEyeLevel) pos.y = head.y; }
-        private static void NoteSharedAnchorSpent(SharedWindowKind kind, string why) { }
-        internal static void Register(ConvertedPanel panel, GrabbableModal grab)
-        { Converted.Add(new WindowPanel { Panel = panel, Grab = grab }); }
+        internal static void NoteSharedAnchorSpent(SharedWindowKind kind, string why) { }
+        internal static void Register(ConvertedPanel panel, GrabbableModal grab, UIWindow? window = null)
+        { Converted.Add(new WindowPanel { Panel = panel, Grab = grab, Window = window }); }
+        internal static bool RewardPlacementFailed(UIWindow? window) => false;
+        internal static ConvertedPanel? PanelFor(UIWindow? window)
+        { foreach (var wp in Converted) if (ReferenceEquals(window, wp.Window) && window != null) return wp.Panel; return null; }
+        internal static bool TryGetGrabFor(UIWindow? window, out GrabbableModal? grab)
+        { foreach (var wp in Converted) if (ReferenceEquals(window, wp.Window) && window != null) { grab = wp.Grab; return grab != null; } grab = null; return false; }
+        internal static void PreserveRewardInitialPose(UIWindow window) { }
+
         internal static bool ComputeHost(ConvertedPanel panel, bool replay, out Vector3 position, out Quaternion rotation, out float scale)
             => ComputeSharedHostSpawn(panel, replay ? s_lastSpawnAnchor : (SpawnAnchor?)null,
                 Vector2.one, out position, out rotation, out scale);

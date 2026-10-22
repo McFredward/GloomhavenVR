@@ -160,7 +160,106 @@ public static class InteractionProgram
             "already revealed host window becomes an initial pose publisher when a session starts");
         Check(Vector3.Distance(standing.HostGo.transform.position, standingPosition) < .0001f,
             "session start publishes the existing host pose without a new gaze spawn");
+        CapturedReferenceParity();
         yield return null;
+    }
+
+    private static void CapturedReferenceParity()
+    {
+        ResetNativeReference();
+        UnityGameEditorRuntime.s_TileSize = new Vector3(1.72f, 0, 1);
+        SharedWindows.Online = true;
+        foreach (SharedWindowKind kind in new[] { SharedWindowKind.ScenarioStory, SharedWindowKind.MapStory,
+            SharedWindowKind.QuestConfirm, SharedWindowKind.Encounter, SharedWindowKind.Video, SharedWindowKind.RewardShowcase })
+        foreach (Vector2 pixels in new[] { new Vector2(1096, 233), new Vector2(512, 689) })
+        {
+            GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = true;
+            var author = Panel(pixels, kind); var authorGrab = Build(author, 70f, 2.5f);
+            authorGrab.Carry(new Vector3(11, 22, 33), Quaternion.Euler(0, 71, 0), 1.37f);
+            authorGrab.Tick(); authorGrab.Release();
+            float reference = authorGrab.SharedReferenceWorldScale;
+            Check(Close(reference, 198.12f), "the source captures its actual map-domain reference");
+            Vector2 authored = WorldSize(author.HostRect);
+            // The persistent source has left the map, while a late viewer starts in a different
+            // local map mode. Actual Build captures Hex11.47; the wire must supply the old198.12.
+            GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = false;
+            Check(authorGrab.SharedReferenceWorldScale == reference,
+                "the author publishes the captured reference after its scene domain changes");
+            var follower = Panel(pixels, kind); follower.RevealPending = follower.RenderHidden = true;
+            var followerGrab = Build(follower, 3.7f, .5f);
+            followerGrab.Carry(new Vector3(-3, 5, -7), Quaternion.Euler(0, 123, 0), 1.37f);
+            followerGrab.Tick(); followerGrab.Release();
+            Check(Close(followerGrab.SharedReferenceWorldScale, 1.72f / .15f)
+                && WorldSize(follower.HostRect).x < authored.x / 10f,
+                "the fixture reaches different reference domains for the same kind and authored pixels");
+            Vector3 framePosition = followerGrab.Frame.position, hostPosition = follower.HostGo.transform.position;
+            Quaternion frameRotation = followerGrab.Frame.rotation, hostRotation = follower.HostGo.transform.rotation;
+            Vector3 frameScale = followerGrab.Frame.localScale;
+            followerGrab.ApplySharedReferenceWorldScale(reference);
+            Check(followerGrab.SharedReferenceWorldScale == reference,
+                "a follower adopts the author reference independently of its local map domain");
+            Vector2 immediate = WorldSize(follower.HostRect);
+            Check(Close(immediate.x, authored.x) && Close(immediate.y, authored.y),
+                "reference adoption updates the actual host before any first reveal or pose tick");
+            Check(followerGrab.Frame.position == framePosition && followerGrab.Frame.localScale == frameScale
+                && Quaternion.Angle(followerGrab.Frame.rotation, frameRotation) < .001f
+                && follower.HostGo.transform.position == hostPosition
+                && Quaternion.Angle(follower.HostGo.transform.rotation, hostRotation) < .001f,
+                "reference adoption preserves the exact physical frame and manual factor");
+            foreach (float invalid in new[] { 0f, -12f, float.NaN, float.PositiveInfinity, float.NegativeInfinity })
+            {
+                followerGrab.ApplySharedReferenceWorldScale(invalid);
+                Check(followerGrab.SharedReferenceWorldScale == reference
+                    && Close(WorldSize(follower.HostRect).x, authored.x),
+                    "invalid reference values cannot damage the captured geometry");
+            }
+            // The ordinary imported pose follows reference adoption. Native show runs afterwards.
+            followerGrab.SnapFrameTo(authorGrab.Frame.position, authorGrab.Frame.rotation);
+            follower.RevealPending = follower.RenderHidden = false;
+            GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = true;
+            GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Scale = 600f;
+            PanelLayout.WorldScale = 230f;
+            followerGrab.Tick(); followerGrab.LateSyncHost();
+            Check(Close(WorldSize(follower.HostRect).x, authored.x)
+                && Close(WorldSize(follower.HostRect).y, authored.y),
+                "adopted reference survives reveal, independent zoom and a later map-domain change");
+            GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Scale = 198.12f;
+        }
+
+        // A native reward pose can arrive before its local conversion/grab exists. Its complete
+        // production cache must carry the reference through that gap along with the pose/factor.
+        GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = false;
+        var rewardWindow = new UIWindow(); RewardShowcase.Window = rewardWindow; RewardShowcase.ContentKey = 0x12345678;
+        Vector3 rewardPosition = new(17, 23, -9); Quaternion rewardRotation = Quaternion.Euler(0, 79, 0);
+        RewardShowcasePlacement.SetInitialPose(RewardShowcase.ContentKey, rewardPosition, rewardRotation,
+            1.37f, ready: true, referenceScale: 198.12f);
+        Check(!RewardShowcasePlacement.ApplyInitialPose(rewardWindow, null),
+            "a reward awaiting conversion retains its reference without fabricating a grab");
+        var rewardPanel = Panel(new Vector2(512,689), SharedWindowKind.RewardShowcase);
+        rewardPanel.RevealPending = rewardPanel.RenderHidden = true;
+        var rewardGrab = Build(rewardPanel, 4f, .5f);
+        ModalFallback.Register(rewardPanel, rewardGrab, rewardWindow);
+        Check(RewardShowcasePlacement.ApplyInitialPose(rewardWindow, rewardGrab)
+            && rewardGrab.SharedReferenceWorldScale == 198.12f,
+            "a reward reference received before conversion reaches the later actual grab");
+        Vector2 rewardExpected = SharedWindowSizeLaw.CommittedMm(rewardPanel.HostRect.rect.size) * (.19812f * 1.37f);
+        Check(Close(WorldSize(rewardPanel.HostRect).x, rewardExpected.x)
+            && Close(WorldSize(rewardPanel.HostRect).y, rewardExpected.y)
+            && rewardGrab.Frame.position == rewardPosition && Close(rewardGrab.Frame.localScale.x, 1.37f),
+            "the first reward picture uses its cached author reference with the same pose and manual factor");
+        RewardShowcasePlacement.ClearInitialPose();
+        RewardShowcase.ContentKey++;
+        RewardShowcasePlacement.SetInitialPose(RewardShowcase.ContentKey, rewardPosition, rewardRotation, 1f);
+        var freshReward = Panel(new Vector2(512,689), SharedWindowKind.RewardShowcase);
+        freshReward.RevealPending = freshReward.RenderHidden = true;
+        var freshGrab = Build(freshReward, 5f, 1f);
+        ModalFallback.Register(freshReward, freshGrab, rewardWindow);
+        float freshReference = freshGrab.SharedReferenceWorldScale;
+        Check(RewardShowcasePlacement.ApplyInitialPose(rewardWindow, freshGrab)
+            && freshGrab.SharedReferenceWorldScale == freshReference,
+            "a new reward without a supplied reference cannot inherit the previous reward's domain");
+        RewardShowcasePlacement.ClearInitialPose(); RewardShowcase.Window = null; RewardShowcase.ContentKey = 0;
+        ResetNativeReference(); UnityGameEditorRuntime.s_TileSize = new Vector3(1.8f, 0, 1);
     }
 
     private static void ResetNativeReference()

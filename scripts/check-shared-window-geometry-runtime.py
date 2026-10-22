@@ -63,6 +63,7 @@ def main():
             'bridge': 'src/GloomhavenVR/WorldUI/Modal/SharedWindowSpawnBridge.cs',
             'host': 'src/GloomhavenVR/WorldUI/Modal/ModalFallback.SharedWindowSpawn.cs',
             'lifecycle': 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.4.Lifecycle.cs',
+            'reward': 'src/GloomhavenVR/WorldUI/Modal/RewardShowcasePlacement.cs',
         }
         original = {name: (root / path).read_text() for name, path in paths.items()}
         hashes = {paths[name]: hashlib.sha256(code.encode()).hexdigest() for name, code in original.items()}
@@ -83,9 +84,11 @@ def main():
         prefix = 'using System; using UnityEngine; using UnityEngine.UI; using GloomhavenVR.Core; namespace GloomhavenVR.WorldUI { '
         grab = '\n'.join(block(original['grab'], signature) for signature in (
             'internal void Build(', 'internal void Tick()', 'internal void LateSyncHost()',
+            'internal void ApplySharedReferenceWorldScale(', 'internal void PlaceFrameAt(',
             'private void SyncHostToFrame(', 'private float ResolveGrabFactor()',
             'internal void SetExtraScale(', 'private void PinVisualToFrame(', 'private void WriteVisual()'))
         grab += '\n' + block(original['grab'], 'internal void SnapFrameTo(')
+        grab += '\n' + re.search(r'internal float SharedReferenceWorldScale => [^;]+;', original['grab'])[0]
         size = '\n'.join(block(original['size'], signature) for signature in ('internal static float ReferenceWorldScale',))
         size += '\n' + block(original['size'], 'private static float NativeHexReferenceWorldScale()')
         size += '\n' + '\n'.join(re.search(r'private static (?:float|bool) ' + name + r' = [^;]+;', original['size'])[0] for name in ('NativeHexScale', 'NativeHexReadAttempted'))
@@ -102,6 +105,7 @@ def main():
             'Codec.cs': 'using UnityEngine; namespace GloomhavenVR.Net { internal static class NetProtocol {\n' + codec + '\n}}',
             'Bridge.cs': original['bridge'],
             'Host.cs': original['host'],
+            'Reward.cs': original['reward'],
             'HostMeasure.cs': prefix + 'internal static partial class ModalFallback {\n' + block(original['spawn'], 'private static Vector2 PanelWorldHalfSize(') + '\n}}',
         }
         variants = [
@@ -140,6 +144,16 @@ def main():
              'pre-initialization reference reads the original collider size without prefab transform scale'),
             ('native-renderer-fallback-lost', 'Size.cs', 'if (renderer != null) size = renderer.bounds.size;', 'if (renderer != null && bool.Parse("false")) size = renderer.bounds.size;',
              'original renderer fallback matches native initialization when the Hex has no collider'),
+            ('captured-reference-ambient-getter', 'Grab.cs', 'internal float SharedReferenceWorldScale => _spawnSharedWorldScale;', 'internal float SharedReferenceWorldScale => SharedWindowSize.ReferenceWorldScale;',
+             'the author publishes the captured reference after its scene domain changes'),
+            ('captured-reference-adoption-lost', 'Grab.cs', '_spawnSharedWorldScale = reference;', '_spawnSharedWorldScale = _spawnSharedWorldScale * 1f;',
+             'a follower adopts the author reference independently of its local map domain'),
+            ('captured-reference-delayed-render', 'Grab.cs', '_panel.HostGo.transform.localScale = Vector3.one * (unit * _visualScale);', '/* immediate reference-scale synchronization omitted */',
+             'reference adoption updates the actual host before any first reveal or pose tick'),
+            ('captured-reference-frame-factor', 'Grab.cs', '_spawnSharedWorldScale = reference;', '_spawnSharedWorldScale = reference; if (_frame != null) _frame.localScale = Vector3.one;',
+             'reference adoption preserves the exact physical frame and manual factor'),
+            ('reward-captured-reference-lost', 'Reward.cs', 'if (_referenceScale > 0f) grab.ApplySharedReferenceWorldScale(_referenceScale);', '/* cached reward reference omitted */',
+             'a reward reference received before conversion reaches the later actual grab'),
         ]
         if args.case:
             unknown = set(args.case) - {item[0] for item in variants}
