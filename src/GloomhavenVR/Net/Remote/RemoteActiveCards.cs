@@ -415,6 +415,21 @@ internal sealed class RemoteActiveCards
         _retainedDismiss[card] = panel;
     }
 
+    private bool KeepRetainedDismissCard(CAbilityCard card, RemoteBoardCard panel, bool showFronts,
+        CPlayerActor actor)
+    {
+        if (!_retainedDismiss.TryGetValue(card, out RemoteBoardCard retained)
+            || !ReferenceEquals(retained, panel)) return false;
+        // The observer's native model may still contain the card after its accepted flight
+        // arrived. Refresh its original artwork/privacy, but do not reparent the frozen slab
+        // back under the closing berth or resume its previous active-cell glide.
+        panel.Set(card, showFronts, actor);
+        panel.MaintainMips();
+        panel.SetNativeCardAppearance(_playerId, actor, card);
+        _dismissPanel = panel; _dismissCard = card;
+        return true;
+    }
+
     // A dismissal may be accepted while SetHome is still settling. Capture the panel the
     // observer is actually looking at immediately before ownership changes; the active-grid
     // centre and a freshly reconstructed berth both lose that intermediate pose.
@@ -694,6 +709,7 @@ internal sealed class RemoteActiveCards
             }
             Vector3 cellAt = CellLocal(i, Count, _cardW, _grid);
             int cardId = _buffer[i].CardInstanceID;
+            if (KeepRetainedDismissCard(_buffer[i], _cards[i], showFronts, actor)) continue;
             if (cardId == completedFlightCardId) _cards[i].PrepareFlightArrival();
             bool residentKeepsItsCard = _panelsByCard.ContainsKey(cardId);
             bool held = i == activeSeatA || i == activeSeatB;
