@@ -16,7 +16,7 @@ namespace GloomhavenVR.WorldUI;
 /// of redirecting playback or copying its completion callback. Native sound, completion and
 /// game progression stay owned by VideoCamera. A network mirror can supply a cosmetic decoder.
 /// </summary>
-internal static class NativeVideoWindow
+internal static partial class NativeVideoWindow
 {
     private static GameObject? _root;
     private static RawImage? _image;
@@ -47,7 +47,8 @@ internal static class NativeVideoWindow
         "EndReached", BindingFlags.Instance | BindingFlags.NonPublic, null, new[] { typeof(VideoPlayer) }, null);
 
     internal static UIWindow? Window { get; private set; }
-    internal static bool Visible => _root != null && _root.activeSelf;
+    internal static bool Visible => _root != null && _root.activeSelf
+        && _panel != null && !_panel.RenderHidden;
     internal static uint NativePlaybackGeneration => _nativePlaybackGeneration;
     internal static uint OriginatingPlaybackGeneration => NativeVideoReview.Active ? NativeVideoReview.Generation : _nativePlaybackGeneration;
     internal static VideoPlayer? OriginatingPlayer => NativePlayer ?? NativeVideoReview.Source;
@@ -123,7 +124,9 @@ internal static class NativeVideoWindow
 
     internal static bool TryGetGrab(out GrabbableModal? grab)
     {
-        grab = Visible ? _grab : null;
+        // The transport must also identify the exact pending follower frame. Visibility and
+        // input are checked by SharedWindowFrame/IPanelGrabOwner, never by hiding its identity.
+        grab = _root != null ? _grab : null;
         return grab != null;
     }
 
@@ -131,7 +134,7 @@ internal static class NativeVideoWindow
     // sweep who owned it. The five-second sweep destroyed it; Tick then rebuilt a frame
     // at the world origin and pulled the still-playing movie down into the table. Ownership
     // is the live window's exact handle, never a name exemption for leftover chrome.
-    internal static bool OwnsGrab(GrabbableModal grab) => Visible && ReferenceEquals(_grab, grab);
+    internal static bool OwnsGrab(GrabbableModal grab) => _root != null && ReferenceEquals(_grab, grab);
 
     // This UIWindow is a disabled identity for shared chrome, never a native pooled popup.
     // Exempt only the live movie's real click surface from the native Start/IsOpen guard.
@@ -173,7 +176,7 @@ internal static class NativeVideoWindow
             || source == null || !source.isActiveAndEnabled || !source.isPrepared
             || !(source.isPlaying || source.isPaused) || source.frame < 0 || source.texture == null
             || source.texture.width <= 0 || source.texture.height <= 0
-            || (source == _remoteSource && !_remotePoseReady))
+            || (source == _remoteSource && !_remotePoseReady && !SharedPlacementRequired))
         {
             Close();
             return;
@@ -206,6 +209,7 @@ internal static class NativeVideoWindow
         }
         _grab.SetExtraScale(SharedWindowSizeLaw.ExtraScale(size, WorldUIConfig.CanvasScaleMm.Value));
         _grab.SyncSharedState(Window);
+        if (!TryRevealSharedPlacement()) return;
         _grab.Tick();
     }
 
@@ -259,12 +263,13 @@ internal static class NativeVideoWindow
         Camera head = CanvasConversion.WorldCamera!;
         PanelPlacement.Spawn(head, PanelLayout.WorldScale, out Vector3 position, out Quaternion rotation);
         position.y = head.transform.position.y;
-        if (source == _remoteSource)
+        if (source == _remoteSource && !SharedPlacementRequired)
         {
             position = _remotePosition;
             rotation = _remoteRotation;
         }
         root.transform.SetPositionAndRotation(position, rotation);
+        PrepareSharedPlacement();
         root.SetActive(true);
         UguiPokeSurfaces.Register(canvas);
         _grab = new GrabbableModal();
@@ -274,7 +279,7 @@ internal static class NativeVideoWindow
         // for exactly as long as the persistent movie canvas, and Close destroys both.
         Transform? grabFrame = ((IPanelGrabOwner)_grab).GrabRoot;
         if (grabFrame != null) UnityEngine.Object.DontDestroyOnLoad(grabFrame.root.gameObject);
-        if (source == _remoteSource)
+        if (source == _remoteSource && !SharedPlacementRequired)
         {
             Transform? frame = ((IPanelGrabOwner)_grab).GrabRoot;
             if (frame != null) frame.localScale = Vector3.one * _remoteGrabFactor;
@@ -317,6 +322,7 @@ internal static class NativeVideoWindow
         _image = null;
         _shownSource = null;
         _shownUrl = string.Empty;
+        _sharedPlacementPending = false;
     }
 
     private static float DisplayAspect(VideoPlayer source) => _shownStereo

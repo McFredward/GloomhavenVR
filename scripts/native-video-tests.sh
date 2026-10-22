@@ -39,6 +39,7 @@ start = source.index('    private static void ReleaseAllWindows(')
 assert 'NativeVideoWindow.Shutdown();' in source[start:source.index('WindowMaterialise.CancelAll(reason);', start)]
 PY
 dotnet run --project "$project" --configuration Release \
+    --property:VideoPlacementSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.SharedPlacement.cs" \
     --property:ChromeSweepSource="$mutation_dir/ChromeSweep.fixture" \
     --property:PointerGuardSource="$mutation_dir/PointerGuard.fixture"
 python3 "$repo_root/tests/GloomhavenVR.NativeVideoTests/MoviePackagingTests.py" "$repo_root"
@@ -88,6 +89,7 @@ PY
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$mutation_dir/NativeVideoWindow.fixture" \
+        --property:VideoPlacementSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.SharedPlacement.cs" \
         --property:MovieSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs" \
         --property:MovieKeySource="$repo_root/src/GloomhavenVR/Net/VideoWindowState.cs" \
         --property:ReviewSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoReview.cs" \
@@ -146,6 +148,7 @@ PY
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$source_file" \
+        --property:VideoPlacementSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.SharedPlacement.cs" \
         --property:MovieSource="$mutation_dir/NativeVideoMovies.fixture" \
         --property:MovieKeySource="$repo_root/src/GloomhavenVR/Net/VideoWindowState.cs" \
         --property:ReviewSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoReview.cs" \
@@ -203,6 +206,7 @@ PY
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.NativeVideoTests.csproj" --configuration Release \
         --property:VideoSource="$mutation_dir/ReviewWindow.mutant" \
+        --property:VideoPlacementSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.SharedPlacement.cs" \
         --property:MovieSource="$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoMovies.cs" \
         --property:MovieKeySource="$repo_root/src/GloomhavenVR/Net/VideoWindowState.cs" \
         --property:ReviewSource="$mutation_dir/Review.mutant" \
