@@ -187,6 +187,9 @@ internal static class NetProtocol
     /// <summary>Authenticated map browsing event counter and exact parent opening token.</summary>
     public const byte ExtIdSharedQuestSelectionVersion = 120;
     public const int SharedQuestSelectionVersionBytes = 12;
+    /// <summary>Captured render reference for each posed shared-window kind, independent of
+    /// record119's coordinate scale: six-bit mask followed by ascending-kind IEEE floats.</summary>
+    public const byte ExtIdSharedWindowScaleContext = 121;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -647,8 +650,11 @@ internal static class NetProtocol
     // A latejoin whose native card presenter remains foreign now requests the ordinary
     // SwitchHand for its first living owned selection hand. Revalidate the queued callback;
     // never grant input to a read-only hand or bypass ownership/phase/native modal gates.
-    // Wire version3; next-free121. Actual extras worst7747, allocation8004 preserves257 spare
-    // bytes; fragment reassembly remains8000 (253 spare). Planning records test boundaries
+    // Additive121 carries each posed window's actual captured render reference, independently
+    // of119's coordinate zoom. Receivers require that same-packet reference for geometry;
+    // a later scene-scale change never replaces the original physical render domain.
+    // Wire version3; next-free122. Actual extras worst7774, allocation8031 preserves257 spare
+    // bytes; fragment reassembly remains8000 (226 spare). Planning records test boundaries
     // and required headset outcomes separately from source/log/automated evidence.
 
     // ModBuild716 — explicitly dismiss active cards through the shared physical item berth.

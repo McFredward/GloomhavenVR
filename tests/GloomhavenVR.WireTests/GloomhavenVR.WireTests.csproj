@@ -67,6 +67,7 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarState.cs" Link="wire\AvatarState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarSerializer.cs" Link="wire\AvatarSerializer.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\SharedWindowPoseContext.cs" Link="wire\SharedWindowPoseContext.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\SharedWindowScaleContext.cs" Link="wire\SharedWindowScaleContext.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\PresenceState.cs" Link="wire\PresenceState.cs" />
     <!-- Record 45's SHAPE and fold. Split out of UseBarSlotSymbol.cs precisely so that
          PresenceState can be compiled here: the other half names CActiveBonus, CItem and
@@ -326,6 +327,7 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationPlaybackClock.cs" Link="wire\UseBarAnimationPlaybackClock.cs" />
     <Compile Include="SharedWindowPoseVectors.cs" />
     <Compile Include="SharedWindowContextVectors.cs" />
+    <Compile Include="SharedWindowScaleContextVectors.cs" />
     <Compile Include="SharedQuestSelectionVersionVectors.cs" />
     <Compile Include="FanReflowVectors.cs" />
     <Compile Include="FanInteractionVectors.cs" />

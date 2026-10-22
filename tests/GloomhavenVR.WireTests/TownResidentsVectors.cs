@@ -273,9 +273,11 @@ internal static class TownResidentsVectors
         offset = 6869;
         t.True(TownResidentsCodec.Write(bytes, ref offset, in cloth) && offset == 7016,
             "extended resident record adds147 bytes including30 cloth-control bytes");
-        t.True(PresenceSerializer.MaxSize == 8004 && PresenceSerializer.MaxSize - (offset + 96 + 55 + 3 + 510) == 324
-            && ExtrasFragments.MaxSnapshotBytes - (offset + 96 + 55 + 3 + 510) == 320,
-            "merchant cloth fits the maximum fragmented snapshot exactly");
+        int completeWorst = offset + 96 + 55 + 3 + 510 + 20 + 9 + 24 + 14 + 27;
+        t.True(completeWorst == 7774 && PresenceSerializer.MaxSize == 8031
+            && PresenceSerializer.MaxSize - completeWorst == 257
+            && ExtrasFragments.MaxSnapshotBytes - completeWorst == 226,
+            "merchant cloth, actor118, author-frame119, quest120 and captured references121 retain allocation and transport margins");
         t.True(NetProtocol.Version == 3 && NetProtocol.ExtIdTownResidents == 79 && TownResidentsCodec.LegacyPayload == 115
             && TownResidentsCodec.LegacyClothPayload == 139 && TownResidentsCodec.MaxPayload == 145,
             "new residents retain wirev3 and never reuse a historical record identifier");

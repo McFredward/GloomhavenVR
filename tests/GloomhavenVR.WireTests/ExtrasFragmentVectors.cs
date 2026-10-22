@@ -48,7 +48,7 @@ internal static class ExtrasFragmentVectors
         t.True(!ExtrasVersionAnnouncement.TryRead(extended, extended.Length, out _), "trailing bytes not a handshake");
 
         t.Case("extras envelopes: bounded events and atomic reordered snapshots");
-        foreach (int size in new[] { 8, 199, 200, 201, 800, 801, 1801, 3449, 4096, 4133, 4177, 4352, 6865, 7168, 7379, 7680, 7694, 7700, 7709, 7733, 7747, 7966, 7990, 8000 })
+        foreach (int size in new[] { 8, 199, 200, 201, 800, 801, 1801, 3449, 4096, 4133, 4177, 4352, 6865, 7168, 7379, 7680, 7694, 7700, 7709, 7733, 7747, 7774, 7966, 7990, 8000 })
         {
             byte[] original = Snapshot(size);
             byte[][] pages = ExtrasFragments.Encode(original, size, 42);
@@ -80,6 +80,10 @@ internal static class ExtrasFragmentVectors
         try { ExtrasFragments.Encode(Snapshot(8001), 8001, 99); }
         catch (ArgumentException) { oversizedRejected = true; }
         t.True(oversizedRejected, "one byte above new reassembly bound refuses sender allocation");
+        oversizedRejected = false;
+        try { ExtrasFragments.Encode(Snapshot(PresenceSerializer.MaxSize), PresenceSerializer.MaxSize, 100); }
+        catch (ArgumentException) { oversizedRejected = true; }
+        t.True(oversizedRejected, "allocation-only8031-byte capacity is never an authorized snapshot length");
         var beyondBound = (byte[])rewardPages[0].Clone();
         beyondBound[16] = 0x41; beyondBound[17] = 0x1f; //8001 little endian
         t.True(rewardReceiver.Accept(5, beyondBound, beyondBound.Length, 0) == null,

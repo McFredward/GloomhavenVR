@@ -1194,6 +1194,8 @@ internal struct PresenceState
 
     /// <summary>Record119: the sender frame, never the observer frame; absent on idle packets.</summary>
     public SharedWindowPoseContext? WindowPoseContext;
+    /// <summary>Record121: the actual captured render reference of each posed window kind.</summary>
+    public SharedWindowScaleContext? WindowScales;
     // Local sampling metadata only. The additive context carries this bit, never legacy19.
     public bool StoryInitialPose;
 
@@ -1925,10 +1927,11 @@ internal static class PresenceSerializer
     // Base6869 + residents79(147 including complete anchored cloth controls) + faces80(96)
     // + activity81(55) + public map loadout88(3) + native opening histories83/84(510)
     // + held item101(15) + sparse float249(5) = 7700;
-    // + active-dismiss berth118(9) + shared author-frame119(24) + quest edge120(14) = 7747.
-    // Allocation8004 keeps the257-byte spare-record margin. Actual packets remain below
+    // + active-dismiss berth118(9) + shared author-frame119(24) + quest edge120(14)
+    // + captured window references121(27) = 7774.
+    // Allocation8031 keeps the257-byte spare-record margin. Actual packets remain below
     // unchanged8000-byte fragment reassembly (253 bytes spare); allocation is not an MTU.
-    public const int MaxSize = 8004;
+    public const int MaxSize = 8031;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -2106,6 +2109,7 @@ internal static class PresenceSerializer
                           // byte-identical to the previous build's.
                           || state.HasStorySync
                           || (state.WindowPoseContext.HasValue && state.WindowPoseContext.Value.Valid)
+                          || (state.WindowScales.HasValue && state.WindowScales.Value.Valid)
                           || ValidMapSelectionVersion(in state)
                           // THE 3D MAP ROOM (20) and ITS SHARED WINDOWS (21): the same rule again —
                           // the emptiness test lives in the SAMPLERS (RemoteMapRoom.Sample /
@@ -3484,6 +3488,9 @@ internal static class PresenceSerializer
             AvatarSerializer.WriteI32(buffer, ref i, state.MapSelectionParentAuthor);
             records++;
         }
+        if (state.WindowScales.HasValue
+            && SharedWindowScaleContext.Write(buffer, ref i, state.WindowScales.Value))
+            records++;
         return records;
     }
 
@@ -5303,6 +5310,11 @@ internal static class PresenceSerializer
         {
             if (SharedWindowPoseContext.TryRead(buffer, i, len, out SharedWindowPoseContext context))
                 state.WindowPoseContext = context;
+        }
+        else if (id == NetProtocol.ExtIdSharedWindowScaleContext)
+        {
+            if (SharedWindowScaleContext.TryRead(buffer, i, len, out SharedWindowScaleContext context))
+                state.WindowScales = context;
         }
         else if (id == NetProtocol.ExtIdActiveDismissBerth
                  && len >= NetProtocol.ActiveDismissBerthRecordBytes)
