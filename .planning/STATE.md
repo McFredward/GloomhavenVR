@@ -1,3 +1,28 @@
+**Shared multiplayer windows and latejoin hand recovery, Build717, 2026-10-22.**
+
+The four-player Build715 review exposed actual world-size/pose divergence hidden
+by normalized millimetre diagnostics, an unready/selection circular wait and a
+last guest whose native hand presenter remained foreign after ownership was
+already assigned. Shared windows now retain one captured world render reference
+and the host's initial gaze placement across independent zooms/map domains.
+Additive119/121 carry the author's pose frame and captured geometry; existing
+manual move/resize remains shared. Causal120 browsing openings converge under
+clear/reselect/reorder and survive native loading until the correct initialized
+surface has a completed location census. Missing controllers remain pending;
+real proposals keep original authority. The late guest requests the original
+owned SwitchHand with all native phase/modal/ownership checks intact.
+
+Strict Release0warnings/errors, source16/16 and final unfiltered301541 golden
+assertions pass. All240 local suites have passing coverage from the complete
+232-pass/eight-failure sweep plus verified bounded repairs and final affected
+runtime/Unity/causal checks. No new single green complete-invocation claim.
+Compiled/surface/bundle review is complete; no setting, patch or existing log
+marker was removed. Completed worker evidence is archived and byte-compared,
+with regenerable caches/worktrees removed. See `MP717-SHARED-WINDOWS.md`,
+`MP717-LATEJOIN.md` and `MP717-VALIDATION.md` for precise evidence and limits.
+The next four-player headset review remains required; automated success is not
+visual or native-network acceptance.
+
 **Active-card dismissal and item fan closure, Build716, 2026-10-22.**
 
 The maintainer chose the existing physical item berth for ending active ability

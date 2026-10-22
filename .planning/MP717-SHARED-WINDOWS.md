@@ -73,9 +73,15 @@ also rejects cached poses from before the exact new local grab lifetime and acce
 the next ordinary author snapshot; this is a cache lifetime fence, not a new native
 encounter identity protocol.
 
-Quest browsing uses a subject/surface/native-generation/input-revision-qualified
-pending delivery. It invokes the original quest-unready seam once and waits for
-the actual native acknowledgement to release its own mask. It never unlocks unrelated
+Quest browsing uses a subject/surface/native-map/input-revision-qualified
+pending delivery. Native InitMap can yield between individual rows, while a
+City/World switch activates existing rows. Delivery waits for the original
+m_Initialised state and a completed census of the requested active surface; a
+missing key gets one fresh qualified census before retirement. A temporarily
+absent native multiplayer controller is initialization, not proof of a committed
+proposal. A measured proposal retains its original priority. For a browsing
+replacement, the resolver invokes the original quest-unready seam once and waits
+for the actual native acknowledgement to release its own mask. It never unlocks unrelated
 masks or invents cancellation of a committed host proposal. Incidental table/X input
 therefore retains the native committed window and its original ready/decline controls.
 
@@ -96,12 +102,12 @@ paths must retain original movie/end/reward callbacks and manual movement priori
 
 ## Validation and remaining hardware checks
 
-Integrated validation is in progress. Focused evidence currently includes actual
-Unity geometry writers, production transport/first-pose kernels, byte-exact119/120/121
-vectors, causal mutation controls, native quest-ready/departure/close behavior and
-the latejoin native SwitchHand queue. A fixture's explicit native/tracking/renderer
-boundaries remain limitations. Full-gate and final integration receipts will be
-recorded after completion; no headset acceptance is implied by green automated tests.
+Integrated validation and exact receipt/coverage boundaries are recorded in
+`MP717-VALIDATION.md`. Focused evidence includes actual Unity geometry writers,
+production transport/first-pose kernels, byte-exact119/120/121 vectors, causal
+controls, native quest-ready/departure/close behavior and the latejoin native
+SwitchHand queue. Explicit native/tracking/renderer fixture boundaries remain
+limitations; green automated checks are not headset acceptance.
 
 Required hardware review: four players at different zooms/seats; host opens each
 shared kind; late native copies inherit the same endpoint; manual move/resize is
