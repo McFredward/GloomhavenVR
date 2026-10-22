@@ -1168,6 +1168,13 @@ internal static partial class CanvasConversion
             SetPanelRenderVisible(panel, visible: false);
             return;
         }
+        // The host/elected VR author publishes the current opening's final pose. A follower
+        // must never reveal its private provisional seat and then jump on the first packet.
+        if (!SharedWindowSpawnBridge.TryReveal(panel))
+        {
+            SetPanelRenderVisible(panel, visible: false);
+            return;
+        }
         // ModBuild 226 — AN EMPTY WINDOW MUST NEVER STAND. User ruling, verbatim: "Als mein
         // Mitspieler gejoint ist, kam ein leeres Fenster auf - sowas soll per se niemals passieren."
         // (.planning/debug/leeres_fenster.jpg: six-plus grab bars in mid-air with no window on them.)

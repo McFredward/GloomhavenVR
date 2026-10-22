@@ -122,6 +122,15 @@ internal sealed class ConvertedPanel
     /// </summary>
     public Vector2 SharedDesignFrame;
 
+    /// <summary>The native/shared identity captured before conversion reparents its target.
+    /// The grab must know this before its first Tick, including a window converted before the
+    /// session starts. Participation remains live; this field does not grant input authority.</summary>
+    public SharedWindowKind SharedDesignKind;
+
+    /// <summary>The current opening received its one shared initial pose. Reset by a fresh
+    /// ConvertedPanel; pages and final-fit callbacks must not reseat a visible opening.</summary>
+    public bool SharedSpawnPoseReady;
+
     /// <summary>Where <see cref="SharedDesignFrame"/> came from, ready to print. Kept even when the
     /// frame is zero: "why the law is NOT armed" is the falsifier and is worth more than the
     /// arming itself.</summary>

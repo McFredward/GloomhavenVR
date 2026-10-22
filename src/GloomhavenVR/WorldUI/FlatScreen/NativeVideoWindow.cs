@@ -253,6 +253,7 @@ internal static class NativeVideoWindow
             HostCanvas = canvas, HostRaycaster = raycaster,
             BaseSortingOrder = ModalFallback.ModalHostSortingOrder,
             ContentGraphic = _image,
+            SharedDesignKind = SharedWindowKind.Video,
         };
         VRLayers.Apply(root);
         Camera head = CanvasConversion.WorldCamera!;

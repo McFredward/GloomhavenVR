@@ -162,6 +162,10 @@ internal static class SharedWindowSize
     {
         if (panel == null)
             return;
+        // The native window is still in its original hierarchy here. Build runs before the
+        // modal's first SyncSharedState, so neither that later cache nor an ancestry lookup
+        // after reparenting can identify its initial render scale reliably.
+        panel.SharedDesignKind = SharedWindows.KindOf(window);
         if (!TryDesignFrame(window, target, out Vector2 designPx, out SharedWindowKind kind,
                             out string source))
         {
@@ -232,6 +236,39 @@ internal static class SharedWindowSize
     internal static bool IsArmed(ConvertedPanel? panel) =>
         panel != null && panel.SharedDesignFrame.x >= MinDesignPx
         && panel.SharedDesignFrame.y >= MinDesignPx;
+
+    /// <summary>Shared world units per design metre, independent of every visitor's zoom.
+    ///
+    /// Build 715 divided its size diagnostic by the same local zoom that the renderer had
+    /// multiplied in. All three logs consequently printed matching millimetres while the
+    /// actual scenario Story Window had different world extents. A shared object instead
+    /// uses the original map bounds or scenario hex geometry, which are common game data.
+    /// BaseWorldScale excludes the saved/current pinch multiplier; a literal one would make
+    /// these windows tiny beside the scenario. Private windows keep their captured zoom.
+    /// </summary>
+    internal static float ReferenceWorldScale
+    {
+        get
+        {
+            if (MapRoom.MapRoomDriver.TryGetParchmentFrame(out Vector3 _, out float scale))
+                return Mathf.Max(scale, 0.01f);
+            // The native movie can survive the gap between rigs. Match the scenario rig's
+            // geometry fallback rather than admitting zero as a hundredth-sized shared frame.
+            float scenario = Rig.VRRigDriver.BaseWorldScale;
+            return scenario > 0.01f ? scenario : 12f;
+        }
+    }
+
+    internal static bool UsesSharedWorldFrame(ConvertedPanel? panel) =>
+        panel != null && SharedWindows.ParticipatesHere(panel.SharedDesignKind);
+
+    /// <summary>Actual render multiplier. The private reference is captured once at Build;
+    /// a session/identity transition changes only the shared policy, never that private value.</summary>
+    internal static float RenderWorldScale(ConvertedPanel? panel, float privateScale,
+                                           float sharedScale = 0f) =>
+        UsesSharedWorldFrame(panel)
+            ? sharedScale > 0f ? sharedScale : ReferenceWorldScale
+            : privateScale;
 
     // =============================================================================================
     // THE TWO-HAND RESIZE - ONE OWNER FOR THE 1:1 LINE, WHOEVER PULLED

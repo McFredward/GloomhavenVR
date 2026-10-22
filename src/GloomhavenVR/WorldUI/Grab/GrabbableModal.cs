@@ -143,9 +143,12 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// Item 2: the diorama scale CAPTURED ONCE at spawn. The menu SIZE is derived from this
     /// fixed reference instead of the live <see cref="PanelLayout.WorldScale"/>, so zooming the
     /// diorama after the menu opens no longer grows/shrinks it (position stays a fixed world
-    /// point regardless). Only the user's two-hand grab factor still resizes it on top.
+    /// point regardless). Shared windows instead use the common game-geometry reference in
+    /// <see cref="SharedWindowSize.RenderWorldScale"/>; capturing each viewer's zoom was the
+    /// build-715 multiplayer size divergence. Only the explicit shared two-hand factor resizes it.
     /// </summary>
     private float _spawnWorldScale = 1f;
+    private float _spawnSharedWorldScale = 1f;
     private string _logName = "Menu";
 
     /// <summary>DIAG-throttle (spam fix): seconds between MODAL DIAG snapshot lines while the host moves.</summary>
@@ -773,6 +776,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _logName = logName;
         // Item 2: snapshot the diorama scale now — the menu keeps THIS size regardless of later zoom.
         _spawnWorldScale = Mathf.Max(PanelLayout.WorldScale, 0.01f);
+        _spawnSharedWorldScale = SharedWindowSize.ReferenceWorldScale;
         EnsureFrame();
         if (_frame != null && panel.HostGo != null)
         {
@@ -1151,7 +1155,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // start, so the modal's position (and size) collapsed toward the origin in lock-step and the
         // start dialog flew away, undismissable. With the holder at identity, frame.position is a
         // true world point — grab-stable and immune to worldScale drift.
-        float worldScale = _spawnWorldScale;
+        float worldScale = SharedWindowSize.RenderWorldScale(_panel, _spawnWorldScale,
+                                                           _spawnSharedWorldScale);
         _holder.localScale = Vector3.one;
         if (!_holder.gameObject.activeSelf)
             _holder.gameObject.SetActive(true);
@@ -1300,7 +1305,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // definition — the frame can now be ahead of the picture on purpose (a remote glide), which
         // is not staleness and must not be reported as it. For every window that is not gliding the
         // drawn pose IS the frame (PinVisualToFrame ran two lines up), so the number is unchanged.
-        float unit = metersPerPixel * _spawnWorldScale * _extraScale * _visualScale;
+        float renderScale = SharedWindowSize.RenderWorldScale(_panel, _spawnWorldScale,
+                                                            _spawnSharedWorldScale);
+        float unit = metersPerPixel * renderScale * _extraScale * _visualScale;
         if (_updatePosValid && unit > 1e-9f)
         {
             float gapPx = Vector3.Distance(_visualPos, _updatePos) / unit;
@@ -1320,7 +1327,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         //   this whole method exists. Putting the seat anywhere earlier is the 2026-09-04 "zieht nach"
         //   defect ("Zusätzlich zieht es immer etwas nach wenn man das Fenster bewegt statt fix
         //   auf der Ebene zu sein"); see THE BADGE'S SEAT block.
-        SyncHostToFrame(host, metersPerPixel, _spawnWorldScale);
+        SyncHostToFrame(host, metersPerPixel, renderScale);
         SeatBadge(host);
     }
 
@@ -1437,7 +1444,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // reaches. metersPerPixel × the panel's own scale chain is the world size of one authored
         // pixel, i.e. the same unit the pose-gap instrument reports in.
         float unit = WorldUIConfig.CanvasScaleMm.Value * 0.001f
-                     * _spawnWorldScale * _extraScale * Mathf.Max(_visualScale, 1e-4f);
+                     * SharedWindowSize.RenderWorldScale(_panel, _spawnWorldScale,
+                                                        _spawnSharedWorldScale)
+                     * _extraScale * Mathf.Max(_visualScale, 1e-4f);
         bool arrived = Vector3.Distance(_visualPos, _frame.position) <= unit * PoseGapThresholdPx
                        && Quaternion.Angle(_visualRot, _frame.rotation) <= ArrivedDegrees
                        && Mathf.Abs(_visualScale - targetFactor) <= ArrivedScale;
@@ -1917,6 +1926,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // kind: a hardware report saying "the quest window showed no badge" must be readable against
         // a log that says which kind that window was and whether this client took part in its sync.
         SharedWindowKind kind = SharedWindows.KindOf(window);
+        _panel.SharedDesignKind = kind;
         bool shared = kind != SharedWindowKind.None && SharedWindows.ParticipatesHere(kind);
         // THE SAME ANSWER, CACHED FOR THE TWO CONSUMERS THAT CANNOT SEE THE UIWindow (2026-08-22,
         // requests 7a and 7b): the release re-face gate (OnGrabFinished) and the remote pose easing

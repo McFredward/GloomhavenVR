@@ -849,6 +849,8 @@ internal static partial class ModalFallback
         int staggerIndex = 0, Vector2 halfSize = default, ConvertedPanel? self = null,
         bool levelMessage = false, SpawnAnchor? replay = null)
     {
+        if (SharedWindowSpawnBridge.Handles(self))
+            return ComputeSharedHostSpawn(self!, replay, halfSize, out pos, out rot, out scale);
         Vector3 headPos, fwd;
         // The world yaw this spawn's gaze points along — the frame the half-circle allocator seats
         // windows in (ModBuild 234; see the header of ArcSeats.cs for why a world frame and not a
@@ -1955,11 +1957,13 @@ internal static partial class ModalFallback
         // User request A: hand the panel's projected world size to the pose computation so
         // the spawn-time overlap resolution can box-test it against the control board and
         // the other open modals (self excluded — refloat/recall re-places an existing panel).
-        Vector2 half = PanelWorldHalfSize(panel, PanelLayout.WorldScale * extraScale);
+        float renderScale = SharedWindowSize.RenderWorldScale(panel, PanelLayout.WorldScale);
+        Vector2 half = PanelWorldHalfSize(panel, renderScale * extraScale);
         if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale, staggerIndex,
                 half, panel, levelMessage))
             return false;
-        CanvasConversion.PlaceHost(panel, pos, rot, scale * extraScale);
+        CanvasConversion.PlaceHost(panel, pos, rot,
+            SharedWindowSize.RenderWorldScale(panel, scale) * extraScale);
         return true;
     }
 
@@ -2283,7 +2287,8 @@ internal static partial class ModalFallback
 
         // Replay the spawn placement against the FINAL rect + FINAL extraScale. The grab carries
         // the scale (SetExtraScale, step 5b), so only position/rotation are re-derived here.
-        Vector2 half = PanelWorldHalfSize(panel, anchor.Scale * extraScale);
+        Vector2 half = PanelWorldHalfSize(panel,
+            SharedWindowSize.RenderWorldScale(panel, anchor.Scale) * extraScale);
         if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _, 0, half, panel, false, anchor))
         {
             LatchPoseRePlace(panel, ref done, "skipped — no head pose available");
