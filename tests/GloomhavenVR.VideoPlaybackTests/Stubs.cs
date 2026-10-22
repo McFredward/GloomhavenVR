@@ -149,7 +149,9 @@ namespace GloomhavenVR.Net
         public byte Flags, PoseStamp, SizeCode, Frame;
         public RigPose Pose;
     }
-    internal struct PresenceState { public bool HasVideoWindow; public VideoWindowState VideoWindow; }
+    internal readonly struct SharedWindowPoseContext { }
+    internal readonly struct SharedWindowScaleContext { internal float Reference(int kind) => 12f; }
+    internal struct PresenceState { public bool HasVideoWindow; public VideoWindowState VideoWindow; public SharedWindowPoseContext? WindowPoseContext { get; set; } public SharedWindowScaleContext? WindowScales { get; set; } }
     internal static class NetProtocol
     {
         public const byte ExtIdVideoWindow = 72, SharedPoseBit = 4, SharedFrameMax = 1,
@@ -167,10 +169,10 @@ namespace GloomhavenVR.Net
     {
         internal static void ResetVideoPose() { }
         internal static void SampleVideoPose(uint key, bool source, ref SharedWindowEntry entry) { }
-        internal static void ObserveVideoPose(int sender, in SharedWindowEntry entry) { }
+        internal static void ObserveVideoPose(int sender, in SharedWindowEntry entry, SharedWindowPoseContext? context = null, float referenceScale = 0f) { }
         internal static void ForgetVideoPose(int sender) { }
         internal static void ResolveVideoPose(uint key) { }
-        internal static bool TryVideoInitialPose(int owner, uint key, out Vector3 pos, out Quaternion rot, out float size)
+        internal static bool TryVideoSharedInitialPose(out Vector3 pos, out Quaternion rot, out float size)
         { pos = default; rot = default; size = 1; return true; }
     }
 }

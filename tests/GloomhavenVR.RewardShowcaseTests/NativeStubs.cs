@@ -292,6 +292,7 @@ namespace GloomhavenVR.WorldUI
         internal UnityEngine.Vector3 Position;
         internal UnityEngine.Quaternion Rotation;
         internal int Placements;
+        internal void ApplySharedReferenceWorldScale(float reference) { }
         internal void PlaceFrameAt(UnityEngine.Vector3 position, UnityEngine.Quaternion rotation)
         { Position = position; Rotation = rotation; Placements++; }
     }

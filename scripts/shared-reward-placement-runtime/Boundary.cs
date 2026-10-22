@@ -55,6 +55,8 @@ namespace GloomhavenVR.WorldUI
     {
         internal readonly Transform Root=new(); internal ConvertedPanel? Panel; internal bool IsGrabbed; internal int Snaps,Placements;
         Transform? IPanelGrabOwner.GrabRoot=>Root;
+        internal float SharedReferenceWorldScale { get; private set; } = 12f;
+        internal void ApplySharedReferenceWorldScale(float reference) { SharedReferenceWorldScale = reference; }
         internal void SnapFrameTo(Vector3 p,Quaternion q){Root.position=p;Root.rotation=q;if(Panel!=null){Panel.HostGo.transform.position=p;Panel.HostGo.transform.rotation=q;}Snaps++;}
         internal void PlaceFrameAt(Vector3 p,Quaternion q){Root.position=p;Root.rotation=q;if(Panel!=null){Panel.HostGo.transform.position=p;Panel.HostGo.transform.rotation=q;}Placements++;}
     }
