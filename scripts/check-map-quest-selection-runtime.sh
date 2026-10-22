@@ -106,3 +106,64 @@ PY
     fi
     echo "Map quest selection negative control rejected: $mutation"
 done
+for mutation in drop-locked-edge omit-unready stale-subject stale-generation stale-surface wrong-clear-subject backwards-stamp native-refusal lost-adopted-subject lost-supersession incidental-table-close incidental-x-close native-click-refusal same-quest-opening native-retirement-loss later-local-close; do
+    python3 - "$repo_root" "$temporary" "$mutation" <<'PY'
+from pathlib import Path
+import sys
+root, out = map(Path, sys.argv[1:3]); mutation = sys.argv[3]
+remote = (root/'src/GloomhavenVR/Net/Remote/RemoteMapRoom.cs').read_text()
+interactor = (root/'src/GloomhavenVR/WorldUI/MapRoom/MapLocationInteractor.cs').read_text()
+changes = {
+ 'drop-locked-edge': ('remote', 'if (MapInputGate.IsBlocked)\n        {\n            _pendingSelectInteractor', 'if (bool.Parse("false") && MapInputGate.IsBlocked)\n        {\n            _pendingSelectInteractor'),
+ 'omit-unready': ('interactor', 'MapQuestReadyUp.OnQuestDecisionChanged(from, to);', 'System.GC.KeepAlive(from);'),
+ 'stale-subject': ('remote', '|| !sameSubject', '|| false'),
+ 'stale-generation': ('remote', '|| interactor.ScanGeneration != _pendingSelectGeneration', '|| false'),
+ 'stale-surface': ('remote', '|| MapIconLayer.CurrentSurface != _pendingSelectSurface', '|| false'),
+ 'wrong-clear-subject': ('remote', 'if (wantKey == 0u && priorKey != currentKey)', 'if (bool.Parse("false") && wantKey == 0u && priorKey != currentKey)'),
+ 'backwards-stamp': ('remote', 'if (forward >= 128)', 'if (bool.Parse("false") && forward >= 128)'),
+ 'native-refusal': ('interactor', 'if (sel.IsSelected)\n                return;', 'if (bool.Parse("false") && sel.IsSelected)\n                return;'),
+ 'lost-adopted-subject': ('remote', 'SeenSelectKey[kv.Key] = s.SelectKey;\n                continue;\n            }\n            if (forward >= 128)', 'System.GC.KeepAlive(s.SelectKey);\n                continue;\n            }\n            if (forward >= 128)'),
+ 'lost-supersession': ('remote', 'ClearPendingSelection();\n        uint currentKey = KeyOf(interactor.Staged);', 'System.GC.KeepAlive(interactor);\n        uint currentKey = KeyOf(interactor.Staged);'),
+ 'incidental-table-close': ('interactor', 'if (NativeMapQuestSelection.BlocksSharedBrowsing)\n            return;', 'if (bool.Parse("false") && NativeMapQuestSelection.BlocksSharedBrowsing)\n            return;'),
+ 'incidental-x-close': ('interactor', 'if (interactor == null || MapInputGate.IsBlocked || NativeMapQuestSelection.BlocksSharedBrowsing\n            || StoryComposite.PointOfNoReturn)', 'if (interactor == null || MapInputGate.IsBlocked\n            || StoryComposite.PointOfNoReturn)'),
+ 'native-click-refusal': ('interactor', 'return ReferenceEquals(_selected, loc);', 'return true;'),
+ 'same-quest-opening': ('remote', '|| interactor.SelectionRevision != _pendingSelectRevision', '|| false'),
+ 'native-retirement-loss': ('remote', '|| (currentKey == 0u && _pendingSelectPriorLocation != null', '|| (bool.Parse("false") && currentKey == 0u && _pendingSelectPriorLocation != null'),
+ 'later-local-close': ('interactor', 'unchecked(_dispatchedHere + _adoptedFromGame + _manualSelectionRevision)', 'unchecked(_dispatchedHere + _adoptedFromGame + 0 * _manualSelectionRevision)'),
+}
+name, needle, replacement = changes[mutation]
+source = remote if name == 'remote' else interactor
+assert source.count(needle) == 1, 'Delivery mutation seam changed: ' + mutation
+source = source.replace(needle, replacement)
+if name == 'remote': remote = source
+else: interactor = source
+(out/'RemoteRoom.cs').write_text(remote); (out/'Interactor.cs').write_text(interactor)
+PY
+    if dotnet run --project "$project" --configuration Release \
+        --property:InteractorSource="$temporary/Interactor.cs" --property:RemoteRoomSource="$temporary/RemoteRoom.cs" \
+        > "$temporary/mutant.log" 2>&1; then
+        echo "FAIL: shared quest delivery mutation survived: $mutation" >&2; exit 1
+    fi
+    case "$mutation" in
+        drop-locked-edge) expected='Locked shared clear must retain its original visible native subject until authorized' ;;
+        omit-unready) expected='Locked shared clear must request own native quest-unready before adoption' ;;
+        stale-subject) expected='Pending clear must retire on subject' ;;
+        stale-generation) expected='Pending clear must retire on generation' ;;
+        stale-surface) expected='Pending clear must retire on surface' ;;
+        wrong-clear-subject) expected='Delayed clear of old subject must not dismiss a new quest or withdraw its readiness' ;;
+        backwards-stamp) expected='Backwards selection packet must not reopen a closed subject' ;;
+        native-refusal) expected='Native Deselect refusal must preserve staging and prevent replacement dispatch' ;;
+        lost-adopted-subject) expected='A peer may clear an adopted subject without first publishing its own selection stamp' ;;
+        lost-supersession) expected='A newer unavailable selection must retire its obsolete pending clear' ;;
+        incidental-table-close) expected='Incidental table click must leave the shared native proposal visible' ;;
+        incidental-x-close) expected='Incidental X must leave the shared native proposal visible' ;;
+        native-click-refusal) expected='Native click refusal must not report a requested selection as adopted' ;;
+        same-quest-opening) expected='Pending clear must retire after a new opening of the same quest' ;;
+        native-retirement-loss) expected='Native unready retirement must preserve a pending replacement selection' ;;
+        later-local-close) expected='Later explicit local close must supersede a pending replacement selection' ;;
+    esac
+    if ! rg -qF "Unhandled exception. System.InvalidOperationException: $expected" "$temporary/mutant.log"; then
+        cat "$temporary/mutant.log"; echo "FAIL: delivery control did not reach injected defect: $mutation" >&2; exit 1
+    fi
+    echo "Shared quest delivery negative control rejected: $mutation"
+done

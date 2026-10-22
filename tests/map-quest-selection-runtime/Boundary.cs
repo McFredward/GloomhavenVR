@@ -195,14 +195,19 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.Hands { internal class VRHand { public string Side = "Left"; } }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
-    internal static class MapRoomDriver { public static bool Active = true; }
+    internal static class MapRoomDriver { public static bool Active = true; public static MapLocationInteractor ActiveLocations; }
     internal static class MapQuestReadyUp
     {
         public static readonly List<(string, string)> Edges = new();
-        public static void OnQuestDecisionChanged(string previous, string current) => Edges.Add((previous, current));
+        // Readiness transport boundary: the existing ready-runtime fixture separately runs
+        // production OnQuestDecisionChanged + native ReadyUp. No automatic ACK is simulated.
+        public static bool UnreadyRequested;
+        public static void OnQuestDecisionChanged(string previous, string current)
+        { Edges.Add((previous, current)); UnreadyRequested = true; }
     }
     internal sealed partial class MapLocationInteractor
     {
+        public int ScanGeneration { get; set; }
         private MapLocation _hover = null;
         public GloomhavenVR.Hands.VRHand Press;
         private GloomhavenVR.Hands.VRHand TriggerEdgeHand() => Press;
@@ -221,5 +226,53 @@ namespace GloomhavenVR.WorldUI.MapRoom
         { location.Select(); if (location.IsSelected) Arm(location); }
         public static void ClearStatic()
         { _publishedDecisionEver = false; _publishedDecisionId = null; _publishedBySettle = false; _publishedAt = 0; }
+    }
+    internal static class MapIconLayer
+    {
+        internal enum MapSurface { Unknown, World, City }
+        public static MapSurface CurrentSurface = MapSurface.World;
+    }
+}
+namespace GloomhavenVR.WorldUI
+{
+    internal static class StoryComposite { public static bool PointOfNoReturn; }
+}
+namespace GloomhavenVR.Net
+{
+    using GloomhavenVR.WorldUI.MapRoom;
+    internal static class NetProtocol
+    {
+        // Identity transport boundary only. Resolver tests use stable native location IDs.
+        public static uint HashMapKey(string id)
+        { uint hash = 2166136261; foreach (char c in id) hash = (hash ^ c) * 16777619; return hash == 0 ? 1u : hash; }
+    }
+    internal static class RemoteSharedGaze { public static void Forget(int id) { } }
+    internal static partial class RemoteMapRoom
+    {
+        private readonly struct PeerRoom
+        {
+            public PeerRoom(byte stamp, uint key) { SelectStamp = stamp; SelectKey = key; InRoom = true; }
+            public readonly byte SelectStamp;
+            public readonly uint SelectKey;
+            public readonly bool InRoom;
+        }
+        private static readonly Dictionary<int, PeerRoom> Peers = new();
+        private static readonly Dictionary<int, byte> ConsumedStamp = new(), SeenStamp = new();
+        private static readonly List<MapLocation> CacheLocations = new();
+        private static bool TryResolveKey(uint key, out MapLocation location)
+        { location = CacheLocations.Find(item => KeyOf(item) == key); return location != null; }
+        private static string NameOf(MapLocation location, uint key) => location?.name ?? "none";
+        private static void Note(string message) { }
+        public static void Tick() => ResolveSelection();
+        public static void Packet(int peer, byte stamp, MapLocation location) => Peers[peer] = new(stamp, KeyOf(location));
+        public static void Leave(int peer) => Forget(peer);
+        public static bool Pending => _pendingSelectInteractor != null;
+        public static bool EchoSuppressed => _hasAdoptedSelect && _adoptedSelectKey == 0 && _adoptedSelectAt >= 0;
+        public static void Begin(MapLocationInteractor observer, params MapLocation[] locations)
+        {
+            Peers.Clear(); SeenSelectStamp.Clear(); ConsumedSelectStamp.Clear(); SeenSelectKey.Clear();
+            ClearPendingSelection(); CacheLocations.Clear(); CacheLocations.AddRange(locations);
+            MapRoomDriver.ActiveLocations = observer; MapIconLayer.CurrentSurface = MapIconLayer.MapSurface.World;
+        }
     }
 }

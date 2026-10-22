@@ -132,6 +132,12 @@ internal static partial class ModalFallback
         if (MessageWindowContinuation.TryClose(window))
             return;
 
+        // Shared quest browsing must close through the same native selection seam everywhere.
+        // A committed host proposal instead keeps its original window and ready/decline controls;
+        // a local Escape/Hide would dissolve only this player's copy and strand the shared view.
+        if (MapRoom.MapLocationInteractor.HandleSharedQuestClose(window))
+            return;
+
         // ModBuild 185: the map room's character screen is not closable — see IsMapRoomPermanent
         // for why closing it SPLIT it rather than closing it. This covers the X, the escape chord
         // and CloseStickyFloatsExceptEscMenu in one place, because they all route through here.

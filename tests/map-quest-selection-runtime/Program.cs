@@ -1,5 +1,7 @@
 using System;
 using GloomhavenVR.WorldUI.MapRoom;
+using GloomhavenVR.WorldUI;
+using GloomhavenVR.Net;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -29,6 +31,8 @@ internal static class Program
         Singleton<UIReadyToggle>.Instance = new();
         UnityEngine.Object.FirstPopup = Popups.Multiplayer;
         MapQuestReadyUp.Edges.Clear();
+        MapQuestReadyUp.UnreadyRequested = false;
+        StoryComposite.PointOfNoReturn = false;
         MapLocationInteractor.ClearStatic();
         return new MapLocationInteractor();
     }
@@ -232,13 +236,175 @@ internal static class Program
         Check(MapLocationInteractor.QuestSelectionCleared(out _), "Ordinary shared browsing clear still settles");
     }
 
+    private static (MapLocationInteractor Observer, MapLocation First, MapLocation Second) Delivery(bool client = true)
+    {
+        var observer = Reset(client);
+        MapLocation first = new("delivery-A", "quest-A"), second = new("delivery-B", "quest-B");
+        observer.AdoptSelection(first, "initial local browse");
+        observer.Sample();
+        RemoteMapRoom.Begin(observer, first, second);
+        RemoteMapRoom.Packet(1, 254, first); RemoteMapRoom.Tick(); // first sight never clicks
+        Check(first.IsSelected && first.DeselectCalls == 0, "First peer snapshot must only establish selection history");
+        return (observer, first, second);
+    }
+
+    private static void LockedDelivery()
+    {
+        foreach (bool client in new[] { false, true })
+        {
+            var (observer, first, second) = Delivery(client);
+            Map.IsLocked = true;
+            RemoteMapRoom.Packet(1, 255, null!); RemoteMapRoom.Tick();
+            Check(RemoteMapRoom.Pending && first.IsSelected && Popups.Selected.gameObject.activeInHierarchy,
+                "Locked shared clear must retain its original visible native subject until authorized");
+            Check(MapQuestReadyUp.Edges.Count == 1 && MapQuestReadyUp.UnreadyRequested,
+                "Locked shared clear must request own native quest-unready before adoption");
+            for (int i = 0; i < 100; i++) RemoteMapRoom.Tick();
+            Check(Map.IsLocked && first.DeselectCalls == 0 && MapQuestReadyUp.Edges.Count == 1,
+                "Pending clear never releases native locks, repeats readiness, or clicks every frame");
+            Map.IsLocked = false; // Explicit native-network authorization boundary.
+            RemoteMapRoom.Tick();
+            Check(!RemoteMapRoom.Pending && !first.IsSelected && observer.Staged == null
+                && !Popups.Selected.gameObject.activeInHierarchy,
+                "Authorized shared clear must retire the same native popup exactly once");
+            RemoteMapRoom.Tick();
+            Check(first.DeselectCalls == 1 && RemoteMapRoom.EchoSuppressed,
+                "Applied shared clear consumes once and suppresses its transport echo");
+            // A backwards packet is not a new human action; wrap 255 -> 0 is.
+            RemoteMapRoom.Packet(1, 254, first); RemoteMapRoom.Tick();
+            Check(!first.IsSelected, "Backwards selection packet must not reopen a closed subject");
+            RemoteMapRoom.Packet(1, 0, second); RemoteMapRoom.Tick();
+            Check(second.IsSelected, "Wrapping selection stamp must admit the next real edge");
+        }
+
+        var state = Delivery();
+        state.Observer.AdoptSelection(state.Second, "newer local subject");
+        RemoteMapRoom.Packet(1, 255, null!); RemoteMapRoom.Tick();
+        Check(state.Second.IsSelected && !RemoteMapRoom.Pending && !MapQuestReadyUp.UnreadyRequested,
+            "Delayed clear of old subject must not dismiss a new quest or withdraw its readiness");
+
+        state = Delivery(); Map.IsLocked = true;
+        RemoteMapRoom.Packet(1, 255, null!); RemoteMapRoom.Tick();
+        RemoteMapRoom.Packet(1, 0, state.Second); RemoteMapRoom.Tick();
+        Map.IsLocked = false; RemoteMapRoom.Tick();
+        Check(state.Second.IsSelected && !state.First.IsSelected && !RemoteMapRoom.Pending,
+            "New selection supersedes a pending clear before native authorization");
+
+        state = Delivery();
+        RemoteMapRoom.Begin(state.Observer, state.First, state.Second);
+        RemoteMapRoom.Packet(1, 0, null!); RemoteMapRoom.Tick();
+        RemoteMapRoom.Packet(1, 0, state.First); RemoteMapRoom.Tick(); // adopted elsewhere; no echo stamp
+        RemoteMapRoom.Packet(1, 1, null!); RemoteMapRoom.Tick();
+        Check(!state.First.IsSelected,
+            "A peer may clear an adopted subject without first publishing its own selection stamp");
+
+        state = Delivery(); Map.IsLocked = true;
+        RemoteMapRoom.Packet(1, 255, null!); RemoteMapRoom.Tick();
+        RemoteMapRoom.Packet(1, 0, new MapLocation("unresolvable-surface", "absent-quest")); RemoteMapRoom.Tick();
+        Map.IsLocked = false; RemoteMapRoom.Tick();
+        Check(state.First.IsSelected && !RemoteMapRoom.Pending,
+            "A newer unavailable selection must retire its obsolete pending clear");
+
+        state = Delivery(); Map.IsLocked = true;
+        RemoteMapRoom.Packet(1, 255, state.Second); RemoteMapRoom.Tick();
+        state.First.Selectable = false; Map.IsLocked = false; RemoteMapRoom.Tick();
+        Check(state.First.IsSelected && ReferenceEquals(state.Observer.Staged, state.First)
+            && !state.Second.IsSelected && !RemoteMapRoom.Pending,
+            "Native Deselect refusal must preserve staging and prevent replacement dispatch");
+
+        state = Delivery(); state.Second.Selectable = false;
+        Check(!state.Observer.AdoptSelection(state.Second, "native click refuses replacement")
+            && !state.Second.IsSelected && state.Observer.Staged == null,
+            "Native click refusal must not report a requested selection as adopted");
+
+        state = Delivery(); Map.IsLocked = true;
+        RemoteMapRoom.Packet(1, 255, null!); RemoteMapRoom.Tick();
+        state.Second.Select(); state.Observer.Arm(state.Second);
+        state.First.Select(); state.Observer.Arm(state.First); // same key, newer native opening
+        RemoteMapRoom.Tick();
+        Check(!RemoteMapRoom.Pending && state.First.IsSelected,
+            "Pending clear must retire after a new opening of the same quest");
+
+        state = Delivery(client: false); Map.IsLocked = true;
+        RemoteMapRoom.Packet(1, 255, state.Second); RemoteMapRoom.Tick();
+        state.First.Deselect(); // Native host OnReady(false) owns this original callback.
+        Map.IsLocked = false; Time.unscaledTime = 2; state.Observer.DeselectTick();
+        Check(state.Observer.Staged == null && state.First.DeselectCalls == 1,
+            "Native retirement must clear staging without repeating its original callback");
+        RemoteMapRoom.Tick();
+        Check(state.Second.IsSelected && !RemoteMapRoom.Pending,
+            "Native unready retirement must preserve a pending replacement selection");
+
+        foreach (bool x in new[] { false, true })
+        {
+            state = Delivery(); Map.IsLocked = true;
+            RemoteMapRoom.Packet(1, 255, state.Second); RemoteMapRoom.Tick();
+            Map.IsLocked = false; Time.unscaledTime = 2;
+            if (x) MapLocationInteractor.HandleSharedQuestClose(Popups.Selected.Window);
+            else { state.Observer.Press = new(); state.Observer.DeselectTick(); }
+            RemoteMapRoom.Tick();
+            Check(!state.Second.IsSelected && state.Observer.Staged == null && !RemoteMapRoom.Pending,
+                "Later explicit local close must supersede a pending replacement selection");
+        }
+
+        foreach (string retirement in new[] { "generation", "surface", "interactor", "subject", "peer", "proposal", "commit", "unknown", "room" })
+        {
+            state = Delivery(); Map.IsLocked = true;
+            RemoteMapRoom.Packet(1, 255, null!); RemoteMapRoom.Tick();
+            Check(RemoteMapRoom.Pending, "Retirement fixture must genuinely retain a pending clear");
+            switch (retirement)
+            {
+                case "generation": state.Observer.ScanGeneration++; break;
+                case "surface": MapIconLayer.CurrentSurface = MapIconLayer.MapSurface.City; break;
+                case "interactor": MapRoomDriver.ActiveLocations = new(); break;
+                case "subject": state.First.Location.ID = "rebound-native-location"; break;
+                case "peer": RemoteMapRoom.Leave(1); break;
+                case "proposal": Multiplayer.ProxyHostSelectedLocation(state.First); break;
+                case "commit": StoryComposite.PointOfNoReturn = true; break;
+                case "unknown": Singleton<UIMapMultiplayerController>.Instance = null!; break;
+                case "room": MapRoomDriver.Active = false; break;
+            }
+            RemoteMapRoom.Tick();
+            Check(!RemoteMapRoom.Pending, "Pending clear must retire on " + retirement);
+            Map.IsLocked = false; RemoteMapRoom.Tick();
+            Check(state.First.IsSelected || retirement == "subject",
+                "Retired clear must not replay after unlock: " + retirement);
+        }
+
+        state = Delivery(); Map.IsLocked = true; StoryComposite.PointOfNoReturn = true;
+        RemoteMapRoom.Packet(1, 255, null!); RemoteMapRoom.Tick();
+        Check(!RemoteMapRoom.Pending && !MapQuestReadyUp.UnreadyRequested && state.First.IsSelected,
+            "Starting quest must never unready or queue a browsing clear");
+
+        state = Delivery();
+        Check(MapLocationInteractor.HandleSharedQuestClose(Popups.Selected.Window)
+            && !state.First.IsSelected && state.Observer.Staged == null,
+            "Shared quest X must follow original native browsing deselection");
+        state = Delivery(); Map.IsLocked = true;
+        Check(MapLocationInteractor.HandleSharedQuestClose(Popups.Selected.Window) && state.First.IsSelected,
+            "Shared quest X must preserve an original native map lock");
+        state = Delivery(); Multiplayer.ProxyHostSelectedLocation(state.First);
+        Multiplayer.Pending(); // original native PreviewQuest; no automatic readiness/confirmation
+        Check(NativeMapQuestSelection.BlocksSharedBrowsing, "Genuine native host proposal must block incidental VR browsing");
+        Time.unscaledTime = 2; state.Observer.Press = new(); state.Observer.DeselectTick();
+        Check(state.First.IsSelected && Popups.Selected.gameObject.activeInHierarchy,
+            "Incidental table click must leave the shared native proposal visible");
+        Check(MapLocationInteractor.HandleSharedQuestClose(Popups.Selected.Window) && state.First.IsSelected,
+            "Incidental X must leave the shared native proposal visible");
+        Check(!MapLocationInteractor.HandleSharedQuestClose(new UIWindow()),
+            "Shared quest close must never seize an unrelated equal-ID popup");
+        Multiplayer.CancelNativeProposal();
+        Check(!NativeMapQuestSelection.BlocksSharedBrowsing,
+            "Native proposal cancellation immediately restores ordinary shared browsing");
+    }
+
     public static void Main()
     {
         foreach (bool flatHost in new[] { true, false })
         foreach (bool flatCompanion in new[] { true, false })
         foreach (bool reconnect in new[] { true, false }) Client(flatHost, flatCompanion, reconnect);
         Host(true); Host(false);
-        DelayedInitialization(); LinkedQuest(); UncommittedBrowsing();
+        DelayedInitialization(); LinkedQuest(); UncommittedBrowsing(); LockedDelivery();
         System.Console.WriteLine($"Map quest selection runtime: {_assertions} assertions; {_roles} host/client/reconnect paths; original native proposal, preview, cancel and selection methods.");
     }
 }

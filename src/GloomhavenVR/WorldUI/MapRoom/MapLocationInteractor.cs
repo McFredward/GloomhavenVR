@@ -150,6 +150,11 @@ internal sealed class MapLocationInteractor
     /// </summary>
     internal MapLocation? Staged => _selected;
 
+    // Both genuine selection producers already count accepted armings. Bind a deferred close
+    // to that lifetime too: A -> B -> A is a newer opening despite the matching location ID.
+    internal int SelectionRevision => unchecked(_dispatchedHere + _adoptedFromGame + _manualSelectionRevision);
+    private int _manualSelectionRevision;
+
     /// <summary>
     /// ADOPT THE ROOM'S SELECTION — the receiving half of record 20's selection edge.
     ///
@@ -169,7 +174,7 @@ internal sealed class MapLocationInteractor
     /// all, which is what makes an edge that arrives twice (a duplicated packet, two peers naming
     /// the same node) cost one comparison rather than a second click.</para>
     /// </summary>
-    /// <returns>True when something was actually driven — log material for the caller, which owns
+    /// <returns>True when the requested selection was actually adopted — log material for the caller, which owns
     /// the "once per change, naming the node" line.</returns>
     internal bool AdoptSelection(MapLocation? loc, string why)
     {
@@ -190,10 +195,56 @@ internal sealed class MapLocationInteractor
         // the new one while the old one still stands would leave the old icon's own highlight and
         // quest marker up with nothing to take them down.
         if (_selected != null)
+        {
             Deselect($"adopted from the room: {why}");
+            if (_selected != null)
+                return false; // native Deselect declined; do not invent a second selection
+        }
         if (loc == null)
             return true;
         Dispatch(loc, $"adopted from the room ({why})");
+        return ReferenceEquals(_selected, loc);
+    }
+
+    /// <summary>
+    /// A peer changed an uncommitted browsing selection while this client had already readied.
+    /// Native OnReady owns that map lock; waiting for the local selection observer to unready
+    /// after adoption is circular because adoption correctly respects the lock. Withdraw only
+    /// this client's existing quest readiness through the original public seam, once per remote
+    /// edge. The caller still waits for native authorization and never releases the mask itself.
+    /// A real host proposal, unknown native identity, or a starting quest is not browsing.
+    /// </summary>
+    internal bool PrepareSharedSelectionChange(MapLocation? loc)
+    {
+        if (!MapRoomDriver.Active || StoryComposite.PointOfNoReturn
+            || !NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) || proposal != null)
+            return false;
+        string? from = DecisionIdOf(_selected);
+        string? to = DecisionIdOf(loc);
+        if (string.Equals(from, to, System.StringComparison.Ordinal))
+            return false;
+        MapQuestReadyUp.OnQuestDecisionChanged(from, to);
+        return true;
+    }
+
+    /// <summary>Keep a shared quest X on the same native deselection path as a table click.</summary>
+    internal static bool HandleSharedQuestClose(UIWindow window)
+    {
+        if (!FFSNetwork.IsOnline || !MapRoomDriver.Active
+            || !NativeMapQuestSelection.IsConfirmationWindow(window))
+            return false;
+        MapLocationInteractor? interactor = MapRoomDriver.ActiveLocations;
+        if (interactor == null || MapInputGate.IsBlocked || NativeMapQuestSelection.BlocksSharedBrowsing
+            || StoryComposite.PointOfNoReturn)
+        {
+            VRLog.Info(Scope, "MAP QUEST SHARED CLOSE: incidental X kept the original quest "
+                + "window visible; its native map lock/proposal or starting quest still owns "
+                + "the decision. Use its original readiness/decline controls; no Hide was sent.");
+            return true;
+        }
+        interactor.TickAdoptGameSelection();
+        interactor._manualSelectionRevision++;
+        interactor.Deselect("the shared quest window's X requested its original browsing deselection");
         return true;
     }
 
@@ -1192,14 +1243,21 @@ internal sealed class MapLocationInteractor
         }
 
         // (1) a trigger pull that landed ON THE MAP OR THE TABLE, and on no location.
+        // A client may not dissolve its copy of a genuine host proposal independently.
+        // The original ready/decline controls, rather than an incidental table click, own it.
+        if (NativeMapQuestSelection.BlocksSharedBrowsing)
+            return;
         VRHand? clicking = TriggerEdgeHand();
         if (clicking == null)
             return;
         if (_hover != null)
             return; // an icon is under the ray: that press is a SELECTION, never a deselection
         if (RayOnMapOrTable(clicking, out string what, out float distance))
+        {
+            _manualSelectionRevision++;
             Deselect($"{clicking.Side} trigger pulled with the ray on {what} at {distance:F1} world "
                      + "units and on no location icon");
+        }
         else
             NoteDeselectRefused(clicking, what);
     }
@@ -1487,13 +1545,18 @@ internal sealed class MapLocationInteractor
         if (MapInputGate.IsBlocked)
             return;
         MapLocation? sel = _selected;
-        _selected = null;
-        _selectedDecisionId = null;
         if (sel == null)
             return;
         try
         {
-            sel.Deselect();
+            if (sel.IsSelected)
+                sel.Deselect();
+            // Native Deselect is void and may refuse on IsSelectable or m_OnClickAction.
+            // Only its actual result may retire our subject or authorize a replacement.
+            if (sel.IsSelected)
+                return;
+            _selected = null;
+            _selectedDecisionId = null;
             VRLog.Info(Scope, $"MAP ROOM location DESELECTED '{sel.name}' — {why}. Routed through the "
                               + "game's own MapLocation.Deselect, the exact counterpart of the Select() a "
                               + "click runs, so its guards still decide and nothing goes on the wire.");
@@ -2322,7 +2385,7 @@ internal sealed class MapLocationInteractor
         // OnPointerClick/OnMapLocationSelect do not test the map's interaction mask:
         // normal input cannot reach them through it. Gate BEFORE either the capital route
         // or pointer dispatch, including direct fingertip and remote selection calls.
-        if (MapInputGate.IsBlocked)
+        if (MapInputGate.IsBlocked || NativeMapQuestSelection.BlocksSharedBrowsing)
             return;
         if (loc == null)
             return;

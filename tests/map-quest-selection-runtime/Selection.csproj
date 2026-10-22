@@ -6,6 +6,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <SelectionSource Condition="'$(SelectionSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/NativeMapQuestSelection.cs</SelectionSource>
     <InteractorSource Condition="'$(InteractorSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapLocationInteractor.cs</InteractorSource>
+    <RemoteRoomSource Condition="'$(RemoteRoomSource)' == ''">../../src/GloomhavenVR/Net/Remote/RemoteMapRoom.cs</RemoteRoomSource>
     <BoundarySource Condition="'$(BoundarySource)' == ''">Boundary.cs</BoundarySource>
   </PropertyGroup>
   <ItemGroup>
@@ -16,6 +17,6 @@
     <Compile Include="$(IntermediateOutputPath)Observer.g.cs" />
   </ItemGroup>
   <Target Name="ExtractObserver" BeforeTargets="BeforeCompile">
-    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-observer.py&quot; &quot;$(InteractorSource)&quot; &quot;$(IntermediateOutputPath)Observer.g.cs&quot;" />
+    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-observer.py&quot; &quot;$(InteractorSource)&quot; &quot;$(IntermediateOutputPath)Observer.g.cs&quot; &quot;$(RemoteRoomSource)&quot;" />
   </Target>
 </Project>
