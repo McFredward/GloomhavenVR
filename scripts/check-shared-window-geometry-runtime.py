@@ -64,6 +64,10 @@ def main():
             'host': 'src/GloomhavenVR/WorldUI/Modal/ModalFallback.SharedWindowSpawn.cs',
             'lifecycle': 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.4.Lifecycle.cs',
             'reward': 'src/GloomhavenVR/WorldUI/Modal/RewardShowcasePlacement.cs',
+            'core': 'src/GloomhavenVR/WorldUI/Modal/ModalFallback.1.Core.cs',
+            'placement': 'src/GloomhavenVR/WorldUI/Conversion/PanelPlacement.cs',
+            'facing': 'src/GloomhavenVR/WorldUI/HeadFacing.cs',
+            'video_placement': 'src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.SharedPlacement.cs',
         }
         original = {name: (root / path).read_text() for name, path in paths.items()}
         hashes = {paths[name]: hashlib.sha256(code.encode()).hexdigest() for name, code in original.items()}
@@ -74,11 +78,15 @@ def main():
         assert 'panel.SharedDesignKind = SharedWindows.KindOf(window);' in original['size']
         assert '_panel.SharedDesignKind = kind;' in original['grab']
         assert 'SharedDesignKind = SharedWindowKind.Video,' in original['video']
+        assert 'ComputeInitialSpawn(head, out Vector3 position, out Quaternion rotation);' in original['video']
         place = block(original['spawn'], 'private static bool PlaceAtHmd(')
         assert place.count('SharedWindowSize.RenderWorldScale(') == 2
         assert 'public SharedWindowKind SharedDesignKind;' in original['panel']
         compute = block(original['spawn'], 'private static bool ComputeHmdPose(')
         assert compute.index('SharedWindowSpawnBridge.Handles(self)') < compute.index('TrySharedWindowAnchor(')
+        replay = block(original['spawn'], 'private static void TickPoseRePlaceOne(')
+        assert 'SharedWindowSize.RenderWorldScale(panel, anchor.Scale,\n                grab?.SharedReferenceWorldScale ?? 0f) * extraScale' in replay
+        assert 'PanelWorldHalfSize(panel, wp.Grab.SharedReferenceWorldScale * wp.ExtraScale)' in original['host']
         reveal = block(original['lifecycle'], 'private static void CompleteReveal(')
         assert reveal.index('SharedWindowSpawnBridge.TryReveal(panel)') < reveal.index('SetPanelRenderVisible(panel, visible: true')
         prefix = 'using System; using UnityEngine; using UnityEngine.UI; using GloomhavenVR.Core; namespace GloomhavenVR.WorldUI { '
@@ -97,6 +105,12 @@ def main():
         codec = block(original['protocol'], 'public static byte EncodeStorySize(')
         codec += '\n' + re.search(r'public static float DecodeStorySize\([\s\S]*?;', original['protocol'])[0]
         codec += '\n' + '\n'.join(re.search(r'public const byte ' + name + r' = [^;]+;', original['protocol'])[0] for name in ('StorySizeMinCode', 'StorySizeMaxCode', 'StorySizeDefaultCode'))
+        clamp = '\n'.join(block(original['spawn'], signature) for signature in (
+            'private static string? SeatCentreAtEyeLevel(', 'private static bool TryGetBoardPlaneY(',
+            'private static string? ClampSpawnPose(', 'private struct HeightDecision'))
+        clamp += '\n' + '\n'.join(re.search(r'private const float ' + name + r' = [^;]+;', original['spawn'])[0]
+            for name in ('MaxSpawnPitchDeg', 'SteepGazePullFactor', 'BoardTopClearanceMeters', 'MaxAboveEyeMeters'))
+        clamp += '\n' + re.search(r'private const float WindowDistanceMeters = [^;]+;', original['core'])[0]
         sources = {
             'Grab.cs': prefix + 'internal sealed partial class GrabbableModal {\n' + grab + '\n}}',
             'Size.cs': prefix + 'internal static partial class SharedWindowSize {\n' + size + '\n}}',
@@ -106,6 +120,18 @@ def main():
             'Bridge.cs': original['bridge'],
             'Host.cs': original['host'],
             'Reward.cs': original['reward'],
+            'Clamp.cs': prefix + 'internal static partial class ModalFallback {\n' + clamp + '\n}}',
+            'Placement.cs': prefix + 'internal static class PanelPlacement {\n'
+                + '\n'.join(re.search(r'internal const float ' + name + r' = [^;]+;', original['placement'])[0]
+                    for name in ('SpawnDistance', 'SpawnDrop')) + '\n'
+                + '\n'.join(block(original['placement'], signature) for signature in (
+                    'internal static void Spawn(', 'internal static Quaternion Facing(')) + '\n'
+                + re.search(r'private static Vector3 Flatten\([^;]+;', original['placement'])[0] + '\n}}',
+            'VideoSpawn.cs': prefix + 'internal static partial class NativeVideoWindow {\n'
+                + block(original['video_placement'], 'private static void ComputeInitialSpawn(') + '\n}}',
+            'Facing.cs': prefix + 'internal static class HeadFacing {\n'
+                + re.search(r'private const float DegenerateSqr = [^;]+;', original['facing'])[0] + '\n'
+                + block(original['facing'], 'internal static Vector3 Flatten(') + '\n}}',
             'HostMeasure.cs': prefix + 'internal static partial class ModalFallback {\n' + block(original['spawn'], 'private static Vector2 PanelWorldHalfSize(') + '\n}}',
         }
         variants = [
@@ -131,7 +157,7 @@ def main():
             ('follower-no-replay-retirement', 'Host.cs', 'wp.PoseRePlaceDone = true;\n            panel.SharedSpawnPoseReady = true;\n            NoteSharedAnchorSpent', 'wp.PoseRePlaceDone = false;\n            panel.SharedSpawnPoseReady = true;\n            NoteSharedAnchorSpent',
              'adopting the first shared pose retires every provisional replay'),
             ('host-replay-live-head', 'Host.cs', 'if (replay.HasValue && replay.Value.Valid)', 'if (replay.HasValue && replay.Value.Valid && bool.Parse("false"))',
-             'host final-fit replay retains the original opening gaze'),
+             'shared final-fit replay keeps original head and captured reference through zoom and map changes'),
             ('standing-author-never-ready', 'Host.cs', 'wp.Panel.SharedSpawnPoseReady = true;', 'wp.Panel.SharedSpawnPoseReady = false;',
              'already revealed host window becomes an initial pose publisher when a session starts'),
             ('native-size-from-menu-rig', 'Size.cs', 'return NativeHexReferenceWorldScale();', 'return Rig.VRRigDriver.BaseWorldScale;',
@@ -145,13 +171,34 @@ def main():
             ('native-renderer-fallback-lost', 'Size.cs', 'if (renderer != null) size = renderer.bounds.size;', 'if (renderer != null && bool.Parse("false")) size = renderer.bounds.size;',
              'original renderer fallback matches native initialization when the Hex has no collider'),
             ('captured-reference-ambient-getter', 'Grab.cs', 'internal float SharedReferenceWorldScale => _spawnSharedWorldScale;', 'internal float SharedReferenceWorldScale => SharedWindowSize.ReferenceWorldScale;',
-             'the author publishes the captured reference after its scene domain changes'),
+             'shared final-fit replay keeps original head and captured reference through zoom and map changes'),
             ('captured-reference-adoption-lost', 'Grab.cs', '_spawnSharedWorldScale = reference;', '_spawnSharedWorldScale = _spawnSharedWorldScale * 1f;',
              'a follower adopts the author reference independently of its local map domain'),
             ('captured-reference-delayed-render', 'Grab.cs', '_panel.HostGo.transform.localScale = Vector3.one * (unit * _visualScale);', '/* immediate reference-scale synchronization omitted */',
              'reference adoption updates the actual host before any first reveal or pose tick'),
             ('captured-reference-frame-factor', 'Grab.cs', '_spawnSharedWorldScale = reference;', '_spawnSharedWorldScale = reference; if (_frame != null) _frame.localScale = Vector3.one;',
              'reference adoption preserves the exact physical frame and manual factor'),
+            ('host-distance-private-zoom', 'Host.cs', 'placementScale = SharedHostSpawnWorldScale(panel);',
+             'placementScale = PanelLayout.WorldScale;',
+             'shared opening distance uses its captured reference independent of host live and saved zoom'),
+            ('host-distance-ambient-reference', 'Host.cs', 'return wp.Grab.SharedReferenceWorldScale;',
+             'return SharedWindowSize.ReferenceWorldScale;',
+             'shared final-fit replay keeps original head and captured reference through zoom and map changes'),
+            ('host-distance-private-replay', 'Host.cs', 'Vector3 raw = headPosition + headForward * (WindowDistanceMeters * placementScale);',
+             'Vector3 raw; if (replay.HasValue && replay.Value.Valid) { raw = replay.Value.RawPos; placementScale = replay.Value.Scale; } else raw = headPosition + headForward * (WindowDistanceMeters * placementScale);',
+             'a replay from earlier private placement cannot import its old zoom distance or scale'),
+            ('host-distance-pre-grab-zoom', 'Host.cs', 'return SharedWindowSize.ReferenceWorldScale;',
+             'return PanelLayout.WorldScale;',
+             'initial conversion before the grab exists uses the common geometry reference instead of private zoom'),
+            ('host-distance-raw-pitch', 'Clamp.cs', 'reason = SeatCentreAtEyeLevel(headPos, headForward, ref pos, scale);',
+             'pos.y = headPos.y;',
+             'shared opening distance uses its captured reference independent of host live and saved zoom'),
+            ('video-distance-private-zoom', 'VideoSpawn.cs', 'float placementScale = SharedPlacementRequired',
+             'float placementScale = SharedPlacementRequired && bool.Parse("false")',
+             'shared video opening uses fixed absolute distance across independent host zoom'),
+            ('video-distance-ambient-reference', 'VideoSpawn.cs', '_grab?.SharedReferenceWorldScale ?? SharedWindowSize.ReferenceWorldScale',
+             'SharedWindowSize.ReferenceWorldScale',
+             'shared video uses its captured grab reference through later scene transitions'),
             ('reward-captured-reference-lost', 'Reward.cs', 'if (_referenceScale > 0f) grab.ApplySharedReferenceWorldScale(_referenceScale);', '/* cached reward reference omitted */',
              'a reward reference received before conversion reaches the later actual grab'),
         ]

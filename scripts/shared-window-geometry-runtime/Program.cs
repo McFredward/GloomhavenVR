@@ -102,6 +102,8 @@ public static class InteractionProgram
         SharedWindows.Online = false; privateGrab.Participation(false); privateGrab.Tick(); privateGrab.LateSyncHost();
         Check(Close(WorldSize(privatePanel.HostRect).x, width), "leaving the shared session restores the captured private reference");
         SharedWindows.Online = true;
+        SpawnDistanceParity();
+        VideoDistanceParity();
         var camera = new GameObject("host head", typeof(Camera)).GetComponent<Camera>();
         CanvasConversion.WorldCamera = camera;
         camera.transform.SetPositionAndRotation(new Vector3(7,18,-4), Quaternion.Euler(25,61,9));
@@ -162,6 +164,141 @@ public static class InteractionProgram
             "session start publishes the existing host pose without a new gaze spawn");
         CapturedReferenceParity();
         yield return null;
+    }
+
+    private static void SpawnDistanceParity()
+    {
+        ResetNativeReference(); UnityGameEditorRuntime.s_TileSize = new Vector3(1.8f, 0, 1);
+        SharedWindows.Online = true;
+        SharedWindowSpawnBridge.InitialAuthor = () => true;
+        var head = new GameObject("fixed physical host head", typeof(Camera)).GetComponent<Camera>();
+        CanvasConversion.WorldCamera = head;
+        Vector3 eye = new(7, 18, -4);
+        foreach (bool map in new[] { false, true })
+        foreach (SharedWindowKind kind in new[] { SharedWindowKind.ScenarioStory, SharedWindowKind.MapStory,
+            SharedWindowKind.QuestConfirm, SharedWindowKind.Encounter, SharedWindowKind.RewardShowcase })
+        foreach (float pitch in new[] { 0f, 68f, 90f, -45f })
+        foreach (int table in new[] { 0, 1, 2 })
+        {
+            Vector3 first = default; Quaternion firstRotation = default; bool haveFirst = false;
+            foreach (float zoom in new[] { .25f, 7.22f, 23.39f, 100f, 900f })
+            {
+                GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = map;
+                GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Scale = 198.12f;
+                head.transform.SetPositionAndRotation(eye, Quaternion.Euler(pitch, 61, 9));
+                Vector3 originalForward = head.transform.forward;
+                CameraController.s_CameraController = table == 0 ? null! : new CameraController
+                    { FocusPoint = new Vector3(0, table == 1 ? eye.y - 1 : eye.y + 20, 0) };
+                VRModeStateMachine.TableInFrontOfPlayer = table != 0;
+                var panel = Panel(new Vector2(512, 689), kind); panel.RevealPending = true;
+                var grab = Build(panel, zoom, zoom < 10 ? .5f : 2.5f);
+                ModalFallback.Register(panel, grab);
+                float reference = grab.SharedReferenceWorldScale;
+                Check(ModalFallback.ComputeHost(panel, false, out Vector3 position, out Quaternion rotation,
+                    out float scale), "shared author produces a physical spawn in every map and table context");
+                Check(Close(scale, reference)
+                    && Mathf.Abs(Vector3.Distance(position, eye) - ModalFallback.ExpectedDistance * reference) < .001f,
+                    "shared opening distance uses its captured reference independent of host live and saved zoom");
+                Check(Mathf.Abs(position.y - eye.y) < .001f
+                    && Vector3.Dot(rotation * Vector3.up, Vector3.up) > .9999f,
+                    "shared downward and near-table spawn remains at eye level with yaw-only facing");
+                if (haveFirst)
+                    Check(Vector3.Distance(position, first) < .001f && Quaternion.Angle(rotation, firstRotation) < .01f,
+                        "the same host head and gaze produces identical absolute shared spawn across every zoom");
+                else { first = position; firstRotation = rotation; haveFirst = true; }
+                // The real final-fit replay runs after head motion, zoom, and possibly a map-domain
+                // transition. The original grab reference and opening head must both survive.
+                PanelLayout.WorldScale = zoom * 7;
+                GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = !map;
+                GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Scale = 600f;
+                head.transform.SetPositionAndRotation(new Vector3(-40, 88, 19), Quaternion.Euler(-35, 212, -12));
+                Check(ModalFallback.ComputeHost(panel, true, out Vector3 replay, out Quaternion replayRotation,
+                    out float replayScale, new Vector2(5, 80)) && Close(replayScale, reference)
+                    && Vector3.Distance(replay, position) < .001f && Quaternion.Angle(replayRotation, rotation) < .01f,
+                    "shared final-fit replay keeps original head and captured reference through zoom and map changes");
+                Check(ModalFallback.ComputeWithPrivateReplay(panel, eye, originalForward, zoom,
+                    out Vector3 repaired, out Quaternion repairedRotation, out float repairedScale)
+                    && Close(repairedScale, reference) && Vector3.Distance(repaired, position) < .001f
+                    && Quaternion.Angle(repairedRotation, rotation) < .01f,
+                    "a replay from earlier private placement cannot import its old zoom distance or scale");
+                if (table != 0)
+                {
+                    Vector3 raw = eye + originalForward * (ModalFallback.ExpectedDistance * reference);
+                    Check(ModalFallback.ClampTableTerms(eye, originalForward, ref raw, reference,
+                        Vector2.one, out float floor, out bool capWon)
+                        && Close(floor, CameraController.s_CameraController!.FocusPoint.y + .30f * reference + 1)
+                        && capWon && Vector3.Distance(raw, position) < .001f,
+                        "real shared table clamp reads the fixed reference and preserves the requested eye-level distance");
+                }
+            }
+        }
+        CameraController.s_CameraController = null!; VRModeStateMachine.TableInFrontOfPlayer = false;
+        GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Scale = 198.12f;
+        foreach (bool map in new[] { false, true })
+        {
+            GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = map;
+            head.transform.SetPositionAndRotation(eye, Quaternion.Euler(68, 61, 9));
+            foreach (float zoom in new[] { .25f, 900f })
+            {
+                PanelLayout.WorldScale = zoom;
+                var beforeGrab = Panel(new Vector2(512, 689), SharedWindowKind.ScenarioStory);
+                Check(ModalFallback.ComputeHost(beforeGrab, false, out Vector3 position, out _, out float scale)
+                    && Close(scale, SharedWindowSize.ReferenceWorldScale)
+                    && Mathf.Abs(Vector3.Distance(position, eye) - ModalFallback.ExpectedDistance * scale) < .001f,
+                    "initial conversion before the grab exists uses the common geometry reference instead of private zoom");
+            }
+        }
+        GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = false;
+        CanvasConversion.WorldCamera = null;
+    }
+
+    private static void VideoDistanceParity()
+    {
+        ResetNativeReference(); UnityGameEditorRuntime.s_TileSize = new Vector3(1.8f, 0, 1);
+        var head = new GameObject("fixed video host head", typeof(Camera)).GetComponent<Camera>();
+        Vector3 eye = new(7, 18, -4);
+        head.transform.SetPositionAndRotation(eye, Quaternion.Euler(68, 61, 9));
+        foreach (bool map in new[] { false, true })
+        {
+            SharedWindows.Online = true;
+            GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = map;
+            GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Scale = 198.12f;
+            Vector3 first = default; bool haveFirst = false;
+            foreach (float zoom in new[] { .25f, 7.22f, 23.39f, 100f, 900f })
+            {
+                PanelLayout.WorldScale = zoom;
+                NativeVideoWindow.ComputeSpawn(head, null, out Vector3 position, out Quaternion rotation);
+                float expected = PanelPlacement.SpawnDistance * SharedWindowSize.ReferenceWorldScale;
+                Check(Mathf.Abs(Vector3.Distance(position, eye) - expected) < .001f
+                    && position.y == eye.y && Vector3.Dot(rotation * Vector3.up, Vector3.up) > .9999f,
+                    "shared video opening uses fixed absolute distance across independent host zoom");
+                if (haveFirst) Check(Vector3.Distance(first, position) < .001f,
+                    "shared video head and gaze spawn identically at every host zoom");
+                else { first = position; haveFirst = true; }
+                var panel = Panel(new Vector2(1280, 720), SharedWindowKind.Video);
+                var grab = Build(panel, zoom, .5f); float captured = grab.SharedReferenceWorldScale;
+                // Shared final placement follows the existing grab reference if the persistent
+                // movie has already crossed a map-domain transition before a reveal edge.
+                GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = !map;
+                GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Scale = 600f;
+                PanelLayout.WorldScale = zoom * 7;
+                NativeVideoWindow.ComputeSpawn(head, grab, out Vector3 retained, out _);
+                Check(Mathf.Abs(Vector3.Distance(retained, eye) - PanelPlacement.SpawnDistance * captured) < .001f,
+                    "shared video uses its captured grab reference through later scene transitions");
+                GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = map;
+                GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Scale = 198.12f;
+            }
+        }
+        SharedWindows.Online = false;
+        GloomhavenVR.WorldUI.MapRoom.MapRoomDriver.Active = false;
+        foreach (float zoom in new[] { .25f, 900f })
+        {
+            PanelLayout.WorldScale = zoom;
+            NativeVideoWindow.ComputeSpawn(head, null, out Vector3 privatePosition, out _);
+            Check(Mathf.Abs(Vector3.Distance(privatePosition, eye) - PanelPlacement.SpawnDistance * zoom) < .001f,
+                "private video placement retains its existing player zoom behavior");
+        }
+        SharedWindows.Online = true;
     }
 
     private static void CapturedReferenceParity()

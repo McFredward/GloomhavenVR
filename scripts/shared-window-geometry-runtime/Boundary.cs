@@ -1,6 +1,13 @@
 using System;
 using UnityEngine;
 
+internal sealed class CameraController
+{
+    internal static CameraController s_CameraController = null!;
+    internal Vector3 FocusPoint;
+}
+internal static class VRModeStateMachine { internal static bool TableInFrontOfPlayer; }
+
 internal static class UnityGameEditorRuntime
 {
     internal static Vector3 s_TileSize = new(1.8f, 0f, 1f);
@@ -137,11 +144,17 @@ namespace GloomhavenVR.WorldUI
         private void SyncBar(float halfHeight, float width, float scale, Rect rect, float unit) { }
         private void SeatBadge(Transform host) { }
     }
+    internal static partial class NativeVideoWindow
+    {
+        private static GrabbableModal? _grab;
+        private static bool SharedPlacementRequired => SharedWindows.ParticipatesHere(SharedWindowKind.Video);
+        internal static void ComputeSpawn(Camera head, GrabbableModal? grab,
+            out Vector3 position, out Quaternion rotation)
+        { _grab = grab; ComputeInitialSpawn(head, out position, out rotation); }
+    }
     internal static partial class CanvasConversion { internal static Camera? WorldCamera; }
     internal static partial class ModalFallback
     {
-        private const float WindowDistanceMeters = 1.3f, MaxSpawnPitchDeg = 15f;
-        private struct HeightDecision { }
         private struct SpawnAnchor
         {
             internal bool Valid;
@@ -160,11 +173,6 @@ namespace GloomhavenVR.WorldUI
         }
         private static readonly System.Collections.Generic.List<WindowPanel> Converted = new();
         private static SpawnAnchor s_lastSpawnAnchor;
-        // Board-floor readability is exercised by the existing placement fixtures. This boundary
-        // deliberately has no table and models the original centre-at-eye-level clamp only.
-        private static void ClampSpawnPose(Vector3 head, Vector3 forward, ref Vector3 pos,
-            float scale, Vector2 half, float pitch, bool centreAtEyeLevel, out HeightDecision result)
-        { result = default; if (centreAtEyeLevel) pos.y = head.y; }
         internal static void NoteSharedAnchorSpent(SharedWindowKind kind, string why) { }
         internal static void Register(ConvertedPanel panel, GrabbableModal grab, UIWindow? window = null)
         { Converted.Add(new WindowPanel { Panel = panel, Grab = grab, Window = window }); }
@@ -175,9 +183,21 @@ namespace GloomhavenVR.WorldUI
         { foreach (var wp in Converted) if (ReferenceEquals(window, wp.Window) && window != null) { grab = wp.Grab; return grab != null; } grab = null; return false; }
         internal static void PreserveRewardInitialPose(UIWindow window) { }
 
-        internal static bool ComputeHost(ConvertedPanel panel, bool replay, out Vector3 position, out Quaternion rotation, out float scale)
+        internal static bool ComputeHost(ConvertedPanel panel, bool replay, out Vector3 position, out Quaternion rotation, out float scale, Vector2? half = null)
             => ComputeSharedHostSpawn(panel, replay ? s_lastSpawnAnchor : (SpawnAnchor?)null,
-                Vector2.one, out position, out rotation, out scale);
+                half ?? Vector2.one, out position, out rotation, out scale);
+        internal static float ExpectedDistance => WindowDistanceMeters;
+        internal static bool ComputeWithPrivateReplay(ConvertedPanel panel, Vector3 originalHead,
+            Vector3 originalForward, float oldZoom, out Vector3 position, out Quaternion rotation, out float scale)
+            => ComputeSharedHostSpawn(panel, new SpawnAnchor { Valid = true, HeadPos = originalHead,
+                HeadForward = originalForward, RawPos = originalHead + originalForward * (WindowDistanceMeters * oldZoom),
+                Scale = oldZoom, ArcSlot = -1 }, Vector2.one, out position, out rotation, out scale);
+        internal static bool ClampTableTerms(Vector3 head, Vector3 forward, ref Vector3 position,
+            float scale, Vector2 half, out float boardFloor, out bool capWon)
+        {
+            ClampSpawnPose(head, forward, ref position, scale, half, MaxSpawnPitchDeg, true, out HeightDecision result);
+            boardFloor = result.BoardTopFloorY; capWon = result.EyeCapWon; return result.Have;
+        }
         internal static bool ReplayDisabled(ConvertedPanel panel)
         {
             foreach (WindowPanel wp in Converted)
