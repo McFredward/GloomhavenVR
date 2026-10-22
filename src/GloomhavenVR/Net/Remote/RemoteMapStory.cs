@@ -1243,7 +1243,8 @@ internal static partial class RemoteMapStory
                           + "pose uses the author's seat frame plus record119 source origin/yaw/zoom "
                           + "(rewards use the common world frame). Every observer reconstructs the "
                           + "same world pose; its own seat, zoom and local parchment are excluded. "
-                          + "Record121 retains this opening's captured render reference.");
+                          + "Record121 retains this opening's captured render reference. Legacy "
+                          + "PARCHMENT-LOCAL (frame1) remains readable for earlier records.");
     }
 
     /// <summary>How many frames after an identity change this kind stays silent in BOTH directions —
@@ -2113,8 +2114,9 @@ internal static partial class RemoteMapStory
                           + $"({owner.Pose.Position.x:0.00},{owner.Pose.Position.y:0.00},"
                           + $"{owner.Pose.Position.z:0.00}) shared units, size {size:0.00}x → world "
                           + $"({worldPos.x:0.00},{worldPos.y:0.00},{worldPos.z:0.00}). "
-                          + $"Captured render reference {owner.ReferenceScale:F3}; a manual move "
-                          + "or the elected opening-time layout author supplies the shared endpoint. "
+                          + "POSE CHANGES FOR EXACTLY TWO REASONS: a deliberate hand move/resize or "
+                          + "the elected author's opening-time placement/layout. "
+                          + $"Captured render reference {owner.ReferenceScale:F3}. "
                           + "The observer's seat and zoom do not transform it.");
     }
 
