@@ -895,6 +895,8 @@ internal sealed class RemoteCardFx
     private static bool CanDrawFlight(Flight f) => f.Active
         && (f.ShortRestBurn || RevealGate.IsSecretSelectionPhase || f.HasFace);
 
+    private static bool ArtworkWaitExpired(Flight f) => !f.FromDismissBerth && f.ArtworkWait >= ResolveSeconds;
+
     private static void RefreshFaceVisibility(Flight f)
     {
         bool allowed = !f.ShortRestBurn && f.FaceCard != null
@@ -995,7 +997,7 @@ internal sealed class RemoteCardFx
                 // Withholding a public back must not consume the whole unseen arc. Allow the
                 // correct source to load, then start/resume movement; teardown remains bounded.
                 f.ArtworkWait += Mathf.Max(dt, 0f);
-                if (!f.FromDismissBerth && f.ArtworkWait >= ResolveSeconds)
+                if (ArtworkWaitExpired(f))
                 {
                     f.Active = false;
                     f.ActiveCardId = int.MinValue;
