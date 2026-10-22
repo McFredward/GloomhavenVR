@@ -165,6 +165,8 @@ internal sealed class RemoteActiveCards
     private readonly List<CAbilityCard> _cellCard = new(InitialSlots);
     private RemoteBoardCard? _dismissPanel;
     private CAbilityCard? _dismissCard;
+    private readonly Dictionary<CAbilityCard, RemoteBoardCard> _retainedDismiss = new();
+    private readonly List<CAbilityCard> _retiredDismiss = new();
 
     public RemoteActiveCards(RemoteAvatar owner, int playerId, Transform boardRoot,
                              in RemoteBoardLayout layout)
@@ -380,7 +382,29 @@ internal sealed class RemoteActiveCards
     {
         if (_panelsByCard.TryGetValue(cardId, out RemoteBoardCard panel))
             panel.TransferToFlight(cardId, actor, generation);
+        _retiredDismiss.Clear();
+        foreach (var retained in _retainedDismiss)
+            if (retained.Key.CardInstanceID == cardId) _retiredDismiss.Add(retained.Key);
+        foreach (CAbilityCard card in _retiredDismiss) _retainedDismiss.Remove(card);
+        _retiredDismiss.Clear();
     }
+
+    private void RetainDismissPanels()
+    {
+        // Native membership can disappear before public flight artwork is ready. Keep the
+        // original berth renderer out of the reusable active pool until its actual handover.
+        if (_dismissCard != null && _dismissPanel != null
+            && _owner.RetainsDismissOriginal(_dismissCard.CardInstanceID))
+            _retainedDismiss[_dismissCard] = _dismissPanel;
+        _retiredDismiss.Clear();
+        foreach (var retained in _retainedDismiss)
+            if (!_owner.RetainsDismissOriginal(retained.Key.CardInstanceID))
+            { retained.Value.Blank(); _retiredDismiss.Add(retained.Key); }
+        foreach (CAbilityCard card in _retiredDismiss) _retainedDismiss.Remove(card);
+        _retiredDismiss.Clear();
+    }
+
+    private bool IsRetainedDismiss(RemoteBoardCard panel) => _retainedDismiss.ContainsValue(panel);
 
     // A dismissal may be accepted while SetHome is still settling. Capture the panel the
     // observer is actually looking at immediately before ownership changes; the active-grid
@@ -389,8 +413,10 @@ internal sealed class RemoteActiveCards
         out float width)
     {
         world = default; rotation = Quaternion.identity; width = 0f;
-        if (_dismissPanel == null || !ReferenceEquals(_dismissCard, card)) return false;
-        Transform slab = _dismissPanel.PresentationTransform;
+        RemoteBoardCard? panel = _dismissPanel != null && ReferenceEquals(_dismissCard, card)
+            ? _dismissPanel : _retainedDismiss.TryGetValue(card, out RemoteBoardCard retained) ? retained : null;
+        if (panel == null) return false;
+        Transform slab = panel.PresentationTransform;
         world = slab.position; rotation = slab.rotation;
         width = _cardW * Mathf.Abs(slab.lossyScale.x);
         return width > 0f;
@@ -430,6 +456,7 @@ internal sealed class RemoteActiveCards
             DrivePulse(actor);
             return;
         }
+        RetainDismissPanels();
         // THE CARVE-OUT FROM THE CARVE-OUT, asked of the one rule every peer-card surface asks. It
         // still needs a character to resolve against; the ONLY term it drops is the phase.
         //
@@ -573,8 +600,11 @@ internal sealed class RemoteActiveCards
         if (!any)
         {
             _panelsByCard.Clear();
+            foreach (var retained in _retainedDismiss)
+                _panelsByCard[retained.Key.CardInstanceID] = retained.Value;
             for (int i = 0; i < _cards.Count; i++)
             {
+                if (IsRetainedDismiss(_cards[i])) continue;
                 _cards[i].SetPresentationParent(_root);
                 _cards[i].Set(null, showFronts, actor);
                 // ITEM 4 (2026-09-07): release the permanent look with the cell. Set(null)
@@ -604,7 +634,7 @@ internal sealed class RemoteActiveCards
         // Grow the slot pool to whatever the owner is actually showing (see InitialSlots). Slots
         // are never returned: an active pile that reached N once will reach it again, and a
         // RemoteBoardCard owns hosted card faces whose teardown is Destroy()'s job.
-        while (_cards.Count < Count)
+        while (_cards.Count < Count + _retainedDismiss.Count)
             _cards.Add(new RemoteBoardCard(_root, Vector3.zero, _cardW, _cardH));
 
         // Reserve every resident panel before assigning any newcomer: otherwise inserting a
@@ -612,6 +642,7 @@ internal sealed class RemoteActiveCards
         // their identity even while their face is blank, just like the owner's VRCard object.
         _orderedPanels.Clear();
         _assignedPanels.Clear();
+        foreach (RemoteBoardCard retained in _retainedDismiss.Values) _assignedPanels.Add(retained);
         for (int i = 0; i < Count; i++)
         {
             RemoteBoardCard? panel = _panelsByCard.TryGetValue(_buffer[i].CardInstanceID,
@@ -630,7 +661,8 @@ internal sealed class RemoteActiveCards
             }
         }
         for (int i = 0; i < _cards.Count; i++)
-            if (!_assignedPanels.Contains(_cards[i])) _orderedPanels.Add(_cards[i]);
+            if (!_assignedPanels.Contains(_cards[i])
+                || IsRetainedDismiss(_cards[i]) && !_orderedPanels.Contains(_cards[i])) _orderedPanels.Add(_cards[i]);
         _cards.Clear();
         _cards.AddRange(_orderedPanels);
 
@@ -645,6 +677,7 @@ internal sealed class RemoteActiveCards
         {
             if (i >= Count)
             {
+                if (IsRetainedDismiss(_cards[i])) continue;
                 _cards[i].SetPresentationParent(_root);
                 _cards[i].Set(null, showFronts, actor);
                 _cards[i].SetActiveCardLook(_playerId, i, null, RemoteCardArt.CardFxLook.None);
@@ -744,6 +777,8 @@ internal sealed class RemoteActiveCards
         _panelsByCard.Clear();
         for (int i = 0; i < Count; i++)
             _panelsByCard[_buffer[i].CardInstanceID] = _cards[i];
+        foreach (var retained in _retainedDismiss)
+            _panelsByCard[retained.Key.CardInstanceID] = retained.Value;
 
         // The standing picture for the census — this population must NEVER read a BACK, in any
         // phase, and the line PeerCardFaceCensus prints says so in as many words. RealFaceCount is
@@ -960,6 +995,8 @@ internal sealed class RemoteActiveCards
         }
         _dismissPanel = null;
         _dismissCard = null;
+        _retainedDismiss.Clear();
+        _retiredDismiss.Clear();
         Count = 0;
     }
 

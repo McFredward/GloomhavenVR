@@ -993,6 +993,7 @@ internal sealed class RemoteAvatar
     internal long NextFlightOwnership() => ++_flightOwnershipSequence;
     internal bool IsFlyingToHand(int cardId) => _cardFx.IsFlyingToHand(cardId);
     internal bool DismissFlightOwnsCard(int cardId) => _cardFx.DismissOwnsCard(cardId) || _burnFx.DismissOwnsCard(cardId);
+    internal bool RetainsDismissOriginal(int cardId) => _cardFx.RetainsDismissOriginal(cardId);
     internal bool FlightOwnsRecess(int recess) => _cardFx.OwnsRecess(recess);
     internal int TransferCardToFlight(CardFxAnchor from, int cardId, ScenarioRuleLibrary.CPlayerActor? actor, long generation) =>
         _controlBoard.TransferCardToFlight(from, cardId, actor, generation);

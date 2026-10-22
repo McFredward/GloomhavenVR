@@ -163,6 +163,16 @@ internal sealed class RemoteCardFx
         return false;
     }
 
+    internal bool RetainsDismissOriginal(int cardId)
+    {
+        foreach (PendingFlight pending in _pending)
+            if (pending.DismissOrigin != null && pending.OriginalCard?.CardInstanceID == cardId) return true;
+        foreach (Flight flight in _flights)
+            if (flight.Active && flight.FromDismissBerth && !flight.SourceTransferred
+                && flight.FaceCard?.CardInstanceID == cardId) return true;
+        return false;
+    }
+
     // ---- THE FLYING CARD'S SIZE (extension record 28 id 70 + CardFace.VisibleFaceRect) ---------
     //
     // The slab used to be built at the flat nominal 63.5 x 88 mm, which is wrong on BOTH terms the
