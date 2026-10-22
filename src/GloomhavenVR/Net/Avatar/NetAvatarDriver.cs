@@ -3376,6 +3376,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         }
         extras.FlightHistory = NetCardFx.History;
         extras.BurnCompletions = NetCardFx.BurnCompletions;
+        extras.FlightOrigins = NetCardFx.FlightOrigins;
         if (_hasFx)
         {
             extras.HasCardFx = true;

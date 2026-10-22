@@ -1254,7 +1254,7 @@ internal sealed partial class CardsDriver
             if (widget is null) continue;
             CAbilityCard? model = widget != null ? widget.AbilityCard : null;
             CCharacterClass? cc = widget != null ? widget.PlayerActor?.CharacterClass : null;
-            if (!_dismissFlightOriginals.ContainsKey(widget) && (model == null || cc == null || cc.HandAbilityCards.Contains(model)
+            if (!_dismissFlightOriginals.ContainsKey(widget!) && (model == null || cc == null || cc.HandAbilityCards.Contains(model)
                 || cc.RoundAbilityCards.Contains(model) || cc.ExtraTurnCards.Contains(model)
                 || cc.ActivatedCards.Contains(model))) _burnHoldPruneScratch.Add(widget!);
         }
