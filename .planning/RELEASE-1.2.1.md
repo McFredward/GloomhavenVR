@@ -19,7 +19,7 @@ made. Installation/player documentation remains bilingual.
 
 Previous dev719 CI39863889124 passed source/build and three runtime shards, but
 shard3 failed three fixtures. The flight-timing fixture extracted the current
-production SnapshotSource without ports for its new dismissal-source context.
+production TransferVisibleFlight without ports for its new dismissal-source context.
 The active-dismiss and selection-latejoin launchers hardcoded ~/.dotnet/dotnet,
 which is absent on the hosted runner. The current720 CI was still running when
 release preparation began; it is not treated as passing evidence.
@@ -32,8 +32,16 @@ Fixture repairs retain the production methods, behavior assertions and causal
 controls. Neither a compile failure nor a negative control is counted as a
 passing game-behavior run.
 
-Focused local fixture, source, strict release-identity, full real-runtime golden
-and private compiled-scope results will remain in `.planning/debug/release121/`.
+The SDK fixtures pass145/6 and47/6 assertions/causal controls; the repaired
+flight fixture passes841/16, retaining all13 prior causal controls and adding23
+assertions/3 controls. The initial worker compile exposed a System.Numerics
+lowercase-member adapter omission; its corrected full rerun passes. All16 source
+suites, strict release compilation with zero warnings/errors and all306431
+unfiltered real-runtime golden assertions pass. The private compiled comparison
+finds nine build-identity-only types and two intended release-build consumers
+(BuildInfo/SelfUpdateConfig: IsDevBuild=false), with no other behavior difference.
+All669 settings,242 patches and4816 log markers remain; bundles and bilingual
+player docs pass. The rendered release text is English-only. Exact receipts remain in `.planning/debug/release121/`.
 Unchanged passing Build720 implementation evidence is reused; there is no second
 complete local runtime sweep merely for a release identity or fixture repair.
 The candidate requires its own successful full source-tree hosted CI before the

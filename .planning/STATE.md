@@ -3,9 +3,11 @@
 The maintainer authorized publishing the current Build720 frontier. Semantic
 version already1.2.1; Build721 supplies release identity only. English highlights
 cover physical dismissal/flights, item-fan closure, shared windows/quest/latejoin
-and surrendered-item cleanup. Three hosted fixture blockers are being repaired:
+and surrendered-item cleanup. Three hosted fixture blockers are repaired:
 flight-source context ports and SDK executable selection in dismissal/latejoin.
-No new gameplay/default/asset/wire behavior. Exact candidate hosted proof and
+Local16 source, strict release0W0E and306431 golden assertions pass, with focused
+fixture repairs verified. Compiled scope is release identity/flags only. No new
+gameplay/default/asset/wire behavior. Exact candidate hosted proof and
 dev→main merge/publication are required; see `RELEASE-1.2.1.md` and ignored
 `.planning/debug/release121/` receipts. No published-release claim yet.
 
