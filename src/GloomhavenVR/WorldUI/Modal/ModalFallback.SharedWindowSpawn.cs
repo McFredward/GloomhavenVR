@@ -126,7 +126,7 @@ internal static partial class ModalFallback
             NoteSharedAnchorSpent(panel.SharedDesignKind, "current opening's initial author pose applied");
             VRLog.Info("WorldUI", $"SHARED WINDOW INITIAL POSE: kind={panel.SharedDesignKind}, "
                 + $"position=({position.x:F3},{position.y:F3},{position.z:F3}), "
-                + $"yaw={rotation.eulerAngles.y:F2}, fixedScale={SharedWindowSize.ReferenceWorldScale:F3}, "
+                + $"yaw={rotation.eulerAngles.y:F2}, fixedScale={wp.Grab.SharedReferenceWorldScale:F3}, "
                 + $"factor={factor:F2}; adopted the room's world pose before reveal.");
             return true;
         }

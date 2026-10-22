@@ -26,7 +26,8 @@ The paired logs and source expose three distinct failures:
   millimetres. Equal normalized dimensions did not prove equal world objects.
 * Legacy scenario poses were divided by the sender's seat/zoom, then reconstructed
   with the receiver's different seat/zoom. Matching legacy bytes were insufficient.
-  The parchment frame itself is common in this evidence; fallback seats were not.
+  The parchment frame was common in the supplied 3D-map evidence; it is absent on a
+  compatible 2D-map observer, so current writers must not require that local surface.
 * Main LogOutput19033 publishes selection-clear key0/stamp1. Remote3 LogOutput8725
   consumes it while native readiness still masks map interaction. Remote3 had
   already readied (Player74384). The ordinary selection-change observer can unready
@@ -42,8 +43,13 @@ No per-line wall-clock timing is invented from these logs.
 
 ## Implementation
 
-Shared rendered scale comes from common parchment/scenario base geometry, excluding
-saved and live pinch zoom. The native Hex width is read once and cached independently
+Shared rendered scale initially comes from parchment/scenario base geometry, excluding
+saved and live pinch zoom. Additive TLV121 carries each posed window's actual captured
+render reference in the same snapshot. Followers adopt that reference before reveal
+and during movement; a later manual publisher retains and republishes it. Thus a
+2D-map observer that captured native Hex scale11.47 still draws the same window as
+a 3D-map author that captured parchment scale198.12, including a movie that survives
+leaving the map. Six fixed float slots and a presence mask require no array allocation. The native Hex width is read once and cached independently
 of menu rigs and scene teardown, including an exact read-only pre-initialization
 resource fallback. Private windows retain their captured local scale.
 One host gaze supplies the fitted spawn. Followers retain hidden, noninteractive
@@ -55,7 +61,11 @@ longer moves these standing host-placed windows.
 
 Additive TLV119 carries source originXYZ/yaw/scale and a six-kind initial-role mask
 atomically with unchanged legacy19/21/72/73 records. The receiver reconstructs the
-author's actual game-world pose before election/interpolation. Existing legacy
+author's actual game-world pose before election/interpolation. Current map/video
+writers select the existing seat frame0 plus119; rewards select their existing
+common world frame2. Frame1 remains readable for legacy-vector coverage, but no
+current writer requires an observer's local parchment to reconstruct a new pose.
+Existing legacy
 record grammar/coordinate meaning, wire version3 and native controls are preserved.
 Missing/invalid context cannot become a competing legacy pose. Scenario/map story
 openings retain their existing native opening ledgers. Quest/encounter first reveal
@@ -76,8 +86,8 @@ intermediate snapshots and same-content reuse. Explicit read-only selected-state
 relays preserve the original counter/full author after its source leaves, without
 minting an adopted click. Remote adoption and native quest
 retirement do not mint fake local clicks. Counter exhaustion fails closed. The final
-maximum extras sum is7747; allocation8004 retains the required257-byte spare record,
-while unchanged8000-byte transport reassembly has253 bytes of actual headroom.
+maximum extras sum with121 is7774; allocation8031 retains the required257-byte spare
+record, while unchanged8000-byte transport reassembly has226 bytes of actual headroom.
 
 Video playback source election is separate from physical spawn authority. Rewards
 retain explicit capability/decline and continuation handshakes; compatible session
@@ -87,7 +97,7 @@ paths must retain original movie/end/reward callbacks and manual movement priori
 ## Validation and remaining hardware checks
 
 Integrated validation is in progress. Focused evidence currently includes actual
-Unity geometry writers, production transport/first-pose kernels, byte-exact119/120
+Unity geometry writers, production transport/first-pose kernels, byte-exact119/120/121
 vectors, causal mutation controls, native quest-ready/departure/close behavior and
 the latejoin native SwitchHand queue. A fixture's explicit native/tracking/renderer
 boundaries remain limitations. Full-gate and final integration receipts will be
