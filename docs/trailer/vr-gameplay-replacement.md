@@ -1,6 +1,75 @@
 # Genuine VR gameplay replacement
 
-## October 22 travelling montage and burning-card zoom (v20)
+## October 22 final multiplayer capture exchange (v21)
+
+V21 resolves the final three cooperative UI phases with the supplied
+`2026-10-22 19-47-55.mp4` session and replaces the requested card scene around
+0:54. Two components select 655 frame addresses against V20, inheriting 14,155
+of the 14,810 frames at 1080p60. The original AAC and 246.861-second container
+clock remain. Master SHA256 is `c270c6c64033e0ff341b99e7d3a086ae3082fedd75279de36467f9e98a8a0b78`.
+
+FG01 `[3129,3272)` uses source frame 38399 (1279.966667 seconds) for 143 output
+frames. The player lifts Brute's readable Skirmishing Maneuver from the
+fan, places it beside Brute Force, then withdraws the hand. This demonstrates
+ability preparation with a continuous physical gesture, rather than the former
+static Spellweaver fan. No executed attack is claimed.
+
+FG39–41 uses `[12520,13032)` for 512 frames. The two-frame extension includes the
+original pure outgoing title and replaces the first formerly mixed Flat frame
+at 12521. A bounded 15-frame optical entrance rebuilds the incoming VR picture
+under the original title emphasis; native source time advances throughout.
+The original internal cuts at 12624 and 12805 and hard exit into accepted A04
+at 13032 remain. The three takes are:
+
+| Original UI phase | Genuine recording start | Output frames | Visible cooperative evidence |
+| --- | --- | --- | --- |
+| FG39 | 170.0 s / frame 5100 | 104 | One remote white mask with expressive rune hands over the campaign table. |
+| FG40 | 930.0 s / frame 27900 | 181 | Two remote masks with independent hands and physical boards over the same dungeon. |
+| FG41 | 2423.0 s / frame 72690 | 227 | Three simultaneous remote masks, hands and boards; with the recording participant, four people are visibly supported. |
+
+These are full-frame views from the real recording. The former 2/3/4-POV panel
+layout is replaced by the actual growing group; one recorded viewpoint is never
+duplicated into invented independent players. Near the last frame the native
+camera looks down, partly cropping the high masks while retaining boards; the
+preceding wide view clearly establishes all three remote masks.
+
+Root reviews 85 overview cues across the 42-minute capture. Two independent
+source workers inspect its halves and dense candidate contexts. This is sampled
+and targeted visual evidence, not continuous manual viewing of the entire
+recording. Other possible swaps were reconsidered; the accepted current shots
+better demonstrate their explanations, so no further substitution is made.
+The new recording SHA256 is `507866c1fcd0a38ed9ad9b7289388923f8ff24e1bc98acdb891648813b6c4650`.
+
+All 33 inventoried UI phases are now resolved: 31 genuine VR phases and the two
+explicitly retained native campaign/Victory and Guildmaster-region views. The
+additional accepted cinematic card around 1:30, non-UI footage, V20 burning-card
+zoom and varied map montage remain. There are no open capture requirements.
+The final cut is ready for the maintainer's review; user acceptance of V21 is
+not claimed, and retained native exceptions are not described as VR footage.
+
+Independent source comparisons pass all 640 untreated new pictures at exact 1x.
+The complete actual-export pass checks all 14,810 frames, 14,155 inherited
+addresses, the continuous fan mark and all 11,573 AAC packets with original
+clocks/configuration. Six saturated entrance frames need the unchanged
+assembler colour path as their comparison reference. A bounded 512-frame MP
+follow-up passes at the original 2.0 MAE limit; initial evidence is retained,
+with no media change or repeated complete run claimed. Root views 38 final
+Watch cues, 74 exact export witnesses and five additional full-size pictures.
+Desktop/mobile-emulated browser checks cover both new contexts at 1x, 26 chapter
+links, comparisons and the completed capture status. A plain-text UTF-8 decoding
+issue is corrected with a BOM and rechecked only on that status link. These are
+focused media/browser checks, without a new runtime, headset or continuous
+whole-film manual-review claim.
+
+The active private review is `vr-gameplay-v12/REVIEW.html`. Receipts are
+`qc-independent/technical-final.json`, `browser-review/final-review.json`,
+`browser-review/final-navigation.json`, `qc-root/visual-review.json` and
+`editor/protected-media-final.json`, relative to that folder. All used recordings,
+components, current authorities and separate approved intro remain after owned
+cleanup; completed worker worktrees are removed. No paid inference, runtime
+source or mod build change.
+
+## Historical October 22 travelling montage and burning-card zoom (v20)
 
 V20 changes four bounded components against V19: FG14–16 `[5690,6067)` and
 MAP2 `[8822,8979)`, MAP4 `[9118,9275)`, MAP5 `[9275,9458)`. This selects 874

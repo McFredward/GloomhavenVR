@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "V20 reviewed and published: burning-card zoom and varied map-side locations. Only multiplayer FG39–FG41 needs new footage.",
+  "status": "V21 editorially complete and published: requested ability preparation replaced, real multiplayer inserted, no open capture requirements. User review pending.",
   "date": "2026-10-22",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
@@ -15,7 +15,7 @@
     "motion_quality": "V9 root review covers all762 changed component frames,139 whole-film Watch cues and21 native witness contacts/eight full-size witnesses. Independent visual review, all14810-frame technical/footer checks and actual browser playback pass; user acceptance is not claimed."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
-  "timing_note": "V20 selects 874 frame addresses in FG14-16 and MAP2/4/5 against V19, inheriting 13936. Keep 14810 frames at 60fps, original AAC and actual gameplay 1x; burning-card zoom changes framing only.",
+  "timing_note": "V21 selects 655 frame addresses in FG01 [3129,3272) and FG39-41 [12520,13032), inheriting 14,155. Original 14,810 frames at 60fps, AAC and actual gameplay at 1x retained. MP internal cuts at 12624/12805 and A04 exit at 13032 preserved.",
   "voice": {
     "mode": "Keep original English text/timing, user confirmed; small GloomhavenVR substitutions only",
     "patches": [
@@ -78,7 +78,7 @@
     "this_v8_reserved_usd": 5.5
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
-  "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/NAECHSTE-AUFNAHMEN.txt",
+  "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/NAECHSTE-AUFNAHMEN.txt",
   "incoming": ".planning/debug/trailer/remake-v1/incoming/",
   "scenes": [
     {
@@ -2468,22 +2468,22 @@
     "cleanup_authority": "Latest explicit unused-video/resource deletion instruction overrides historical preserve-all-AI policy. Retain selected used sources and all fal run recovery metadata."
   },
   "current_working_cut": {
-    "phase": "genuine-vr-gameplay-v11",
-    "status": "reviewed-and-published-awaiting-multiplayer-captures",
-    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/full-timeline-v1/reference-remake-vr-v20.mp4",
-    "sha256": "9b4af250c888dcf8aff78004e262ef54d512097a88ad986fbcdf4a26af8616e8",
-    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/REVIEW.html",
-    "base_phase": "genuine VR v19, other accepted scenes inherited",
-    "base_sha256": "af5c07772356d4155c9d949994c4febb55841814bc4cb2cba061a7158cacb6fb",
+    "phase": "genuine-vr-gameplay-v12",
+    "status": "editorially-complete-reviewed-and-published-user-review-pending",
+    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/full-timeline-v1/reference-remake-vr-v21.mp4",
+    "sha256": "c270c6c64033e0ff341b99e7d3a086ae3082fedd75279de36467f9e98a8a0b78",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/REVIEW.html",
+    "base_phase": "genuine VR v20, other accepted scenes inherited",
+    "base_sha256": "9b4af250c888dcf8aff78004e262ef54d512097a88ad986fbcdf4a26af8616e8",
     "frames": 14810,
     "fps": 60,
     "container_seconds": 246.861,
     "new_paid_calls": 0,
     "user_acceptance_claimed": false,
-    "provisional_material_trial": true,
-    "bytes": 294287376,
+    "provisional_material_trial": false,
+    "bytes": 291735155,
     "review_published": true,
-    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v11/REVIEW.html"
+    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v12/REVIEW.html"
   },
   "genuine_vr_gameplay_pass_v1": {
     "date": "2026-10-16",
@@ -3877,5 +3877,117 @@
       "root_exact_master_witnesses": 75,
       "root_full_size_frames": 4
     }
-  }
+  },
+  "genuine_vr_gameplay_pass_v12": {
+    "date": "2026-10-22",
+    "status": "editorial-cut-complete-published-user-review-pending",
+    "private_selection": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/editor/selection-final.json",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/REVIEW.html",
+    "base_sha256": "9b4af250c888dcf8aff78004e262ef54d512097a88ad986fbcdf4a26af8616e8",
+    "master_sha256": "c270c6c64033e0ff341b99e7d3a086ae3082fedd75279de36467f9e98a8a0b78",
+    "changed_frames": 655,
+    "unchanged_frames": 14155,
+    "changed_components": [
+      {
+        "id": "FG01",
+        "start_frame": 3129,
+        "end_frame_exclusive": 3272,
+        "frames": 143,
+        "private_path": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/source-review/components/FG01-physical-ability-preparation.mp4",
+        "sha256": "c8e07253ae530b4a8305e2c49317294f1743329eb18eee6f68166ab7ec256641"
+      },
+      {
+        "id": "FG39-41",
+        "start_frame": 12520,
+        "end_frame_exclusive": 13032,
+        "frames": 512,
+        "private_path": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/multiplayer/FG39-41-genuine-multiplayer.mp4",
+        "sha256": "946e1b0ada30ecc68cd349b9887ac9307412a693f0bab09f08b04effd36bc4d3"
+      }
+    ],
+    "source": {
+      "file": "2026-10-22 19-47-55.mp4",
+      "sha256": "507866c1fcd0a38ed9ad9b7289388923f8ff24e1bc98acdb891648813b6c4650",
+      "seconds": 2540.566667,
+      "root_overview_cues": 85,
+      "continuous_whole_recording_view_claimed": false
+    },
+    "ability_preparation": {
+      "source_start_frame": 38399,
+      "frames": 143,
+      "card": "Skirmishing Maneuver",
+      "actor": "Brute",
+      "action": "Physical fan selection and placement beside Brute Force"
+    },
+    "multiplayer": {
+      "source_start_frames": [
+        5100,
+        27900,
+        72690
+      ],
+      "output_frames": [
+        104,
+        181,
+        227
+      ],
+      "visible_remote_masks": [
+        1,
+        2,
+        3
+      ],
+      "recording_participant_additional": true,
+      "genuine_four_person_view": true,
+      "independent_recorded_povs": 1,
+      "synthetic_pov_duplicates": false,
+      "internal_cut_frames": [
+        12624,
+        12805
+      ],
+      "rebuilt_optical_entry_frames": 15,
+      "accepted_A04_starts": 13032
+    },
+    "source_playback_rate": 1,
+    "ui_counts": {
+      "total": 33,
+      "vr": 31,
+      "accepted_original": 2,
+      "outstanding": 0
+    },
+    "remaining_capture_ids": [],
+    "all_required_ui_replacements_complete": true,
+    "accepted_original_exceptions": [
+      "FG12",
+      "FG30",
+      "FG31"
+    ],
+    "new_paid_calls": 0,
+    "technical_summary": {
+      "outside_max_mae": 0.6697685185185185,
+      "selected_max_mae": 1.509873,
+      "normalized_followup_frames": 512,
+      "initial_saturated_entry_frames": [
+        12520,
+        12521,
+        12522,
+        12523,
+        12524,
+        12525
+      ],
+      "full_decoded_frames": 14810,
+      "unchanged_aac_packets": 11573,
+      "source_clock_compared_frames": 640,
+      "threshold_8bit": 2.0,
+      "repeated_complete_gate_claimed": false
+    },
+    "technical_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/qc-independent/technical-final.json",
+    "browser_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/browser-review/final-review.json",
+    "final_navigation_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/browser-review/final-navigation.json",
+    "root_visual_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/qc-root/visual-review.json",
+    "cleanup_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v12/editor/protected-media-final.json",
+    "protected_media_hashes": 73,
+    "owned_worker_worktrees_removed": 3,
+    "user_acceptance_claimed": false,
+    "runtime_or_headset_gate_claimed": false
+  },
+  "recordings_status": "Historical initial capture plan retained below; V21 resolves all agreed UI phases and requires no further recording."
 }
