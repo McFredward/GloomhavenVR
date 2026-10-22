@@ -3,33 +3,28 @@
 The accepted opening also supplies the first-save campaign intro, with a native-style
 GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
 
-The current v19 pass shortens the held exhaustion view around 1:05 into an
-84-frame heavy-hit shot and 228-frame uninterrupted native damage choice.
-A character receives 6 damage (9 → 3 HP); a clear cut then shows the
-real RECEIVE DAMAGE 2 choice followed by Mindthief's 2 → 0 HP and collapse. The
-button is selected through the native VR ray. These are separate fights; the
-first hit is not the cause of Mindthief's exhaustion. The opening gold
-wipe is rebuilt over the new first take. The heavy hit is reused from the later
-mosaic deliberately; the previous long aftermath is removed.
+The current v20 pass adds a smooth spatial zoom onto the real burning
+Rock Tunnel card around 1:38. It follows the original film's close-up emphasis
+while retaining the chosen VR action, native 1x clock, gold wipe and subsequent
+physical potion use. The zoom reaches 1.85× and preserves the top/right viewport
+for the card's real upward flight.
 
-Around 1:24, a flatter forest angle replaces the tight diagonal summon view.
-Spellweaver's actual ranged spell and Hound impact remain readable, with both
-actors and a tracked hand visible. The hit deals 1 damage, without claiming a
-high-damage action or literal trap disarming. Original 12-frame transition
-smears are retained.
+Around 2:26, the left-side montage now visits Temple, Forest, Dungeon, Merchant,
+Forest and Dungeon. Three bounded substitutions remove consecutive views of
+the same dungeon. The complete original right map, route and organic contour
+remain; accepted MAP3, first entry and outgoing Victory transition are inherited.
 
-Two bounded components select 459 frame addresses against V18, preserving 14,351
-addresses, 14,810 total frames at 60fps and the original AAC. All real gameplay
-stays 1x; internal cuts do not retime it. Accepted cinematics, V18's restored map
-contour, continuous fan mark and separate approved intro are inherited. Focused
-media and desktop/mobile-emulated browser checks pass; this is not a new runtime
-or headset gate. The active review is `vr-gameplay-v10/REVIEW.html`, with 25
-chapters, two direct passage buttons and source comparisons. No paid inference.
+Four components select 874 frame addresses against V19, inheriting 13,936 of
+the 14,810 frames at 60fps. Gameplay stays 1x, with original AAC, accepted
+cinematics, continuous fan mark and separate approved intro. Focused actual-media
+and desktop/mobile-emulated browser checks pass; this is not a game-runtime
+or headset gate. The active review is `vr-gameplay-v11/REVIEW.html`, with 25
+chapters, two direct passage buttons and comparisons. No paid inference.
 
-Only multiplayer FG39–FG41 (3:28.70–3:37.20) needs new recordings. The 33-phase UI
-inventory remains 28 VR, two approved native views and three pending cooperative
-phases. FG12/30/31 retain their explicit exceptions. See
-[vr-gameplay-replacement.md](vr-gameplay-replacement.md) for exact provenance,
+Only multiplayer FG39–FG41 (3:28.70–3:37.20) needs new recordings. The 33-phase
+UI inventory remains 28 VR, two approved native views and three pending
+cooperative phases. FG12/30/31 retain their explicit exceptions. See
+[vr-gameplay-replacement.md](vr-gameplay-replacement.md) for provenance,
 measured checks and delivery receipts.
 
 The historical v10 first pass used 20 inserts covering 25 of 41 inventory regions; 16

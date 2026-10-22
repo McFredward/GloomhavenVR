@@ -1,6 +1,63 @@
 # Genuine VR gameplay replacement
 
-## October 22 shorter choice sequence and forest angle (v19)
+## October 22 travelling montage and burning-card zoom (v20)
+
+V20 changes four bounded components against V19: FG14–16 `[5690,6067)` and
+MAP2 `[8822,8979)`, MAP4 `[9118,9275)`, MAP5 `[9275,9458)`. This selects 874
+frame addresses and inherits 13,936, retaining the 14,810-frame, 1080p60 timeline.
+
+Around 1:38, a spatial push-in emphasizes the actual played-loss Rock Tunnel
+card. The original reference briefly enlarges its burning Shield Bash card;
+the adaptation follows our selected VR card's real glow and upward loss flight.
+The zoom starts at global frame 5786 (96.433 s), reaches 1.85× at frame 5828
+(97.133 s) with a quintic ease, and holds through the existing gold wipe
+`[5899,5923)`. The top/right capture edges remain visible so the departing
+card stays in frame. Incoming potion pixels remain unzoomed. Source clocks,
+the wipe and subsequent physical Minor Healing Potion use remain unchanged.
+
+The map-side passage around 2:26 now alternates **Temple → Forest → Dungeon →
+Merchant → Forest → Dungeon**. No adjacent shots show the same place.
+The three new windows use two different forest combat moments and a merchant
+camp overview, rather than consecutive views of the same dungeon. The original
+right-side paper, travelling route and standard organic contour remain intact.
+MAP1, the accepted MAP3 correction, MAP6 and the outgoing Victory transition
+are inherited from V19. Each new source interval and its native frame clock is
+recorded in `map-variety/components.json` and the individual component metadata.
+MAP2 and MAP5 start at 130.0 and 454.8 seconds in the October 17 09:50:43
+recording; MAP4 starts at 209.0 seconds in the October 17 09:44:07 recording.
+The forest pictures use a uniform 1.25× spatial enlargement and crop origin
+(830, 135) in the enlarged image, providing real source pixels under the entire
+original map aperture. The merchant uses scale 1 with origin (350, 0).
+No stretched edge fill is retained in these new excerpts.
+
+All gameplay remains 1x; the card zoom changes framing only. Original AAC,
+accepted cinematics, continuous full-trailer fan mark and the separate approved
+game intro remain. V20 SHA256 is `9b4af250c888dcf8aff78004e262ef54d512097a88ad986fbcdf4a26af8616e8`.
+
+The independent actual-export pass checks all 14,810 frame addresses directly:
+13,936 inherited pictures reach maximum MAE 0.71019 and all 874 selected
+component pictures reach 1.82505, below the unchanged 2.0 threshold. No colour-path
+follow-up or second master render is needed. All 11,573 original AAC packets,
+their clocks/configuration and the continuous fan mark pass. Independent
+paper-mask checks cover all 497 newly composed map frames (maximum MAE 0.96794,
+99th-percentile channel error at most 5). Root views 32 actual-export Watch cues,
+75 exact boundary/zoom/place witnesses and four additional full-size frames;
+independent desktop and mobile-emulated browser review checks both passages at
+1x, chapter navigation
+and comparisons. Unchanged creative review is inherited. This is media/browser
+evidence, without a new game-runtime, headset or continuous whole-film manual
+review claim. Detailed results remain in
+`qc-independent/technical-final.json`.
+
+The active review is `vr-gameplay-v11/REVIEW.html`. Receipts also include
+`browser-review/final-review.json`, `browser-review/final-navigation.json`,
+`qc-root/visual-review.json` and `editor/protected-media-final.json`, relative
+to that folder. All used sources and protected authorities are retained after
+completed owned cleanup. No paid inference or mod build change. Only multiplayer
+FG39–FG41 still needs recording; FG12/30/31 and the separate intro retain their
+explicit exceptions. User acceptance of V20 is not claimed.
+
+## Historical October 22 shorter choice sequence and forest angle (v19)
 
 V19 replaces only FG04 `[3776,4088)` (1:02.93–1:08.13) and FG10
 `[4965,5112)` (1:22.75–1:25.20) against V18: 459 selected frame addresses,

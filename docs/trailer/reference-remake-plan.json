@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "V19 reviewed and published: shorter heavy-hit/actual damage-choice montage around 1:05 and open forest spell angle around 1:24. Only multiplayer FG39–FG41 needs new footage.",
+  "status": "V20 reviewed and published: burning-card zoom and varied map-side locations. Only multiplayer FG39–FG41 needs new footage.",
   "date": "2026-10-22",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
@@ -15,7 +15,7 @@
     "motion_quality": "V9 root review covers all762 changed component frames,139 whole-film Watch cues and21 native witness contacts/eight full-size witnesses. Independent visual review, all14810-frame technical/footer checks and actual browser playback pass; user acceptance is not claimed."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
-  "timing_note": "V19 selects 459 frame addresses in FG04 [3776,4088) and FG10 [4965,5112) against V18, preserving 14351 addresses. Keep 14810 total frames at 60fps, original 246.861s AAC and real gameplay 1x; FG04 internal cut at 3860 changes take without retiming.",
+  "timing_note": "V20 selects 874 frame addresses in FG14-16 and MAP2/4/5 against V19, inheriting 13936. Keep 14810 frames at 60fps, original AAC and actual gameplay 1x; burning-card zoom changes framing only.",
   "voice": {
     "mode": "Keep original English text/timing, user confirmed; small GloomhavenVR substitutions only",
     "patches": [
@@ -78,7 +78,7 @@
     "this_v8_reserved_usd": 5.5
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
-  "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v10/NAECHSTE-AUFNAHMEN.txt",
+  "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/NAECHSTE-AUFNAHMEN.txt",
   "incoming": ".planning/debug/trailer/remake-v1/incoming/",
   "scenes": [
     {
@@ -2468,22 +2468,22 @@
     "cleanup_authority": "Latest explicit unused-video/resource deletion instruction overrides historical preserve-all-AI policy. Retain selected used sources and all fal run recovery metadata."
   },
   "current_working_cut": {
-    "phase": "genuine-vr-gameplay-v10",
+    "phase": "genuine-vr-gameplay-v11",
     "status": "reviewed-and-published-awaiting-multiplayer-captures",
-    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v10/full-timeline-v1/reference-remake-vr-v19.mp4",
-    "sha256": "af5c07772356d4155c9d949994c4febb55841814bc4cb2cba061a7158cacb6fb",
-    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v10/REVIEW.html",
-    "base_phase": "genuine VR v18, other accepted scenes inherited",
-    "base_sha256": "77d90be7f70e47b8b7e821875e79ac4441c0f76dead580b89ba8799a69c9ea57",
+    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/full-timeline-v1/reference-remake-vr-v20.mp4",
+    "sha256": "9b4af250c888dcf8aff78004e262ef54d512097a88ad986fbcdf4a26af8616e8",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/REVIEW.html",
+    "base_phase": "genuine VR v19, other accepted scenes inherited",
+    "base_sha256": "af5c07772356d4155c9d949994c4febb55841814bc4cb2cba061a7158cacb6fb",
     "frames": 14810,
     "fps": 60,
     "container_seconds": 246.861,
     "new_paid_calls": 0,
     "user_acceptance_claimed": false,
     "provisional_material_trial": true,
-    "bytes": 293433313,
+    "bytes": 294287376,
     "review_published": true,
-    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v10/REVIEW.html"
+    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v11/REVIEW.html"
   },
   "genuine_vr_gameplay_pass_v1": {
     "date": "2026-10-16",
@@ -3746,5 +3746,136 @@
     "owned_worker_worktrees_removed": 3,
     "user_acceptance_claimed": false,
     "runtime_or_headset_gate_claimed": false
+  },
+  "genuine_vr_gameplay_pass_v11": {
+    "date": "2026-10-22",
+    "status": "travelling-montage-and-burning-card-zoom-reviewed-published",
+    "private_selection": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/editor/selection-final.json",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/REVIEW.html",
+    "base_sha256": "af5c07772356d4155c9d949994c4febb55841814bc4cb2cba061a7158cacb6fb",
+    "master_sha256": "9b4af250c888dcf8aff78004e262ef54d512097a88ad986fbcdf4a26af8616e8",
+    "changed_frames": 874,
+    "unchanged_frames": 13936,
+    "changed_components": [
+      {
+        "id": "FG14-16",
+        "start_frame": 5690,
+        "end_frame_exclusive": 6067,
+        "frames": 377,
+        "private_path": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/burn-zoom/FG14-16-burning-card-zoom.mp4",
+        "sha256": "fb0587c94731fe94175f100f2e149998235aace0a452adf2d3f60507270124fa"
+      },
+      {
+        "id": "MAP2",
+        "start_frame": 8822,
+        "end_frame_exclusive": 8979,
+        "frames": 157,
+        "private_path": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/map-variety/MAP2-varied-location-original-map.mp4",
+        "sha256": "bcf6dc519b89b45ff382c896841c42ec81adf417e9167495f5d4cf5acb3e23e3"
+      },
+      {
+        "id": "MAP4",
+        "start_frame": 9118,
+        "end_frame_exclusive": 9275,
+        "frames": 157,
+        "private_path": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/map-variety/MAP4-varied-location-original-map.mp4",
+        "sha256": "9647ce4978356c81281b8c4048757e7a8bdc9dc42c5674cdfe523c4e3151fcaf"
+      },
+      {
+        "id": "MAP5",
+        "start_frame": 9275,
+        "end_frame_exclusive": 9458,
+        "frames": 183,
+        "private_path": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/map-variety/MAP5-varied-location-original-map.mp4",
+        "sha256": "50a433d1641c03a84cd79d12f0ff0f68e438fbf1c0cb04e87e2995fef728ae1a"
+      }
+    ],
+    "source_playback_rate": 1,
+    "map_locations": [
+      "Temple",
+      "Forest",
+      "Dungeon",
+      "Merchant",
+      "Forest",
+      "Dungeon"
+    ],
+    "adjacent_same_location": false,
+    "card_zoom": {
+      "maximum_scale": 1.85,
+      "start_frame": 5786,
+      "peak_frame": 5828,
+      "spatial_only": true,
+      "original_gold_wipe_preserved": true
+    },
+    "ui_counts": {
+      "total": 33,
+      "vr": 28,
+      "accepted_original": 2,
+      "outstanding_multiplayer": 3
+    },
+    "remaining_capture_ids": [
+      "FG39",
+      "FG40",
+      "FG41"
+    ],
+    "accepted_original_exceptions": [
+      "FG12",
+      "FG30",
+      "FG31"
+    ],
+    "new_paid_calls": 0,
+    "technical_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/qc-independent/technical-final.json",
+    "browser_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/browser-review/final-review.json",
+    "final_navigation_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/browser-review/final-navigation.json",
+    "root_visual_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/qc-root/visual-review.json",
+    "cleanup_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v11/editor/protected-media-final.json",
+    "protected_media_hashes": 68,
+    "owned_worker_worktrees_removed": 3,
+    "user_acceptance_claimed": false,
+    "runtime_or_headset_gate_claimed": false,
+    "map_reframing": {
+      "MAP2": {
+        "source_seconds": 130.0,
+        "scale": 1.25,
+        "crop_origin_after_scale": [
+          830,
+          135
+        ]
+      },
+      "MAP4": {
+        "source_seconds": 209.0,
+        "scale": 1,
+        "crop_origin_after_scale": [
+          350,
+          0
+        ]
+      },
+      "MAP5": {
+        "source_seconds": 454.8,
+        "scale": 1.25,
+        "crop_origin_after_scale": [
+          830,
+          135
+        ]
+      },
+      "original_paper_contour_preserved": true,
+      "exposed_synthetic_edge_pixels": 0
+    },
+    "technical_summary": {
+      "validation_mode": "One complete actual-export run: 14,810 frames, 13,936 inherited addresses, 874 component frames, 497 original-paper frames and 11,573 AAC packets; continuous fan mark. No normalized follow-up needed.",
+      "decoded_frames": 14810,
+      "outside_frames": 13936,
+      "selected_frames": 874,
+      "outside_max_mae": 0.7101851851851851,
+      "selected_max_mae": 1.8250484221466365,
+      "paper_frames": 497,
+      "paper_max_mae": 0.9679419617762788,
+      "comparison_limit_8bit": 2.0,
+      "normalized_followup_needed": false,
+      "unchanged_aac_packets": 11573,
+      "root_final_watch_cues": 32,
+      "root_exact_master_witnesses": 75,
+      "root_full_size_frames": 4
+    }
   }
 }
