@@ -37,12 +37,14 @@ namespace GloomhavenVR.Cards {
         private readonly List<ItemChip> _chips=new();
         private Transform? _anchor=new();
         private bool _useSlotShownLogged=false;
+        private bool _demandActive;
         internal bool IsOpen=true;
         internal int Count=>_chips.Count;
         internal bool Pending=>_finishingUseChip!=null;
         internal bool ShownLog=>_useSlotShownLogged;
         private void ForgetSweepWinner(ItemChip chip){}
         internal void Add(ItemChip chip)=>_chips.Add(chip);
+        internal void SetDemand(bool active)=>_demandActive=active;
         internal void Begin(ItemChip chip,bool spent=false)=>BeginUsedChipPresentation(chip,!spent,spent,new());
         internal sealed partial class ItemChip {
             internal ItemCardUI? _cardUI=new();

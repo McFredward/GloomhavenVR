@@ -7,6 +7,89 @@ static class Program
 {
     static int assertions;
     static void Check(bool condition,string message) { assertions++;if(!condition)throw new Exception(message); }
+    static void ConfirmedDemandLifetime()
+    {
+        foreach(var open in new[]{false,true})
+        foreach(var mode in new[]{"consume","refresh","reward"})
+        foreach(var callback in new[]{"none","end","replace"})
+        {
+            var pile=ItemsPile.Create("demand",out var card,out _);
+            pile.ConfigureDemand(mode=="refresh",mode=="reward");
+            // A refresh of an authored consumable must tap, while a forfeited non-consumable
+            // reward must burn. This separates the decision kind from the live item state.
+            card.Item!.YMLData!.Usage=mode=="reward"?CItem.EUsageType.None:CItem.EUsageType.Consumed;
+            pile.OnChipReleased(card,new(),new());
+            if(open)pile.ReopenForTest(card);
+            int recessIndex=pile.ClippedChipIndex;
+            Check(recessIndex>=0,"Selected original must have a remote recess address before confirmation");
+            pile.TickDemandPick(pile.Hand);
+            Check(PlayTray.Current!.Confirm,"Native demand readiness must expose a callable confirmation");
+            if(callback!="none")CardsGameApi.DuringConfirm=()=>
+            {
+                pile.TickDemandPick(null);
+                if(callback=="replace")
+                {
+                    CardsGameApi.Refreshing=mode!="refresh";
+                    CardsGameApi.LoseReward=false;
+                    pile.NewDemand();
+                }
+            };
+            PlayTray.Current.OnConfirm!.Invoke();
+            Check(CardsGameApi.Confirms==(mode=="reward"?0:1)&&CardsGameApi.RewardConfirms==(mode=="reward"?1:0),"Demand must invoke exactly its original native callback");
+            Check(card.UsePresentations==1&&pile.Finishing,"Accepted demand must retain exactly one original result presentation");
+            Check(card.Burn==(mode!="refresh")&&card.Spent==(mode=="refresh"),"Native callback reentry must preserve the accepted demand's burn/tap classification: "+mode);
+            // This is the actual PileViewer.TickStatus off-turn call, before the demand pump.
+            // No native animation tick is invented between the commit and this lifecycle edge.
+            pile.RetirePlacedCardIfAny("no locally-controlled hand is active");
+            Check(card.Collapses==0&&pile.Finishing,"Off-turn retirement must not preempt an accepted demand's native result");
+            pile.TickDemandPick(null);
+            Check(PlayTray.Current.ItemUseSlotTransform!.gameObject.activeSelf,"Closing demand must keep the native result's parent active");
+            Check(!PlayTray.Current.Confirm&&PlayTray.Current.OnConfirm==null,"Completed demand must revoke its confirmation without accepting twice");
+            Check(pile.OwnsUseBerth,"Native result must retain the shared berth until its own completion");
+            Check(pile.ClippedChipIndex==recessIndex,"Remote original recess address must remain available throughout the result");
+            pile.Tick(null);
+            Check(PlayTray.Current.ItemUseSlotTransform.gameObject.activeSelf,"Result service must remain live with no current action hand");
+            card.FinishPresentation();
+            Check(card.Collapses==1&&!pile.Finishing&&!pile.Kept(card),"Native result completion must release original ownership and start exactly one return");
+            Check(!pile.OwnsUseBerth&&pile.ClippedChipIndex==-1,"Finished demand must clear the mirrored berth and original recess address");
+            Check(!PlayTray.Current.ItemUseSlotTransform.gameObject.activeSelf,"Finished demand must remove the stale Use overlay");
+            pile.Tick(null);pile.TickDemandPick(null);pile.Tick(pile.Hand);
+            Check(!PlayTray.Current.ItemUseSlotTransform.gameObject.activeSelf&&!pile.Finishing,"Later local-hand ticks must not resurrect the completed Use overlay");
+            pile.CompleteAgain(card);
+            Check(card.Collapses==1&&!PlayTray.Current.ItemUseSlotTransform.gameObject.activeSelf,"Repeated completion must not create a second return or reopen the overlay");
+        }
+
+        foreach(var open in new[]{false,true})
+        {
+            var pile=ItemsPile.Create("demand",out var card,out _);
+            pile.OnChipReleased(card,new(),new());
+            if(open)pile.ReopenForTest(card);
+            CardsGameApi.ConfirmAccepted=false;
+            pile.ConfirmDemand();
+            Check(card.UsePresentations==0&&!pile.Finishing,"Refused native confirmation must never start an accepted result");
+            Check(open?card.Returns==1:card.Collapses==1,"Refused native confirmation must return the original through its existing home path");
+            CardsGameApi.PickerOpen=false;pile.TickDemandPick(pile.Hand);pile.Tick(pile.Hand);
+            Check(!pile.OwnsUseBerth&&!PlayTray.Current!.ItemUseSlotTransform!.gameObject.activeSelf,"Refused demand teardown must not leave the overlay or its owner behind");
+        }
+
+        foreach(var successor in new[]{"demand","active-dismiss"})
+        {
+            var pile=ItemsPile.Create("demand",out var card,out _);
+            pile.OnChipReleased(card,new(),new());pile.ConfirmDemand();pile.TickDemandPick(null);
+            if(successor=="demand")pile.NewDemand();
+            else PlayTray.Current!.ReserveActiveDismiss();
+            card.FinishPresentation();
+            Check(PlayTray.Current!.ItemUseSlotTransform!.gameObject.activeSelf,"Old completion must retain a successor's live berth: "+successor);
+            if(successor=="demand")
+            {
+                Check(pile.OwnsUseBerth,"A new native demand must own its guide after the old result finishes");
+                CardsGameApi.PickerOpen=false;pile.TickDemandPick(null);
+                Check(!PlayTray.Current.ItemUseSlotTransform.gameObject.activeSelf&&!pile.OwnsUseBerth,"Successor demand must still close normally");
+            }
+            else
+                Check(PlayTray.Current.ActiveDismissOwner&&PlayTray.Current.Confirm&&PlayTray.Current.ActiveDismissCancels==0,"Old result completion must preserve a successor's active-dismiss reservation");
+        }
+    }
     static void Main()
     {
         foreach(var ownsActive in new[]{false,true})
@@ -79,6 +162,7 @@ static class Program
                 Check(!pile.Kept(card)&&sibling.Collapses==0,"Refused drop must never create a survivor or fold away siblings");
             }
         }
+        ConfirmedDemandLifetime();
         Console.WriteLine($"Item placement production fixture: {assertions} assertions passed.");
     }
 }

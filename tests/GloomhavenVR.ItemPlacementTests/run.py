@@ -25,12 +25,16 @@ METHODS = [
     'private ItemChip? HeldTakeDamageCandidate()',
     'private void EndDemand(', 'private void EndTakeDamagePick(',
     'internal int ClippedChipIndex', 'internal bool OwnsUseBerth',
+    'private bool UseAnimationPending', 'internal void RetirePlacedCardIfAny(',
+    'internal void Tick(', 'private bool AnyHeld()',
+    'private void ConfirmDemandPick()', 'private void BeginUsedChipPresentation(',
+    'private void CompleteUsedChipPresentation(', 'internal void TickDemandPick(',
 ]
 
 
 def extract(source, signature):
     start = source.index(signature)
-    if signature in ('private void CloseAfterPlacement()', 'internal bool OwnsUseBerth'):
+    if signature in ('private void CloseAfterPlacement()', 'internal bool OwnsUseBerth', 'private bool UseAnimationPending'):
         return source[start:source.index(';', start) + 1]
     opening = source.index('{', start)
     depth, end = 1, opening + 1
@@ -90,6 +94,11 @@ def main():
             ('missing-td-survivor', '_pendingUseChip ?? _demandChip ?? _tdChip', '_pendingUseChip ?? _demandChip', 'Placed card must remain in its slot: damage'),
             ('missing-closed-pump-owner', 'if (ReferenceEquals(chip, _demandChip) || ReferenceEquals(chip, _tdChip))', 'if (bool.Parse("false"))', 'Demand decision must remain owned while closed'),
             ('refused-drop-no-retirement', 'CancelPlacedCard(chip, "taken out of the recess and released away from it — the CANCEL");', '_ = chip;', 'Refused closed-fan return must retire the card'),
+            ('accepted-result-retired-off-turn', 'if (UseAnimationPending)\n            return;\n        if (_keptClip != null)', 'if (_keptClip != null)', "Off-turn retirement must not preempt an accepted demand's native result"),
+            ('closed-picker-hides-native-result', 'SetItemUseSlotVisible(UseAnimationPending);', 'SetItemUseSlotVisible(false);', "Closing demand must keep the native result's parent active"),
+            ('completion-hides-following-demand', 'SetItemUseSlotVisible(_demandActive);', 'SetItemUseSlotVisible(false);', "Old completion must retain a successor's live berth: demand"),
+            ('callback-reclassifies-forfeit', 'bool consumed = loseReward', 'bool consumed = _demandLoseReward', "Native callback reentry must preserve the accepted demand's burn/tap classification: reward"),
+            ('callback-reclassifies-refresh', '|| (!refreshing', '|| (!_demandRefreshing', "Native callback reentry must preserve the accepted demand's burn/tap classification: consume"),
         ]
         cases = []
         for name, old, new, expected in mutations:
@@ -108,7 +117,7 @@ def main():
                 print('Item placement negative control: ' + name + ' failed as expected.', flush=True)
             cases.append({'case': name, 'exit_code': code, 'expected': expected})
         path.write_text(production)
-        (run / 'results.json').write_text(json.dumps({'cases': cases, 'scope': 'Exact original production drop/close/closed-survivor/home methods; explicit hierarchy and native permission/callback boundaries. No actual Unity/game/headset or network transport.'}, indent=2) + '\n')
+        (run / 'results.json').write_text(json.dumps({'cases': cases, 'scope': 'Exact production drop/close/closed-survivor/home, demand-confirm/pump, result-ownership/completion and Tick methods. Native callbacks, visual hierarchy and animation completion are explicit boundaries: this fixture does not execute Unity ItemChip.Update, native FX, the game, headset rendering or network transport. The separate item-burn fixture executes original result-playback kernels.'}, indent=2) + '\n')
         outcome = 0
         return 0
     finally:
