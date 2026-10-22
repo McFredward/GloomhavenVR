@@ -148,15 +148,19 @@ internal static class NetCardFx
             || !source.HasValue || source.Value.Count == 0 || !source.Value.Validate()
             || dismissOrigin?.Valid != true)
             dismissOrigin = null;
+        if (to != CardFxAnchor.Burnt || float.IsNaN(completionTime) || float.IsInfinity(completionTime)) completionTime = -1f;
+        CardBurnCompletion? terminal = null;
+        CardAppearanceState? captured = s_capturedCompletion;
+        if (dismissOrigin != null && completionTime >= 0f && completionTime == s_capturedAt && captured != null
+            && (dismissOrigin.SourceActorId != captured.SourceActorId || dismissOrigin.PoolSeat != captured.PoolSeat
+                || dismissOrigin.PoolCount != captured.PoolCount))
+            return; // Invalid companion cannot publish or mutate another original's durable release.
         s_queued++;
         if (s_queue.Count >= MaxQueued)
         {
             s_queue.Dequeue(); // nobody draining (single-player) — keep the newest
             s_dropped++;
         }
-        if (to != CardFxAnchor.Burnt || float.IsNaN(completionTime) || float.IsInfinity(completionTime)) completionTime = -1f;
-        CardBurnCompletion? terminal = null;
-        CardAppearanceState? captured = s_capturedCompletion;
         if (completionTime >= 0f && completionTime == s_capturedAt && source.HasValue && captured != null
             && source.Value.ActorId == captured.ActorId)
         {

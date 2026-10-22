@@ -29,6 +29,9 @@ internal sealed class CardFlightOrigins
 
     internal static CardFlightOrigins? Capture(CardFlightHistory history, CardBurnCompletionHistory completions)
     {
+        if (history.Events.Length > CardFlightHistory.CountMax
+            || completions.Entries.Length > CardBurnCompletionHistory.CountMax || history.Sequence != completions.Sequence)
+            return null;
         bool any = false;
         foreach (var entry in history.Events) any |= entry.DismissOrigin != null;
         foreach (var entry in completions.Entries) any |= entry.DismissOrigin != null;
@@ -59,7 +62,9 @@ internal sealed class CardFlightOrigins
         {
             if (_scopeMask == 0 || (_scopeMask & ~3) != 0) return false;
             for (int scope = 0; scope < 2; scope++)
-                if ((_scopeMask & (1 << scope)) != 0 && (_nativeCounts[scope] < 0
+                if ((_scopeMask & (1 << scope)) != 0 && (_nativeCounts[scope] <= 0
+                    || _nativeCounts[scope] > (scope == 0 ? CardFlightHistory.CountMax : CardBurnCompletionHistory.CountMax)
+                    || _pageCounts[scope] <= 0 || _pageCounts[scope] > (scope == 0 ? MaxRecentPages : MaxDurablePages)
                     || _pagesSeen[scope] != (1u << _pageCounts[scope]) - 1)) return false;
             return true;
         }
@@ -99,11 +104,10 @@ internal sealed class CardFlightOrigins
                     || !source.HasValue || !source.Value.Validate() || source.Value.Count == 0) return false;
             }
         }
-        if ((_scopeMask & 3) == 3)
-            for (int i = 0; i < _nativeCounts[0]; i++)
+        if (state.FlightHistory != null && state.BurnCompletions != null)
+            for (int i = 0; i < state.FlightHistory.Events.Length; i++)
             {
-                var origin = _origins[0][i];
-                if (origin == null) continue;
+                var origin = NeedsRecent ? _origins[0][i] : null;
                 var flight = state.FlightHistory!.Events[i];
                 for (int index = 0; index < canonical.Length; index++)
                 {
@@ -112,8 +116,9 @@ internal sealed class CardFlightOrigins
                         || completion.Sequence != flight.Sequence || completion.Endpoints != flight.Endpoints
                         || !flight.Source.HasValue || completion.ActorId != flight.Source.Value.ActorId
                         || completion.Seat != flight.Source.Value.Seat || completion.Count != flight.Source.Value.Count) continue;
-                    var durable = _origins[1][index];
-                    if (durable == null || origin.SourceActorId != completion.SourceActorId
+                    var durable = NeedsDurable ? _origins[1][index] : null;
+                    if (origin == null && durable == null) continue;
+                    if (origin == null || durable == null || origin.SourceActorId != completion.SourceActorId
                         || origin.PoolSeat != completion.PoolSeat || origin.PoolCount != completion.PoolCount
                         || !SameGeometry(origin, durable)) return false;
                 }

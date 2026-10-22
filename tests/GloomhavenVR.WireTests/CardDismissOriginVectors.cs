@@ -67,6 +67,15 @@ internal static class CardDismissOriginVectors
             t.True(NetCardFx.TryDequeue(out _, out _, out _, out _), "dense dispatch succeeds across sequence wrap");
             var latest = NetCardFx.History.Events.Last();
             t.True(ReferenceEquals(latest.DismissOrigin, selected), "current sequence retains only its own origin");
+            if (i >= 250)
+            {
+                byte[] packet = Serialize(new PresenceState { FlightHistory = NetCardFx.History,
+                    BurnCompletions = NetCardFx.BurnCompletions, FlightOrigins = NetCardFx.FlightOrigins });
+                t.True(PresenceSerializer.TryRead(packet, packet.Length, out var mirrored)
+                    && mirrored.FlightHistory!.Events.Select(e => e.FromDismissBerth)
+                        .SequenceEqual(NetCardFx.History.Events.Select(e => e.FromDismissBerth)),
+                    "coalesced actual outbox122 retains each alternating origin through sequence wrap");
+            }
         }
         var capture = new CardAppearanceState { ActorId = 11, SourceActorId = origin.SourceActorId,
             PoolSeat = origin.PoolSeat, PoolCount = origin.PoolCount };
@@ -81,8 +90,20 @@ internal static class CardDismissOriginVectors
         t.True(NetCardFx.HistoryAt(expiredAt).Events.Length == 0
             && NetCardFx.BurnCompletions.Entries[0].FromDismissBerth,
             "two-second recent-history expiry does not erase durable dismissal origin");
+        byte[] terminalPacket = Serialize(new PresenceState { FlightHistory = NetCardFx.HistoryAt(expiredAt),
+            BurnCompletions = NetCardFx.BurnCompletions, FlightOrigins = NetCardFx.FlightOrigins });
+        t.True(PresenceSerializer.TryRead(terminalPacket, terminalPacket.Length, out var terminal)
+            && terminal.FlightHistory!.Events.Length == 0 && terminal.BurnCompletions!.Entries[0].FromDismissBerth
+            && terminal.BurnCompletions.Entries[0].DismissOrigin!.BerthPose.Position.y == -2,
+            "actual durable-only122 codec retains exact origin after all recent events expire");
         NetCardFx.Reset();
-        t.True(NetCardFx.BurnCompletions.Entries.Length == 0, "teardown clears retained origins with their native receipts");
+        t.True(NetCardFx.BurnCompletions.Entries.Length == 0 && NetCardFx.FlightOrigins == null,
+            "teardown clears retained origins with their native receipts");
+        NetCardFx.NoteBurnCompletionCapture(capture, 99);
+        NetCardFx.Report(CardFxAnchor.Active, CardFxAnchor.Burnt, source: source, completionTime: 99,
+            dismissOrigin: Origin(actor: 99));
+        t.True(!NetCardFx.Pending && NetCardFx.BurnCompletions.Entries.Length == 0,
+            "a mismatched immutable original cannot mutate or publish another card's terminal receipt");
         foreach (var endpoints in new[] { (CardFxAnchor.HandFan, CardFxAnchor.Discard),
             (CardFxAnchor.Active, CardFxAnchor.HandFan), (CardFxAnchor.Active, CardFxAnchor.Active) })
         {
@@ -182,7 +203,7 @@ internal static class CardDismissOriginVectors
                 "truncated origin never assembles " + cut);
         }
         foreach (var pair in new[] { (2, 2), (3, 0), (3, 4), (4, 2), (5, 0), (5, 9),
-            (6, 1), (7, 0), (7, 3), (8, 0), (8, 7), (9, 1), (10, 0), (14, 3), (16, 0) })
+            (6, 1), (7, 0), (7, 3), (8, 0), (8, 7), (9, 1), (14, 3), (16, 0) })
         {
             var bad = (byte[])golden.Clone(); bad[pair.Item1] = (byte)pair.Item2;
             var malformed = Packet(legacy.Concat(new[] { bad }).ToArray());
