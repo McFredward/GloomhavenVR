@@ -4299,6 +4299,178 @@ internal static class CardsGameApi
     internal static void GetActiveHalves(CardsHandUI hand, CAbilityCard card, out bool top, out bool bottom)
         => ActiveCardSet.ActiveHalves(hand.PlayerActor, card, out top, out bottom);
 
+    // ------------------------------------------------------- active-card dismissal --
+
+    /// <summary>
+    /// Whether this exact, locally owned active ability card may be offered to the dismissal
+    /// recess. The native manager owns phase, ready and damage-response permission through
+    /// EnableCancelActiveAbilities; do not replace it with a turn-only or busy approximation.
+    /// Read the model membership, not AbilityCardUI.CardType (a presentation cache), and retain
+    /// PersistentAbilitiesUI's CannotCancel rule for every bonus on the card.
+    /// </summary>
+    internal static bool CanDismissActiveCard(CardsHandUI? hand, AbilityCardUI? widget)
+    {
+        if (!VRSession.IsRunning || hand == null || widget == null)
+            return false;
+        try
+        {
+            CardsHandManager manager = CardsHandManager.Instance;
+            CPlayerActor? actor = hand.PlayerActor;
+            CAbilityCard? card = widget.AbilityCard;
+            if (manager == null || !manager.EnableCancelActiveAbilities
+                || Choreographer.s_Choreographer == null || PhaseManager.CurrentPhase == null
+                || actor == null || actor.IsDead || !ControlsActor(actor)
+                || !ReferenceEquals(manager.GetHand(actor), hand)
+                || !ReferenceEquals(widget.playerActor, actor)
+                || !hand.cardsUI.Contains(widget) || card == null || card.SelectedAction == null
+                || !ActiveCardSet.IsActive(actor, card))
+                return false;
+
+            // A reserved board card must not replace an unrelated native confirmation.
+            if (!Singleton<UIConfirmationBoxManager>.IsInitialized)
+                return false;
+            UIConfirmationBoxManager confirmation = Singleton<UIConfirmationBoxManager>.Instance;
+            if (confirmation == null || confirmation.IsOpen || confirmation.IsRequested)
+                return false;
+
+            List<CActiveBonus> bonuses = card.ActiveBonuses;
+            bool live = false;
+            for (int i = 0; i < bonuses.Count; i++)
+            {
+                CActiveBonus bonus = bonuses[i];
+                if (bonus == null || bonus.Ability == null || bonus.Ability.ActiveBonusData == null
+                    || bonus.Ability.ActiveBonusData.CannotCancel)
+                    return false;
+                if (!bonus.Finished() && !bonus.Finishing())
+                    live = true;
+            }
+            return live;
+        }
+        catch
+        {
+            // Scenario teardown and an in-flight native card refresh revoke the offer.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Arm the original game's dismissal confirmation without opening a second popup. Placing a
+    /// card is not consent: only ActiveCardDismissal.Confirm, called by the explicit board cap,
+    /// may invoke the captured original affirmative callback. A failed capture returns null and
+    /// never accepts anything. Ordinary native confirmations remain untouched by the narrow scope.
+    /// </summary>
+    internal static ActiveCardDismissal? RequestDismissActiveCard(CardsHandUI? hand, AbilityCardUI? widget)
+    {
+        if (!CanDismissActiveCard(hand, widget))
+            return null;
+        var pending = new ActiveCardDismissal(hand!, widget!);
+        try
+        {
+            if (Patches.ActiveDismissConfirmation.Capture(pending, () =>
+                pending.Manager.DiscardActiveAbilityCard(pending.Actor, pending.Card))
+                && pending.CanConfirm)
+                return pending;
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Cards", $"ACTIVE dismiss preparation failed ({e.Message}).");
+        }
+        pending.Cancel();
+        return null;
+    }
+
+    /// <summary>
+    /// A one-shot, exact-object native confirmation lease. No game-model mutation lives here:
+    /// CardsHandManager.DiscardActiveAbilityCard supplies the real closure which cancels the
+    /// bonuses, refreshes native UI, sets its choreography continuation and replicates through
+    /// NetworkCancelingActiveBonuses (including the Guildmaster ModelInstanceID path).
+    /// </summary>
+    internal sealed class ActiveCardDismissal
+    {
+        private readonly CardsHandUI _hand;
+        private readonly AbilityCardUI _widget;
+        private readonly Choreographer _choreographer;
+        private readonly object _phase;
+        private readonly CardHandMode _mode;
+        private readonly UIConfirmationBoxManager _confirmation;
+        private UnityEngine.Events.UnityAction? _confirm;
+        private UnityEngine.Events.UnityAction? _cancel;
+        private bool _finished;
+
+        internal CardsHandManager Manager { get; }
+        internal CPlayerActor Actor { get; }
+        internal CAbilityCard Card { get; }
+        internal bool IsPending => !_finished && _confirm != null;
+        internal bool DismissesSummon { get; }
+        internal bool LosesCard { get; }
+
+        internal ActiveCardDismissal(CardsHandUI hand, AbilityCardUI widget)
+        {
+            _hand = hand;
+            _widget = widget;
+            Manager = CardsHandManager.Instance;
+            Actor = hand.PlayerActor;
+            Card = widget.AbilityCard;
+            _choreographer = Choreographer.s_Choreographer;
+            _phase = PhaseManager.CurrentPhase;
+            _mode = hand.currentMode;
+            _confirmation = Singleton<UIConfirmationBoxManager>.Instance;
+            LosesCard = Card.SelectedAction.CardPile != CBaseCard.ECardPile.Discarded;
+            List<CActiveBonus> bonuses = Card.ActiveBonuses;
+            for (int i = 0; i < bonuses.Count; i++)
+                if (bonuses[i] != null && bonuses[i].Duration == CActiveBonus.EActiveBonusDurationType.Summon)
+                    DismissesSummon = true;
+        }
+
+        internal bool CanConfirm => IsPending
+            && ReferenceEquals(CardsHandManager.Instance, Manager)
+            && ReferenceEquals(Choreographer.s_Choreographer, _choreographer)
+            && ReferenceEquals(PhaseManager.CurrentPhase, _phase)
+            && _hand.currentMode == _mode
+            && Singleton<UIConfirmationBoxManager>.IsInitialized
+            && ReferenceEquals(Singleton<UIConfirmationBoxManager>.Instance, _confirmation)
+            && ReferenceEquals(_hand.PlayerActor, Actor)
+            && ReferenceEquals(_widget.AbilityCard, Card)
+            && CanDismissActiveCard(_hand, _widget);
+
+        internal bool Capture(UIConfirmationBoxManager manager,
+                              UnityEngine.Events.UnityAction confirm,
+                              UnityEngine.Events.UnityAction? cancel)
+        {
+            if (_finished || _confirm != null || confirm == null || !ReferenceEquals(manager, _confirmation))
+                return false;
+            _confirm = confirm;
+            _cancel = cancel;
+            return true;
+        }
+
+        internal bool Confirm()
+        {
+            if (!CanConfirm)
+            {
+                Cancel();
+                return false;
+            }
+            UnityEngine.Events.UnityAction action = _confirm!;
+            _finished = true;
+            _confirm = null;
+            _cancel = null;
+            action();
+            return true;
+        }
+
+        internal void Cancel()
+        {
+            if (_finished)
+                return;
+            UnityEngine.Events.UnityAction? action = _cancel;
+            _finished = true;
+            _confirm = null;
+            _cancel = null;
+            action?.Invoke();
+        }
+    }
+
     // ---------------------------------------------------------------------- misc --
 
     /// <summary>Verified: <c>public static Choreographer s_Choreographer</c> — alive only inside a scenario.</summary>
