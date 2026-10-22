@@ -664,9 +664,8 @@ internal sealed partial class ItemsPile
     /// picks it back up, confirms it, or play moves on. FALSE is for the teardown closes, where there
     /// is no board left to lie on: the pile stacks being hidden, the presented character changing,
     /// and <see cref="Destroy"/> — those retire the card into the items stack instead of stranding
-    /// it. The other two clip-in flows (surrender pick, take-damage place) keep the old behaviour on
-    /// purpose: their game-side selection survives in the picker/panel and their own pump re-opens
-    /// the fan, so their chip is genuinely disposable.</para>
+    /// it. Surrender and take-damage selections retain their own card and original decision in
+    /// exactly the same way; closing the arc never answers or cancels a placed item's decision.</para>
     /// </summary>
     internal void Close(string reason = "unspecified", bool keepPlacedCard = true)
     {
@@ -682,13 +681,14 @@ internal sealed partial class ItemsPile
 
         // THE SURVIVOR, decided BEFORE anything is torn down. A chip the player is HOLDING is not
         // lying in the recess (the grab already dropped PendingUse and backed the decision out), so
-        // only a settled, un-held, clipped USE card qualifies; it is lifted out of _chips here so the
+        // only a settled, un-held, clipped card qualifies; it is lifted out of _chips here so the
         // CollapseChips below — which folds and destroys every member — cannot see it.
         ItemChip? keep = null;
-        if (keepPlacedCard && _pendingUseChip != null && _pendingUseChip.Holder == null
-            && _pendingUseChip.PendingUse && PlayTray.Current?.ItemUseSlotTransform != null)
+        ItemChip? placed = _pendingUseChip ?? _demandChip ?? _tdChip;
+        if (keepPlacedCard && placed != null && placed.Holder == null
+            && placed.PendingUse && PlayTray.Current?.ItemUseSlotTransform != null)
         {
-            keep = _pendingUseChip;
+            keep = placed;
             _keptClipIndex = _chips.IndexOf(keep);
             _chips.Remove(keep);
             _keptClip = keep;
@@ -718,9 +718,10 @@ internal sealed partial class ItemsPile
         // stay exactly as they were. Nothing is re-shown and nothing is re-armed here — the state
         // simply is not torn down, which is what "sie soll liegen bleiben" means.
 
-        _demandChip = null;     // surrender pick: the chip dies with the fan; the game selection
-                                // survives in the picker and the pump re-opens the fan next tick
-        _tdChip = null;         // take-damage place: same — the toggle survives in the panel
+        if (!ReferenceEquals(_demandChip, keep))
+            _demandChip = null;
+        if (!ReferenceEquals(_tdChip, keep))
+            _tdChip = null;
         if (_useGhost != null) // #8: never leave a drop-preview floating once the fan is gone
             _useGhost.SetActive(false);
         CollapseChips(); // req #5: fly the chips BACK INTO the pile stack, then self-destroy
@@ -732,14 +733,22 @@ internal sealed partial class ItemsPile
                             (keep != null
                                 ? $" The card '{keep.name}' STAYS LYING in the use recess (it was at arc " +
                                   $"position {_keptClipIndex}) — the fan folding away is not a decision. " +
-                                  "It lies there until it is picked back up, confirmed with USE, or play " +
-                                  "moves on (which cancels it with an animation)."
+                                  "It lies there until it is picked back up, its original decision is " +
+                                  "confirmed, or play moves on (which returns it with an animation)."
                                 : string.Empty));
     }
 
     /// <summary>Last close reason (diagnostics only — surfaced by the demand/take-damage cue lines
     /// so a "why is the fan not up?" question is answerable from the log alone).</summary>
     private string _lastCloseReason = "never closed";
+
+    /// <summary>
+    /// A successful placement frees the reading wall automatically (maintainer request,
+    /// 2026-10-22). Close only after the flow has installed its real pending card and feedback;
+    /// Close preserves that card, its native choice and its remote recess address. Hover and
+    /// refused drops never reach this seam, and a re-drop with the arc already down is a no-op.
+    /// </summary>
+    private void CloseAfterPlacement() => Close("item card placed in the use recess");
 
     internal void Destroy()
     {
@@ -1801,6 +1810,11 @@ internal sealed partial class ItemsPile
     /// card still owns its own trigger even though there is no fan open any more.</summary>
     internal bool HasPlacedCardWhileClosed => !IsOpen && _keptClip != null;
 
+    /// <summary>The original item flow owns the shared berth until its decision, held survivor
+    /// or native burn presentation finishes. Other card guides must not replace it mid-flow.</summary>
+    internal bool OwnsUseBerth => _pendingUseChip != null || _demandActive || _tdActive
+                                  || _keptClip != null || UseAnimationPending;
+
     /// <summary>
     /// Give up a card still lying in the recess because the BOARD is going away underneath it — the
     /// pile stacks being hidden, no presented hand at all, the viewer tearing down. It is not a
@@ -2583,6 +2597,7 @@ internal sealed partial class ItemsPile
                                 ? "it owes an ELEMENT choice; raising the game's picker in the decision "
                                   + "area under the board. Pick, then poke USE — or grab it back out to cancel."
                                 : "poke USE to confirm, or grab it back out to cancel."));
+        CloseAfterPlacement();
     }
 
     /// <summary>
@@ -2897,6 +2912,10 @@ internal sealed partial class ItemsPile
             return;
         }
 
+        // Demand and take-damage decisions are serviced by their existing per-frame pumps even
+        // with the arc down. They retain the same survivor, not an ordinary action-turn USE.
+        if (ReferenceEquals(chip, _demandChip) || ReferenceEquals(chip, _tdChip))
+            return;
         // A confirm may have resolved it between ticks (the USE cap runs ConfirmPendingUse
         // directly), or the element pick may have auto-used it.
         if (!ReferenceEquals(chip, _pendingUseChip))
@@ -2969,6 +2988,23 @@ internal sealed partial class ItemsPile
         bool wasPending = ReferenceEquals(chip, _pendingUseChip);
         if (wasPending)
             CancelPendingUse(why); // releases the element choice, drops the cap, hides the recess
+        if (ReferenceEquals(chip, _demandChip))
+        {
+            ItemCardPicker? picker = ActiveDemandPicker();
+            if (picker != null && chip.Item != null)
+                CardsGameApi.ItemPickDeselect(picker, chip.Item);
+            _demandChip = null;
+        }
+        if (ReferenceEquals(chip, _tdChip))
+        {
+            if (chip.Item != null && chip.Item.SlotState == CItem.EItemSlotState.Selected)
+            {
+                UIUseItemScenario? slot = CardsGameApi.LiveItemsBarSlot(chip.Item);
+                if (slot != null)
+                    CardsGameApi.ClickItemsBarSlot(slot);
+            }
+            _tdChip = null;
+        }
         ReturnPlacedChipHome(chip, why);
     }
 
@@ -3641,6 +3677,7 @@ internal sealed partial class ItemsPile
                             "toggled yet — poke USE to press the game's own bonus row (that click is what the " +
                             "flat game's button does, and the game syncs it to peers itself), or grab the card " +
                             "back out to cancel for free.");
+        CloseAfterPlacement();
     }
 
     /// <summary>
@@ -4166,6 +4203,9 @@ internal sealed partial class ItemsPile
         ItemCardPicker? picker = DemandCandidateFilter();
         if (picker == null)
             return null;
+        if (_keptClip != null && _keptClip.Holder != null && _keptClip.Item != null
+            && CardsGameApi.IsItemPickCandidate(picker, _keptClip.Item))
+            return _keptClip;
         for (int i = 0; i < _chips.Count; i++)
         {
             ItemChip c = _chips[i];
@@ -4295,6 +4335,9 @@ internal sealed partial class ItemsPile
                 chip.ClipIntoSlot(slot); // re-assert after a board rebuild
         }
 
+        if (!IsOpen)
+            TickUseGhost(_demandChip == null, HeldDemandCandidate());
+
         // Demand confirm: shown exactly while the PICKER reports the full selection (survives a
         // lost chip — e.g. the fan was closed and rebuilt — because the game selection is the
         // authority). Label says SURRENDER/FORFEIT, never "USE".
@@ -4316,16 +4359,23 @@ internal sealed partial class ItemsPile
         float scale = slot.lossyScale.x;
         float radius = UseSlotRadius * (scale > 1e-4f ? scale : 1f);
         if ((dropWorldPos - slot.position).sqrMagnitude > radius * radius)
-            return; // dropped away from the slot — the base glide-home returns it to the fan
+        {
+            AfterRefusedDrop(chip);
+            return;
+        }
 
         ItemCardPicker? picker = ActiveDemandPicker();
         if (picker == null || chip.Item == null)
+        {
+            AfterRefusedDrop(chip);
             return;
+        }
         if (!CardsGameApi.IsItemPickCandidate(picker, chip.Item))
         {
             VRLog.Info("Cards", $"ITEM SURRENDER: '{chip.name}' is NOT among the demanded candidates " +
                                 "(the picker's own filter) — it returns to the fan.");
-            return; // base glide-home
+            AfterRefusedDrop(chip);
+            return; // the open arc glides home; a closed arc retires its survivor
         }
 
         // A previous clipped selection returns to the fan; the select seam below swaps the
@@ -4337,16 +4387,15 @@ internal sealed partial class ItemsPile
             _demandChip = null;
             if (old.Item != null)
                 CardsGameApi.ItemPickDeselect(picker, old.Item);
-            UnclipChip(old);
-            old.PendingUse = false;
-            old.ReturnToFan();
+            ReturnPlacedChipHome(old, "another item was selected for the same decision");
         }
 
         if (!CardsGameApi.ItemPickSelect(picker, chip.Item))
         {
             VRLog.Warn("Cards", $"ITEM SURRENDER: game picker REJECTED selecting '{chip.name}' " +
                                 "(slot not selectable) — card returns to the fan.");
-            return; // base glide-home
+            AfterRefusedDrop(chip);
+            return; // the open arc glides home; a closed arc retires its survivor
         }
 
         _demandChip = chip;
@@ -4367,6 +4416,7 @@ internal sealed partial class ItemsPile
                             $"The recess engraving reads the same word ('{DemandConfirmLabel().ToUpperInvariant()}') " +
                             "from the first frame of the demand, and that wording rides wire record 13 " +
                             "bit 3 to every peer.");
+        CloseAfterPlacement();
     }
 
     /// <summary>
@@ -4400,9 +4450,7 @@ internal sealed partial class ItemsPile
             return;
         if (!fired || chip.Item == null)
         {
-            UnclipChip(chip);
-            chip.PendingUse = false;
-            chip.ReturnToFan();
+            ReturnPlacedChipHome(chip, "the item-demand confirm was refused");
             return;
         }
 
@@ -4438,7 +4486,7 @@ internal sealed partial class ItemsPile
             UnclipChip(chip);
             chip.PendingUse = false;
             if (chip.Holder == null && chip.gameObject != null && chip.gameObject.activeInHierarchy)
-                chip.ReturnToFan();
+                ReturnPlacedChipHome(chip, why);
         }
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
         PlayTray.Current?.SetItemUseAreaLabel(null); // back to the neutral zone name
@@ -4561,10 +4609,8 @@ internal sealed partial class ItemsPile
         // a lethal recalc): return the card to the fan so card and state never disagree.
         if (chip.Item.SlotState != CItem.EItemSlotState.Selected)
         {
-            UnclipChip(chip);
-            chip.PendingUse = false;
-            chip.ReturnToFan();
             _tdChip = null;
+            ReturnPlacedChipHome(chip, "the game deselected the shield item");
             VRLog.Info("Cards", "TAKE-DAMAGE item place: the game deselected the shield item — card returns to the fan.");
             return;
         }
@@ -4579,6 +4625,9 @@ internal sealed partial class ItemsPile
     /// CanConsume gate decided candidacy; the mod adds nothing).</summary>
     private ItemChip? HeldTakeDamageCandidate()
     {
+        if (_keptClip != null && _keptClip.Holder != null && _keptClip.Item != null
+            && CardsGameApi.LiveItemsBarSlot(_keptClip.Item) != null)
+            return _keptClip;
         for (int i = 0; i < _chips.Count; i++)
         {
             ItemChip c = _chips[i];
@@ -4612,16 +4661,23 @@ internal sealed partial class ItemsPile
         float scale = slot.lossyScale.x;
         float radius = UseSlotRadius * (scale > 1e-4f ? scale : 1f);
         if ((dropWorldPos - slot.position).sqrMagnitude > radius * radius)
-            return; // dropped away from the slot — the base glide-home returns it to the fan
+        {
+            AfterRefusedDrop(chip);
+            return;
+        }
 
         if (chip.Item == null)
+        {
+            AfterRefusedDrop(chip);
             return;
+        }
         UIUseItemScenario? barSlot = CardsGameApi.LiveItemsBarSlot(chip.Item);
         if (barSlot == null)
         {
             VRLog.Info("Cards", $"TAKE-DAMAGE item place: '{chip.name}' is NOT among the OnAttacked candidates " +
                                 "(the panel's own filter) — it returns to the fan.");
-            return; // base glide-home
+            AfterRefusedDrop(chip);
+            return; // the open arc glides home; a closed arc retires its survivor
         }
 
         // Swap: untoggle + return a previously clipped selection first (1:1 card ↔ toggle).
@@ -4635,9 +4691,7 @@ internal sealed partial class ItemsPile
                 if (oldSlot != null)
                     CardsGameApi.ClickItemsBarSlot(oldSlot);
             }
-            UnclipChip(old);
-            old.PendingUse = false;
-            old.ReturnToFan();
+            ReturnPlacedChipHome(old, "another item was selected for the same decision");
         }
 
         // Toggle ON through the game's own click seam (idempotent on a re-drop of an already
@@ -4649,7 +4703,8 @@ internal sealed partial class ItemsPile
             {
                 VRLog.Warn("Cards", $"TAKE-DAMAGE item place: the game rejected toggling '{chip.name}' " +
                                     "(slot state gate) — card returns to the fan.");
-                return; // base glide-home
+                AfterRefusedDrop(chip);
+                return; // the open arc glides home; a closed arc retires its survivor
             }
         }
 
@@ -4662,6 +4717,7 @@ internal sealed partial class ItemsPile
         VRLog.Info("Cards", $"TAKE-DAMAGE item place: '{chip.name}' TOGGLED through the panel's own slot seam " +
                             "(ToggleShieldItem) — grab it back out to untoggle; the panel's TakeDamage " +
                             "confirm commits (and syncs) the selection.");
+        CloseAfterPlacement();
     }
 
     /// <summary>Take-damage context teardown (panel closed / context lost): the game's confirm
@@ -4677,7 +4733,7 @@ internal sealed partial class ItemsPile
             UnclipChip(chip);
             chip.PendingUse = false;
             if (chip.Holder == null && chip.gameObject != null && chip.gameObject.activeInHierarchy)
-                chip.ReturnToFan();
+                ReturnPlacedChipHome(chip, why);
         }
         PlayTray.Current?.SetItemUseSlotVisible(false);
         _useSlotShownLogged = false;
