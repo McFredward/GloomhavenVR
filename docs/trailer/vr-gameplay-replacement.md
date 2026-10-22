@@ -1,6 +1,71 @@
 # Genuine VR gameplay replacement
 
-## October 22 final multiplayer capture exchange (v21)
+## October 22 opening slate, damage pacing and cooperative poses (v22)
+
+V22 addresses three bounded review requests against V21. The selected windows
+contain 1,004 frame addresses; the other 13,806 addresses inherit the accepted
+cut. The final master remains 14,810 frames at 1080p60 with the original
+246.861-second container and unchanged AAC. Its SHA256 is
+`ba84666301c41f9fa53cb89a14ec41beb124793e939aa541d7ef138914ce1c3b`.
+
+The first three seconds, `[0,180)`, now use the unmodified original PEGI 12
+rating slate and its fade to black, downsampled from 4K. This replaces only the
+separate initial GloomhavenVR slate. The later GloomhavenVR title around
+7–9 seconds, accepted cinematic opening, spoken name and end logo are retained.
+The continuous lower-right full-trailer fan mark still applies. The separately
+approved game intro and its landing section are untouched.
+
+FG04 `[3776,4088)` remains 312 frames. Its six-damage shot now lasts 126 frames
+(2.1 seconds), up from 84, using October 21 source 690.1–692.2 seconds. It ends
+after the head turn has settled. The original 35-frame gold entrance remains.
+The following 186 frames use October 19 source 518.5–521.6: the genuine VR ray
+selects RECEIVE DAMAGE 2, Mindthief falls from 2 to 0 HP, then collapses amid native
+golden particles. The decision and consequence are one continuous take; residual
+particles remain at the endpoint. The hard cut between these different battles
+moves from frame 3860 to 3902 (1:05.033). Neither shot is slowed or sped up, and
+the earlier six damage is not claimed to cause this later collapse.
+
+The first two cooperative takes are replaced with naturally low hands and
+unobstructed masks. The 512-frame component `[12520,13032)` retains its original
+internal cuts at 12624/12805, 15-frame title entrance and exit into accepted A04.
+
+| Take | October 22 source start | Output frames | Visible content |
+| --- | --- | --- | --- |
+| FG39 | 209.0 s / frame 6270 | 104 | One white remote mask with hands near the campaign table. |
+| FG40 | 2411.8 s / frame 72354 | 181 | Horned and helmet masks with hands low over their own control boards. |
+| FG41 | 2423.0 s / frame 72690 | 227 | Accepted three-remote-mask view plus recording player, retained from V21. |
+
+These remain genuine full-frame recordings from one viewpoint per take.
+Native 30fps source pictures repeat at 60fps; no flow interpolation, temporal
+stretch, fabricated extra viewpoint or paid generation is used. The third take
+is unchanged at the authored-frame level; final export is a lossy reencode.
+
+Independent source-clock comparison passes all 954 pure pictures, excluding only
+the declared 35 gold-wipe and 15 title-entrance frames. Actual-export checks cover
+all 14,810 frames, the 13,806 inherited addresses, continuous fan mark and all
+11,573 original AAC packets and clocks. Root personally inspects focused Watch
+cues, exact sequential export witnesses and browser screenshots; desktop/mobile
+browser checks cover the three changed contexts at 1x, 26 chapters and comparison
+controls. The initial raw comparison flagged 15 saturated transition frames. A bounded
+824-frame follow-up uses the identical unchanged assembler colour path at the
+same 2.0 MAE limit; initial failure evidence is retained and the whole gate is not
+repeated. Detailed counts and comparison limits are retained in the receipts.
+This is focused media evidence, not a continuous manual whole-film viewing,
+runtime gate or headset result.
+
+All 33 inventoried UI phases remain resolved: 31 genuine VR and two explicitly
+retained native campaign/Guildmaster views. The accepted 1:30 card, remaining
+gameplay, map-location montage, burning-card zoom and separate intro remain.
+The new revision awaits user review; user acceptance is not claimed.
+
+Active private review: `vr-gameplay-v13/REVIEW.html`. Receipts relative to that
+folder: `qc-independent/technical-final.json`, `qc-independent/source-clock-final.json`,
+`browser-review/final-review.json`, `browser-review/final-navigation.json`,
+`qc-root/visual-review.json`, `editor/protected-media-final.json` and
+`editor/final-delivery-check.json`. Used sources/current deliverables survive
+owned worker/cache cleanup. No runtime source or build change.
+
+## Historical October 22 final multiplayer capture exchange (v21)
 
 V21 resolves the final three cooperative UI phases with the supplied
 `2026-10-22 19-47-55.mp4` session and replaces the requested card scene around
