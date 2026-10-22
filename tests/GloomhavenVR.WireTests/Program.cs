@@ -151,6 +151,7 @@ internal static class Program
             UseBarAnimationVectors.Run(t);
             UseBarAnimationPlaybackVectors.Run(t);
             SharedWindowPoseVectors.Run(t);
+            SharedWindowContextVectors.Run(t);
             VideoWindowVectors.Run(t);
             RewardWindowVectors.Run(t, repoRoot);
             RewardPoseHandshakeVectors.Run(t);
