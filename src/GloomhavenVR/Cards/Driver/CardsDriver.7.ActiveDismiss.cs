@@ -23,6 +23,7 @@ internal sealed partial class CardsDriver
     private bool _dismissBerthShown;
     private byte _dismissCount;
     private byte _dismissSeat = byte.MaxValue;
+    private int _dismissActorId;
 
     // One packet samples one live presentation. Addresses count the complete active ability-card
     // model population, including temporarily missing native UI artwork, exactly like held cards.
@@ -31,6 +32,7 @@ internal sealed partial class CardsDriver
         && Instance._dismissGhost != null && Instance._dismissGhost.activeSelf;
     internal static byte ActiveDismissListCount => Instance != null ? Instance._dismissCount : (byte)0;
     internal static byte ActiveDismissSeat => Instance != null ? Instance._dismissSeat : byte.MaxValue;
+    internal static int ActiveDismissActorId => Instance != null ? Instance._dismissActorId : 0;
 
     // Called only after an item drop has passed its original live candidacy/range gates, before
     // that flow installs its own cap. A rejected item drop must never displace this reservation.
@@ -65,6 +67,7 @@ internal sealed partial class CardsDriver
         }
 
         _dismissBerthShown = true;
+        _dismissActorId = Net.NetFigures.StableActorId(presented.PlayerActor);
         _dismissSeat = _dismissCard != null ? seat : byte.MaxValue;
         bool summon = _dismissDecision != null ? _dismissDecision.DismissesSummon
             : DismissesSummon(candidate);
@@ -230,6 +233,7 @@ internal sealed partial class CardsDriver
         _dismissBerthShown = false;
         _dismissCount = 0;
         _dismissSeat = byte.MaxValue;
+        _dismissActorId = 0;
         if (_dismissGhost != null)
             _dismissGhost.SetActive(false);
         _tray.SetActiveDismissPresentation(false);

@@ -51,7 +51,7 @@ namespace ScenarioRuleLibrary
     public class CBaseCard { }
     public class CAbilityCard:CBaseCard { public readonly List<CActiveBonus> ActiveBonuses=new(); }
     public class CActiveBonus { public enum EActiveBonusDurationType { Summon,Persistent } public EActiveBonusDurationType Duration; }
-    public class CPlayerActor { public readonly List<CBaseCard> Cards=new(); }
+    public class CPlayerActor { public int Id=1; public readonly List<CBaseCard> Cards=new(); }
 }
 public class AbilityCardUI { public CAbilityCard AbilityCard=new(); }
 public class CardsHandUI { public CPlayerActor PlayerActor=new(); }
@@ -77,6 +77,10 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.WorldUI
 {
     internal class SoftCueReveal { internal void Show() { } internal void Hide() { } }
+}
+namespace GloomhavenVR.Net
+{
+    internal static class NetFigures { internal static int StableActorId(CPlayerActor? actor)=>actor?.Id??0; }
 }
 namespace GloomhavenVR.Cards
 {

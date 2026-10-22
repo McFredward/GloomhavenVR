@@ -24,6 +24,7 @@ static class Program
         Check(!d.Ghost.activeSelf&&d.Tray.ConfirmShown&&d.Tray.ConfirmLabel=="summon_dismiss_confirm","Staging replaces preview with explicit dismiss cap");
         Check(d.Tray.Caption==d.Tray.ConfirmLabel,"One transmitted wording must match destination and cap");
         Check(CardsDriver.ActiveDismissSeat==0,"Staged native seat must be published");
+        Check(CardsDriver.ActiveDismissActorId==d.Presented!.PlayerActor.Id,"Staged source publishes its exact original actor");
         d.Tray.SetItemUseSlotVisible(false);d.Tray.SetItemUseConfirmVisible(false,null);d.Tray.SetItemUseAreaLabel(null);
         Check(d.Tray.Shown&&d.Tray.ConfirmShown&&d.Tray.Caption=="summon_dismiss_confirm","Item pumps must not hide or relabel a reserved berth");
         var staleClick=d.Tray.CapClick!;
@@ -83,7 +84,11 @@ static class Program
         d.Presented!.PlayerActor.Cards.Remove(card.GameCard.AbilityCard);d.Tick();
         Check(!d.Tray.Shown&&d.Active.StagedCard==null,"Delayed native model removal retires the same staged card");CardsGameApi.Deferred=false;
 
-        d=new();card=d.Card();Check(d.Drop(card,hand),"Stage before native scene load");oldCap=d.Tray.CapClick!;
+        d=new();d.Presented!.PlayerActor.Id=17;card=d.Card();Check(d.Drop(card,hand),"Stage before native scene load");oldCap=d.Tray.CapClick!;
+        d.Presented=new(){PlayerActor=new(){Id=29}};
+        Check(CardsDriver.ActiveDismissActorId==17,"Pending source never changes actor merely because focus changed before the next tick");
+        d.Tick();Check(CardsDriver.ActiveDismissActorId==0,"Retired actor source clears its provenance");
+        d=new();card=d.Card();Check(d.Drop(card,hand),"Stage a fresh decision before native scene load");oldCap=d.Tray.CapClick!;
         CardsDriver.NativeSceneLoadInProgress=true;oldCap();d.Tick();
         Check(!d.Tray.Shown&&d.Active.StagedCard==null,"Scene loading revokes both physical reservation and stale cap");
         CardsDriver.NativeSceneLoadInProgress=false;

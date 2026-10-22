@@ -176,12 +176,12 @@ internal static class NetProtocol
     public const byte ExtIdTownCardReturnOrigin = 116;
     // Exact owner-authored offered-card hover activation and native waveform basis.
     public const byte ExtIdTownOfferedHover = 117;
-    /// <summary>Active ability-card dismissal at the shared item-use berth. Three bytes:
-    /// flags (bit0=ability-card berth, bit1=nearby landing preview), complete active-card
+    /// <summary>Active ability-card dismissal at the shared item-use berth. Seven bytes:
+    /// flags (bit0=ability-card berth, bit1=nearby landing preview), stable actorI32LE, active-card
     /// population, staged seat (255 means held guide only). Gameplay uses native synchronization;
     /// this record describes the same original card's local presentation only.</summary>
     public const byte ExtIdActiveDismissBerth = 118;
-    public const int ActiveDismissBerthRecordBytes = 3;
+    public const int ActiveDismissBerthRecordBytes = 7;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -627,7 +627,7 @@ internal static class NetProtocol
     // invokes its original accepted callback after live permission revalidation. Taking the
     // card back or losing the offer cancels without changing gameplay. No automatic acceptance
     // or direct game-state writes. The same card stays active until the original game commits.
-    // TLV118 describes its rectangular preview/staged counted seat on remote boards, reusing
+    // TLV118 describes its rectangular preview/staged actor-qualified counted seat, reusing
     // the original active panel and existing cap text/press feedback. Version3; next-free119.
     // Successfully placing any item card now closes its fan while preserving the placed card,
     // its live decision and retrieval, including choice, bonus, demand and take-damage flows.
