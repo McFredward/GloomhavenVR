@@ -11,6 +11,7 @@ namespace UnityEngine
         internal static Vector3 zero=>default; internal static Vector3 one=>new(1,1,1);
         internal static Vector3 forward=>new(0,0,1); internal static Vector3 up=>new(0,1,0);
         internal float sqrMagnitude=>x*x+y*y+z*z;
+        internal float magnitude=>MathF.Sqrt(sqrMagnitude);
         internal Vector3 normalized=>this/MathF.Sqrt(sqrMagnitude);
         public static Vector3 operator +(Vector3 a,Vector3 b)=>new(a.x+b.x,a.y+b.y,a.z+b.z);
         public static Vector3 operator -(Vector3 a,Vector3 b)=>new(a.x-b.x,a.y-b.y,a.z-b.z);
@@ -92,7 +93,7 @@ namespace GloomhavenVR.WorldUI
     }
     internal static partial class ModalFallback
     {
-        private const float WindowDistanceMeters=1.3f,MaxSpawnPitchDeg=15;
+        private const float MaxSpawnPitchDeg=15;
         private struct HeightDecision{}
         private struct SpawnAnchor { internal bool Valid; internal Vector3 HeadPos,HeadForward,RawPos; internal float Scale; internal int ArcSlot; }
         private sealed class WindowPanel { internal UIWindow Window=null!; internal ConvertedPanel Panel=null!; internal GrabbableModal? Grab; internal SpawnAnchor SpawnAnchor; internal bool PoseRePlaceDone; internal float ExtraScale=1; }

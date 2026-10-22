@@ -57,7 +57,7 @@ internal static class Program
         RewardShowcasePlacement.SetInitialAuthority(42,true);
         Check(RewardShowcasePlacement.IsInitialAuthor&&!SharedWindowSpawnBridge.IsInitialAuthor,"Declined-host reward surrogate uses reward election rather than generic host authority");
         Check(RewardShowcasePlacement.TryReveal(s.panel)&&s.grab.Snaps==1,"Elected reward surrogate must compute and reveal a real gaze spawn");
-        Check(Same(s.grab.Root.position,new(10,5,35.6f)),"Surrogate spawn follows its actual head instead of the origin placeholder");
+        Check(Same(s.grab.Root.position,new(10,5,36.8f)),"Surrogate spawn follows its actual head instead of the origin placeholder");
         RemoteMapStory.Visible(2,42);
         NetPlayerActors.Id=1;
         Check(RemoteMapStory.Owner(42,1)==2,"A late lower-id native host must follow the already visible reward pose");

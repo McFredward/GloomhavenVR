@@ -29,6 +29,7 @@ def main():
     run=Path(tempfile.mkdtemp(prefix='run-',dir=parent));completion=run/'completion.log';completion.write_text('evidence: '+str(run)+'\n')
     files={'placement':'WorldUI/Modal/RewardShowcasePlacement.cs','spawn':'WorldUI/Modal/ModalFallback.SharedWindowSpawn.cs','reward':'Net/Remote/RemoteMapStory.Reward.cs','sender':'Net/Avatar/NetAvatarDriver.cs','version':'Net/VersionGuard.cs','handshake':'Net/RewardPoseHandshake.cs','policy':'Net/RewardWindowState.cs','continue':'WorldUI/Modal/RewardShowcase.cs','hmd':'WorldUI/Modal/ModalFallback.9.Spawn.cs','arc':'WorldUI/Modal/ArcSeats.cs','grab':'WorldUI/Grab/GrabbableModal.cs'}
     texts={key:(source/'src/GloomhavenVR'/path).read_text() for key,path in files.items()}
+    texts['core']=(source/'src/GloomhavenVR/WorldUI/Modal/ModalFallback.1.Core.cs').read_text();files['core']='WorldUI/Modal/ModalFallback.1.Core.cs'
     texts['law']=(source/'src/GloomhavenVR/WorldUI/Modal/SharedWindowSizeLaw.cs').read_text();files['law']='WorldUI/Modal/SharedWindowSizeLaw.cs'
     texts['protocol']=(source/'src/GloomhavenVR/Net/NetProtocol.cs').read_text();files['protocol']='Net/NetProtocol.cs'
     hashes={files[k]:hashlib.sha256(v.encode()).hexdigest() for k,v in texts.items()}
@@ -53,7 +54,7 @@ def main():
     assert 'RewardShowcasePlacement.ClearInitialAuthority();' in lifecycle['reward-reset']
     (run/'lifecycle-source-pins.json').write_text(json.dumps(lifecycle,indent=2)+'\n')
     generated={'Placement.cs':texts['placement'],'Handshake.cs':texts['handshake'],
-      'Spawn.cs':'using System;using UnityEngine;using GloomhavenVR.Core;namespace GloomhavenVR.WorldUI{internal static partial class ModalFallback{'+block(texts['spawn'],'private static bool ComputeSharedHostSpawn(')+block(texts['spawn'],'internal static bool EnsureRewardHostSpawn(')+'}}',
+      'Spawn.cs':'using System;using UnityEngine;using GloomhavenVR.Core;namespace GloomhavenVR.WorldUI{internal static partial class ModalFallback{'+re.search(r'private const float WindowDistanceMeters = [^;]+;',texts['core'])[0]+block(texts['spawn'],'private static bool ComputeSharedHostSpawn(')+block(texts['spawn'],'private static float SharedHostSpawnWorldScale(')+block(texts['spawn'],'internal static bool EnsureRewardHostSpawn(')+'}}',
       'Collector.cs':'using System.Collections.Generic;namespace GloomhavenVR.Net{internal static partial class NetAvatarDriver{'+block(texts['sender'],'internal static void CollectRewardPosePeers(')+'}internal static partial class VersionGuard{'+block(texts['version'],'internal static void CollectContinuationPeers(')+'}}',
       'Election.cs':'using System;using GloomhavenVR.WorldUI;namespace GloomhavenVR.Net{internal static partial class RemoteMapStory{'+block(texts['reward'],'private static int RewardInitialOwner(')+block(texts['reward'],'internal static void ResolveReward(')+'}'+block(texts['policy'],'internal static class RewardPosePolicy')+'}',
       'Continue.cs':'using System;using GloomhavenVR.Core;using UnityEngine;using UnityEngine.UI;namespace GloomhavenVR.WorldUI{internal static partial class RewardShowcase{'+block(texts['continue'],'private enum ContinueBlock')+block(texts['continue'],'private static ContinueBlock ConfirmBlock(')+block(texts['continue'],'internal static bool TryConfirm(')+'}}'}
