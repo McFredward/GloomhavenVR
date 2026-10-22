@@ -212,6 +212,9 @@ internal static class RemoteMapRoom
     private static bool _versionVisitLive, _versionLocalObserved, _versionDirty, _versionPublishWarned, _versionSuspended;
     private static object? _versionMapIdentity;
     private static int _versionLocalRevision, _versionCarrier, _versionLocalPlayer;
+    private static MapLocationInteractor? _versionInputInteractor;
+    private static int _versionLocalInputRevision;
+    private static int _versionLocalPublicationRevision;
     private static uint _displayedSelectKey;
     private static ulong _displayedSelectOpening;
 
@@ -336,6 +339,9 @@ internal static class RemoteMapRoom
         _displayedSelectKey = 0u;
         _displayedSelectOpening = 0ul;
         _versionCarrier = _versionLocalPlayer = 0;
+        _versionInputInteractor = null;
+        _versionLocalInputRevision = 0;
+        _versionLocalPublicationRevision = 0;
         _publishedSurface = MapIconLayer.MapSurface.Unknown;
         _localSurfaceStamp = 0;
         _adoptedSurface = MapIconLayer.MapSurface.Unknown;
@@ -485,14 +491,22 @@ internal static class RemoteMapRoom
         uint selectKey = KeyOf(staged);
         bool versionVisit = EnsureVersionVisit();
         int localRevision = locations?.SelectionRevision ?? 0;
+        int localInputRevision = locations?.LocalSelectionInputRevision ?? 0;
+        int localPublicationRevision = locations?.SelectionPublicationRevision ?? 0;
+        int priorInputRevision = ReferenceEquals(locations, _versionInputInteractor)
+            ? _versionLocalInputRevision : 0;
         if (_hasAdoptedSelect && Time.unscaledTime - _adoptedSelectAt > AdoptedSuppressSeconds)
             _hasAdoptedSelect = false;   // the adoption was refused and produced no change at all
         bool adoptedSelect = _hasAdoptedSelect && selectKey == _adoptedSelectKey;
         _hasAdoptedSelect = false;
-        bool localIntent = _versionLocalObserved && localRevision != _versionLocalRevision && !adoptedSelect;
+        bool localIntent = !adoptedSelect && ((_versionLocalObserved && localPublicationRevision != _versionLocalPublicationRevision)
+            || localInputRevision != priorInputRevision);
         _versionLocalObserved = true;
         _versionLocalRevision = localRevision;
-        if (versionVisit && !_publishedSelectValid)
+        _versionLocalPublicationRevision = localPublicationRevision;
+        _versionInputInteractor = locations;
+        _versionLocalInputRevision = localInputRevision;
+        if (versionVisit && !_publishedSelectValid && !localIntent)
         {
             SelectionVersions.BindBaseline(selectKey);
             if (_displayedSelectKey != selectKey)
@@ -505,15 +519,16 @@ internal static class RemoteMapRoom
             SelectionVersions.RetireCurrent();
             _displayedSelectOpening = 0ul;
         }
-        if (!_publishedSelectValid)
+        if (!_publishedSelectValid && !localIntent)
         {
-            // FIRST SAMPLE IN THIS ROOM IS NOT A CHANGE. Whatever is selected when the room comes
-            // up was selected before anybody could have watched it happen.
+            // A native-only initial snapshot is a baseline. An accepted local input counted
+            // above remains a real action even if it precedes the first presence census.
             _publishedSelectValid = true;
             _publishedSelectKey = selectKey;
         }
-        else if (selectKey != _publishedSelectKey || (localIntent && selectKey != 0u))
+        else if (selectKey != _publishedSelectKey || localIntent)
         {
+            _publishedSelectValid = true;
             uint had = _publishedSelectKey;
             _publishedSelectKey = selectKey;
             if (versionVisit && localIntent)

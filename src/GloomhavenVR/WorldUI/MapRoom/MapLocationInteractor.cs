@@ -153,7 +153,12 @@ internal sealed class MapLocationInteractor
     // Both genuine selection producers already count accepted armings. Bind a deferred close
     // to that lifetime too: A -> B -> A is a newer opening despite the matching location ID.
     internal int SelectionRevision => unchecked(_dispatchedHere + _adoptedFromGame + _manualSelectionRevision);
+    // Unlike native restored-selection adoption, an accepted VR dispatch before the first
+    // presence sample is a real local action. Remote dispatches remain echo-suppressed.
+    internal int LocalSelectionInputRevision => unchecked(_dispatchedHere + _acceptedManualSelectionRevision);
+    internal int SelectionPublicationRevision => unchecked(_dispatchedHere + _adoptedFromGame + _acceptedManualSelectionRevision);
     private int _manualSelectionRevision;
+    private int _acceptedManualSelectionRevision;
 
     /// <summary>
     /// ADOPT THE ROOM'S SELECTION — the receiving half of record 20's selection edge.
@@ -243,8 +248,11 @@ internal sealed class MapLocationInteractor
             return true;
         }
         interactor.TickAdoptGameSelection();
+        bool hadSelection = interactor._selected != null;
         interactor._manualSelectionRevision++;
         interactor.Deselect("the shared quest window's X requested its original browsing deselection");
+        if (hadSelection && interactor._selected == null)
+            interactor._acceptedManualSelectionRevision++;
         return true;
     }
 
@@ -1257,6 +1265,8 @@ internal sealed class MapLocationInteractor
             _manualSelectionRevision++;
             Deselect($"{clicking.Side} trigger pulled with the ray on {what} at {distance:F1} world "
                      + "units and on no location icon");
+            if (_selected == null)
+                _acceptedManualSelectionRevision++;
         }
         else
             NoteDeselectRefused(clicking, what);

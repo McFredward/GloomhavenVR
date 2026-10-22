@@ -224,6 +224,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
         public void Sample() => TickQuestDecision();
         public string SettledId => _publishedDecisionId;
         public void DeselectTick() => TickDeselect();
+        public void NativeSelectionTick() => TickAdoptGameSelection();
         public bool PopupOpen() => QuestPopupOpen();
         public void Arm(MapLocation location)
         { _selected = location; _selectedDecisionId = DecisionIdOf(location); _selectedAt = Time.unscaledTime; _dispatchedHere++; }
@@ -295,6 +296,8 @@ namespace GloomhavenVR.Net
             SelectionVersions.Reset(); _versionVisitLive = _versionLocalObserved = _versionDirty = false;
             _versionMapIdentity = null; _displayedSelectKey = 0; _displayedSelectOpening = 0;
             _versionCarrier = _versionLocalPlayer = 0; _versionSuspended = false;
+            _versionInputInteractor = null; _versionLocalInputRevision = 0;
+            _versionLocalPublicationRevision = 0;
             _publishedSelectValid = _sentValid = false; _versionPublishWarned = false;
             _localSelectStamp = _localSurfaceStamp = 0; _publishedSelectKey = _sentSelectKey = _sentFanCharacterKey = 0;
             _publishedSurface = _adoptedSurface = MapIconLayer.MapSurface.Unknown;

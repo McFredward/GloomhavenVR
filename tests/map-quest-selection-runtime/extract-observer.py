@@ -28,7 +28,7 @@ methods = ('private void TickQuestDecision()', 'private void PublishDecision(',
 fields = ('_selected', '_selectedAt', '_selectedDecisionId', '_decisionId', '_decisionEver',
           '_decisionNullSince', '_publishedDecisionId', '_publishedDecisionEver', '_publishedBySettle',
           '_publishedAt', '_lastDispatchFrame', '_adoptedFromGame', '_dispatchedHere',
-          'DecisionSettleSeconds', 'SelectionGraceSeconds', '_manualSelectionRevision', 'Scope')
+          'DecisionSettleSeconds', 'SelectionGraceSeconds', '_manualSelectionRevision', '_acceptedManualSelectionRevision', 'Scope')
 body = '\n'.join(method(source, signature) for signature in methods)
 staged = '    internal MapLocation? Staged => _selected;'
 assert source.count(staged) == 1, 'Production staged selection read seam changed'
@@ -36,6 +36,12 @@ body += '\n' + staged
 revision = re.findall(r'^    internal int SelectionRevision => [^\n]+;', source, re.M)
 assert len(revision) == 1, 'Production selection lifetime seam changed'
 body += '\n' + revision[0]
+input_revision = re.findall(r'^    internal int LocalSelectionInputRevision => [^\n]+;', source, re.M)
+assert len(input_revision) == 1, 'Production explicit local input seam changed'
+body += '\n' + input_revision[0]
+publication_revision = re.findall(r'^    internal int SelectionPublicationRevision => [^\n]+;', source, re.M)
+assert len(publication_revision) == 1, 'Production accepted publication seam changed'
+body += '\n' + publication_revision[0]
 dispatch = method(source, 'internal void Dispatch(')
 assert 'if (MapInputGate.IsBlocked || NativeMapQuestSelection.BlocksSharedBrowsing)' in dispatch, 'Original VR click dispatcher must reject incidental native-proposal browsing'
 close = Path(__file__).resolve().parents[2]/'src/GloomhavenVR/WorldUI/Modal/ModalFallback.7.Close.cs'
@@ -73,6 +79,7 @@ fields = ('SeenSelectKey', '_pendingSelectInteractor', '_pendingSelectGeneration
           'SeenSelectStamp', 'ConsumedSelectStamp', '_adoptedSelectKey', '_hasAdoptedSelect',
           '_adoptedSelectAt', 'Scope', '_pendingSelectVersioned', '_pendingSelectToken', 'SelectionVersions',
           '_versionVisitLive', '_versionMapIdentity', '_versionLocalRevision', '_displayedSelectKey',
+          '_versionInputInteractor', '_versionLocalInputRevision', '_versionLocalPublicationRevision',
           '_displayedSelectOpening',
           '_publishedSurface', '_localSurfaceStamp', '_adoptedSurface', '_publishedSelectKey',
           '_publishedSelectValid', '_localSelectStamp', '_sentValid', '_sentSelectKey', '_sentFanCharacterKey',

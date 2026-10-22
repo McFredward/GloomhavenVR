@@ -169,7 +169,7 @@ PY
 done
 
 # Exercise defects in the real causal register and its actual sampler/receiver integration.
-for mutation in event-order-instead-of-opening resurrect-closed-opening relay-carrier-as-author missing-retirement-fence stripped-selected-relay truncated-native-author forged-native-clear; do
+for mutation in event-order-instead-of-opening resurrect-closed-opening relay-carrier-as-author missing-retirement-fence stripped-selected-relay truncated-native-author forged-native-clear lost-first-dispatch restored-selection-is-human refused-manual-is-human; do
     python3 - "$repo_root" "$temporary" "$mutation" <<'PYVERSION'
 from pathlib import Path
 import sys
@@ -183,7 +183,10 @@ changes = {
  'missing-retirement-fence': ('version', 'if (_haveRetirement && candidate.Opening <= _retiredThrough)', 'if (bool.Parse("false") && _haveRetirement && candidate.Opening <= _retiredThrough)'),
  'stripped-selected-relay': ('remote', 'if (current.Key != 0u && current.Author != localPlayerId)', 'if (bool.Parse("false") && current.Key != 0u && current.Author != localPlayerId)'),
  'truncated-native-author': ('remote', 'SelectionVersions.TryPublish(localPlayerId, selectKey, _displayedSelectOpening, out var own)', 'SelectionVersions.TryPublish(unchecked((byte)localPlayerId), selectKey, _displayedSelectOpening, out var own)'),
- 'forged-native-clear': ('remote', 'bool localIntent = _versionLocalObserved && localRevision != _versionLocalRevision && !adoptedSelect;', 'bool localIntent = _versionLocalObserved && !adoptedSelect && (localRevision != _versionLocalRevision || selectKey != _publishedSelectKey);'),
+ 'lost-first-dispatch': ('remote', '|| localInputRevision != priorInputRevision);', '|| false);'),
+ 'refused-manual-is-human': ('remote', 'int localPublicationRevision = locations?.SelectionPublicationRevision ?? 0;', 'int localPublicationRevision = locations?.SelectionRevision ?? 0;'),
+ 'restored-selection-is-human': ('remote', 'int localInputRevision = locations?.LocalSelectionInputRevision ?? 0;', 'int localInputRevision = locations?.SelectionRevision ?? 0;'),
+ 'forged-native-clear': ('remote', 'bool localIntent = !adoptedSelect && ((_versionLocalObserved && localPublicationRevision != _versionLocalPublicationRevision)\n            || localInputRevision != priorInputRevision);', 'bool localIntent = !adoptedSelect && ((_versionLocalObserved && (localPublicationRevision != _versionLocalPublicationRevision || selectKey != _publishedSelectKey))\n            || localInputRevision != priorInputRevision);'),
 }
 name, needle, replacement = changes[mutation]
 source = version if name == 'version' else remote
@@ -202,8 +205,11 @@ PYVERSION
         event-order-instead-of-opening|resurrect-closed-opening) expected='Opening register must converge across reordered and duplicate causal events' ;;
         relay-carrier-as-author) expected='Selected relay must retain original full author and counter without minting a human event' ;;
         missing-retirement-fence) expected='A retired native opening must not replay after map stand-down' ;;
-        stripped-selected-relay) expected='Adoption must publish an explicit full-ID relay without minting a human selection' ;;
-        truncated-native-author) expected='First human selection must author one authenticated full-ID opening' ;;
+        stripped-selected-relay) expected='Remote dispatch before first presence sample must relay its original opening without a human mint' ;;
+        truncated-native-author) expected='A genuine first dispatch before the first presence sample must publish its human opening' ;;
+        lost-first-dispatch) expected='A genuine first dispatch before the first presence sample must publish its human opening' ;;
+        restored-selection-is-human) expected='Native initial selection adoption must remain a baseline rather than a forged first human click' ;;
+        refused-manual-is-human) expected='Refused manual X or table close must consume intent without minting a same-key reopening' ;;
         forged-native-clear) expected='Native unready cleanup must not mint a human clear over the pending replacement' ;;
     esac
     if ! rg -qF "Unhandled exception. System.InvalidOperationException: $expected" "$temporary/mutant.log"; then

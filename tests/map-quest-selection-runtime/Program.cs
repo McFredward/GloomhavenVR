@@ -487,6 +487,58 @@ internal static class Program
     private static void VersionDelivery()
     {
         const int owner = 1001001, carrier = 2002002, secondCarrier = 2502502, visitor = 3003003;
+        var firstClickObserver = Reset(client: true);
+        MapLocation firstClick = new("first-click", "first-quest");
+        RemoteMapRoom.Begin(firstClickObserver, firstClick);
+        firstClickObserver.AdoptSelection(firstClick, "physical dispatch before first presence census");
+        PresenceState firstClickSnapshot = RemoteMapRoom.Snapshot(owner);
+        Check(firstClickSnapshot.HasMapSelectionVersion && firstClickSnapshot.MapSelectionRevision == 1
+            && firstClickSnapshot.MapSelectionParent == 0 && firstClickSnapshot.MapRoomSelectStamp == 1,
+            "A genuine first dispatch before the first presence sample must publish its human opening");
+
+        var restoredObserver = Reset(client: true);
+        MapLocation restored = new("restored", "restored-quest");
+        RemoteMapRoom.Begin(restoredObserver, restored);
+        restored.Select(); restoredObserver.NativeSelectionTick();
+        PresenceState restoredSnapshot = RemoteMapRoom.Snapshot(owner);
+        Check(restoredSnapshot.MapRoomSelectKey != 0 && !restoredSnapshot.HasMapSelectionVersion
+            && !RemoteMapRoom.HasAuthoredVersion && restoredSnapshot.MapRoomSelectStamp == 0,
+            "Native initial selection adoption must remain a baseline rather than a forged first human click");
+
+        var firstRelayObserver = Reset(client: true);
+        MapLocation firstRelay = new("first-relay", "relay-quest");
+        RemoteMapRoom.Begin(firstRelayObserver, firstRelay);
+        RemoteMapRoom.Receive(owner, VersionEvent(owner, 9, 0, 0, firstRelay)); RemoteMapRoom.Tick();
+        PresenceState firstRelaySnapshot = RemoteMapRoom.Snapshot(carrier);
+        Check(firstRelay.IsSelected && firstRelaySnapshot.HasMapSelectionVersion
+            && firstRelaySnapshot.MapSelectionRevision == 9 && firstRelaySnapshot.MapSelectionParent == 9
+            && firstRelaySnapshot.MapSelectionParentAuthor == owner && !RemoteMapRoom.HasAuthoredVersion,
+            "Remote dispatch before first presence sample must relay its original opening without a human mint");
+
+        foreach (bool x in new[] { false, true })
+        {
+            var refused = VersionWorld(owner);
+            refused.Observer.AdoptSelection(refused.First, "physical selection before refused close");
+            PresenceState beforeRefusal = RemoteMapRoom.Snapshot(owner);
+            refused.First.Selectable = false; Time.unscaledTime = 2;
+            if (x) MapLocationInteractor.HandleSharedQuestClose(Popups.Selected.Window);
+            else { refused.Observer.Press = new(); refused.Observer.DeselectTick(); }
+            PresenceState afterRefusal = RemoteMapRoom.Snapshot(owner);
+            Check(refused.First.IsSelected && afterRefusal.HasMapSelectionVersion
+                && afterRefusal.MapSelectionRevision == beforeRefusal.MapSelectionRevision
+                && afterRefusal.MapSelectionParent == beforeRefusal.MapSelectionParent
+                && afterRefusal.MapRoomSelectStamp == beforeRefusal.MapRoomSelectStamp && !RemoteMapRoom.SendDue,
+                "Refused manual X or table close must consume intent without minting a same-key reopening");
+        }
+
+        var fastReopen = VersionWorld(owner);
+        fastReopen.Observer.AdoptSelection(fastReopen.First, "physical initial selection"); RemoteMapRoom.Snapshot(owner);
+        MapLocationInteractor.HandleSharedQuestClose(Popups.Selected.Window);
+        fastReopen.Observer.AdoptSelection(fastReopen.First, "physical reopen before next census");
+        PresenceState fastReopened = RemoteMapRoom.Snapshot(owner);
+        Check(fastReopen.First.IsSelected && fastReopened.MapSelectionRevision == 2 && fastReopened.MapSelectionParent == 1,
+            "Accepted clear and same-quest reopen between samples must receive a fresh opening");
+
         var source = VersionWorld(owner);
         source.Observer.AdoptSelection(source.First, "local physical select");
         Check(RemoteMapRoom.SendDue, "A real local opening must preempt the presence cadence");
