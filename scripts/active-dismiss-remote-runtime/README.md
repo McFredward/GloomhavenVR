@@ -1,17 +1,23 @@
-# Active dismissal remote presentation checks
+# Remote active-card dismissal proof
 
-Run `python3 scripts/check-active-dismiss-remote-runtime.py`.
+`scripts/check-active-dismiss-remote-runtime.py` extracts and compiles the actual
+production stage receiver, counted actor/seat gate, panel parent/glide/freeze,
+retained-original reservation, native destination check, exact-origin composition,
+semantic pending loop, first drawable handover and burn release/pose kernels.
+Source hashes and every generated compilation input are retained with the run.
 
-The fixture compiles the current production receive assignments, counted active-seat
-resolve, card reparenting, home movement and frame settle methods. Its explicit portable
-transform/time boundary supplies hierarchy math; it does not run a Unity renderer or
-establish headset visual acceptance.
+The native-model, transform/time, controller and artwork adapters are explicit in
+`Boundary.cs`, `FlightBoundary.cs` and `BurnBoundary.cs`. The fixture executes the
+production decisions and writes; it does not execute Unity's renderer, the complete
+native burn watcher or actual network delivery. Caller-order bindings ensure the
+tested reservation precedes furniture hiding and bypasses both ordinary parent and
+glide writes during delayed native active membership.
 
-Twenty-two assertions cover the same physical slab, retained departure pose, rectangle fit,
-return to the original grid scale, absent-state clearing and exact actor/list provenance.
-An equal-sized list on a different displayed actor cannot inherit the original stage,
-berth, preview, cap or caption; ordinary item fallback remains independent.
-Eleven separately compiled causal controls must fail at their intended assertions. Packet
-bytes and malformed payload rejection are covered separately by `ActiveDismissBerthVectors`.
-Generated sources, hashes, logs, results and cleanup receipts remain in each proof run;
-the canonical completion API removes that run's regenerable `bin` and `obj` caches.
+The scenarios cover an intermediate staged pose, native destination reordering,
+missing staging snapshots, original actor/card/count safety, hidden berth and
+stopped old glides, artwork waiting, more than two seconds of native replication
+delay, focus/controller changes, recovery/session retirement and once-only native
+burn completion. All 34 causal controls must compile and fail for their named
+behavior; compilation failure is never a passing control. `--case` deliberately
+produces partial evidence for a bounded repair. The unfiltered invocation is the
+registered local and CI suite.

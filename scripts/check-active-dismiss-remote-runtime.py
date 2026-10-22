@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute production remote-stage receive/parent/settle kernels with a portable transform boundary."""
+"""Execute production remote-dismiss commit, retained-original and flight-handover kernels."""
 import argparse
 import hashlib
 import json
@@ -42,6 +42,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/active-dismiss-remote-runtime')
+    parser.add_argument('--case', action='append', help='Run only these production/control cases (partial evidence).')
     args = parser.parse_args()
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -50,15 +51,19 @@ def main():
     completion.write_text('Evidence: ' + str(run) + '\n')
     status, results = 1, []
     inputs = [root / 'src/GloomhavenVR/Net/Remote' / name for name in
-              ('RemoteBoardCard.cs', 'RemoteAvatar.cs', 'RemoteActiveCards.cs', 'RemoteBoardFurniture.cs')]
+              ('RemoteBoardCard.cs', 'RemoteAvatar.cs', 'RemoteActiveCards.cs', 'RemoteBoardFurniture.cs',
+               'RemoteActiveDepartures.cs', 'RemoteCardFx.cs', 'RemoteBurnFx.cs')]
     hashes = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     try:
-        card, receiver, active, furniture = (path.read_text() for path in inputs)
+        card, receiver, active, furniture, departures, flight, burn = (path.read_text() for path in inputs)
         methods = '\n'.join(block(card, signature) for signature in (
-            'internal void SetPresentationParent(', 'public void Move(', 'internal void TickGlide('))
+            'internal void SetPresentationParent(', 'internal void FreezePresentationParent(', 'public void Move(', 'internal void TickGlide('))
         alias = 'using System; using GloomhavenVR.Core; using Vector3 = FixtureVector; using Quaternion = FixtureRotation; using Transform = FixtureTransform; using Mathf = FixtureMath; using Time = FixtureClock;\n'
         fields = '''private readonly FixtureObject _root = new(); private Vector3 _glideTo; private float _glideScale = 1f; private bool _gliding, _returningPose; private float _glideSpeed = Defaults.CardLerpSpeed; private const float GlideEpsilonSq = 1e-8f;
 internal Transform PresentationTransform => _root.transform;
+internal bool BlankCalled; internal void Blank() { BlankCalled = true; _root.transform.Active = false; }
+internal void Set(FixtureCard? card, bool fronts, CPlayerActor actor) { _root.transform.Active = card != null; }
+internal void MaintainMips() {} internal void SetNativeCardAppearance(int player, CPlayerActor actor, FixtureCard card) {}
 internal RemoteBoardCard(Transform parent, Vector3 position) { _root.transform.parent = parent; _root.transform.localPosition = position; }
 '''
         begin = receiver.index('        ActiveDismissBerthActive = p.HasActiveDismissBerth;')
@@ -85,9 +90,60 @@ internal RemoteBoardCard(Transform parent, Vector3 position) { _root.transform.p
         sources = {'Card.cs': alias + 'namespace GloomhavenVR.Net { internal sealed class RemoteBoardCard {\n' + fields + methods + '\n}}',
                    'Receiver.cs': alias + 'namespace GloomhavenVR.Net { internal sealed partial class RemoteAvatar {\n' + apply + matches + '\n' + allows + '\n' + seat + '\n}}',
                    'Furniture.cs': alias + 'namespace GloomhavenVR.Net { internal static class RemoteFurniture {\n' + picture + '\n} internal static class NetProtocol {\n' + bits + '\n}}'}
+        flight_alias = alias + 'using CAbilityCard = FixtureCard; using CCharacterClass = FixtureCharacter;\n'
+        sources['Departure.cs'] = flight_alias + 'namespace GloomhavenVR.Net { internal static class RemoteActiveDepartures {\n' + '\n'.join(
+            block(departures, signature) for signature in ('internal static bool HasCommittedOriginal(',
+                                                           'internal static bool TryDismissPose(')) + '\n}}'
+        sources['Capture.cs'] = flight_alias + '''namespace GloomhavenVR.Net { internal sealed class RemoteActiveCards {
+private readonly float _cardW = .0635f; private RemoteBoardCard? _dismissPanel; private CAbilityCard? _dismissCard;
+private readonly RemoteAvatar _owner; private readonly System.Collections.Generic.List<CAbilityCard> _buffer = new();
+private readonly Transform _root;
+private readonly int _playerId = 22;
+private readonly System.Collections.Generic.Dictionary<CAbilityCard, RemoteBoardCard> _retainedDismiss = new();
+private readonly System.Collections.Generic.List<CAbilityCard> _retiredDismiss = new();
+private int Count => _buffer.Count;
+internal RemoteActiveCards(RemoteAvatar owner) { _owner = owner; _root = new Transform { parent = owner.StableBoard }; }
+internal void Stage(RemoteBoardCard? panel, CAbilityCard? card) { _dismissPanel = panel; _dismissCard = card; }
+internal void SetPopulation(params CAbilityCard[] cards) { _buffer.Clear(); _buffer.AddRange(cards); }
+internal int PendingSeat(CPlayerActor actor, Transform? berth) => DismissSeat(actor, berth);
+internal void Retain() => RetainDismissPanels();
+internal bool Retains(CAbilityCard card) => _retainedDismiss.ContainsKey(card);
+internal bool RefreshRetained(CAbilityCard card, RemoteBoardCard panel, CPlayerActor actor) => KeepRetainedDismissCard(card, panel, true, actor);
+''' + '\n'.join(block(active, signature) for signature in ('internal bool TryDismissPose(',
+                'private int DismissSeat(', 'private void RetainDismissPanels(', 'internal void FreezeDismissOriginal(',
+                'private bool KeepRetainedDismissCard(')) + '\n}}'
+        # net8 annotates Dictionary.TryGetValue's false result as nullable; the production
+        # net472 reference does not. This changes only the extracted local type annotation.
+        sources['Capture.cs'] = sources['Capture.cs'].replace('out RemoteBoardCard retained)', 'out RemoteBoardCard? retained)')
+        pending = block(flight, 'private readonly struct PendingFlight').replace('ScenarioRuleLibrary.CAbilityCard', 'CAbilityCard')
+        tick = block(flight, 'public void Tick(')
+        tick = tick[:tick.index('        for (int i = 0; i < _flights.Count; i++)')] + '\n}'
+        wait = re.search(r'    private static bool ArtworkWaitExpired\([^;]+;', flight)[0]
+        keep = block(flight, 'private static bool KeepDismissFlight(').replace('ScenarioRuleLibrary.CAbilityCard', 'CAbilityCard')
+        sources['Flight.cs'] = flight_alias + 'namespace GloomhavenVR.Net { internal sealed partial class RemoteCardFx {\n' + '\n'.join((block(flight, 'private void TransferVisibleFlight('), pending, tick, keep, wait)) + '\n}}'
+        release = re.search(r'    private static bool MayReleaseOwnerBurn\([\s\S]*?;', burn)[0]
+        sources['Burn.cs'] = flight_alias + 'namespace GloomhavenVR.Net { internal sealed partial class RemoteBurnFx {\n' + '\n'.join(
+            block(burn, signature) for signature in ('internal void PrepareDismissRelease(',
+                'private void PruneDismissOrigins(', 'private void CaptureFlightPose(',
+                'private void Handover(')) + '\n' + release + '\n}}'
+        # The orchestration assertion is deliberately source-pinned: the portable boundary below
+        # executes handover/pose/native-commit decisions, not the full avatar or native burn watcher.
+        if 'p.BurnCompletions, flight.DismissOrigin)' not in receiver or 'p.BurnCompletions, p.FxDismissOrigin)' not in receiver:
+            raise AssertionError('Recent and legacy flights must retain their qualified dismiss origins')
+        if 'card, entry.DismissOrigin)' not in receiver or 'originalCard, dismissOrigin)' not in receiver:
+            raise AssertionError('Durable burn and mirrored-board dispatch must retain exact original origin')
+        if 'CaptureFlightPose(b);' not in burn or 'b.Go.transform.SetPositionAndRotation(b.From, b.Rotation)' not in burn:
+            raise AssertionError('Burn hold and handover must retain the berth orientation')
+        mirrored = block(receiver, 'internal void PlayMirroredCardFlight(')
+        if mirrored.index('FreezeDismissOriginal(originalCard)') > mirrored.index('_burnFx.PreparePresentation()'):
+            raise AssertionError('Accepted original must detach before native watcher/furniture visibility can hide its berth')
+        refresh = block(active, 'public void Refresh(')
+        guard = refresh.index('if (KeepRetainedDismissCard(_buffer[i], _cards[i], showFronts, actor)) continue;')
+        if guard > refresh.index('_cards[i].SetPresentationParent(staged ? dismissBerth! : _root)') or guard > refresh.index('_cards[i].Move(staged ? Vector3.zero : cellAt'):
+            raise AssertionError('Retained original must bypass both parent and glide writes during delayed native active membership')
         mutations = [
             ('production', '', '', '', ''),
-            ('parent-teleports', 'Card.cs', 'worldPositionStays: true', 'worldPositionStays: false', 'reparent preserves the complete current world pose'),
+            ('parent-teleports', 'Card.cs', '_root.transform.SetParent(parent, worldPositionStays: true);\n        _returningPose = true;', '_root.transform.SetParent(parent, worldPositionStays: false);\n        _returningPose = true;', 'reparent preserves the complete current world pose'),
             ('reparent-does-not-settle', 'Card.cs', '_returningPose = true;', '_returningPose = false;', 'zero-distance reparent still settles its changed frame scale'),
             ('animated-wrong-scale', 'Card.cs', 'Vector3 targetScale = Vector3.one * _glideScale;', 'Vector3 targetScale = Vector3.one;', 'zero-distance reparent still settles its changed frame scale'),
             ('seed-wrong-scale', 'Card.cs', '_root.transform.localScale = Vector3.one * _glideScale;', '_root.transform.localScale = Vector3.one;', 'freshly seeded stage uses the same fit'),
@@ -98,8 +154,36 @@ internal RemoteBoardCard(Transform parent, Vector3 position) { _root.transform.p
             ('stale-dismissal-controls', 'Furniture.cs', 'bool allowUseBerth = owner.AllowsActiveDismissPresentation(displayedActor);', 'bool allowUseBerth = true;', 'wrong actor hides its dismissal berth, preview, cap and caption'),
             ('stale-dismissal-caption', 'Furniture.cs', 'allowUseBerth ? owner.ItemUseCapLabel : null', 'owner.ItemUseCapLabel', 'wrong actor hides its dismissal berth, preview, cap and caption'),
             ('stale-dismissal-preview', 'Furniture.cs', 'bool shown = allowUseBerth &&', 'bool shown =', 'wrong actor cannot show the held-card landing preview'),
+            ('departure-ignores-active', 'Departure.cs', '!cc.ActivatedCards.Contains(card)', 'true', 'active membership must end before a committed flight'),
+            ('departure-wrong-actor', 'Departure.cs', 'source.Value.ActorId != NetFigures.StableActorId(actor)', 'false', 'foreign actor cannot authorize a committed dismissal'),
+            ('departure-wrong-pile', 'Departure.cs', 'cc.DiscardedAbilityCards.Contains(card)', 'true', 'native destination membership cannot name a different original'),
+            ('fallback-drops-source-position', 'Departure.cs', 'berth.TransformPoint(origin.BerthPose.Position)', 'berth.position', 'missing stage retains exact owner intermediate position'),
+            ('fallback-drops-source-width', 'Departure.cs', 'origin.Width * Mathf.Abs(berth.lossyScale.x)', '0.0635f * Mathf.Abs(berth.lossyScale.x)', 'missing stage retains exact owner intermediate width'),
+            ('capture-wrong-card', 'Capture.cs', 'RemoteBoardCard? panel = _dismissPanel != null && ReferenceEquals(_dismissCard, card)\n            ? _dismissPanel : _retainedDismiss.TryGetValue(card, out RemoteBoardCard? retained) ? retained : null;\n        if (panel == null) return false;', 'RemoteBoardCard? panel = _dismissPanel;\n        if (panel == null) return false;', 'staged capture cannot borrow another original card'),
+            ('handover-recaptures', 'Flight.cs', '!f.SourceTransferred && f.FromDismissBerth', 'f.FromDismissBerth', 'handover never recaptures after the original renderer was transferred'),
+            ('handover-skips-source-transfer', 'Flight.cs', '_owner.TransferCardToFlight(', '_owner.ObserveWithoutTransfer(', 'first drawable flight transfers the exact original once'),
+            ('pending-stage-returns-grid', 'Capture.cs', '_owner.DismissFlightOwnsCard(_dismissCard.CardInstanceID)', 'false', 'accepted pending flight retains its original staged card after118 clears'),
+            ('pending-stage-recycled', 'Capture.cs', '_retainedDismiss[card] = panel;', '{}', 'native retirement retains the actual staged renderer while flight artwork loads'),
+            ('pending-stage-leaks', 'Capture.cs', '_retainedDismiss.Remove(card);', '_retainedDismiss.ContainsKey(card);', 'completed or expired handover releases its retained original panel'),
+            ('retained-stays-under-hidden-berth', 'Capture.cs', 'panel.FreezePresentationParent(_root.parent);', '{}', 'accepted original survives hidden berth without changing its frozen world pose'),
+            ('active-model-reattaches-retained-card', 'Capture.cs', 'if (!_retainedDismiss.TryGetValue(card, out RemoteBoardCard? retained)\n            || !ReferenceEquals(retained, panel)) return false;', 'if (bool.Parse("true")) return false;', 'native active refresh preserves the frozen original before ordinary parent and glide writes'),
+            ('freeze-keeps-old-glide', 'Card.cs', '_gliding = false;\n        _returningPose = false;\n        _glideTo = _root.transform.localPosition;\n        _glideScale = _root.transform.localScale.x;', '_gliding = true;\n        _returningPose = true;\n        _glideTo = Vector3.zero;\n        _glideScale = 1f;', 'frozen original cannot resume its obsolete parent home glide'),
+            ('pending-dismiss-times-out', 'Flight.cs', 'pending.DismissOrigin != null ? !KeepDismissFlight', 'pending.DismissOrigin != null ? Time.unscaledTime - pending.ReceivedAt > ResolveSeconds || !KeepDismissFlight', 'accepted dismissal survives native model delay longer than two seconds'),
+            ('stale-dismiss-scenario', 'Flight.cs', '!ReferenceEquals(scenario, ScenarioRuleLibrary.ScenarioManager.Scenario)', 'false', 'scenario replacement retires the pending original'),
+            ('stale-dismiss-recovery', 'Flight.cs', 'cc.HandAbilityCards.Contains(card)', 'false', 'real recovery retires the pending original'),
+            ('dismiss-artwork-times-out', 'Flight.cs', '!f.FromDismissBerth && f.ArtworkWait >= ResolveSeconds', 'f.ArtworkWait >= ResolveSeconds', 'accepted dismissal keeps waiting for its exact public artwork'),
+            ('burn-drops-origin', 'Burn.cs', 'burn.DismissOrigin = origin;', 'burn.DismissOrigin = null;', 'burn release upgrades the same original hold with its exact origin'),
+            ('burn-keeps-stale-origin', 'Burn.cs', '_dismissOrigins.Remove(card);', '_dismissOrigins.ContainsKey(card);', 'recovery retires dismissal origin before a later ordinary burn'),
+            ('burn-ignores-owner-release', 'Burn.cs', 'burn.OwnerReleased &&', 'true &&', 'native artwork alone cannot authorize a remote burn flight'),
+            ('burn-ignores-native-presentation', 'Burn.cs', 'CardAppearanceMirror.HasPresentedThrough(burn.PresentationPlayer, actor, card, burn.CompletionTime)', 'true', 'owner release waits for the exact native completion artwork'),
+            ('burn-repeats-handover', 'Burn.cs', 'if (b.HandoverLogged)', 'if (b.HandoverLogged && bool.Parse("false"))', 'repeated release cannot restart the same burn flight'),
         ]
         dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
+        if args.case:
+            unknown = set(args.case) - {item[0] for item in mutations}
+            if unknown:
+                raise ValueError('Unknown fixture cases: ' + ', '.join(sorted(unknown)))
+            mutations = [item for item in mutations if item[0] in args.case]
         for name, filename, before, after, expected in mutations:
             case = run / name
             case.mkdir()

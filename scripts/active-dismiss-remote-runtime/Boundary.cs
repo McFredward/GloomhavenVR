@@ -12,6 +12,7 @@ internal struct FixtureVector
     internal static FixtureVector one => new(1, 1, 1);
     internal float sqrMagnitude => x * x + y * y + z * z;
     internal static FixtureVector Lerp(FixtureVector a, FixtureVector b, float t) => a + (b - a) * Math.Clamp(t, 0, 1);
+    internal static float Distance(FixtureVector a, FixtureVector b) => MathF.Sqrt((a - b).sqrMagnitude);
     public static FixtureVector operator +(FixtureVector a, FixtureVector b) => new(a.x + b.x, a.y + b.y, a.z + b.z);
     public static FixtureVector operator -(FixtureVector a, FixtureVector b) => new(a.x - b.x, a.y - b.y, a.z - b.z);
     public static FixtureVector operator *(FixtureVector a, float b) => new(a.x * b, a.y * b, a.z * b);
@@ -33,9 +34,12 @@ internal struct FixtureRotation
 internal sealed class FixtureTransform
 {
     internal FixtureTransform? parent;
+    internal bool Active = true;
+    internal bool ActiveInHierarchy => Active && (parent?.ActiveInHierarchy ?? true);
     internal FixtureVector localPosition, localScale = FixtureVector.one;
     internal FixtureRotation localRotation = FixtureRotation.identity;
     internal float Scale => (parent?.Scale ?? 1f) * localScale.x;
+    internal FixtureVector lossyScale => FixtureVector.one * Scale;
     internal FixtureVector position
     {
         get => parent == null ? localPosition : parent.position + parent.rotation * (localPosition * parent.Scale);
@@ -53,13 +57,17 @@ internal sealed class FixtureTransform
         if (!worldPositionStays) return;
         position = at; rotation = facing; localScale = FixtureVector.one * (scale / value.Scale);
     }
+    internal FixtureVector TransformPoint(FixtureVector local) => position + rotation * (local * Scale);
+    internal void SetPositionAndRotation(FixtureVector at, FixtureRotation facing) { position = at; rotation = facing; }
 }
 internal sealed class FixtureObject { internal readonly FixtureTransform transform = new(); }
-internal static class FixtureClock { internal static float unscaledDeltaTime = .011111111f; }
+internal static class FixtureClock { internal static float unscaledDeltaTime = .011111111f, unscaledTime; }
 internal static class FixtureMath
 {
     internal static float Min(float a, float b) => Math.Min(a, b);
     internal static float Exp(float f) => (float)Math.Exp(f);
+    internal static float Max(float a, float b) => Math.Max(a, b);
+    internal static float Abs(float f) => Math.Abs(f);
 }
 namespace GloomhavenVR.Core { internal static class Defaults { internal const float CardLerpSpeed = 12f; } }
 namespace GloomhavenVR.Net
@@ -83,4 +91,12 @@ namespace GloomhavenVR.Net
     }
 }
 
-internal sealed class CPlayerActor { internal int StableId; }
+internal sealed class CPlayerActor { internal int StableId; internal readonly FixtureCharacter CharacterClass = new(); }
+internal sealed class FixtureCard { internal int CardInstanceID; }
+internal sealed class FixtureCharacter
+{
+    internal readonly System.Collections.Generic.List<FixtureCard> ActivatedCards = new(),
+        DiscardedAbilityCards = new(), LostAbilityCards = new(), PermanentlyLostAbilityCards = new(),
+        HandAbilityCards = new(), RoundAbilityCards = new(), ExtraTurnCards = new();
+}
+namespace ScenarioRuleLibrary { internal static class ScenarioManager { internal static object? Scenario = new(); } }

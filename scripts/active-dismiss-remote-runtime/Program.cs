@@ -94,6 +94,7 @@ internal static class Program
         panel.SetPresentationParent(berth);
         panel.Move(FixtureVector.zero, true, 8, fit);
         Check(Near(slab.localScale, FixtureVector.one * fit), "freshly seeded stage uses the same fit as animated arrival");
+        FlightCases.Run(Check);
         Console.WriteLine("PASS: " + assertions + " production remote-dismissal assertions; explicit portable transform boundary.");
         return 0;
     }
