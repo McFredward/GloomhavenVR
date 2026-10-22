@@ -69,6 +69,7 @@ internal static partial class RemoteMapStory
         // SyncIdentity's next pass must not discard this adoption as a window replacement.
         if (SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) && grab != null)
         {
+            grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);
             local.Grab = grab;
             local.LastWindow = SharedWindows.WindowOf(kind);
             local.SwapFrame = int.MinValue;

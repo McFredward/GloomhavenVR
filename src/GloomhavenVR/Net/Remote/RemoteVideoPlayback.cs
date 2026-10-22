@@ -154,7 +154,7 @@ internal static class RemoteVideoPlayback
                 FinishActivePlayback();
         }
         if (extras.HasVideoWindow)
-            RemoteMapStory.ObserveVideoPose(sender, in extras.VideoWindow.Window, extras.WindowPoseContext);
+            RemoteMapStory.ObserveVideoPose(sender, in extras.VideoWindow.Window, extras.WindowPoseContext, extras.WindowScales?.Reference((int)SharedWindowKind.Video) ?? 0f);
         else RemoteMapStory.ForgetVideoPose(sender);
     }
 

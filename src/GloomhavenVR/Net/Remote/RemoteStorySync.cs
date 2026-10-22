@@ -122,7 +122,7 @@ internal static partial class RemoteStorySync
     private readonly struct PeerStory
     {
         public PeerStory(byte flags, byte page, byte pageCount, uint key, byte poseStamp,
-                         byte sizeCode, RigPose pose, float at, uint openingEpoch, uint openingToken, SharedWindowPoseContext? context)
+                         byte sizeCode, RigPose pose, float at, uint openingEpoch, uint openingToken, SharedWindowPoseContext? context, float referenceScale)
         {
             Flags = flags;
             Page = page;
@@ -131,11 +131,12 @@ internal static partial class RemoteStorySync
             PoseStamp = poseStamp;
             SizeCode = sizeCode;
             Context = context;
+            ReferenceScale = referenceScale;
             RigPose world = pose;
             Canonical = context.HasValue && context.Value.ToWorld(in pose, out world);
             Initial = context.HasValue && context.Value.IsInitial(1);
             Pose = world;
-            if (!Canonical) Flags = (byte)(Flags & ~NetProtocol.StoryPoseBit);
+            if (!Canonical || !(referenceScale >= 0.0001f && referenceScale <= 1000000f)) Flags = (byte)(Flags & ~NetProtocol.StoryPoseBit);
             At = at;
             OpeningEpoch = openingEpoch;
             OpeningToken = openingToken;
@@ -149,6 +150,7 @@ internal static partial class RemoteStorySync
         public readonly byte SizeCode;
         public readonly RigPose Pose;
         internal readonly SharedWindowPoseContext? Context;
+        internal readonly float ReferenceScale;
         internal readonly bool Canonical, Initial;
         public readonly uint OpeningEpoch, OpeningToken;
 
@@ -603,7 +605,7 @@ internal static partial class RemoteStorySync
 
         MapStoryLifecycle.PoseOpening(in p, p.StoryKey, out uint openingEpoch, out uint openingToken);
         Peers[senderId] = new PeerStory(p.StoryFlags, p.StoryPage, p.StoryPageCount, p.StoryKey,
-                                        p.StoryPoseStamp, p.StorySizeCode, p.StoryPose, now, openingEpoch, openingToken, p.WindowPoseContext);
+                                        p.StoryPoseStamp, p.StorySizeCode, p.StoryPose, now, openingEpoch, openingToken, p.WindowPoseContext, p.WindowScales?.Reference(1) ?? 0f);
 
         if ((p.StoryFlags & NetProtocol.StoryPoseBit) == 0)
         {
@@ -873,6 +875,7 @@ internal static partial class RemoteStorySync
                         "never hold anybody up");
             return;
         }
+        grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);
         float size = NetProtocol.DecodeStorySize(owner.SizeCode);
         if (_poseTrackPeer != bestPeer)
         {

@@ -59,7 +59,9 @@ internal static class SharedWindowSpawnAuthority
 
     internal static void SampleContext(ref PresenceState presence)
     {
+        var references = new SharedWindowScaleContext();
         bool any = presence.HasStorySync && (presence.StoryFlags & NetProtocol.StoryPoseBit) != 0;
+        if (any) CaptureReference(ref references, SharedWindowKind.ScenarioStory);
         byte initial = presence.StoryInitialPose ? SharedWindowPoseContext.KindBit(1) : (byte)0;
         if (presence.HasSharedWindow && presence.SharedWindowEntries != null)
             for (int i = 0; i < presence.SharedWindowCount && i < presence.SharedWindowEntries.Length; i++)
@@ -67,21 +69,36 @@ internal static class SharedWindowSpawnAuthority
                 SharedWindowEntry entry = presence.SharedWindowEntries[i];
                 if ((entry.Flags & NetProtocol.SharedPoseBit) == 0) continue;
                 any = true;
+                CaptureReference(ref references, (SharedWindowKind)(entry.Kind + 1));
                 if (entry.InitialPose) initial |= SharedWindowPoseContext.KindBit(entry.Kind + 1);
             }
         if (presence.HasVideoWindow && (presence.VideoWindow.Window.Flags & NetProtocol.SharedPoseBit) != 0)
         {
             any = true;
+            CaptureReference(ref references, SharedWindowKind.Video);
             if (presence.VideoWindow.Window.InitialPose) initial |= SharedWindowPoseContext.KindBit(5);
         }
         if (presence.HasRewardWindow && (presence.RewardWindow.Window.Flags & NetProtocol.SharedPoseBit) != 0)
         {
             any = true;
+            CaptureReference(ref references, SharedWindowKind.RewardShowcase);
             if (presence.RewardWindow.Window.InitialPose) initial |= SharedWindowPoseContext.KindBit(6);
         }
         if (!any || !PanelLayout.TryGetAnchor(out Vector3 origin, out Quaternion yaw)) return;
         var context = new SharedWindowPoseContext { Host = FFSNetwork.IsHost, Initial = initial,
             Origin = origin, Yaw = yaw.eulerAngles.y, Scale = Mathf.Max(PanelLayout.WorldScale, 0.01f) };
-        if (context.Valid) presence.WindowPoseContext = context;
+        if (context.Valid)
+        {
+            presence.WindowPoseContext = context;
+            if (references.Valid) presence.WindowScales = references;
+        }
+    }
+
+    private static void CaptureReference(ref SharedWindowScaleContext references, SharedWindowKind kind)
+    {
+        // The frame keeps its captured rendering reference after its author leaves the map.
+        // Current map/zoom state is not the geometry of an already visible shared window.
+        if (SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) && grab != null)
+            references.Set((int)kind, grab.SharedReferenceWorldScale);
     }
 }

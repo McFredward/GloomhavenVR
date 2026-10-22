@@ -143,7 +143,7 @@ internal static partial class RemoteMapStory
     private readonly struct PeerEntry
     {
         public PeerEntry(in SharedWindowEntry e, float at, uint openingEpoch = 0, uint openingToken = 0,
-            SharedWindowPoseContext? context = null, int kind = 0)
+            SharedWindowPoseContext? context = null, int kind = 0, float referenceScale = 0f)
         {
             Flags = e.Flags;
             Page = e.Page;
@@ -152,10 +152,11 @@ internal static partial class RemoteMapStory
             PoseStamp = e.PoseStamp;
             SizeCode = e.SizeCode;
             Context = context;
+            ReferenceScale = referenceScale;
             Initial = context.HasValue && context.Value.IsInitial(kind);
             Frame = e.Frame;
             Pose = e.Pose;
-            if (!context.HasValue || !context.Value.Valid)
+            if (!context.HasValue || !context.Value.Valid || !(referenceScale >= 0.0001f && referenceScale <= 1000000f))
                 Flags = (byte)(Flags & ~NetProtocol.SharedPoseBit);
             if (context.HasValue && e.Frame == NetProtocol.SharedFrameSeatAnchor)
             {
@@ -178,6 +179,7 @@ internal static partial class RemoteMapStory
         public readonly byte Frame;
         public readonly RigPose Pose;
         internal readonly SharedWindowPoseContext? Context;
+        internal readonly float ReferenceScale;
         internal readonly bool Initial;
         public readonly float At;
         internal readonly int ReceiptFrame;
@@ -1338,29 +1340,14 @@ internal static partial class RemoteMapStory
 
     // ---- the shared frame ---------------------------------------------------------------------
 
-    /// <summary>
-    /// World pose → the frame the record travels in, and WHICH frame that was.
-    ///
-    /// <para>Frame 1 (PARCHMENT-LOCAL) whenever the map room can measure its parchment, which is
-    /// the whole life of the room; frame 0 (record 19's seat anchor) only as the fallback for the
-    /// frames in which it cannot. Writing the frame down as a BYTE is what makes that fallback
-    /// safe — a receiver decodes with the frame the sender used, not with the one it assumes.</para>
-    /// </summary>
+    /// <summary>Use the author's seat frame plus its same-packet record119 source context.
+    /// Observers can be in either the 2D or 3D map: a local parchment is not required to decode
+    /// an active shared window. Rewards retain their existing common game-world frame.</summary>
     private static bool ToShared(Vector3 worldPos, Quaternion worldRot,
                                  out Vector3 localPos, out Quaternion localRot, out byte frame, bool scenarioFrame = false)
     {
         localPos = Vector3.zero;
         localRot = Quaternion.identity;
-        frame = NetProtocol.SharedFrameParchment;
-        if (MapRoomDriver.TryGetParchmentFrame(out Vector3 center, out float scale))
-        {
-            localPos = (worldPos - center) / Mathf.Max(scale, 0.0001f);
-            // Rotation travels as an ABSOLUTE world rotation: world axes are already shared (the
-            // mod's avatar poses have always travelled that way), so there is nothing to rotate
-            // out of and nothing per-client to rotate back in.
-            localRot = worldRot;
-            return true;
-        }
         // Scenario rewards share the game's coordinate system, like figures and avatar poses.
         // A per-viewer orbit focus/seat would place the same window at different map locations.
         if (scenarioFrame)
@@ -1435,20 +1422,20 @@ internal static partial class RemoteMapStory
                     case NetProtocol.SharedWindowKindMapStory:
                         sawStory = true;
                         MapStoryLifecycle.PoseOpening(in p, e.ContentKey, out uint openingEpoch, out uint openingToken);
-                        StoryPeers[senderId] = new PeerEntry(in e, now, openingEpoch, openingToken, p.WindowPoseContext, (int)SharedWindowKind.MapStory);
+                        StoryPeers[senderId] = new PeerEntry(in e, now, openingEpoch, openingToken, p.WindowPoseContext, (int)SharedWindowKind.MapStory, p.WindowScales?.Reference((int)SharedWindowKind.MapStory) ?? 0f);
                         if (MapStoryLifecycle.MatchesPose(true, senderId, openingEpoch, openingToken))
                             ObserveReflowPose(senderId, SharedWindowKind.MapStory, in e, StoryStamp);
                         NoteStamp(senderId, in e, StoryStamp, StoryStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindQuestConfirm:
                         sawQuest = true;
-                        QuestPeers[senderId] = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.QuestConfirm);
+                        QuestPeers[senderId] = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.QuestConfirm, referenceScale: p.WindowScales?.Reference((int)SharedWindowKind.QuestConfirm) ?? 0f);
                         ObserveReflowPose(senderId, SharedWindowKind.QuestConfirm, in e, QuestStamp);
                         NoteStamp(senderId, in e, QuestStamp, QuestStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindEncounter:
                         sawEncounter = true;
-                        EncounterPeers[senderId] = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.Encounter);
+                        EncounterPeers[senderId] = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.Encounter, referenceScale: p.WindowScales?.Reference((int)SharedWindowKind.Encounter) ?? 0f);
                         ObserveReflowPose(senderId, SharedWindowKind.Encounter, in e, EncounterStamp);
                         NoteStamp(senderId, in e, EncounterStamp, EncounterStampAt, now);
                         break;
@@ -2016,6 +2003,7 @@ internal static partial class RemoteMapStory
                  + "hold anybody up");
             return;
         }
+        grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);
         float size = NetProtocol.DecodeStorySize(owner.SizeCode);
         if (local.PoseTrackPeer != bestPeer || local.PoseTrackFrame != owner.Frame)
         {

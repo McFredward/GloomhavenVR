@@ -11,7 +11,7 @@ namespace GloomhavenVR.Net;
 internal sealed class ExtrasFragments
 {
     // Complete cloth, held item101, float tuning249, dismissal118, author-frame119 and
-    // quest-version120 have a7747-byte worst case.8000 retains253 bytes of transport headroom;
+    // quest-version120 and captured-scales121 have a7774-byte worst case.8000 retains226 bytes of transport headroom;
     // allocation-only PresenceSerializer.MaxSize8004 separately keeps257 spare bytes. Ten existing
     // four-chunk datagrams. Rounding to8192 adds an eleventh saturated presence
     // turn and exceeds its unchanged five-second assembly deadline at full load.

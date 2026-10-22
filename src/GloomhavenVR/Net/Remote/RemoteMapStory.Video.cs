@@ -21,9 +21,9 @@ internal static partial class RemoteMapStory
         VideoStampAt.Clear();
     }
 
-    internal static void ObserveVideoPose(int sender, in SharedWindowEntry entry, SharedWindowPoseContext? context = null)
+    internal static void ObserveVideoPose(int sender, in SharedWindowEntry entry, SharedWindowPoseContext? context = null, float referenceScale = 0f)
     {
-        VideoPeers[sender] = new PeerEntry(in entry, Time.unscaledTime, context: context, kind: (int)SharedWindowKind.Video);
+        VideoPeers[sender] = new PeerEntry(in entry, Time.unscaledTime, context: context, kind: (int)SharedWindowKind.Video, referenceScale: referenceScale);
         NoteStamp(sender, in entry, VideoStamp, VideoStampAt, Time.unscaledTime);
     }
 
@@ -62,6 +62,7 @@ internal static partial class RemoteMapStory
         factor = SharedWindowSizeLaw.SharedGrabFactor(NetProtocol.DecodeStorySize(owner.SizeCode));
         if (SharedWindows.TryGetGrab(SharedWindowKind.Video, out GrabbableModal? grab) && grab != null)
         {
+            grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);
             VideoLocal.Grab = grab;
             VideoLocal.LastWindow = SharedWindows.WindowOf(SharedWindowKind.Video);
             VideoLocal.SwapFrame = int.MinValue;
