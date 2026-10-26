@@ -2,7 +2,10 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <OwnerSource Condition="'$(OwnerSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.cs</OwnerSource>
+    <OriginSource Condition="'$(OriginSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Origins.cs</OriginSource>
+    <LayerSource Condition="'$(LayerSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/MovedSubtreeLayers.cs</LayerSource>
     <DialogSource Condition="'$(DialogSource)' == ''">../../src/GloomhavenVR/WorldUI/Surfaces/DialogSurface.cs</DialogSource>
   </PropertyGroup>
-  <ItemGroup><Compile Include="$(DialogSource)" Link="Production/DialogSurface.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="$(DialogSource)" Link="Production/DialogSurface.cs" /><Compile Include="$(OwnerSource)" Link="Production/ConfirmationOnOwner.cs" /><Compile Include="$(OriginSource)" Link="Production/ConfirmationOnOwner.Origins.cs" /><Compile Include="$(LayerSource)" Link="Production/MovedSubtreeLayers.cs" /></ItemGroup>
 </Project>

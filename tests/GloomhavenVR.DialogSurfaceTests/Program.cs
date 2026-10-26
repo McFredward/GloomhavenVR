@@ -7,7 +7,7 @@ using GloomhavenVR.WorldUI.Surfaces;
 internal static class Program
 {
     private static int _checks;
-    private static void Check(bool value, string why)
+    internal static void Check(bool value, string why)
     { ++_checks; if (!value) throw new InvalidOperationException(why); }
     private static (DialogSurface Surface, UIConfirmationBoxManager Manager) Start(bool alreadyOpen = false)
     {
@@ -97,6 +97,7 @@ internal static class Program
         Check(CanvasConversion.Releases == 1 && DialogSurface.FallbackWindow == manager.CurrentBox.Window,
             "retry restores original subtree before fallback publication");
         surface.Shutdown();
+        OwnerCases.Run();
         Console.WriteLine($"Dialog surface: {_checks} assertions passed.");
     }
 }

@@ -42,6 +42,14 @@ internal sealed class DialogSurface
         if (_panel != null && !_panel.IsAlive)
             _panel = null;
 
+        // A generic confirmation raised by a native screen belongs to that screen.
+        // This also maintains MainMenuInstance confirmations handled by the fallback
+        // converter rather than this dedicated surface. Both original managers retain
+        // their own callbacks and lifetimes.
+        ConfirmationOnOwner.Tick();
+        if (_panel != null && !_panel.IsAlive)
+            _panel = null;
+
         // (Re-)attach to the live scenario manager instance.
         UIConfirmationBoxManager? manager =
             Singleton<UIConfirmationBoxManager>.IsInitialized ? Singleton<UIConfirmationBoxManager>.Instance : null;
@@ -60,6 +68,15 @@ internal sealed class DialogSurface
         if (box == null || !box.IsOpen)
         {
             OnHidden();
+            return;
+        }
+
+        if (ConfirmationOnOwner.TrySeat(box))
+        {
+            _panel = null; // ReleaseForComposite already retired that exact conversion
+            _pendingShow = false;
+            FallbackWindow = null;
+            _conversionFailure = null;
             return;
         }
 
@@ -159,6 +176,8 @@ internal sealed class DialogSurface
 
     private void OnHidden()
     {
+        if (_attached != null && _attached.CurrentBox != null)
+            ConfirmationOnOwner.Release(_attached.CurrentBox);
         _pendingShow = false;
         FallbackWindow = null;
         ReleasePanel();
@@ -199,5 +218,9 @@ internal sealed class DialogSurface
         OnHidden();
     }
 
-    public void Shutdown() => Detach();
+    public void Shutdown()
+    {
+        ConfirmationOnOwner.Reset();
+        Detach();
+    }
 }
