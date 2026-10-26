@@ -96,7 +96,7 @@ internal static class MenuDepthDriver
         if (newWindow || Time.unscaledTime >= _nextCensus)
         {
             _nextCensus = Time.unscaledTime + .25f;
-            Census();
+            RefreshBindings();
         }
         PreviousWindows.Clear();
         for (int i = 0; i < Windows.Count; i++) PreviousWindows.Add(Windows[i]);
@@ -122,7 +122,7 @@ internal static class MenuDepthDriver
         for (int i = 0; i < DeadImages.Count; i++) OwnedImages.Remove(DeadImages[i]);
     }
 
-    private static void Census()
+    private static void RefreshBindings()
     {
         NextBindings.Clear(); Visited.Clear();
         for (int w = 0; w < Windows.Count; w++)
@@ -189,9 +189,11 @@ internal static class MenuDepthDriver
                     : MenuDepthCatalogue.NarrativeArt(key, sprite);
                 // An async new story key can precede the replacement sprite. Retain
                 // native artwork until that exact original colour source arrives.
-                if (art != null && binding.PreviousSprite == sprite && binding.Artwork != null
-                    && binding.PreviousKey != key && binding.Artwork.source_id != art.source_id) return;
-                binding.PreviousSprite = sprite; binding.PreviousKey = key; binding.Artwork = art;
+                if (binding.PreviousSprite == sprite && binding.Artwork != null
+                    && binding.PreviousKey != key && (art == null || binding.Artwork.source_id != art.source_id))
+                    art = binding.Artwork; // The original old sprite is still visible during its async replacement.
+                else
+                { binding.PreviousSprite = sprite; binding.PreviousKey = key; binding.Artwork = art; }
             }
             if (art == null) return;
             if (binding.Spec.Role != Role.Compendium)
@@ -217,7 +219,8 @@ internal static class MenuDepthDriver
     private static string Key(Binding binding, Image image, out string defaultField)
     {
         defaultField = string.Empty;
-        if (binding.Spec.Role == Role.Narrative) return StoryKey?.GetValue(binding.Owner) as string ?? string.Empty;
+        if (binding.Spec.Role == Role.Narrative)
+            return NarrativeKey(StoryKey?.GetValue(binding.Owner) as string ?? string.Empty);
         if (binding.Spec.Role == Role.Compendium)
         {
             var section = CurrentSection?.GetValue(binding.Owner) as UICompendiumButton;
@@ -232,6 +235,14 @@ internal static class MenuDepthDriver
         if (image.overrideSprite == tools.defaultCityEventImage) { defaultField = "defaultCityEventImage"; return defaultField; }
         object road = EventData?.GetValue(binding.Owner)!;
         string id = road == null ? string.Empty : AccessTools.Property(road.GetType(), "NarrativeImageId")?.GetValue(road, null) as string ?? string.Empty;
+        return NarrativeKey(id);
+    }
+
+    private static string NarrativeKey(string id)
+    {
+        // Read the same native identity/fallback without invoking logging or starting an asset load.
+        UIInfoTools tools = UIInfoTools.Instance;
+        if (tools == null) return string.Empty;
         NarrativeConfigUI[] configs = tools.narrativeImages;
         if (configs == null || configs.Length == 0) return string.Empty;
         for (int i = 0; i < configs.Length; i++)

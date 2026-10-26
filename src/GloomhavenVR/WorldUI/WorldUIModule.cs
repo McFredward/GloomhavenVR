@@ -286,6 +286,7 @@ internal sealed class WorldUIModule : IVRModule
 
         Patches.ConfirmationRescue.Reset(); // the stand-in must never outlive the mod
         CanvasConversion.ReleaseAll();
+        MenuDepth.MenuDepthDisplay.Shutdown(); // Consumers have restored their native materials.
         WorldUIAssets.Reset();
         NativeButtonSkin.Reset();
         InputModeGuard.Reset();
