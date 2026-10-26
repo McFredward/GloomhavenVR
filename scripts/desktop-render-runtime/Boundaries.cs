@@ -46,6 +46,12 @@ namespace GloomhavenVR.WorldUI
         private Renderer? _backRenderer = null;
         private bool SplitActive => _uiRt != null;
         private static bool IsPreMenuScene() => false;
+        // This ordinary-menu fixture registers no menu-depth sources and never
+        // borrows a camera for an eye capture. The separate menu-depth-desktop
+        // suite executes that production path (45 GPU assertions + 4 controls).
+        private Camera? _menuDepthBorrowedCamera = null;
+        private void SetMenuDepthGuard(bool active) { }
+        private void TickMenuDepthScreen() { }
         // Explicit construction boundaries: tests execute real native capture and
         // clear policy, and separately observe its calls into the stereo owner.
         private int _fixtureCaptureScans;
