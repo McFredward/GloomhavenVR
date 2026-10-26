@@ -7,8 +7,8 @@
     "Vulkan"
   ],
   "type_trees": true,
-  "bundle_bytes": 16920,
-  "bundle_sha256": "b5ed298ee017172f24f5f7771650e15880b9f33b855ffca48e27ac3ae0890f9d",
+  "bundle_bytes": 18056,
+  "bundle_sha256": "c5f4ad8ec7626bcbfc141c7389e4c4e1119d9759349b0464b6ae5d826f22ca5b",
   "sources": [
     {
       "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthDisplay.shader",
@@ -16,7 +16,7 @@
     },
     {
       "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthGraphic.shader",
-      "sha256": "e532f54aab7b0aaed11d041904881e9302e1328dcafe32f06a0e4cf8dc552efc"
+      "sha256": "ad504c496ff2bd6201135918f929b864c42ea04869f85a8ca81653edfce444eb"
     },
     {
       "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/Unity-LICENSE.txt",
