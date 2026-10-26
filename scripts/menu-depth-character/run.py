@@ -41,6 +41,8 @@ def replace_once(code, before, after):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case', action='append')
+    parser.add_argument('--api-root', type=Path, default=ROOT,
+        help='Read the unchanged shared capture contract from the integration checkout while testing private character sources.')
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     args = parser.parse_args()
     output = ROOT / '.planning/debug/menu-depth-character'; output.mkdir(parents=True, exist_ok=True)
@@ -49,14 +51,20 @@ def main():
     completion = run / 'completion.log'; completion.write_text('Evidence: ' + str(run) + '\n')
     code_root = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
     names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs',
-             'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs')
-    sources = {name: (code_root / name).read_text() for name in names}
+             'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs',
+             'MenuDepthCharacterDisplayObserver.cs')
+    api_names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs')
+    inputs = {name: (args.api_root / 'src/GloomhavenVR/WorldUI/MenuDepth' / name)
+              if name in api_names else code_root / name for name in names}
+    sources = {name: path.read_text() for name, path in inputs.items()}
     fixture = ROOT / 'tests/GloomhavenVR.MenuDepthCharacterTests'
-    pins = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in [*(code_root / name for name in names), *fixture.glob('*'), Path(__file__),
+    pins = {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in [*inputs.values(), *fixture.glob('*'), Path(__file__),
                          ROOT / 'scripts/menu-depth-character/Editor/Runner.cs'] if path.is_file()}
     variants = [
         ('production', '', '', '', 'Run', ''),
+        ('native-lifecycle', '', '', '', 'Lifecycle', ''),
+        ('native-close-during-render', '', '', '', 'NativeCloseDuringRender', ''),
         ('throwing-render', 'MenuDepthCharacterSource.cs', '            _camera.Render();',
          '            throw new InvalidOperationException("injected native render failure");', 'ThrowingRender', ''),
         ('fixed-mono-view', 'MenuDepthCharacterProjection.cs', 'Vector3 relativeEye = eye - physicalCenter;',
@@ -83,12 +91,31 @@ def main():
          '&& !_readHidden(_manager);',
          ';', 'Run',
          'original native hide permission suppresses depth without calling native continuation'),
+        ('inactive-consumer-omitted', 'MenuDepthCharacters.cs',
+         'Object.FindObjectsOfType<RawImage>(true)', 'Object.FindObjectsOfType<RawImage>()', 'Lifecycle',
+         'pooled inactive original consumer and disabled native manager are bound before first visibility'),
+        ('inactive-camera-omitted', 'MenuDepthCharacters.cs',
+         'Object.FindObjectsOfType<Character3DDisplayManager>(true)', 'Object.FindObjectsOfType<Character3DDisplayManager>()', 'Lifecycle',
+         'pooled inactive original consumer and disabled native manager are bound before first visibility'),
+        ('pooled-binding-dropped', 'MenuDepthCharacterSource.cs',
+         '&& _holder != null && _nativeTarget != null && (_rendering || ReferenceEquals(_camera.targetTexture, _nativeTarget))',
+         '&& _holder != null && _nativeTarget != null && _image.isActiveAndEnabled && (_rendering || ReferenceEquals(_camera.targetTexture, _nativeTarget))', 'Lifecycle',
+         'native HideAll and window reopening retain depth before the next bounded census'),
+        ('released-eye-reused', 'MenuDepthCharacterSource.cs', '!target.IsCreated() || target.width', 'target.width', 'Lifecycle',
+         'a released owned eye resource is replaced before the next native eye capture'),
+        ('first-display-discovery-lost', 'MenuDepthCharacters.cs',
+         'DisplayRequests[key] = target;\n        RetireStale();\n        Discover();',
+         'DisplayRequests[key] = target;\n        RetireStale(); /* injected: new request misses pre-render discovery */', 'Lifecycle',
+         'the actual native Display postfix binds a new window before its first visible render'),
+        ('render-disposal-not-deferred', 'MenuDepthCharacterSource.cs',
+         'if (!_rendering) ReleaseTargets();', 'ReleaseTargets();', 'NativeCloseDuringRender',
+         'shutdown during the actual native image effect defers owned-target destruction until the original draw returns'),
     ]
     if args.case:
         selected = set(args.case)
         assert selected <= {case[0] for case in variants}, selected
         variants = [case for case in variants if case[0] in selected]
-    manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
+    manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'harmony': str(run / 'assemblies/0Harmony.dll'), 'cases': []}
     exit_code = 1
     try:
         project = run / 'unity'; editor = project / 'Assets/Editor'; editor.mkdir(parents=True)
@@ -117,6 +144,8 @@ def main():
             if execute(command, case / 'build.log'):
                 raise RuntimeError('Compilation failure is not a negative-control pass: ' + name)
             retained = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / retained.name, retained)
+            for dependency in (case / 'bin/Release/net472').glob('*.dll'):
+                if dependency.name != retained.name: shutil.copyfile(dependency, assemblies / dependency.name)
             manifest['cases'].append({'name': name, 'dll': str(retained), 'method': method, 'expected': expected})
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         exit_code = execute(['xvfb-run', '-a', str(args.unity), '-batchmode', '-force-glcore', '-projectPath', str(project),

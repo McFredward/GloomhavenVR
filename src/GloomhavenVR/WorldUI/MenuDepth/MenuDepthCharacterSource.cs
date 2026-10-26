@@ -33,10 +33,10 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
 
     public Graphic Graphic => _image;
     internal bool BindingAlive => !_disposed && _image != null && _camera != null && _manager != null
-        && _holder != null && _nativeTarget != null && _image.isActiveAndEnabled
-        && _image.gameObject.activeInHierarchy && ReferenceEquals(_camera.targetTexture, _nativeTarget)
+        && _holder != null && _nativeTarget != null && (_rendering || ReferenceEquals(_camera.targetTexture, _nativeTarget))
         && (ReferenceEquals(_image.texture, _nativeTarget) || ReferenceEquals(_image.texture, _borrowed));
-    public bool IsReady => BindingAlive && _camera.isActiveAndEnabled && _manager.isActiveAndEnabled
+    public bool IsReady => BindingAlive && _image.isActiveAndEnabled && _image.gameObject.activeInHierarchy
+        && _camera.isActiveAndEnabled && _manager.isActiveAndEnabled
         && _holder.gameObject.activeInHierarchy && _nativeTarget.IsCreated()
         && !_readHidden(_manager);
 
@@ -75,7 +75,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
     private RenderTexture EnsureTarget(bool right)
     {
         RenderTexture? target = right ? _right : _left;
-        if (target != null && (target.width != _nativeTarget.width || target.height != _nativeTarget.height
+        if (target != null && (!target.IsCreated() || target.width != _nativeTarget.width || target.height != _nativeTarget.height
             || target.graphicsFormat != _nativeTarget.graphicsFormat || target.antiAliasing != _nativeTarget.antiAliasing))
         {
             Release(target);
@@ -100,7 +100,6 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
             if (!target.Create()) { Object.Destroy(target); throw new InvalidOperationException("Character eye target creation failed."); }
             if (right) _right = target; else _left = target;
         }
-        else if (!target.IsCreated() && !target.Create()) throw new InvalidOperationException("Character eye target recreation failed.");
         return target;
     }
 
@@ -158,6 +157,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
             }
             RenderTexture.active = originalActive;
             _rendering = false;
+            if (_disposed) ReleaseTargets();
         }
     }
 
@@ -166,6 +166,11 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
         if (_disposed) return;
         AfterCapture();
         _disposed = true;
+        if (!_rendering) ReleaseTargets();
+    }
+
+    private void ReleaseTargets()
+    {
         Release(_left); Release(_right);
         _left = _right = null;
     }

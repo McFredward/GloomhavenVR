@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI.MenuDepth;
+using HarmonyLib;
+using ScenarioRuleLibrary;
 using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
@@ -166,6 +168,92 @@ public static class MenuDepthCharacterProgram
             Check(threw, "injected native render failure reached the actual camera lease");
             scene.CheckRestored();
             Check(ReferenceEquals(scene.Image.texture, scene.Native), "throwing source render cannot leave an eye texture on native UI");
+        }
+        return _assertions;
+    }
+
+    public static int Lifecycle(string output)
+    {
+        _assertions = 0; VRSession.IsRunning = true;
+        var harmony = new Harmony("GloomhavenVR.MenuDepthCharacter.Lifecycle." + typeof(MenuDepthCharacterProgram).Assembly.GetName().Name);
+        harmony.PatchAll(typeof(MenuDepthCharacterDisplayObserver));
+        try
+        {
+            using (var scene = new Scene())
+            {
+                scene.Manager.Hidden = true; scene.Source.gameObject.SetActive(false); scene.Image.gameObject.SetActive(false);
+                MenuDepthCharacters.Tick();
+                Check(!MenuDepthSources.HasContent(scene.Root), "inactive native previews never advertise render readiness");
+                scene.Source.gameObject.SetActive(true); scene.Manager.Hidden = false; scene.Image.gameObject.SetActive(true);
+                Check(MenuDepthSources.HasContent(scene.Root),
+                    "pooled inactive original consumer and disabled native manager are bound before first visibility");
+                Texture2D first = scene.Capture(scene.NeutralEye(scene.Image) - scene.Root.right * .032f,
+                    false, Path.Combine(output, "first-visible-eye.png"));
+                Check(Centroid(first, 1) > 0, "the first visible capture already renders the actual native model eye");
+                Object.DestroyImmediate(first);
+
+                scene.Manager.Hidden = true;
+                Check(!MenuDepthSources.HasContent(scene.Root), "native Hide immediately suppresses a retained structural binding");
+                scene.Source.gameObject.SetActive(false); scene.Image.gameObject.SetActive(false); MenuDepthCharacters.Tick();
+                scene.Source.gameObject.SetActive(true); scene.Manager.Hidden = false; scene.Image.gameObject.SetActive(true);
+                Check(MenuDepthSources.HasContent(scene.Root),
+                    "native HideAll and window reopening retain depth before the next bounded census");
+
+                MenuDepthSources.BeforeCapture(scene.Root, new MenuDepthEye(false, scene.NeutralEye(scene.Image), scene.UiCamera));
+                RenderTexture lost = (RenderTexture)scene.Image.texture; MenuDepthSources.AfterCapture(); lost.Release();
+                MenuDepthSources.BeforeCapture(scene.Root, new MenuDepthEye(false, scene.NeutralEye(scene.Image), scene.UiCamera));
+                RenderTexture restored = (RenderTexture)scene.Image.texture;
+                Check(restored.IsCreated() && !ReferenceEquals(restored, lost),
+                    "a released owned eye resource is replaced before the next native eye capture");
+                MenuDepthSources.AfterCapture(); scene.CheckRestored();
+                Check(scene.Native.IsCreated(), "owned eye recovery preserves the original game-owned target");
+
+                RectTransform second = scene.SecondPreview();
+                Check(!MenuDepthSources.HasContent(second), "newly created consumers wait for an actual native display observation");
+                scene.Manager.Display(second, ECharacter.Brute);
+                Check(scene.Manager.DisplayCalls == 1, "the original display request still runs exactly once before observation");
+                Check(MenuDepthSources.HasContent(second),
+                    "the actual native Display postfix binds a new window before its first visible render");
+                Texture2D dynamicEye = scene.Capture(scene.NeutralEye(scene.SecondImage!), true,
+                    Path.Combine(output, "first-dynamic-window-eye.png"), second);
+                Check(Centroid(dynamicEye, 1) > 0, "a newly created native display request renders its actual first model eye");
+                Object.DestroyImmediate(dynamicEye);
+                scene.Manager.Display(second, ECharacter.Brute, "skin", "PowerUp");
+                Check(scene.Manager.DisplayCalls == 2 && MenuDepthSources.HasContent(second),
+                    "repeated native skin and animation requests preserve the same structural depth consumers");
+                MenuDepthCharacters.Shutdown();
+                scene.Manager.Display(second, ECharacter.Brute);
+                Check(scene.Manager.DisplayCalls == 3 && !MenuDepthSources.HasContent(second),
+                    "a disabled menu-depth feature never rebinds on later native Display requests");
+            }
+        }
+        finally { MenuDepthSources.AfterCapture(); harmony.UnpatchSelf(); }
+        return _assertions;
+    }
+
+    public static int NativeCloseDuringRender(string output)
+    {
+        _assertions = 0; VRSession.IsRunning = true;
+        using (var scene = new Scene())
+        {
+            MenuDepthCharacters.Tick();
+            RenderTexture lease = null!; bool aliveInsideOriginal = false;
+            scene.Effect.BeforeBlit = () =>
+            {
+                lease = scene.Source.targetTexture;
+                MenuDepthCharacters.Shutdown();
+                aliveInsideOriginal = lease.IsCreated();
+            };
+            bool rejected = false;
+            try { MenuDepthSources.BeforeCapture(scene.Root, new MenuDepthEye(false, scene.NeutralEye(scene.Image), scene.UiCamera)); }
+            catch (InvalidOperationException) { rejected = true; }
+            finally { MenuDepthSources.AfterCapture(); }
+            Check(rejected && aliveInsideOriginal,
+                "shutdown during the actual native image effect defers owned-target destruction until the original draw returns");
+            Check(lease != null && !lease.IsCreated(), "deferred character teardown releases its eye resource after native draw completion");
+            scene.CheckRestored();
+            Check(scene.Native.IsCreated() && !MenuDepthSources.HasContent(scene.Root),
+                "native-close teardown preserves the original game target and retires depth readiness");
         }
         return _assertions;
     }

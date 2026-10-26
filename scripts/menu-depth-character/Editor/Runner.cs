@@ -7,13 +7,19 @@ using UnityEngine;
 public static class MenuDepthCharacterRunner
 {
     [Serializable] private sealed class Case { public string name, dll, method, expected; }
-    [Serializable] private sealed class Manifest { public string result, evidence; public Case[] cases; }
+    [Serializable] private sealed class Manifest { public string result, evidence, harmony; public Case[] cases; }
     private static Manifest manifest;
     private static bool ran;
     public static void Start()
     {
         string[] args = Environment.GetCommandLineArgs();
         manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(args[Array.IndexOf(args, "-menuDepthCharacterManifest") + 1]));
+        AppDomain.CurrentDomain.AssemblyResolve += (sender, item) =>
+        {
+            string path = Path.Combine(Path.GetDirectoryName(manifest.harmony), new AssemblyName(item.Name).Name + ".dll");
+            return File.Exists(path) ? Assembly.LoadFile(path) : null;
+        };
+        Assembly.LoadFile(manifest.harmony);
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload | EnterPlayModeOptions.DisableSceneReload;
         EditorApplication.update += Run;
