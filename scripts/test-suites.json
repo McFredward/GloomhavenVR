@@ -3069,6 +3069,17 @@
         "local"
       ],
       "weight": 45
+    },
+    {
+      "id": "menu-depth-desktop",
+      "command": [
+        "python3",
+        "scripts/menu-depth-desktop/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
     }
   ]
 }
