@@ -8,7 +8,7 @@ using UnityEngine;
 
 public static class MenuDepthGraphicRunner
 {
-    [Serializable] private sealed class Case { public string name, dll, expected; }
+    [Serializable] private sealed class Case { public string name, dll, expected, method; }
     [Serializable] private sealed class Manifest { public string result, evidence, gameManaged, harmonyRuntime; public Case[] cases; }
     private static Manifest manifest;
     private static bool ran;
@@ -64,7 +64,7 @@ public static class MenuDepthGraphicRunner
                 {
                     string output = Path.Combine(manifest.evidence, item.name); Directory.CreateDirectory(output);
                     assembly = Assembly.LoadFile(item.dll);
-                    int count = (int)assembly.GetType("MenuDepthGraphicProgram").GetMethod("Run")
+                    int count = (int)assembly.GetType("MenuDepthGraphicProgram").GetMethod(item.method)
                         .Invoke(null, new object[] { output, sprite });
                     if (!string.IsNullOrEmpty(item.expected)) throw new Exception("Negative control escaped: " + item.name);
                     writer.WriteLine("PASS " + item.name + ": " + count + " assertions");

@@ -21,6 +21,47 @@ public static class MenuDepthGraphicProgram
     private static void Set(object owner, string field, object? value) => owner.GetType().GetField(field, Instance)!.SetValue(owner, value);
     private static MenuDepthHeightfield? Field(MenuDepthGraphic graphic) => (MenuDepthHeightfield?)typeof(MenuDepthGraphic).GetField("_field", Instance)!.GetValue(graphic);
 
+    public static int Corpus(string output, Sprite unused)
+    {
+        _checks = 0; _output = output;
+        string assemblyFolder = Path.GetDirectoryName(typeof(MenuDepthGraphicProgram).Assembly.Location)!;
+        CorpusCounts expected = JsonUtility.FromJson<CorpusCounts>(File.ReadAllText(Path.Combine(assemblyFolder, "expected-corpus.json")));
+        Check(MenuDepthCatalogue.EnsureLoaded(), "the complete shipped original-image manifest loads through the actual production parser");
+        var fields = (Dictionary<string, MenuDepthCatalogue.Field>)typeof(MenuDepthCatalogue).GetField("Fields", Static)!.GetValue(null)!;
+        var narratives = (Dictionary<string, string>)typeof(MenuDepthCatalogue).GetField("Narratives", Static)!.GetValue(null)!;
+        var artwork = (Dictionary<string, List<MenuDepthCatalogue.Artwork>>)typeof(MenuDepthCatalogue).GetField("ArtBySource", Static)!.GetValue(null)!;
+        var defaults = (Dictionary<string, MenuDepthCatalogue.Artwork>)typeof(MenuDepthCatalogue).GetField("Defaults", Static)!.GetValue(null)!;
+        var guids = (Dictionary<string, MenuDepthCatalogue.Artwork>)typeof(MenuDepthCatalogue).GetField("Guids", Static)!.GetValue(null)!;
+        Check(fields.Count == expected.fields, "every shipped original-image depth identity survives actual Mono deserialization");
+        Check(narratives.Count == expected.narratives, "every shipped original narrative identity survives actual Mono deserialization");
+        Check(artwork.Sum(item => item.Value.Count) == expected.artwork,
+            "every shipped original native sprite mapping survives actual Mono deserialization");
+        Check(defaults.Count == expected.defaults && guids.Count == expected.guids,
+            "all shipped native default-image and compendium GUID identities survive actual Mono deserialization");
+        using (var writer = new StreamWriter(Path.Combine(output, "shipped-depth-load.csv")))
+        {
+            writer.WriteLine("source_id,depth_width,depth_height,native_width,native_height,declared_sha256");
+            foreach (MenuDepthCatalogue.Field entry in fields.Values.OrderBy(f => f.source_id))
+            {
+                MenuDepthHeightfield? depth = artwork.TryGetValue(entry.source_id, out List<MenuDepthCatalogue.Artwork> choices)
+                    ? MenuDepthCatalogue.Load(choices[0]) : null;
+                Check(depth != null && depth.Width == entry.depth_dimensions[0] && depth.Height == entry.depth_dimensions[1]
+                    && depth.SourceWidth == entry.source_dimensions[0] && depth.SourceHeight == entry.source_dimensions[1],
+                    "each shipped GMD1 companion passes actual SHA, CRC, dimension and qualified-source loading: " + entry.source_id);
+                writer.WriteLine(entry.source_id + "," + depth!.Width + "," + depth.Height + "," + depth.SourceWidth + ","
+                    + depth.SourceHeight + "," + entry.depth_sha256);
+            }
+        }
+        var cache = (Dictionary<string, MenuDepthHeightfield>)typeof(MenuDepthCatalogue).GetField("Cache", Static)!.GetValue(null)!;
+        Check(cache.Count <= 16, "loading the entire shipped corpus retains only the production sixteen-field cache budget");
+        return _checks;
+    }
+
+    [Serializable] private sealed class CorpusCounts
+    {
+        public int fields = 0, narratives = 0, artwork = 0, defaults = 0, guids = 0;
+    }
+
     public static int Run(string output, Sprite trimmed)
     {
         _checks = 0; _output = output;
