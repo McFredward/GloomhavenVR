@@ -20,6 +20,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from town_run_retention import cleanup_completed_run
+from project_compilers import cleanup_project_compilers
 
 
 def execute(argv, log, timeout=180):
@@ -158,6 +159,10 @@ def main():
         if (run / 'results.txt').exists(): print((run / 'results.txt').read_text(), end='')
         if exit_code: raise RuntimeError('Unity character portal proof failed; see ' + str(run))
     finally:
+        compilers = cleanup_project_compilers(project, editor_reaped=True)
+        (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
+        if compilers['remaining']:
+            raise RuntimeError('Private project compiler processes remain; retaining project caches: ' + str(run))
         receipt = cleanup_completed_run('menu-depth-character', exit_code, completion, ROOT, process_reaped=True)
         (run / 'cache-cleanup.json').write_text(json.dumps(receipt, indent=2) + '\n')
     return exit_code
