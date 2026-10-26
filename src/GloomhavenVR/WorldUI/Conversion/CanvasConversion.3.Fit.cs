@@ -3230,6 +3230,8 @@ internal static partial class CanvasConversion
                     .CharacterCreator?.CreatorWindow);
             AddSubViewCandidate(panel, display.ItemInventoryDisplay);
             AddSubViewCandidate(panel, display.BattleGoalWindow);
+            AddSubViewCandidate(panel, LevelUpComposite.FittedView);
+            AddSubViewCandidate(panel, LevelUpComposite.InventoryView);
         }
         catch (System.Exception)
         {

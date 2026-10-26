@@ -251,6 +251,8 @@ internal static partial class ModalFallback
         RestoreMenuSelectionGuard(); // put InControl mouse-hover focus back before we drop the windows
         Core.MixedReality.KeepMenusUnclipped(false); // item 5a: release the backdrop depth override
         CancelWindowRoomMaking();
+        LevelUpComposite.Reset();
+        ConfirmationOnOwner.Reset();
         ReleaseAllWindows("module shutdown");
         ResetPermanentQuestLog();
         Open.Clear();
@@ -2154,6 +2156,7 @@ internal static partial class ModalFallback
         // census throw can never amputate the pipeline that follows it. Two property reads in the
         // steady state.
         TickGuard.Run("WorldUI.AssignmentWindows", AssignmentWindows.Tick, "WorldUI");
+        TickGuard.Run("WorldUI.ConfirmationOnOwner", ConfirmationOnOwner.Tick, "WorldUI");
 
         // FRAME-ORDER ModalFallback.Tick [PhasePreConvertHide, PhasePolls, PhaseCatchAll, PhaseErrorBox, PhaseDecide, TickScreenBind, PhaseRelease, TickWindowLiveness, PhaseConvert, PhaseRaycast, PhaseGrabFollow, PhaseDestinations, PhaseProbeFlicker, PhaseProbeCameraOrder, PhaseProbeRenderTarget, PhaseScroll, PhaseRefit, PhaseChainPose, PhaseMenuGuard, PhaseEscape, PhasePublish]
         //   The modal pipeline, and TWO of these adjacencies are stated in prose elsewhere in the
