@@ -41,7 +41,10 @@ def main():
         for name in ('Assets/Editor', 'Assets/MenuDepth', 'Packages', 'ProjectSettings'):
             (project / name).mkdir(parents=True)
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
-        (project / 'Packages/manifest.json').write_text('{"dependencies":{}}\n')
+        # A versioned minimal project no longer receives Unity's template modules.
+        # AssetBundle must be enabled or BuildAssetBundles silently omits native
+        # class142 from the serialized file, producing an unloadable archive.
+        (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.assetbundle":"1.0.0"}}\n')
         source = ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering'
         files = [source / name for name in ('MenuDepthDisplay.shader', 'MenuDepthGraphic.shader', 'Unity-LICENSE.txt')]
         files.append(Path(__file__).parent / 'Editor/MenuDepthBuilder.cs')
@@ -60,6 +63,7 @@ def main():
         digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
         provenance = {'unity_version': '2021.3.5f1', 'target': 'StandaloneWindows64',
                       'graphics_apis': ['Direct3D11', 'OpenGLCore', 'Vulkan'], 'type_trees': True,
+                      'runtime_load_checked': True,
                       'bundle_bytes': bundle.stat().st_size, 'bundle_sha256': digest(bundle),
                       'sources': [{'path': str(p.relative_to(ROOT)), 'sha256': digest(p)} for p in files]}
         (source / 'provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')

@@ -7,8 +7,8 @@
     "Vulkan"
   ],
   "type_trees": true,
-  "bundle_bytes": 18056,
-  "bundle_sha256": "c5f4ad8ec7626bcbfc141c7389e4c4e1119d9759349b0464b6ae5d826f22ca5b",
+  "bundle_bytes": 18483,
+  "bundle_sha256": "beee5adbf2ebaba133e3e827269b45d267648ba681a465609c73cc51261b3c96",
   "sources": [
     {
       "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthDisplay.shader",
@@ -24,7 +24,8 @@
     },
     {
       "path": "unity/menu-depth-render/Editor/MenuDepthBuilder.cs",
-      "sha256": "3a4c60115befe9c9e6f06b5437dfc977294086a0b54eb82257ac9a3b7b78141c"
+      "sha256": "9899bdcd5fdf65b9bf9a38860155fb2d75e5ee09b9de6575a60f33b5c62121d3"
     }
-  ]
+  ],
+  "runtime_load_checked": true
 }
