@@ -67,6 +67,8 @@ Drop it and it settles back onto a hex.
   board with both hands to drag, turn and zoom it.
 - A 3D campaign map. The map lies on a table in the cellar; the quest list floats above the
   table's right edge.
+- Spatial menus with live 3D character previews, story illustrations in relief and subtle
+  depth for icons and window decoration.
 - Full VR multiplayer. Masks, hands, boards and pointing fingers are visible to everyone, and people
   without a headset can play in the same game on a flat screen.
 - Two environments built for the mod: an indoor cellar and an outdoor night forest, both reacting

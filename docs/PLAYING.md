@@ -105,6 +105,11 @@ the window; use its **X** to close it.
 **Chest rewards:** use **Continue** in the reward window. In multiplayer, everyone sees
 the reward; the player controlling that character confirms for the group.
 
+**Spatial menus:** character previews show the live model with perspective that follows
+your viewing position. Story and event illustrations have relief inside their windows;
+icons, frames and tabs have shallow depth. Compendium screenshots sit slightly behind
+their frames. Move a window or lean sideways to see the effect; text and controls stay sharp.
+
 **Stereo videos:** the intro, character films, ambient films and studio logo have depth
 inside the movable video window. With Cheats enabled, use **VR Options ▸ Advanced ▸ Cheats
 ▸ Videos** in a scenario to play each film individually. The catalogue contains spoilers

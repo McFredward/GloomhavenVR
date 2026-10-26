@@ -67,6 +67,8 @@ gleich macht. Leg sie zurück, dann setzt sie sich wieder auf ein Feld.
   ganze Brett mit beiden Händen, um es zu ziehen, zu drehen und zu zoomen.
 - Eine 3D-Kampagnenkarte. Die Karte liegt im Gewölbe auf einem Tisch; die Questliste schwebt
   über dessen rechter Kante.
+- Räumliche Menüs mit lebendigen 3D-Charaktervorschauen, Story-Bildern mit Tiefenrelief und
+  dezent gestaffelten Symbolen und Fensterverzierungen.
 - Vollwertiger VR-Mehrspieler. Masken, Hände, Bretter und zeigende Finger sehen alle anderen auch.
   Wer kein Headset hat, spielt in derselben Partie am flachen Bildschirm mit.
 - Zwei Umgebungen, die für die Mod gebaut wurden: ein Keller drinnen und ein Nachtwald draußen,

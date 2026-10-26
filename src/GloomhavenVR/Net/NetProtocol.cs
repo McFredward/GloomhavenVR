@@ -629,7 +629,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 722;
+    public const ushort ModBuild = 723;
+
+    // ModBuild723 — spatial native menus and prepared narrative illustration relief.
+    // User approved all reviewed menu-depth families on 2026-10-26. Render the original
+    // character scene separately for each actual window/eye, keeping native animations,
+    // skins, camera effects and presentation authority. Story/city/road artwork receives
+    // source-bound offline depth fields; compendium screenshots remain recessed planes.
+    // Reward/quest/class icons, glows, selected frames, tabs and window decoration gain
+    // shallow mesh depth. Native text, layout, hit rectangles and callbacks stay original.
+    // Preserve orthographic UI sampling; analytically project only the depth content from
+    // each tracked eye through its movable window. Cover converted panels and the native
+    // main-menu screen stack, with mono fallback and exception-safe restoration/teardown.
+    // Shared geometry uses original window units, independently of viewer zoom. No wire
+    // grammar/default change; version3, next-free123. The normal installer/archive carries
+    // 515 external GMD1 fields plus their exact native-source manifest beside the DLL;
+    // the small Unity2021.3.5 rendering bundle is embedded. See MENU723-SPATIAL-UI.md.
 
     // ModBuild722 — level-up and confirmation containment. The native sibling card
     // inventory now belongs to the original level-up/character window, not a sticky

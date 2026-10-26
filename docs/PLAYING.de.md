@@ -110,6 +110,12 @@ Mit beiden Händen an der Stange die Größe ändern; über das **X** das Fenste
 **Truhenbelohnungen:** im Belohnungsfenster **Weiter** drücken. Im Multiplayer sehen alle
 die Belohnung; der Spieler des betroffenen Characters bestätigt für die Gruppe.
 
+**Räumliche Menüs:** Charaktervorschauen zeigen das lebendige Modell mit einer Perspektive,
+die deiner Blickposition folgt. Story- und Ereignisbilder haben Tiefe innerhalb ihrer Fenster;
+Symbole, Rahmen und Reiter sind leicht räumlich gestaffelt. Kompendium-Abbildungen liegen
+etwas hinter ihrem Rahmen. Verschiebe ein Fenster oder lehne dich zur Seite, um den Effekt
+zu sehen; Texte und Bedienelemente bleiben scharf.
+
 **3D-Videos:** Intro, Charakterfilme, Umgebungsfilme und Studio-Logo haben Tiefe im
 beweglichen Videofenster. Mit aktivierten Cheats kannst du im Szenario unter **VR Optionen ▸
 Erweitert ▸ Cheats ▸ Videos** jeden Film einzeln abspielen. Der Katalog enthält Spoiler
