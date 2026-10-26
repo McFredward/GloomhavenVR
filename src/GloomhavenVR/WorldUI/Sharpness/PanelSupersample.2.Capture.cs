@@ -1624,7 +1624,8 @@ internal static partial class PanelSupersample
         bool moving = IsMoving(e);
         int msaa = e.Msaa;
         long budget = System.Math.Min(MaxPanelVramBytes,
-            MaxTotalVramBytes - (_vramTotal - e.VramBytes));
+            MaxTotalVramBytes - (_vramTotal - e.VramBytes) - (_menuDepthVramTotal - e.MenuDepthBytes));
+        if (MenuDepth.MenuDepthSources.HasContent(e.Panel.HostRect)) budget /= 2;
         ResolveRate(e, frame, ref msaa, budget, out float rate, out int rtW, out int rtH,
                     out long vram);
         if (rtW == e.RtW && rtH == e.RtH)
@@ -1682,6 +1683,7 @@ internal static partial class PanelSupersample
             return;
         }
         long previous = e.VramBytes;
+        ReleaseMenuDepth(e);
         RenderTexture old = e.Rt;
         RenderTexture? oldMip = e.MipRt;
         // The texture the quad is showing RIGHT NOW, captured before it is replaced: the carry-over
@@ -2452,6 +2454,7 @@ internal static partial class PanelSupersample
         if (_hooksInstalled)
             return;
         _hooksInstalled = true;
+        MenuDepth.MenuDepthSources.ExcludedDirectLayers = _poolMask;
         Camera.onPreCull += OnPreCull;
         Camera.onPostRender += OnPostRender;
         // THE TWO EVENTS THAT MAKE THE RELEASE REPORT DECIDABLE. Font.textureRebuilt fires when a
@@ -2469,6 +2472,7 @@ internal static partial class PanelSupersample
         if (!_hooksInstalled)
             return;
         _hooksInstalled = false;
+        MenuDepth.MenuDepthSources.ExcludedDirectLayers = 0;
         Camera.onPreCull -= OnPreCull;
         Camera.onPostRender -= OnPostRender;
         Font.textureRebuilt -= OnFontTextureRebuilt;
@@ -2540,7 +2544,7 @@ internal static partial class PanelSupersample
                 // would inflate CaptureTicks, MotionCaptures and the two coincidence counters, and
                 // the CAPTURE PATH field's whole readability rests on those sharing one denominator
                 // with the frame count. The prime writes its own projection and does its own resolve.
-                if (ReferenceEquals(mine, _primingEntry))
+                if (ReferenceEquals(mine, _primingEntry) || MenuDepth.MenuDepthDisplay.IsCapturing(cam))
                     return;
                 mine.LastCaptureStart = Time.realtimeSinceStartup;
                 // THE CAPTURE-COINCIDENCE COUNTERS, recorded at the LAST instant before this camera
@@ -2580,6 +2584,8 @@ internal static partial class PanelSupersample
                     NoteQuadSample(Entries[i]);
                 }
             }
+            if (cam == Rig.VRRigDriver.HeadCamera)
+                CaptureMenuDepth(cam);
             // THE UNION, not one bit: since ModBuild 194 every engaged panel holds its own pool
             // layer, so a camera that is not one of ours must lose ALL of them for the duration of
             // its render or a panel would be drawn into the eye as well as into its own capture.
@@ -2612,7 +2618,7 @@ internal static partial class PanelSupersample
                 return;
             // See OnPreCull: a priming render is not a frame's capture, and PrimeNewTarget resolves
             // and books it itself.
-            if (ReferenceEquals(e, _primingEntry))
+            if (ReferenceEquals(e, _primingEntry) || MenuDepth.MenuDepthDisplay.IsCapturing(cam))
                 return;
             ResolveAndMip(e);
             // ModBuild 204: the display target the quad shows has now had one COMPLETE capture +
@@ -2941,6 +2947,7 @@ internal static partial class PanelSupersample
 
     private static void DestroyEntryObjects(Entry e)
     {
+        ReleaseMenuDepth(e);
         if (e.Cam != null)
             e.Cam.targetTexture = null;
         if (e.CamGo != null)

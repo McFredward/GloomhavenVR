@@ -1,0 +1,30 @@
+{
+  "unity_version": "2021.3.5f1",
+  "target": "StandaloneWindows64",
+  "graphics_apis": [
+    "Direct3D11",
+    "OpenGLCore",
+    "Vulkan"
+  ],
+  "type_trees": true,
+  "bundle_bytes": 14673,
+  "bundle_sha256": "8f5f92642ce418fdcd4b94fc3403cc0e7e4d5f0710889ffa7bf96740de1822c2",
+  "sources": [
+    {
+      "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthDisplay.shader",
+      "sha256": "8931a5a19ecc7a0da1921ecddaf97c5b1e581411a701ed77f0d4e5548813cc50"
+    },
+    {
+      "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthGraphic.shader",
+      "sha256": "1bdc4ab78c3856633a183fa6c4380be6ebcfbcbb9206f61fd460db60eb77027d"
+    },
+    {
+      "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/Unity-LICENSE.txt",
+      "sha256": "9ce7cf0c6902bea1d3919d78c20ef28fb052b545fecace901e4d98e8c2bcf4ce"
+    },
+    {
+      "path": "unity/menu-depth-render/Editor/MenuDepthBuilder.cs",
+      "sha256": "3a4c60115befe9c9e6f06b5437dfc977294086a0b54eb82257ac9a3b7b78141c"
+    }
+  ]
+}

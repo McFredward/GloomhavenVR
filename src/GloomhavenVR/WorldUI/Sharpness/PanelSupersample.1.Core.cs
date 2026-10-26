@@ -1027,6 +1027,10 @@ internal static partial class PanelSupersample
     /// <summary>One supersampled panel: everything allocated for it and everything to hand back.</summary>
     private sealed class Entry
     {
+        internal MenuDepth.MenuDepthDisplay? MenuDepthDisplay;
+        internal long MenuDepthBytes;
+        internal int MenuDepthFrame = -1;
+        internal int MenuDepthFailures;
         internal ConvertedPanel Panel = null!;
         internal string Window = string.Empty;
 
@@ -2736,7 +2740,8 @@ internal static partial class PanelSupersample
         // ACHIEVED field, so a degraded window never reads like a full-strength one.
         int msaa = PreferredMsaa;
         int askedMsaa = msaa;
-        long budget = System.Math.Min(MaxPanelVramBytes, MaxTotalVramBytes - _vramTotal);
+        long budget = System.Math.Min(MaxPanelVramBytes, MaxTotalVramBytes - _vramTotal - _menuDepthVramTotal);
+        if (MenuDepth.MenuDepthSources.HasContent(panel.HostRect)) budget /= 2;
         ResolveRate(e, frame, ref msaa, budget, out factor, out int rtW, out int rtH, out long vram);
         float askedFactor = e.AskedFactor;
         e.EffectiveFactor = factor;
