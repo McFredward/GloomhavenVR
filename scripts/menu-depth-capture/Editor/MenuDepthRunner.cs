@@ -3,6 +3,7 @@ using System.Collections;
 using System.IO;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 public static class MenuDepthRunner
@@ -15,14 +16,12 @@ public static class MenuDepthRunner
     {
         string[] args = Environment.GetCommandLineArgs();
         manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(args[Array.IndexOf(args, "-menuDepthManifest") + 1]));
-        EditorSettings.enterPlayModeOptionsEnabled = true;
-        EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload | EnterPlayModeOptions.DisableSceneReload;
+        EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         EditorApplication.update += Run;
-        EditorApplication.EnterPlaymode();
     }
     private static void Run()
     {
-        if (!EditorApplication.isPlaying || ran) return;
+        if (ran) return;
         ran = true; bool passed = true;
         using (var writer = new StreamWriter(manifest.result))
         {
