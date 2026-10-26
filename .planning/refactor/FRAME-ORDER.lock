@@ -89,5 +89,8 @@ CardsDriver.TickInteractionsAndStatus | src/GloomhavenVR/Cards/Driver/CardsDrive
 # offered-card plane and material/sorting sample must follow TownServicePresentation.LateTick
 # as well as grab-bar placement and CanvasConversion's final transparency order.
 WorldUIModule.LateTail | src/GloomhavenVR/WorldUI/WorldUIModule.cs | ordered | [PanelMipBake.TickArrivals, TownServicePresentation.LateTick, GrabBarTween.TickAll, CanvasConversion.TickPanelOrder, Net.NetAvatarDriver.PublishTownServicesFinal]
+# Native spatial content must be known before supersampled panel engagement sizes
+# its original and additional-eye targets against the same finite memory budget.
+WorldUIModule.MenuDepth | src/GloomhavenVR/WorldUI/WorldUIModule.cs | ordered | [MenuDepth.MenuDepthDriver.Tick, CanvasConversion.LateTick]
 ModalFallback.Tick | src/GloomhavenVR/WorldUI/Modal/ModalFallback.4.Tick.cs | ordered | [PhasePreConvertHide, PhasePolls, PhaseCatchAll, PhaseErrorBox, PhaseDecide, TickScreenBind, PhaseRelease, TickWindowLiveness, PhaseConvert, PhaseRaycast, PhaseGrabFollow, PhaseDestinations, PhaseProbeFlicker, PhaseProbeCameraOrder, PhaseProbeRenderTarget, PhaseScroll, PhaseRefit, PhaseChainPose, PhaseMenuGuard, PhaseEscape, PhasePublish]
 GrabbableModal.LateSyncHost | src/GloomhavenVR/WorldUI/Grab/GrabbableModal.cs | ordered | [SyncHostToFrame, SeatBadge]

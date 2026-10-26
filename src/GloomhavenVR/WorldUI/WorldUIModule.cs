@@ -471,6 +471,9 @@ internal sealed class WorldUIModule : IVRModule
                 ("ActorBars", ActorBars.Tick),
                 ("ActorBars.Late", ActorBars.LateTick),
                 ("WorldTooltips.Late", _tooltips.LateTick),
+                // Register original depth content before panel engagement reserves its
+                // two-eye targets. Actual eye preparation runs after native visual writers.
+                // FRAME-ORDER WorldUIModule.MenuDepth [MenuDepth.MenuDepthDriver.Tick, CanvasConversion.LateTick]
                 ("MenuDepth", MenuDepth.MenuDepthDriver.Tick),
                 ("CanvasConversion.Late", CanvasConversion.LateTick), // test #21: 2D flatten after the game's tween writers
                 ("MapRetirementPrompt.Late", MapRoom.MapRetirementPrompt.LateTick),
