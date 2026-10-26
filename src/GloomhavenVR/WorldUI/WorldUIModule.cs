@@ -267,6 +267,7 @@ internal sealed class WorldUIModule : IVRModule
         TownServiceSync.Shutdown();
         TownServiceAssets.Reset();
         MapRoom.MapRetirementPrompt.Reset();
+        MenuDepth.MenuDepthDriver.Shutdown();
         ModalFallback.Detach();
         NonDominantHold.Reset();
 
@@ -469,6 +470,7 @@ internal sealed class WorldUIModule : IVRModule
                 ("ActorBars", ActorBars.Tick),
                 ("ActorBars.Late", ActorBars.LateTick),
                 ("WorldTooltips.Late", _tooltips.LateTick),
+                ("MenuDepth", MenuDepth.MenuDepthDriver.Tick),
                 ("CanvasConversion.Late", CanvasConversion.LateTick), // test #21: 2D flatten after the game's tween writers
                 ("MapRetirementPrompt.Late", MapRoom.MapRetirementPrompt.LateTick),
                 // ModBuild 191: the LOCAL tooltip family (item card hints and friends) hangs inside

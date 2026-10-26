@@ -27,6 +27,7 @@ internal sealed partial class FlatScreen
         if (_captureRenderHooked == enabled)
             return;
         _captureRenderHooked = enabled;
+        SetMenuDepthGuard(enabled);
         if (enabled)
         {
             try
@@ -80,6 +81,7 @@ internal sealed partial class FlatScreen
 
     private void OnCapturePreCull(Camera camera)
     {
+        if (camera != null && ReferenceEquals(camera, _menuDepthBorrowedCamera)) return;
         RestoreCaptureMask(); // Interrupted renders cannot leave native projection writers blinded.
         if (!VRSession.IsRunning || camera == null || camera == Rig.VRRigDriver.HeadCamera)
             return;
