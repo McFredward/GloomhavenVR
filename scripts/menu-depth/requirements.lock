@@ -1,0 +1,4 @@
+# Offline developer tools only; original neural code/checkpoint pins are unchanged.
+-r ../stereo-video/intro-requirements.lock
+UnityPy==1.25.4
+TypeTreeGeneratorAPI==0.0.10
