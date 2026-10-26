@@ -14,6 +14,8 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from town_run_retention import cleanup_completed_run
+sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
+from project_compilers import cleanup_project_compilers
 
 
 def execute(argv, log, timeout=420):
@@ -47,7 +49,9 @@ def main():
     try:
         fixture = ROOT / 'tests/GloomhavenVR.MenuDepthCaptureTests'
         source = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
-        originals = {p.name: p.read_text() for p in source.glob('*.cs')}
+        names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs',
+                 'MenuDepthProjection.cs', 'MenuDepthDisplay.cs')
+        originals = {name: (source / name).read_text() for name in names}
         originals['PanelDepth.cs'] = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs').read_text()
         legacy_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs'
         legacy = legacy_path.read_text()
@@ -148,8 +152,9 @@ def main():
         (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.ugui': '1.0.0',
             'com.unity.modules.assetbundle': '1.0.0', 'com.unity.modules.ui': '1.0.0'}}) + '\n')
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        pins = [*source.glob('*.cs'), legacy_path, core_path, ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
+        pins = [*(source / name for name in names), legacy_path, core_path, ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
                 *fixture.glob('*'), Path(__file__), Path(__file__).parent / 'Editor/MenuDepthRunner.cs',
+                ROOT / 'scripts/menu-depth-character/project_compilers.py',
                 ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle']
         hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in pins if p.is_file()}
         (run / 'source-hashes.json').write_text(json.dumps({'sha256': hashes,
@@ -165,6 +170,10 @@ def main():
         (run / 'source-stability.json').write_text(json.dumps({'unchanged': True, 'inputs': len(hashes)}) + '\n')
         return status
     finally:
+        compilers = cleanup_project_compilers(run / 'unity', editor_reaped=True)
+        (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
+        if compilers['remaining']:
+            raise RuntimeError('Project compiler survived reaping; its generated caches are retained.')
         cleanup = cleanup_completed_run('menu-depth-capture', status, completion, ROOT, process_reaped=True)
         (run / 'cache-cleanup.json').write_text(json.dumps(cleanup, indent=2) + '\n')
 

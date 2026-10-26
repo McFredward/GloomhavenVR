@@ -13,6 +13,8 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from town_run_retention import cleanup_completed_run
+sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
+from project_compilers import cleanup_project_compilers
 
 
 def execute(argv, log):
@@ -65,6 +67,10 @@ def main():
         print(json.dumps({'status': 'pass', 'bytes': bundle.stat().st_size, 'sha256': digest(bundle)}))
         return 0
     finally:
+        compilers = cleanup_project_compilers(run / 'unity', editor_reaped=True)
+        (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
+        if compilers['remaining']:
+            raise RuntimeError('Project compiler survived reaping; its generated caches are retained.')
         cleanup = cleanup_completed_run('menu-depth-shader-build', status, log, ROOT, process_reaped=True)
         (run / 'cache-cleanup.json').write_text(json.dumps(cleanup, indent=2) + '\n')
 
