@@ -32,7 +32,11 @@ def verify_project_items(source: Path, root: Path, evidence: Path, execute, chec
             group.append(item)
             declarations.append(ET.tostring(item, encoding='unicode'))
     ET.SubElement(group, 'Compile', Include='MenuDepthItemProgram.cs')
-    folder = root / 'src/GloomhavenVR'
+    # Keep this generated project outside the fixture's preserved src/ tree so
+    # cleanup_completed_run can remove its bin/obj caches after the process exits.
+    folder = evidence / 'item-proof'
+    folder.mkdir()
+    shutil.copytree(root / 'src/GloomhavenVR/Assets/MenuDepth', folder / 'Assets/MenuDepth')
     filename = folder / 'MenuDepthItemProof.csproj'
     ET.ElementTree(project).write(filename, encoding='utf-8', xml_declaration=True)
     (folder / 'MenuDepthItemProgram.cs').write_text(
