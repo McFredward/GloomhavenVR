@@ -64,7 +64,27 @@ This source review is not a new hardware or unmodded-crossplay acceptance run.
 
 ## Validation
 
-Final integrated receipts and focused test counts are recorded here after execution. The
-bounded change is validated with the affected presentation suites, source checks, strict
-Release compilation and complete unfiltered golden vectors. Unchanged unrelated runtime
-suites inherit the published721 evidence; this is not a new full local-suite sweep.
+- Level-up production fixture:282 runtime assertions,8 integration/order checks and8 causal
+  negative controls pass across multiple zoom/yaw frames, including silent Unity reparent refusal.
+- Generic confirmation fixture:153 assertions and10 causal negative controls pass, including
+  native queued/pooled requests, two managers, parent dimming and safe presentation-only release.
+- Integrated affected suites:10/10 pass (level-up, dialogs, announcements, modal closing,
+  map flow, retirement, hints, ink bounds, conversion rollback and options). The bounded final
+  reparent guard was then exercised only in its affected level-up fixture; other green evidence
+  is reused rather than rerunning unchanged areas.
+- Source checks16/16; native and metadata-reference Release builds0 warnings/0 errors;
+  bilingual documentation and bundle format checks pass. All21 exact Harmony target methods
+  were checked against the read-only native source, not just the fixture substitutes.
+- Complete unfiltered golden vectors:306,431 assertions pass. Wire grammar remains unchanged.
+- Compiled review against private current-dev baseline:4 existing UI types changed and4 helper/
+  patch types added;9 other types carry only the build-number change, plus one branch stamp.
+  No removed types/resources, saved keys or log tokens. Only2 bounded diagnostic tokens added.
+- A final review caught refused native reparenting followed by rebind: the retained mount could
+  be mistaken for a native home. The new guard defers rebind until every original returns;
+  its targeted negative control rejects the exact regression.
+
+Receipts are retained under ignored `debug/level722`, `debug/confirm722` and
+`debug/level722-test-worker`. Standalone test invocations and central suite completion clean
+owned regenerable caches after processes exit. Unchanged unrelated runtime suites inherit
+published721 evidence; this is not a new full local-suite sweep. New headset geometry,
+actual cross-scene prefab admission and multiplayer pictures are not claimed as tested.

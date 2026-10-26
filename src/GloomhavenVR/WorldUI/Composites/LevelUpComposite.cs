@@ -140,6 +140,9 @@ internal static class LevelUpComposite
             || (_mount != null && !ReferenceEquals(_mount.parent, mountParent)))
         {
             Reset();
+            // A rejected restore still owns an original subtree. Do not recapture
+            // its temporary mount as a new native home on this rebind attempt.
+            if (_rect != null || _mount != null || _comparison != null) return;
             // A previous standalone float must hand back its native home BEFORE the
             // home is recorded; otherwise its later release steals our parked child.
             if (!ModalFallback.ReleaseForComposite(inventoryWindow)) return;

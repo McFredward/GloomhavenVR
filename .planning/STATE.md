@@ -1,3 +1,22 @@
+**Level-up and confirmation containment, Build722, 2026-10-26.**
+
+The supplied719 log shows the native sibling LevelUpInventory floated independently and
+remaining sticky after completion. It now belongs to the actual original level-up/character
+window, with existing cards left of the full preview and upgrade choices right; original
+animations and callbacks remain. All three fixed-fit populations include the exact level
+roots. Generic confirmations track21 native entrypoints across16 producer scopes and5
+manager methods, retaining their original callback/actor/network authority and safe unowned
+fallback. Closing/replacing/rebinding restores exact native ownership; rejected Unity reparent
+cannot overwrite the preserved native home. Review covers other confirmation families too.
+
+Level-up282 assertions/8 integration checks/8 causal controls and dialog153/10 pass;
+integrated affected suites10/10, source16/16, strict real/metadata builds0W0E and full306431
+golden assertions pass. Compiled scope is4 changed UI types/4 added helpers plus version stamps.
+No asset/default/wire change. This bounded repair reuses unchanged721 evidence rather than
+repeating the complete local-suite sweep. Source proofs do not establish new headset/remote
+picture acceptance. See `LEVEL722-CONTAINMENT.md` and `CONFIRM722-AUDIT.md`; preserved receipts
+are under ignored `debug/level722`, `debug/confirm722`, `debug/level722-test-worker`.
+
 **Release1.2.1 published, Build721, 2026-10-23.**
 
 Published from main7b173b376 via reviewed PR21, with the exact tested dev tree

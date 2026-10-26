@@ -122,6 +122,18 @@
       "weight": 45
     },
     {
+      "id": "level-up-composite",
+      "command": [
+        "bash",
+        "scripts/level-up-composite-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 38
+    },
+    {
       "id": "scenario-win-cheat",
       "command": [
         "bash",
