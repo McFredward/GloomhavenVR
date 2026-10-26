@@ -629,7 +629,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 721;
+    public const ushort ModBuild = 722;
+
+    // ModBuild722 — level-up and confirmation containment. The native sibling card
+    // inventory now belongs to the original level-up/character window, not a sticky
+    // standalone float. Owned comparison cards and upgrade choices share one layout
+    // around the full native preview; native slide/reveal/selection callbacks remain.
+    // All fixed-fit populations include the exact level-up roots so they do not
+    // enlarge the character column. Closed/replaced views return their original homes.
+    // Generic confirmations follow exact native producer scopes (level-up/reset,
+    // perks, equipment warnings, roster and menu actions) into a live containing
+    // window. Original callbacks/readiness/actor authority and standalone fallback
+    // for unowned global prompts remain. No wire grammar, defaults or asset change.
 
     // ModBuild721 — release1.2.1 identity for the reviewed Build720 development frontier.
     // Ships physical active-card/summon dismissal and original local/remote pile flights,

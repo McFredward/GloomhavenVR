@@ -24,15 +24,74 @@ internal static class LevelUpComposite
     private static readonly MovedSubtreeLayers Layers = new(128);
     private static readonly Vector3[] Corners = new Vector3[4];
     private static float _previewRight;
+    private static float _previewLeft;
+    private static ComparisonSeat? _comparison;
     private static bool _faultLogged;
+
+    /// <summary>The game deliberately keeps the existing deck visible during level-up
+    /// (NewPartyDisplayUI._ignoreDisplayTypes includes CARDS). It must share the same
+    /// preview envelope too, rather than covering the right fifth of the full card.
+    /// Mounting this original view below the level root also makes fixed-fit apply one
+    /// group transform, instead of fighting a second writer on the deck's own root.</summary>
+    private sealed class ComparisonSeat
+    {
+        internal readonly RectTransform Rect, Mount;
+        private readonly Transform? _parent;
+        private readonly int _index;
+        private readonly Vector2 _min, _max, _pivot, _size;
+        private readonly Vector3 _position, _scale;
+        private readonly Quaternion _rotation;
+
+        internal ComparisonSeat(RectTransform rect, RectTransform parent)
+        {
+            Rect = rect; _parent = rect.parent; _index = rect.GetSiblingIndex();
+            _min = rect.anchorMin; _max = rect.anchorMax; _pivot = rect.pivot;
+            _size = rect.sizeDelta; _position = rect.anchoredPosition3D;
+            _scale = rect.localScale; _rotation = rect.localRotation;
+            Vector2 measured = rect.rect.size;
+            Mount = (RectTransform)new GameObject("GloomhavenVR.LevelUpComparisonSeat",
+                typeof(RectTransform)).transform;
+            Mount.SetParent(parent, false);
+            Mount.anchorMin = Mount.anchorMax = Mount.pivot = new Vector2(.5f, .5f);
+            Mount.sizeDelta = measured;
+            rect.SetParent(Mount, false);
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f);
+            rect.sizeDelta = measured;
+            rect.anchoredPosition3D = Vector3.zero;
+            rect.localScale = Vector3.one; rect.localRotation = Quaternion.identity;
+        }
+
+        internal bool Restore()
+        {
+            if (Rect != null)
+            {
+                Rect.SetParent(_parent, false);
+                if (!ReferenceEquals(Rect.parent, _parent)) return false;
+                Rect.anchorMin = _min; Rect.anchorMax = _max; Rect.pivot = _pivot;
+                Rect.sizeDelta = _size; Rect.anchoredPosition3D = _position;
+                Rect.localScale = _scale; Rect.localRotation = _rotation;
+                Rect.SetSiblingIndex(_index);
+            }
+            if (Mount != null) Object.Destroy(Mount.gameObject);
+            return true;
+        }
+    }
 
     // All three fixed-fit populations (fit, arrival signature and reveal veil) read
     // these exact original roots. IsShowing is NOT a lifetime: the game clears it
     // before the player chooses a card, while myWindow remains open.
     internal static UIWindow? FittedView => Singleton<UILevelUpWindow>.IsInitialized
         ? Singleton<UILevelUpWindow>.Instance?.myWindow : null;
-    internal static UILevelUpCardInventory? InventoryView => Singleton<UILevelUpWindow>.IsInitialized
-        ? Singleton<UILevelUpWindow>.Instance?.inventory : null;
+    internal static UILevelUpCardInventory? InventoryView
+    {
+        get
+        {
+            var inventory = Singleton<UILevelUpWindow>.IsInitialized
+                ? Singleton<UILevelUpWindow>.Instance?.inventory : null;
+            return inventory != null ? inventory : Singleton<UIResetLevelUpWindow>.IsInitialized
+                ? Singleton<UIResetLevelUpWindow>.Instance?.inventory : null;
+        }
+    }
 
     internal static void Tick()
     {
@@ -51,7 +110,7 @@ internal static class LevelUpComposite
     {
         var level = Singleton<UILevelUpWindow>.IsInitialized
             ? Singleton<UILevelUpWindow>.Instance : null;
-        UILevelUpCardInventory? inventory = level != null ? level.inventory : null;
+        UILevelUpCardInventory? inventory = InventoryView;
         UIWindow? inventoryWindow = inventory != null ? inventory.GetComponent<UIWindow>() : null;
         UIWindow? owner = level != null && level.myWindow != null && level.myWindow.IsOpen
             ? level.myWindow : null;
@@ -114,6 +173,7 @@ internal static class LevelUpComposite
             // slide displacement; the mount supplies only its stable final seat.
             rect.anchoredPosition3D = new Vector3(_position.x, 0f, 0f);
             _previewRight = float.NegativeInfinity;
+            _previewLeft = float.PositiveInfinity;
             Layers.Begin(parent.gameObject.layer);
             Layers.Walk(rect);
             VRLog.Info("WorldUI", "LEVEL-UP COMPOSITE: original card inventory seated inside '"
@@ -134,7 +194,10 @@ internal static class LevelUpComposite
         {
             preview.GetWorldCorners(Corners);
             for (int i = 0; i < Corners.Length; i++)
+            {
                 _previewRight = Mathf.Max(_previewRight, ownerRect.InverseTransformPoint(Corners[i]).x);
+                _previewLeft = Mathf.Min(_previewLeft, ownerRect.InverseTransformPoint(Corners[i]).x);
+            }
         }
         // Browsing reset inventory sits beside the original character card list.
         if (!leveling && NewPartyDisplayUI.PartyDisplay?.AbilityCardsDisplay?.transform is RectTransform cards)
@@ -144,6 +207,27 @@ internal static class LevelUpComposite
                 _previewRight = Mathf.Max(_previewRight, ownerRect.InverseTransformPoint(Corners[i]).x);
         }
         if (float.IsNegativeInfinity(_previewRight)) _previewRight = 0f;
+        if (float.IsPositiveInfinity(_previewLeft)) _previewLeft = 0f;
+        RectTransform? comparison = leveling
+            ? NewPartyDisplayUI.PartyDisplay?.AbilityCardsDisplay?.transform as RectTransform : null;
+        UIWindow? comparisonWindow = comparison != null ? comparison.GetComponent<UIWindow>() : null;
+        bool compareVisible = comparison != null && comparison.gameObject.activeInHierarchy
+            && (comparisonWindow == null || comparisonWindow.IsOpen || comparisonWindow.IsVisible);
+        if (_comparison != null && (!compareVisible || !ReferenceEquals(comparison, _comparison.Rect)))
+        {
+            if (!_comparison.Restore()) return;
+            _comparison = null;
+        }
+        if (compareVisible && comparison != null && _comparison == null
+            && !ReferenceEquals(comparison, _rect) && !comparison.IsChildOf(ownerRect))
+            _comparison = new ComparisonSeat(comparison, ownerRect);
+        if (_comparison != null && _comparison.Mount != null)
+        {
+            Vector3 leftSeat = new(_previewLeft - ChromeParkTuning.ChromeGapPx
+                - _comparison.Rect.rect.width * .5f, 0f, 0f);
+            if ((_comparison.Mount.anchoredPosition3D - leftSeat).sqrMagnitude > .01f)
+                _comparison.Mount.anchoredPosition3D = leftSeat;
+        }
         Vector3 seat = new(_previewRight + ChromeParkTuning.ChromeGapPx + _rect.rect.width * .5f, 0f, 0f);
         if ((_mount.anchoredPosition3D - seat).sqrMagnitude > .01f)
             _mount.anchoredPosition3D = seat;
@@ -171,6 +255,11 @@ internal static class LevelUpComposite
 
     internal static void Reset()
     {
+        if (_comparison != null)
+        {
+            if (!_comparison.Restore()) return;
+            _comparison = null;
+        }
         if (_rect != null)
         {
             // Return while the destination host is still alive (pre-release hook).
