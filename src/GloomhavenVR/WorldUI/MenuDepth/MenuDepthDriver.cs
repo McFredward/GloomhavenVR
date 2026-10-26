@@ -115,7 +115,8 @@ internal static class MenuDepthDriver
         DeadImages.Clear();
         foreach (KeyValuePair<Image, Owned> item in OwnedImages)
         {
-            if (item.Key == null || item.Value.Mesh == null) { DeadImages.Add(item.Key); continue; }
+            // Destroyed Unity objects compare equal to null but retain their dictionary key.
+            if (item.Key == null || item.Value.Mesh == null) { DeadImages.Add(item.Key!); continue; }
             if (item.Value.Epoch != _epoch && item.Value.Mesh.enabled) item.Value.Mesh.enabled = false;
         }
         for (int i = 0; i < DeadImages.Count; i++) OwnedImages.Remove(DeadImages[i]);

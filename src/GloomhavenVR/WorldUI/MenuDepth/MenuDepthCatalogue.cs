@@ -16,7 +16,7 @@ internal static class MenuDepthCatalogue
         public int[] source_dimensions = Array.Empty<int>();
         public string depth_file = string.Empty;
         public int[] depth_dimensions = Array.Empty<int>();
-        public int depth_bytes;
+        public int depth_bytes = 0;
         public string depth_sha256 = string.Empty;
     }
     [Serializable] internal sealed class Narrative
@@ -45,7 +45,7 @@ internal static class MenuDepthCatalogue
     }
     [Serializable] private sealed class Manifest
     {
-        public int schema;
+        public int schema = 0;
         public string status = string.Empty;
         public string format = string.Empty;
         public Field[] images = Array.Empty<Field>();
