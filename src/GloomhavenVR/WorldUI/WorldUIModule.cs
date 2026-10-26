@@ -139,6 +139,7 @@ internal sealed class WorldUIModule : IVRModule
         // rested on an inverted A-B-A test and is retracted in the patch header and in
         // RenderTargetProbe. See Character3DDisplayRefcount.
         VRSession.Harmony?.PatchAll(typeof(Patches.Character3DDisplayRefcount));
+        VRSession.Harmony?.PatchAll(typeof(MenuDepth.MenuDepthCharacterDisplayObserver));
         // ModBuild 191 (user report 2026-08-21, the merchant's item mouseovers): the SECOND tooltip
         // family — UIPartyItemInventoryTooltip / UILocalTooltip / UITempleSlotTooltip / TooltipUI —
         // never touches CanvasManager.tooltipCanvas, so WorldTooltips had never heard of it. Each of

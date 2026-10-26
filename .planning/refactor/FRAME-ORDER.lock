@@ -1,7 +1,7 @@
 # FRAME-ORDER.lock — the second of two levers.
 #
 # LAST VERIFIED 2026-09-08 against 49ceab21 (ModBuild 483).
-# `bash scripts/check-frame-order.sh` -> "frame order: 11 locked orderings verified against
+# `bash scripts/check-frame-order.sh` -> "frame order: 12 locked orderings verified against
 # source and lock", exit 0. This file is MACHINE-CHECKED, so its ENTRIES cannot go stale without
 # the gate going red: the eleven orderings below are current by construction and need no audit.
 # What CAN go stale is the prose. One number in it has: the 2026-08 audit note below says the mod
