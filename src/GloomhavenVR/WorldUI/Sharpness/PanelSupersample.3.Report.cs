@@ -59,8 +59,8 @@ internal static partial class PanelSupersample
                                            : " NONE")
           .Append(", ").Append(shown != null ? shown.filterMode.ToString() : "?")
           .Append(" aniso ").Append(shown != null ? shown.anisoLevel : 0)
-          .Append(", ").Append(Mb(e.VramBytes)).Append(" MB VRAM (session total ")
-          .Append(Mb(_vramTotal)).Append(" of ").Append(Mb(MaxTotalVramBytes)).Append(" MB across ")
+          .Append(", ").Append(Mb(e.VramBytes + e.MenuDepthBytes)).Append(" MB VRAM (session total ")
+          .Append(Mb(_vramTotal + _menuDepthVramTotal)).Append(" of ").Append(Mb(MaxTotalVramBytes)).Append(" MB across ")
           .Append(Entries.Count).Append(" panel(s), cap ").Append(MaxPanels).Append("); ")
           .Append(sampling)
           .Append(" CAPTURE: ").Append(e.Captures).Append(" so far, every ")
@@ -1404,7 +1404,7 @@ internal static partial class PanelSupersample
                   + (life.GridVramUnlocked > 0
                       ? $"{100f * life.GridVramLocked / life.GridVramUnlocked:F0} %"
                       : "n/a")
-                  + $" of ModBuild 242's footprint on this window; session total {Mb(_vramTotal)} of "
+                  + $" of ModBuild 242's footprint on this window; session total {Mb(_vramTotal + _menuDepthVramTotal)} of "
                   + $"{Mb(MaxTotalVramBytes)} MB. THE LOCK'S OWN BOOKKEEPING: {life.GridLocks} "
                   + $"lock(s) taken, {life.GridInDeadBand} measurement(s) inside the "
                   + $"{EyeGridDeadBandOctaves:F3}-octave dead band, {life.GridDeferredMoving} "

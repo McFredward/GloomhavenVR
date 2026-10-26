@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""Render actual menu depth code, shader, UI and ownership under Unity2021.3.5f1."""
+from pathlib import Path
+import hashlib
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts'))
+from town_run_retention import cleanup_completed_run
+
+
+def execute(argv, log, timeout=420):
+    with log.open('w') as stream:
+        process = subprocess.Popen(argv, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            return process.wait(timeout=timeout)
+        finally:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+
+
+def member(source, signature):
+    start = source.index(signature); opening = source.index('{', start); depth = 1; end = opening + 1
+    while depth:
+        depth += (source[end] == '{') - (source[end] == '}'); end += 1
+    return source[start:end] + '\n'
+
+
+def replace(source, before, after):
+    assert source.count(before) == 1, (before, source.count(before))
+    return source.replace(before, after, 1)
+
+
+def main():
+    output = ROOT / '.planning/debug/menu-depth-capture'; output.mkdir(parents=True, exist_ok=True)
+    run = Path(tempfile.mkdtemp(prefix='run-', dir=output)); completion = run / 'completion.log'
+    completion.write_text('evidence: ' + str(run) + '\n'); print('Evidence: ' + str(run), flush=True)
+    status = 1
+    try:
+        fixture = ROOT / 'tests/GloomhavenVR.MenuDepthCaptureTests'
+        source = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
+        originals = {p.name: p.read_text() for p in source.glob('*.cs')}
+        originals['PanelDepth.cs'] = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs').read_text()
+        legacy_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs'
+        legacy = legacy_path.read_text()
+        copied = 'using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n'
+        for signature in ('    private static long VramBytesFor(', '    private static long CaptureVramBytesFor(',
+                          '    private static long MipVramBytesFor(', '    private static RenderTexture DisplayTexture('):
+            start = legacy.index(signature)
+            if '{' in legacy[start:legacy.index(';', start)]: copied += member(legacy, signature)
+            else: copied += legacy[start:legacy.index(';', start) + 1] + '\n'
+        for signature in ('    private static void SyncProjection(', '    private static void SyncDisplayPose('): copied += member(legacy, signature)
+        for signature in ('    private static bool SameComponents(Vector2', '    private static bool SameComponents(Vector3',
+                          '    private static bool SameComponents(Quaternion'):
+            start = legacy.index(signature); copied += legacy[start:legacy.index(';', start) + 1] + '\n'
+        originals['LegacyHelpers.cs'] = copied + '}\n'
+        core_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs'
+        limits = re.findall(r'    private const long (?:MaxPanelVramBytes|MaxTotalVramBytes) = [^;]+;', core_path.read_text())
+        assert len(limits) == 2
+        originals['ActualLimits.cs'] = 'namespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n' + '\n'.join(limits) + '\n}\n'
+        # XR observations are explicit fixture inputs, not fake rendered output.
+        production = dict(originals)
+        for name in ('MenuDepthSources.cs', 'MenuDepthDisplay.cs'):
+            production[name] = production[name].replace('camera.stereoActiveEye', 'global::MenuDepthFixture.CurrentEye')
+        production['MenuDepthDisplay.cs'] = production['MenuDepthDisplay.cs'].replace('!head.stereoEnabled', '!global::MenuDepthFixture.StereoEnabled')
+        production['MenuDepthDisplay.cs'] = production['MenuDepthDisplay.cs'].replace(
+            'head.GetStereoViewMatrix(Camera.StereoscopicEye.Left).inverse.MultiplyPoint3x4(Vector3.zero)', 'global::MenuDepthFixture.Left').replace(
+            'head.GetStereoViewMatrix(Camera.StereoscopicEye.Right).inverse.MultiplyPoint3x4(Vector3.zero)', 'global::MenuDepthFixture.Right')
+        cases = [
+            ('production', '', '', '', ''),
+            ('old-mono-path', 'PanelDepth.cs',
+             'e.MenuDepthDisplay.Render(e.Cam, e.Panel.HostRect, e.Frame, e.Rt, DisplayTexture(e),\n                    new MenuDepthEye(false, left, head), new MenuDepthEye(true, right, head));',
+             'e.Cam.Render();', 'each eye prepares and restores the same native source exactly once'),
+            ('wrong-right-eye', 'MenuDepthDisplay.cs',
+             'CaptureEye(capture, plane, frame, _rightCapture, _rightMip ?? _rightCapture, rightEye);',
+             'CaptureEye(capture, plane, frame, _rightCapture, _rightMip ?? _rightCapture, leftEye);',
+             'actual depth geometry produces distinct recorded eye perspectives'),
+            ('missing-off-axis', 'MenuDepthProjection.cs',
+             'projection = Matrix4x4.Frustum(left, rightEdge, bottom, top, near, far);',
+             'projection = Matrix4x4.Perspective(40f, frame.width / frame.height, near, far);',
+             'window corners remain exactly pinned in the off-axis capture'),
+            ('missing-native-restore', 'MenuDepthDisplay.cs', 'original.Restore(capture);',
+             '/* injected: borrowed camera state survives */',
+             'private camera retains original target and automatic mono matrices after both eyes'),
+            ('missing-source-restore', 'MenuDepthSources.cs', 'try { Prepared[i].AfterCapture(); }',
+             'try { /* injected: native content lease survives */ }',
+             'each eye prepares and restores the same native source exactly once'),
+            ('nested-eye-lost', 'MenuDepthDisplay.cs',
+             'private static void AfterCamera(Camera camera) => ApplyEye(PreviousEyes.Count > 0 ? PreviousEyes.Pop() : 0);',
+             'private static void AfterCamera(Camera camera) => ApplyEye(0);',
+             'nested mono render restores the enclosing right eye shader selection'),
+            ('missing-lifecycle-release', 'MenuDepthDisplay.cs', 'texture.Release(); UnityEngine.Object.Destroy(texture);',
+             '/* injected: owned render surface remains created */',
+             'failed second-eye preparation actually releases its right render surface'),
+            ('missing-depth-write', 'MenuDepthDisplay.cs', '_depthShader = _bundle.LoadAsset<Shader>(DepthShaderPath);',
+             '_depthShader = Shader.Find("UI/Default");',
+             'opaque nearer native sprite pixels occlude later farther UI triangles'),
+            ('missing-mask-projection', 'MenuDepthSources.cs',
+             'Shader.SetGlobalFloat(ProjectMaskId, eye.ProjectToGraphicPlane ? 0f : 1f);',
+             'Shader.SetGlobalFloat(ProjectMaskId, 0f);',
+             'direct RectMask2D aperture stays on its original plane while art is deeper'),
+            ('mixed-scope-order', 'MenuDepthSources.cs', 'BeforeHeadCapture?.Invoke(camera);',
+             '/* injected: coordinator is delayed until direct sources are already borrowed */',
+             'mixed direct and supersampled windows finish offscreen captures before direct source leases'),
+            ('owner-loss-draw', 'MenuDepthDisplay.cs', 'if (_disposeRequested || !target.IsCreated())',
+             'if (target.width < 0)',
+             'closed native owner cannot submit another eye draw after its source lease ends'),
+        ]
+        manifest = {'evidence': str(run), 'result': str(run / 'results.txt'), 'cases': []}
+        env = dict(os.environ, DOTNET_ROOT='/home/claw/.dotnet', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0')
+        for name, filename, before, after, expected in cases:
+            case = run / name; bound = case / 'production'; bound.mkdir(parents=True)
+            for filename_actual, code in production.items():
+                if filename_actual == filename: code = replace(code, before, after)
+                if name == 'mixed-scope-order' and filename_actual == filename:
+                    code = replace(code, 'Prepared[i].BeforeCapture(eye);\n            }\n        }\n        catch (Exception error)',
+                        'Prepared[i].BeforeCapture(eye);\n            }\n            BeforeHeadCapture?.Invoke(camera);\n        }\n        catch (Exception error)')
+                (bound / filename_actual).write_text(code)
+            csproj = case / 'MenuDepthCapture.csproj'; shutil.copyfile(fixture / csproj.name, csproj)
+            assembly = 'MenuDepth_' + name.replace('-', '_')
+            argv = ['/home/claw/.dotnet/dotnet', 'build', str(csproj), '-c', 'Release', '-v', 'quiet', '--nologo',
+                    '--disable-build-servers', '-nr:false', '-p:UseSharedCompilation=false', '-p:CaseName=' + assembly,
+                    '-p:FixtureDir=' + str(fixture), '-p:ProductionDir=' + str(bound),
+                    '-p:UnityManaged=/home/claw/unity-2021.3.5/Editor/Data/Managed',
+                    '-p:GameManaged=' + str(ROOT / 'ressources/GH_Data/Managed'),
+                    '-p:DepthBundle=' + str(ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle')]
+            with (case / 'build.log').open('w') as stream:
+                result = subprocess.run(argv, env=env, stdout=stream, stderr=subprocess.STDOUT)
+            if result.returncode:
+                raise RuntimeError('Fixture compilation failure is not a control pass: ' + str(case))
+            retained = run / 'assemblies' / (assembly + '.dll'); retained.parent.mkdir(exist_ok=True)
+            shutil.copyfile(case / 'bin/Release/net472' / retained.name, retained)
+            manifest['cases'].append({'name': name, 'dll': str(retained), 'expected': expected})
+        project = run / 'unity'
+        for name in ('Assets/Editor', 'Packages', 'ProjectSettings'): (project / name).mkdir(parents=True)
+        # A versioned project keeps Unity from replacing the explicit package
+        # manifest with its new-project template (including unrelated packages).
+        (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
+        shutil.copyfile(Path(__file__).parent / 'Editor/MenuDepthRunner.cs', project / 'Assets/Editor/MenuDepthRunner.cs')
+        (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.ugui': '1.0.0',
+            'com.unity.modules.assetbundle': '1.0.0', 'com.unity.modules.ui': '1.0.0'}}) + '\n')
+        (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        pins = [*source.glob('*.cs'), legacy_path, core_path, ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
+                *fixture.glob('*'), Path(__file__), Path(__file__).parent / 'Editor/MenuDepthRunner.cs',
+                ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle']
+        hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in pins if p.is_file()}
+        (run / 'source-hashes.json').write_text(json.dumps({'sha256': hashes,
+            'boundaries': 'XR eye observations/matrices and original panel entry/legacy allocation are explicit ports. Actual new coordinator, projections, UI geometry, source leases, camera rendering, mips and shipping shaders execute.',
+            'limits': 'No physical XR, D3D11, native model/asset loading, gameplay, multiplayer or comfort claim.'}, indent=2) + '\n')
+        argv = ['xvfb-run', '-a', '/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-glcore',
+                '-projectPath', str(project), '-executeMethod', 'MenuDepthRunner.Start',
+                '-menuDepthManifest', str(run / 'manifest.json'), '-logFile', str(run / 'unity.log')]
+        (run / 'command.json').write_text(json.dumps(argv, indent=2) + '\n')
+        status = execute(argv, run / 'launch.log')
+        print((run / 'results.txt').read_text() if (run / 'results.txt').exists() else 'No Unity results', flush=True)
+        for name, sha in hashes.items(): assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == sha, name
+        (run / 'source-stability.json').write_text(json.dumps({'unchanged': True, 'inputs': len(hashes)}) + '\n')
+        return status
+    finally:
+        cleanup = cleanup_completed_run('menu-depth-capture', status, completion, ROOT, process_reaped=True)
+        (run / 'cache-cleanup.json').write_text(json.dumps(cleanup, indent=2) + '\n')
+
+
+if __name__ == '__main__': raise SystemExit(main())

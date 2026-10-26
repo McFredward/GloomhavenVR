@@ -53,6 +53,7 @@ internal static partial class PanelSupersample
             catch (Exception error)
             {
                 ReleaseMenuDepth(e);
+                if (!Entries.Contains(e)) continue; // A native close is ordinary owner loss.
                 int count = ++e.MenuDepthFailures;
                 if (count <= 2 || (count & (count - 1)) == 0)
                     VRLog.Warn(Scope, $"MENU DEPTH WINDOW FALLBACK: window='{e.Window}', error={error.GetType().Name}: {error.Message}; count={count}; original input and continuation remain native.");
@@ -60,7 +61,7 @@ internal static partial class PanelSupersample
                 // failure. Refill it from the restored original mono camera now.
                 if (e.Cam != null && e.Rt != null && e.Rt.IsCreated() && Entries.Contains(e))
                 {
-                    try { SyncProjection(e); e.Cam.Render(); }
+                    try { SyncProjection(e); Canvas.ForceUpdateCanvases(); e.Cam.Render(); }
                     catch (Exception fallback)
                     {
                         if (count <= 2) VRLog.Warn(Scope, "MENU DEPTH MONO RESTORE: " + fallback.GetType().Name);

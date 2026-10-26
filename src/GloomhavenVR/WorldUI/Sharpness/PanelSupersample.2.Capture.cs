@@ -2891,7 +2891,7 @@ internal static partial class PanelSupersample
         VRLog.Info(Scope, $"PANEL SUPERSAMPLE stood down on '{e.Window}' ({why}): the window's canvas "
                           + "is back on its original layer and is drawn straight into the eye again, "
                           + $"and {Mb(e.VramBytes)} MB of render target was released (session total "
-                          + $"now {Mb(_vramTotal)} MB). Its private capture layer {layer} went back "
+                          + $"now {Mb(_vramTotal + _menuDepthVramTotal)} MB). Its private capture layer {layer} went back "
                           + $"into the pool ({FreeLayers.Count} of {PoolSize} free), so a window that "
                           + "was refused for want of one can now be re-considered. Input was never "
                           + "affected either way.");
@@ -3159,7 +3159,7 @@ internal static partial class PanelSupersample
             VRLog.Alert(Scope, $"PANEL SUPERSAMPLE failed in {where} — throw #{count} at this site "
                 + "this session, and it is NOT attributable to one window (it happened outside the "
                 + "per-window guard). WHAT HAPPENS NOW, measured rather than asserted: all "
-                + $"{Entries.Count} engaged window(s) are stood down and {Mb(_vramTotal)} MB of "
+                + $"{Entries.Count} engaged window(s) are stood down and {Mb(_vramTotal + _menuDepthVramTotal)} MB of "
                 + "render target is released, then the eligibility pass re-engages every one of them "
                 + "that is still eligible — so the honest cost of ONE throw is a single frame with "
                 + "no supersampling plus a full target rebuild, NOT the permanent outage the "

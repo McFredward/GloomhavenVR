@@ -33,6 +33,8 @@ internal sealed class MenuDepthDisplay : IDisposable
     private readonly RenderTexture _rightCapture;
     private readonly RenderTexture? _rightMip;
     private bool _disposed;
+    private bool _rendering;
+    private bool _disposeRequested;
 
     internal static Shader? DepthShader
     {
@@ -129,10 +131,12 @@ internal sealed class MenuDepthDisplay : IDisposable
         CameraState original = new(capture);
         RenderTexture? active = RenderTexture.active;
         _capturingCamera = capture;
+        _rendering = true;
         try
         {
             CaptureEye(capture, plane, frame, leftCapture, leftDisplay, leftEye);
             CaptureEye(capture, plane, frame, _rightCapture, _rightMip ?? _rightCapture, rightEye);
+            if (_disposeRequested) throw new OperationCanceledException("The original menu window closed during its eye capture.");
             _material.SetTexture(RightTextureId, _rightMip ?? _rightCapture);
             // Bind only after BOTH fresh eyes exist. Native mono capture remains the
             // fallback on every earlier allocation/preparation/decoder failure.
@@ -146,14 +150,20 @@ internal sealed class MenuDepthDisplay : IDisposable
         }
         finally
         {
-            MenuDepthSources.AfterCapture();
-            original.Restore(capture);
-            _capturingCamera = null;
-            RenderTexture.active = active;
+            try { MenuDepthSources.AfterCapture(); }
+            finally
+            {
+                try { original.Restore(capture); }
+                finally
+                {
+                    _capturingCamera = null; _rendering = false; RenderTexture.active = active;
+                    if (_disposeRequested) Dispose();
+                }
+            }
         }
     }
 
-    private static void CaptureEye(Camera capture, RectTransform plane, Rect frame,
+    private void CaptureEye(Camera capture, RectTransform plane, Rect frame,
         RenderTexture target, RenderTexture display, MenuDepthEye eye)
     {
         if (!capture.orthographic || !MenuDepthProjection.Finite(eye.WorldPosition))
@@ -171,6 +181,8 @@ internal sealed class MenuDepthDisplay : IDisposable
             new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, projectToGraphicPlane: true));
         try
         {
+            if (_disposeRequested || !target.IsCreated())
+                throw new OperationCanceledException("The original menu window closed before its eye draw.");
             Canvas.ForceUpdateCanvases();
             capture.Render();
             if (!ReferenceEquals(target, display))
@@ -265,6 +277,7 @@ internal sealed class MenuDepthDisplay : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+        if (_rendering) { _disposeRequested = true; return; }
         _disposed = true;
         if (_image != null && _image.material == _material)
         {

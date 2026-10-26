@@ -38,6 +38,7 @@ def main():
         project = run / 'unity'
         for name in ('Assets/Editor', 'Assets/MenuDepth', 'Packages', 'ProjectSettings'):
             (project / name).mkdir(parents=True)
+        (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project / 'Packages/manifest.json').write_text('{"dependencies":{}}\n')
         source = ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering'
         files = [source / name for name in ('MenuDepthDisplay.shader', 'MenuDepthGraphic.shader', 'Unity-LICENSE.txt')]

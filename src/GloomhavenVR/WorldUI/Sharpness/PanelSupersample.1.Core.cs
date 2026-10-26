@@ -2608,7 +2608,7 @@ internal static partial class PanelSupersample
             if (candidates > 0)
             {
                 _capLogged = true;
-                long average = Entries.Count > 0 ? _vramTotal / Entries.Count : 0;
+                long average = Entries.Count > 0 ? (_vramTotal + _menuDepthVramTotal) / Entries.Count : 0;
                 string capSource = PoolSize < MaxPanels
                     ? $"the LAYER POOL ({PoolSize} private capture layer(s) exist; MaxPanels is "
                       + $"{MaxPanels}). A ninth window cannot be given a tenth layer, and it must "
@@ -2625,7 +2625,7 @@ internal static partial class PanelSupersample
                                   + "rendering — the same text and edge shimmer as before this build. "
                                   + "HOW TO SIZE THE NEXT VALUE from this line rather than from an "
                                   + $"estimate: the {Entries.Count} panel(s) actually engaged cost "
-                                  + $"{Mb(_vramTotal)} MB together, i.e. {Mb(average)} MB each on "
+                                  + $"{Mb(_vramTotal + _menuDepthVramTotal)} MB together, i.e. {Mb(average)} MB each on "
                                   + $"average, against a session ceiling of {Mb(MaxTotalVramBytes)} MB "
                                   + $"and a per-panel ceiling of {Mb(MaxPanelVramBytes)} MB — so "
                                   + $"{(average > 0 ? (MaxTotalVramBytes / average).ToString() : "many")} "
@@ -2756,7 +2756,7 @@ internal static partial class PanelSupersample
                               + $"{factor:F2} (stepped down from {askedFactor:F2}, floor "
                               + $"{MinStepDownFactor:F2}), against a remaining budget of "
                               + $"{Mb(budget)} MB (per-panel cap {Mb(MaxPanelVramBytes)} MB, session "
-                              + $"{Mb(_vramTotal)} of {Mb(MaxTotalVramBytes)} MB across "
+                              + $"{Mb(_vramTotal + _menuDepthVramTotal)} of {Mb(MaxTotalVramBytes)} MB across "
                               + $"{Entries.Count} panel(s)). THE CONSEQUENCE: this window keeps "
                               + "today's direct rendering and will still shimmer. BOTH automatic "
                               + "concessions are already exhausted here, so the remaining levers are "
