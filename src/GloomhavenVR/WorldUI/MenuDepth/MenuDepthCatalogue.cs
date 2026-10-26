@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -10,47 +12,47 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// <summary>Finite, hash-bound depth companions beside the DLL. Native colour/sprite ownership is unchanged.</summary>
 internal static class MenuDepthCatalogue
 {
-    [Serializable] internal sealed class Field
+    [DataContract] internal sealed class Field
     {
-        public string source_id = string.Empty;
-        public int[] source_dimensions = Array.Empty<int>();
-        public string depth_file = string.Empty;
-        public int[] depth_dimensions = Array.Empty<int>();
-        public int depth_bytes = 0;
-        public string depth_sha256 = string.Empty;
+        [DataMember] public string source_id = string.Empty;
+        [DataMember] public int[] source_dimensions = Array.Empty<int>();
+        [DataMember] public string depth_file = string.Empty;
+        [DataMember] public int[] depth_dimensions = Array.Empty<int>();
+        [DataMember] public int depth_bytes = 0;
+        [DataMember] public string depth_sha256 = string.Empty;
     }
-    [Serializable] internal sealed class Narrative
+    [DataContract] internal sealed class Narrative
     {
-        public string id = string.Empty;
-        public string path_picture = string.Empty;
-        public string source_id = string.Empty;
-        public string canonical_asset = string.Empty;
+        [DataMember] public string id = string.Empty;
+        [DataMember] public string path_picture = string.Empty;
+        [DataMember] public string source_id = string.Empty;
+        [DataMember] public string canonical_asset = string.Empty;
     }
-    [Serializable] internal sealed class Artwork
+    [DataContract] internal sealed class Artwork
     {
-        public string source_id = string.Empty;
-        public string kind = string.Empty;
-        public string asset_path = string.Empty;
-        public string canonical_asset = string.Empty;
-        public string sprite_name = string.Empty;
-        public string texture_name = string.Empty;
-        public int[] logical_dimensions = Array.Empty<int>();
-        public int[] texture_dimensions = Array.Empty<int>();
-        public float[] sprite_rect = Array.Empty<float>();
-        public float[] texture_rect = Array.Empty<float>();
-        public float[] texture_rect_offset = Array.Empty<float>();
-        public string addressable_guid = string.Empty;
-        public string native_field = string.Empty;
-        public string raster_reconstruction = string.Empty;
+        [DataMember] public string source_id = string.Empty;
+        [DataMember] public string kind = string.Empty;
+        [DataMember] public string asset_path = string.Empty;
+        [DataMember] public string canonical_asset = string.Empty;
+        [DataMember] public string sprite_name = string.Empty;
+        [DataMember] public string texture_name = string.Empty;
+        [DataMember] public int[] logical_dimensions = Array.Empty<int>();
+        [DataMember] public int[] texture_dimensions = Array.Empty<int>();
+        [DataMember] public float[] sprite_rect = Array.Empty<float>();
+        [DataMember] public float[] texture_rect = Array.Empty<float>();
+        [DataMember] public float[] texture_rect_offset = Array.Empty<float>();
+        [DataMember] public string addressable_guid = string.Empty;
+        [DataMember] public string native_field = string.Empty;
+        [DataMember] public string raster_reconstruction = string.Empty;
     }
-    [Serializable] private sealed class Manifest
+    [DataContract] private sealed class Manifest
     {
-        public int schema = 0;
-        public string status = string.Empty;
-        public string format = string.Empty;
-        public Field[] images = Array.Empty<Field>();
-        public Narrative[] narrative_configs = Array.Empty<Narrative>();
-        public Artwork[] artwork = Array.Empty<Artwork>();
+        [DataMember] public int schema = 0;
+        [DataMember] public string status = string.Empty;
+        [DataMember] public string format = string.Empty;
+        [DataMember] public Field[] images = Array.Empty<Field>();
+        [DataMember] public Narrative[] narrative_configs = Array.Empty<Narrative>();
+        [DataMember] public Artwork[] artwork = Array.Empty<Artwork>();
     }
 
     private static readonly Dictionary<string, Field> Fields = new(StringComparer.Ordinal);
@@ -74,7 +76,12 @@ internal static class MenuDepthCatalogue
             string file = Path.Combine(DirectoryPath, "manifest.json");
             var info = new FileInfo(file);
             if (!info.Exists || info.Length > 8 * 1024 * 1024) throw new InvalidDataException("Missing or oversized story depth manifest.");
-            Manifest manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(file));
+            // Unity2021.3.5 JsonUtility silently leaves these nested DTO arrays empty.
+            // Use the same explicit data contracts as the existing native mesh banks.
+            Manifest? manifest;
+            using (Stream input = File.OpenRead(file))
+                manifest = new DataContractJsonSerializer(typeof(Manifest),
+                    new DataContractJsonSerializerSettings { MaxItemsInObjectGraph = 100000 }).ReadObject(input) as Manifest;
             if (manifest == null || manifest.schema != 1 || manifest.status != "complete" || manifest.format != "GMD1"
                 || manifest.images == null || manifest.images.Length == 0 || manifest.images.Length > 4096
                 || manifest.narrative_configs == null || manifest.artwork == null)
