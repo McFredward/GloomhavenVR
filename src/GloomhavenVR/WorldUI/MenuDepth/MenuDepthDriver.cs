@@ -174,7 +174,8 @@ internal static class MenuDepthDriver
 
     private static void BindImage(Binding binding, Image image)
     {
-        if (image == null || !image.isActiveAndEnabled || !image.gameObject.activeInHierarchy || image.overrideSprite == null) return;
+        if (image == null || !image.isActiveAndEnabled || !image.gameObject.activeInHierarchy
+            || (image.overrideSprite == null && binding.Spec.Role != Role.Layer)) return;
         MenuDepthHeightfield? field = null;
         if (binding.Spec.Role != Role.Layer)
         {

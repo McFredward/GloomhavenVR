@@ -28,7 +28,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
     private static int _refused;
 
     public Graphic Graphic => graphic;
-    public bool IsReady => _configured && IsActive() && _image != null && _sprite != null
+    public bool IsReady => _configured && IsActive() && _image != null && (_field == null || _sprite != null)
         && _image.overrideSprite == _sprite && (_field == null || MenuDepthDisplay.DepthShader != null);
 
     internal void Configure(Image image, MenuDepthHeightfield? field, float depthRatio)
@@ -37,7 +37,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
         if (_configured && _image == image && _sprite == current && ReferenceEquals(_field, field)
             && _depthRatio == depthRatio) return;
         _image = image; _sprite = current; _field = field; _depthRatio = depthRatio;
-        _configured = current != null;
+        _configured = field == null || current != null; // Native decorative Images may use the white quad without a sprite.
         _input.Clear(); _grid.Clear(); _triangles.Clear();
         MenuDepthSources.Register(this);
         image.SetVerticesDirty(); image.SetMaterialDirty();
