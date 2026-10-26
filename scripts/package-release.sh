@@ -95,6 +95,14 @@ while IFS= read -r movie || [[ -n "$movie" ]]; do
 done < "$MOVIE_MANIFEST"
 [[ ${#MOVIE_PATHS[@]} -gt 0 ]] || { echo "error: movie manifest is empty" >&2; exit 1; }
 
+# Relief fields stay outside the DLL with a finite, source-bound delivery roster.
+# Validate every companion before the build or any mutation of an existing archive.
+MENU_DEPTH_ROOT="$ROOT/src/GloomhavenVR/Assets/MenuDepth"
+MENU_DEPTH_ROSTER="$ROOT/packaging/menu-depth-files.txt"
+MENU_DEPTH_LIST="$(python3 "$ROOT/scripts/menu-depth-files.py" --roster "$MENU_DEPTH_ROSTER" --directory "$MENU_DEPTH_ROOT" --list)"
+mapfile -t MENU_DEPTH_PATHS <<<"$MENU_DEPTH_LIST"
+echo "Menu depth companions: 515 fields and manifest verified."
+
 # ---- version from the plugin csproj ------------------------------------------------------
 VERSION="$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' "$ROOT/src/GloomhavenVR/GloomhavenVR.csproj" | head -1)"
 if [[ -z "$VERSION" ]]; then
@@ -149,6 +157,10 @@ cp "$PLUGIN" "$PLUGDIR/"
 for movie in "${MOVIE_PATHS[@]}"; do
     mkdir -p "$PLUGDIR/Movies/$(dirname "$movie")"
     cp "$MOVIE_ROOT/$movie" "$PLUGDIR/Movies/$movie"
+done
+for companion in "${MENU_DEPTH_PATHS[@]}"; do
+    mkdir -p "$PLUGDIR/MenuDepth/$(dirname "$companion")"
+    cp "$MENU_DEPTH_ROOT/$companion" "$PLUGDIR/MenuDepth/$companion"
 done
 cp "${RUNTIMEDEPS[@]}" "$PLUGDIR/RuntimeDeps/"
 [[ -f "$ROOT/libs/RuntimeDeps/versions.json" ]] && cp "$ROOT/libs/RuntimeDeps/versions.json" "$PLUGDIR/RuntimeDeps/"
@@ -308,6 +320,7 @@ for movie in "${MOVIE_PATHS[@]}"; do
     path="BepInEx/plugins/GloomhavenVR/Movies/$movie"
     [[ "$LISTING" == *"$path"* ]] || { echo "error: packaged zip is missing '$path'" >&2; exit 1; }
 done
+python3 "$ROOT/scripts/menu-depth-files.py" --roster "$MENU_DEPTH_ROSTER" --archive "$ZIP"
 
 # Every text file in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and no
 # double-encoded umlauts. Fails the run — a zip that renders "raumgroÃŸes" is not a release.

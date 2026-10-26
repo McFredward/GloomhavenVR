@@ -15,8 +15,12 @@ import zipfile
 
 def main():
     source = Path(sys.argv[1]).resolve()
+    depth_only = '--menu-depth-only' in sys.argv[2:]
     sys.path.insert(0, str(source / 'scripts'))
+    sys.path.insert(0, str(source / 'tests/menu-depth-media'))
     from town_run_retention import cleanup_completed_run
+    from fixtures import write_companions
+    from package_contract import verify_bash, verify_project_items
     output = source / '.planning/debug/native-video-packaging'
     output.mkdir(parents=True, exist_ok=True)
     evidence = Path(tempfile.mkdtemp(prefix='run-', dir=output))
@@ -32,12 +36,12 @@ def main():
         if not condition:
             raise AssertionError(label)
 
-    def execute(command, log, environment):
+    def execute(command, log, environment, timeout=120):
         with log.open('w') as stream:
             process = subprocess.Popen(command, env=environment, stdout=stream,
                                        stderr=subprocess.STDOUT, start_new_session=True)
             try:
-                code = process.wait(timeout=120)
+                code = process.wait(timeout=timeout)
             finally:
                 if process.poll() is None:
                     os.killpg(process.pid, signal.SIGKILL)
@@ -57,6 +61,7 @@ def main():
         for name in ('package-release.sh', 'check-package-text.py', 'check-frame-launchers.py',
                      'check-figure-mesh-bank.py', 'frame-archive.ps1'):
             write('scripts/' + name, (source / 'scripts' / name).read_bytes())
+        companions = write_companions(root, source)
         roster = [line.strip() for line in (source / 'packaging/movie-files.txt').read_text().splitlines()
                   if line.strip() and not line.startswith('#')]
         check(len(roster) == 22 and len(set(roster)) == 22, 'exact20-film separate delivery set with two mono companions')
@@ -64,6 +69,15 @@ def main():
         write('packaging/movie-files.txt', (source / 'packaging/movie-files.txt').read_bytes())
         media = {key: ('opaque movie fixture: ' + key).encode() + b'\0\xf1\x82' for key in roster}
         project = ET.parse(source / 'src/GloomhavenVR/GloomhavenVR.csproj').getroot()
+        depth_content = [item for item in project.findall('.//Content') if item.get('Include', '').startswith('Assets\\MenuDepth\\')]
+        check({(item.get('Include'), item.get('CopyToOutputDirectory'), item.get('TargetPath')) for item in depth_content} == {
+            ('Assets\\MenuDepth\\Story\\*.gmd', 'PreserveNewest', 'MenuDepth\\Story\\%(Filename)%(Extension)'),
+            ('Assets\\MenuDepth\\Story\\manifest.json', 'PreserveNewest', 'MenuDepth\\Story\\manifest.json')},
+            'ordinary project outputs the external finite relief corpus beside DLL')
+        embedded = [item for item in project.findall('.//EmbeddedResource') if item.get('Include', '').startswith('Assets\\MenuDepth\\')]
+        check(len(embedded) == 1 and embedded[0].get('Include') == 'Assets\\MenuDepth\\Rendering\\menu-depth.bundle'
+              and embedded[0].get('LogicalName') == 'GloomhavenVR.MenuDepth.Rendering.bundle',
+              'only the small renderer bundle is embedded; story fields remain external')
         for key, data in media.items():
             write('src/GloomhavenVR/Assets/Movies/' + key, data)
             include = 'Assets\\Movies\\' + key.replace('/', '\\')
@@ -140,26 +154,29 @@ def main():
         check(archive_path.read_bytes() == saved_archive, 'invalid configuration preserves existing ZIP')
         environment.pop('GHVR_PACKAGE_CONFIGURATION')
         previous_archive = archive_path.read_bytes()
-        for key, data in media.items():
-            path = root / 'src/GloomhavenVR/Assets/Movies' / key
-            check(path.read_bytes() == data, 'packager preserves media source: ' + key)
-            path.unlink()
-            code, log = package('missing-' + path.stem)
-            expected = 'missing required movie'
-            check(code != 0 and expected in log and path.name in log, 'missing media preflight rejects: ' + key)
-            check(archive_path.read_bytes() == previous_archive, 'missing media preserves existing ZIP: ' + key)
-            path.write_bytes(data)
-        script = root / 'scripts/package-release.sh'
-        original = script.read_text()
-        for key in media:
-            needle = 'cp "$MOVIE_ROOT/$movie" "$PLUGDIR/Movies/$movie"'
-            check(original.count(needle) == 1, 'causal staging control binds actual movie copy: ' + key)
-            replacement = 'if [[ "$movie" != "' + key + '" ]]; then ' + needle + '; fi'
-            script.write_text(original.replace(needle, replacement))
-            code, log = package('omitted-copy-' + Path(key).stem)
-            check(code != 0 and "packaged zip is missing '" + prefix + key in log,
-                  'actual archive validator rejects omitted staged movie: ' + key)
-        script.write_text(original)
+        if not depth_only:
+            for key, data in media.items():
+                path = root / 'src/GloomhavenVR/Assets/Movies' / key
+                check(path.read_bytes() == data, 'packager preserves media source: ' + key)
+                path.unlink()
+                code, log = package('missing-' + path.stem)
+                expected = 'missing required movie'
+                check(code != 0 and expected in log and path.name in log, 'missing media preflight rejects: ' + key)
+                check(archive_path.read_bytes() == previous_archive, 'missing media preserves existing ZIP: ' + key)
+                path.write_bytes(data)
+            script = root / 'scripts/package-release.sh'
+            original = script.read_text()
+            for key in media:
+                needle = 'cp "$MOVIE_ROOT/$movie" "$PLUGDIR/Movies/$movie"'
+                check(original.count(needle) == 1, 'causal staging control binds actual movie copy: ' + key)
+                replacement = 'if [[ "$movie" != "' + key + '" ]]; then ' + needle + '; fi'
+                script.write_text(original.replace(needle, replacement))
+                code, log = package('omitted-copy-' + Path(key).stem)
+                check(code != 0 and "packaged zip is missing '" + prefix + key in log,
+                      'actual archive validator rejects omitted staged movie: ' + key)
+            script.write_text(original)
+        depth_result = verify_bash(root, evidence, package, check, companions)
+        depth_result['project_items'] = verify_project_items(source, root, evidence, execute, check)
         shell = shutil.which('pwsh')
         if not shell and (candidate := Path.home() / '.dotnet/tools/pwsh').is_file():
             shell = str(candidate)
@@ -167,18 +184,27 @@ def main():
             shell_environment = dict(os.environ)
             shell_environment.setdefault('DOTNET_ROOT', str(Path.home() / '.dotnet'))
             shell_environment['PATH'] = shell_environment['DOTNET_ROOT'] + os.pathsep + shell_environment['PATH']
+            if not depth_only:
+                code, log = execute([shell, '-NoProfile', '-NonInteractive', '-File',
+                    str(source / 'tests/GloomhavenVR.NativeVideoTests/MovieInstallerTests.ps1'),
+                    '-Installer', str(source / 'scripts/install.ps1'), '-Fixture', str(root)],
+                    evidence / 'powershell-installer.log', shell_environment, timeout=900)
+                check(code == 0, log)
+                print(log.strip())
             code, log = execute([shell, '-NoProfile', '-NonInteractive', '-File',
-                str(source / 'tests/GloomhavenVR.NativeVideoTests/MovieInstallerTests.ps1'),
+                str(source / 'tests/menu-depth-media/InstallerTests.ps1'),
                 '-Installer', str(source / 'scripts/install.ps1'), '-Fixture', str(root)],
-                evidence / 'powershell-installer.log', shell_environment)
+                evidence / 'powershell-depth-installer.log', shell_environment, timeout=900)
             check(code == 0, log)
             print(log.strip())
         else:
             print('Native movie PowerShell installer: pwsh unavailable; deployment execution not checked on this host.')
         (evidence / 'results.json').write_text(json.dumps({'python_assertions': count,
+            'depth': depth_result, 'depth_only': depth_only,
             'media_sha256': {key: hashlib.sha256(value).hexdigest() for key, value in media.items()},
             'scope': 'Actual bash release packager, actual PowerShell media deploy/archive/retirement blocks when available; opaque substitute film/compiler/other bytes. Opaque fixtures check packaging paths, not actual movie quality or real archive delivery.'}, indent=2) + '\n')
-        print('Native movie packaging: ' + str(count) + ' assertions, ' + str(len(media)) + ' missing-source and ' + str(len(media)) + ' omitted-copy controls passed.')
+        print('Native media packaging: ' + str(count) + ' assertions;516 depth companions, first/middle/last/manifest refusal and ZIP-copy controls; ' +
+              ('focused depth run (old movie controls reused).' if depth_only else str(len(media)) + ' movie missing-source and omitted-copy controls passed.'))
         status = 0
     finally:
         receipt = cleanup_completed_run('native-video-packaging', status, completion, source, process_reaped=True)

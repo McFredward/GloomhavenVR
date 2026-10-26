@@ -17,6 +17,14 @@
   </Target>
 
   <ItemGroup>
+    <!-- Keep original artwork native: only compact relief fields and their source bindings
+         accompany the DLL. The finite delivery roster is validated by both packagers. -->
+    <Content Include="Assets\MenuDepth\Story\*.gmd"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="MenuDepth\Story\%(Filename)%(Extension)" />
+    <Content Include="Assets\MenuDepth\Story\manifest.json"
+             CopyToOutputDirectory="PreserveNewest" TargetPath="MenuDepth\Story\manifest.json" />
+    <EmbeddedResource Include="Assets\MenuDepth\Rendering\menu-depth.bundle"
+                      LogicalName="GloomhavenVR.MenuDepth.Rendering.bundle" />
     <!-- Movies remain separate Content, never DLL resources. Source-only builds can
          exercise the explicit mono fallbacks without offline conversions; both packagers
          require every path in packaging/movie-files.txt before touching an installation. -->
