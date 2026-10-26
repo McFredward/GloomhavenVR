@@ -3022,6 +3022,53 @@
         "ci"
       ],
       "weight": 4
+    },
+    {
+      "id": "menu-depth-media",
+      "command": [
+        "python3",
+        "-B",
+        "tests/menu-depth-media/check.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 10
+    },
+    {
+      "id": "menu-depth-data",
+      "command": [
+        "bash",
+        "scripts/menu-depth-data-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 10
+    },
+    {
+      "id": "menu-depth-character",
+      "command": [
+        "python3",
+        "scripts/menu-depth-character/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "menu-depth-capture",
+      "command": [
+        "python3",
+        "scripts/menu-depth-capture/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
     }
   ]
 }
