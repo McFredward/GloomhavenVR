@@ -54,6 +54,7 @@ try:
   ('owner-change','if (!ReferenceEquals(inventory, _inventory) || !ReferenceEquals(owner, _owner)\n            || (_mount != null && !ReferenceEquals(_mount.parent, mountParent)))','if (!ReferenceEquals(inventory, _inventory))','reset browse rebinds same inventory to current party owner'),
   ('native-hide','Layers.Restore();','Layers.Restore(); _inventory!.GetComponent<UIWindow>()!.Hide();','native show/hide callbacks untouched'),
   ('comparison-seat','_comparison = new ComparisonSeat(comparison, ownerRect);','_comparison = null;','existing owned deck shares level root through independent mount'),
+  ('refused-reset','if (_rect != null || _mount != null || _comparison != null) return;','if (inventoryWindow == null) return;','refused restoration must not capture an old mount as a new native home'),
  ]
  text=source.read_text()
  for name,old,new,expected in mutations:

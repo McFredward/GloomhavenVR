@@ -86,6 +86,7 @@ namespace UnityEngine
     public class Transform : Component
     {
         public Transform? parent;
+        internal static Func<Transform,Transform?,bool>? RefuseParent;
         internal readonly List<Transform> Children = new();
         public int childCount => Children.Count;
         public Vector3 localScale = Vector3.one;
@@ -112,6 +113,7 @@ namespace UnityEngine
         public void SetAsLastSibling() => SetSiblingIndex(parent?.Children.Count ?? 0);
         public void SetParent(Transform? value, bool worldPositionStays = true)
         {
+            if (RefuseParent?.Invoke(this,value)==true) return;
             Vector3 world = position;
             parent?.Children.Remove(this); parent = value; parent?.Children.Add(this);
             if (worldPositionStays) position = world;

@@ -42,7 +42,7 @@ internal static class Program
         internal int Selected;
         internal Fixture(float worldScale=1,float yaw=0)
         {
-            LevelUpComposite.Reset();CanvasConversion.ActivePanels.Clear();ModalFallback.ReleaseRequests=0;ModalFallback.RefuseRelease=false;ModalFallback.BeforeRelease=null;
+            LevelUpComposite.Reset();CanvasConversion.ActivePanels.Clear();ModalFallback.ReleaseRequests=0;ModalFallback.RefuseRelease=false;ModalFallback.BeforeRelease=null;Transform.RefuseParent=null;
             WorldUIConfig.ConversionActive=true;FlatScreen.ManualScreenActive=false;VRModeStateMachine.TableInFrontOfPlayer=true;
             Campaign=Rect("Campaign Canvas",null,1920,1080);
             Before=Rect("Earlier sibling",Campaign,10,10);
@@ -182,6 +182,21 @@ internal static class Program
             Check(ReferenceEquals(replaced.parent,f.Party)&&Same(replaced.anchoredPosition3D,f.OwnedPosition),"replaced comparison returns original pose before next source is adopted");
             Check(priorMount.Destroyed&&next.IsChildOf(f.Level),"comparison replacement retires former mount and adopts current source");
             LevelUpComposite.Reset();Check(ReferenceEquals(next.parent,f.Party),"replacement comparison returns to its own parent on shutdown");f.CheckRestored("comparison replaced");
+        }
+        foreach(bool refuseComparison in new[]{false,true})
+        {
+            var f=new Fixture();f.Tick();Transform inventoryMount=f.Inventory.parent!,comparisonMount=f.Owned.parent!;
+            f.LevelWindow.IsOpen=false;f.Reset.displayToggle.isOn=true;
+            Transform.RefuseParent=(node,parent)=>refuseComparison
+                ? ReferenceEquals(node,f.Owned)&&ReferenceEquals(parent,f.Party)
+                : ReferenceEquals(node,f.Inventory)&&ReferenceEquals(parent,f.Campaign);
+            f.Tick();
+            Check(ReferenceEquals(f.Inventory.parent,inventoryMount)&&ModalFallback.ReleaseRequests==1,"refused restoration must not capture an old mount as a new native home");
+            Check(!inventoryMount.Destroyed&&!f.Inventory.Destroyed,"native inventory survives activation-time parent refusal");
+            if(refuseComparison)Check(ReferenceEquals(f.Owned.parent,comparisonMount)&&!comparisonMount.Destroyed,"comparison home refusal retains exact outstanding restoration record");
+            Transform.RefuseParent=null;f.Tick();
+            Check(f.Inventory.IsChildOf(f.Party)&&!f.Inventory.IsChildOf(f.Level),"owner rebind resumes after native activation releases parent lock");
+            LevelUpComposite.Reset();f.CheckRestored("reparent refusal recovery");
         }
         {
             var f=new Fixture();ModalFallback.RefuseRelease=true;f.Tick();f.CheckRestored("float refuses transfer");
