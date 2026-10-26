@@ -179,7 +179,8 @@ internal static class MenuDepthDriver
         MenuDepthHeightfield? field = null;
         if (binding.Spec.Role != Role.Layer)
         {
-            Sprite sprite = image.overrideSprite;
+            Sprite? sprite = image.overrideSprite;
+            if (sprite == null) return;
             string key = Key(binding, image, out string defaultField);
             MenuDepthCatalogue.Artwork? art;
             if (binding.PreviousSprite == sprite && binding.PreviousKey == key && binding.Artwork != null) art = binding.Artwork;
