@@ -30,7 +30,11 @@ change. All tests and hardware limits are recorded in `MENU723-SPATIAL-UI.md`.
 
 Original native material/shader/texture audit inputs are pinned and unchanged.
 Completed worker worktrees and test caches are cleaned after verified archival.
-Final installer ZIP, final clean build stamps and dev push are still pending.
+The normal Debug installer ZIP is verified byte-for-byte against all22 movies,
+516 depth companions and the actual Build723 DLL; its renderer resource matches the
+18483-byte beee5adb bundle. Current packaging receipts live under
+`debug/menu-depth723/`. Final bookkeeping changes are documentation only; delivery
+builds refresh their clean dev identity after that checkpoint.
 Actual headset appearance, comfort/performance and paired multiplayer picture
 acceptance remain hardware observations; source/GPU fixtures do not establish them.
 

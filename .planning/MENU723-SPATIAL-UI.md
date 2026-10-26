@@ -167,5 +167,13 @@ remain under ignored `debug/menu-depth-*-handoff-20261026/`,
 `debug/menu-depth-window-worker-20261026-6df513cb2-963caf959*` and the material audit.
 Completed clean owned worktrees are removed only after these independent byte checks;
 shared game references, other worktrees, hardware logs and current deliverables remain.
-Final clean Debug/Release identities, normal installer ZIP and dev push follow.
-
+The normal Debug installer archive is `dist/GloomhavenVR-1.2.2.zip`, built through
+`scripts/package-release.sh`. Its actual22 movie files,516 depth companions and
+Debug DLL are byte-identical to their respective source/build inputs. Reflection
+inspection verifies ModBuild723, the exact18483-byte embedded rendering bundle
+and absence of embedded movie/GMD resources. Normal text/Frame setup checks pass.
+The private verifier and archive JSON receipts live under ignored
+`debug/menu-depth723/`; documentation-only bookkeeping is followed by fresh clean
+Debug/Release identities and the same normal packaging path. Native material tests
+accept `--native-evidence` for the pinned external DXBC/BC1 audit input directory;
+those publisher binaries are retained as ignored evidence and never shipped.
