@@ -25,6 +25,14 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
     private bool _projected;
     private Vector3 _eye;
     private Material? _baseMaterial, _depthMaterial;
+    private Material? _nativeMaterial;
+    private Shader? _nativeShader;
+    private bool _nativeDissolve;
+    private static readonly int DissolveId = Shader.PropertyToID("_GvrMenuDepthDissolve");
+    private static readonly int SourceBlendId = Shader.PropertyToID("_GvrMenuDepthSrcBlend");
+    private static readonly int MaskId = Shader.PropertyToID("_Mask");
+    private static readonly int CutoffId = Shader.PropertyToID("_Cutoff");
+    private static readonly int EdgeWeightId = Shader.PropertyToID("_EdgeWeight");
     private static int _refused;
 
     public Graphic Graphic => graphic;
@@ -45,6 +53,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
 
     public void BeforeCapture(MenuDepthEye eye)
     {
+        SyncNativeEffect();
         bool project = eye.ProjectToGraphicPlane;
         Vector3 localEye = transform.InverseTransformPoint(eye.WorldPosition);
         if (project != _projected || (project && localEye != _eye))
@@ -87,7 +96,34 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
             _depthMaterial = new Material(shader) { name = "GloomhavenVR.MenuDepthGraphic", hideFlags = HideFlags.HideAndDontSave };
         }
         _depthMaterial.CopyPropertiesFromMaterial(original);
+        SyncNativeEffect();
         return _depthMaterial;
+    }
+
+    private void SyncNativeEffect()
+    {
+        if (_depthMaterial == null || _image == null) return;
+        Material source = _image.material;
+        Shader shader = source.shader;
+        if (_nativeMaterial != source || _nativeShader != shader)
+        {
+            _nativeMaterial = source; _nativeShader = shader;
+            _nativeDissolve = shader != null && shader.name == "UI/Dissolve mask";
+        }
+        _depthMaterial.SetFloat(DissolveId, _nativeDissolve ? 1f : 0f);
+        _depthMaterial.SetFloat(SourceBlendId, _nativeDissolve ? 5f : 1f); // Native SrcAlpha vs ordinary premultiplied One.
+        if (!_nativeDissolve) return;
+        // Every original story/event image uses this material. Its native tween
+        // writes Image.material._Cutoff without dirtying uGUI's material cache.
+        // Poll the original instance on each eye lease, after copying stencil
+        // properties, rather than freezing the one-second reveal in our clone.
+        _depthMaterial.SetTexture(MaskId, source.GetTexture(MaskId));
+        _depthMaterial.SetTextureScale("_Mask", source.GetTextureScale("_Mask"));
+        _depthMaterial.SetTextureOffset("_Mask", source.GetTextureOffset("_Mask"));
+        _depthMaterial.SetTextureScale("_MainTex", source.GetTextureScale("_MainTex"));
+        _depthMaterial.SetTextureOffset("_MainTex", source.GetTextureOffset("_MainTex"));
+        _depthMaterial.SetFloat(CutoffId, source.GetFloat(CutoffId));
+        _depthMaterial.SetFloat(EdgeWeightId, source.GetFloat(EdgeWeightId));
     }
 
     public override void ModifyMesh(VertexHelper vertices)
@@ -206,6 +242,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
     {
         if (_depthMaterial != null) UnityEngine.Object.Destroy(_depthMaterial);
         _depthMaterial = _baseMaterial = null;
+        _nativeMaterial = null; _nativeShader = null; _nativeDissolve = false;
     }
     private static void Refuse(string reason)
     {
