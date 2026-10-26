@@ -3080,6 +3080,17 @@
         "local"
       ],
       "weight": 45
+    },
+    {
+      "id": "menu-depth-graphic",
+      "command": [
+        "python3",
+        "scripts/menu-depth-graphic/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
     }
   ]
 }
