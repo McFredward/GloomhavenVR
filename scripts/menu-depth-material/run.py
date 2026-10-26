@@ -94,7 +94,7 @@ def main():
             ('shader-premultiplied-native', 'NativePremultiplied', 'if (color.a <= 0) discard;\n                    return color;',
              'if (color.a <= 0) discard;\n                    color.rgb *= color.a;\n                    return color;', NATIVE_PIXELS),
             ('shader-saturated-native', 'NativeSaturated', 'color.a = alpha * _EdgeWeight;',
-             'color.a = saturate(alpha * _EdgeWeight);', 'depth shader retains native unclamped EdgeWeight alpha on a floating target'),
+             'color.a = saturate(alpha * _EdgeWeight);', NATIVE_PIXELS),
             ('shader-mask-uses-main-uv', 'NativeMaskUsesMainUV', 'o.dissolveUV = TRANSFORM_TEX(v.uv, _Mask);',
              'o.dissolveUV = o.uv;', NATIVE_PIXELS),
             ('shader-native-ui-tint', 'NativeUsesUIColor', 'o.color = _GvrMenuDepthDissolve > 0.5 ? v.color : v.color * _Color;',
