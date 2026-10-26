@@ -3091,6 +3091,17 @@
         "local"
       ],
       "weight": 45
+    },
+    {
+      "id": "menu-depth-material",
+      "command": [
+        "python3",
+        "scripts/menu-depth-material/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
     }
   ]
 }
