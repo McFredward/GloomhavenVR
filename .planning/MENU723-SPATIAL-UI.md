@@ -60,8 +60,43 @@ The 515 fields total157113440 bytes; the manifest is1910220 bytes
 Both packagers validate the finite516-file roster, source/header/dimensions/hash
 agreement, deployed or staged content and final archive content. Missing/corrupt
 inputs fail before replacing a prior archive. Existing22 movie companions remain.
-The embedded16920-byte rendering bundle was built with Unity2021.3.5f1 and has
-SHA256 `b5ed298ee017172f24f5f7771650e15880b9f33b855ffca48e27ac3ae0890f9d`.
+The embedded18483-byte rendering bundle was built with Unity2021.3.5f1 and has
+SHA256 `beee5adbf2ebaba133e3e827269b45d267648ba681a465609c73cc51261b3c96`.
+
+## Original dissolve materials
+
+A source audit found all16 native story/event image bindings use `UI/Dissolve mask`:
+12 story images and4 event images. Every exact picture slot has a native one-second
+`_Cutoff`1-to0 reveal. Narrative `_EdgeWeight` is2.4900000095; events use1.
+These are material animations, beyond the vertex/CanvasGroup fades in the initial
+GPU fixture. A colour/alpha-only depth shader would have discarded the reveal.
+
+Direct pinned native DXBC SHDR disassembly, corroborated by independent SPIR-V/HLSL
+translation, establishes independent main/mask STs, unchanged vertex colour,
+strict mask/cutoff discard, straight RGB and unsaturated alpha
+`(((mask-cutoff)*sourceAlpha)/mask)*EdgeWeight`. Native RGB and alpha both use
+SrcAlpha/OneMinusSrcAlpha. The depth shader preserves those operations and blend
+factors, without adding material tint, alpha rounding or premultiplication to this
+branch. Its opacity-zero discard prevents an invisible relief from writing depth.
+Ordinary UI retains its original premultiplied branch and blend factor.
+
+Native tween initialization clones `Image.material`; subsequent float writes do
+not dirty uGUI's rendering-material cache. The owned material therefore refreshes
+current `_Mask`, independent texture transforms, `_Cutoff` and `_EdgeWeight` at
+both material modification and each eye lease. Native material/controller clocks
+and callbacks remain untouched. The mask is the original native256-square BC1
+Noise1 texture with nine mips; no duplicate original mask or artwork is shipped.
+
+All28 inspected native source files remain byte-identical. Full source/material,
+shader, raw-program, signature, colour-space, mask and16-slot bindings are retained
+in ignored `debug/menu-depth723/material-audit/run-ohye58v4/`. Runtime renderer
+provenance is committed beside the shader. The private shader builder declares its AssetBundle module explicitly and refuses
+to publish before loading the actual bundle and verifying both shader objects in
+the exact editor. A wrapper/version-only check missed a bundle without its native
+AssetBundle container; retained failing runs and the corrected load prove this boundary.
+The native shader contains D3D11 code
+only: an OpenGL reference transcribed from the exact native program and an
+independent scalar/blend oracle are scoped evidence, not native D3D11 execution.
 
 ## Evidence and limits
 
@@ -76,14 +111,24 @@ Completed focused evidence before final integration:
   neural-output and1545 trimmed-UV correspondence verification.
 - Actual C# GMD reader:5763 assertions,70 refusal cases,7 compiling causal controls,
   including every delivered field and an independent byte-exact golden.
-- Character portal:51 GPU assertions,6 throwing-render assertions,7 causal controls;
+- Character portal:85 GPU/lifecycle/throwing-render assertions,13 causal controls;
   actual GH.Runtime private-field smoke coverage, strict real-reference compile0W0E.
 - Converted/direct capture:42 actual Unity/OpenGL assertions,11 causal controls,
   including exact coplanar glyph sampling, masks, alpha/depth, nested eye scopes,
   mixed capture order and owner closure; strict real-reference compile0W0E.
-- Packaging:1667 Python and2634 native PowerShell assertions, plus an actual SDK
+- Native main-menu stack:45 GPU assertions and4 causal controls; real camera-stack
+  routing, unchanged glyph raster, masks, native alpha and partial-eye mono recovery.
+- Illustration mesh/typed driver:37 GPU assertions and10 causal controls; complete
+  actual Mono catalogue/field pass521 assertions with all515 real fields loaded.
+  The test caught Unity JsonUtility silently omitting nested DTO arrays; production
+  now uses explicit DataContractJsonSerializer, already used by native mesh banks.
+  A compiling old-reader control reproduces that original runtime failure.
+- Packaging:1778 Python,209 existing movie and2634 depth PowerShell assertions, plus an actual SDK
   Content/EmbeddedResource assembly/output proof. The standard fixture retains
   all existing movie controls and uses tiny opaque substitutes for non-depth assets.
+  The focused SDK follow-up passes519 assertions. Shared private-project compiler
+  teardown passes11 real-process assertions; it targets exact owned project PWDs,
+  preserves other compilers and runs before cache cleanup.
 - Integrated source gates16/16; private complete real-reference plugin compile0W0E.
 
 Actual headset appearance, comfort, performance and a paired native multiplayer
@@ -92,4 +137,35 @@ evidence do not establish those outcomes. GPU fixtures execute actual production
 rendering with explicitly supplied eye poses; they do not claim live XR tracking or
 the complete game animation/Beautify environment.
 
-Final integration receipts and counts are pending the complete local gate.
+Final integration covers248 distinct local suites. The complete247-suite invocation
+retains244 passing records and three honest failures: desktop/movie fixtures lacked
+new ordinary-menu boundary ports, and a wrist run refused source edits during execution.
+Bounded repairs/reruns pass desktop145+33 controls, movie193+21 controls across38
+variants and the unchanged complete wrist suite. Default capture/graphic suites were
+rerun after the shader update:42+11 and37+10 plus521 complete-corpus assertions pass.
+The missing-AssetBundle-container attempt remains retained as a failed render check.
+
+The added native material proof passes94 production GPU/CPU-oracle assertions and13
+causal controls. Its saturation mutation was detected at an earlier native-pixel
+witness than specified; only that expectation was corrected and the affected control
+rerun. No product/tolerance change or new whole-matrix pass is claimed. Existing
+unchanged passing coverage is reused under the maintainer's bounded-repair ruling.
+
+Main receipts: ignored `debug/menu-depth723/{full-local,final-affected,
+effects-render-final,material-final,source-effects}/results.json`,
+`material-saturation-final.log`, `final-coverage.json`, strict real/metadata build
+logs and `goldens-final.log` (306431 unfiltered assertions). Source gates16/16,
+12 locked frame orderings,214 registered patch classes/313 methods,669 unchanged
+configuration keys and no removed patch/log/config surfaces pass. Compiled comparison
+against retained722 source/DLL/snapshots finds3 changed existing UI implementations,
+14 added types and only version/stamp differences elsewhere, with no removed types.
+Current rendering bundle format7/Unity2021.3.5f1 and all other committed bundle and
+figure-part format checks pass. Player documentation agrees in English/German.
+
+Verified worker archives, per-file indices and source/capture/assembly/log evidence
+remain under ignored `debug/menu-depth-*-handoff-20261026/`,
+`debug/menu-depth-window-worker-20261026-6df513cb2-963caf959*` and the material audit.
+Completed clean owned worktrees are removed only after these independent byte checks;
+shared game references, other worktrees, hardware logs and current deliverables remain.
+Final clean Debug/Release identities, normal installer ZIP and dev push follow.
+

@@ -1,3 +1,39 @@
+**Spatial native menus and prepared illustrations, Build723, 2026-10-26.**
+
+The maintainer approved all reviewed menu-depth families and requested actual
+prepared depth inside story images. Native character creation/roster/skin/reveal/
+retirement previews now render the original live scene per window and tracked eye.
+Story and city/road pictures use native-colour relief; icons, original glows,
+frames, tabs and compendium screenshot planes receive shallow depth. Text, native
+layout, callbacks, permissions and shared absolute window geometry remain original.
+The desktop/main-menu and converted/direct world-space render paths are covered.
+
+All515 source-bound depth fields are prepared and validated, covering448 narrative
+IDs,523 asset bindings and521 GUIDs. The normal installer/archive now requires the
+finite516 external companions beside the DLL; existing22 movie files remain.
+The original UI/Dissolve mask material and its one-second reveal are retained,
+including exact native fragment/blend math and live native material clock polling.
+The shader bundle is loaded and checked in the exact editor before publication.
+
+Complete local invocation records247 suites; two older desktop/movie fixture ports
+needed explicit ordinary/no-depth boundaries, and one wrist run correctly refused
+mid-run source changes. All three have passing focused reruns; unchanged passing
+evidence is retained rather than rerunning unrelated suites. Final aggregate
+covers all248 distinct local suites:247 originals plus the native material suite's
+94 GPU assertions and13 causal controls. Its saturation mutation failed earlier
+than the original expected witness; only that metadata/control was corrected
+and rerun, with unchanged product/tolerance evidence inherited. Source16/16, real and metadata
+strict builds0W0E, docs-i18n and all306431 unfiltered golden assertions pass.
+Compiled review finds3 changed existing UI implementations and14 added types;
+remaining existing changes are build/version stamps, with no removals or wire/default
+change. All tests and hardware limits are recorded in `MENU723-SPATIAL-UI.md`.
+
+Original native material/shader/texture audit inputs are pinned and unchanged.
+Completed worker worktrees and test caches are cleaned after verified archival.
+Final installer ZIP, final clean build stamps and dev push are still pending.
+Actual headset appearance, comfort/performance and paired multiplayer picture
+acceptance remain hardware observations; source/GPU fixtures do not establish them.
+
 **Level-up and confirmation containment, Build722, 2026-10-26.**
 
 The supplied719 log shows the native sibling LevelUpInventory floated independently and
