@@ -104,6 +104,12 @@ namespace GloomhavenVR.WorldUI
         private int _screenMaterialQueueDefault;
         private bool _rescueShow, _manualShow, _cardLossFallbackNoted;
         private static bool MapFallbackActive => false;
+        // Startup owns a recorded-eye movie, with no menu-depth graphic sources
+        // or borrowed eye-capture UI camera. The separate menu-depth-desktop
+        // suite executes that spatial path; all movie/capture leases run here.
+        private Camera? _menuDepthBorrowedCamera = null;
+        private void SetMenuDepthGuard(bool active) { }
+        private void TickMenuDepthScreen() { }
         internal static bool ScreenVisible;
         internal FlatScreen() { _coverageOwner = this; }
         private void TickDesktopMirrorMode() { }
