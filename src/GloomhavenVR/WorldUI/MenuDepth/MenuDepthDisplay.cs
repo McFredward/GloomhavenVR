@@ -47,7 +47,7 @@ internal sealed class MenuDepthDisplay : IDisposable
         if (head == null || !head.stereoEnabled) return false;
         left = head.GetStereoViewMatrix(Camera.StereoscopicEye.Left).inverse.MultiplyPoint3x4(Vector3.zero);
         right = head.GetStereoViewMatrix(Camera.StereoscopicEye.Right).inverse.MultiplyPoint3x4(Vector3.zero);
-        return true;
+        return MenuDepthProjection.Finite(left) && MenuDepthProjection.Finite(right) && (left - right).sqrMagnitude > 0f;
     }
 
     internal static Material CreateDisplayMaterial(Texture left, Texture right)
@@ -156,19 +156,19 @@ internal sealed class MenuDepthDisplay : IDisposable
     private static void CaptureEye(Camera capture, RectTransform plane, Rect frame,
         RenderTexture target, RenderTexture display, MenuDepthEye eye)
     {
-        if (!MenuDepthProjection.TryBuild(plane, frame, eye.WorldPosition, out Matrix4x4 view, out Matrix4x4 projection))
-            throw new InvalidOperationException("The viewer eye cannot project through this window plane.");
-        float distance = Vector3.Dot(plane.TransformPoint(new Vector3(frame.center.x, frame.center.y))
-            - eye.WorldPosition, plane.forward);
-        capture.transform.SetPositionAndRotation(eye.WorldPosition, plane.rotation);
-        capture.orthographic = false;
-        capture.nearClipPlane = Mathf.Max(1e-5f, distance * .005f);
-        capture.farClipPlane = Mathf.Max(capture.nearClipPlane * 2f, distance * 8f);
-        capture.fieldOfView = 2f * Mathf.Atan(frame.height * Mathf.Abs(plane.lossyScale.y) / (2f * distance)) * Mathf.Rad2Deg;
+        if (!capture.orthographic || !MenuDepthProjection.Finite(eye.WorldPosition))
+            throw new InvalidOperationException("The original UI camera or tracked eye is unavailable.");
+        // Keep the native orthographic projection for every ordinary glyph/control.
+        // Sources analytically project their depth vertices onto their original
+        // graphic plane. Character sources render their own actual 3D eye views.
+        float planeDistance = Vector3.Dot(plane.TransformPoint(new Vector3(frame.center.x, frame.center.y))
+            - capture.transform.position, capture.transform.forward);
+        float relief = Mathf.Max(frame.width * Mathf.Abs(plane.lossyScale.x), frame.height * Mathf.Abs(plane.lossyScale.y)) * .05f;
+        capture.nearClipPlane = Mathf.Max(1e-5f, Mathf.Min(capture.nearClipPlane, planeDistance - relief));
+        capture.farClipPlane = Mathf.Max(capture.farClipPlane, planeDistance + relief);
         capture.targetTexture = target;
-        capture.worldToCameraMatrix = view;
-        capture.projectionMatrix = projection;
-        MenuDepthSources.BeforeCapture(plane, eye);
+        MenuDepthSources.BeforeCapture(plane,
+            new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, projectToGraphicPlane: true));
         try
         {
             Canvas.ForceUpdateCanvases();

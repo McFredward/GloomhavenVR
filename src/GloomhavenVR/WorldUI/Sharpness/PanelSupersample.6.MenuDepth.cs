@@ -25,7 +25,7 @@ internal static partial class PanelSupersample
             { ReleaseMenuDepth(e); continue; }
             try
             {
-                if (!head.stereoEnabled)
+                if (!MenuDepthDisplay.TryGetEyePositions(head, out Vector3 left, out Vector3 right))
                 { ReleaseMenuDepth(e); continue; }
                 if (e.MenuDepthDisplay != null && !e.MenuDepthDisplay.Matches(e.Rt, DisplayTexture(e)))
                     ReleaseMenuDepth(e);
@@ -46,8 +46,6 @@ internal static partial class PanelSupersample
                     _menuDepthVramTotal += extra;
                 }
                 SyncDisplayPose(e);
-                Vector3 left = head.GetStereoViewMatrix(Camera.StereoscopicEye.Left).inverse.MultiplyPoint3x4(Vector3.zero);
-                Vector3 right = head.GetStereoViewMatrix(Camera.StereoscopicEye.Right).inverse.MultiplyPoint3x4(Vector3.zero);
                 e.MenuDepthDisplay.Render(e.Cam, e.Panel.HostRect, e.Frame, e.Rt, DisplayTexture(e),
                     new MenuDepthEye(false, left, head), new MenuDepthEye(true, right, head));
                 NoteCaptureCompleted(e);

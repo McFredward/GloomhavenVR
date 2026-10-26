@@ -2455,6 +2455,7 @@ internal static partial class PanelSupersample
             return;
         _hooksInstalled = true;
         MenuDepth.MenuDepthSources.ExcludedDirectLayers = _poolMask;
+        MenuDepth.MenuDepthSources.BeforeHeadCapture += CaptureMenuDepth;
         Camera.onPreCull += OnPreCull;
         Camera.onPostRender += OnPostRender;
         // THE TWO EVENTS THAT MAKE THE RELEASE REPORT DECIDABLE. Font.textureRebuilt fires when a
@@ -2473,6 +2474,7 @@ internal static partial class PanelSupersample
             return;
         _hooksInstalled = false;
         MenuDepth.MenuDepthSources.ExcludedDirectLayers = 0;
+        MenuDepth.MenuDepthSources.BeforeHeadCapture -= CaptureMenuDepth;
         Camera.onPreCull -= OnPreCull;
         Camera.onPostRender -= OnPostRender;
         Font.textureRebuilt -= OnFontTextureRebuilt;

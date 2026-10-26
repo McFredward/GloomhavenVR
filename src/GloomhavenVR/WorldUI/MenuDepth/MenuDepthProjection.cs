@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI.MenuDepth;
@@ -5,6 +6,21 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// <summary>Parallel off-axis views through the actual window rectangle; no toe-in or gaze movement.</summary>
 internal static class MenuDepthProjection
 {
+    /// <summary>
+    /// Intersect the eye-to-depth-vertex ray with the original graphic's z=0 plane.
+    /// Keep z for depth testing; an unchanged orthographic UI camera supplies exact
+    /// native text sampling while registered art receives the same portal parallax.
+    /// </summary>
+    internal static Vector3 ProjectToPlane(Vector3 point, Vector3 localEye)
+    {
+        float denominator = point.z - localEye.z;
+        if (!Finite(point) || !Finite(localEye) || Mathf.Abs(denominator) < 1e-8f)
+            throw new ArgumentException("The menu-depth vertex cannot project from this eye position.");
+        float scale = -localEye.z / denominator;
+        return new Vector3(localEye.x + (point.x - localEye.x) * scale,
+            localEye.y + (point.y - localEye.y) * scale, point.z);
+    }
+
     internal static bool TryBuild(RectTransform rectangle, Vector3 eye,
         out Matrix4x4 view, out Matrix4x4 projection) =>
         TryBuild(rectangle, rectangle.rect, eye, out view, out projection);
@@ -21,7 +37,9 @@ internal static class MenuDepthProjection
         Vector3 topLeft = plane.TransformPoint(new Vector3(frame.xMin, frame.yMax));
         Vector3 fromEye = bottomLeft - eye;
         float distance = Vector3.Dot(fromEye, forward);
-        if (distance <= 1e-5f || frame.width <= 0f || frame.height <= 0f
+        if (!Finite(eye) || !Finite(right) || !Finite(up) || !Finite(forward)
+            || float.IsNaN(distance) || float.IsInfinity(distance)
+            || distance <= 1e-5f || frame.width <= 0f || frame.height <= 0f
             || Mathf.Abs(Vector3.Dot(right, up)) > .001f) return false;
         float near = Mathf.Max(1e-5f, distance * .005f);
         float far = Mathf.Max(near * 2f, distance * 8f);
@@ -35,4 +53,7 @@ internal static class MenuDepthProjection
         projection = Matrix4x4.Frustum(left, rightEdge, bottom, top, near, far);
         return true;
     }
+
+    internal static bool Finite(Vector3 value) => !float.IsNaN(value.x) && !float.IsInfinity(value.x)
+        && !float.IsNaN(value.y) && !float.IsInfinity(value.y) && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
 }

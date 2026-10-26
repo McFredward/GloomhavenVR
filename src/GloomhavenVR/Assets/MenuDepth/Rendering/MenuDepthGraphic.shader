@@ -42,13 +42,28 @@ Shader "GloomhavenVR/MenuDepthGraphic"
             fixed4 _Color, _TextureSampleAdd;
             float4 _ClipRect;
             float _UIMaskSoftnessX, _UIMaskSoftnessY;
+            float4 _GvrMenuDepthWorldEye;
+            float _GvrMenuDepthProjectMask;
             v2f vert(appdata v)
             {
                 v2f o;
                 o.vertex = UnityObjectToClipPos(v.vertex);
-                float2 pixelSize = o.vertex.w / abs(mul((float2x2)UNITY_MATRIX_P, _ScreenParams.xy));
+                float2 maskPosition = v.vertex.xy;
+                float maskW = o.vertex.w;
+                if (_GvrMenuDepthProjectMask > 0.5)
+                {
+                    // RectMask2D's aperture is on the original UI plane. A deeper
+                    // surface must be clipped where its viewing ray crosses that
+                    // plane, rather than by its displaced model-space XY alone.
+                    float3 eye = mul(unity_WorldToObject, float4(_GvrMenuDepthWorldEye.xyz, 1)).xyz;
+                    float denominator = v.vertex.z - eye.z;
+                    if (abs(denominator) > 0.000001)
+                        maskPosition = eye.xy + (v.vertex.xy - eye.xy) * (-eye.z / denominator);
+                    maskW = UnityObjectToClipPos(float4(maskPosition, 0, 1)).w;
+                }
+                float2 pixelSize = maskW / abs(mul((float2x2)UNITY_MATRIX_P, _ScreenParams.xy));
                 float4 rect = clamp(_ClipRect, -2e10, 2e10);
-                o.mask = float4(v.vertex.xy * 2 - rect.xy - rect.zw,
+                o.mask = float4(maskPosition * 2 - rect.xy - rect.zw,
                     0.25 / (0.25 * half2(_UIMaskSoftnessX, _UIMaskSoftnessY) + abs(pixelSize.xy)));
                 o.color = v.color * _Color;
                 o.uv = v.uv;

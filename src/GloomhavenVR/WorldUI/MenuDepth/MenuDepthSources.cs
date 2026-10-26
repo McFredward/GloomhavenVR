@@ -18,7 +18,13 @@ internal static class MenuDepthSources
     private static bool _capturing;
     private static bool _hooked;
     private static Camera? _directCamera;
+    private static readonly int WorldEyeId = Shader.PropertyToID("_GvrMenuDepthWorldEye");
+    private static readonly int ProjectMaskId = Shader.PropertyToID("_GvrMenuDepthProjectMask");
+    private static Vector4 _previousWorldEye;
+    private static float _previousProjectMask;
+    private static bool _maskScoped;
     internal static int ExcludedDirectLayers { get; set; }
+    internal static event Action<Camera>? BeforeHeadCapture;
 
     internal static void Register(IMenuDepthSource source)
     {
@@ -76,6 +82,7 @@ internal static class MenuDepthSources
         _capturing = true; _startedCount = 0; Prepared.Clear();
         try
         {
+            BeginMaskScope(eye);
             for (int i = 0; i < Sources.Count; i++)
             {
                 IMenuDepthSource source = Sources[i];
@@ -100,6 +107,7 @@ internal static class MenuDepthSources
         Prepared.Clear();
         try
         {
+            BeginMaskScope(eye);
             // Snapshot membership before callbacks: a native texture setter may
             // synchronously hide or repopulate another original window.
             for (int i = 0; i < Sources.Count; i++)
@@ -135,7 +143,26 @@ internal static class MenuDepthSources
                 }
             }
         }
-        finally { Prepared.Clear(); _startedCount = 0; _capturing = false; UnhookIfIdle(); }
+        finally
+        {
+            Prepared.Clear(); _startedCount = 0; _capturing = false;
+            if (_maskScoped)
+            {
+                _maskScoped = false;
+                Shader.SetGlobalVector(WorldEyeId, _previousWorldEye);
+                Shader.SetGlobalFloat(ProjectMaskId, _previousProjectMask);
+            }
+            UnhookIfIdle();
+        }
+    }
+
+    private static void BeginMaskScope(MenuDepthEye eye)
+    {
+        _previousWorldEye = Shader.GetGlobalVector(WorldEyeId);
+        _previousProjectMask = Shader.GetGlobalFloat(ProjectMaskId);
+        _maskScoped = true;
+        Shader.SetGlobalVector(WorldEyeId, eye.WorldPosition);
+        Shader.SetGlobalFloat(ProjectMaskId, eye.ProjectToGraphicPlane ? 0f : 1f);
     }
 
     private static void UnhookIfIdle()
@@ -159,6 +186,9 @@ internal static class MenuDepthSources
         if (_capturing) return;
         try
         {
+            // Run all offscreen coordinators before any direct source lease is
+            // held across this head draw. Subscriber order must not change it.
+            BeforeHeadCapture?.Invoke(camera);
             _capturing = true; _startedCount = 0; Prepared.Clear();
             for (int i = 0; i < Sources.Count; i++)
             {
@@ -176,6 +206,7 @@ internal static class MenuDepthSources
                     .inverse.MultiplyPoint3x4(Vector3.zero)
                 : camera.transform.position;
             var eye = new MenuDepthEye(right, position, camera);
+            BeginMaskScope(eye);
             for (int i = 0; i < Prepared.Count; i++)
             {
                 _startedCount = i + 1;
