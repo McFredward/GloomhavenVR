@@ -74,12 +74,15 @@ public static partial class MenuDepthDesktopProgram
         => HeadMotionCore730(output, complete, 640, 480, false);
     public static IEnumerator HeadRaster4040(string output,Action<int> complete)
         => HeadMotionCore730(output, complete, 4040, 4040, true);
-    private static IEnumerator HeadMotionCore730(string output,Action<int> complete,int width,int height,bool hardwareRaster)
+    public static IEnumerator HeadAnnotations730(string output,Action<int> complete)
+        => HeadMotionCore730(output, complete, 640, 480, false, true);
+    private static IEnumerator HeadMotionCore730(string output,Action<int> complete,int width,int height,bool hardwareRaster,bool annotations=false)
     {
         _count=0;DesktopEyeInput.Available=true;
-        for(int path=0;path<2;path++)
+        for(int route=0;route<(annotations?4:2);route++)
         using(var scene=new Scene())
         {
+            int path=route%2;
             scene.HideSpatial730();scene.NativePixels725(4);
             scene.Head.orthographic=false;scene.Head.fieldOfView=70;scene.Head.nearClipPlane=.01f;
             scene.HeadTarget.Release();scene.HeadTarget.width=width;scene.HeadTarget.height=height;scene.HeadTarget.Create();
@@ -115,16 +118,29 @@ public static partial class MenuDepthDesktopProgram
             label.transform.SetParent(scene.RootA,false);var text=label.GetComponent<Text>();text.font=Resources.GetBuiltinResource<Font>("Arial.ttf");
             text.text="WINDOW 730";text.fontSize=60;text.color=Color.white;text.alignment=TextAnchor.MiddleCenter;
             text.rectTransform.sizeDelta=new Vector2(600,90);text.rectTransform.anchoredPosition=new Vector2(250,350);
-            var tooltip=new GameObject("original right tooltip outside fixed host",typeof(RectTransform),typeof(CanvasRenderer),typeof(RawImage));tooltip.layer=5;
-            tooltip.transform.SetParent(scene.RootA,false);var tip=tooltip.GetComponent<RawImage>();tip.texture=texture;
-            tip.rectTransform.sizeDelta=new Vector2(600,100);tip.rectTransform.anchoredPosition=new Vector2(900,-350);
+            var tooltip=new GameObject("original right tooltip root without Graphic",typeof(RectTransform));tooltip.layer=5;
+            tooltip.transform.SetParent(scene.RootA,false);var tooltipRect=(RectTransform)tooltip.transform;
+            tooltipRect.sizeDelta=new Vector2(600,100);tooltipRect.anchoredPosition=new Vector2(900,-350);
+            var originalPlate=new GameObject("original tooltip plate child",typeof(RectTransform),typeof(CanvasRenderer),typeof(RawImage));originalPlate.layer=5;originalPlate.transform.SetParent(tooltip.transform,false);
+            var tip=originalPlate.GetComponent<RawImage>();tip.texture=texture;tip.rectTransform.sizeDelta=new Vector2(600,100);
+            var nativeText=new GameObject("exact native description Graphic child",typeof(RectTransform),typeof(CanvasRenderer),typeof(Text));nativeText.layer=5;nativeText.transform.SetParent(tooltip.transform,false);
+            var nativeLabel=nativeText.GetComponent<Text>();nativeLabel.font=Resources.GetBuiltinResource<Font>("Arial.ttf");nativeLabel.fontSize=40;nativeLabel.text="CHARACTER QUEST";nativeLabel.alignment=TextAnchor.MiddleCenter;nativeLabel.rectTransform.sizeDelta=new Vector2(600,100);
+            HeadAnnotation730? annotation=null;
+            if(annotations)
+            {
+                annotation=new HeadAnnotation730(nativeLabel);MenuDepthSources.Register(annotation);
+                Check(tooltip.GetComponent<Graphic>()==null&&ReferenceEquals(annotation.Graphic,nativeLabel),"native annotation membership uses the visible child of a root without Graphic");
+                WorldUIConfig.CharacterPreviewDepth.Value=route<2?false:true;
+                scene.ModelCamera.GetComponent<Character3DDisplayManager>().enabled=route<2;
+                raw.gameObject.SetActive(false);MenuDepthCharacters.Tick();
+            }
             scene.Flat.Begin();Canvas.ForceUpdateCanvases();scene.OriginalA.Render();scene.OriginalB.Render();
             Check(MenuDepthScreenProjection.TryMap(scene.Screen,scene.OriginalA,raw.rectTransform,Vector3.zero,out _,out Matrix4x4 mappingA),"native UI root has an independent physical mapping");
             Check(MenuDepthScreenProjection.TryMap(scene.Screen,scene.OriginalB,scene.RootB,Vector3.zero,out _,out Matrix4x4 mappingB),"native overlay root has its original physical mapping");
             Matrix4x4 bodyMap=mappingA*BodyMap730(scene.ModelCamera,ground.transform,raw.rectTransform);
             raw.gameObject.SetActive(false);
             GameObject referenceA=CloneUi730(scene.RootA,mappingA),referenceB=CloneUi730(scene.RootB,mappingB);
-            raw.gameObject.SetActive(true);
+            raw.gameObject.SetActive(!annotations);
             var referenceBody=Object.Instantiate(body);referenceBody.name="independent native actor in fixed physical world";referenceBody.layer=26;
             referenceBody.transform.SetParent(null,false);Pose730(referenceBody.transform,bodyMap*body.transform.localToWorldMatrix);
             var referenceMaterial=new Material(Shader.Find("GloomhavenVR.Tests/GlassAperture730"));referenceMaterial.mainTexture=cyanTexture;
@@ -133,6 +149,7 @@ public static partial class MenuDepthDesktopProgram
             Rect aperture=raw.rectTransform.rect;
             referenceMaterial.SetVector("_GlassRect",new Vector4(aperture.xMin,aperture.yMin,aperture.xMax,aperture.yMax));
             referenceBody.GetComponent<MeshRenderer>().sharedMaterial=referenceMaterial;
+            if(annotations)referenceBody.SetActive(false);
             GameObject? panelDisplay=null;PanelSupersample.Entry? entry=null;
             if(path==1)
             {
@@ -166,9 +183,9 @@ public static partial class MenuDepthDesktopProgram
             using(var csv=new StreamWriter(Path.Combine(output,"head-motion-"+path+".csv")))
             {
                 csv.WriteLine("frame,eye,uiCorrelation,modelCorrelation,uiContrast,modelContrast");
-                for(int step=0;step<(hardwareRaster?4:52);step++)
+                for(int step=0;step<(hardwareRaster||annotations?4:52);step++)
                 {
-                    int frame=hardwareRaster?new[]{0,13,40,51}[step]:step;
+                    int frame=hardwareRaster||annotations?new[]{0,13,40,51}[step]:step;
                     int before=Time.frameCount;while(Time.frameCount==before)yield return null;
                     Vector3 position;
                     if(frame<4)position=Vector3.zero;
@@ -196,10 +213,11 @@ public static partial class MenuDepthDesktopProgram
                         int modelBefore=scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>().Draws;
                         int uiBefore=scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws;
                         scene.Head.cullingMask=1<<27;scene.Render(eye!=0);
-                        Check(scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-modelBefore==(eye==0?2:0),
+                        Check(scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-modelBefore==(!annotations&&eye==0?2:0),
                             "each head stereo pair executes the original native model image effect exactly once per eye");
                         Check(scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-uiBefore==(eye==0?2:0),
                             "each head stereo pair executes the original native UI image effect exactly once per eye");
+                        if(annotations)Check(path==0?scene.Flat.Right!=null:entry!.MenuDepthDisplay!=null,"original outboard annotations admit both real head routes when character depth is off or not ready");
                         Texture2D actual=Read(scene.HeadTarget,Path.Combine(output,"actual-"+path+"-"+frame+"-"+eye+".png"));
                         Vector3 referenceEye = worldToGlass.MultiplyPoint3x4(eyePosition);
                         if(frame==40&&eye==0)
@@ -223,7 +241,7 @@ public static partial class MenuDepthDesktopProgram
                         csv.WriteLine(frame+","+eye+","+ui+","+model+","+uiContrast+","+modelContrast);csv.Flush();
                         minimumUi=Math.Min(minimumUi,ui);minimumModel=Math.Min(minimumModel,model);
                         Check(ui>.99,"actual final head text and XY print retain direct native-world pixel detail during movement");
-                        Check(model>.97,"actual final head figure retains direct native-world XY surface detail during movement");
+                        if(!annotations)Check(model>.97,"actual final head figure retains direct native-world XY surface detail during movement");
                         Check(sourceDimensionsExact,"native scene scratch always retains actual head pixel dimensions during movement");
                         Check(scene.Screen.position==screenPosition&&scene.Screen.localScale==screenScale&&scene.Screen.rotation==screenRotation,"moving head raster never moves the original physical window");
                         if(path==0&&scene.Flat.Right!=null)
@@ -241,12 +259,14 @@ public static partial class MenuDepthDesktopProgram
                 }
             }
             Camera.onPreRender-=sample;
-            Check(sourceIds.Count==1,"continuous motion reuses one native scene scratch across both eyes and all frames");
+            Check(sourceIds.Count==(annotations?0:1),"continuous motion reuses one native scene scratch across both eyes and all frames");
             if(path==0)Check(ids.Count==1,"continuous motion retains one final right-eye head raster identity");
             File.WriteAllText(Path.Combine(output,"summary-"+path+".txt"),"UI="+minimumUi+",model="+minimumModel+",targetIDs="+ids.Count+",sourceIDs="+sourceIds.Count);
             }
             finally
             {
+            if(annotation!=null)MenuDepthSources.Unregister(annotation);
+            WorldUIConfig.CharacterPreviewDepth.Value=true;
             if(entry!=null)PanelSupersample.EndHead(entry);if(panelDisplay!=null)Object.DestroyImmediate(panelDisplay);
             Object.DestroyImmediate(referenceA);Object.DestroyImmediate(referenceB);Object.DestroyImmediate(referenceBody);
             Object.DestroyImmediate(referenceMaterial);
