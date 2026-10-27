@@ -897,20 +897,29 @@ internal static class Program
         MapCityEventReadyUp.OwnsMapDecision = false; RemoteMapRoom.Tick();
         Check(!state.Second.IsSelected, "City cancellation cannot replay a discarded pending browsing click");
 
-        var observerOff = Reset(client: true); var before = new MapLocation("mode-A", "A");
-        RemoteMapRoom.Begin(observerOff, before); RemoteMapRoom.Snapshot(local);
-        var prior = VersionEvent(owner, 1, 0, 0, before);
-        RemoteMapRoom.Receive(owner, prior); RemoteMapRoom.Tick();
-        MapRoomDriver.Active = false; MapCityEventReadyUp.OwnsMapDecision = true;
-        Check(!MapInputGate.PublicDecisionOwnsInput,
-            "Original 2D input remains outside the VR city browsing gate");
-        RemoteMapRoom.Snapshot(local);
-        MapCityEventReadyUp.OwnsMapDecision = false; MapRoomDriver.Active = true;
-        Check(!RemoteMapRoom.Snapshot(local).HasMapSelectionVersion,
-            "Native city authority retires the old browsing epoch even across 2D presentation");
-        before.Deselect(); observerOff.Sample();
-        RemoteMapRoom.Receive(owner, prior); RemoteMapRoom.Tick();
-        Check(!before.IsSelected, "Native city authority retires the old browsing epoch even across 2D presentation");
+        foreach (bool initialSample in new[] { false, true })
+        {
+            var observerOff = Reset(client: true); var before = new MapLocation("mode-A", "A");
+            RemoteMapRoom.Begin(observerOff, before);
+            if (initialSample) RemoteMapRoom.Snapshot(local);
+            var prior = VersionEvent(owner, 1, 0, 0, before);
+            RemoteMapRoom.Receive(owner, prior); RemoteMapRoom.Tick();
+            MapRoomDriver.Active = false; MapCityEventReadyUp.OwnsMapDecision = true;
+            Check(MapRoomDriver.ActiveLocations == null && !MapInputGate.PublicDecisionOwnsInput,
+                "Original 2D input remains outside the VR city browsing gate");
+            RemoteMapRoom.Snapshot(local);
+            MapCityEventReadyUp.OwnsMapDecision = false; MapRoomDriver.Active = true;
+            Check(!RemoteMapRoom.Snapshot(local).HasMapSelectionVersion,
+                "Native city authority retires the old browsing epoch even across 2D presentation");
+            before.Deselect(); observerOff.Sample();
+            RemoteMapRoom.Receive(owner, prior); RemoteMapRoom.Tick();
+            Check(!before.IsSelected, "Native city authority retires the old browsing epoch even across 2D presentation");
+            Check(observerOff.AdoptSelection(before, "fresh post-city user click", true),
+                "A genuine post-city click still reaches the original native map pointer");
+            var fresh = RemoteMapRoom.Snapshot(local);
+            Check(fresh.HasMapSelectionVersion && fresh.MapSelectionRevision > 1 && RemoteMapRoom.HasAuthoredVersion,
+                "Consuming a retired adoption cannot consume a later genuine post-city input");
+        }
     }
 
     public static void Main()

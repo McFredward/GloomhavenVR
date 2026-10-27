@@ -210,7 +210,9 @@ namespace GloomhavenVR.WorldUI.MapRoom
     internal static class MapRoomDriver
     {
         public static bool Active = true;
-        public static MapLocationInteractor ActiveLocations;
+        private static MapLocationInteractor _locations;
+        // Match the production driver's participation boundary, including null on stand-down.
+        public static MapLocationInteractor ActiveLocations { get => Active ? _locations : null; set => _locations = value; }
         public static MapChoreographer Choreographer => Singleton<MapChoreographer>.Instance;
         public static bool SurfaceAvailable = true;
         public static bool SurfaceAdmitted = true;
@@ -345,6 +347,7 @@ namespace GloomhavenVR.Net
             _localSelectStamp = _localSurfaceStamp = 0; _publishedSelectKey = _sentSelectKey = _sentFanCharacterKey = 0;
             _publishedSurface = _adoptedSurface = MapIconLayer.MapSurface.Unknown;
             _hasAdoptedSelect = false; _adoptedSelectAt = 0;
+            _adoptedSelectInteractor = null;
             MapRoomDriver.ActiveLocations = observer; MapIconLayer.CurrentSurface = MapIconLayer.MapSurface.World;
             MapParchment.NativeCity = false; MapRoomDriver.SurfaceAvailable = MapRoomDriver.SurfaceAdmitted = true;
             MapRoomDriver.SurfacePresses = 0;

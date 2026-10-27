@@ -55,6 +55,13 @@ points are covered too, including gamepad dispatch. Pure native `Select`,
 Only unaccepted local browsing can be cleared with the original `CancelTravel`
 UI callback; an accepted native host quest is never hidden or deselected by
 presentation cleanup. Native 2D input remains outside the VR browsing gate.
+The native event's content lease lasts through hidden reward distribution until
+`OnDistributedRewards` clears `eventData`; closing/fading its card is not event
+completion. Causal retirement also consumes the exact remote adoption's input
+revision before 2D stand-down removes `ActiveLocations`. Returning to 3D cannot
+misclassify that adoption as a new local click. A later real user click remains
+publishable. Tests cover both sides of the first presence sample with the
+production participation getter, including its inactive `null` result.
 
 The full `UIEventPanel` remains mandatory. Its content and decisions already use
 native `ContinueRoadEvent` actions; only physical placement uses the mod channel.

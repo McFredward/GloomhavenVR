@@ -16,6 +16,8 @@ root = Path(sys.argv[1])
 common = Path(subprocess.check_output(['git', '-C', str(root), 'rev-parse', '--path-format=absolute', '--git-common-dir'], text=True).strip())
 native = common.parent/'decompiled/GH.Runtime'
 fixture = (root/'tests/map-quest-selection-runtime/NativeFixture.cs').read_text()
+driver = (root/'src/GloomhavenVR/WorldUI/MapRoom/MapRoomDriver.cs').read_text()
+assert 'internal static MapLocationInteractor? ActiveLocations => Active ? Locations : null;' in driver, 'Production map participation boundary changed; update the fixture getter together'
 entries = {
  'UIQuestPopupManager.cs': ('public bool IsQuestShown => selectedQuest != null;', 'public void ShowQuest(CQuestState', 'public void ShowQuest(IQuest', 'public void Hide(IQuest', 'public void HideAll(', 'public void HideMultiplayerPreview(', 'public void ShowMultiplayerPreview('),
  'UIMapMultiplayerController.cs': ('public CQuestState HostSelectedQuest => hostSelectedLocation?.LocationQuest;', 'public void ConfirmSelectedLocation()', 'public void ProxyHostSelectedLocation(', 'private void ProxyHostCancelledSelectedLocation()', 'public void ClearHostSelectedQuest(', 'private void CancelPreviewedQuest(', 'private void PreviewQuest(', 'public bool IsShowingHostQuestToClient()'),
@@ -109,7 +111,7 @@ done
 
 # Public city readiness and its encounter supersede browsing without creating a
 # quest vote, preserving delayed intent, or replaying a pre-event opening later.
-for mutation in public-input-bypass city-epoch-not-retired quest-unready-during-city two-dimensional-city-epoch; do
+for mutation in public-input-bypass city-epoch-not-retired quest-unready-during-city two-dimensional-city-epoch retired-adoption-becomes-human; do
     python3 - "$repo_root" "$temporary" "$mutation" <<'PYCITY'
 from pathlib import Path
 import sys
@@ -121,9 +123,10 @@ sources = {
 }
 changes = {
  'public-input-bypass': ('gate', 'internal static bool PublicDecisionOwnsInput => MapCityEventReadyUp.BlocksQuestBrowsing;', 'internal static bool PublicDecisionOwnsInput => false;'),
- 'city-epoch-not-retired': ('remote', 'if (MapCityEventReadyUp.OwnsMapDecision)', 'if (bool.Parse("false") && MapCityEventReadyUp.OwnsMapDecision)'),
+ 'city-epoch-not-retired': ('remote', 'if (MapCityEventReadyUp.OwnsMapDecision)\n        {\n            RetireVersionVisit();', 'if (bool.Parse("false") && MapCityEventReadyUp.OwnsMapDecision)\n        {\n            RetireVersionVisit();'),
  'quest-unready-during-city': ('interactor', 'if (!MapRoomDriver.Active || MapInputGate.PublicDecisionOwnsInput || StoryComposite.PointOfNoReturn', 'if (!MapRoomDriver.Active || StoryComposite.PointOfNoReturn'),
  'two-dimensional-city-epoch': ('remote', 'if (StoryComposite.PointOfNoReturn || MapCityEventReadyUp.OwnsMapDecision', 'if (StoryComposite.PointOfNoReturn'),
+ 'retired-adoption-becomes-human': ('remote', 'private static void ConsumeRetiredBrowsingInput()\n    {', 'private static void ConsumeRetiredBrowsingInput()\n    {\n        if (bool.Parse("true")) return;'),
 }
 name, needle, replacement = changes[mutation]
 assert sources[name].count(needle) == 1, 'Public city browsing mutation seam changed: ' + mutation
@@ -141,6 +144,7 @@ PYCITY
         city-epoch-not-retired) expected='Public city ownership retires incoming browsing instead of queuing a future click' ;;
         quest-unready-during-city) expected='Public city ownership cannot trigger quest-unready while preparing a cosmetic selection' ;;
         two-dimensional-city-epoch) expected='Native city authority retires the old browsing epoch even across 2D presentation' ;;
+        retired-adoption-becomes-human) expected='Native city authority retires the old browsing epoch even across 2D presentation' ;;
     esac
     if ! rg -qF "Unhandled exception. System.InvalidOperationException: $expected" "$temporary/mutant.log"; then
         cat "$temporary/mutant.log"; echo "FAIL: city browsing control did not reach injected defect: $mutation" >&2; exit 1
