@@ -13,3 +13,6 @@ internal interface IMenuDepthSource
     void BeforeCapture(MenuDepthEye eye);
     void AfterCapture();
 }
+
+/// <summary>A source that renders into its own sampled texture and needs a per-consumer pixel demand.</summary>
+internal interface IMenuDepthSampledSource : IMenuDepthSource { }
