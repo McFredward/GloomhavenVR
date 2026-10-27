@@ -10,14 +10,13 @@ using Object = UnityEngine.Object;
 public static partial class MenuDepthProgram
 {
     // Renderer bounds/XR observations are explicit inputs in this capture port.
-    // The production coordinator, expanded projection/carrier and ResolveRate
-    // allocation decision execute; the separate character raster proves that
-    // actual model pixels provide the same footprint and surface-depth contract.
+    // The production coordinator now owns fixed head rasters independently of
+    // the native mono allocation. Bounds jitter must never resize that photo
+    // or change native layout, hit geometry or synchronized window placement.
     private static void Frame728(string output)
     {
         using (var scene = new Scene())
         {
-            scene.Head.orthographicSize = 1.2f;
             MakeImage(scene.Panel,"original flat UI outside old capture",new Vector2(60,60),new Vector2(-360,0),Color.blue,0);
             scene.Capture();
             using (TextureOwner baseline = scene.Eye(false,"728-original-capture"))
@@ -46,7 +45,7 @@ public static partial class MenuDepthProgram
                     Check(scene.Entry.Rt.width == 640 && scene.Entry.Rt.height == 360,
                         "actual original mono dimensions remain unchanged when foreground bounds grow");
                     Check(scene.Entry.Frame == original && scene.Panel.position == position && scene.Panel.localScale == scale,
-                        "expanded capture never changes native layout input or synchronized window geometry");
+                        "fixed head capture never changes native layout input or synchronized window geometry");
                     Check(PanelSupersample.ExtraBytes == MenuDepthDisplay.HeadCost(scene.Head,scene.Entry.Rt)
                         && PanelSupersample.ExtraBytes <= MenuDepthHeadRaster.WindowBudget(scene.Entry.Rt.descriptor,MenuDepthHeadRaster.Size(scene.Head)),
                         "both actual head targets charge their exact independently bounded head-raster cost");
@@ -56,7 +55,7 @@ public static partial class MenuDepthProgram
                         double difference = 0;
                         for (int i=0;i<a.Length;i++) difference += Math.Abs(a[i].r-b[i].r)+Math.Abs(a[i].g-b[i].g)+Math.Abs(a[i].b-b[i].b)+Math.Abs(a[i].a-b[i].a);
                         Check(difference / (a.Length*4) < .3,
-                            "actual expanded head raster preserves native colours text and old window clipping");
+                            "registered foreground bounds cannot change final head colour or native text");
                         File.WriteAllText(Path.Combine(output,"728-frame-allocation.txt"),"native="+original+";sampled="+sampled
                             +";RT="+scene.Entry.Rt.width+"x"+scene.Entry.Rt.height+";meanChannelDifference="+difference/(a.Length*4)+"\n");
                     }
@@ -65,7 +64,7 @@ public static partial class MenuDepthProgram
                     {
                         bounds.Bounds = new Rect(-395+tick*.2f,-180,790,360);
                         scene.Capture();
-                        Check(ReferenceEquals(held,scene.Entry.Rt),"small tracked-bound jitter reuses the expanded capture allocation");
+                        Check(ReferenceEquals(held,scene.Entry.Rt),"small tracked-bound jitter reuses the unchanged native mono allocation");
                     }
                     MenuDepthSources.Unregister(bounds); scene.Source.Ready=false; scene.Capture();
                     Check(PanelSupersample.AllocationFrame(scene.Entry)==original,

@@ -161,8 +161,8 @@ def main():
             ('mixed-scope-order', 'MenuDepthSources.cs', 'BeforeHeadCapture?.Invoke(camera);',
              '/* injected: coordinator is delayed until direct sources are already borrowed */',
              'mixed direct and supersampled windows finish offscreen captures before direct source leases'),
-            ('owner-loss-draw', 'MenuDepthDisplay.cs', 'if (_disposeRequested || !target.IsCreated())',
-             'if (target.width < 0)',
+            ('owner-loss-draw', 'MenuDepthDisplay.cs', 'private void ThrowIfHeadOwnerClosed(RenderTexture target)\n    {\n        if (_disposeRequested || !target.IsCreated())',
+             'private void ThrowIfHeadOwnerClosed(RenderTexture target)\n    {\n        if (target.width < 0)',
              'closed native owner cannot submit another eye draw after its source lease ends'),
         ]
         if args.case:
