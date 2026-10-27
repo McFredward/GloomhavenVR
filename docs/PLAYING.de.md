@@ -117,6 +117,9 @@ etwas hinter ihrem Rahmen. Fähigkeits-, Gegenstands-, Monster- und Angriffsmodi
 in Menüs ragen ebenfalls leicht aus dem Fenster heraus, auch beim Darüberzeigen. Verschiebe
 ein Fenster oder lehne dich zur Seite, um den Effekt zu sehen; Texte und Bedienelemente
 bleiben scharf.
+Zum Drehen der Figur in der Gruppen- oder Erstellungsvorschau mit dem Laser auf die Figur
+zeigen, den Trigger halten und seitlich bewegen. Beim Loslassen endet die Drehung;
+Figurposition und Fenster bleiben fest.
 Unter **VR Optionen ▸ Tafeln ▸ 2D-Schirm ▸ 3D-Figurenvorschau** wechselst du sofort zwischen
 räumlichen Figuren und ihrem ursprünglichen flachen Livebild. Die Option ist auf allen
 Systemen standardmäßig eingeschaltet; Karten-, Story- und Videotiefe bleiben unverändert.

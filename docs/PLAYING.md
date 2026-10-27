@@ -111,6 +111,9 @@ icons, frames and tabs have shallow depth. Compendium screenshots sit slightly b
 their frames. Ability, item, monster and attack-modifier cards shown in menus also sit
 slightly in front of the window, including hover previews. Move a window or lean sideways
 to see the effect; text and controls stay sharp.
+To turn a character in the party or creation preview, point the laser at the figure,
+hold the trigger and move sideways. Release the trigger to stop turning; the figure's
+position and the window stay fixed.
 Toggle **VR Options ▸ Panels ▸ 2D screen ▸ 3D character previews** to switch the figures
 between 3D and their original flat live image immediately. The option starts enabled on
 every system and leaves card, story and video depth unchanged.
