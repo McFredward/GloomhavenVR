@@ -54,6 +54,20 @@ public static partial class MenuDepthCardProgram
         internal IEnumerator ProveNativeHover729()
         {
             _hoverScene = this;
+            var sources=(IList)AccessTools.Field(typeof(MenuDepthSources),"Sources").GetValue(null)!;
+            int coldHelpers=0,registeredColdHelpers=0,destroyedHelpers=0;
+            foreach(Card cold in _cards)
+                foreach(Image background in cold.Backgrounds)
+                {
+                    MenuDepthGraphic helper=background.GetComponent<MenuDepthGraphic>();
+                    if(helper==null)continue;
+                    coldHelpers++;
+                    if(sources.Contains(helper))registeredColdHelpers++;
+                }
+            foreach(object source in sources)if(source is MenuDepthGraphic helper&&helper==null)destroyedHelpers++;
+            if(_path<2)Check(coldHelpers>0,"native pool discovery prepares original background helpers before their first activation");
+            File.AppendAllText(Path.Combine(_output,"cold-pool-registry.csv"),_name+",coldHelpers="+coldHelpers
+                +",registeredColdHelpers="+registeredColdHelpers+",destroyedHelpers="+destroyedHelpers+"\n");
             _head.transform.SetPositionAndRotation(new Vector3(.25f, .08f, -.60f),
                 Quaternion.LookRotation(new Vector3(-.25f, -.08f, .60f), Vector3.up));
             int censuses = MenuDepthDriver.RootCensuses, visits = MenuDepthDriver.BehaviourVisits;
@@ -85,6 +99,7 @@ public static partial class MenuDepthCardProgram
                 Vector3 nativePosition = full.Rect.localPosition, nativeScale = full.Rect.localScale;
                 ++_request; while (_completed != _request) yield return null;
                 Texture2D first = Read(full, true, 300 + reuse);
+                White(first);
                 var marker = full.Rect.GetComponent<MenuDepthCardPlane>();
                 Check(marker != null && marker.IsReady,
                     "native character hover admits its detached disabled-controller card before the first automatic draw");
@@ -114,6 +129,13 @@ public static partial class MenuDepthCardProgram
                     Check((float)ratio.GetValue(marker)! == .035f,
                         "the actual prior hover raster retains its explicit original depth reference");
                     priorPixels = Read(full, true, 600 + reuse);
+                    bool reacquired=true;
+                    foreach(Image background in full.Backgrounds)
+                    {
+                        MenuDepthGraphic helper=background.GetComponent<MenuDepthGraphic>();
+                        reacquired&=helper!=null&&sources.Contains(helper);
+                    }
+                    Check(reacquired,"active native card backgrounds rejoin capture after a same-state marker reacquire without another enable");
                 }
                 finally { ratio.SetValue(marker, configured); }
                 float priorDisplacement = Vector2.Scale(White(priorPixels).Center - White(flat).Center,
