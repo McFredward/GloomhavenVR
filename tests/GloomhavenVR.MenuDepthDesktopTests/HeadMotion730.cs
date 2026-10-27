@@ -247,6 +247,17 @@ public static partial class MenuDepthDesktopProgram
                         int modelBefore=scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>().Draws;
                         int uiBefore=scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws;
                         scene.Head.cullingMask=1<<27;scene.Render(eye!=0);
+                        if(frame==40&&path==0&&eye==0)
+                        {
+                            // This observes the real coordinator after the exact
+                            // crossing, before secondary render-count symptoms.
+                            // Annotation matrix mapping has its own coplanar use;
+                            // the mutation targets only this actual capture eye.
+                            bool stereo=scene.Flat.Right!=null&&scene.Flat.Right.IsCreated();
+                            File.WriteAllText(Path.Combine(output,"coplanar-coordinator.txt"),"eye="+eyePosition.ToString("R")+";stereo="+stereo
+                                +";nativeUiDraws="+(scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-uiBefore));
+                            Check(stereo,"fixed head coordinator retains stereo capture at the exact physical glass-plane crossing");
+                        }
                         if(annotations)Check(path==0?scene.Flat.Right!=null:entry!.MenuDepthDisplay!=null,"original outboard annotations admit both real head routes when character depth is off or not ready");
                         Check(scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-modelBefore==(!annotations&&eye==0?2:0),
                             "each head stereo pair executes the original native model image effect exactly once per eye");
