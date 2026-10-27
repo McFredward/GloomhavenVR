@@ -84,12 +84,14 @@ def main():
     variants = [
         ('production', '', '', '', ''),
         ('window-anchors-724', '', '', '', ''),
+        ('window-anchors-native-image-effect', '', '', '', ''),
+        ('window-anchors-ui-image-effect', '', '', '', ''),
         ('window-anchors-frozen-eye', 'MenuDepthScreenProjection.cs',
          'Vector3 offset = physicalEye - physicalCenter;', 'Vector3 offset = -screen.forward * 2f;',
          'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
-        ('window-anchors-stored-viewport', 'MenuDepthScreenProjection.cs',
-         'Rect viewport = original.targetTexture != null ? new Rect(0f, 0f, 1f, 1f) : original.rect;',
+        ('window-anchors-forced-full-viewport', 'MenuDepthScreenProjection.cs',
          'Rect viewport = original.rect;',
+         'Rect viewport = new Rect(0f, 0f, 1f, 1f);',
          'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
         ('window-anchors-moving-native-scene', 'MenuDepthCharacterSource.cs',
          '            _camera.targetTexture = target;',
@@ -155,7 +157,9 @@ def main():
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': 'Anchors724' if name.startswith('window-anchors-') else 'Run'})
+                                      'method': ('AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
+                                          'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else
+                                          'Anchors724' if name.startswith('window-anchors-') else 'Run')})
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         (run / 'command-environment.json').write_text(json.dumps({name: os.environ.get(name) for name in
             ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')

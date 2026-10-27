@@ -6,12 +6,24 @@ using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
+[ExecuteInEditMode]
+public sealed class MenuDepthAnchorsImageEffect724 : MonoBehaviour
+{
+    public int Draws;
+    private void OnRenderImage(RenderTexture source, RenderTexture destination)
+    { Draws++; Graphics.Blit(source, destination); }
+}
+
 public static partial class MenuDepthDesktopProgram
 {
     // The native model target alone cannot establish a fixed VR cabinet. Observe
     // the full original camera -> RawImage -> UI stack -> physical glass -> head
     // raster, then compare against a fixed world landmark calibrated WITHOUT eyes.
-    public static IEnumerator Anchors724(string output, Action<int> complete)
+    public static IEnumerator Anchors724(string output, Action<int> complete) => Anchors724Core(output, complete, false, false);
+    public static IEnumerator AnchorsModelEffect724(string output, Action<int> complete) => Anchors724Core(output, complete, true, false);
+    public static IEnumerator AnchorsUiEffect724(string output, Action<int> complete) => Anchors724Core(output, complete, false, true);
+
+    private static IEnumerator Anchors724Core(string output, Action<int> complete, bool modelEffect, bool uiEffect)
     {
         _count = 0; GloomhavenVR.Core.VRSession.IsRunning = true; DesktopEyeInput.Available = true;
         using (var scene = new Scene())
@@ -30,16 +42,24 @@ public static partial class MenuDepthDesktopProgram
             raw.uvRect = new Rect(.15f, .12f, .7f, .76f);
             scene.ModelCamera.rect = new Rect(.1f, .05f, .8f, .9f);
             scene.OriginalA.rect = new Rect(.08f, .12f, .83f, .76f);
+            scene.ModelCamera.allowHDR = false; scene.ModelCamera.allowMSAA = false;
+            scene.OriginalA.allowHDR = false; scene.OriginalA.allowMSAA = false;
+            if (modelEffect) scene.ModelCamera.gameObject.AddComponent<MenuDepthAnchorsImageEffect724>();
+            if (uiEffect) scene.OriginalA.gameObject.AddComponent<MenuDepthAnchorsImageEffect724>();
             scene.Head.orthographic = false; scene.Head.fieldOfView = 55;
             scene.HeadTarget.Release(); scene.HeadTarget.width = 960; scene.HeadTarget.height = 720; scene.HeadTarget.Create();
             scene.Screen.SetPositionAndRotation(new Vector3(.3f, .2f, 3), Quaternion.Euler(0, 25, 0));
             scene.Screen.localScale = new Vector3(2.4f, 1.5f, 1);
             scene.Flat.Begin(); Canvas.ForceUpdateCanvases();
             scene.ModelCamera.Render();
+            if (modelEffect) Check(scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>().Draws > 0,
+                "the native-style model image effect is actually invoked by Camera.Render");
             Texture2D nativeProbe = Read(scene.ModelTarget, Path.Combine(output, "724-native-viewport-probe.png"));
             Vector2 nativeRaster = CyanCentre(nativeProbe); Object.DestroyImmediate(nativeProbe);
             Vector3 nativeViewport = scene.ModelCamera.WorldToViewportPoint(marker.transform.position);
             scene.OriginalA.Render(); scene.OriginalB.Render();
+            if (uiEffect) Check(scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws > 0,
+                "the native-style UI image effect is actually invoked by Camera.Render");
             Texture2D uiProbe = Read(scene.Ui, Path.Combine(output, "724-ui-viewport-probe.png"));
             Vector2 uiRaster = CyanCentre(uiProbe); Object.DestroyImmediate(uiProbe);
             Vector2 nativeUv = new Vector2((nativeRaster.x + .5f) / scene.ModelTarget.width, (nativeRaster.y + .5f) / scene.ModelTarget.height);
@@ -59,10 +79,10 @@ public static partial class MenuDepthDesktopProgram
                 + "; sampled UI viewport=" + uiViewport.ToString("F6")
                 + "; full model pixel=" + fullNative + "; rect model pixel=" + rectNative
                 + "; full UI pixel=" + fullUi + "; rect UI pixel=" + rectUi + "\n");
-            Check(Vector2.Distance(nativeRaster, fullNative) < .75f && Vector2.Distance(nativeRaster, rectNative) > 1.2f,
-                "actual native render target uses its whole surface despite a stored nonidentity source camera viewport");
-            Check(Vector2.Distance(uiRaster, fullUi) < .75f && Vector2.Distance(uiRaster, rectUi) > 10f,
-                "actual native UI render target uses its whole surface despite a stored nonidentity UI camera viewport");
+            Check(Vector2.Distance(nativeRaster, rectNative) < .75f && Vector2.Distance(nativeRaster, fullNative) > 1.2f,
+                "actual native HDR-disabled model render target retains its authored camera viewport");
+            Check(Vector2.Distance(uiRaster, rectUi) < .75f && Vector2.Distance(uiRaster, fullUi) > 10f,
+                "actual native HDR-disabled UI render target retains its authored camera viewport");
             int before = Time.frameCount; while (Time.frameCount == before) yield return null;
             Vector3 fixedPoint = VirtualLandmark(scene, raw, holder, marker.transform.position);
             File.WriteAllText(Path.Combine(output, "724-anchor-calibration.txt"), "Fixed physical landmark=" + fixedPoint + "\n");
@@ -77,7 +97,12 @@ public static partial class MenuDepthDesktopProgram
                     Vector3 position = scene.Head.GetStereoViewMatrix(eye == 0 ? Camera.StereoscopicEye.Left : Camera.StereoscopicEye.Right)
                         .inverse.MultiplyPoint3x4(Vector3.zero);
                     scene.Head.transform.SetPositionAndRotation(position, scene.Screen.rotation);
+                    MenuDepthAnchorsImageEffect724? effect = modelEffect ? scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>()
+                        : uiEffect ? scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>() : null;
+                    int effectDraws = effect != null ? effect.Draws : 0;
                     scene.Render(eye != 0);
+                    if (effect != null) Check(effect.Draws - effectDraws == (eye == 0 ? 2 : 0),
+                        "each prepared eye retains the original image effect once without repeating it during the second final glass draw");
                     Texture2D image = Read(scene.HeadTarget, Path.Combine(output, "724-final-glass-" + i + "-" + eye + ".png"));
                     Vector2 observed = CyanCentre(image);
                     Vector3 viewport = scene.Head.WorldToViewportPoint(fixedPoint);
@@ -114,9 +139,10 @@ public static partial class MenuDepthDesktopProgram
         Camera model = scene.ModelCamera; Matrix4x4 nativeProjection = model.projectionMatrix;
         float depth = Vector3.Dot(holder.position - model.transform.position, model.transform.forward) * .85f;
         float width = 2 * depth / nativeProjection.m00, height = 2 * depth / nativeProjection.m11;
-        // Both cameras here render to actual RTs. Their stored backbuffer rects
-        // are deliberately nonidentity; the probes above establish full RT use.
-        Rect viewport = new Rect(0f, 0f, 1f, 1f), uv = image.uvRect;
+        // The HDR-disabled camera contract is supplied from the actual native
+        // camera census. Raster probes above establish its retained viewport;
+        // HDR-enabled Unity intermediates are a different, unclaimed path.
+        Rect viewport = model.rect, uv = image.uvRect;
         Vector3 nativeCentre = model.transform.position + model.transform.forward * depth
             + model.transform.right * (nativeProjection.m02 * depth / nativeProjection.m00)
             + model.transform.up * (nativeProjection.m12 * depth / nativeProjection.m11);
@@ -135,7 +161,7 @@ public static partial class MenuDepthDesktopProgram
 
     private static Vector3 WindowPoint(Scene scene, Vector3 nativeUiPoint)
     {
-        Vector3 view = scene.OriginalA.WorldToViewportPoint(nativeUiPoint);
-        return scene.Screen.TransformPoint(new Vector3(view.x - .5f, view.y - .5f));
+        Vector3 view = scene.OriginalA.WorldToViewportPoint(nativeUiPoint); Rect rect = scene.OriginalA.rect;
+        return scene.Screen.TransformPoint(new Vector3(rect.x + view.x * rect.width - .5f, rect.y + view.y * rect.height - .5f));
     }
 }
