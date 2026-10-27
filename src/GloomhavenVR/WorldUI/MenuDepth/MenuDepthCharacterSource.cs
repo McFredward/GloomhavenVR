@@ -295,7 +295,19 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDispo
         {
             // Authored local envelopes remain stable across animation. World
             // Renderer.bounds and per-frame hierarchy walks are deliberately absent.
-            foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+            Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+            var bones = new Dictionary<Transform, Matrix4x4>();
+            foreach (Renderer renderer in renderers)
+            {
+                if (!(renderer is SkinnedMeshRenderer skin) || skin.sharedMesh == null
+                    || !renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
+                Transform[] transforms = skin.bones; Matrix4x4[] poses = skin.sharedMesh.bindposes;
+                Matrix4x4 skinToCamera = _camera.transform.worldToLocalMatrix * skin.localToWorldMatrix;
+                for (int i = 0; i < Math.Min(transforms.Length, poses.Length); i++)
+                    if (transforms[i] != null && !bones.ContainsKey(transforms[i]))
+                        bones.Add(transforms[i], skinToCamera * poses[i].inverse);
+            }
+            foreach (Renderer renderer in renderers)
             {
                 if (!renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
                 Bounds local;
@@ -303,6 +315,13 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDispo
                 else if (renderer is MeshRenderer && renderer.GetComponent<MeshFilter>() is MeshFilter filter && filter.sharedMesh != null) local = filter.sharedMesh.bounds;
                 else continue;
                 Matrix4x4 transform = _camera.transform.worldToLocalMatrix * renderer.localToWorldMatrix;
+                // Rigid equipment can be attached to an animated skin bone.
+                // Use its imported bind pose so the first captured animation
+                // phase cannot change the completed model's cabinet calibration.
+                if (renderer is MeshRenderer)
+                    for (Transform? ancestor = renderer.transform; ancestor != null && ancestor != root.parent; ancestor = ancestor.parent)
+                        if (bones.TryGetValue(ancestor, out Matrix4x4 bind))
+                        { transform = bind * ancestor.worldToLocalMatrix * renderer.localToWorldMatrix; break; }
                 Vector3 lo = local.min, hi = local.max;
                 for (int i = 0; i < 8; i++)
                 {
