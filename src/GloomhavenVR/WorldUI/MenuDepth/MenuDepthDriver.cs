@@ -26,6 +26,8 @@ internal static class MenuDepthDriver
         internal readonly Spec Spec;
         internal readonly FieldInfo? Field;
         internal readonly Image? DirectImage;
+        internal UIWindow? Window;
+        internal Transform? Root;
         internal Sprite? PreviousOriginal;
         internal string PreviousKey = string.Empty;
         internal MenuDepthCatalogue.Artwork? Artwork;
@@ -33,8 +35,9 @@ internal static class MenuDepthDriver
         internal string PendingKey = string.Empty, NotedKey = string.Empty, NotedState = string.Empty;
         internal float PendingSince;
         internal bool PendingReported;
-        internal Binding(MonoBehaviour owner, Spec spec, FieldInfo field) { Owner = owner; Spec = spec; Field = field; }
-        internal Binding(UIWindow window, Image frame) { Owner = window; Spec = FrameSpec; DirectImage = frame; }
+        internal Binding(MonoBehaviour owner, Spec spec, FieldInfo field)
+        { Owner = owner; Spec = spec; Field = field; Window = owner.GetComponentInParent<UIWindow>(); }
+        internal Binding(UIWindow window, Image frame) { Owner = window; Window = window; Spec = FrameSpec; DirectImage = frame; }
     }
     private sealed class Owned
     {
@@ -73,15 +76,20 @@ internal static class MenuDepthDriver
     private static readonly FieldInfo? CurrentSubsection = AccessTools.Field(typeof(CompendiumWindow), "currentSubsection");
     private static readonly Dictionary<Image, Owned> OwnedImages = new();
     private static readonly List<Binding> Bindings = new(64);
-    private static readonly List<Binding> NextBindings = new(64);
+    private static readonly Dictionary<MonoBehaviour, List<Binding>> OwnerBindings = new();
     private static readonly Dictionary<Type, List<(Spec Spec, FieldInfo Field)>> TypeFields = new();
     private static readonly List<MonoBehaviour> Behaviours = new(1024);
-    private static readonly HashSet<MonoBehaviour> Visited = new();
-    private static readonly List<UIWindow> Windows = new(32);
-    private static readonly HashSet<UIWindow> PreviousWindows = new();
+    private static readonly Dictionary<Transform, int> Roots = new();
+    private static readonly HashSet<UIWindow> KnownWindows = new();
+    private static readonly HashSet<Graphic> KnownGraphics = new();
+    private static readonly HashSet<Graphic> PendingGraphics = new();
+    private static readonly HashSet<MonoBehaviour> PendingOwners = new();
+    private static readonly List<Transform> DeadRoots = new();
+    private static readonly List<MonoBehaviour> DeadOwners = new();
     private static readonly List<Image> DeadImages = new();
-    private static float _nextCensus;
-    private static int _epoch;
+    // Structural work counters are advanced only at real births, never a timed sweep.
+    internal static int RootCensuses, BehaviourVisits, AncestorVisits;
+    private static int _epoch, _rootEpoch;
     private static bool _running;
     private static int _bindingNotes, _missingNotes;
 
@@ -91,26 +99,30 @@ internal static class MenuDepthDriver
         { if (_running) Shutdown(); return; }
         _running = true;
         MenuDepthCharacters.Tick();
-        Windows.Clear(); bool newWindow = false;
+        // Native registries are small identity sets, not scene/hierarchy censuses.
+        // Include hidden enabled windows: pooled content is learned before first reveal.
+        ++_rootEpoch;
+        IReadOnlyList<ConvertedPanel> panels = CanvasConversion.ActivePanels;
+        for (int i = 0; i < panels.Count; i++)
+            if (panels[i].Target != null) Enroll(panels[i].Target);
         foreach (UIWindow window in UIWindow.GetWindows())
         {
-            if (window == null || (!window.IsOpen && !window.IsVisible)) continue;
-            Windows.Add(window);
-            if (!PreviousWindows.Contains(window)) newWindow = true;
+            if (window == null) continue;
+            Enroll(window.transform);
+            if (KnownWindows.Add(window))
+            {
+                Image frame = window.GetComponent<Image>();
+                if (frame != null) AddFrame(window, frame);
+            }
         }
-        if (newWindow || Time.unscaledTime >= _nextCensus)
-        {
-            _nextCensus = Time.unscaledTime + .25f;
-            RefreshBindings();
-        }
-        PreviousWindows.Clear();
-        for (int i = 0; i < Windows.Count; i++) PreviousWindows.Add(Windows[i]);
+        FlushArrivals();
         ++_epoch;
         for (int i = 0; i < Bindings.Count; i++)
         {
             Binding binding = Bindings[i];
-            if (binding.Owner == null || !binding.Owner.isActiveAndEnabled) continue;
-            UIWindow parent = binding.Owner.GetComponentInParent<UIWindow>();
+            if (binding.Owner == null || !binding.Owner.isActiveAndEnabled || binding.Root == null
+                || !Roots.TryGetValue(binding.Root, out int rootEpoch) || rootEpoch != _rootEpoch) continue;
+            UIWindow? parent = binding.Window;
             if (parent != null && !parent.IsOpen && !parent.IsVisible) continue;
             object? value = binding.DirectImage != null ? binding.DirectImage : binding.Field?.GetValue(binding.Owner);
             if (value is Image image) BindImage(binding, image);
@@ -127,52 +139,150 @@ internal static class MenuDepthDriver
         for (int i = 0; i < DeadImages.Count; i++) OwnedImages.Remove(DeadImages[i]);
     }
 
-    private static void RefreshBindings()
+    private static bool Enroll(Transform root)
     {
-        NextBindings.Clear(); Visited.Clear();
-        for (int w = 0; w < Windows.Count; w++)
-        {
-            UIWindow window = Windows[w];
-            Discover(window.transform);
-            Image frame = window.GetComponent<Image>();
-            if (frame != null && frame.type == Image.Type.Sliced && frame.overrideSprite != null
-                && frame.overrideSprite.border.sqrMagnitude > 0f)
-                NextBindings.Add(new Binding(window, frame));
-        }
-        IReadOnlyList<ConvertedPanel> panels = CanvasConversion.ActivePanels;
-        for (int i = 0; i < panels.Count; i++)
-            if (panels[i].Target != null) Discover(panels[i].Target);
-        Bindings.Clear(); Bindings.AddRange(NextBindings);
+        if (Roots.ContainsKey(root)) { Roots[root] = _rootEpoch; return false; }
+        Roots.Add(root, _rootEpoch);
+        Discover(root);
+        return true;
+    }
+
+    private static void AddFrame(UIWindow window, Image image)
+    {
+        // A pooled frame can receive its sprite later; readiness is checked live.
+        if (!OwnerBindings.TryGetValue(window, out List<Binding>? bindings))
+        { bindings = new List<Binding>(); OwnerBindings.Add(window, bindings); }
+        for (int i = 0; i < bindings.Count; i++) if (ReferenceEquals(bindings[i].Spec, FrameSpec)) return;
+        var binding = new Binding(window, image) { Root = window.transform }; bindings.Add(binding); Bindings.Add(binding);
     }
 
     private static void Discover(Transform root)
     {
+        ++RootCensuses;
         Behaviours.Clear(); root.GetComponentsInChildren(true, Behaviours);
+        BehaviourVisits += Behaviours.Count;
         for (int i = 0; i < Behaviours.Count; i++)
         {
             MonoBehaviour owner = Behaviours[i];
-            if (owner == null || !Visited.Add(owner)) continue;
-            Type ownerType = owner.GetType();
-            if (!TypeFields.TryGetValue(ownerType, out List<(Spec Spec, FieldInfo Field)>? fields))
+            if (owner == null) continue;
+            if (owner is Image || owner is RawImage) KnownGraphics.Add((Graphic)owner);
+            Register(owner);
+        }
+    }
+
+    // These native postfix notifications only coalesce identities. No observer
+    // callback walks children or reflects fields while the game initializes them.
+    internal static void ObserveGraphic(Graphic graphic)
+    {
+        if (!_running || graphic == null || (graphic is not Image && graphic is not RawImage)) return;
+        if (!KnownGraphics.Contains(graphic)) PendingGraphics.Add(graphic);
+    }
+
+    internal static void ObserveOwner(MonoBehaviour owner)
+    {
+        if (_running && owner != null) PendingOwners.Add(owner);
+    }
+
+    private static bool HasRoot(Transform value)
+    {
+        for (Transform? parent = value; parent != null; parent = parent.parent)
+            if (Roots.ContainsKey(parent)) return true;
+        return false;
+    }
+
+    private static void FlushArrivals()
+    {
+        foreach (MonoBehaviour owner in PendingOwners)
+            if (owner != null && HasRoot(owner.transform)) Register(owner);
+        PendingOwners.Clear();
+        foreach (Graphic graphic in PendingGraphics)
+        {
+            if (graphic == null || KnownGraphics.Contains(graphic) || !HasRoot(graphic.transform)) continue;
+            KnownGraphics.Add(graphic);
+            // New active prefab branches expose their original typed owner on
+            // the path to the enrolled window. Existing neighbours are never rescanned.
+            for (Transform? parent = graphic.transform; parent != null; parent = parent.parent)
             {
-                fields = new List<(Spec, FieldInfo)>();
-                for (int n = 0; n < Specs.Length; n++)
-                {
-                    Spec spec = Specs[n]; Type? type = ownerType;
-                    while (type != null && type.Name != spec.TypeName) type = type.BaseType;
-                    if (type == null) continue;
-                    FieldInfo? field = AccessTools.Field(type, spec.Field);
-                    if (field != null) fields.Add((spec, field));
-                }
-                TypeFields.Add(ownerType, fields);
+                ++AncestorVisits;
+                Behaviours.Clear(); parent.GetComponents(Behaviours);
+                for (int i = 0; i < Behaviours.Count; i++) Register(Behaviours[i]);
+                if (Roots.ContainsKey(parent)) break;
             }
-            for (int n = 0; n < fields.Count; n++)
+        }
+        PendingGraphics.Clear();
+        DeadOwners.Clear();
+        foreach (MonoBehaviour owner in OwnerBindings.Keys) if (owner == null) DeadOwners.Add(owner!);
+        for (int i = 0; i < DeadOwners.Count; i++)
+        {
+            List<Binding> bindings = OwnerBindings[DeadOwners[i]];
+            for (int n = 0; n < bindings.Count; n++) Bindings.Remove(bindings[n]);
+            OwnerBindings.Remove(DeadOwners[i]);
+        }
+        DeadRoots.Clear(); foreach (Transform root in Roots.Keys) if (root == null) DeadRoots.Add(root!);
+        for (int i = 0; i < DeadRoots.Count; i++) Roots.Remove(DeadRoots[i]);
+        if (DeadRoots.Count != 0)
+        {
+            // Never-active pooled graphics need not receive OnDestroy. A real
+            // scope retirement can prune their dead cached identities once.
+            KnownGraphics.RemoveWhere(graphic => graphic == null);
+            KnownWindows.RemoveWhere(window => window == null);
+        }
+    }
+
+    private static void Register(MonoBehaviour owner)
+    {
+        if (owner == null) return;
+        if (OwnerBindings.TryGetValue(owner, out List<Binding>? existing))
+        {
+            UIWindow window = owner.GetComponentInParent<UIWindow>();
+            Transform? root = FindRoot(owner.transform);
+            for (int i = 0; i < existing.Count; i++) { existing[i].Window = window; existing[i].Root = root; }
+            return;
+        }
+        Type ownerType = owner.GetType();
+        if (!TypeFields.TryGetValue(ownerType, out List<(Spec Spec, FieldInfo Field)>? fields))
+        {
+            fields = new List<(Spec, FieldInfo)>();
+            for (int n = 0; n < Specs.Length; n++)
             {
-                Binding? previous = null;
-                for (int p = 0; p < Bindings.Count; p++)
-                    if (Bindings[p].Owner == owner && ReferenceEquals(Bindings[p].Spec, fields[n].Spec))
-                    { previous = Bindings[p]; break; }
-                NextBindings.Add(previous ?? new Binding(owner, fields[n].Spec, fields[n].Field));
+                Spec spec = Specs[n]; Type? type = ownerType;
+                while (type != null && type.Name != spec.TypeName) type = type.BaseType;
+                if (type == null) continue;
+                FieldInfo? field = AccessTools.Field(type, spec.Field);
+                if (field != null) fields.Add((spec, field));
+            }
+            TypeFields.Add(ownerType, fields);
+        }
+        if (fields.Count == 0) return;
+        var bindings = new List<Binding>(fields.Count);
+        OwnerBindings.Add(owner, bindings);
+        for (int n = 0; n < fields.Count; n++)
+        { var binding = new Binding(owner, fields[n].Spec, fields[n].Field) { Root = FindRoot(owner.transform) }; bindings.Add(binding); Bindings.Add(binding); }
+    }
+
+    private static Transform? FindRoot(Transform value)
+    {
+        for (Transform? parent = value; parent != null; parent = parent.parent)
+            if (Roots.ContainsKey(parent)) return parent;
+        return null;
+    }
+
+    internal static void ForgetGraphic(Graphic graphic)
+    { KnownGraphics.Remove(graphic); PendingGraphics.Remove(graphic); }
+
+    internal static IEnumerable<MethodBase> NativeOwnerLifecycles()
+    {
+        var emitted = new HashSet<MethodBase>();
+        for (int i = 0; i < Specs.Length; i++)
+        {
+            Type? type = typeof(StoryImageViewer).Assembly.GetType(Specs[i].TypeName)
+                ?? typeof(UITab).Assembly.GetType("UnityEngine.UI." + Specs[i].TypeName);
+            if (type == null) continue;
+            foreach (string name in new[] { "Awake", "OnEnable" })
+            {
+                MethodInfo? method = AccessTools.Method(type, name, Type.EmptyTypes);
+                if (method != null && method.DeclaringType?.Assembly == typeof(StoryImageViewer).Assembly
+                    && emitted.Add(method)) yield return method;
             }
         }
     }
@@ -181,6 +291,8 @@ internal static class MenuDepthDriver
     {
         if (image == null || !image.isActiveAndEnabled || !image.gameObject.activeInHierarchy
             || (image.overrideSprite == null && binding.Spec.Role != Role.Layer)) return;
+        if (ReferenceEquals(binding.Spec, FrameSpec) && (image.type != Image.Type.Sliced
+            || image.overrideSprite == null || image.overrideSprite.border.sqrMagnitude <= 0f)) return;
         MenuDepthHeightfield? field = null;
         Vector4 depthUv = new(1f, 1f, 0f, 0f);
         if (binding.Spec.Role != Role.Layer)
@@ -307,8 +419,10 @@ internal static class MenuDepthDriver
         foreach (KeyValuePair<Image, Owned> item in OwnedImages)
             if (item.Value.Mesh != null)
             { item.Value.Mesh.enabled = false; UnityEngine.Object.Destroy(item.Value.Mesh); }
-        OwnedImages.Clear(); Bindings.Clear(); NextBindings.Clear(); Visited.Clear(); Windows.Clear(); PreviousWindows.Clear();
-        _nextCensus = 0f; _running = false;
+        OwnedImages.Clear(); Bindings.Clear(); OwnerBindings.Clear(); Roots.Clear(); KnownWindows.Clear(); KnownGraphics.Clear();
+        PendingGraphics.Clear(); PendingOwners.Clear(); DeadRoots.Clear(); DeadOwners.Clear();
+        _running = false;
+        RootCensuses = BehaviourVisits = AncestorVisits = 0;
         _bindingNotes = _missingNotes = 0;
     }
 }

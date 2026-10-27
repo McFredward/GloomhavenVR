@@ -17,61 +17,114 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// </summary>
 internal static class MenuDepthCharacters
 {
-    private const float CensusSeconds = .25f;
+    private sealed class Manager
+    {
+        internal readonly Character3DDisplayManager Original;
+        internal readonly Camera Camera;
+        internal Transform? Holder;
+        internal RenderTexture? Target;
+        internal Manager(Character3DDisplayManager original, Camera camera) { Original = original; Camera = camera; }
+    }
     private static readonly List<MenuDepthCharacterSource> Sources = new(8);
-    private static readonly Dictionary<Component, RenderTexture> DisplayRequests = new(8);
+    private static readonly List<Manager> Managers = new(2);
+    private static readonly HashSet<RawImage> Images = new();
+    private static readonly HashSet<RawImage> PendingImages = new();
+    private static readonly HashSet<Character3DDisplayManager> PendingManagers = new();
+    private static readonly Dictionary<Component, RenderTexture?> DisplayRequests = new(8);
+    private static readonly HashSet<Component> PendingRequests = new();
     private static readonly List<Component> DeadRequests = new(4);
+    private static readonly List<RawImage> RequestImages = new(8);
     private static readonly FieldInfo? HolderField = typeof(Character3DDisplayManager).GetField(
         "character3DHolder", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
     private static readonly Func<Character3DDisplayManager, bool>? ReadHidden = CreateHiddenReader();
-    private static float _nextCensus;
     private static bool _enabled, _discovering;
+    internal static int GlobalCensuses, RequestCensuses, ImageVisits;
     private static bool _reflectionReported;
     private static int _openings;
 
     internal static void Tick()
     {
         if (!VRSession.IsRunning) { Shutdown(); return; }
-        _enabled = true;
+        if (!_enabled) { _enabled = true; Discover(); }
         RetireStale();
-        if (Time.unscaledTime < _nextCensus) return;
-        Discover();
+        foreach (Character3DDisplayManager manager in PendingManagers) AddManager(manager);
+        PendingManagers.Clear();
+        // Only the few original GUI cameras are polled. The native target can be
+        // assigned after Display; its first ready frame must not wait for a timer.
+        for (int i = Managers.Count - 1; i >= 0; i--)
+        {
+            Manager manager = Managers[i];
+            if (manager.Original == null || manager.Camera == null) { Managers.RemoveAt(i); continue; }
+            Transform? holder = HolderField?.GetValue(manager.Original) as Transform;
+            RenderTexture target = manager.Camera.targetTexture;
+            if (ReferenceEquals(holder, manager.Holder) && ReferenceEquals(target, manager.Target)) continue;
+            manager.Holder = holder; manager.Target = target;
+            foreach (RawImage image in Images) if (image != null) PendingImages.Add(image);
+        }
+        foreach (Component request in PendingRequests)
+        {
+            if (request == null) continue;
+            ++RequestCensuses;
+            RequestImages.Clear(); request.GetComponentsInChildren(true, RequestImages);
+            for (int i = 0; i < RequestImages.Count; i++) QueueImage(RequestImages[i]);
+        }
+        PendingRequests.Clear();
+        foreach (RawImage image in PendingImages) if (image != null) Bind(image);
+        PendingImages.Clear();
+        DeadRequests.Clear();
+        foreach (Component request in DisplayRequests.Keys)
+            if (request == null) DeadRequests.Add(request!);
+        for (int i = 0; i < DeadRequests.Count; i++) DisplayRequests.Remove(DeadRequests[i]);
     }
 
-    // The native Display request is observed only after the original has run.
-    // A new window gets its existing RT consumers before its first render even
-    // when it is created between the bounded fallback censuses. Repeated skin/
-    // hover updates by the same requester do not rescan the scene.
+    // Postfixes coalesce real native identities, without global or hierarchy
+    // enumeration inside native Display/OnEnable/texture assignment callbacks.
     internal static void ObserveDisplay(Character3DDisplayManager manager, Component request)
     {
         if (!_enabled || !VRSession.IsRunning || manager == null) return;
-        Camera camera = manager.GetComponent<Camera>();
-        if (camera == null || camera.targetTexture == null) return;
+        PendingManagers.Add(manager);
         Component key = request != null ? request : manager;
-        RenderTexture target = camera.targetTexture;
-        if (DisplayRequests.TryGetValue(key, out RenderTexture previous) && ReferenceEquals(previous, target)) return;
+        Camera camera = manager.GetComponent<Camera>();
+        RenderTexture? target = camera != null ? camera.targetTexture : null;
+        if (DisplayRequests.TryGetValue(key, out RenderTexture? previous) && ReferenceEquals(previous, target)) return;
         DisplayRequests[key] = target;
-        RetireStale();
-        Discover();
+        PendingRequests.Add(key);
     }
+
+    internal static void ObserveManager(Character3DDisplayManager manager)
+    { if (_enabled && VRSession.IsRunning && manager != null) PendingManagers.Add(manager); }
+
+    internal static void ObserveImage(RawImage image)
+    {
+        if (!_enabled || !VRSession.IsRunning || image == null) return;
+        // The eye source temporarily assigns its private RT and then restores
+        // native colour. BindingAlive knows both leased identities; neither is
+        // an artwork arrival and must not retire/rebuild a source reentrantly.
+        MenuDepthCharacterSource? current = Find(image);
+        if (current != null && current.BindingAlive) return;
+        QueueImage(image);
+    }
+
+    private static void QueueImage(RawImage image)
+    { Images.Add(image); PendingImages.Add(image); }
+
+    internal static void ForgetImage(RawImage image)
+    { Images.Remove(image); PendingImages.Remove(image); }
 
     private static void RetireStale()
     {
-        // Existing registrations are cheap to retire between bounded discoveries.
-        // Native pooled windows may change their texture before the next census.
         for (int i = Sources.Count - 1; i >= 0; i--)
         {
             if (Sources[i].BindingAlive) continue;
-            MenuDepthSources.Unregister(Sources[i]);
-            Sources[i].Dispose();
-            Sources.RemoveAt(i);
+            RawImage? image = Sources[i].Graphic as RawImage;
+            MenuDepthSources.Unregister(Sources[i]); Sources[i].Dispose(); Sources.RemoveAt(i);
+            if (image != null) QueueImage(image);
         }
     }
 
     private static void Discover()
     {
         if (_discovering) return;
-        _nextCensus = Time.unscaledTime + CensusSeconds;
         if (HolderField == null || ReadHidden == null)
         {
             if (!_reflectionReported)
@@ -81,42 +134,45 @@ internal static class MenuDepthCharacters
             }
             return;
         }
-
         _discovering = true;
         try
         {
-            // Include pooled, hidden windows and the GUI camera disabled by native
-            // HideAll. The structural registrations survive hiding; readiness
-            // still follows the original active/hidden permission on every eye.
+            // One cold census admits preexisting inactive pools and a camera
+            // hidden by native HideAll. Later births/RT assignments use real
+            // lifecycle identities; elapsed time never starts a scene sweep.
+            ++GlobalCensuses;
             Character3DDisplayManager[] managers = Object.FindObjectsOfType<Character3DDisplayManager>(true);
             RawImage[] images = Object.FindObjectsOfType<RawImage>(true);
-            for (int c = 0; c < managers.Length; c++)
-            {
-                Character3DDisplayManager manager = managers[c];
-                if (manager == null) continue;
-                Camera camera = manager.GetComponent<Camera>();
-                if (camera == null || camera.targetTexture == null) continue;
-                Transform? holder = HolderField.GetValue(manager) as Transform;
-                if (holder == null) continue;
-                for (int i = 0; i < images.Length; i++)
-                {
-                    RawImage image = images[i];
-                    if (image == null || !ReferenceEquals(image.texture, camera.targetTexture) || Find(image) != null) continue;
-                    var source = new MenuDepthCharacterSource(image, camera, manager, holder, ReadHidden);
-                    Sources.Add(source);
-                    MenuDepthSources.Register(source);
-                    int count = ++_openings;
-                    if (count <= 4 || (count & (count - 1)) == 0)
-                        VRLog.Note("WorldUI", "MENU DEPTH CHARACTER SOURCE: native model scene bound to its original preview; separate window projection registered; count=" + count + ".");
-                }
-            }
-            DeadRequests.Clear();
-            foreach (Component request in DisplayRequests.Keys)
-                if (request == null) DeadRequests.Add(request!); // destroyed Unity key; actual CLR reference is retained
-            for (int i = 0; i < DeadRequests.Count; i++) DisplayRequests.Remove(DeadRequests[i]);
-            DeadRequests.Clear();
+            for (int i = 0; i < managers.Length; i++) AddManager(managers[i]);
+            for (int i = 0; i < images.Length; i++) QueueImage(images[i]);
         }
         finally { _discovering = false; }
+    }
+
+    private static void AddManager(Character3DDisplayManager manager)
+    {
+        if (manager == null) return;
+        for (int i = 0; i < Managers.Count; i++) if (ReferenceEquals(Managers[i].Original, manager)) return;
+        Camera camera = manager.GetComponent<Camera>();
+        if (camera != null) Managers.Add(new Manager(manager, camera));
+    }
+
+    private static void Bind(RawImage image)
+    {
+        ++ImageVisits;
+        if (ReadHidden == null || Find(image) != null) return;
+        Texture texture = image.texture;
+        for (int i = 0; i < Managers.Count; i++)
+        {
+            Manager manager = Managers[i];
+            if (manager.Holder == null || manager.Target == null || !ReferenceEquals(texture, manager.Target)) continue;
+            var source = new MenuDepthCharacterSource(image, manager.Camera, manager.Original, manager.Holder, ReadHidden);
+            Sources.Add(source); MenuDepthSources.Register(source);
+            int count = ++_openings;
+            if (count <= 4 || (count & (count - 1)) == 0)
+                VRLog.Note("WorldUI", "MENU DEPTH CHARACTER SOURCE: native model scene bound to its original preview; separate window projection registered; count=" + count + ".");
+            return;
+        }
     }
 
     private static MenuDepthCharacterSource? Find(RawImage image)
@@ -153,8 +209,9 @@ internal static class MenuDepthCharacters
             Sources[i].Dispose();
         }
         Sources.Clear();
-        DisplayRequests.Clear(); DeadRequests.Clear();
+        DisplayRequests.Clear(); DeadRequests.Clear(); PendingRequests.Clear(); RequestImages.Clear();
+        Managers.Clear(); Images.Clear(); PendingImages.Clear(); PendingManagers.Clear();
         _enabled = false;
-        _nextCensus = 0f;
+        GlobalCensuses = RequestCensuses = ImageVisits = 0;
     }
 }

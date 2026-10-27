@@ -77,7 +77,10 @@ public static partial class MenuDepthGraphicProgram
         bool refused = false; try { MenuDepthHeightfield.Read(broken); } catch (InvalidDataException) { refused = true; }
         Check(refused, "corrupt GMD1 payload refuses before any native mesh change");
         MeshAndGpu(trimmed, field);
-        SemanticBinding(trimmed, bytes);
+        var lifecycle = new HarmonyLib.Harmony("GloomhavenVR.MenuDepthGraphic.Lifecycle." + typeof(MenuDepthGraphicProgram).Assembly.GetName().Name);
+        lifecycle.CreateClassProcessor(typeof(MenuDepthLifecycleObserver)).Patch();
+        try { SemanticBinding(trimmed, bytes); }
+        finally { lifecycle.UnpatchAll(lifecycle.Id); }
         return _checks;
     }
 
@@ -282,7 +285,6 @@ public static partial class MenuDepthGraphicProgram
                 Image decoration = MakeImage(tabObject.transform, "native tab icon", new Vector2(30, 30), new Vector2(100, 40));
                 Set(tab, "m_ImageTarget", decoration); Set(tab, "m_AdditionalImageTargets", Array.Empty<Image>());
                 tabObject.SetActive(true);
-                typeof(MenuDepthDriver).GetField("_nextCensus", Static)!.SetValue(null, 0f);
                 MenuDepthDriver.Tick();
                 MenuDepthGraphic layer = decoration.GetComponent<MenuDepthGraphic>()
                     ?? throw new Exception("real GH.Runtime UITab decoration receives only its typed shallow layer separation");

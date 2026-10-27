@@ -55,5 +55,9 @@ namespace GloomhavenVR.WorldUI.MenuDepth
     {
         internal static void Tick() { }
         internal static void Shutdown() { }
+        internal static void ObserveDisplay(Character3DDisplayManager manager, Component request) { }
+        internal static void ObserveManager(Character3DDisplayManager manager) { }
+        internal static void ObserveImage(UnityEngine.UI.RawImage image) { }
+        internal static void ForgetImage(UnityEngine.UI.RawImage image) { }
     }
 }
