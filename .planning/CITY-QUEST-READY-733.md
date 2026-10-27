@@ -83,6 +83,14 @@ An executable temporal proof with two/four peers and both map phases confirms
 that only fresh city votes and fresh ACKs can proceed. This is bounded scheduler
 and transport-boundary evidence, not a formal network or headset proof.
 
+The native late-join source path was also reviewed. A MapHQ join registers a
+connecting player before recomputing host permission; the original host unready
+then withdraws the pending city proposal. Active map events and linked-scenario
+joining instead wait for the game's save point. `FinishCityEvent` releases that
+wait. No used action-history replay or bare late-join `CityEvents` initialization
+was found; do not fabricate a native city occurrence from cosmetic pose packets.
+This preserves the existing game's join/assignment/save-point policy.
+
 ## Validation and limits
 
 Focused integration covers production city proposal/permission/lifecycle logic,
