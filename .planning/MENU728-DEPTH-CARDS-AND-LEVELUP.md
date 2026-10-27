@@ -94,3 +94,29 @@ far1000 and planeDistance100; serialized Canvas zero TRS is only a placeholder.
 Depth comparisons and outer transparent carriers must use the live native basis.
 Those final multi-camera, rear and whole-window edge contracts are being qualified
 separately from the already passing front-side source composition and card cases.
+
+## Final composition contracts under integration
+
+The display photograph now carries actual foreground depth into the head render,
+including a separate foreground-only depth pass. Native flat/translucent UI stays
+colour-only. A two-panel GPU control distinguishes UI behind the protruding model
+from UI genuinely in front. Both model-source and final-carrier clipping expand
+for real foreground surfaces; flat UI outside its original frame stays hidden.
+The existing SS left/right targets grow proportionally through the real allocation
+policy, retaining native pixel density within unchanged panel/session budgets.
+Native frame, layout, hit rectangle and synchronized host geometry do not grow.
+
+Original UI cameras use temporary real orthographic clipping planes for a common
+plane-relative metric. A failed custom-projection hypothesis visibly rescaled the
+native ScreenSpaceCamera Canvas during Camera.Render and was discarded. Real
+near/far values preserve its native XY projection and live basis, including
+partial viewports and a second camera with different authored parameters. The
+normal path does not change native Canvas mode. Native image effects execute;
+depth attachment and foreground-over-UI pixels are checked after OnRenderImage.
+
+Capture-bound calculation first filters the optional foreground-bounds interface.
+Ordinary card sources never enter per-eye bounds lookups; a64-card control proves
+zero card getter accesses for that additional calculation. This prevents an
+otherwise quadratic query introduced by the wider menu-card registry. Original
+complete-card depth uses the actual X/Z scale ratio so native XY-only subview
+fitting preserves the same small physical proportion.

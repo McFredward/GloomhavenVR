@@ -1,3 +1,34 @@
+**Menu composition and raised cards, Build728 integration, 2026-10-27.**
+
+The accepted727 character sizes remain. Actual native model depth now survives UI
+composition and the final head display; foreground parts bypass the old portrait
+aperture and can extend beyond the complete old window frame. Behind surfaces
+retain native clipping, and genuine nearer UI still wins. Existing SS targets grow
+through the original allocation/budget policy, retaining pixel density without
+changing native frame, accepted host pose, input rectangle or shared geometry.
+Original native UI cameras share a plane-relative depth metric through temporary
+real clipping planes; their Canvas basis remains original in ordinary captures.
+
+The level-up Continue uses the complete original reward widget with inactive
+construction and unchanged tracker authority. Native middle-card text ink gets
+more room, including late pooled text births. Its persistent native confirmation
+joins the owner's visual composition without losing its native lifetime. Seven
+printed menu-card families receive capture-scoped whole-root depth, including
+hover/reused/generated content, native material/alpha/masks and XY-only fitting.
+Nested cards share one raised parent plane. The character switch remains
+independent and default-on on every system; accepted story/video media stays.
+
+Integration preflight passes all16 source checks, the252-suite manifest contract,
+docs-i18n and a metadata compile with0 warnings/errors. Worker GPU suites include
+original UI masking, front/rear/side interleaving, two-panel head depth, original
+Continue glyph/sprite pixels, persistent dialog lifetime and native card recovery.
+These are not a final complete252-suite/golden-vector gate or a headset result.
+Remaining final qualification includes the actual Character3D soft-mask material,
+native outer carrier and warm Canvas-freeze discovery behavior. Final complete
+gate, strict builds, compiled review and dev push follow the frozen integration.
+The Windows installation script builds the archive; no local ZIP is requested.
+See MENU728-DEPTH-CARDS-AND-LEVELUP.md and ignored debug/menu728 for exact evidence.
+
 **Optional character preview depth, Build727, 2026-10-27.**
 
 The maintainer requests a switch for live character depth, enabled by default on
