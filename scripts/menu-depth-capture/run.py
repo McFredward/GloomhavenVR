@@ -168,8 +168,8 @@ def main():
             for filename_actual, code in production.items():
                 if filename_actual == filename: code = replace(code, before, after)
                 if name == 'mixed-scope-order' and filename_actual == filename:
-                    code = replace(code, 'Prepared[i].BeforeCapture(SampleEye(Prepared[i], eye));\n            }\n        }\n        catch (Exception error)',
-                        'Prepared[i].BeforeCapture(SampleEye(Prepared[i], eye));\n            }\n            BeforeHeadCapture?.Invoke(camera);\n        }\n        catch (Exception error)')
+                    code = replace(code, 'else Prepared[i].BeforeCapture(sampled);\n            }\n        }\n        catch (Exception error)',
+                        'else Prepared[i].BeforeCapture(sampled);\n            }\n            BeforeHeadCapture?.Invoke(camera);\n        }\n        catch (Exception error)')
                 (bound / filename_actual).write_text(code)
             bound_fixture = case / 'fixture'; bound_fixture.mkdir()
             for path in fixture.glob('*.cs'):

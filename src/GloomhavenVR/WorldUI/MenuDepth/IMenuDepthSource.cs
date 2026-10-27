@@ -22,4 +22,5 @@ internal interface IMenuDepthDirectSource : IMenuDepthSampledSource
 {
     void PrimeDirectCapture(MenuDepthEye samplingEye);
     void BeforeDirectCapture(MenuDepthEye eye);
+    void CancelDirectCapture();
 }

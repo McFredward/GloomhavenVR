@@ -76,6 +76,22 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IDispos
 
     public void BeforeDirectCapture(MenuDepthEye eye) => Capture(eye, direct: true);
 
+    public void CancelDirectCapture()
+    {
+        AfterCapture();
+        if (_left == null || !_left.IsCreated()) return;
+        RenderTexture? previous = RenderTexture.active;
+        try
+        {
+            // The already-built Canvas retains left's texture identity. A field
+            // restore alone cannot give that batch its original mono fallback.
+            if (_nativeTarget != null && _nativeTarget.IsCreated()) Graphics.Blit(_nativeTarget, _left);
+            else { RenderTexture.active = _left; GL.Clear(true, true, Color.clear); }
+            if (_left.useMipMap) _left.GenerateMips();
+        }
+        finally { RenderTexture.active = previous; }
+    }
+
     public void BeforeCapture(MenuDepthEye eye) => Capture(eye, direct: false);
 
     private void Capture(MenuDepthEye eye, bool direct)

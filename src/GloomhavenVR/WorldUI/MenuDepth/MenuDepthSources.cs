@@ -81,7 +81,7 @@ internal static class MenuDepthSources
     {
         Sources.Remove(source);
         if (source is IMenuDepthDirectSource direct && DirectPrimes.Remove(direct))
-            try { direct.AfterCapture(); } catch { }
+            RestoreDirect(direct, false, "direct unregister");
         if (Sources.Count == 0 && _directCamera != null)
         {
             _directCamera = null;
@@ -197,10 +197,7 @@ internal static class MenuDepthSources
                 try { Prepared[i].AfterCapture(); }
                 catch (Exception error)
                 {
-                    int count = ++_cleanupFailures;
-                    if (count <= 4 || (count & (count - 1)) == 0)
-                        VRLog.Warn("WorldUI", "MENU DEPTH SOURCE RESTORE: " + error.GetType().Name
-                            + "; count=" + count + "; native flow continues.");
+                    NoteRestoreFailure(error, "prepared source");
                 }
             }
         }
@@ -214,6 +211,34 @@ internal static class MenuDepthSources
                 Shader.SetGlobalFloat(ProjectMaskId, _previousProjectMask);
             }
             UnhookIfIdle();
+        }
+    }
+
+    private static void NoteRestoreFailure(Exception error, string phase)
+    {
+        int count = ++_cleanupFailures;
+        if (count <= 4 || (count & (count - 1)) == 0)
+        {
+            VRLog.Warn("WorldUI", "MENU DEPTH SOURCE RESTORE: " + error.GetType().Name + ": " + error.Message
+                + "; count=" + count + "; phase=" + phase + "; native flow continues.");
+            if (VRLog.WantsDebug) VRLog.Debug("WorldUI", "MENU DEPTH SOURCE RESTORE DETAIL: " + phase + "; " + error);
+        }
+    }
+
+    private static void RestoreDirect(IMenuDepthDirectSource source, bool failed, string phase)
+    {
+        try { if (failed) source.CancelDirectCapture(); else source.AfterCapture(); }
+        catch (Exception error) { NoteRestoreFailure(error, phase); }
+    }
+
+    private static void NotePrimeFailure(Exception error, string phase)
+    {
+        int count = ++_primeFailures;
+        if (count <= 4 || (count & (count - 1)) == 0)
+        {
+            VRLog.Warn("WorldUI", "MENU DEPTH DIRECT BATCH: " + error.GetType().Name + ": " + error.Message
+                + "; count=" + count + "; phase=" + phase);
+            if (VRLog.WantsDebug) VRLog.Debug("WorldUI", "MENU DEPTH DIRECT BATCH DETAIL: " + phase + "; " + error);
         }
     }
 
@@ -262,7 +287,8 @@ internal static class MenuDepthSources
                 if (Sources[i] is IMenuDepthDirectSource direct && DirectlyVisible(direct, head)) PrimeCandidates.Add(direct);
             for (int i = DirectPrimes.Count - 1; i >= 0; i--)
                 if (!PrimeCandidates.Contains(DirectPrimes[i]))
-                { IMenuDepthDirectSource retired = DirectPrimes[i]; DirectPrimes.RemoveAt(i); retired.AfterCapture(); }
+                { IMenuDepthDirectSource retired = DirectPrimes[i]; DirectPrimes.RemoveAt(i); RestoreDirect(retired, false, "retired direct prime"); }
+            if (PrimeCandidates.Count == 0) return;
             Vector3 left = head.transform.position, right = left;
             MenuDepthDisplay.TryGetEyePositions(head, out Vector3 observedLeft, out Vector3 observedRight);
             if (MenuDepthProjection.Finite(observedLeft) && MenuDepthProjection.Finite(observedRight) && observedLeft != observedRight)
@@ -275,7 +301,7 @@ internal static class MenuDepthSources
                 try
                 {
                     source.PrimeDirectCapture(WithPixels(l, Vector2.Max(l.PixelFootprint, r.PixelFootprint)));
-                    if (!Sources.Contains(source)) { source.AfterCapture(); continue; }
+                    if (!Sources.Contains(source)) { RestoreDirect(source, false, "removed during direct prime"); continue; }
                     if (!DirectPrimes.Contains(source)) DirectPrimes.Add(source);
                     _directPrimeFrame = Time.frameCount;
                     if (_directCleanup == null)
@@ -287,17 +313,20 @@ internal static class MenuDepthSources
                 }
                 catch (Exception error)
                 {
-                    source.AfterCapture();
-                    int count = ++_primeFailures;
-                    if (count <= 4 || (count & (count - 1)) == 0)
-                        VRLog.Warn("WorldUI", "MENU DEPTH DIRECT BATCH: " + error.GetType().Name + ": " + error.Message + "; count=" + count);
+                    RestoreDirect(source, true, "failed direct prime");
+                    NotePrimeFailure(error, "source preparation");
                 }
             }
+        }
+        catch (Exception error)
+        {
+            CompleteDirectFrame(failed: true);
+            NotePrimeFailure(error, "candidate selection");
         }
         finally { PrimeCandidates.Clear(); _primingDirect = false; UnhookIfIdle(); }
     }
 
-    internal static void CompleteDirectFrame(bool onlyIfStale = false)
+    internal static void CompleteDirectFrame(bool onlyIfStale = false, bool failed = false)
     {
         if (_cleaningDirect || (onlyIfStale && _directPrimeFrame == Time.frameCount)) return;
         _cleaningDirect = true;
@@ -307,7 +336,7 @@ internal static class MenuDepthSources
             while (DirectPrimes.Count > 0)
             {
                 IMenuDepthDirectSource source = DirectPrimes[DirectPrimes.Count - 1]; DirectPrimes.RemoveAt(DirectPrimes.Count - 1);
-                try { source.AfterCapture(); } catch { }
+                RestoreDirect(source, failed, failed ? "failed direct frame" : "direct frame completion");
             }
             _directPrimeFrame = -1;
         }
@@ -368,6 +397,7 @@ internal static class MenuDepthSources
         catch (Exception error)
         {
             AfterCapture(); _directCamera = null;
+            CompleteDirectFrame(failed: true);
             int count = ++_directFailures;
             if (count <= 4 || (count & (count - 1)) == 0)
             {
