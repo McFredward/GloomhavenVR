@@ -20,6 +20,7 @@ internal sealed class MenuDepthDisplay : IDisposable
     private static readonly int EyeId = Shader.PropertyToID("_GvrMenuDepthEye");
     private static readonly int RightTextureId = Shader.PropertyToID("_RightTex");
     private static readonly Stack<int> PreviousEyes = new(4);
+    private static readonly List<Graphic> BoundGraphics = new(16);
     private static AssetBundle? _bundle;
     private static Shader? _displayShader;
     private static Shader? _depthShader;
@@ -135,22 +136,59 @@ internal sealed class MenuDepthDisplay : IDisposable
             : _rightMip != null && _rightMip.IsCreated() && _rightMip.width == leftDisplay.width
                 && _rightMip.height == leftDisplay.height);
 
+    internal static Rect ForegroundFrame(RectTransform plane, Rect frame, MenuDepthEye left, MenuDepthEye right)
+    {
+        float x0 = frame.xMin, x1 = frame.xMax, y0 = frame.yMin, y1 = frame.yMax;
+        MenuDepthSources.CollectReadyGraphics(BoundGraphics);
+        for (int i = 0; i < BoundGraphics.Count; i++)
+        {
+            Graphic graphic = BoundGraphics[i];
+            if (!graphic.transform.IsChildOf(plane)) continue;
+            Matrix4x4 toPlane = plane.worldToLocalMatrix * graphic.transform.localToWorldMatrix;
+            for (int eye = 0; eye < 2; eye++)
+            {
+                if (!MenuDepthSources.TryGetForegroundBounds(graphic, eye == 0 ? left : right, out Rect bounds)) continue;
+                for (int corner = 0; corner < 4; corner++)
+                {
+                    Vector3 point = toPlane.MultiplyPoint3x4(new Vector3((corner & 1) == 0 ? bounds.xMin : bounds.xMax,
+                        (corner & 2) == 0 ? bounds.yMin : bounds.yMax));
+                    if (!MenuDepthProjection.Finite(point)) continue;
+                    x0 = Mathf.Min(x0, point.x); x1 = Mathf.Max(x1, point.x);
+                    y0 = Mathf.Min(y0, point.y); y1 = Mathf.Max(y1, point.y);
+                }
+            }
+        }
+        BoundGraphics.Clear();
+        float qx = frame.width * .125f, qy = frame.height * .125f;
+        return Rect.MinMaxRect(frame.xMin - Mathf.Ceil((frame.xMin - x0) / qx) * qx,
+            frame.yMin - Mathf.Ceil((frame.yMin - y0) / qy) * qy,
+            frame.xMax + Mathf.Ceil((x1 - frame.xMax) / qx) * qx,
+            frame.yMax + Mathf.Ceil((y1 - frame.yMax) / qy) * qy);
+    }
+
     /// <summary>The supplied eyes are actual XR observations, or explicit test inputs.</summary>
     internal void Render(Camera capture, RectTransform plane, Rect frame, RenderTexture leftCapture,
-        RenderTexture leftDisplay, MenuDepthEye leftEye, MenuDepthEye rightEye)
+        RenderTexture leftDisplay, MenuDepthEye leftEye, MenuDepthEye rightEye, Rect? captureFrame = null)
     {
         if (!Matches(leftCapture, leftDisplay)) throw new InvalidOperationException("Menu-depth target pair changed before capture.");
         if (_capturingCamera != null) throw new InvalidOperationException("A nested private menu capture is not owned.");
+        Rect sampledFrame = captureFrame ?? ForegroundFrame(plane, frame, leftEye, rightEye);
         CameraState original = new(capture);
         RenderTexture? active = RenderTexture.active;
         _capturingCamera = capture;
         _rendering = true;
         try
         {
-            CaptureEye(capture, plane, frame, leftCapture, leftDisplay, leftEye);
-            CaptureEye(capture, plane, frame, _rightCapture, _rightMip ?? _rightCapture, rightEye);
+            CaptureEye(capture, plane, frame, sampledFrame, leftCapture, leftDisplay, leftEye, out float leftDepth, out float leftScale);
+            CaptureEye(capture, plane, frame, sampledFrame, _rightCapture, _rightMip ?? _rightCapture, rightEye, out float rightDepth, out float rightScale);
             if (_disposeRequested) throw new OperationCanceledException("The original menu window closed during its eye capture.");
             _material.SetTexture(RightTextureId, _rightMip ?? _rightCapture);
+            BindCarrier(plane, sampledFrame);
+            Rect originalUv = new((frame.xMin - sampledFrame.xMin) / sampledFrame.width,
+                (frame.yMin - sampledFrame.yMin) / sampledFrame.height, frame.width / sampledFrame.width, frame.height / sampledFrame.height);
+            Vector3 normal = Vector3.Cross(plane.TransformVector(Vector3.right).normalized, plane.TransformVector(Vector3.up).normalized).normalized;
+            SetCaptureWindow(_material, leftCapture, _rightCapture, originalUv, new Vector2(leftDepth,rightDepth),
+                new Vector2(leftScale,rightScale), plane.TransformPoint(new Vector3(frame.center.x,frame.center.y)), normal);
             // Bind only after BOTH fresh eyes exist. Native mono capture remains the
             // fallback on every earlier allocation/preparation/decoder failure.
             _image.material = _material;
@@ -176,8 +214,8 @@ internal sealed class MenuDepthDisplay : IDisposable
         }
     }
 
-    private void CaptureEye(Camera capture, RectTransform plane, Rect frame,
-        RenderTexture target, RenderTexture display, MenuDepthEye eye)
+    private void CaptureEye(Camera capture, RectTransform plane, Rect frame, Rect sampledFrame,
+        RenderTexture target, RenderTexture display, MenuDepthEye eye, out float glassDepth, out float physicalDepthPerRawDepth)
     {
         if (!capture.orthographic || !MenuDepthProjection.Finite(eye.WorldPosition))
             throw new InvalidOperationException("The original UI camera or tracked eye is unavailable.");
@@ -191,6 +229,17 @@ internal sealed class MenuDepthDisplay : IDisposable
         capture.farClipPlane = Mathf.Max(capture.farClipPlane, planeDistance + relief);
         capture.targetTexture = target;
         Matrix4x4 originalView = capture.worldToCameraMatrix;
+        Matrix4x4 originalProjection = capture.projectionMatrix;
+        Matrix4x4 originalCulling = capture.cullingMatrix;
+        bool generatedCulling = Same(originalCulling, originalProjection * originalView);
+        Matrix4x4 toClip = originalProjection * originalView * plane.localToWorldMatrix;
+        Vector4 bottom = toClip * new Vector4(sampledFrame.xMin, sampledFrame.yMin, 0, 1);
+        Vector4 top = toClip * new Vector4(sampledFrame.xMax, sampledFrame.yMax, 0, 1);
+        Rect clip = Rect.MinMaxRect(bottom.x / bottom.w, bottom.y / bottom.w, top.x / top.w, top.y / top.w);
+        Matrix4x4 projection = originalProjection;
+        projection.SetRow(0, (originalProjection.GetRow(0) - originalProjection.GetRow(3) * clip.center.x) * (2f / clip.width));
+        projection.SetRow(1, (originalProjection.GetRow(1) - originalProjection.GetRow(3) * clip.center.y) * (2f / clip.height));
+        capture.projectionMatrix = projection;
         Vector3 planePoint = plane.TransformPoint(new Vector3(frame.center.x, frame.center.y));
         Vector3 normal = Vector3.Cross(plane.TransformVector(Vector3.right).normalized, plane.TransformVector(Vector3.up).normalized).normalized;
         if (Vector3.Dot(eye.WorldPosition - planePoint, normal) > 0f)
@@ -202,6 +251,14 @@ internal sealed class MenuDepthDisplay : IDisposable
             float atPlane = Vector4.Dot(z, new Vector4(planePoint.x, planePoint.y, planePoint.z, 1f));
             capture.worldToCameraMatrix = MatrixWithDepthSide(originalView, z, atPlane);
         }
+        Matrix4x4 gpu = GL.GetGPUProjectionMatrix(capture.projectionMatrix, true) * capture.worldToCameraMatrix;
+        glassDepth = RawDepth(gpu * new Vector4(planePoint.x,planePoint.y,planePoint.z,1f));
+        Vector3 unitPoint = planePoint + normal;
+        float delta = RawDepth(gpu * new Vector4(unitPoint.x,unitPoint.y,unitPoint.z,1f)) - glassDepth;
+        if (Mathf.Abs(delta) < 1e-7f) throw new InvalidOperationException("The native UI depth cannot express the physical glass normal.");
+        physicalDepthPerRawDepth = 1f / delta;
+        if (generatedCulling) capture.ResetCullingMatrix();
+        else capture.cullingMatrix = projection * capture.worldToCameraMatrix;
         MenuDepthSources.BeforeCapture(plane,
             new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, projectToGraphicPlane: true), capture);
         try
@@ -216,7 +273,48 @@ internal sealed class MenuDepthDisplay : IDisposable
                 display.GenerateMips();
             }
         }
-        finally { MenuDepthSources.AfterCapture(); capture.worldToCameraMatrix = originalView; }
+        finally
+        {
+            MenuDepthSources.AfterCapture(); capture.worldToCameraMatrix = originalView;
+            capture.projectionMatrix = originalProjection;
+            if (generatedCulling) capture.ResetCullingMatrix(); else capture.cullingMatrix = originalCulling;
+        }
+    }
+
+    internal static void SetCaptureWindow(Material material, RenderTexture left, RenderTexture right, Rect originalGlassUv,
+        Vector2 glassDepth, Vector2 physicalDepthPerRawDepth, Vector3 planePoint, Vector3 planeNormal)
+    {
+        material.SetFloat("_GvrCaptureDepthActive", 1f);
+        material.SetTexture("_GvrDepthLeft", left, UnityEngine.Rendering.RenderTextureSubElement.Depth);
+        material.SetTexture("_GvrDepthRight", right, UnityEngine.Rendering.RenderTextureSubElement.Depth);
+        material.SetVector("_GvrOriginalGlassUV", new Vector4(originalGlassUv.xMin,originalGlassUv.yMin,originalGlassUv.xMax,originalGlassUv.yMax));
+        material.SetVector("_GvrGlassDepth", new Vector4(glassDepth.x,glassDepth.y,physicalDepthPerRawDepth.x,physicalDepthPerRawDepth.y));
+        material.SetVector("_GvrPlanePoint", planePoint);
+        material.SetVector("_GvrPlaneNormal", planeNormal.normalized);
+    }
+
+    private static float RawDepth(Vector4 projected)
+    {
+        float depth = projected.z / projected.w;
+        UnityEngine.Rendering.GraphicsDeviceType api = SystemInfo.graphicsDeviceType;
+        return api == UnityEngine.Rendering.GraphicsDeviceType.OpenGLCore || api == UnityEngine.Rendering.GraphicsDeviceType.OpenGLES3
+            ? depth * .5f + .5f : depth;
+    }
+
+    private void BindCarrier(RectTransform plane, Rect frame)
+    {
+        Matrix4x4 toGraphic = _image.rectTransform.worldToLocalMatrix * plane.localToWorldMatrix;
+        Vector3 low = toGraphic.MultiplyPoint3x4(new Vector3(frame.xMin, frame.yMin));
+        Vector3 high = toGraphic.MultiplyPoint3x4(new Vector3(frame.xMax, frame.yMax));
+        _material.SetFloat("_GvrDisplayActive", 1f);
+        _material.SetVector("_GvrDisplayRect", new Vector4(low.x,low.y,high.x,high.y));
+        _material.SetMatrix("_GvrDisplayLocalToWorld", _image.rectTransform.localToWorldMatrix);
+    }
+
+    private static bool Same(Matrix4x4 a, Matrix4x4 b)
+    {
+        for (int i = 0; i < 16; i++) if (Mathf.Abs(a[i] - b[i]) > 1e-5f) return false;
+        return true;
     }
 
     private static Matrix4x4 MatrixWithDepthSide(Matrix4x4 view, Vector4 z, float atPlane)
@@ -231,7 +329,7 @@ internal sealed class MenuDepthDisplay : IDisposable
         private readonly bool _ortho;
         private readonly float _near, _far, _size, _aspect, _fov;
         private readonly RenderTexture? _target;
-        private readonly Matrix4x4 _view, _projection;
+        private readonly Matrix4x4 _view, _projection, _culling;
 
         internal CameraState(Camera camera)
         {
@@ -239,7 +337,7 @@ internal sealed class MenuDepthDisplay : IDisposable
             _localScale = camera.transform.localScale; _ortho = camera.orthographic;
             _near = camera.nearClipPlane; _far = camera.farClipPlane; _size = camera.orthographicSize;
             _aspect = camera.aspect; _fov = camera.fieldOfView; _target = camera.targetTexture;
-            _view = camera.worldToCameraMatrix; _projection = camera.projectionMatrix;
+            _view = camera.worldToCameraMatrix; _projection = camera.projectionMatrix; _culling = camera.cullingMatrix;
         }
 
         internal void Restore(Camera camera)
@@ -254,6 +352,8 @@ internal sealed class MenuDepthDisplay : IDisposable
             camera.ResetWorldToCameraMatrix(); camera.ResetProjectionMatrix();
             if (!Same(_view, camera.worldToCameraMatrix)) camera.worldToCameraMatrix = _view;
             if (!Same(_projection, camera.projectionMatrix)) camera.projectionMatrix = _projection;
+            camera.ResetCullingMatrix();
+            if (!Same(_culling, camera.cullingMatrix)) camera.cullingMatrix = _culling;
         }
 
         private static bool Same(Matrix4x4 a, Matrix4x4 b)
