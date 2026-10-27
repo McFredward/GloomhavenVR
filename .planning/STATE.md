@@ -1,3 +1,28 @@
+**Spatial UI hardware repairs, Build724, 2026-10-27.**
+
+Both supplied local logs identify723 / `5ddc94991`; the remote717 drop is stale.
+The native GUI3D camera owns its model/light holder as a child, so moving that
+camera for an eye moved the scene with the head. Eye rendering now borrows only
+matrices. The actual door illustration's mip replacement failed literal sprite
+matching; catalogue/default/async lookup now uses exact existing mip provenance,
+with explicit reconstructed-region depth UVs and unchanged native colour/dissolve.
+Direct capture admits visible world canvases and updates private-layer exclusions.
+
+Main integrated validation passes14 focused local suites,16 source checks and
+all306431 golden assertions. Debug/Release strict compiles are0W0E. Independent
+character757+15 controls, capture56+14, final-glass171+8 and actual story/mip/corpus
+582+14 proofs cover the reported boundaries; unchanged723 coverage is inherited
+only for unaffected areas, with no new complete-gate claim. Compiled scope is six
+intended behavior types plus build/commit stamps, with no additions/removals.
+Original native LDR viewport mapping is preserved after rejecting an overbroad
+RenderTexture assumption. Physical headset appearance remains unverified.
+
+The normal Debug ZIP path remains `dist/GloomhavenVR-1.2.2.zip`; clean-build delivery
+identity and byte-verification receipts live under ignored `debug/menu-depth724/`.
+All completed worker evidence is independently archived/verified before worktree
+removal. See `MENU724-SPATIAL-UI-REPAIR.md` for exact source causes, native effect
+qualifications, retained failed hypotheses, cleanup corrections and test scope.
+
 **Spatial native menus and prepared illustrations, Build723, 2026-10-26.**
 
 The maintainer approved all reviewed menu-depth families and requested actual

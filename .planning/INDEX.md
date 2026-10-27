@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-26: Build723 spatial native menus and prepared story illustration relief.
+Updated 2026-10-27: Build724 repairs native character anchoring and mip-bound story relief.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MENU724-SPATIAL-UI-REPAIR.md](MENU724-SPATIAL-UI-REPAIR.md) | Build723 hardware causes, fixed camera-child scenes, actual native mip depth binding, final-glass proofs and focused delivery validation |
 | [MENU723-SPATIAL-UI.md](MENU723-SPATIAL-UI.md) | Native character portals, complete source-bound illustration depth corpus, UI layers and validation boundaries |
 | [STEAM-LINK-704-COMPARISON.md](STEAM-LINK-704-COMPARISON.md) | Actual703 A/B and delivered video, host preparation repair, remaining quality and native-menu transport constraints |
 | [STEAM-LINK-703-LIVE-RESOLUTION.md](STEAM-LINK-703-LIVE-RESOLUTION.md) | Actual702 delivered-video evidence, live PCVR slider repair, chosen game/menu/camera behavior and explicit remaining transport work |
