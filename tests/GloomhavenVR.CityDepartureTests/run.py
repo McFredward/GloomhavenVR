@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Execute city departure repair through the existing exact native readiness kernel."""
 from pathlib import Path
-import hashlib,importlib.util,json,os,shutil,subprocess,sys,tempfile
+import hashlib,importlib.util,json,os,re,shutil,subprocess,sys,tempfile
 
 root=Path(sys.argv[1]).resolve();suite='city-departure';out=root/'.planning/debug'/suite;out.mkdir(parents=True,exist_ok=True)
 run=Path(tempfile.mkdtemp(prefix='run-',dir=out));project=run/'project';project.mkdir();source=run/'sources';source.mkdir()
@@ -25,14 +25,16 @@ if native_path.is_file():
     print('City departure kernel: six exact native initialization/departure/ACK/continuation bodies verified.',flush=True)
     flow=(fixture/'NativeFlowFixture.cs').read_text()
     for filename,signatures in (
-        ('UIMapMultiplayerController.cs',('private bool InQuestSelectionPhase()', 'public void ToggleReadyUpUI(bool show, EReadyUpToggleStates state)')),
-        ('AdventureMapUIManager.cs',('private void SetLocationToTravel(', 'private void ResetLocationToTravel()', 'private void OnPartyPanelToggled(', 'private void SetFocused(', 'public void EnableTravelOptions(bool show)'))):
+        ('UIMapMultiplayerController.cs',('private bool InQuestSelectionPhase()', 'public void ToggleReadyUpUI(bool show, EReadyUpToggleStates state)', 'public void ConfirmCityEvent()', 'public void OnSelectedCityEvent()')),
+        ('AdventureMapUIManager.cs',('private void SetLocationToTravel(', 'private void ResetLocationToTravel()', 'private void OnPartyPanelToggled(', 'private void SetFocused(', 'public void EnableTravelOptions(bool show)')),
+        ('MapChoreographer.cs',('public void OpenCityEvent()',)),
+        ('UIGuildmasterHUD.cs',('public void OpenCityEncounter()',))):
         path=native_path.parent/filename;actual=path.read_text();bindings[str(path)]=hashlib.sha256(path.read_bytes()).hexdigest()
         for signature in signatures:
             start=actual.index(signature);opening=actual.index('{',start);end=opening+1;depth=1
             while depth:depth+=(actual[end]=='{')-(actual[end]=='}');end+=1
             assert actual[start:end] in flow,'Native city/quest flow body mismatch: '+signature
-    print('City/quest native flow: seven exact proposal visibility and party-focus bodies verified.',flush=True)
+    print('City/quest native flow: eleven exact visibility, party-focus and explicit city-confirmation bodies verified.',flush=True)
 # Publicized mod access only; every native algorithm above is retained verbatim apart
 # from its access modifier. Platform supplements never replace the departure/ACK path.
 replacements={
@@ -45,10 +47,16 @@ replacements={
     'private readonly HashSet<object> _visibilityRequests=new();':'public readonly HashSet<object> _visibilityRequests=new();',
     'ReadyUpPlayer,UnreadyPlayer,AllPlayersReady,ReadyProceed':'ReadyUpPlayer,UnreadyPlayer,AllPlayersReady,ReadyProceed,SelectCityEvent',
     'NotSet,Quests,CityEvents,Reward }':'NotSet,Quests,CityEvents,Reward,Retirement,TownRecords }',
+    '=> Actions.Add(new(actionType,supplementaryDataBoolean,PlayerRegistry.MyPlayer.PlayerID,supplementaryDataToken2));':'{ if(FFSNetwork.IsHost&&actionType==GameActionType.SelectCityEvent)PlayerRegistry.MyPlayer.state.LatestProcessedActionID++; Actions.Add(new(actionType,supplementaryDataBoolean,PlayerRegistry.MyPlayer.PlayerID,supplementaryDataToken2)); }',
 }
 for before,after in replacements.items():
     assert boundary.count(before)==1,'Native boundary seam changed: '+before
     boundary=boundary.replace(before,after)
+# Match the native one-argument method's parameter name for game-authored named
+# calls. Its existing delivery-boundary wrapper still reaches the original body.
+start=boundary.index('public void ReadyUp(bool value)');opening=boundary.index('{',start);end=opening+1;depth=1
+while depth:depth+=(boundary[end]=='{')-(boundary[end]=='}');end+=1
+boundary=boundary[:start]+re.sub(r'\bvalue\b','toggledOn',boundary[start:end])+boundary[end:]
 assert native.count('private void UpdateVisiblity()')==1
 native=native.replace('private void UpdateVisiblity()','public void UpdateVisiblity()')
 (source/'Boundary.cs').write_text(boundary);(source/'Native.cs').write_text(native)

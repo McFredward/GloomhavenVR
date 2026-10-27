@@ -317,7 +317,23 @@ internal static class MapCityEventReadyUp
                                                  UIReadyToggle.EReadyUpType readyUpType,
                                                  EReadyUpToggleStates readyUpToggleState)
         {
-            Reset();
+            bool preserveCity = false;
+            try
+            {
+                // The native 2D city-confirm callback reinitializes the SAME CityEvents
+                // proposal before its own explicit ReadyUp(true). That does not send a new
+                // SelectCityEvent on clients. Retain only an already measured exact lease;
+                // never synthesize an occurrence or invoke that consent callback ourselves.
+                preserveCity = VRSession.IsRunning
+                    && readyUpType == UIReadyToggle.EReadyUpType.Participant
+                    && readyUpToggleState == EReadyUpToggleStates.CityEvents
+                    && MatchesNativeRole();
+            }
+            catch (Exception ex) { ReportFailure("city initialization identity", ex); }
+            if (!preserveCity)
+                Reset();
+            else
+                _refreshPermission = true;
             // City initialization disables the same original departure validation as quests.
             // With host+one peer ready, an unready third participant leaving otherwise returns
             // from native OnPlayerLeft before the now-sufficient quorum starts its ACK path.

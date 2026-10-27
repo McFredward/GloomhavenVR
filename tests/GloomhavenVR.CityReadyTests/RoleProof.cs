@@ -40,6 +40,16 @@ internal static partial class Program
         MapRoomDriver.Active=true;MapCityEventReadyUp.Tick();
         Check(Controller.m_State==EReadyUpToggleStates.CityEvents&&MapCityEventReadyUp.ContentKey==key,
             "3D map reentry repairs its retained native city proposal");
+        MapRoomDriver.Active=false;Ready.Initialize(EReadyUpToggleStates.CityEvents);
+        Controller.ToggleReadyUpUI(true,EReadyUpToggleStates.CityEvents);Ready.IsInteractable=true;Ready.InputToggle();
+        MapRoomDriver.Active=true;MapCityEventReadyUp.Tick();
+        Check(MapCityEventReadyUp.ContentKey==key&&Ready.InputVotes==1,
+            "same native city reinitialization preserves original occurrence across participation flip");
+        for(int i=0;i<4;i++)MapCityEventReadyUp.Tick();
+        Check(Ready.InputVotes==1&&Ready.AutomaticVotes==0,"participation reentry cannot replay native city consent");
+        Ready.Initialize(EReadyUpToggleStates.CityEvents);Controller.m_State=EReadyUpToggleStates.CityEvents;
+        GloomhavenVR.Net.SharedMapRunIdentity.Key=8193;FFSNet.FFSNetwork.IsHost=false;ClientOffer(22);
+        Check(MapCityEventReadyUp.ContentKey!=key,"new native city action replaces a retained same-role occurrence");
         foreach(EReadyUpToggleStates next in new[]{EReadyUpToggleStates.NotSet,EReadyUpToggleStates.Reward,EReadyUpToggleStates.Retirement,EReadyUpToggleStates.TownRecords})
         {
             Fresh();HostOffer();MapCityEventReadyUp.Tick();Ready.Initialize(next);Controller.ToggleReadyUpUI(true,next);

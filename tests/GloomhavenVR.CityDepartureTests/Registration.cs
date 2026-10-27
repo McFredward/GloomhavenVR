@@ -70,7 +70,7 @@ internal static class Registration
             Check(controller.m_State==EReadyUpToggleStates.Quests&&!MapCityEventReadyUp.Active,
                 "genuine native quest initialization permits original quest readiness presentation");
 
-            FFSNetwork.IsClient=true;var map=new MapChoreographer();Singleton<MapChoreographer>.Instance=map;
+            FFSNetwork.IsClient=true;Synchronizer.Actions.Clear();var map=new MapChoreographer();Singleton<MapChoreographer>.Instance=map;
             map.ProxySelectedCityEvent(new GameAction{ActionID=17,ActionTypeID=(int)GameActionType.SelectCityEvent});
             Check(MapCityEventReadyUp.ContentKey==key,"actual client postfix captures same original action key");
             ready.ToggleVisibility(true);Check(ready.IsVisible&&!ready.IsInteractable,"actual getter patch shows disabled observer without native permission");
@@ -111,6 +111,20 @@ internal static class Registration
             NativeProbeFaults.Arm("network.client");
             typeof(UIMapMultiplayerController).GetMethod("CancelPreviewCityEvent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(controller,new object[0]);
             Check(NativeProbeFaults.Triggered==1&&!MapCityEventReadyUp.Active&&!ready.IsVisible,"actual native cancel survives failed host-role probe without resurrection");
+
+            NativeProbeFaults.Reset();FFSNetwork.IsClient=true;ready.Reset();
+            PlayerRegistry.AllPlayers=new(){PlayerRegistry.MyPlayer,new(){PlayerID=2},new(){PlayerID=3}};
+            Synchronizer.Actions.Clear();map.ProxySelectedCityEvent(new GameAction{ActionID=50,ActionTypeID=(int)GameActionType.SelectCityEvent});
+            uint beforeFlip=MapCityEventReadyUp.ContentKey;MapRoomDriver.Active=false;
+            Singleton<UIGuildmasterHUD>.Instance.OpenCityEncounter();
+            Check(ready.ToggledOn&&Synchronizer.Actions.Count(x=>x.Type==GameActionType.ReadyUpPlayer)==1,
+                "original 2D city callback casts exactly the native player's explicit vote");
+            MapRoomDriver.Active=true;MapCityEventReadyUp.Tick();
+            Check(MapCityEventReadyUp.ContentKey==beforeFlip&&beforeFlip!=0&&ready.IsVisible,
+                "native city confirmation reinitialization keeps exact shared occurrence across 2D-to-3D flip");
+            for(int i=0;i<4;i++)MapCityEventReadyUp.Tick();
+            Check(Synchronizer.Actions.Count(x=>x.Type==GameActionType.ReadyUpPlayer)==1,
+                "3D city reentry never replays the user's original 2D consent");
             System.Console.WriteLine($"City actual HarmonyX: {_assertions} assertions passed; 12 original targets under Unity Mono.");return 0;
         }
         catch(Exception ex){System.Console.Error.WriteLine(ex);return 1;}

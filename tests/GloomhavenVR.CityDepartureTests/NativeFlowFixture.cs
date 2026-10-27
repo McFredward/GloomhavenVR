@@ -130,7 +130,7 @@ internal sealed class MapLocation { }
 internal sealed class NativeButton {internal readonly GameObject gameObject=new();}
 internal sealed class ReadyTrackerProbe {internal int Shows,Refreshes,Hides;internal void RefreshReady()=>Refreshes++;internal void HideTrackers()=>Hides++;}
 internal sealed class HotkeyProbe {internal void SetHotkeyAdded(string key,bool show) { }}
-internal sealed class UIGuildmasterHUD {internal bool LastEnabled;internal void EnableHeadquartersOptions(object request,bool enableOptions)=>LastEnabled=enableOptions;}
+internal sealed partial class UIGuildmasterHUD {internal bool LastEnabled;internal void EnableHeadquartersOptions(object request,bool enableOptions)=>LastEnabled=enableOptions;}
 internal sealed class HelpBox {internal string? Last;internal void Show(string key,string title)=>Last=key;internal void Hide()=>Last=null;}
 internal static class NewPartyDisplayUI
 {
@@ -147,4 +147,73 @@ internal static class CityFlowSetup
 {
     internal static void Create()
     {Singleton<UIGuildmasterHUD>.Instance=new();Singleton<HelpBox>.Instance=new();NewPartyDisplayUI.PartyDisplay=new();}
+}
+
+internal sealed partial class UIMapMultiplayerController
+{
+public void ConfirmCityEvent()
+	{
+		if (FFSNetwork.IsOnline && FFSNetwork.IsHost && InQuestSelectionPhase())
+		{
+			OnReady(ready: true);
+			Synchronizer.SendGameAction(GameActionType.SelectCityEvent, ActionPhaseType.MapHQ);
+		}
+	}
+public void OnSelectedCityEvent()
+	{
+		if (FFSNetwork.IsOnline && InQuestSelectionPhase())
+		{
+			MapChoreographer.InitReadyToggle(EReadyUpToggleStates.CityEvents);
+			ToggleReadyUpUI(show: true, EReadyUpToggleStates.CityEvents);
+			Singleton<UIReadyToggle>.Instance.ReadyUp(toggledOn: true);
+		}
+	}
+}
+
+internal sealed partial class UIGuildmasterHUD
+{
+private void RefreshUnlockedOptions() { }
+public void OpenCityEncounter()
+	{
+		Singleton<MapChoreographer>.Instance.OpenCityEvent();
+		RefreshUnlockedOptions();
+	}
+}
+
+internal sealed partial class MapChoreographer
+{
+    private void DetermineHostToggleInteractability()=>Singleton<UIReadyToggle>.Instance.SetInteractable(true);
+    private void DetermineClientToggleInteractability()=>Singleton<UIReadyToggle>.Instance.SetInteractable(PlayerRegistry.MyPlayer.IsParticipant);
+    private void OpenCityEventInternal() { }
+    // Callback factory is the native platform boundary; original Initialize/ReadyUp and
+    // the explicit game-authored OnSelectedCityEvent/OpenCityEvent methods are unchanged.
+    public static void InitReadyToggle(EReadyUpToggleStates state)
+    {
+        Singleton<UIReadyToggle>.Instance.Initialize(show:false,
+            onReady:()=>Singleton<UIMapMultiplayerController>.Instance.ConfirmCityEvent(),
+            onUnready:()=>Singleton<UIMapMultiplayerController>.Instance.OnReady(false),
+            onAllPlayersReady:()=>Singleton<UIReadyToggle>.Instance.Reset(),
+            readyTextLoc:"GUI_DRAW_CITY_EVENT",unreadyTextLoc:"GUI_CITY_EVENT_CANCEL",
+            readyAudioItem:"PlaySound_UIMultiQuestSelected",validateReadyUpOnPlayerLeft:false,
+            readyUpType:UIReadyToggle.EReadyUpType.Participant,readyUpToggleState:state);
+    }
+public void OpenCityEvent()
+	{
+		if (FFSNetwork.IsOnline)
+		{
+			Singleton<UIMapMultiplayerController>.Instance.OnSelectedCityEvent();
+			if (FFSNetwork.IsHost)
+			{
+				DetermineHostToggleInteractability();
+			}
+			else
+			{
+				DetermineClientToggleInteractability();
+			}
+		}
+		else
+		{
+			OpenCityEventInternal();
+		}
+	}
 }

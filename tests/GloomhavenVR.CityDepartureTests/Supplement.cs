@@ -9,13 +9,13 @@ internal sealed partial class UIReadyToggle
 internal sealed partial class UIMapMultiplayerController
 {
     internal EReadyUpToggleStates m_State;
-    internal void ConfirmCityEvent() { FFSNet.PlayerRegistry.MyPlayer.state.LatestProcessedActionID++; }
+    public void OnReady(bool ready) { }
     internal void ResetUI() { Singleton<UIReadyToggle>.Instance.ToggleVisibility(false); }
     internal void ClearHostSelectedCityEvent() { Singleton<UIReadyToggle>.Instance.ToggleVisibility(false); }
     private void ProxyHostCancelledCityEvent() { Singleton<UIReadyToggle>.Instance.ToggleVisibility(false); }
     private void CancelPreviewCityEvent() { Singleton<UIReadyToggle>.Instance.ToggleVisibility(false); }
 }
-internal sealed class MapChoreographer
+internal sealed partial class MapChoreographer
 {
     internal void DeterminePlayerToggleInteractability() { }
     internal void ProxySelectedCityEvent(FFSNet.GameAction action)

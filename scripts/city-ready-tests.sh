@@ -43,7 +43,8 @@ try:
  ('focus-steals-city','return !MatchesNativeRole();','return true;','incidental quest focus refresh cannot steal a native city proposal'),
  ('mutable-state-withdrawal','private static bool MatchesNativeProposal() => MatchesNativeRole() && !_toggle!._allPlayersReady;','private static bool MatchesNativeProposal() => MatchesNativeRole() && _controller!.m_State == EReadyUpToggleStates.CityEvents && !_toggle!._allPlayersReady;','mutable native presentation state is not a city withdrawal'),
  ('missing-reentry-repair','if (!_toggle!._requestVisible || _controller!.m_State != EReadyUpToggleStates.CityEvents)','if (!_toggle!._requestVisible)','city reentry repairs controller role even when visibility request already true'),
- ('ack-wait-loses-role','current.UpdateVisiblity();\n                return;','Reset();\n                return;','native city role stays protected throughout ACK wait')]
+ ('ack-wait-loses-role','current.UpdateVisiblity();\n                return;','Reset();\n                return;','native city role stays protected throughout ACK wait'),
+ ('same-city-initialize-loses-key','if (!preserveCity)\n                Reset();','if (preserveCity || !preserveCity)\n                Reset();','same native city reinitialization preserves original occurrence across participation flip')]
  for name,needle,replacement,expected in mutations:
   if text.count(needle)!=1:raise RuntimeError('Mutation target is not exact: '+name)
   production.write_text(text.replace(needle,replacement));shutil.copy2(production,run/(name+'.cs'))
