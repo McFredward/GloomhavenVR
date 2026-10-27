@@ -99,7 +99,13 @@ internal static class MenuDepthCards
             if (value is Graphic graphic && !graphics.Contains(graphic)) graphics.Add(graphic);
         }
         if (Cards.TryGetValue(owner, out MenuDepthCardPlane plane) && plane != null)
-        { plane.Rebind(windowRoot, graphics); return; }
+        {
+            plane.Rebind(windowRoot, graphics);
+            // Source pruning may have observed the old native Graphic destroyed
+            // while this pooled widget stayed active. A real replacement birth
+            // renews the same plane's membership as well as its exact art references.
+            MenuDepthSources.Register(plane); return;
+        }
         if (graphics.Count == 0) return; // Original fields may still be assigned by a native late initializer.
         plane = owner.gameObject.AddComponent<MenuDepthCardPlane>();
         plane.Configure(owner, rect, graphics, windowRoot);

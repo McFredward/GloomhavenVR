@@ -386,6 +386,21 @@ public static partial class MenuDepthCardProgram
                 Check(MenuDepthDriver.RootCensuses == censuses && MenuDepthDriver.BehaviourVisits == visits,
                     "late cards and graphics never repeat a whole window hierarchy census");
                 card.Restored();
+                if (type == typeof(ItemCardUI))
+                {
+                    Object.DestroyImmediate(replacement.gameObject);
+                    Check(!MenuDepthSources.HasContent(_root), "a destroyed last native backing is pruned without leaving a visible source");
+                    replacement = Image(card.Rect, "new native backing after pruning", new Vector2(294, 450), Vector2.zero);
+                    replacement.transform.SetAsFirstSibling(); Field(card.Owner, "cardBackground", replacement);
+                    ++_request; while (_completed != _request) yield return null;
+                    Check(MenuDepthSources.HasContent(_root), "a live pooled card re-enters capture membership when its destroyed native art is replaced");
+                    Texture2D renewed = Read(card, true, 111);
+                    marker.enabled = false; ++_request; while (_completed != _request) yield return null;
+                    Texture2D renewedFlat = Read(card, false, 111);
+                    Check(Error(White(renewed), Expected(card, White(renewedFlat)), renewed) < 1.8f,
+                        "a replaced original item backing restores complete card depth on its first new capture");
+                    Object.DestroyImmediate(renewed); Object.DestroyImmediate(renewedFlat); marker.enabled = true;
+                }
 
                 card.Rect.gameObject.SetActive(false); ++_request; while (_completed != _request) yield return null;
                 Check(!marker.IsReady, "a hidden pooled card contributes no capture source"); card.Restored();

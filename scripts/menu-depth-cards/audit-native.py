@@ -55,7 +55,7 @@ def main():
     files = [data / 'StreamingAssets/aa/StandaloneWindows64/misc_gui_assets_all.bundle',
              *[data / ('level' + str(i)) for i in range(13)]]
     report = {'unity': '2021.3.5f1', 'managed_sha256': sha(data / 'Managed/GH.Runtime.dll'),
-              'auditor_dependency_sha256': sha(profile_path), 'sources': {}, 'owners': []}
+              'auditor_dependency_sha256': sha(profile_path), 'sources': {}, 'owners': [], 'material_shaders': []}
 
     def tree(reader):
         return profile.authored_tree(reader) if reader.type.name == 'MonoBehaviour' else reader.read_typetree()
@@ -95,6 +95,22 @@ def main():
             if key in d: result[key] = d[key]
         return result
 
+    shaders = set()
+    def material_shader(graphic):
+        material = pointer(tree(graphic).get('m_Material'), graphic)
+        if material is None: return
+        shader = pointer(tree(material).get('m_Shader'), material)
+        key = (shader.assets_file.name, shader.path_id)
+        if key in shaders: return
+        shaders.add(key); compiled = shader.read()
+        report['material_shaders'].append({'material': identity(material), 'shader_file': key[0], 'shader_path_id': key[1],
+            'shader_sha256': hashlib.sha256(shader.get_raw_data()).hexdigest(), 'name': compiled.m_ParsedForm.m_Name,
+            'passes': [{'name': pas.m_State.m_Name,
+                'z_test': {'name': pas.m_State.zTest.name, 'value': pas.m_State.zTest.val},
+                'z_write': {'name': pas.m_State.zWrite.name, 'value': pas.m_State.zWrite.val},
+                'compiled_parameter_names': [name for name, index in pas.m_NameIndices]}
+                for sub in compiled.m_ParsedForm.m_SubShaders for pas in sub.m_Passes]})
+
     for source in files:
         relative = str(source.relative_to(data)); report['sources'][relative] = sha(source)
         environment = UnityPy.load(str(source)); environment.typetree_generator = generator
@@ -102,6 +118,9 @@ def main():
             if owner.type.name != 'MonoBehaviour': continue
             name = script(owner)
             if name not in FIELDS: continue
+            for path in FIELDS[name]:
+                target = follow(owner, path)
+                if target is not None and script(target) == 'Image': material_shader(target)
             report['owners'].append({'source': relative, 'owner': identity(owner),
                 'serialized_sha256': hashlib.sha256(owner.get_raw_data()).hexdigest(),
                 'root_components': [identity(part) for part in components(owner)],
