@@ -72,3 +72,11 @@ unchanged full graphic/native-mip suite:582 assertions and14 causal controls in
 Every standalone run stops/reaps exact owned editors and descendants, tears down
 its compiler processes, then invokes the central cleanup_completed_run API;
 source copies, assemblies, logs, results and pixel witnesses remain retained.
+
+The historical discriminator (`--known-ready-724-probe`, `run-saxig801`) compiles
+all original Build724 menu sources and registers its source before the automatic
+head frame. It retains1 known-ready source, produces600red/0blue owned-eye pixels,
+keeps mono4096blue/0red, and draws head15600blue/0red. Exact expected failure is
+recorded as a historical negative control, with source callback and restoration
+checks reached first. The observed direct GL delivery defect therefore predates
+the discovery repair. No D3D11/headset outcome is inferred from this engine proof.

@@ -364,6 +364,10 @@ public static class MenuDepthPerformanceProof
             RenderTexture? active = RenderTexture.active; RenderTexture.active = native; GL.Clear(true, true, Color.blue); RenderTexture.active = active;
             if (_automatic)
             {
+                if (_baseline) MenuDepthDriver.Tick(); // explicit known-ready historical comparator, not the repaired late-arrival case
+                int registered = ((IEnumerable)typeof(MenuDepthSources).GetField("Sources", Static)!.GetValue(null)!).Cast<object>().Count();
+                File.WriteAllText(Path.Combine(_output, "registration-before-head.txt"), "known_ready_baseline=" + _baseline + ";registered_sources=" + registered + "\n");
+                if (_baseline) Check(registered == 1, "the actual724 automatic comparator has a known-ready native source before the head frame");
                 _automaticHead = head; _automaticPreview = preview; _automaticNative = native; _automaticStamp = stamp;
                 stamp.NativeTarget = native; _camera.depth = -10; head.depth = 0;
                 _automaticBlue = new Texture2D(1, 1, TextureFormat.RGBA32, false);
