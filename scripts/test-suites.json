@@ -3124,6 +3124,28 @@
         "local"
       ],
       "weight": 55
+    },
+    {
+      "id": "levelup-native-runtime",
+      "command": [
+        "python3",
+        "scripts/check-levelup-native-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "menu-depth-cards",
+      "command": [
+        "python3",
+        "scripts/menu-depth-cards/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
     }
   ]
 }
