@@ -41,6 +41,12 @@ internal static class MenuDepthCards
             new[] { "bottomActionButton", "defaultActionButton", "targetGraphic" }),
         new("MiniAbilityCard", false, new[] { "miniAbilityBackgroundImage" }),
         new("ItemCardUI", false, new[] { "cardBackground" }),
+        new("MonsterRoundCardUI", false, new[] { "background" }),
+        new("MonsterBaseUI", false, new[] { "backgroundImage" }, new[] { "textBackgroundOpacityImage" }),
+        new("UIPerkAttackModifier", false, new[] { "button", "targetGraphic" }),
+        // The native scenario modifier prefab declares its printed backing as
+        // the Image on this exact typed owner, without a serialized Image field.
+        new("UIScenarioAttackModifier", false, new[] { "$rootImage" }),
         new("AbilityCardUI", true),
     };
     private static readonly Dictionary<Type, Kind?> Types = new();
@@ -98,6 +104,10 @@ internal static class MenuDepthCards
         plane = owner.gameObject.AddComponent<MenuDepthCardPlane>();
         plane.Configure(owner, rect, graphics, windowRoot);
         Cards.Add(owner, plane);
+        // A parent card may arrive after one of its separately pooled modifier or
+        // monster children. Refresh only known card ancestors at this real birth,
+        // rather than searching a menu hierarchy on every frame/capture.
+        foreach (MenuDepthCardPlane known in Cards.Values) if (known != null) known.RebindParent();
     }
 
     private static void RegisterMember(MonoBehaviour owner, string field, Transform? windowRoot)
@@ -109,6 +119,7 @@ internal static class MenuDepthCards
 
     private static object? Read(object value, string name)
     {
+        if (name == "$rootImage" && value is Component component) return component.GetComponent<Image>();
         var key = (value.GetType(), name);
         if (!Members.TryGetValue(key, out MemberInfo? member))
         {

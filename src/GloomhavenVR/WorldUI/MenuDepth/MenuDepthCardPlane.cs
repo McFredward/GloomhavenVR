@@ -17,6 +17,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     private MonoBehaviour? _owner;
     private RectTransform? _card;
     private Transform? _window;
+    private MenuDepthCardPlane? _parentPlane;
     private IReadOnlyList<Graphic> _backgrounds = Array.Empty<Graphic>();
     private Vector3 _position, _scale;
     private bool _borrowed, _configured;
@@ -37,7 +38,11 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     {
         _window = window;
         if (backgrounds.Count != 0) _backgrounds = backgrounds;
+        RebindParent();
     }
+
+    internal void RebindParent() => _parentPlane = _card != null && _card.parent != null
+        ? _card.parent.GetComponentInParent<MenuDepthCardPlane>(true) : null;
 
     private Graphic? Printed()
     {
@@ -72,7 +77,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     public void BeforeCapture(MenuDepthEye eye)
     {
         AfterCapture();
-        if (!IsReady || _card == null) return;
+        if (!IsReady || _card == null || (_parentPlane != null && _parentPlane.IsReady)) return;
         Vector3 localEye = _card.InverseTransformPoint(eye.WorldPosition);
         float depth = -Mathf.Abs(_card.rect.width) * DepthWidthRatio;
         float factor = 1f;
