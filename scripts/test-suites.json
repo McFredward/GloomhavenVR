@@ -3191,6 +3191,17 @@
         "local"
       ],
       "weight": 45
+    },
+    {
+      "id": "menu-depth-rotation-integrated",
+      "command": [
+        "python3",
+        "scripts/menu-depth-rotation/run-integrated.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
     }
   ]
 }
