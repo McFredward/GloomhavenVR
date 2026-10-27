@@ -271,12 +271,15 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDispo
         private readonly Camera _camera;
         private readonly Transform _holder;
         private readonly Dictionary<object, Bounds> _bounds = new();
+        private readonly HashSet<object> _unresolvedRigs = new();
         internal CalibrationCache(Camera camera, Transform holder) { _camera = camera; _holder = holder; }
         internal bool TryGet(object original, out Bounds result)
         {
             if (_bounds.TryGetValue(original, out result)) return true;
+            if (_unresolvedRigs.Contains(original)) { result = default; return false; }
             bool any = false; result = default;
-            if (ReferenceEquals(original, _holder)) Collect(_holder, ref any, ref result); // explicit fixture/unknown-runtime fallback
+            if (ReferenceEquals(original, _holder))
+            { if (!Collect(_holder, ref any, ref result)) { RejectRig(original); return false; } } // explicit fixture/unknown-runtime fallback
             else
             {
                 FieldInfo? models = original.GetType().GetField("models", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -284,29 +287,25 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDispo
                     foreach (object member in list)
                     {
                         Component? actor = member.GetType().GetProperty("CharacterManager")?.GetValue(member, null) as Component;
-                        if (actor != null) Collect(actor.transform, ref any, ref result);
+                        if (actor != null && !Collect(actor.transform, ref any, ref result)) { RejectRig(original); return false; }
                     }
             }
             if (!any || result.size.x <= 1e-4f || result.size.y <= 1e-4f) return false;
-            if (_bounds.Count >= 32) _bounds.Clear();
+            if (_bounds.Count + _unresolvedRigs.Count >= 32) { _bounds.Clear(); _unresolvedRigs.Clear(); }
             _bounds.Add(original, result); return true;
         }
-        private void Collect(Transform root, ref bool any, ref Bounds result)
+        private void RejectRig(object original)
+        {
+            if (_bounds.Count + _unresolvedRigs.Count >= 32) { _bounds.Clear(); _unresolvedRigs.Clear(); }
+            _unresolvedRigs.Add(original);
+        }
+        private bool Collect(Transform root, ref bool any, ref Bounds result)
         {
             // Authored local envelopes remain stable across animation. World
             // Renderer.bounds and per-frame hierarchy walks are deliberately absent.
             Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
             var bones = new Dictionary<Transform, Matrix4x4>();
-            foreach (Renderer renderer in renderers)
-            {
-                if (!(renderer is SkinnedMeshRenderer skin) || skin.sharedMesh == null
-                    || !renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
-                Transform[] transforms = skin.bones; Matrix4x4[] poses = skin.sharedMesh.bindposes;
-                Matrix4x4 skinToCamera = _camera.transform.worldToLocalMatrix * skin.localToWorldMatrix;
-                for (int i = 0; i < Math.Min(transforms.Length, poses.Length); i++)
-                    if (transforms[i] != null && !bones.ContainsKey(transforms[i]))
-                        bones.Add(transforms[i], skinToCamera * poses[i].inverse);
-            }
+            if (!BuildBones(renderers, root, bones)) return false;
             foreach (Renderer renderer in renderers)
             {
                 if (!renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
@@ -314,14 +313,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDispo
                 if (renderer is SkinnedMeshRenderer skinned && skinned.sharedMesh != null) local = skinned.localBounds;
                 else if (renderer is MeshRenderer && renderer.GetComponent<MeshFilter>() is MeshFilter filter && filter.sharedMesh != null) local = filter.sharedMesh.bounds;
                 else continue;
-                Matrix4x4 transform = _camera.transform.worldToLocalMatrix * renderer.localToWorldMatrix;
-                // Rigid equipment can be attached to an animated skin bone.
-                // Use its imported bind pose so the first captured animation
-                // phase cannot change the completed model's cabinet calibration.
-                if (renderer is MeshRenderer)
-                    for (Transform? ancestor = renderer.transform; ancestor != null && ancestor != root.parent; ancestor = ancestor.parent)
-                        if (bones.TryGetValue(ancestor, out Matrix4x4 bind))
-                        { transform = bind * ancestor.worldToLocalMatrix * renderer.localToWorldMatrix; break; }
+                Matrix4x4 transform = AuthoredTransform(renderer.transform, root, bones);
                 Vector3 lo = local.min, hi = local.max;
                 for (int i = 0; i < 8; i++)
                 {
@@ -330,6 +322,59 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDispo
                     if (!any) { result = new Bounds(point, Vector3.zero); any = true; } else result.Encapsulate(point);
                 }
             }
+            return true;
+        }
+
+        private readonly struct SkinBinding
+        {
+            internal readonly SkinnedMeshRenderer Skin;
+            internal readonly Transform[] Bones;
+            internal readonly Matrix4x4[] Poses;
+            internal SkinBinding(SkinnedMeshRenderer skin)
+            { Skin = skin; Bones = skin.bones; Poses = skin.sharedMesh.bindposes; }
+        }
+
+        private bool BuildBones(Renderer[] renderers, Transform root, Dictionary<Transform, Matrix4x4> bones)
+        {
+            var imported = new HashSet<Transform>();
+            var pending = new List<SkinBinding>();
+            foreach (Renderer renderer in renderers)
+            {
+                if (!(renderer is SkinnedMeshRenderer skin) || skin.sharedMesh == null
+                    || !renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
+                var binding = new SkinBinding(skin); pending.Add(binding);
+                foreach (Transform bone in binding.Bones) if (bone != null) imported.Add(bone);
+            }
+            // Native DoEquip also attaches skinned weapon prefabs to body bones.
+            // Resolve that dependency before their own bind maps, independently
+            // of renderer/sibling enumeration order. Never seed body bones from
+            // a weapon's current animated parent pose.
+            while (pending.Count != 0)
+            {
+                bool progress = false;
+                for (int index = pending.Count - 1; index >= 0; index--)
+                {
+                    SkinBinding binding = pending[index]; bool waiting = false;
+                    for (Transform? parent = binding.Skin.transform.parent; parent != null && parent != root && parent != root.parent; parent = parent.parent)
+                        if (imported.Contains(parent)) { waiting = !bones.ContainsKey(parent); break; }
+                    if (waiting) continue;
+                    Matrix4x4 skinToCamera = AuthoredTransform(binding.Skin.transform, root, bones);
+                    for (int i = 0; i < Math.Min(binding.Bones.Length, binding.Poses.Length); i++)
+                        if (binding.Bones[i] != null && !bones.ContainsKey(binding.Bones[i]))
+                            bones.Add(binding.Bones[i], skinToCamera * binding.Poses[i].inverse);
+                    pending.RemoveAt(index); progress = true;
+                }
+                if (!progress) return false; // An unresolved rig keeps native mono; never cache an animated approximation.
+            }
+            return true;
+        }
+
+        private Matrix4x4 AuthoredTransform(Transform renderer, Transform root, Dictionary<Transform, Matrix4x4> bones)
+        {
+            for (Transform? ancestor = renderer; ancestor != null && ancestor != root.parent; ancestor = ancestor.parent)
+                if (bones.TryGetValue(ancestor, out Matrix4x4 bind))
+                    return bind * ancestor.worldToLocalMatrix * renderer.localToWorldMatrix;
+            return _camera.transform.worldToLocalMatrix * renderer.localToWorldMatrix;
         }
     }
 

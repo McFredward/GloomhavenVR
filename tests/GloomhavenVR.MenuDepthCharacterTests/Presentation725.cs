@@ -130,7 +130,7 @@ public static class MenuDepthCharacterPresentation725
         private readonly Character3DDisplayManager _manager;
         private readonly Transform _holder, _body, _bone, _light;
         private readonly Material _pattern, _red, _green;
-        private readonly Mesh _skin;
+        private readonly Mesh _skin, _weaponSkin;
         private readonly StreamWriter _log;
         private readonly string _output;
         private readonly List<MenuDepthCharacterSource> _extra = new List<MenuDepthCharacterSource>();
@@ -162,12 +162,29 @@ public static class MenuDepthCharacterPresentation725
             _skin.bindposes = new[] { Matrix4x4.identity }; var weights = new BoneWeight[4];
             for (int i = 0; i < weights.Length; i++) weights[i] = new BoneWeight { boneIndex0 = 0, weight0 = 1 };
             _skin.boneWeights = weights;
-            SkinnedMeshRenderer skinned = _body.gameObject.AddComponent<SkinnedMeshRenderer>();
+            var bodyMesh = new GameObject("native body skin dependency anchor", typeof(SkinnedMeshRenderer));
+            bodyMesh.layer = 8; bodyMesh.transform.SetParent(_body, false); bodyMesh.transform.SetAsFirstSibling();
+            SkinnedMeshRenderer skinned = bodyMesh.GetComponent<SkinnedMeshRenderer>();
             skinned.sharedMesh = _skin; skinned.bones = new[] { _bone }; skinned.rootBone = _bone; skinned.sharedMaterial = _pattern;
             skinned.localBounds = new Bounds(Vector3.zero, new Vector3(.9f, 1.8f, .08f));
             var equipment = GameObject.CreatePrimitive(PrimitiveType.Quad); equipment.name = "rigid equipment on animated bone"; equipment.layer = 8;
             equipment.transform.SetParent(_bone, false); equipment.transform.localPosition = new Vector3(0, .7f, 0);
             equipment.transform.localScale = Vector3.one * .1f; equipment.GetComponent<MeshRenderer>().sharedMaterial = _pattern;
+            // Actual native DoEquip also parents skinned weapon prefabs under
+            // body bones. Give that attached skin its own rig and a rigid part,
+            // so an incorrectly seeded weapon bone map changes the envelope.
+            var weapon = new GameObject("native attached skinned weapon", typeof(SkinnedMeshRenderer)); weapon.layer = 8;
+            weapon.transform.SetParent(_bone, false); weapon.transform.localPosition = new Vector3(0, .7f, 0);
+            Transform weaponBone = new GameObject("imported weapon bone").transform; weaponBone.SetParent(weapon.transform, false);
+            _weaponSkin = Object.Instantiate(_skin); _weaponSkin.name = "authored independent weapon skin";
+            _weaponSkin.vertices = new[] { new Vector3(-.05f,-.05f,0), new Vector3(-.05f,.05f,0), new Vector3(.05f,.05f,0), new Vector3(.05f,-.05f,0) };
+            _weaponSkin.RecalculateBounds();
+            SkinnedMeshRenderer weaponRenderer = weapon.GetComponent<SkinnedMeshRenderer>();
+            weaponRenderer.sharedMesh = _weaponSkin; weaponRenderer.bones = new[] { weaponBone }; weaponRenderer.rootBone = weaponBone;
+            weaponRenderer.sharedMaterial = _pattern; weaponRenderer.localBounds = new Bounds(Vector3.zero, new Vector3(.1f, .1f, .02f));
+            var weaponPart = GameObject.CreatePrimitive(PrimitiveType.Quad); weaponPart.name = "rigid part on the imported weapon bone"; weaponPart.layer = 8;
+            weaponPart.transform.SetParent(weaponBone, false); weaponPart.transform.localPosition = new Vector3(.1f, 0, 0);
+            weaponPart.transform.localScale = Vector3.one * .05f; weaponPart.GetComponent<MeshRenderer>().sharedMaterial = _pattern;
             Transform frontMarker = Marker("front figure detail", Front, _red), backMarker = Marker("back companion detail", Back, _green);
             _manager.ReplaceOriginal(_body, frontMarker, backMarker);
             var unusedSkin = GameObject.CreatePrimitive(PrimitiveType.Cube); unusedSkin.name = "inactive cached wardrobe variant";
@@ -205,7 +222,7 @@ public static class MenuDepthCharacterPresentation725
             Source = new MenuDepthCharacterSource(_image, NativeCamera, _manager, _holder, m => m.Hidden);
             MenuDepthSources.Register(Source);
             // Seed the completed original at a deliberately different animation
-            // phase. Rigid equipment must use authored bind-pose membership,
+            // phase. Rigid/skinned equipment must use authored bind-pose membership,
             // while the original real render still sees that animated pose.
             _bone.localPosition = _sampledBone = new Vector3(.9f, 0, 0);
             CaptureTarget(new Vector3(0, 0, -1.2f), false, new Vector2(1024, 1024));
@@ -316,7 +333,7 @@ public static class MenuDepthCharacterPresentation725
             MenuDepthSources.AfterCapture(); MenuDepthSources.Unregister(Source); Source.Dispose();
             foreach (MenuDepthCharacterSource source in _extra) source.Dispose();
             _log.Dispose(); _native.Release(); _final.Release(); Object.DestroyImmediate(_native); Object.DestroyImmediate(_final);
-            Object.DestroyImmediate(_pattern); Object.DestroyImmediate(_red); Object.DestroyImmediate(_green); Object.DestroyImmediate(_skin);
+            Object.DestroyImmediate(_pattern); Object.DestroyImmediate(_red); Object.DestroyImmediate(_green); Object.DestroyImmediate(_skin); Object.DestroyImmediate(_weaponSkin);
             foreach (GameObject go in Object.FindObjectsOfType<GameObject>()) Object.DestroyImmediate(go);
         }
     }
