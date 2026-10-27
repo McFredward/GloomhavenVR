@@ -2104,6 +2104,12 @@ internal static class MapTravelConfirm
                                       out Rect ink, out int counted) =>
         TryContentBounds(frame, sweepRoot, excludeRoot: null, out ink, out counted, out _, out _);
 
+    /// <summary>Measure a host's own confirm ink while excluding a row adopted beneath that same
+    /// native root. City readiness uses this to avoid counting the row as the button it follows.</summary>
+    internal static bool TryInkBounds(RectTransform frame, Transform sweepRoot, Transform? excludeRoot,
+                                      out Rect ink, out int counted) =>
+        TryContentBounds(frame, sweepRoot, excludeRoot, out ink, out counted, out _, out _);
+
     /// <summary>
     /// THE SAME INFORMATION UNION <see cref="MaybeRefreshAnchor"/> SOLVES THE CONFIRM FROM, ASKED BY
     /// A SIBLING PLACEMENT THAT HAS NO CONFIRM TO PARK.
