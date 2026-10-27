@@ -155,7 +155,7 @@ internal static partial class ModalFallback
     /// </summary>
     private static bool FloatWantedFor(UIWindow? window, bool convertWanted)
     {
-        if (window == null)
+        if (window == null || ConfirmationOnOwner.IsOwned(window))
             return false;
         if (convertWanted)
             return true;

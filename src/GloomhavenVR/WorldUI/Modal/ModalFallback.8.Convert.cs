@@ -193,6 +193,10 @@ internal static partial class ModalFallback
     /// </summary>
     private static bool TryConvertWindow(UIWindow window)
     {
+        // A persistent level-up member already has one visible, owner-seated
+        // capture. Report that presentation as handled, including Dialogs=off;
+        // a false conversion failure would unnecessarily raise the flat screen.
+        if (ConfirmationOnOwner.IsOwned(window)) return true;
         string name = window.name;
         bool sampleConversion = VRLog.WantsDebug && _modalConvertTimingReports < ModalConvertTimingLimit;
         long started = sampleConversion ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
