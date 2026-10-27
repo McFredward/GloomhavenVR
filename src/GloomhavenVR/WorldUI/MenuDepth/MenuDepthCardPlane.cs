@@ -6,13 +6,13 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI.MenuDepth;
 
 /// <summary>
-/// Empty capture marker: the original card's entire transform subtree is the
+/// Capture marker: the original card's entire transform subtree is the
 /// visual surface, including TMP text, generated action layouts and native effects.
 /// No original layout anchors, size, callbacks, graphics or materials are replaced.
 /// The temporary root pose is restored before native input/animation resumes.
 /// </summary>
 [DisallowMultipleComponent]
-internal sealed class MenuDepthCardPlane : MaskableGraphic, IMenuDepthOcclusionSource, IMenuDepthDirectSource
+internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSource, IMenuDepthDirectSource
 {
     private MonoBehaviour? _owner;
     private RectTransform? _card;
@@ -22,39 +22,38 @@ internal sealed class MenuDepthCardPlane : MaskableGraphic, IMenuDepthOcclusionS
     private bool _borrowed, _configured;
     private const float DepthWidthRatio = .035f;
 
-    public Graphic Graphic => this;
+    public Graphic Graphic => Printed() ?? _backgrounds[0];
     public IReadOnlyList<Graphic> DepthGraphics => _backgrounds;
-    public bool IsReady => _configured && IsActive() && _owner != null && _owner.gameObject.activeInHierarchy
-        && _card != null && _card.gameObject.activeInHierarchy && _card.rect.width > 1e-5f && Printed() && Eligible();
+    public bool IsReady => _configured && isActiveAndEnabled && _owner != null && _owner.gameObject.activeInHierarchy
+        && _card != null && _card.gameObject.activeInHierarchy && _card.rect.width > 1e-5f && Printed() != null && Eligible();
 
     internal void Configure(MonoBehaviour owner, RectTransform card, IReadOnlyList<Graphic> backgrounds, Transform? window)
     {
         _owner = owner; _card = card; _backgrounds = backgrounds; _configured = true;
-        raycastTarget = false; color = Color.white;
         Rebind(window, backgrounds); MenuDepthSources.Register(this);
     }
 
     internal void Rebind(Transform? window, IReadOnlyList<Graphic> backgrounds)
     {
-        _window = window; _backgrounds = backgrounds;
-        if (_card != null) gameObject.layer = _card.gameObject.layer;
+        _window = window;
+        if (backgrounds.Count != 0) _backgrounds = backgrounds;
     }
 
-    private bool Printed()
+    private Graphic? Printed()
     {
         for (int i = 0; i < _backgrounds.Count; i++)
         {
             Graphic graphic = _backgrounds[i];
             if (graphic != null && graphic.isActiveAndEnabled && graphic.color.a > 0f
-                && graphic.canvasRenderer.GetInheritedAlpha() > 0f) return true;
+                && graphic.canvasRenderer.GetInheritedAlpha() > 0f) return graphic;
         }
-        return false;
+        return null;
     }
 
     private bool Eligible()
     {
         if (_card == null) return false;
-        Canvas cardCanvas = canvas;
+        Canvas cardCanvas = Graphic.canvas;
         // A physical hand/board/NPC card has its own world canvas. Only an actual
         // enrolled flat window permits world-space UI here; original flat native
         // canvases cover detached item tooltip/confirmation roots as well.
@@ -102,11 +101,10 @@ internal sealed class MenuDepthCardPlane : MaskableGraphic, IMenuDepthOcclusionS
         if (_card != null) { _card.localPosition = _position; _card.localScale = _scale; }
     }
 
-    protected override void OnPopulateMesh(VertexHelper vertices) => vertices.Clear();
-    protected override void OnEnable()
-    { base.OnEnable(); if (_configured) MenuDepthSources.Register(this); }
-    protected override void OnDisable()
-    { AfterCapture(); MenuDepthSources.Unregister(this); base.OnDisable(); }
-    protected override void OnDestroy()
-    { AfterCapture(); MenuDepthSources.Unregister(this); base.OnDestroy(); }
+    private void OnEnable()
+    { if (_configured) MenuDepthSources.Register(this); }
+    private void OnDisable()
+    { AfterCapture(); MenuDepthSources.Unregister(this); }
+    private void OnDestroy()
+    { AfterCapture(); MenuDepthSources.Unregister(this); }
 }

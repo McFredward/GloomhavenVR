@@ -95,13 +95,7 @@ internal static class MenuDepthCards
         if (Cards.TryGetValue(owner, out MenuDepthCardPlane plane) && plane != null)
         { plane.Rebind(windowRoot, graphics); return; }
         if (graphics.Count == 0) return; // Original fields may still be assigned by a native late initializer.
-        var go = new GameObject("GloomhavenVR.MenuDepth.CardPlane", typeof(RectTransform), typeof(CanvasRenderer), typeof(LayoutElement));
-        go.layer = owner.gameObject.layer;
-        var marker = (RectTransform)go.transform;
-        marker.SetParent(rect, false); marker.anchorMin = Vector2.zero; marker.anchorMax = Vector2.one;
-        marker.offsetMin = marker.offsetMax = Vector2.zero;
-        go.GetComponent<LayoutElement>().ignoreLayout = true;
-        plane = go.AddComponent<MenuDepthCardPlane>();
+        plane = owner.gameObject.AddComponent<MenuDepthCardPlane>();
         plane.Configure(owner, rect, graphics, windowRoot);
         Cards.Add(owner, plane);
     }
@@ -132,7 +126,7 @@ internal static class MenuDepthCards
             if (item.Key == null || item.Value == null) Dead.Add(item.Key!);
         for (int i = 0; i < Dead.Count; i++)
         {
-            if (Cards.TryGetValue(Dead[i], out MenuDepthCardPlane plane) && plane != null) UnityEngine.Object.Destroy(plane.gameObject);
+            if (Cards.TryGetValue(Dead[i], out MenuDepthCardPlane plane) && plane != null) UnityEngine.Object.Destroy(plane);
             Cards.Remove(Dead[i]);
         }
     }
@@ -140,7 +134,7 @@ internal static class MenuDepthCards
     internal static void Shutdown()
     {
         foreach (MenuDepthCardPlane plane in Cards.Values)
-            if (plane != null) { plane.enabled = false; UnityEngine.Object.Destroy(plane.gameObject); }
+            if (plane != null) { plane.enabled = false; UnityEngine.Object.Destroy(plane); }
         Cards.Clear(); Dead.Clear();
     }
 }
