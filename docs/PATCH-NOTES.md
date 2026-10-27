@@ -26,6 +26,25 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build726: one native travel loop per resumed map flow
+
+WorldUI registers `NativeMapTravelAudio` on the six synchronous timed/point map
+travel producers, the native `AudioController.PlayAudioSubItem` result and both
+flows' destruction. A prefix/finalizer pair scopes observation while the physical
+map room is active; the original producer, arguments, callbacks and exceptions
+always run unchanged. There is no replicated-state writer or new receiver.
+
+The encounter leg schedules a looping Moving item without stopping it, then its
+continuation requests Moving again. Before the next request, retire only concrete
+audio objects captured for that exact flow's configured item. Preserve every layer
+of the new request, unrelated same-ID sounds and native arrival/destruction work.
+An object's subitem, start timestamp, item identity and weak playback generation
+protect against pooled reuse, including same-frame timestamp collisions. Pending
+DSP starts are owned too; zero-fade stopping prevents transient overlap. Flow
+destruction releases owned pending requests even after room teardown. Ordinary
+flat calls remain native. Capture failures retain native playback and report
+bounded context; no global audio-ID suppression or repeated source census occurs.
+
 ## Build725: event-driven spatial UI discovery
 
 WorldUI registers `MenuDepthLifecycleObserver` alongside the existing exact

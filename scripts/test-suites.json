@@ -3113,6 +3113,17 @@
         "local"
       ],
       "weight": 45
+    },
+    {
+      "id": "travel-audio-runtime",
+      "command": [
+        "python3",
+        "scripts/check-travel-audio-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
     }
   ]
 }
