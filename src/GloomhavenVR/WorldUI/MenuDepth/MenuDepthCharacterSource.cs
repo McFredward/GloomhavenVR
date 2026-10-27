@@ -30,19 +30,18 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private readonly RenderTexture _nativeTarget;
     private readonly CalibrationCache _calibration;
     private readonly MenuDepthCharacterSurface _surface;
+    private readonly BoundsClipper _boundsClipper = new();
     private RenderTexture? _left, _right, _borrowed;
     private Texture? _restoreTexture;
     private bool _disposed;
     private bool _rendering;
     private int _width, _height;
     private long _pairBytes;
-    private float _lastCapture, _lowerSince = -1f, _cropShrinkSince = -1f;
-    private int _directBatchFrame = -1;
-    private object? _captureIdentity;
+    private float _lastCapture, _lowerSince = -1f;
+    private int _directBatchFrame = -1, _pairFrame = -1;
     private Rect _captureClip;
-    private Rect _imageClip;
     private Vector2 _captureScale = Vector2.one;
-    private int _samplingEdge;
+    private int _samplingEdge, _demandEdge;
     internal int SamplingEdge => _samplingEdge;
 
     internal MenuDepthCharacterSource(RawImage image, Camera camera,
@@ -77,11 +76,11 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             || !MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
                 _image.uvRect, samplingEye.WorldPosition, origin, out MenuDepthCharacterProjection.View view))
             throw new InvalidOperationException("Original character preview has no valid direct batch frame.");
-        Rect clip = SamplingClip(original, view);
+        Rect clip = SamplingClip(original, view, samplingEye);
         if (MenuDepthDisplay.TryGetEyePositions(samplingEye.HeadCamera, out Vector3 left, out Vector3 right))
         {
-            if (MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform, _image.uvRect, left, origin, out var l)) clip = Union(clip, SamplingClip(original, l));
-            if (MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform, _image.uvRect, right, origin, out var r)) clip = Union(clip, SamplingClip(original, r));
+            if (MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform, _image.uvRect, left, origin, out var l)) clip = Union(clip, SamplingClip(original, l, new MenuDepthEye(false, left, samplingEye.HeadCamera)));
+            if (MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform, _image.uvRect, right, origin, out var r)) clip = Union(clip, SamplingClip(original, r, new MenuDepthEye(true, right, samplingEye.HeadCamera)));
         }
         SetCaptureClip(original, clip);
         if (_directBatchFrame != Time.frameCount)
@@ -122,11 +121,12 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         if (!MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
             _image.uvRect, eye.WorldPosition, origin, out MenuDepthCharacterProjection.View view))
             throw new InvalidOperationException("Original character preview has no valid window portal.");
-        view = ExpandCapture(identity, view);
+        view = ExpandCapture(identity, view, eye);
         // A native Canvas batch has already retained this frame's left texture
         // identity. Refresh that same surface for either direct eye; only an early
         // batch boundary may resize it. No third surface or late sampler swap.
-        if (_directBatchFrame != Time.frameCount) SelectResolution(eye.PixelFootprint);
+        if (_directBatchFrame != Time.frameCount && _pairFrame != Time.frameCount)
+        { SelectResolution(eye.PixelFootprint); _pairFrame = Time.frameCount; }
         RenderTexture target = EnsureTarget(!direct && eye.Right);
         _lastCapture = Time.unscaledTime;
         Texture original = _image.texture;
@@ -208,40 +208,64 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             ? Mathf.Max(footprint.x / (Mathf.Abs(_image.uvRect.width) * _nativeTarget.width),
                 footprint.y / (Mathf.Abs(_image.uvRect.height) * _nativeTarget.height)) : 1f;
         float wanted = Mathf.Clamp(longest * scale, ResolutionTiers[0], ResolutionTiers[ResolutionTiers.Length - 1]);
-        int current = _samplingEdge;
-        bool shapeChanged = current > 0 && (Mathf.CeilToInt(_nativeTarget.width * current / longest * _captureScale.x / 16f) * 16 != _width
-            || Mathf.CeilToInt(_nativeTarget.height * current / longest * _captureScale.y / 16f) * 16 != _height);
-        // Hold a lower demand for1.5s before shrinking. Head jitter at a tier
-        // boundary cannot repeatedly allocate/release native GPU resources.
+        int current = _demandEdge;
+        bool shrink = false;
         if (current > 0 && wanted < current * .55f)
         {
             if (_lowerSince < 0f) _lowerSince = Time.unscaledTime;
-            if (Time.unscaledTime - _lowerSince < 1.5f)
-            { if (!shapeChanged) return; wanted = current; }
+            shrink = Time.unscaledTime - _lowerSince >= 1.5f;
+            if (!shrink) wanted = current;
         }
         else
         {
             _lowerSince = -1f;
-            if (current > 0 && wanted <= current * 1.12f)
-            { if (!shapeChanged) return; wanted = current; }
+            if (current > 0 && wanted <= current * 1.12f) wanted = current;
         }
-        long available = MaxPoolBytes - _poolBytes + _pairBytes;
-        int selected = 0, width = 0, height = 0; long bytes = 0;
+        int selected = ResolutionTiers[ResolutionTiers.Length - 1];
         for (int i = 0; i < ResolutionTiers.Length; i++)
+            if (ResolutionTiers[i] >= wanted) { selected = ResolutionTiers[i]; break; }
+
+        // Build729: crop coordinates are per-eye sampling uniforms, not resource
+        // identities. The old16px crop-driven resizes destroyed both targets in
+        // the middle of a stereo pair and let an offscreen near-plane AABB consume
+        // the complete96MiB pool at even its minimum tier. Grow private capacity
+        // in bounded power-of-two buckets; reuse it across recentering, clipped
+        // crop changes and either eye. A genuinely sustained lower pixel demand
+        // or idle maintenance can release capacity. Never destroy a usable pair
+        // just because a larger crop cannot reserve another allocation.
+        int limit = Mathf.Min(2048, SystemInfo.maxTextureSize);
+        int width = Capacity(_nativeTarget.width / longest * selected * _captureScale.x, limit);
+        int height = Capacity(_nativeTarget.height / longest * selected * _captureScale.y, limit);
+        if (!shrink && _width > 0)
+        { width = Math.Max(width, _width); height = Math.Max(height, _height); }
+        long available = MaxPoolBytes - _poolBytes + _pairBytes;
+        while (PairCost(width, height) > available && (width > 16 || height > 16))
         {
-            int edge = ResolutionTiers[i];
-            int w = Mathf.Max(16, Mathf.CeilToInt(_nativeTarget.width * edge / longest * _captureScale.x / 16f) * 16);
-            int h = Mathf.Max(16, Mathf.CeilToInt(_nativeTarget.height * edge / longest * _captureScale.y / 16f) * 16);
-            long cost = PairCost(w, h);
-            if (cost > available || w > SystemInfo.maxTextureSize || h > SystemInfo.maxTextureSize) break;
-            selected = edge; width = w; height = h; bytes = cost;
-            if (edge >= wanted) break;
+            if (width >= height && width > 16) width /= 2;
+            else height /= 2;
         }
-        if (selected == 0) throw new InvalidOperationException("Character eye pool is fully reserved.");
-        if (width == _width && height == _height) return;
-        ReleaseTargets();
-        _width = width; _height = height; _samplingEdge = selected; _pairBytes = bytes; _poolBytes += bytes;
-        _lowerSince = -1f;
+        if (PairCost(width, height) > available) throw new InvalidOperationException("Character eye pool is fully reserved.");
+        if (_width > 0 && !shrink && (width < _width || height < _height))
+        { width = _width; height = _height; }
+        if (width != _width || height != _height)
+        {
+            ReleaseTargets();
+            _width = width; _height = height; _pairBytes = PairCost(width, height); _poolBytes += _pairBytes;
+        }
+        _demandEdge = selected;
+        // Report the admitted aperture density honestly when a very oblique or
+        // near-clipped visible crop reaches the fixed allocation/sample budget.
+        // Returning to a normal crop recovers full density on the same targets.
+        _samplingEdge = Mathf.Min(selected, Mathf.FloorToInt(Mathf.Min(
+            _width * longest / (_nativeTarget.width * _captureScale.x),
+            _height * longest / (_nativeTarget.height * _captureScale.y))));
+    }
+
+    private static int Capacity(float required, int limit)
+    {
+        if (float.IsNaN(required) || required <= 16f) return 16;
+        if (float.IsInfinity(required) || required >= limit) return limit;
+        return Mathf.Min(limit, Mathf.NextPowerOfTwo(Mathf.CeilToInt(required)));
     }
 
     public bool TryGetForegroundBounds(MenuDepthEye eye, out Rect graphicLocalBounds)
@@ -252,7 +276,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         if (!_calibration.TryGet(identity, out Vector3 origin)
             || !MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
                 _image.uvRect, eye.WorldPosition, origin, out var view)
-            || !ProjectedBounds(identity, view, foregroundOnly: true, out Rect clip)) return false;
+            || !ProjectedBounds(identity, view, eye, foregroundOnly: true, out Rect clip)) return false;
         graphicLocalBounds = GraphicRect(clip);
         return true;
     }
@@ -279,80 +303,161 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             rect.yMin + (v1 - uv.yMin) / uv.height * rect.height);
     }
 
-    private MenuDepthCharacterProjection.View ExpandCapture(object identity, MenuDepthCharacterProjection.View view)
+    private MenuDepthCharacterProjection.View ExpandCapture(object identity, MenuDepthCharacterProjection.View view, MenuDepthEye eye)
     {
-        SetCaptureClip(identity, SamplingClip(identity, view));
+        SetCaptureClip(identity, SamplingClip(identity, view, eye));
         return view.Expanded(_captureClip);
     }
 
-    private Rect SamplingClip(object identity, MenuDepthCharacterProjection.View view)
-        => ProjectedBounds(identity, view, foregroundOnly: false, out Rect clip) ? clip : ImageClip();
+    private Rect SamplingClip(object identity, MenuDepthCharacterProjection.View view, MenuDepthEye eye)
+        => ProjectedBounds(identity, view, eye, foregroundOnly: false, out Rect clip) ? clip : ImageClip();
 
     private void SetCaptureClip(object identity, Rect desired)
     {
-        Rect imageClip = ImageClip();
-        if (!ReferenceEquals(identity, _captureIdentity) || imageClip != _imageClip)
-        { _captureIdentity = identity; _imageClip = imageClip; _captureClip = desired; _cropShrinkSince = -1f; }
-        Vector2 size = Vector2.Max(_captureClip.size, desired.size);
-        bool smaller = desired.width < size.x * .75f || desired.height < size.y * .75f;
-        if (smaller)
-        {
-            if (_cropShrinkSince < 0f) _cropShrinkSince = Time.unscaledTime;
-            if (Time.unscaledTime - _cropShrinkSince >= 1.5f) { size = desired.size; _cropShrinkSince = -1f; }
-        }
-        else _cropShrinkSince = -1f;
-        // Recentring a sampling crop only changes shader/projection uniforms.
-        // Its quantized allocation grows immediately but shrinks only after a
-        // sustained change, so small head/bone motion cannot churn GPU targets.
-        _captureClip = new Rect(desired.center - size * .5f, size);
-        _captureScale = size * .5f;
+        // Sampling uniforms follow the admitted visible region immediately.
+        // Allocation hysteresis belongs to capacity, not this crop: retaining a
+        // formerly huge near-plane crop made normal views stay blurred for1.5s.
+        _captureClip = desired;
+        _captureScale = desired.size * .5f;
     }
 
-    private bool ProjectedBounds(object identity, MenuDepthCharacterProjection.View view, bool foregroundOnly, out Rect clip)
+    private bool ProjectedBounds(object identity, MenuDepthCharacterProjection.View view, MenuDepthEye eye, bool foregroundOnly, out Rect clip)
     {
         float x0 = float.MaxValue, x1 = float.MinValue, y0 = float.MaxValue, y1 = float.MinValue;
         bool any = false;
         Matrix4x4 projection = view.Projection * view.WorldToCamera;
+        _boundsClipper.Configure(view, eye, _image.transform.localToWorldMatrix, foregroundOnly);
         Renderer[] renderers = _calibration.SamplingRenderers(identity);
         for (int index = 0; index < renderers.Length; index++)
         {
             Renderer renderer = renderers[index];
             if (renderer == null || !renderer.enabled || !renderer.gameObject.activeInHierarchy
                 || (_camera.cullingMask & (1 << renderer.gameObject.layer)) == 0) continue;
-            Bounds bounds = renderer.bounds; Vector3 lo = bounds.min, hi = bounds.max;
-            if (foregroundOnly)
-            {
-                bool front = false;
-                for (int corner = 0; corner < 8 && !front; corner++)
-                {
-                    Vector4 point = new((corner & 1) == 0 ? lo.x : hi.x,
-                        (corner & 2) == 0 ? lo.y : hi.y, (corner & 4) == 0 ? lo.z : hi.z, 1f);
-                    front = Vector4.Dot(view.NativePlane, point) * (view.Reversed ? 1f : -1f) > 0f;
-                }
-                if (!front) continue;
-            }
-            // Whole world-space renderer AABBs conservatively include their
-            // foreground portion and all intersections with the glass plane.
-            for (int corner = 0; corner < 8; corner++)
-            {
-                Vector4 point = projection * new Vector4((corner & 1) == 0 ? lo.x : hi.x,
-                    (corner & 2) == 0 ? lo.y : hi.y, (corner & 4) == 0 ? lo.z : hi.z, 1f);
-                if (point.w <= 1e-4f) continue;
-                float x = point.x / point.w, y = point.y / point.w;
-                if (float.IsNaN(x) || float.IsInfinity(x) || float.IsNaN(y) || float.IsInfinity(y)) continue;
-                any = true;
-                x0 = Mathf.Min(x0, x); x1 = Mathf.Max(x1, x); y0 = Mathf.Min(y0, y); y1 = Mathf.Max(y1, y);
-            }
+            _boundsClipper.Encapsulate(renderer.bounds, projection, ref any, ref x0, ref x1, ref y0, ref y1);
         }
         if (!any) { clip = default; return false; }
         Rect imageClip = ImageClip(); float qx = imageClip.width * .125f, qy = imageClip.height * .125f;
         Vector2 center = new((x0 + x1) * .5f, (y0 + y1) * .5f);
         Vector2 size = new(Mathf.Ceil((x1 - x0) / qx) * qx + qx * 2f,
             Mathf.Ceil((y1 - y0) / qy) * qy + qy * 2f);
-        // Crop sampling, never native geometry. A fixed expanded frustum would
-        // squander close-view samples on empty portrait pixels at an oblique eye.
         clip = new Rect(center - size * .5f, size);
         return true;
+    }
+
+    // Build729: projecting unsliced AABB corners through w admitted points
+    // outside the real eye's viewport, and corners behind its near plane. A
+    // moving eye could request an enormous crop, exhaust even the minimum eye
+    // tier, and make the complete window fall back to mono. Clip the conservative
+    // closed volume first, including the new cap faces; merely skipping negative
+    // w corners or clipping the six old faces loses near/frustum-contained cases.
+    // Scratch storage is private, fixed-size and reused for every known renderer.
+    private sealed class BoundsClipper
+    {
+        private const int MaxFaces = 16, MaxVertices = 24;
+        private Vector3[] _a = new Vector3[MaxFaces * MaxVertices], _b = new Vector3[MaxFaces * MaxVertices];
+        private int[] _countsA = new int[MaxFaces], _countsB = new int[MaxFaces];
+        private readonly Vector3[] _cap = new Vector3[MaxVertices];
+        private readonly Vector4[] _planes = new Vector4[8];
+        private int _planeCount;
+        private static readonly int[] Corners = { 0, 2, 3, 1, 4, 5, 7, 6, 0, 4, 6, 2, 1, 3, 7, 5, 0, 1, 5, 4, 2, 6, 7, 3 };
+
+        internal void Configure(MenuDepthCharacterProjection.View view, MenuDepthEye eye, Matrix4x4 graphicToWorld, bool foreground)
+        {
+            _planeCount = 0;
+            Vector4 near = -view.WorldToCamera.GetRow(2); near.w -= view.Near;
+            AddPlane(near);
+            if (foreground) AddPlane(view.NativePlane * (view.Reversed ? 1f : -1f));
+            Matrix4x4 head;
+            bool visible = eye.HasWorldToHeadClip;
+            if (visible) head = eye.WorldToHeadClip;
+            else if (!eye.ProjectToGraphicPlane && eye.HeadCamera != null)
+            {
+                Camera camera = eye.HeadCamera;
+                Camera.StereoscopicEye side = eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left;
+                Matrix4x4 headView = camera.stereoEnabled ? camera.GetStereoViewMatrix(side)
+                    : Matrix4x4.Scale(new Vector3(1f, 1f, -1f)) * Matrix4x4.TRS(eye.WorldPosition, camera.transform.rotation, Vector3.one).inverse;
+                head = (camera.stereoEnabled ? camera.GetStereoProjectionMatrix(side) : camera.projectionMatrix) * headView;
+                visible = true;
+            }
+            else head = Matrix4x4.identity; // No physical viewport was supplied for a native-screen eye.
+            if (!visible) return;
+            Matrix4x4 nativeToHead = head * graphicToWorld * view.NativeToGraphic;
+            Vector4 w = nativeToHead.GetRow(3);
+            for (int axis = 0; axis < 3; axis++)
+            { AddPlane(w + nativeToHead.GetRow(axis)); AddPlane(w - nativeToHead.GetRow(axis)); }
+        }
+
+        private void AddPlane(Vector4 plane)
+        {
+            float length = new Vector3(plane.x, plane.y, plane.z).magnitude;
+            if (length > 1e-8f) _planes[_planeCount++] = plane / length;
+        }
+
+        internal void Encapsulate(Bounds bounds, Matrix4x4 projection, ref bool any, ref float x0, ref float x1, ref float y0, ref float y1)
+        {
+            Vector3 lo = bounds.min, hi = bounds.max;
+            int faces = 6;
+            for (int face = 0; face < faces; face++)
+            {
+                _countsA[face] = 4;
+                for (int vertex = 0; vertex < 4; vertex++)
+                {
+                    int corner = Corners[face * 4 + vertex];
+                    _a[face * MaxVertices + vertex] = new Vector3((corner & 1) == 0 ? lo.x : hi.x,
+                        (corner & 2) == 0 ? lo.y : hi.y, (corner & 4) == 0 ? lo.z : hi.z);
+                }
+            }
+            for (int plane = 0; plane < _planeCount && faces > 0; plane++)
+            {
+                Vector4 p = _planes[plane]; int nextFaces = 0, capCount = 0;
+                for (int face = 0; face < faces; face++)
+                {
+                    int count = _countsA[face], written = 0;
+                    Vector3 previous = _a[face * MaxVertices + count - 1]; float previousSide = Side(p, previous);
+                    for (int vertex = 0; vertex < count; vertex++)
+                    {
+                        Vector3 current = _a[face * MaxVertices + vertex]; float currentSide = Side(p, current);
+                        if ((previousSide >= 0f) != (currentSide >= 0f))
+                        {
+                            Vector3 intersection = previous + (current - previous) * (previousSide / (previousSide - currentSide));
+                            _b[nextFaces * MaxVertices + written++] = intersection;
+                            bool duplicate = false;
+                            for (int i = 0; i < capCount; i++) duplicate |= (_cap[i] - intersection).sqrMagnitude < 1e-12f;
+                            if (!duplicate) _cap[capCount++] = intersection;
+                        }
+                        if (currentSide >= 0f) _b[nextFaces * MaxVertices + written++] = current;
+                        previous = current; previousSide = currentSide;
+                    }
+                    if (written >= 3) _countsB[nextFaces++] = written;
+                }
+                if (capCount >= 3)
+                {
+                    Vector3 center = Vector3.zero; for (int i = 0; i < capCount; i++) center += _cap[i]; center /= capCount;
+                    Vector3 normal = new(p.x, p.y, p.z), axis = (_cap[0] - center).normalized, second = Vector3.Cross(normal, axis);
+                    // At most twelve cut edges for this clipped box. Insertion
+                    // sort avoids a comparer/delegate allocation in each eye.
+                    for (int i = 1; i < capCount; i++)
+                    {
+                        Vector3 item = _cap[i]; float angle = Angle(item - center, axis, second); int j = i - 1;
+                        while (j >= 0 && Angle(_cap[j] - center, axis, second) > angle) { _cap[j + 1] = _cap[j]; j--; }
+                        _cap[j + 1] = item;
+                    }
+                    Array.Copy(_cap, 0, _b, nextFaces * MaxVertices, capCount); _countsB[nextFaces++] = capCount;
+                }
+                Vector3[] points = _a; _a = _b; _b = points; int[] counts = _countsA; _countsA = _countsB; _countsB = counts;
+                faces = nextFaces;
+            }
+            for (int face = 0; face < faces; face++) for (int vertex = 0; vertex < _countsA[face]; vertex++)
+            {
+                Vector3 point = _a[face * MaxVertices + vertex]; Vector4 projected = projection * new Vector4(point.x, point.y, point.z, 1f);
+                if (projected.w <= 1e-8f) continue;
+                float x = projected.x / projected.w, y = projected.y / projected.w;
+                if (float.IsNaN(x) || float.IsInfinity(x) || float.IsNaN(y) || float.IsInfinity(y)) continue;
+                any = true; x0 = Mathf.Min(x0, x); x1 = Mathf.Max(x1, x); y0 = Mathf.Min(y0, y); y1 = Mathf.Max(y1, y);
+            }
+        }
+        private static float Side(Vector4 plane, Vector3 point) => plane.x * point.x + plane.y * point.y + plane.z * point.z + plane.w;
+        private static float Angle(Vector3 point, Vector3 axis, Vector3 second) => Mathf.Atan2(Vector3.Dot(point, second), Vector3.Dot(point, axis));
     }
 
     private static Rect Union(Rect a, Rect b) => Rect.MinMaxRect(Mathf.Min(a.xMin,b.xMin), Mathf.Min(a.yMin,b.yMin),
@@ -455,7 +560,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     {
         Release(_left); Release(_right);
         _left = _right = null;
-        _poolBytes -= _pairBytes; _pairBytes = 0; _width = _height = _samplingEdge = 0; _lowerSince = -1f;
+        _poolBytes -= _pairBytes; _pairBytes = 0; _width = _height = _samplingEdge = _demandEdge = 0; _lowerSince = -1f; _pairFrame = -1;
     }
 
     private static Func<Character3DDisplayManager, object?>? CreateOriginalReader()
