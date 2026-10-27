@@ -177,7 +177,9 @@ internal sealed class MenuDepthDisplay : IDisposable
         try
         {
             CaptureHeadEye(capture, plane, _headLeft!, left, size);
+            ThrowIfHeadOwnerClosed(_headRight!);
             CaptureHeadEye(capture, plane, _headRight!, right, size);
+            ThrowIfHeadOwnerClosed(_headRight!);
             SetHeadCapture(_material, _headLeft!, _headRight!, left, right,
                 plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
                 Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized);
@@ -218,7 +220,7 @@ internal sealed class MenuDepthDisplay : IDisposable
         return GL.GetGPUProjectionMatrix(projection, true) * projection.inverse * eye.WorldToHeadClip;
     }
 
-    private static void CaptureHeadEye(Camera capture, RectTransform plane, RenderTexture target, MenuDepthEye eye, Vector2Int size)
+    private void CaptureHeadEye(Camera capture, RectTransform plane, RenderTexture target, MenuDepthEye eye, Vector2Int size)
     {
         Matrix4x4 projection = eye.HeadCamera.stereoEnabled
             ? eye.HeadCamera.GetStereoProjectionMatrix(eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left)
@@ -232,9 +234,21 @@ internal sealed class MenuDepthDisplay : IDisposable
         {
             MenuDepthSources.BeforeCapture(plane,
                 new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, false, new Vector2(size.x,size.y), eye.WorldToHeadClip));
-            try { Canvas.ForceUpdateCanvases(); capture.Render(); }
+            try
+            {
+                ThrowIfHeadOwnerClosed(target);
+                Canvas.ForceUpdateCanvases();
+                ThrowIfHeadOwnerClosed(target);
+                capture.Render();
+            }
             finally { MenuDepthSources.AfterCapture(); }
         }
+    }
+
+    private void ThrowIfHeadOwnerClosed(RenderTexture target)
+    {
+        if (_disposeRequested || !target.IsCreated())
+            throw new OperationCanceledException("The original menu window closed before its head draw.");
     }
 
     internal static Rect ForegroundFrame(RectTransform plane, Rect frame, MenuDepthEye left, MenuDepthEye right)
