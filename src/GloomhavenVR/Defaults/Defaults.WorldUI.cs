@@ -129,6 +129,7 @@ internal static partial class Defaults
     internal const bool ImmersiveTownServices = true;         // => [WorldUI] ImmersiveTownServices (user default ruling 2026-09-21)
     internal const bool ImmersiveTownSpeech = true;           // => [WorldUI] ImmersiveTownSpeech
     internal const bool ImmersiveTownSoundEffects = true;     // => [WorldUI] ImmersiveTownSoundEffects
+    internal const bool CharacterPreviewDepth = true;        // => [WorldUI] CharacterPreviewDepth (user 2026-10-27: enabled by default on every system)
     internal const bool Dialogs = true;                      // => [WorldUI] Dialogs
     internal const bool DecisionDock = true;                 // => [WorldUI] DecisionDock
     internal const bool TrayNativeControls = true;           // => [WorldUI] TrayNativeControls

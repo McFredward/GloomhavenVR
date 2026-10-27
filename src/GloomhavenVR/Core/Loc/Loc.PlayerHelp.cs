@@ -571,6 +571,7 @@ internal static partial class Loc
             ["WorldUI/ScreenWidth"] = Pair("Width of the floating 2D screen in meters.", "Breite der schwebenden 2D-Leinwand in Metern."),
             ["WorldUI/SharedWindowArcRadiusMeters"] = Pair("Distance of shared map windows from the table center, in meters.", "Abstand gemeinsamer Kartenfenster von der Tischmitte in Metern."),
             ["WorldUI/ShowIntro"] = Pair("Show the game's intro in VR.", "Zeigt das Spielintro in VR."),
+            ["WorldUI/CharacterPreviewDepth"] = Pair("Show live characters on menu windows in 3D. Off immediately restores the original flat live image. Enabled by default on all systems; story and video depth stay unchanged.", "Zeigt lebendige Figuren auf Menüfenstern in 3D. Aus stellt sofort das ursprüngliche flache Livebild wieder her. Auf allen Systemen standardmäßig an; Story- und Videotiefe bleiben unverändert."),
             ["WorldUI/StereoScreen"] = Pair("Give the floating 2D screen stereo depth. Turning this off uses a flat image and saves rendering work.", "Gibt der schwebenden 2D-Leinwand Stereotiefe. Aus nutzt ein flaches Bild und spart Renderarbeit."),
             ["WorldUI/TravelButtonOffsetXWindowHeights"] = Pair("Horizontal position of the travel button, measured in window heights.", "Waagerechte Position des Reiseknopfs, gemessen in Fensterhöhen."),
             ["WorldUI/TravelButtonOffsetYWindowHeights"] = Pair("Vertical position of the travel button, measured in window heights.", "Senkrechte Position des Reiseknopfs, gemessen in Fensterhöhen."),

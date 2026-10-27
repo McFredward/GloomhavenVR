@@ -832,6 +832,7 @@ internal static partial class Loc
             ["WorldUI/DevShowAllPanels"] = Pair("Dev: show all panels", "Dev: alle Tafeln zeigen"),
             ["WorldUI/DevForceConvert"] = Pair("Dev: force conversion", "Dev: Zwangsumwandlung"),
             ["WorldUI/StereoScreen"] = Pair("Screen with 3D depth", "Bildschirm mit 3D-Tiefe"),
+            ["WorldUI/CharacterPreviewDepth"] = Pair("3D character previews", "3D-Figurenvorschau"),
             ["WorldUI/ScreenDepthStrength"] = Pair("3D depth: strength", "3D-Tiefe: Stärke"),
             ["WorldUI/VideoDepthLayer"] = Pair("3D depth for videos", "3D-Tiefe bei Videos"),
             ["WorldUI/VideoDepth"] = Pair("Video: depth offset", "Video: Tiefenversatz"),

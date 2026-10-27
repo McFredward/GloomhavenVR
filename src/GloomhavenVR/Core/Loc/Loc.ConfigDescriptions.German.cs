@@ -3513,6 +3513,10 @@ internal static partial class Loc
             // [WorldUI] BarsDepthStamp is gone with its binding (see ActorBars.BindConfig): the
             // bars take part in the panel-vs-panel compose again, unconditionally, per the user
             // ruling that perspective must be respected everywhere.
+            ["WorldUI/CharacterPreviewDepth"] =
+                "Zeigt lebendige Charaktervorschauen auf Menüfenstern mit 3D-Tiefe und einer Perspektive passend zu deiner Blickposition. "
+                + "Aus stellt sofort das ursprüngliche flache Livebild wieder her. Auf allen Systemen standardmäßig eingeschaltet. "
+                + "Das ist deine lokale Darstellung; Storybilder und Videos behalten ihre eigene Tiefendarstellung.",
             ["WorldUI/StereoScreen"] =
                 "Stellt die schwebende 2D-Leinwand MIT Stereo-Tiefe dar (3D-Film-/Fenstereffekt): der "
                 + "erfasste 3D-Menüinhalt (Kampagnenkarte, Stadt, Slideshow-Szene) wird über modeigene "

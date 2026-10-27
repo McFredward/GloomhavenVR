@@ -1205,6 +1205,7 @@ internal static partial class VROptionsTab
                     LocKey = "vr_sec_screen2d",
                     Entries = new CuratedEntry[]
                     {
+                        new("WorldUI", "CharacterPreviewDepth", ""),
                         new("WorldUI", "ShowIntro", "vr_o_showintro"),
                         new("WorldUI", "ScreenWidth", "vr_o_screenwidth"),
                         new("WorldUI", "ScreenDistance", "vr_o_screendist"),

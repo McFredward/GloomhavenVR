@@ -177,6 +177,7 @@ internal static partial class VROptionsTab
                     LocKey = "vr_pt_screen_depth",
                     Entries = new[]
                     {
+                        new BoardRef("WorldUI", "CharacterPreviewDepth", perBoard: false),
                         new BoardRef("WorldUI", "StereoScreen", perBoard: false),
                         new BoardRef("WorldUI", "ScreenDepthStrength", perBoard: false),
                         new BoardRef("WorldUI", "ScreenParallaxScale", perBoard: false),

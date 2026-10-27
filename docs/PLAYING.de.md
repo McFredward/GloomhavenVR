@@ -115,6 +115,9 @@ die deiner Blickposition folgt. Story- und Ereignisbilder haben Tiefe innerhalb 
 Symbole, Rahmen und Reiter sind leicht räumlich gestaffelt. Kompendium-Abbildungen liegen
 etwas hinter ihrem Rahmen. Verschiebe ein Fenster oder lehne dich zur Seite, um den Effekt
 zu sehen; Texte und Bedienelemente bleiben scharf.
+Unter **VR Optionen ▸ Tafeln ▸ 2D-Schirm ▸ 3D-Figurenvorschau** wechselst du sofort zwischen
+räumlichen Figuren und ihrem ursprünglichen flachen Livebild. Die Option ist auf allen
+Systemen standardmäßig eingeschaltet; Story- und Videotiefe bleiben unverändert.
 
 **3D-Videos:** Intro, Charakterfilme, Umgebungsfilme und Studio-Logo haben Tiefe im
 beweglichen Videofenster. Mit aktivierten Cheats kannst du im Szenario unter **VR Optionen ▸

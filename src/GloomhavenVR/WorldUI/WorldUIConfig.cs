@@ -124,6 +124,8 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> ImmersiveTownSpeech = null!;
     /// <summary>Local playback preference for physical resident and furniture foley.</summary>
     internal static ConfigEntry<bool> ImmersiveTownSoundEffects = null!;
+    /// <summary>Local live-character preview depth; off retains the original flat live image.</summary>
+    internal static ConfigEntry<bool> CharacterPreviewDepth = null!;
     internal static ConfigEntry<bool> Dialogs = null!;
     internal static ConfigEntry<bool> DecisionDock = null!;
     internal static ConfigEntry<bool> TrayNativeControls = null!;
@@ -614,6 +616,10 @@ internal static class WorldUIConfig
             "Play physical foley from immersive residents and their furniture, including coins, spells, prayer props " +
             "and the merchant cabinet. This is a local listening preference and applies immediately. " +
             "It does not mute ordinary game, card or interface sounds.");
+        CharacterPreviewDepth = _file.Bind("WorldUI", "CharacterPreviewDepth", Defaults.CharacterPreviewDepth,
+            "Show live character previews in menu windows with 3D depth and perspective matching your viewing position. " +
+            "Off immediately restores the original flat live image. Enabled by default on all systems. " +
+            "This is a local viewing preference; story illustrations and video depth keep their own presentation.");
         Dialogs = _file.Bind("WorldUI", "Dialogs", Defaults.Dialogs,
             "Confirmation dialogs as world-space modals in front of the HMD (poke yes/no). " +
             "Off = the generic modal fallback floats the SAME window instead (ModalFallback " +
