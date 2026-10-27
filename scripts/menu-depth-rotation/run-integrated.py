@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prove production Characters enrollment -> native uGUI drag -> Source render yaw.
 
-The surrounding registry/shader/head-raster ports do not supply enrollment,
+The surrounding registry/shader ports do not supply enrollment,
 readiness, a view, a yaw callback, a render or replacement rotation mathematics.
 Native manager state and asymmetric original model meshes are explicit inputs.
 """
@@ -35,7 +35,8 @@ def main():
     signal.signal(signal.SIGTERM, lambda signum, frame: (_ for _ in ()).throw(SystemExit(128 + signum)))
     base = 'src/GloomhavenVR/WorldUI/MenuDepth/'
     names = ['MenuDepthCharacterRotation.cs', 'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs',
-             'MenuDepthCharacterProjection.cs', 'MenuDepthEye.cs', 'IMenuDepthSource.cs', 'MenuDepthProjection.cs']
+             'MenuDepthCharacterProjection.cs', 'MenuDepthEye.cs', 'IMenuDepthSource.cs', 'MenuDepthProjection.cs',
+             'MenuDepthHeadRaster.cs']
     relative = [base + name for name in names] + ['src/GloomhavenVR/Hands/Interact/UguiPointer.cs']
 
     def read(path):

@@ -76,12 +76,6 @@ namespace GloomhavenVR.WorldUI.MenuDepth
         internal static bool TryGetEyePositions(Camera camera, out Vector3 left, out Vector3 right)
         { left = right = default; return false; }
     }
-    internal static class MenuDepthHeadRaster
-    {
-        internal static bool Active => false;
-        internal static Vector2Int Pixels => new(512, 512);
-        internal static Vector2Int Size(Camera camera) => new(512, 512);
-    }
 }
 
 // Real Camera.Render invokes this original-style image-effect callback. Its

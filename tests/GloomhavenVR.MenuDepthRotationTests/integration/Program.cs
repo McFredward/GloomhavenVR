@@ -121,15 +121,22 @@ public static class MenuDepthRotationProgram
             _pointer.Hover(hits[0].gameObject, hits[0]); _pointer.Press(start);
         }
         private void Turn(float x) { Press(); _pointer.Drag(Point(x)); _pointer.Release(Point(x)); }
-        private Texture2D Capture(string pose)
+        private Texture2D Capture(string pose, bool headRaster = false)
         {
-            _source.BeforeCapture(new MenuDepthEye(false, _events.transform.position, null!));
+            Vector2Int pixels = MenuDepthHeadRaster.Size(_events);
+            using var head = headRaster ? MenuDepthHeadRaster.Begin(pixels) : default(MenuDepthHeadRaster.Lease);
+            var eye = new MenuDepthEye(false, _events.transform.position, headRaster ? _events : null!);
+            _source.BeforeCapture(eye);
             Texture2D result;
             try
             {
                 Check(_image.texture is RenderTexture && !ReferenceEquals(_image.texture, _nativeTarget),
                     "actual Source capture lends its own rendered colour target to the original portrait");
                 RenderTexture target = (RenderTexture)_image.texture;
+                if(headRaster)
+                    Check(MenuDepthHeadRaster.Active && eye.HasWorldToHeadClip && target.width==pixels.x && target.height==pixels.y
+                        && MenuDepthHeadRaster.Matches(target,_nativeTarget.descriptor,pixels),
+                        "enrolled Source uses the real event-camera head raster and normalized head resources");
                 RenderTexture previous = RenderTexture.active;
                 try
                 {
@@ -149,6 +156,9 @@ public static class MenuDepthRotationProgram
         {
             Texture2D front = Capture("front"); Vector3 ground = _effect.ObservedGround;
             Check(Count(front, 0) > 1000 && Count(front, 2) < 100, "enrolled Source initially renders the original front marker");
+            Texture2D headFront=Capture("head-front",true);Vector3 headGround=_effect.ObservedGround;
+            Check(Count(headFront,0)>1000 && Count(headFront,2)<100,
+                "enrolled Source renders the native front through the actual event-camera head frustum");
             Turn(600);
             Check(Mathf.Abs(Mathf.DeltaAngle(MenuDepthCharacterRotation.GetYaw(_image, _manager.Identity), 180)) < .02f,
                 "actual portrait-width pointer input changes the enrolled preview by half a turn");
@@ -157,12 +167,18 @@ public static class MenuDepthRotationProgram
                 "real Characters pointer yawprovider and Source render reveal the original back marker");
             Check(Vector3.Distance(ground, _effect.ObservedGround) < .0001f,
                 "integrated Source rotation keeps the actual main ground fixed in the measured native camera view");
+            Texture2D headRear=Capture("head-rear",true);
+            Check(Count(headRear,2)>1000 && Count(headRear,0)<100,
+                "real enrolled uGUI drag reveals the native rear through the actual head raster");
+            Check(Vector3.Distance(headGround,_effect.ObservedGround)<.0001f,
+                "head-raster rotation keeps the same actual native main ground in the measured source view");
             Turn(-300); Texture2D side = Capture("side");
             Check(Count(side, 1) > 100, "the integrated Source renders original side equipment after the same pointer gesture");
             Check(Vector3.Distance(ground, _effect.ObservedGround) < .0001f,
                 "the integrated quarter turn retains the same measured native ground");
             Check(_effect.Draws >= 3, "all enrolled rotation pictures execute actual native-style image effect callbacks");
             Object.DestroyImmediate(front); Object.DestroyImmediate(rear); Object.DestroyImmediate(side);
+            Object.DestroyImmediate(headFront);Object.DestroyImmediate(headRear);
 
             _manager.Replace(_main); Texture2D replaced = Capture("replacement");
             Check(Count(replaced, 0) > 1000 && Count(replaced, 2) < 100,
