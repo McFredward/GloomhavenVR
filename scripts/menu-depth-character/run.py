@@ -77,6 +77,14 @@ def main():
                          ROOT / 'scripts/menu-depth-character/Editor/Runner.cs', Path(__file__).with_name('project_compilers.py'),
                          ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle'] if path.is_file()}
     variants = [
+        ('character-preference727', '', '', '', 'Preference', ''),
+        ('character-preference-ignored727', 'MenuDepthCharacters.cs',
+         '!VRSession.IsRunning || !WorldUIConfig.CharacterPreviewDepth.Value', '!VRSession.IsRunning', 'Preference',
+         'disabled character preference keeps original live colour without scene discovery'),
+        ('character-preference-retirement-lost727', 'MenuDepthCharacters.cs',
+         'if (!VRSession.IsRunning || !WorldUIConfig.CharacterPreviewDepth.Value) { Shutdown(); return; }',
+         'if (!WorldUIConfig.CharacterPreviewDepth.Value) return;\n        if (!VRSession.IsRunning) { Shutdown(); return; }', 'Preference',
+         'disabling character preference retires an existing eye registration before its next capture'),
         ('automatic-head725', '', '', '', 'AutomaticHead', ''),
         ('automatic-head-failure725', 'MenuDepthCharacterSource.cs', '            _camera.Render();',
          '            throw new InvalidOperationException("injected automatic head failure");', 'AutomaticHeadFailure', ''),

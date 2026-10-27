@@ -629,7 +629,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 726;
+    public const ushort ModBuild = 727;
+
+    // ModBuild727 — optional live character depth, enabled by default on every system.
+    // The maintainer requests a persisted switch for the cabinet character previews.
+    // [WorldUI] CharacterPreviewDepth defaults true without a hardware/profile override;
+    // both existing screen/depth option doors expose its localized caption and help.
+    // Switching off retires only the character sources and owned eye resources before
+    // the next capture, restoring the original flat live image. Switching on discovers
+    // already open previews without native Display/gameplay calls or window reopening.
+    // Story/video depth, shared absolute window geometry and native animation stay intact.
+    // Delivery is committed/pushed dev source: the user's Windows installer builds the ZIP.
 
     // ModBuild726 — common character units, rear cabinet views and encounter travel audio.
     // The725 hardware review asks for one shared model scale/ground axis, preserving

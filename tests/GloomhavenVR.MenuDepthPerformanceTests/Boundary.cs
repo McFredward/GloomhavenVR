@@ -26,7 +26,12 @@ namespace GloomhavenVR.Rig
 { internal static class VRRigDriver { internal static Camera? HeadCamera = null; } }
 namespace GloomhavenVR.WorldUI
 {
-    internal static class WorldUIConfig { internal static bool ConversionActive = true; }
+    internal static class WorldUIConfig
+    {
+        internal static bool ConversionActive = true;
+        internal sealed class Setting { internal bool Value = true; }
+        internal static readonly Setting CharacterPreviewDepth = new();
+    }
     internal sealed class ConvertedPanel { internal Transform Target = null!; }
     internal static class CanvasConversion { internal static readonly List<ConvertedPanel> ActivePanels = new(); }
 }

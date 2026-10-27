@@ -50,6 +50,9 @@ to Codex and record the user's instructions of 2026-09-08.
 - Keep player documentation and release highlights focused on installation from release archives,
   controls and visible changes. Installer scripts, CI/build details and pending hardware tests
   belong in developer documentation or `.planning/`, not in player instructions.
+- The maintainer's 2026-10-27 delivery clarification supersedes earlier local ZIP requests:
+  the Windows installation script already builds the archive. Integrate and push changes to
+  `dev`; do not build or deliver a local ZIP unless explicitly requested again.
 - The maintainer's 2026-10-18 video review ruling places every deliberate movie
   test action under Advanced > Cheats, behind the existing default-off Cheats
   configuration gate. These movies contain major spoilers. Do not expose their

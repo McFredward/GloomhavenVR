@@ -198,6 +198,54 @@ public static class MenuDepthCharacterProgram
         return _assertions;
     }
 
+    public static int Preference(string output)
+    {
+        _assertions = 0; ActivateCharacters();
+        try
+        {
+            GloomhavenVR.WorldUI.WorldUIConfig.CharacterPreviewDepth.Value = false;
+            using (var scene = new Scene())
+            {
+                scene.Source.Render();
+                MenuDepthCharacters.Tick();
+                Check(!MenuDepthSources.HasContent(scene.Root) && MenuDepthCharacters.GlobalCensuses == 0,
+                    "disabled character preference keeps original live colour without scene discovery");
+                int draws = scene.Effect.Draws;
+                Texture2D flat = scene.Capture(scene.NeutralEye(scene.Image), false, Path.Combine(output, "disabled-native.png"));
+                Check(scene.Effect.Draws == draws && ReferenceEquals(scene.Image.texture, scene.Native),
+                    "disabled character preference performs no private native scene render");
+                Object.DestroyImmediate(flat);
+
+                GloomhavenVR.WorldUI.WorldUIConfig.CharacterPreviewDepth.Value = true;
+                Check(MenuDepthSources.HasContent(scene.Root),
+                    "reenabling character preference discovers an already open native preview before capture");
+                Texture2D left = scene.Capture(scene.NeutralEye(scene.Image) - scene.Root.right * .032f,
+                    false, Path.Combine(output, "enabled-left.png"));
+                Texture2D right = scene.Capture(scene.NeutralEye(scene.Image) + scene.Root.right * .032f,
+                    true, Path.Combine(output, "enabled-right.png"));
+                Check(Centroid(right, 1) - Centroid(left, 1) > .2f,
+                    "reenabled preference renders real tracked stereo pixels without reopening the window");
+                Object.DestroyImmediate(left); Object.DestroyImmediate(right);
+                RenderTexture owned = scene.LastEye!;
+                GloomhavenVR.WorldUI.WorldUIConfig.CharacterPreviewDepth.Value = false;
+                Check(!MenuDepthSources.HasContent(scene.Root),
+                    "disabling character preference retires an existing eye registration before its next capture");
+                Check(!owned.IsCreated() && scene.Native.IsCreated() && ReferenceEquals(scene.Image.texture, scene.Native),
+                    "disabling character preference releases private eye targets and retains original native colour");
+                draws = scene.Effect.Draws;
+                Texture2D restored = scene.Capture(scene.NeutralEye(scene.Image), false, Path.Combine(output, "disabled-restored.png"));
+                Check(scene.Effect.Draws == draws, "disabled existing preview returns to the original mono image without extra scene draws");
+                Object.DestroyImmediate(restored); scene.CheckRestored();
+                Check(scene.Manager.DisplayCalls == 0, "preference changes never invoke native character display or gameplay callbacks");
+                GloomhavenVR.WorldUI.WorldUIConfig.CharacterPreviewDepth.Value = true;
+                Check(MenuDepthSources.HasContent(scene.Root),
+                    "reenabling character preference discovers an already open native preview before capture");
+            }
+        }
+        finally { GloomhavenVR.WorldUI.WorldUIConfig.CharacterPreviewDepth.Value = true; ShutdownCharacters(); }
+        return _assertions;
+    }
+
     public static int Lifecycle(string output)
     {
         _assertions = 0; ActivateCharacters();

@@ -47,7 +47,10 @@ internal static class MenuDepthCharacters
 
     private static void Update(bool maintainResources)
     {
-        if (!VRSession.IsRunning) { Shutdown(); return; }
+        // Build727: the maintainer explicitly permits disabling only live character
+        // depth. Retire its borrowed textures/resources before the next capture;
+        // enabling again discovers original previews without a native Display call.
+        if (!VRSession.IsRunning || !WorldUIConfig.CharacterPreviewDepth.Value) { Shutdown(); return; }
         if (!_enabled) { _enabled = true; Discover(); }
         RetireStale(maintainResources);
         foreach (Character3DDisplayManager manager in PendingManagers) AddManager(manager);

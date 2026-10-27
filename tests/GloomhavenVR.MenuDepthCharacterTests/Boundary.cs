@@ -33,6 +33,16 @@ namespace ScenarioRuleLibrary { public enum ECharacter { Brute } }
 // This lane supplies explicit private-capture eyes; no direct XR camera draws.
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera { get; set; } } }
 
+// User preference is an input; production discovery and resource retirement run unchanged.
+namespace GloomhavenVR.WorldUI
+{
+    internal static class WorldUIConfig
+    {
+        internal sealed class Setting { internal bool Value = true; }
+        internal static readonly Setting CharacterPreviewDepth = new();
+    }
+}
+
 // This lane owns live character rendering. General decorative-owner discovery
 // is exercised by the real Driver/performance lane; its unused observer compile
 // ports deliberately do not supply any replacement discovery/capture behavior.

@@ -75,6 +75,11 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera; } }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class WorldUIConfig
+    {
+        internal sealed class Setting { internal bool Value = true; }
+        internal static readonly Setting CharacterPreviewDepth = new();
+    }
     internal static class NativeMovieCameraPlane
     {
         internal static void RestoreAll() { }
