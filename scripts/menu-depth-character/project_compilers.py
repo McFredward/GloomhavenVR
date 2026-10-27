@@ -10,6 +10,63 @@ _COMPILERS = {b'VBCSCompiler.exe', b'VBCSCompiler.dll'}
 _RUNTIMES = {b'dotnet', b'mono', b'mono-sgen'}
 
 
+def cleanup_project_editors(project, executable, *, launcher_reaped=False):
+    """Stop an escaped native Unity editor and its observed descendants by pidfd.
+
+    Unity can leave xvfb-run's process group. Waiting for that launcher therefore
+    cannot certify editor exit. Match the exact executable and -projectPath;
+    snapshot start ticks before binding child handles to avoid PID reuse.
+    """
+    if launcher_reaped is not True: raise ValueError('Reap the private editor launcher first.')
+    project = str(Path(project).resolve()); executable = str(Path(executable).resolve())
+    result = {'project': project, 'executable': executable, 'matched': [], 'descendants': [], 'term_sent': [], 'kill_sent': [], 'remaining': []}
+    records = {}; roots = set(); handles = {}
+    for proc in Path('/proc').iterdir():
+        if not proc.name.isdecimal() or int(proc.name) == os.getpid(): continue
+        try:
+            if proc.stat().st_uid != os.geteuid(): continue
+            stat = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
+            records[int(proc.name)] = (int(stat[1]), stat[19])
+            arguments = (proc / 'cmdline').read_bytes().split(b'\0')
+            if not arguments[0] or str(Path(os.fsdecode(arguments[0])).resolve()) != executable: continue
+            if os.fsdecode(arguments[arguments.index(b'-projectPath') + 1]) == project: roots.add(int(proc.name))
+        except (OSError, ValueError, IndexError): continue
+    owned = set(roots)
+    while True:
+        found = {pid for pid, (parent, _) in records.items() if parent in owned}
+        if found <= owned: break
+        owned |= found
+    try:
+        for pid in owned:
+            try:
+                descriptor = os.pidfd_open(pid, 0)
+                try:
+                    current = (Path('/proc') / str(pid) / 'stat').read_text().rsplit(')', 1)[1].split()
+                    if current[19] != records[pid][1]: os.close(descriptor); continue
+                except OSError: os.close(descriptor); continue
+                handles[descriptor] = pid
+                result['matched' if pid in roots else 'descendants'].append(pid)
+            except ProcessLookupError: continue
+        def send(descriptor, value):
+            try: signal.pidfd_send_signal(descriptor, value)
+            except ProcessLookupError: return
+            result['term_sent' if value == signal.SIGTERM else 'kill_sent'].append(handles[descriptor])
+        def wait(pending, duration):
+            deadline = time.monotonic() + duration
+            while pending:
+                ready, _, _ = select.select(pending, [], [], max(0, deadline - time.monotonic()))
+                pending = [fd for fd in pending if fd not in ready]
+                if time.monotonic() >= deadline: break
+            return pending
+        for descriptor in handles: send(descriptor, signal.SIGTERM)
+        pending = wait(list(handles), .3)
+        for descriptor in pending: send(descriptor, signal.SIGKILL)
+        result['remaining'] = [handles[fd] for fd in wait(pending, 1)]
+        return result
+    finally:
+        for descriptor in handles: os.close(descriptor)
+
+
 def _compiler(proc, project):
     try:
         if proc.stat().st_uid != os.geteuid(): return None
