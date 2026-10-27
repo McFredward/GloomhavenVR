@@ -40,7 +40,13 @@ public static class MenuDepthCharacterProgram
             Color32 p = pixels[y * image.width + x];
             bool hit = channel == 0 ? p.r > 80 && p.r > p.g * 2 && p.r > p.b * 2
                 : p.g > 80 && p.g > p.r * 2 && p.g > p.b * 2;
-            if (hit) { weight++; moment += x; }
+            if (hit)
+            {
+                // Continuous native colour coverage remains stable when the
+                // source sampling crop shifts by a subpixel between eyes.
+                float coverage = (channel == 0 ? p.r : p.g) / 255f;
+                weight += coverage; moment += (x + .5f) * coverage;
+            }
         }
         Check(weight > 30, "original native model and companion remain visible in the eye raster");
         return moment / weight;

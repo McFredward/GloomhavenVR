@@ -64,7 +64,7 @@ public static class MenuDepthCharacterRunner
             try
             {
                 string output = Path.Combine(manifest.evidence, active.name); Directory.CreateDirectory(output);
-                string type = (active.method == "CommonCabinet726" || active.method == "DesktopCabinet726" || active.method == "RearThrow726") ? "MenuDepthCharacterCabinet726" : active.method.StartsWith("Automatic", StringComparison.Ordinal) ? "MenuDepthCharacterDirectProof"
+                string type = active.method == "NativeSoftMask728" ? "MenuDepthCharacterNativeSoftMask728" : (active.method == "CommonCabinet726" || active.method == "DesktopCabinet726" || active.method == "RearThrow726" || active.method == "DepthAttachment728" || active.method == "Occlusion728" || active.method == "NativeSoftMaskOcclusion728" || active.method == "Overflow728" || active.method == "CrossPanel728") ? "MenuDepthCharacterCabinet726" : active.method.StartsWith("Automatic", StringComparison.Ordinal) ? "MenuDepthCharacterDirectProof"
                     : active.method == "Presentation" || active.method == "NativeLdrEffect" ? "MenuDepthCharacterPresentation725"
                     : active.method == "GlassCabinet" || active.method == "TargetViewport" ? "MenuDepthCharacterWindowProof" : "MenuDepthCharacterProgram";
                 object result = Assembly.LoadFile(active.dll).GetType(type).GetMethod(active.method).Invoke(null, new object[] { output });
@@ -94,7 +94,15 @@ public static class MenuDepthCharacterRunner
         try { (pending as IDisposable)?.Dispose(); }
         catch (Exception error) { pass = false; writer.WriteLine("FAIL fixture cleanup: " + error); }
         pending = null;
+        // Every case is a distinct production assembly, while Unity shares the
+        // native AssetBundle registry. Depth-aware sources now use that bundle
+        // even when the fixture never creates a stereo window display.
+        Assembly production = Assembly.LoadFile(active.dll);
+        Type characters = production.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthCharacters");
+        characters.GetMethod("Shutdown", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
         foreach (GameObject go in UnityEngine.Object.FindObjectsOfType<GameObject>()) UnityEngine.Object.DestroyImmediate(go);
+        Type display = production.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthDisplay");
+        display.GetMethod("Shutdown", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
         writer.Flush();
     }
 }

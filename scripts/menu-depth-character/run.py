@@ -51,6 +51,7 @@ def main():
         help='Read frozen character discovery/observer production from a parallel integration checkout.')
     parser.add_argument('--character-root', type=Path, default=ROOT,
         help='Read frozen native character Source/Projection production without modifying the owning worker checkout.')
+    parser.add_argument('--native-scope-root', type=Path, default=None, help='Read the native UI depth scope from its isolated owner checkout.')
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     args = parser.parse_args()
     output = ROOT / '.planning/debug/menu-depth-character'; output.mkdir(parents=True, exist_ok=True)
@@ -70,6 +71,8 @@ def main():
               else (args.discovery_root / 'src/GloomhavenVR/WorldUI/MenuDepth' / name) if name in discovery_names
               else (args.character_root / 'src/GloomhavenVR/WorldUI/MenuDepth' / name) if name in character_names
               else code_root / name for name in names}
+    scope_root = args.native_scope_root or args.api_root
+    inputs['MenuDepthNativeUiScope.cs'] = scope_root / 'src/GloomhavenVR/WorldUI/MenuDepth/MenuDepthNativeUiScope.cs'
     sources = {name: path.read_text() for name, path in inputs.items()}
     fixture = ROOT / 'tests/GloomhavenVR.MenuDepthCharacterTests'
     pins = {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -77,6 +80,39 @@ def main():
                          ROOT / 'scripts/menu-depth-character/Editor/Runner.cs', Path(__file__).with_name('project_compilers.py'),
                          ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle'] if path.is_file()}
     variants = [
+        ('native-softmask728', '', '', '', 'NativeSoftMask728', ''),
+        ('native-softmask-occlusion728', '', '', '', 'NativeSoftMaskOcclusion728', ''),
+        ('native-softmask-ignored728', 'MenuDepthCharacterSource.cs',
+         '_material.SetFloat("_GvrNativeSoftMask", nativeSoftMask ? 1f : 0f);',
+         '_material.SetFloat("_GvrNativeSoftMask", 0f);', 'NativeSoftMask728',
+         'the exact native softmask RGBA blend survives transparent partial and opaque UI destinations'),
+        ('native-softmask-alpha-linear728', 'MenuDepthCharacterSource.cs',
+         '_material.SetFloat("_GvrCharacterSrcAlphaBlend", nativeSoftMask ? 5f : 1f);',
+         '_material.SetFloat("_GvrCharacterSrcAlphaBlend", 1f);', 'NativeSoftMask728',
+         'the exact native softmask RGBA blend survives transparent partial and opaque UI destinations'),
+        ('depth-attachment728', '', '', '', 'DepthAttachment728', ''),
+        ('depth-occlusion728', '', '', '', 'Occlusion728', ''),
+        ('depth-overflow728', '', '', '', 'Overflow728', ''),
+        ('depth-cross-panel728', '', '', '', 'CrossPanel728', ''),
+        ('depth-colour-instead-of-depth728', 'MenuDepthCharacterSource.cs',
+         '_material.SetTexture("_NativeDepth", _depth!, UnityEngine.Rendering.RenderTextureSubElement.Depth);',
+         '_material.SetTexture("_NativeDepth", _depth!);', 'Occlusion728',
+         'actual foreground model pixels survive later native UI and the old preview aperture'),
+        ('depth-writes-lost728', 'MenuDepthCharacterSource.cs',
+         '_material.SetFloat("_GvrCharacterDepthWrite", _capturing ? 1f : 0f);',
+         '_material.SetFloat("_GvrCharacterDepthWrite", 0f);', 'Occlusion728',
+         'actual foreground model pixels survive later native UI and the old preview aperture'),
+        ('depth-whole-frame-crop-lost728', 'MenuDepthDisplay.cs',
+         'Rect sampledFrame = captureFrame ?? ForegroundFrame(plane, frame, leftEye, rightEye);',
+         'Rect sampledFrame = frame;', 'Overflow728',
+         'actual foreground survives outside the entire original window capture and final carrier'),
+        ('depth-head-transport-lost728', 'MenuDepthDisplay.cs',
+         'material.SetFloat("_GvrCaptureDepthActive", 1f);',
+         'material.SetFloat("_GvrCaptureDepthActive", 0f);', 'CrossPanel728',
+         'a separately drawn native UI panel behind the real foreground cannot overwrite it after the final carrier'),
+        ('depth-byte-budget-lost728', 'MenuDepthCharacterSource.cs',
+         'long depth = 4L;', 'long depth = 0L;', 'Presentation',
+         'simultaneous actual eye pairs stay inside the shared96MiB budget'),
         ('character-preference727', '', '', '', 'Preference', ''),
         ('character-preference-ignored727', 'MenuDepthCharacters.cs',
          '!VRSession.IsRunning || !WorldUIConfig.CharacterPreviewDepth.Value', '!VRSession.IsRunning', 'Preference',
@@ -115,8 +151,8 @@ def main():
          '            _camera.transform.SetPositionAndRotation(view.Position, view.Rotation);\n            _camera.orthographic = false;', 'Presentation',
          'actual rendered landmarks occupy the independently specified common native-unit cabinet'),
         ('completed-model-membership725', 'MenuDepthCharacterSource.cs',
-         '_calibration.TryGet(ReadOriginal?.Invoke(_manager) ?? _holder, out Vector3 origin))',
-         '_calibration.TryGet(_holder, out Vector3 origin))', 'Presentation',
+         'if (!_calibration.TryGet(identity, out Vector3 origin))',
+         'if (!_calibration.TryGet(_holder, out Vector3 origin))', 'Presentation',
          'actual rendered landmarks occupy the independently specified common native-unit cabinet'),
         ('common-cabinet726', '', '', '', 'CommonCabinet726', ''),
         ('desktop-cabinet726', '', '', '', 'DesktopCabinet726', ''),
@@ -149,7 +185,7 @@ def main():
          'MaxPoolBytes = 96L', 'MaxPoolBytes = 192L', 'Presentation',
          'simultaneous actual eye pairs stay inside the shared96MiB budget'),
         ('allocation-hysteresis-lost725', 'MenuDepthCharacterSource.cs',
-         'if (current > 0 && wanted <= current * 1.12f) return;',
+         'if (current > 0 && wanted <= current * 1.12f)\n            { if (!shapeChanged) return; wanted = current; }',
          '/* injected: tier boundary jitter reallocates immediately */', 'Presentation',
          'head-footprint jitter reuses the current owned eye allocation'),
         ('production', '', '', '', 'Run', ''),

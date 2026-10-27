@@ -17,6 +17,114 @@ public static class MenuDepthCharacterCabinet726
     private static void Check(bool value, string message) { _checks++; if (!value) throw new Exception(message); }
     public static IEnumerator CommonCabinet726(string output) => Run(output, false);
     public static IEnumerator DesktopCabinet726(string output) => Run(output, true);
+    public static int DepthAttachment728(string output)
+    {
+        _checks = 0; VRSession.IsRunning = true;
+        using (var scene = new Scene(output, 0))
+        {
+            scene.SetActor(new Vector3(.23f, -.676f, 3.036f), 1.233132f, false);
+            scene.VerifyDepthAttachment();
+        }
+        return _checks;
+    }
+    public static IEnumerator Occlusion728(string output) => RunOcclusion728(output,false);
+    public static IEnumerator NativeSoftMaskOcclusion728(string output) => RunOcclusion728(output,true);
+    private static IEnumerator RunOcclusion728(string output,bool nativeSoftMask)
+    {
+        _checks = 0; VRSession.IsRunning = true;
+        Vector3 origin = new Vector3(.23f, -.676f, 3.036f);
+        foreach (int path in new[] { 0, 1, 2 })
+        using (var scene = new Scene(output, path))
+        {
+            scene.SetActor(origin, 2.257989f, true);
+            scene.SetMaskedPreview();
+            if (nativeSoftMask) scene.SetNativeSoftMask();
+            foreach (Vector3 pose in new[] { new Vector3(-.45f, 0, -.7f), new Vector3(.45f, 0, -.7f), new Vector3(.65f, 0, -.09f),
+                new Vector3(-.45f, 0, .7f), new Vector3(.45f, 0, .7f), new Vector3(.65f, 0, .09f) })
+            {
+                bool rear = pose.z > 0;
+                scene.MoveOcclusionCompanion(rear);
+                Vector3 foreground = origin + new Vector3(0, 1.1f, rear ? .18f : -.18f);
+                Vector3 behind = origin + new Vector3(1.05f, .3f, rear ? -.4f : .4f);
+                yield return null;
+                scene.SetOverlay(0);
+                Texture2D image = scene.Capture(pose, false, "occlusion-" + pose, true);
+                scene.CheckBodyPixel(image, foreground, origin, rear ? Color.green : Color.red,
+                    "actual foreground model pixels survive later native UI and the old preview aperture");
+                scene.CheckBodyPixel(image, behind, origin, Color.blue,
+                    "later native UI continues to occlude true geometry behind the glass");
+                Object.DestroyImmediate(image);
+                scene.SetOverlay(rear ? 60 : -60);
+                image = scene.Capture(pose, false, "closer-ui-" + pose, true);
+                scene.CheckBodyPixel(image, foreground, origin, Color.blue,
+                    "an actually closer original UI plane still occludes the model");
+                Object.DestroyImmediate(image);
+                if (Mathf.Abs(pose.z) < .1f)
+                {
+                    scene.CheckOutsidePortrait(foreground, origin);
+                    scene.SetOverlayAlpha(0);
+                    image = scene.Capture(pose, false, "original-behind-mask-" + pose, true);
+                    scene.CheckBodyPixel(image, behind, origin, Color.black,
+                        "true rear geometry outside the original stencil and rectangular aperture remains masked");
+                    Object.DestroyImmediate(image); scene.SetOverlayAlpha(1);
+                }
+            }
+        }
+        yield return _checks;
+    }
+    public static IEnumerator Overflow728(string output)
+    {
+        _checks = 0; VRSession.IsRunning = true;
+        Vector3 origin = new Vector3(.23f, -.676f, 3.036f);
+        foreach (int path in new[] { 0, 1 })
+        using (var scene = new Scene(output, path))
+        {
+            scene.SetActor(origin, 2.257989f, false);
+            foreach (Vector3 pose in new[] { new Vector3(.65f,0,-.09f), new Vector3(.65f,0,.09f) })
+            {
+                bool rear = pose.z > 0;
+                Vector3 foreground = origin + new Vector3(0,1.1f,rear ? .18f : -.18f);
+                yield return null;
+                scene.SetOverlay(0);
+                Texture2D image = scene.Capture(pose,false,"whole-window-overflow-" + pose,true);
+                scene.CheckOutsidePortrait(foreground,origin);
+                scene.CheckBodyPixel(image,foreground,origin,rear ? Color.green : Color.red,
+                    "actual foreground survives outside the entire original window capture and final carrier");
+                scene.CheckNativeWindowGeometry();
+                Object.DestroyImmediate(image);
+            }
+        }
+        yield return _checks;
+    }
+
+    public static IEnumerator CrossPanel728(string output)
+    {
+        _checks = 0; VRSession.IsRunning = true;
+        Vector3 origin = new Vector3(.23f,-.676f,3.036f);
+        foreach (int path in new[] { 0,1 })
+        using (var scene = new Scene(output,path))
+        {
+            scene.SetActor(origin,2.257989f,false);
+            foreach (Vector3 pose in new[] { new Vector3(.3f,0,-.7f),new Vector3(-.3f,0,.7f) })
+            {
+                bool rear = pose.z > 0;
+                Vector3 foreground = origin + new Vector3(0,1.1f,rear ? .18f : -.18f);
+                yield return null;
+                scene.SetOtherPanel(rear ? .02f : -.02f);
+                Texture2D image = scene.Capture(pose,false,"second-panel-behind-" + pose,true);
+                scene.CheckBodyPixel(image,foreground,origin,rear ? Color.green : Color.red,
+                    "a separately drawn native UI panel behind the real foreground cannot overwrite it after the final carrier");
+                Object.DestroyImmediate(image);
+                scene.SetOtherPanel(rear ? .08f : -.08f);
+                image = scene.Capture(pose,false,"second-panel-in-front-" + pose,true);
+                scene.CheckBodyPixel(image,foreground,origin,Color.blue,
+                    "a separately drawn native UI panel truly in front retains its physical occlusion");
+                Object.DestroyImmediate(image);
+            }
+        }
+        yield return _checks;
+    }
+
     public static int RearThrow726(string output)
     {
         _checks = 0; VRSession.IsRunning = true;
@@ -124,6 +232,10 @@ public static class MenuDepthCharacterCabinet726
         private Vector3 _actorPosition;
         private readonly Vector3 _holderPosition;
         private int _nativeDraws;
+        private RawImage? _overlay;
+        private Material? _nativeSoftMask;
+        private RectTransform? _otherPanel;
+        private float _previewWidth = 1.2f, _previewHeight = .9f;
         internal Scene(string output, int path)
         {
             bool supersampled = path == 1; _desktop = path == 2;
@@ -175,7 +287,10 @@ public static class MenuDepthCharacterCabinet726
             }
             // Explicit active-XR-eye observation only. Both shipping UI eye
             // captures and this final shader selection still render real pixels.
-            _selectEye = camera => { if (camera == Head && (_supersampled || _desktop)) Shader.SetGlobalFloat("_GvrMenuDepthEye", _right ? 1 : 0); };
+            _selectEye = camera =>
+            {
+                if (camera == Head && (_supersampled || _desktop)) Shader.SetGlobalFloat("_GvrMenuDepthEye", _right ? 1 : 0);
+            };
             Camera.onPreRender += _selectEye;
             CharacterNativeImageEffect effect = _nativeCamera.gameObject.AddComponent<CharacterNativeImageEffect>();
             effect.BeforeBlit = () =>
@@ -223,15 +338,16 @@ public static class MenuDepthCharacterCabinet726
         }
         internal Vector3 World(Vector3 native, Vector3 origin)
         {
-            float units = Math.Max(2.4f / (1.2f * .82f), 2.4f / (.9f * .75f));
+            float units = Math.Max(2.4f / (_previewWidth * .82f), 2.4f / (_previewHeight * .75f));
             Vector3 point = (native - origin - Vector3.up * 1.2f) / units;
             return _frame.position + _frame.right * point.x + _frame.up * point.y + _frame.forward * point.z;
         }
-        internal Texture2D Capture(Vector3 localEye, bool right, string label)
+        internal Texture2D Capture(Vector3 localEye, bool right, string label, bool lookAtCenter = false)
         {
             _right = right; bool rear = localEye.z > 0;
             Vector3 position = _frame.position + _frame.right * localEye.x + _frame.up * localEye.y + _frame.forward * localEye.z;
             Head.transform.SetPositionAndRotation(position, _frame.rotation * Quaternion.Euler(0, rear ? 180 : 0, 0));
+            if (lookAtCenter) Head.transform.rotation = Quaternion.LookRotation(_frame.position - position, _frame.up);
             if (_display != null)
             {
                 Vector3 other = position + Head.transform.right * (right ? -.064f : .064f);
@@ -250,12 +366,79 @@ public static class MenuDepthCharacterCabinet726
             pixels.ReadPixels(new Rect(0,0,pixels.width,pixels.height),0,0); pixels.Apply(); RenderTexture.active = previous;
             File.WriteAllBytes(Path.Combine(_output, _path + "-" + label + ".png"), pixels.EncodeToPNG()); return pixels;
         }
+        internal void CheckNativeWindowGeometry()
+        {
+            Check(_root.rect.size == new Vector2(1200,900) && _root.localScale == Vector3.one * .001f,
+                "overspill never expands the original native layout or hit rectangle");
+            Check(_frame.position == new Vector3(.8f,.2f,2f) && Quaternion.Angle(_frame.rotation,Quaternion.Euler(-7,29,4)) < .001f,
+                "overspill keeps the accepted fixed shared window pose and world metric");
+        }
+        internal void SetOtherPanel(float depth)
+        {
+            if (_otherPanel == null)
+            {
+                var go = new GameObject("independent later original UI panel",typeof(RectTransform),typeof(Canvas));
+                go.layer = _supersampled || _desktop ? 6 : 5;
+                _otherPanel = (RectTransform)go.transform; _otherPanel.sizeDelta = new Vector2(1200,900);
+                _otherPanel.localScale = Vector3.one * .001f;
+                Canvas canvas = go.GetComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace; canvas.sortingOrder = 100;
+                RawImage image = Image(_otherPanel,go.layer,Texture2D.whiteTexture); image.color = Color.blue;
+            }
+            _otherPanel.SetPositionAndRotation(_frame.position + _frame.forward * depth,_frame.rotation);
+        }
+        internal void MoveOcclusionCompanion(bool rear) { _companion!.position = _actorPosition + new Vector3(1.05f, .001f, rear ? -.55f : .55f); }
+        internal void SetOverlayAlpha(float alpha) { _overlay!.color = new Color(0, 0, 1, alpha); }
+        internal void CheckOutsidePortrait(Vector3 native, Vector3 origin)
+        {
+            Vector3 point = World(native, origin), ray = point - Head.transform.position;
+            float t = Vector3.Dot(_frame.position - Head.transform.position, _frame.forward) / Vector3.Dot(ray, _frame.forward);
+            Vector3 onGlass = Head.transform.position + ray * t - _frame.position;
+            Check(Mathf.Abs(Vector3.Dot(onGlass, _frame.right)) > _previewWidth * .5f,
+                "the independently authored visible foreground ray falls outside the original preview rect and both original masks");
+        }
+        internal void SetOverlay(float localDepth)
+        {
+            if (_overlay == null)
+            { _overlay = Image(_root, 5, Texture2D.whiteTexture); _overlay.color = Color.blue; }
+            _overlay.rectTransform.anchoredPosition3D = new Vector3(0, 0, localDepth);
+        }
+        internal void SetNativeSoftMask()
+        {
+            _nativeSoftMask=new Material(Shader.Find("UI/Inverted soft alpha mask (compatible with canvas group)"));
+            _nativeSoftMask.SetTexture("_Mask",Texture2D.whiteTexture);
+            _image.material=_nativeSoftMask;
+        }
+        internal void SetMaskedPreview()
+        {
+            _previewWidth = _previewHeight = .6f;
+            var go = new GameObject("original portrait stencil and rectangular aperture", typeof(RectTransform),
+                typeof(CanvasRenderer), typeof(Image), typeof(Mask), typeof(RectMask2D)); go.layer = 5;
+            RectTransform mask = (RectTransform)go.transform; mask.SetParent(_root, false);
+            mask.anchorMin = new Vector2(.25f, 1f / 6f); mask.anchorMax = new Vector2(.75f, 5f / 6f); mask.sizeDelta = Vector2.zero;
+            go.GetComponent<Mask>().showMaskGraphic = false;
+            _image.rectTransform.SetParent(mask, false); _image.rectTransform.anchorMin = Vector2.zero; _image.rectTransform.anchorMax = Vector2.one;
+            _image.rectTransform.sizeDelta = Vector2.zero; _image.rectTransform.anchoredPosition3D = Vector3.zero;
+        }
+        internal void CheckBodyPixel(Texture2D pixels, Vector3 native, Vector3 origin, Color expected, string message)
+        {
+            Vector3 point = Head.WorldToViewportPoint(World(native, origin));
+            int x = Mathf.Clamp(Mathf.RoundToInt(point.x * pixels.width), 0, pixels.width - 1);
+            int y = Mathf.Clamp(Mathf.RoundToInt(point.y * pixels.height), 0, pixels.height - 1);
+            Color actual = pixels.GetPixel(x, y);
+            File.AppendAllText(Path.Combine(_output, "occlusion-pixels.txt"), _path + "," + native + "," + point + "," + actual + "," + expected + "\n");
+            Check(point.z > 0 && point.x > 0 && point.x < 1 && point.y > 0 && point.y < 1,
+                "independent physical landmark is visible in the actual oblique head viewport");
+            Check(Vector3.Distance(new Vector3(actual.r,actual.g,actual.b),new Vector3(expected.r,expected.g,expected.b)) < .12f, message);
+        }
         private void CaptureDesktop(Vector3 physicalEye, bool right)
         {
             Check(MenuDepthScreenProjection.TryMap(_screen, _ui, _image.rectTransform, physicalEye, out Vector3 nativeEye),
                 "the native desktop mapper admits both physical window sides without changing its fixed metric");
             Vector2 pixels = MenuDepthScreenProjection.PixelFootprint(_screen, _ui, _image.rectTransform, new MenuDepthEye(right, physicalEye, Head));
             RenderTexture target = right ? _desktopRight! : _capture; _ui.targetTexture = target;
+            RenderTexture active = RenderTexture.active; RenderTexture.active = target; GL.Clear(true,true,Color.clear); RenderTexture.active = active;
+            bool rear = Vector3.Dot(physicalEye - _frame.position,_frame.forward) > 0;
+            using var nativeScope = new MenuDepthNativeUiScope(_ui,_root.GetComponent<Canvas>(),rear);
             MenuDepthSources.BeforeCapture(_root, new MenuDepthEye(right, nativeEye, Head, true, pixels));
             try
             {
@@ -289,6 +472,28 @@ public static class MenuDepthCharacterCabinet726
                 && Mathf.Abs(_nativeCamera.nearClipPlane-.1f)<.0001f && Mathf.Abs(_nativeCamera.farClipPlane-10f)<.0001f,
                 "a throwing rear draw restores the original automatic camera matrices and clip fields");
         }
+        internal void VerifyDepthAttachment()
+        {
+            Vector3 eye = _frame.position - _frame.forward * 1.7f;
+            _source.BeforeCapture(new MenuDepthEye(false, eye, Head));
+            _source.AfterCapture();
+            RenderTexture depth = _source.DepthTexture(false) ?? throw new Exception("Missing actual native depth attachment");
+            Check(depth.IsCreated(), "the original native render owns a sampleable depth attachment");
+            var sample = new RenderTexture(depth.width, depth.height, 0, RenderTextureFormat.ARGB32); sample.Create();
+            var material = new Material(Shader.Find("GloomhavenVR/FixtureDepth728"));
+            material.SetTexture("_NativeDepth", depth, UnityEngine.Rendering.RenderTextureSubElement.Depth);
+            Graphics.Blit(null, sample, material);
+            RenderTexture previous = RenderTexture.active; RenderTexture.active = sample;
+            var pixels = new Texture2D(sample.width, sample.height, TextureFormat.RGBA32, false);
+            pixels.ReadPixels(new Rect(0, 0, pixels.width, pixels.height), 0, 0); pixels.Apply(); RenderTexture.active = previous;
+            int hit = 0, background = 0;
+            foreach (Color pixel in pixels.GetPixels()) { if (pixel.r < .999f) hit++; else background++; }
+            File.WriteAllBytes(Path.Combine(_output, "actual-native-depth.png"), pixels.EncodeToPNG());
+            File.WriteAllText(Path.Combine(_output, "actual-native-depth.txt"), "geometry=" + hit + "; clear=" + background);
+            Check(hit > 100 && background > 100, "the native image-effect render preserves actual model and empty-pixel depth");
+            Object.DestroyImmediate(pixels); Object.DestroyImmediate(material); sample.Release(); Object.DestroyImmediate(sample);
+            Restored();
+        }
         internal void Restored()
         {
             Check(_invariant && _nativeDraws > 0, "actual camera-hosted effects retain the original main actor holder and camera transforms during front and rear renders");
@@ -300,6 +505,7 @@ public static class MenuDepthCharacterCabinet726
             GL.invertCulling = false; Camera.onPreRender -= _selectEye; VRRigDriver.HeadCamera = null;
             MenuDepthSources.AfterCapture(); MenuDepthSources.Unregister(_source); _source.Dispose(); _display?.Dispose();
             if (_desktopMaterial != null) MenuDepthDisplay.ReleaseDisplayMaterial(_desktopMaterial); MenuDepthDisplay.Shutdown();
+            if (_nativeSoftMask != null) Object.DestroyImmediate(_nativeSoftMask);
             if (_desktopRight != null) { _desktopRight.Release(); Object.DestroyImmediate(_desktopRight); }
             foreach (Material material in new[] { _front,_back,_side,_extra }) Object.DestroyImmediate(material); Object.DestroyImmediate(_bodyMesh);
             foreach (RenderTexture target in new[] { _native,_final,_capture }) { target.Release(); Object.DestroyImmediate(target); }

@@ -80,10 +80,14 @@ public static class MenuDepthCharacterPresentation725
                 double correlation = scene.FrequencyCorrelation(image, distance, frequency);
                 scene.Log("frequency," + distance + "," + frequency + "," + scene.LastTarget.width + "," + pixels + "," + correlation);
                 Check(correlation > .86, "near mid and far actual head rasters preserve the independently authored spatial frequency");
-                Check(scene.LastTarget.width <= 2048 && scene.LastTarget.height <= 2048,
-                    "per-eye allocation stays within the fixed spatial sample cap");
-                if (distance < 1) Check(scene.LastTarget.width == 2048,
+                Check(scene.Source.SamplingEdge <= 2048,
+                    "original-aperture sampling density stays within the fixed spatial sample cap");
+                if (distance < 1) Check(scene.Source.SamplingEdge == 2048,
                     "close-up native1024 preview acquires enough effective samples for the physical aperture");
+                Vector2 captureScale = (Vector2)typeof(MenuDepthCharacterSource).GetField("_captureScale", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scene.Source)!;
+                Check(scene.LastTarget.width / captureScale.x >= scene.Source.SamplingEdge - 1f
+                    && scene.LastTarget.height / captureScale.y >= scene.Source.SamplingEdge - 1f,
+                    "actual expanded render targets preserve the selected original-aperture sample density");
                 Object.DestroyImmediate(image);
             }
             RenderTexture held = scene.LastTarget;
@@ -95,7 +99,7 @@ public static class MenuDepthCharacterPresentation725
             scene.Source.MaintainResources(Time.unscaledTime + 3f);
             Check(!held.IsCreated(), "an unused preview releases its owned eye resource through bounded maintenance");
             scene.CaptureTarget(new Vector3(0, 0, -1.2f), false, new Vector2(100000, 100000));
-            Check(scene.LastTarget.width == 2048, "unbounded close-up demand remains hard-capped");
+            Check(scene.Source.SamplingEdge == 2048, "unbounded close-up demand remains hard-capped");
             scene.CaptureTarget(new Vector3(0, 0, -1.2f), true, new Vector2(100000, 100000));
             scene.CheckPool();
             scene.CheckStableCalibration();
@@ -314,14 +318,20 @@ public static class MenuDepthCharacterPresentation725
         internal void CheckPool()
         {
             long actual = LastTarget.width * (long)LastTarget.height * 16;
-            for (int i = 0; i < 2; i++)
+            for (int i = 0; i < 5; i++)
             {
                 var image = new GameObject("additional known preview", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
                 image.transform.SetParent(_root, false); var graphic = image.GetComponent<RawImage>(); graphic.rectTransform.sizeDelta = new Vector2(1200,900); graphic.texture = _native;
                 var source = new MenuDepthCharacterSource(graphic, NativeCamera, _manager, _holder, m => m.Hidden); _extra.Add(source);
                 for (int eye = 0; eye < 2; eye++)
                 {
-                    source.BeforeCapture(new MenuDepthEye(eye != 0, World(new Vector3(0, 0, -1.2f)), Head, false, new Vector2(10000,10000)));
+                    try { source.BeforeCapture(new MenuDepthEye(eye != 0, World(new Vector3(0, 0, -1.2f)), Head, false, new Vector2(10000,10000))); }
+                    catch (InvalidOperationException error) when (error.Message == "Character eye pool is fully reserved.")
+                    {
+                        Check(ReferenceEquals(graphic.texture,_native) && ReferenceEquals(NativeCamera.targetTexture,_native),
+                            "exhausted preview pool keeps the original native colour and camera target");
+                        break;
+                    }
                     if (eye == 0) { var target = (RenderTexture)graphic.texture; actual += target.width * (long)target.height * 16; }
                     source.AfterCapture();
                 }
