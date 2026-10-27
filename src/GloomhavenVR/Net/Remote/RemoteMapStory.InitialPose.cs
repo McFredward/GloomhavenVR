@@ -27,7 +27,7 @@ internal static partial class RemoteMapStory
                 local = QuestLocal; peers = QuestPeers; stamps = QuestStampAt;
                 break;
             case SharedWindowKind.Encounter:
-                UIEventPanel? encounter = EventPanel();
+                UnityEngine.UI.UIWindow? encounter = EventPanel();
                 key = encounter != null ? EncounterKey(encounter) : 0;
                 local = EncounterLocal; peers = EncounterPeers; stamps = EncounterStampAt;
                 break;

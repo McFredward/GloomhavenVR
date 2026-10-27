@@ -258,6 +258,7 @@ internal static class MapRoomDriver
     /// </summary>
     internal static void TickPredicate()
     {
+        MapCityEventReadyUp.Tick();
         // THE SWITCH INVERTED AND WAS RENAMED AT ModBuild 230 (user ruling: the 3D map room is the
         // default presentation, and the dial names the OPT-OUT — see Plugin.Vanilla2DMap's doc).
         // The SHAPE of this guard is deliberately unchanged: a NULL entry still stands the room
@@ -699,6 +700,9 @@ internal static class MapRoomDriver
     {
         if (!Active)
             return;
+        // Native city proposals initialize the pooled toggle hidden on clients. Reveal
+        // that exact public offer before quest parking/catch-all evaluate its ownership.
+        MapCityEventReadyUp.Tick();
         bool have = Parchment.Ensure(_choreo);
         using (PerfMonitor.Scope("MapRoom.Icons"))
             Icons.Tick(have ? head : null, Parchment.Renderer, _choreo);

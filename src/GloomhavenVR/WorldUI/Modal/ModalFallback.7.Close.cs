@@ -138,6 +138,12 @@ internal static partial class ModalFallback
         if (MapRoom.MapLocationInteractor.HandleSharedQuestClose(window))
             return;
 
+        // This public city preflight is not a private dismissible window. Escape/Hide
+        // would leave its native vote intact and hide only one participant's copy.
+        // Original ready/cancel controls own consent and host withdrawal instead.
+        if (ReferenceEquals(MapRoom.MapCityEventReadyUp.Window, window))
+            return;
+
         // ModBuild 185: the map room's character screen is not closable — see IsMapRoomPermanent
         // for why closing it SPLIT it rather than closing it. This covers the X, the escape chord
         // and CloseStickyFloatsExceptEscMenu in one place, because they all route through here.

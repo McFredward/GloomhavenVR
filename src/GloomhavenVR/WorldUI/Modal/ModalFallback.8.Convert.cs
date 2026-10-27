@@ -691,8 +691,10 @@ internal static partial class ModalFallback
             // and the derived net "the mod's X must not do what the game's own ESC key refuses to
             // do" (escapeKeyAction None), with one exemption for the mod's own settings pane.
             bool isMandatoryDecision = IsMandatoryDecision(window, out string mandatoryReason);
+            bool isCityReadiness = ReferenceEquals(MapRoom.MapCityEventReadyUp.Window, window);
             if (!isResultsPanel && !isStoryBox && !isRewardShowcase && !isLevelMsg && !isHoverCard
-                && !isMapRoomPermanent && !isTransient && !isLoadoutScreen && !isMandatoryDecision)
+                && !isMapRoomPermanent && !isTransient && !isLoadoutScreen && !isMandatoryDecision
+                && !isCityReadiness)
             {
                 ModalCloseButton.Attach(panel, window);
                 // HW-VERIFY

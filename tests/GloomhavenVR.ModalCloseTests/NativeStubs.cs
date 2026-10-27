@@ -91,6 +91,7 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.WorldUI.MapRoom
 {
     using UnityEngine.UI;
+    public static class MapCityEventReadyUp { public static UIWindow? Window; }
     // The actual native quest identity/admission runs in map-quest-selection-runtime.
     // This boundary verifies that the complete modal closer honors its semantic result.
     public static class MapLocationInteractor

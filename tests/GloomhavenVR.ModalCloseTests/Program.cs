@@ -21,6 +21,7 @@ static class Program
         FlatScreen.LastReason = "";
         GuildmasterDestinations.Exits = GuildmasterDestinations.LeaveCalls = 0;
         MapLocationInteractor.Handled = null; MapLocationInteractor.Calls = 0;
+        MapCityEventReadyUp.Window = null;
         MapRoomDriver.Active = true;
         VRLog.Lines.Clear();
         Singleton<MapStoryController>.Instance = null!;
@@ -129,6 +130,14 @@ static class Program
             && sharedQuest.Escapes == 0 && !ModalFallback.Panel.UserClosing
             && !FlatScreen.RescueScreenActive && GuildmasterDestinations.LeaveCalls == 0,
             "shared quest semantic close must stop local-only modal release");
+        Reset();
+        var cityReady = new UIWindow { escapeKeyAction = UIWindow.EscapeKeyAction.None };
+        MapCityEventReadyUp.Window = cityReady;
+        ModalFallback.CloseFloatedWindow(cityReady);
+        Check(cityReady.IsOpen && cityReady.Hides == 0 && cityReady.Escapes == 0
+            && !ModalFallback.Panel.UserClosing && !FlatScreen.RescueScreenActive
+            && GuildmasterDestinations.LeaveCalls == 0,
+            "shared city readiness cannot be privately hidden or marked for local release");
         Console.WriteLine($"Modal close: {_assertions} assertions passed.");
     }
 }

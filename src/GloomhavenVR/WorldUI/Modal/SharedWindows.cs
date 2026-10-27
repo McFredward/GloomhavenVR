@@ -262,6 +262,9 @@ internal static class SharedWindows
                 return SharedWindowKind.MapStory;
         }
 
+        // City-event readiness is the public preflight of this same encounter. Only the
+        // exact native proposal may lend it the encounter identity; the helper retires that
+        // identity before the actual event card opens. The native votes remain individual.
         // THE ENCOUNTER IS AN INSTANCE COMPARE against its own singleton, exactly like the two
         // story boxes above and for the same two reasons. (1) IDENTITY: UIEventPanel is a
         // Singleton<UIEventPanel> carrying [RequireComponent(typeof(UIWindow))] (decompiled
@@ -271,12 +274,8 @@ internal static class SharedWindows
         // scene-serialized id has burned this project before). (2) COST: this predicate is asked per
         // floated window per frame by the bar tint, and a reference compare against a singleton is
         // cheaper than a GetComponent on every window that is not the encounter.
-        if (Singleton<UIEventPanel>.IsInitialized)
-        {
-            UIEventPanel ep = Singleton<UIEventPanel>.Instance;
-            if (ep != null && ReferenceEquals(ep.gameObject, window.gameObject))
-                return SharedWindowKind.Encounter;
-        }
+        if (ReferenceEquals(WindowOf(SharedWindowKind.Encounter), window))
+            return SharedWindowKind.Encounter;
 
         return MapRoom.NativeMapQuestSelection.IsConfirmationWindow(window)
             ? SharedWindowKind.QuestConfirm : SharedWindowKind.None;
@@ -508,6 +507,9 @@ internal static class SharedWindows
                 return mc != null ? mc.window : null;
 
             case SharedWindowKind.Encounter:
+                UIWindow? cityReady = MapCityEventReadyUp.Window;
+                if (cityReady != null)
+                    return cityReady;
                 // THE ENCOUNTER HAS A SINGLETON TOO, so it is resolved the same way the two story
                 // boxes are and never by id: UIEventPanel is a Singleton<UIEventPanel> carrying
                 // [RequireComponent(typeof(UIWindow))] (decompiled UIEventPanel.cs:26-27), so the
