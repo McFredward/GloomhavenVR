@@ -106,6 +106,47 @@ PY
     fi
     echo "Map quest selection negative control rejected: $mutation"
 done
+
+# Public city readiness and its encounter supersede browsing without creating a
+# quest vote, preserving delayed intent, or replaying a pre-event opening later.
+for mutation in public-input-bypass city-epoch-not-retired quest-unready-during-city two-dimensional-city-epoch; do
+    python3 - "$repo_root" "$temporary" "$mutation" <<'PYCITY'
+from pathlib import Path
+import sys
+root, out = map(Path, sys.argv[1:3]); mutation = sys.argv[3]
+sources = {
+ 'gate': (root/'src/GloomhavenVR/WorldUI/MapRoom/MapInputGate.cs').read_text(),
+ 'remote': (root/'src/GloomhavenVR/Net/Remote/RemoteMapRoom.cs').read_text(),
+ 'interactor': (root/'src/GloomhavenVR/WorldUI/MapRoom/MapLocationInteractor.cs').read_text(),
+}
+changes = {
+ 'public-input-bypass': ('gate', 'internal static bool PublicDecisionOwnsInput => MapCityEventReadyUp.BlocksQuestBrowsing;', 'internal static bool PublicDecisionOwnsInput => false;'),
+ 'city-epoch-not-retired': ('remote', 'if (MapCityEventReadyUp.OwnsMapDecision)', 'if (bool.Parse("false") && MapCityEventReadyUp.OwnsMapDecision)'),
+ 'quest-unready-during-city': ('interactor', 'if (!MapRoomDriver.Active || MapInputGate.PublicDecisionOwnsInput || StoryComposite.PointOfNoReturn', 'if (!MapRoomDriver.Active || StoryComposite.PointOfNoReturn'),
+ 'two-dimensional-city-epoch': ('remote', 'if (StoryComposite.PointOfNoReturn || MapCityEventReadyUp.OwnsMapDecision', 'if (StoryComposite.PointOfNoReturn'),
+}
+name, needle, replacement = changes[mutation]
+assert sources[name].count(needle) == 1, 'Public city browsing mutation seam changed: ' + mutation
+sources[name] = sources[name].replace(needle, replacement)
+for name, file in (('gate', 'MapGate.cs'), ('remote', 'RemoteRoom.cs'), ('interactor', 'Interactor.cs')):
+    (out/file).write_text(sources[name])
+PYCITY
+    if dotnet run --project "$project" --configuration Release \
+        --property:MapGateSource="$temporary/MapGate.cs" --property:RemoteRoomSource="$temporary/RemoteRoom.cs" \
+        --property:InteractorSource="$temporary/Interactor.cs" > "$temporary/mutant.log" 2>&1; then
+        echo "FAIL: public city browsing mutation survived: $mutation" >&2; exit 1
+    fi
+    case "$mutation" in
+        public-input-bypass) expected="Public city/encounter decision blocks every participant's browsing" ;;
+        city-epoch-not-retired) expected='Public city ownership retires incoming browsing instead of queuing a future click' ;;
+        quest-unready-during-city) expected='Public city ownership cannot trigger quest-unready while preparing a cosmetic selection' ;;
+        two-dimensional-city-epoch) expected='Native city authority retires the old browsing epoch even across 2D presentation' ;;
+    esac
+    if ! rg -qF "Unhandled exception. System.InvalidOperationException: $expected" "$temporary/mutant.log"; then
+        cat "$temporary/mutant.log"; echo "FAIL: city browsing control did not reach injected defect: $mutation" >&2; exit 1
+    fi
+    echo "Public city browsing negative control rejected: $mutation"
+done
 for mutation in drop-locked-edge omit-unready stale-subject stale-generation stale-surface wrong-clear-subject backwards-stamp native-refusal lost-adopted-subject lost-supersession incidental-table-close incidental-x-close native-click-refusal same-quest-opening native-retirement-loss later-local-close; do
     python3 - "$repo_root" "$temporary" "$mutation" <<'PY'
 from pathlib import Path

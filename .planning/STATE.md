@@ -15,6 +15,12 @@ exclude the adopted row from its own button measurement. Preserve native cancel
 rather than a private X/Hide. Enable the original city participant-departure
 validation so an unready third peer leaving cannot strand a ready remaining pair.
 
+City role authority also survives incidental quest focus, ACK waiting and an
+explicit original 2D confirmation. A public city decision fences competing
+questlog/table browsing and retires obsolete cosmetic openings instead of
+replaying them after the event. Accepted native quest proposals, pure scripted
+selection, original event callbacks and 2D input remain native.
+
 Production/helper/actual-Harmony and original native departure kernels, pooled
 ownership and shared identity/geometry tests cover these boundaries. A suspected
 old-quest-vote carryover was rejected by a temporal native ACK/ordered-withdrawal

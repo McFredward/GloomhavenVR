@@ -143,10 +143,12 @@ internal static class NativeMapQuestSelection
     /// A native client proposal is a host-owned decision, rather than the room's casual
     /// browsing selection. Incidental VR table clicks and window X must not hide its local
     /// copy while peers retain theirs. Its original ready/decline controls remain available.
+    /// City readiness and the actual event card also own public input until retirement.
     /// Missing native initialization is unknown until the controller can be read again.
     /// </summary>
-    internal static bool BlocksSharedBrowsing => FFSNetwork.IsOnline && FFSNetwork.IsClient
-        && (!TryGetHostProposal(out var proposal, out _) || proposal != null);
+    internal static bool BlocksSharedBrowsing => MapInputGate.PublicDecisionOwnsInput
+        || (FFSNetwork.IsOnline && FFSNetwork.IsClient
+            && (!TryGetHostProposal(out var proposal, out _) || proposal != null));
 
     /// <summary>Each native manager field owns its own popup lifetime. A live selected
     /// subject must not keep an already-hidden multiplayer hover sticky, or vice versa.</summary>

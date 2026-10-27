@@ -642,6 +642,11 @@ internal static class NetProtocol
     // Enable the original city departure quorum/ACK validation so an unready peer
     // leaving cannot strand the remaining ready party. No synthetic votes, new
     // gameplay messages, configuration or wire layout; preserve the menu732 lane.
+    // City role authority survives incidental quest-focus refreshes and ACK waits;
+    // original 2D confirmation retains its occurrence without repeating a vote.
+    // Public city/event decisions fence competing questlog/table browsing and its
+    // cached/pending cosmetic openings. Preserve accepted native quest proposals,
+    // pure scripted selection and native ready/cancel/event continuations.
 
     // ModBuild731 — city-event readiness handoff and stable initiative ownership (#18/#24).
     // Retire the exact previous modal before adopting the reused native ready toggle

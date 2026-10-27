@@ -100,6 +100,9 @@ internal sealed class UIInfoTools
 internal static class FFSNetwork { internal static bool IsOnline; }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
+    // This fixture isolates native map masks; exact public city/event ownership is
+    // exercised by city-ready and map-quest-selection-runtime.
+    internal static class MapCityEventReadyUp { internal static bool BlocksQuestBrowsing => false; }
     internal static class MapRoomDriver { internal static bool Active; }
     internal static class MapCharacterSelection { internal static object? Selected; }
 }

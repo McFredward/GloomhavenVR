@@ -595,6 +595,18 @@
       "weight": 40
     },
     {
+      "id": "city-preconvert",
+      "command": [
+        "bash",
+        "scripts/city-preconvert-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 30
+    },
+    {
       "id": "quest-window",
       "command": [
         "bash",

@@ -28,6 +28,9 @@ are retained under ignored `debug/issues18-24`.
 | Visible readiness | The original tracker bar remains in the replaced flat HUD. | Reuse it in the city window before its first conversion. Reject stale quest/loadout offers and exclude the adopted row from the button's own ink measurement. Original markers, order, readiness and animation remain native. |
 | Participant departure | City initialization disables native departure validation. Two ready participants can remain blocked after an unready third leaves. | Enable the existing native participant-departure quorum/ACK path in the two map readiness phases. The game owns ACK waiting, timeout, `ReadyProceed` and reset. |
 | Error propagation | These seams execute beneath the game's network dispatcher. | Isolate presentation failures, retain original native results and keep disabled-observer input closed on probe failure. A diagnostic must not cause a game desynchronization. |
+| Incidental quest focus | Party/quest focus refresh can call `ToggleReadyUpUI(Quests)` without retiring the native city role. | Preserve the exact city lease through these refreshes and the all-ready ACK wait. A genuine role initialization or native withdrawal still retires it. |
+| Original 2D confirmation | The original city's user callback initializes `CityEvents` again before sending its one readiness vote. | Same-role initialization retains the known public occurrence; returning to 3D neither loses it nor repeats the vote. |
+| Competing quest browsing | An unready client has no native full-screen map lock during a city proposal or event. Questlog selection also bypasses table icon dispatch. | Bound new browsing to the public decision; guard original UI entry points, not gameplay selection methods. Retire cached/pending cosmetic openings so they cannot replay after the event. |
 
 ## Authority and transitions
 
@@ -36,6 +39,22 @@ they actually received; no mod message selects or draws an event. Local unready
 does not withdraw the host's public proposal. Host withdrawal, singleton/controller
 replacement, native reset, a new readiness role or actual event entry retires it.
 Temporary 3D-map departure does not replay an answered proposal or vote.
+
+The raw native role, not the mutable controller display state, owns the city
+decision through the ACK wait. The visible preflight closes at all-ready, but
+this does not permit an incidental quest focus callback to replace city consent.
+The native 2D city callback remains valid: its same-role initialization preserves
+the occurrence and its original user action sends exactly one vote.
+
+Quest browsing cannot supersede an exact public city proposal, its ACK wait or
+the actual native event card. Both local table input and incoming cosmetic
+selection metadata observe that boundary; late pre-event browsing is retired
+with the existing causal register. The original questlog/map pointer entry
+points are covered too, including gamepad dispatch. Pure native `Select`,
+`Deselect`, scripted location selection and event actions are not blocked.
+Only unaccepted local browsing can be cleared with the original `CancelTravel`
+UI callback; an accepted native host quest is never hidden or deselected by
+presentation cleanup. Native 2D input remains outside the VR browsing gate.
 
 The full `UIEventPanel` remains mandatory. Its content and decisions already use
 native `ContinueRoadEvent` actions; only physical placement uses the mod channel.

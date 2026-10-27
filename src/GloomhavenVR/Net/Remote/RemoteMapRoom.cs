@@ -1013,6 +1013,11 @@ internal static class RemoteMapRoom
     private static void RequestSelection(MapLocationInteractor interactor, MapLocation? want,
         uint wantKey, int fromPeer, bool reopen = false, ulong versionToken = 0ul)
     {
+        if (MapInputGate.PublicDecisionOwnsInput)
+        {
+            ClearPendingSelection();
+            return; // A city/event decision must not queue a later surprise browsing click.
+        }
         uint currentKey = KeyOf(interactor.Staged);
         if (MapInputGate.IsBlocked)
         {
@@ -1070,7 +1075,7 @@ internal static class RemoteMapRoom
             || !sameSubject
             || (_pendingSelectPeer != _versionLocalPlayer
                 && (!Peers.TryGetValue(_pendingSelectPeer, out PeerRoom peer) || !peer.InRoom))
-            || StoryComposite.PointOfNoReturn
+            || StoryComposite.PointOfNoReturn || MapInputGate.PublicDecisionOwnsInput
             || !NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) || proposal != null)
         {
             ClearPendingSelection();
@@ -1128,6 +1133,14 @@ internal static class RemoteMapRoom
 
     private static bool EnsureVersionVisit()
     {
+        // A public city proposal/event supersedes casual quest browsing just like a
+        // native host quest proposal. Retire its causal opening, not merely its local
+        // input: late cosmetic snapshots must not reopen it during or after the event.
+        if (MapCityEventReadyUp.OwnsMapDecision)
+        {
+            RetireVersionVisit();
+            return false;
+        }
         if (!MapRoomDriver.Active || !FFSNetwork.IsOnline || StoryComposite.PointOfNoReturn)
         {
             SuspendOrRetireVersionVisit();
@@ -1173,7 +1186,8 @@ internal static class RemoteMapRoom
     {
         object? identity = VersionMapIdentity();
         bool proposal = NativeMapQuestSelection.TryGetHostProposal(out var selected, out _) && selected != null;
-        if (StoryComposite.PointOfNoReturn || !FFSNetwork.IsOnline || identity == null
+        if (StoryComposite.PointOfNoReturn || MapCityEventReadyUp.OwnsMapDecision
+            || !FFSNetwork.IsOnline || identity == null
             || !ReferenceEquals(identity, _versionMapIdentity) || proposal)
             RetireVersionVisit();
         else

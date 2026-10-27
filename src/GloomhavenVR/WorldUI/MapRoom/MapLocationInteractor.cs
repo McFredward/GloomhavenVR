@@ -221,7 +221,7 @@ internal sealed class MapLocationInteractor
     /// </summary>
     internal bool PrepareSharedSelectionChange(MapLocation? loc, bool newOpening = false)
     {
-        if (!MapRoomDriver.Active || StoryComposite.PointOfNoReturn
+        if (!MapRoomDriver.Active || MapInputGate.PublicDecisionOwnsInput || StoryComposite.PointOfNoReturn
             || !NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) || proposal != null)
             return false;
         string? from = DecisionIdOf(_selected);

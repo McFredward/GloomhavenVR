@@ -200,6 +200,13 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.Hands { internal class VRHand { public string Side = "Left"; } }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
+    // The exact native lease/event detector is exercised with actual Harmony in
+    // city-ready. This boundary supplies its public ownership to the real router.
+    internal static class MapCityEventReadyUp
+    {
+        public static bool OwnsMapDecision;
+        public static bool BlocksQuestBrowsing => MapRoomDriver.Active && OwnsMapDecision;
+    }
     internal static class MapRoomDriver
     {
         public static bool Active = true;
