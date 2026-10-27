@@ -385,6 +385,7 @@ internal static class MenuDepthSources
             var eye = new MenuDepthEye(right, position, camera);
             BeginMaskScope(eye);
             phase = "direct source preparation";
+            bool movedNativeCard = false;
             for (int i = 0; i < Prepared.Count; i++)
             {
                 _startedCount = i + 1;
@@ -392,7 +393,12 @@ internal static class MenuDepthSources
                 MenuDepthEye sampled = SampleEye(Prepared[i], eye);
                 if (Prepared[i] is IMenuDepthDirectSource direct && DirectPrimes.Contains(direct)) direct.BeforeDirectCapture(sampled);
                 else Prepared[i].BeforeCapture(sampled);
+                movedNativeCard |= Prepared[i] is IMenuDepthOcclusionSource;
             }
+            // Whole native cards retain their original text/materials. Their
+            // scoped root move happens after uGUI's ordinary batch boundary;
+            // rebuild once for the complete eye, never once for each card.
+            if (movedNativeCard) Canvas.ForceUpdateCanvases();
         }
         catch (Exception error)
         {
