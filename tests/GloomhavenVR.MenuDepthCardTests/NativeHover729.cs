@@ -100,10 +100,28 @@ public static partial class MenuDepthCardProgram
                 float displacement = Vector2.Scale(White(first).Center - White(flat).Center, new Vector2(first.width, first.height)).magnitude;
                 Check(displacement > .7f,
                     "native character hover has meaningful visible protrusion from the flat window");
-                Vector3 prior = Expected(full, White(flat), .035f);
-                float priorDisplacement = Vector2.Scale(new Vector2(prior.x, prior.y) - White(flat).Center,
+                // Compare two actual rasters. At the smaller native hover fit,
+                // a subpixel glyph centroid cannot support a percentage against
+                // an ideal continuous projection. The main geometry proof still
+                // requires the independent6.5% plane and rejects the old plane.
+                FieldInfo ratio = typeof(MenuDepthCardPlane).GetField("_depthWidthRatio", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                object configured = ratio.GetValue(marker)!;
+                Texture2D priorPixels;
+                try
+                {
+                    ratio.SetValue(marker, .035f); marker.enabled = true;
+                    ++_request; while (_completed != _request) yield return null;
+                    Check((float)ratio.GetValue(marker)! == .035f,
+                        "the actual prior hover raster retains its explicit original depth reference");
+                    priorPixels = Read(full, true, 600 + reuse);
+                }
+                finally { ratio.SetValue(marker, configured); }
+                float priorDisplacement = Vector2.Scale(White(priorPixels).Center - White(flat).Center,
                     new Vector2(first.width, first.height)).magnitude;
-                Check(displacement > priorDisplacement * 1.6f,
+                File.AppendAllText(Path.Combine(_output, "native-hover-relief.csv"),
+                    _name + "," + reuse + ",new=" + displacement + ",old=" + priorDisplacement + "\n");
+                Object.DestroyImmediate(priorPixels);
+                Check(displacement > priorDisplacement + .35f,
                     "native character hover is visibly stronger than the prior 3.5-percent plane");
                 Check(full.Rect.localPosition == nativePosition && full.Rect.localScale == nativeScale,
                     "native hover capture restores accepted native placement and physical scale");
