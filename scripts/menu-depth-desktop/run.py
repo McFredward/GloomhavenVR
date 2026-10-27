@@ -147,8 +147,10 @@ internal static class MenuDepthCharacterRotation
         ('desktop-small-shrink-churn728', 'MenuDepthDesktopResources.cs', 'wanted.width <= current.width * .75f || wanted.height <= current.height * .75f',
          'wanted.width < current.width || wanted.height < current.height', 'small silhouette jitter never reallocates even after the old two-second timeout'),
         ('outer-carrier728', '', '', '', ''),
-        ('outer-bounds-lost728', 'DesktopCapture.cs', 'MenuDepthSources.CollectReadyForegroundGraphics(_menuDepthBoundsGraphics);',
-         '_menuDepthBoundsGraphics.Clear();', 'actual original character foreground expands beyond the entire old FlatScreen carrier'),
+        ('outer-bounds-lost728', 'MenuDepthCharacterSource.cs',
+         'view = MenuDepthCharacterProjection.Head(view, _image.rectTransform, eye);',
+         'view = view.Expanded(new Rect(-1f,-1f,2f,2f));',
+         'the complete original 3D figure matches its independent physical geometry instead of outer-frame clipping'),
         ('outer-frozen-basis-lost728', 'MenuDepthNativeUiScope.cs', 'state.Freeze();', '/* native Canvas continues relayout under the enlarged camera */',
          'expanded GPU rendering retains original native root dimensions and edge-anchored controls during the capture itself'),
         ('native-depth-near-domain-lost728', 'MenuDepthNativeUiScope.cs',
@@ -167,12 +169,12 @@ internal static class MenuDepthCharacterRotation
         ('native-depth-probe728', '', '', '', ''),
         ('production', '', '', '', ''),
         ('window-anchors-724', '', '', '', ''),
-        ('window-anchors-native-unit-pixels-725', 'MenuDepthScreenProjection.cs',
-         'MenuDepthProjection.HeadPixels(eye, OnGlass(screen, original, bl), OnGlass(screen, original, tl),\n            OnGlass(screen, original, tr), OnGlass(screen, original, br))',
-         'MenuDepthProjection.HeadPixels(eye, bl, tl, tr, br)',
-         'the real original character eye targets grow from far to near displayed pixels within their bounded tier'),
+        ('window-anchors-native-unit-pixels-725', 'MenuDepthCharacterSource.cs',
+         'int width = pixels.x, height = pixels.y;',
+         'int width = pixels.x / 2, height = pixels.y / 2;',
+         'the real original character eye targets retain full fixed head detail from far to near'),
         ('window-anchors-holder-fallback-725', 'MenuDepthCharacterSource.cs',
-         'ReadOriginal?.Invoke(_manager) ?? _holder', '_holder',
+         'return ReadOriginal == null ? _holder : ReadOriginal(_manager);', 'return _holder;',
          'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
         ('window-anchors-rear-rejected726', 'MenuDepthScreenProjection.cs',
          'Mathf.Abs(Vector3.Dot(center - nativeEye, forward)) > 1e-5f',
@@ -192,24 +194,24 @@ internal static class MenuDepthCharacterRotation
          '            _camera.targetTexture = target;\n            _camera.transform.SetPositionAndRotation(view.Position, view.Rotation);',
          'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
         ('window-anchors-wrong-eye', 'DesktopCapture.cs',
-         '_glassMaterial.mainTexture = _menuDepthFrame == Time.frameCount\n            && global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right ? _menuDepthRight : _menuDepthCarrierLeft ?? _uiRt;',
-         '_glassMaterial.mainTexture = _uiRt;',
+         'MenuDepthDisplay.SetHeadCapture(_menuDepthHeadMaterial, _menuDepthCarrierLeft!, _menuDepthRight!,',
+         'MenuDepthDisplay.SetHeadCapture(_menuDepthHeadMaterial, _menuDepthRight!, _menuDepthCarrierLeft!,',
          'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
         ('no-native-window-mapping', 'MenuDepthScreenProjection.cs',
-         'nativeEye = center + right * (Vector3.Dot(offset, screen.right) * xScale)',
-         'nativeEye = center + right * 0f',
-         'original orthographic UI stack carries physical-eye-dependent graphic relief'),
+         'Matrix4x4.TRS(physicalCenter, screen.rotation,',
+         'Matrix4x4.TRS(physicalCenter + screen.right * .15f, screen.rotation,',
+         'both original native UI cameras populate the borrowed eye target without ordinary-route overwrite'),
         ('right-route-lost', 'CaptureGuard.cs',
          '        if (camera != null && ReferenceEquals(camera, _menuDepthBorrowedCamera)) return;',
          '        /* injected: ordinary capture rewrites a borrowed right target */',
          'both original native UI cameras populate the borrowed eye target without ordinary-route overwrite'),
         ('head-right-selection-lost', 'DesktopCapture.cs',
-         '_glassMaterial.mainTexture = _menuDepthFrame == Time.frameCount\n            && global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right ? _menuDepthRight : _menuDepthCarrierLeft ?? _uiRt;',
-         '_glassMaterial.mainTexture = _uiRt;',
+         'MenuDepthDisplay.SetHeadCapture(_menuDepthHeadMaterial, _menuDepthCarrierLeft!, _menuDepthRight!,',
+         'MenuDepthDisplay.SetHeadCapture(_menuDepthHeadMaterial, _menuDepthRight!, _menuDepthCarrierLeft!,',
          'actual head rendering selects the correct original glass eye before draw'),
         ('native-depth-projection-lost', 'MenuDepthGraphic.cs',
-         'return MenuDepthProjection.ProjectToPlane(point, _eye);',
-         'return point; /* injected: native orthographic UI never receives depth projection */',
+         'UIVertex vertex = _stream[i]; vertex.position.z += depth;',
+         'UIVertex vertex = _stream[i]; /* graphic depth is lost before the real head projection */',
          'original orthographic UI stack carries physical-eye-dependent graphic relief'),
     ]
     if args.case:
@@ -232,10 +234,10 @@ internal static class MenuDepthCharacterRotation
             case = run / name; production = case / 'production'; production.mkdir(parents=True)
             for source_name, code in sources.items():
                 if source_name == filename:
-                    if name == 'window-anchors-holder-fallback-725':
-                        # Prime, actual capture and foreground bounds must all
-                        # abandon the same original identity in this control.
-                        assert code.count(before) == 3, (name, code.count(before))
+                    if name == 'outer-frozen-basis-lost728':
+                        # Both native raster scopes must lose the same layout
+                        # freeze; the active head route remains the pixel witness.
+                        assert code.count(before) == 2, (name, code.count(before))
                         code = code.replace(before, after)
                     else:
                         code = replace_once(code, before, after)

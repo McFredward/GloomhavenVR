@@ -61,6 +61,16 @@ public static partial class MenuDepthDesktopProgram
                         Vector3 origin=scene.ModelCamera.transform.InverseTransformPoint(actor.transform.position);
                         Check(MenuDepthCharacterProjection.TryBuild(scene.ModelCamera,holder,raw.rectTransform,raw.uvRect,nativeEye,origin,out var view),"independent native main-actor calibration establishes the actual physical figure");
                         Vector3 physical=PhysicalBody728(scene,raw,view,body.transform.position);
+                        // The final head now reads the real stored eye view.
+                        // Aim both supplied eyes at the same fixed body before
+                        // the first eye prepares this complete stereo pair.
+                        for(int observedEye=0;observedEye<2;observedEye++)
+                        {
+                            var selected=observedEye==0?Camera.StereoscopicEye.Left:Camera.StereoscopicEye.Right;
+                            Vector3 point=scene.Head.GetStereoViewMatrix(selected).inverse.MultiplyPoint3x4(Vector3.zero);
+                            Quaternion facing=Quaternion.LookRotation(physical-point,Vector3.up);
+                            scene.Head.SetStereoViewMatrix(selected,Matrix4x4.Scale(new Vector3(1,1,-1))*Matrix4x4.TRS(point,facing,Vector3.one).inverse);
+                        }
                         scene.Head.transform.SetPositionAndRotation(position,Quaternion.LookRotation(physical-position,Vector3.up));
                         int modelBefore=scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>().Draws;
                         int uiBefore=scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws;
@@ -69,7 +79,8 @@ public static partial class MenuDepthDesktopProgram
                             &&scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-uiBefore==(eye==0?2:0),
                             "each outer eye preserves native model and UI image effects without an extra render");
                         Check(liveLayoutExact,"expanded GPU rendering retains original native root dimensions and edge-anchored controls during the capture itself");
-                        Check(scene.Flat.SampleFrame.xMin<0f,"actual original character foreground expands beyond the entire old FlatScreen carrier");
+                        Check(scene.Flat.Right!=null&&scene.Flat.Right.width==scene.HeadTarget.width&&scene.Flat.Right.height==scene.HeadTarget.height,
+                            "actual original character foreground uses the complete fixed head raster outside the old FlatScreen carrier");
                         Check(scene.Screen.position==screenPosition&&scene.Screen.localScale==screenScale&&scene.Screen.rotation==screenRotation
                             &&raw.rectTransform.sizeDelta==originalRawSize&&Same(nativeRoot.localToWorldMatrix,originalCanvas),
                             "outer visual carrier leaves original native window hit layout and world pose exact");
