@@ -192,7 +192,7 @@ internal sealed class MenuDepthDisplay : IDisposable
         capture.targetTexture = target;
         Matrix4x4 originalView = capture.worldToCameraMatrix;
         Vector3 planePoint = plane.TransformPoint(new Vector3(frame.center.x, frame.center.y));
-        Vector3 normal = Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized;
+        Vector3 normal = Vector3.Cross(plane.TransformVector(Vector3.right).normalized, plane.TransformVector(Vector3.up).normalized).normalized;
         if (Vector3.Dot(eye.WorldPosition - planePoint, normal) > 0f)
         {
             // The carrier is viewed from the rear. Keep the exact native XY
