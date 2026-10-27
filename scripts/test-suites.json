@@ -3146,6 +3146,17 @@
         "local"
       ],
       "weight": 45
+    },
+    {
+      "id": "character-tooltips",
+      "command": [
+        "python3",
+        "scripts/character-tooltip/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
     }
   ]
 }
