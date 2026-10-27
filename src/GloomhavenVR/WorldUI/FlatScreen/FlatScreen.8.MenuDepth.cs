@@ -10,8 +10,13 @@ namespace GloomhavenVR.WorldUI;
 internal sealed partial class FlatScreen
 {
     private readonly List<Graphic> _menuDepthGraphics = new(32);
+    private readonly List<Graphic> _menuDepthBoundsGraphics = new(4);
     private readonly List<Camera> _menuDepthCameras = new(8);
-    private RenderTexture? _menuDepthRight, _menuDepthLeft;
+    private RenderTexture? _menuDepthRight, _menuDepthLeft, _menuDepthCarrierLeft;
+    private MenuDepthDesktopCarrier? _menuDepthCarrier;
+    private Rect _menuDepthFrameUv = new(0f, 0f, 1f, 1f);
+    private float _menuDepthFrameChangedAt;
+    private Vector2 _menuDepthPhysicalScale;
     private Camera? _menuDepthBorrowedCamera;
     private Predicate<Graphic>? _menuDepthApplies;
     private Func<Graphic, MenuDepthEye>? _menuDepthMapper;
@@ -70,26 +75,84 @@ internal sealed partial class FlatScreen
         return false;
     }
 
+    private static RenderTexture MenuDepthTarget(RenderTexture original, int width, int height, string eye)
+    {
+        var descriptor = original.descriptor; descriptor.width = width; descriptor.height = height;
+        var target = new RenderTexture(descriptor) { name = "GloomhavenVR.FlatScreenRT.MenuDepth" + eye,
+            hideFlags = HideFlags.HideAndDontSave, filterMode = original.filterMode, wrapMode = TextureWrapMode.Clamp };
+        if (target.Create()) return target;
+        UnityEngine.Object.Destroy(target); throw new InvalidOperationException("Native menu eye target was refused.");
+    }
+
+    private float DepthSide(Vector3 eye) => _quad != null
+        && Vector3.Dot(eye - _quad.transform.position, _quad.transform.forward) > 0f ? -1f : 1f;
+
+    private Rect MenuDepthCaptureFrame(Camera head, Vector3 left, Vector3 right)
+    {
+        Vector2 min = Vector2.zero, max = Vector2.one;
+        MenuDepthSources.CollectReadyForegroundGraphics(_menuDepthBoundsGraphics);
+        for (int i = 0; i < _menuDepthBoundsGraphics.Count; i++)
+        {
+            Graphic graphic = _menuDepthBoundsGraphics[i]; Camera? camera = NativeUiCamera(graphic);
+            if (camera == null || !CapturedSet.TryGetValue(camera, out CapturedCamera captured) || !captured.IsUi) continue;
+            for (int side = 0; side < 2; side++)
+            {
+                if (!MenuDepthScreenProjection.TryMap(_quad!.transform, camera, graphic.rectTransform,
+                    side == 0 ? left : right, out Vector3 eye)) continue;
+                if (!MenuDepthSources.TryGetForegroundBounds(graphic, new MenuDepthEye(side != 0, eye, head, true), out Rect bounds)) continue;
+                for (int corner = 0; corner < 4; corner++)
+                {
+                    Vector3 point = graphic.rectTransform.TransformPoint(new Vector3((corner & 1) == 0 ? bounds.xMin : bounds.xMax,
+                        (corner & 2) == 0 ? bounds.yMin : bounds.yMax));
+                    Vector3 viewport = camera.WorldToViewportPoint(point);
+                    if (!MenuDepthProjection.Finite(viewport)) throw new InvalidOperationException("The complete foreground raster is not finite.");
+                    Vector2 uv = new(camera.rect.x + viewport.x * camera.rect.width, camera.rect.y + viewport.y * camera.rect.height);
+                    min = Vector2.Min(min, uv); max = Vector2.Max(max, uv);
+                }
+            }
+        }
+        // Stable pixel pages avoid allocation churn at a moving silhouette edge.
+        float x0 = min.x < 0 ? -Mathf.Ceil((-min.x * _uiRt!.width + 2f) / 64f) * 64f / _uiRt.width : 0f;
+        float y0 = min.y < 0 ? -Mathf.Ceil((-min.y * _uiRt!.height + 2f) / 64f) * 64f / _uiRt.height : 0f;
+        float x1 = max.x > 1 ? 1f + Mathf.Ceil(((max.x - 1f) * _uiRt!.width + 2f) / 64f) * 64f / _uiRt.width : 1f;
+        float y1 = max.y > 1 ? 1f + Mathf.Ceil(((max.y - 1f) * _uiRt!.height + 2f) / 64f) * 64f / _uiRt.height : 1f;
+        Rect requested = Rect.MinMaxRect(x0,y0,x1,y1);
+        if (_menuDepthRight != null && Time.unscaledTime - _menuDepthFrameChangedAt < 2f)
+            requested = Rect.MinMaxRect(Mathf.Min(requested.xMin,_menuDepthFrameUv.xMin),Mathf.Min(requested.yMin,_menuDepthFrameUv.yMin),
+                Mathf.Max(requested.xMax,_menuDepthFrameUv.xMax),Mathf.Max(requested.yMax,_menuDepthFrameUv.yMax));
+        if (requested != _menuDepthFrameUv) _menuDepthFrameChangedAt = Time.unscaledTime;
+        return requested;
+    }
+
     private void CaptureMenuDepthScreen(Camera head)
     {
-        if (head != Rig.VRRigDriver.HeadCamera || _menuDepthFrame == Time.frameCount) return;
+        if (head != Rig.VRRigDriver.HeadCamera) return;
+        if (_menuDepthFrame == Time.frameCount) { BeforeMenuDepthHead(head); return; }
         _menuDepthFrame = Time.frameCount;
         if (!_visible || !_splitRouting || _uiRt == null || _quad == null || _glassMaterial == null
             || !HasNativeMenuDepth() || !MenuDepthDisplay.TryGetEyePositions(head, out Vector3 left, out Vector3 right))
         { ReleaseMenuDepthScreen(); return; }
         try
         {
-            if (_menuDepthRight == null || _menuDepthLeft != _uiRt)
+            Rect frame = MenuDepthCaptureFrame(head, left, right);
+            int width = Mathf.RoundToInt(frame.width * _uiRt.width), height = Mathf.RoundToInt(frame.height * _uiRt.height);
+            if (width > SystemInfo.maxTextureSize || height > SystemInfo.maxTextureSize)
+                throw new InvalidOperationException("The complete native foreground exceeds the graphics texture limit.");
+            bool expanded = frame != new Rect(0f, 0f, 1f, 1f);
+            if (_menuDepthRight == null || _menuDepthLeft != _uiRt
+                || _menuDepthRight.width != width || _menuDepthRight.height != height
+                || expanded != (_menuDepthCarrierLeft != null))
             {
                 ReleaseMenuDepthScreen();
-                _menuDepthRight = new RenderTexture(_uiRt.descriptor)
-                {
-                    name = "GloomhavenVR.FlatScreenRT.MenuDepthRight", hideFlags = HideFlags.HideAndDontSave,
-                    filterMode = _uiRt.filterMode, wrapMode = _uiRt.wrapMode,
-                };
-                if (!_menuDepthRight.Create()) throw new InvalidOperationException("Native menu right capture target was refused.");
+                _menuDepthRight = MenuDepthTarget(_uiRt, width, height, "Right");
+                if (expanded) _menuDepthCarrierLeft = MenuDepthTarget(_uiRt, width, height, "Left");
                 _menuDepthLeft = _uiRt;
             }
+            _menuDepthFrameUv = frame;
+            float physical = 2f * Mathf.Sqrt(_quad.transform.TransformVector(Vector3.right).magnitude
+                * _quad.transform.TransformVector(Vector3.up).magnitude);
+            if (SystemInfo.usesReversedZBuffer) physical = -physical;
+            _menuDepthPhysicalScale = new Vector2(DepthSide(left) * physical, DepthSide(right) * physical);
             _menuDepthCameras.Clear();
             for (int i = 0; i < _captured.Count; i++)
             {
@@ -99,8 +162,13 @@ internal sealed partial class FlatScreen
                 while (at > 0 && _menuDepthCameras[at - 1].depth > source.Camera.depth) at--;
                 _menuDepthCameras.Insert(at, source.Camera);
             }
-            CaptureMenuDepthUi(_uiRt, new MenuDepthEye(false, left, head));
-            CaptureMenuDepthUi(_menuDepthRight, new MenuDepthEye(true, right, head));
+            CaptureMenuDepthUi(_menuDepthCarrierLeft ?? _uiRt, new MenuDepthEye(false, left, head));
+            CaptureMenuDepthUi(_menuDepthRight!, new MenuDepthEye(true, right, head));
+            _menuDepthCarrier ??= new MenuDepthDesktopCarrier(_quad.transform, _glassMaterial,
+                _menuDepthCarrierLeft ?? _uiRt, _menuDepthRight!);
+            // The visual replacement must exist before head culling. PreRender
+            // still selects the actual eye, but cannot admit an inactive mesh.
+            BeforeMenuDepthHead(head);
         }
         catch (Exception error)
         {
@@ -140,20 +208,26 @@ internal sealed partial class FlatScreen
                 MenuDepthNativeUiScope? depthScope = null;
                 try
                 {
-                    source.targetTexture = target;
                     bool rear = _quad != null && Vector3.Dot(eye.WorldPosition - _quad.transform.position, _quad.transform.forward) > 0f;
                     depthScope = new MenuDepthNativeUiScope(source, MenuDepthNativeUiScope.FindCanvas(source, _menuDepthGraphics), rear);
                     MenuDepthSources.BeforeCaptureWhere(eye, _menuDepthApplies!, _menuDepthMapper!, _menuDepthPixels!);
                     if (VRLayers.ModLayerMask != VRLayers.GameUiLayerMask) source.cullingMask &= ~VRLayers.ModLayerMask;
                     if (MenuDepthSources.HasPreparedSources) Canvas.ForceUpdateCanvases();
+                    depthScope.ExpandCapture(target, _menuDepthFrameUv, _menuDepthGraphics);
                     source.Render();
                 }
                 finally
                 {
-                    MenuDepthSources.AfterCapture();
-                    depthScope?.Dispose();
-                    if (source != null) { source.targetTexture = originalTarget; source.cullingMask = originalMask; }
-                    _menuDepthBorrowedCamera = null;
+                    try { MenuDepthSources.AfterCapture(); }
+                    finally
+                    {
+                        try { depthScope?.Dispose(); }
+                        finally
+                        {
+                            if (source != null) { source.targetTexture = originalTarget; source.cullingMask = originalMask; }
+                            _menuDepthBorrowedCamera = null;
+                        }
+                    }
                 }
             }
         }
@@ -180,17 +254,24 @@ internal sealed partial class FlatScreen
     {
         if (camera != Rig.VRRigDriver.HeadCamera || _menuDepthRight == null || _glassMaterial == null || _uiRt == null) return;
         _glassMaterial.mainTexture = _menuDepthFrame == Time.frameCount
-            && camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right ? _menuDepthRight : _uiRt;
+            && camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right ? _menuDepthRight : _menuDepthCarrierLeft ?? _uiRt;
+        bool right = camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right;
+        if (_menuDepthFrame == Time.frameCount && _menuDepthCarrier != null)
+            _menuDepthCarrier.Draw((RenderTexture)_glassMaterial.mainTexture, _menuDepthFrameUv,
+                right ? _menuDepthPhysicalScale.y : _menuDepthPhysicalScale.x);
     }
     private void AfterMenuDepthHead(Camera camera)
     {
-        if (camera == Rig.VRRigDriver.HeadCamera && _glassMaterial != null && _uiRt != null)
-            _glassMaterial.mainTexture = _uiRt;
+        if (camera != Rig.VRRigDriver.HeadCamera) return;
+        _menuDepthCarrier?.EndDraw();
+        if (_glassMaterial != null && _uiRt != null) _glassMaterial.mainTexture = _uiRt;
     }
     private void ReleaseMenuDepthScreen()
     {
-        if (_glassMaterial != null && _menuDepthRight != null && _glassMaterial.mainTexture == _menuDepthRight)
-            _glassMaterial.mainTexture = _uiRt;
+        _menuDepthCarrier?.Dispose(); _menuDepthCarrier = null;
+        if (_glassMaterial != null) _glassMaterial.mainTexture = _uiRt;
+        if (_menuDepthCarrierLeft != null) { _menuDepthCarrierLeft.Release(); UnityEngine.Object.Destroy(_menuDepthCarrierLeft); }
+        _menuDepthCarrierLeft = null;
         if (_menuDepthRight != null) { _menuDepthRight.Release(); UnityEngine.Object.Destroy(_menuDepthRight); }
         _menuDepthRight = _menuDepthLeft = null;
     }

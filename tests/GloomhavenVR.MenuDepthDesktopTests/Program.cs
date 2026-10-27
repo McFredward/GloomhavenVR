@@ -50,7 +50,19 @@ public static partial class MenuDepthDesktopProgram
             Texture2D mono = Read(scene.Ui, Path.Combine(output, "original-native-mono.png"));
             float monoBlue = X(mono, 2), monoRed = X(mono, 0);
             Color nativeFade = mono.GetPixel(115, 110); Object.DestroyImmediate(mono);
+            Camera.CameraCallback diagnostic=c=>
+            {
+                if(c!=scene.Head)return;
+                using(var trace=new StreamWriter(Path.Combine(output,"carrier-state.txt"),true))
+                    foreach(var r in scene.Screen.GetComponentsInChildren<MeshRenderer>(true))
+                    {
+                        trace.WriteLine(r.name+" active="+r.gameObject.activeInHierarchy+" enabled="+r.enabled+" bounds="+r.bounds+" shader="+r.sharedMaterial.shader.name+" color="+r.sharedMaterial.GetColor("_Color")+" tex="+r.sharedMaterial.mainTexture);
+                        var mesh=r.GetComponent<MeshFilter>().sharedMesh;trace.WriteLine("mesh="+mesh.vertexCount+" local="+r.transform.localToWorldMatrix);
+                    }
+            };
+            Camera.onPreRender+=diagnostic;
             scene.Eyes(Vector3.zero); scene.Render(false);
+            Camera.onPreRender-=diagnostic;
             Check(scene.Flat.Right != null && scene.Flat.Right.IsCreated(), "native screen-space menu receives two prepared glass captures before the first actual head draw");
             Texture2D left = Read(scene.Ui, Path.Combine(output, "native-ui-left.png"));
             Texture2D right = Read(scene.Flat.Right!, Path.Combine(output, "native-ui-right.png"));

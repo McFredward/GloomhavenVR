@@ -119,7 +119,8 @@ namespace GloomhavenVR.WorldUI
         internal void End() => ReleaseStack();
         internal int Captured => _captured.Count;
         internal RenderTexture? Right => _menuDepthRight;
-        internal RenderTexture Left => _uiRt!;
+        internal RenderTexture Left => _menuDepthCarrierLeft ?? _uiRt!;
+        internal Rect SampleFrame => _menuDepthFrameUv;
         internal void HideForFixture() { _visible = false; ReleaseStack(); }
     }
 }

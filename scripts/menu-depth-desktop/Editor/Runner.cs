@@ -8,19 +8,22 @@ using UnityEngine;
 public static class MenuDepthDesktopRunner
 {
     [Serializable] private sealed class Case { public string name, dll, expected, method; }
-    [Serializable] private sealed class Manifest { public string result, evidence; public Case[] cases; }
+    [Serializable] private sealed class Manifest { public string result, evidence, depthBundle; public Case[] cases; }
     private static Manifest manifest;
     private static StreamWriter writer;
     private static IEnumerator routine;
     private static int index;
     private static int assertions;
     private static bool pass = true;
+    private static AssetBundle depthBundle;
     public static void Start()
     {
         string[] args = Environment.GetCommandLineArgs();
         manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(args[Array.IndexOf(args, "-menuDepthDesktopManifest") + 1]));
         if (Array.IndexOf(UnityEditorInternal.InternalEditorUtility.tags, "UICamera") < 0)
             UnityEditorInternal.InternalEditorUtility.AddTag("UICamera");
+        depthBundle = AssetBundle.LoadFromFile(manifest.depthBundle);
+        if(depthBundle==null)throw new Exception("Actual production depth bundle missing");
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload | EnterPlayModeOptions.DisableSceneReload;
         writer = new StreamWriter(manifest.result);
@@ -42,7 +45,12 @@ public static class MenuDepthDesktopRunner
             {
                 string output = Path.Combine(manifest.evidence, item.name); Directory.CreateDirectory(output);
                 Action<int> done = count => assertions = count;
-                routine = (IEnumerator)Assembly.LoadFile(item.dll).GetType("MenuDepthDesktopProgram")
+                Assembly assembly=Assembly.LoadFile(item.dll);
+                Type display=assembly.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthDisplay");
+                foreach(string part in new[]{"display","graphic","character"})
+                    display.GetField(part=="graphic"?"_depthShader":"_"+part+"Shader",BindingFlags.Static|BindingFlags.NonPublic)
+                        .SetValue(null,depthBundle.LoadAsset<Shader>("assets/menudepth/menudepth"+part+".shader"));
+                routine = (IEnumerator)assembly.GetType("MenuDepthDesktopProgram")
                     .GetMethod(item.method).Invoke(null, new object[] { output, done });
             }
             if (routine.MoveNext()) return;

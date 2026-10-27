@@ -66,7 +66,7 @@ def main():
         start = stack.index(signature); body += stack[start:stack.index(';', start) + 1] + '\n'
     names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs',
              'MenuDepthSources.cs', 'MenuDepthDisplay.cs', 'MenuDepthGraphic.cs', 'MenuDepthHeightfield.cs',
-             'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs', 'MenuDepthNativeUiScope.cs')
+             'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs', 'MenuDepthNativeUiScope.cs', 'MenuDepthDesktopCarrier.cs')
     sources = {name: (depth / name).read_text() for name in names}
     sources['CaptureStack.cs'] = body + '}\n'
     sources['CaptureGuard.cs'] = (flat / 'FlatScreen.7.CaptureRender.cs').read_text()
@@ -76,15 +76,20 @@ def main():
     # matrices are real Unity inputs; the editor cannot report an active XR eye.
     sources['MenuDepthDisplay.cs'] = replace_once(sources['MenuDepthDisplay.cs'],
         'head == null || !head.stereoEnabled', 'head == null || !global::DesktopEyeInput.Available')
-    sources['DesktopCapture.cs'] = replace_once(sources['DesktopCapture.cs'],
+    sources['DesktopCapture.cs'] = sources['DesktopCapture.cs'].replace(
         'camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right',
         'global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right')
     fixtures = ROOT / 'tests/GloomhavenVR.MenuDepthDesktopTests'
     inputs = [flat / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.7.CaptureRender.cs', 'FlatScreen.8.MenuDepth.cs')]
     inputs += [depth / name for name in names]
-    inputs += [ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
+    inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
+        ('outer-carrier728', '', '', '', ''),
+        ('outer-bounds-lost728', 'DesktopCapture.cs', 'MenuDepthSources.CollectReadyForegroundGraphics(_menuDepthBoundsGraphics);',
+         '_menuDepthBoundsGraphics.Clear();', 'actual original character foreground expands beyond the entire old FlatScreen carrier'),
+        ('outer-frozen-basis-lost728', 'MenuDepthNativeUiScope.cs', 'state.Freeze();', '/* native Canvas continues relayout under the enlarged camera */',
+         'expanded GPU rendering retains original native root dimensions and edge-anchored controls during the capture itself'),
         ('native-depth-near-domain-lost728', 'MenuDepthNativeUiScope.cs',
          'camera.nearClipPlane = distance - halfSpan;\n            camera.farClipPlane = distance + halfSpan;',
          '/* native near/far domain unchanged */',
@@ -126,7 +131,7 @@ def main():
          '            _camera.targetTexture = target;\n            _camera.transform.SetPositionAndRotation(view.Position, view.Rotation);',
          'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
         ('window-anchors-wrong-eye', 'DesktopCapture.cs',
-         '_glassMaterial.mainTexture = _menuDepthFrame == Time.frameCount\n            && global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right ? _menuDepthRight : _uiRt;',
+         '_glassMaterial.mainTexture = _menuDepthFrame == Time.frameCount\n            && global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right ? _menuDepthRight : _menuDepthCarrierLeft ?? _uiRt;',
          '_glassMaterial.mainTexture = _uiRt;',
          'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
         ('no-native-window-mapping', 'MenuDepthScreenProjection.cs',
@@ -138,7 +143,7 @@ def main():
          '        /* injected: ordinary capture rewrites a borrowed right target */',
          'both original native UI cameras populate the borrowed eye target without ordinary-route overwrite'),
         ('head-right-selection-lost', 'DesktopCapture.cs',
-         '_glassMaterial.mainTexture = _menuDepthFrame == Time.frameCount\n            && global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right ? _menuDepthRight : _uiRt;',
+         '_glassMaterial.mainTexture = _menuDepthFrame == Time.frameCount\n            && global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right ? _menuDepthRight : _menuDepthCarrierLeft ?? _uiRt;',
          '_glassMaterial.mainTexture = _uiRt;',
          'actual head rendering selects the correct original glass eye before draw'),
         ('native-depth-projection-lost', 'MenuDepthGraphic.cs',
@@ -155,7 +160,7 @@ def main():
         (project / 'ProjectSettings').mkdir(); (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project / 'Packages').mkdir(); (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
         shutil.copyfile(ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs', editor / 'Runner.cs')
-        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
+        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'depthBundle': str(source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle'), 'cases': []}
         (run / 'source-pins.json').write_text(json.dumps({'inputs': pins,
             'boundaries': 'Already-visible screen resources and native scene/manager geometry; actual screen-space Canvas, uGUI, native Camera.Render, original capture route/clears/guard/desktop mapper/registry/character and graphic production run. XR availability/active eye are supplied, real Unity stored stereo matrices remain.',
             'limits': 'No real XR/provider/headset, actual prefab art, native network or final HMD comfort proof.'}, indent=2) + '\n')
@@ -165,9 +170,9 @@ def main():
             for source_name, code in sources.items():
                 if source_name == filename:
                     if name == 'window-anchors-holder-fallback-725':
-                        # Prime and actual capture must both abandon the native
-                        # original identity for this intended fallback mutant.
-                        assert code.count(before) == 2, (name, code.count(before))
+                        # Prime, actual capture and foreground bounds must all
+                        # abandon the same original identity in this control.
+                        assert code.count(before) == 3, (name, code.count(before))
                         code = code.replace(before, after)
                     else:
                         code = replace_once(code, before, after)
@@ -192,7 +197,7 @@ def main():
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
+                                      'method': ('OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else
                                           'Anchors724' if name.startswith('window-anchors-') else 'Run')})
