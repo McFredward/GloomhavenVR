@@ -629,7 +629,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 724;
+    public const ushort ModBuild = 725;
+
+    // ModBuild725 — address the Build724 character framing and pulsed-flight report.
+    // Replace quarter-second UI hierarchy/global preview sweeps with pooled cold
+    // discovery and coalesced native lifecycle observations. Keep first-visible
+    // native arrivals without periodic polling of the entire scene. Supersampled
+    // stereo owns its explicit eye captures; hidden displays and redundant mono
+    // draws no longer repeat that work. Native movement integration is unchanged.
+    // Fit completed original character/companion envelopes around the glass with
+    // shallow depth and slight protrusion; retain fixed native scene transforms.
+    // Size eye targets from bounded physical pixel demand with a shared memory
+    // budget, hysteresis and idle release. Accepted story data remains unchanged.
+    // Source/CPU/GPU proofs are distinct from pending headset frame-pacing and
+    // appearance acceptance; see .planning/MENU725-PERFORMANCE-AND-PREVIEWS.md.
 
     // ModBuild724 — repair the spatial UI paths rejected in the Build723 headset test.
     // The native character holder and its lights are children of the GUI3D Camera:

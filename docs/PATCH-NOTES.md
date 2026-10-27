@@ -26,6 +26,25 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build725: event-driven spatial UI discovery
+
+WorldUI registers `MenuDepthLifecycleObserver` alongside the existing exact
+`Character3DDisplayManager.Display` observer. Its postfixes observe the original
+typed UI owners' initialization, Graphic lifetime/hierarchy changes, RawImage
+texture assignments, window enrollment and character-manager readiness. They
+coalesce changed identities for discovery rather than periodically scanning all
+UI hierarchies and global preview objects. Inherited native methods are deduplicated
+by runtime method identity before patching. Text and unrelated graphic effects
+are rejected before hierarchy or owner-field work.
+
+The observer cannot skip native initialization, change gameplay arguments or
+invoke native actions. Observation failures retain native presentation and produce
+bounded context. Pooled inactive content receives one cold census; real late
+arrivals and reparenting are handled before their first capture. The source registry
+flushes pending work only outside a capture lease and restores borrowed rendering
+state on failure. Shared placement, original colours/material clocks, animation,
+permissions and joystick movement integration remain native.
+
 ## Build670: exact native item-confirmation observation
 
 WorldUI registers `MapItemConfirmationRequestObserver` on
