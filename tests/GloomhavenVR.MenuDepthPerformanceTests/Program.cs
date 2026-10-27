@@ -378,6 +378,7 @@ public static class MenuDepthPerformanceProof
                 _automaticStarted = Time.realtimeSinceStartup; head.enabled = true;
                 return; // Actual engine render, never an additional Driver.Tick or Camera.Render.
             }
+            head.enabled = true; // Actual head contract; manual Render occurs before this update returns.
             string sampled = string.Empty, sampledCull = string.Empty, postState = string.Empty;
             bool beforeCull = preview.canvasRenderer.cull;
             Func<string> state = () => "texture=" + preview.texture.name + ";mainTexture=" + preview.mainTexture.name

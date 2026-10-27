@@ -92,6 +92,10 @@ def main():
              '        DisplayRequests[key] = target;',
              '        if (target != null) DisplayRequests[key] = target;',
              'repeated actual native Display while target is null scans each requester identity only once'),
+            ('missing-early-direct-prime', 'MenuDepthSources.cs',
+             '            Canvas.preWillRenderCanvases += PrimeDirectSources;',
+             '            /* injected: native batch keeps the old texture identity */',
+             'the actual first late-arrival head raster contains the native character eye rather than the initialized flat blue target'),
             ('missing-first-draw-pump', 'MenuDepthDriver.cs',
              'MenuDepthSources.SetDiscoveryPump(CapturePump);', 'MenuDepthSources.SetDiscoveryPump(null);',
              'the first actual head draw flushes native Display or texture arrivals after the last Tick from an empty registry'),
@@ -167,7 +171,7 @@ def main():
             retained = run / 'assemblies' / (assembly + '.dll'); retained.parent.mkdir(exist_ok=True)
             shutil.copyfile(case / 'bin/Release/net472' / retained.name, retained)
             manifest['cases'].append({'name': name, 'dll': str(retained), 'expected': expected, 'baseline': name in ('baseline724', 'baseline724-automatic-ready'),
-                'firstDraw': name in ('baseline724-automatic-ready', 'automatic-first-draw', 'first-draw', 'missing-first-draw-pump', 'direct-batch-probe', 'direct-rebuild-probe', 'direct-restore-probe', 'pre-render-capture-probe', 'direct-cull-rebuild-probe'),
+                'firstDraw': name in ('baseline724-automatic-ready', 'automatic-first-draw', 'first-draw', 'missing-early-direct-prime', 'missing-first-draw-pump', 'direct-batch-probe', 'direct-rebuild-probe', 'direct-restore-probe', 'pre-render-capture-probe', 'direct-cull-rebuild-probe'),
                 'restoreAfterRender': name in ('direct-restore-probe', 'pre-render-capture-probe', 'direct-cull-rebuild-probe'),
                 'prepareBeforeRender': name == 'pre-render-capture-probe', 'automatic': name in ('automatic-first-draw', 'baseline724-automatic-ready')})
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')

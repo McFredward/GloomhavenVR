@@ -56,8 +56,8 @@ The enabled-head case runs the actual automatic engine render, with a native
 OnRenderImage sentinel keeping mono output blue while owned eye output remains
 red. It checks those textures independently before assessing the head raster.
 
-At this checkpoint, registration and native eye generation pass but final direct
-head delivery fails under the supplied Unity/GL profile: native mono4096blue/0red,
+Before the stable-left early-prime repair, registration and native eye generation
+passed but final direct head delivery failed under the supplied Unity/GL profile: native mono4096blue/0red,
 owned eye22344red/0blue, final head15600blue/0red (`run-5h5spi3h`). This is preserved
 as a failure, not a production pass or a headset claim. The explicit actual
 BeforeCapture-before-Camera.Render discriminator passes all4 late readiness /
@@ -80,3 +80,30 @@ keeps mono4096blue/0red, and draws head15600blue/0red. Exact expected failure is
 recorded as a historical negative control, with source callback and restoration
 checks reached first. The observed direct GL delivery defect therefore predates
 the discovery repair. No D3D11/headset outcome is inferred from this engine proof.
+
+
+## Stable direct batch repair verification
+
+With capture checkpoint `f76629dc3` and authored calibration `ad5129cc7`, the full
+14-case invocation (`run-ghxti3hc`) passes833 CPU assertions,3 exact724 comparator
+assertions,18 manual first-draw assertions,9 actual automatic first-draw assertions
+and all10 compiling causal controls. Manual head cameras now follow the actual
+active-head contract before their same-update explicit render; the four cases
+retain both LDR/HDR and late Display/texture readiness without another Tick.
+Automatic mono remains4096blue/0red, owned eye22344red/0blue, and final automatic
+head becomes5192red/0blue, with exact native target restoration. Omitting only the
+early Canvas prime restores the hard old-blue head failure.
+
+The repair primes a stable existing left RT identity before native canvas batch
+construction, without rendering a model there. Each actual head eye refreshes
+that same surface with its current projection. No new shader, material, image
+copy or global Canvas rebuild is added. Read-only review verifies that borrowed
+identity is established before texture notification, priming skips active capture
+reentry, dimensions stay locked through a primed frame, maintenance skips active
+loans, and end-of-frame/stale-frame cleanup restores orphaned loans.
+
+The final run occurred alongside the complete integration gate: steady CPU mean
+2.7540ms→0.9188ms and p9921.5491ms→1.4099ms, with zero recurring structural work.
+The earlier unloaded comparison above remains a separate, correctly scoped
+measurement. Neither is a hardware/VR comfort claim. All final26 input pins were
+unchanged; exact Editor/descendant and compiler teardown preceded cache cleanup.
