@@ -3182,6 +3182,18 @@
       "weight": 60
     },
     {
+      "id": "character-tooltips-native-flat",
+      "command": [
+        "python3",
+        "scripts/character-tooltip/run.py",
+        "--native-flat"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
       "id": "menu-depth-rotation",
       "command": [
         "python3",

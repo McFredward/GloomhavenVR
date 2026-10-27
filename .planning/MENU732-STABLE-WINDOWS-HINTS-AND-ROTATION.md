@@ -49,5 +49,55 @@ Party/creation preview windows are private under the existing window model;
 interaction must respect actual ownership and cancellation without a new gameplay
 state write or an unapproved shared-visual exception.
 
-Implementation and final qualification follow after integration. Automated GPU,
-source and log evidence remain distinct from headset acceptance.
+## Rendering change
+
+The moving foreground no longer determines an enlarged photograph of the glass
+plane. Each admitted window renders its original UI and the native character
+scene into fixed head-pixel rasters. Model scratch is consumed by one original UI
+draw before the next eye reuses it. The source Canvas basis remains frozen during
+the temporary camera lease; native draw order, clipping, materials, image effects
+and true foreground depth remain on their original paths. A private presentation
+carrier displays these pixels without moving the original window or its input.
+
+The real PanelSupersample coordinator exposed a second-eye defect: its cached
+frame branch returned after the first head draw had hidden the carrier. It now
+prepares the carrier for every head draw while reusing the completed eye pair.
+The former source-only motion tests could not observe this omission.
+
+The hardware eye target is4040x4040 ARGB32, not the small desktop fixture target.
+Two normalized RGBA32/D24 eye targets require249.05MiB; one normalized native
+scene scratch requires124.52MiB. Old photograph budgets cannot admit this real
+head raster. Resource ownership therefore needs a finite, exact XR-derived ledger
+and single-sample, non-mipped scratch descriptors. These are capacity limits,
+not a movement-sensitive sampling dial. Final resource and coplanar-crossing
+qualification is pending at this checkpoint.
+
+## Original hints and preview interaction
+
+Right-side hint routing identifies serialized native skin, description,
+personal-quest and creator-perk fields. It places the original hint12native pixels
+outside the unchanged right edge, retaining content, style, hierarchy, vertical
+layout and native show/hide callbacks. NativeFlat and converted windows both need
+an annotation routing member when character depth is disabled or not yet ready.
+The original campaign quest tooltip has no root Graphic; its exact serialized
+description child must provide that membership. A root-Image fixture was found
+to hide this authoring distinction and is being corrected before final validation.
+
+Eight of the twelve original live preview consumers belong to interactive private
+party/creation owners. Their original RawImage becomes the normal laser drag
+target while a ready depth source owns it. The gesture retains native focus,
+press ownership, tracking/lock cancellation and original raycast flags. Horizontal
+drag composes preview yaw around the native main actor's ground origin. Original
+model/holder/gameplay transforms, window pose and automatic celebration consumers
+remain untouched. Source readiness and identity replacement cancel old drags.
+
+## Validation checkpoint
+
+Standalone interaction currently passes235 assertions and11 causal controls;
+enrolled interaction through the real Source.Camera.Render passes110 and4. The
+whole-window motion checkpoint passes1465 assertions and3 causal controls through
+NativeFlat and the production PanelSupersample coordinator, both eyes over52poses.
+Independent fixed-world UI/model references compare final head pixels. These are
+checkpoint results; final resource, hint-authoring and complete local-gate evidence
+must be recorded after integration. Automated GPU, source and log evidence remain
+distinct from headset acceptance.
