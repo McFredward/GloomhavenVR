@@ -14,7 +14,6 @@ internal sealed class MenuDepthNativeUiScope : IDisposable
         internal readonly List<Canvas> Roots = new(8);
     }
     private static readonly Dictionary<Camera, Family> Families = new();
-    private static Canvas? _changingCanvas;
     private readonly Camera _camera;
     private readonly Matrix4x4 _projection, _culling, _view;
     private readonly CameraClearFlags _clear;
@@ -24,12 +23,6 @@ internal sealed class MenuDepthNativeUiScope : IDisposable
     private readonly bool _automaticProjection, _automaticCulling, _automaticView;
     private readonly List<CanvasState> _frozen = new(8);
     private bool _disposed;
-
-    // Only the exact synchronous notifications caused by our own mode setter.
-    // Native births, enable/parent/destroy callbacks and unknown Graphics still
-    // pass through the observer; the caller also checks its known-Graphic set.
-    internal static bool IsOwnHierarchyChange(Graphic graphic) => _changingCanvas != null
-        && graphic != null && graphic.transform.IsChildOf(_changingCanvas.transform);
 
     internal static Canvas? FindCanvas(Camera camera, IReadOnlyList<Graphic> graphics)
     {
@@ -167,12 +160,7 @@ internal sealed class MenuDepthNativeUiScope : IDisposable
             SetMode(RenderMode.WorldSpace); RestoreRect();
             _canvas.scaleFactor = _factor; _canvas.referencePixelsPerUnit = _pixels;
         }
-        private void SetMode(RenderMode mode)
-        {
-            Canvas? prior = _changingCanvas; _changingCanvas = _canvas;
-            try { _canvas.renderMode = mode; }
-            finally { _changingCanvas = prior; }
-        }
+        private void SetMode(RenderMode mode) => _canvas.renderMode = mode;
         private void RestoreRect()
         {
             _rect.anchorMin = _min; _rect.anchorMax = _max; _rect.pivot = _pivot; _rect.sizeDelta = _size;
