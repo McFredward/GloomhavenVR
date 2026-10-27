@@ -33,6 +33,7 @@ over older Claude-specific instructions retained in historical planning records.
 | Every shipped default | `src/GloomhavenVR/Defaults/*.cs`, one annotated line each |
 | Anything user-facing | `src/GloomhavenVR/Core/Loc/` |
 | How to build, test, release | `docs/DEVELOPING.md`, `docs/CI-CD.md` |
+| Which tests a change requires | `docs/TEST-STRATEGY.md` (binding policy, 2026-10-27) |
 
 **The code is the documentation.** This project writes long block comments that state the user's
 report verbatim, the root cause, the evidence, and the alternatives that were tried and rejected.
@@ -83,10 +84,23 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
 9. **His approved look outranks geometric or technical correctness.**
 10. **Window facing is yaw-only** — no window is ever pitched or rolled.
 
-## The gates — run all of them on the integrated tree before you push
+## Testing scope — classify the change before running gates
+
+Follow [docs/TEST-STRATEGY.md](docs/TEST-STRATEGY.md). The maintainer's 2026-10-27
+policy supersedes the older requirement to run the complete gate for every push.
+Class A documentation needs applicable content checks. Class B bounded behavior
+needs a strict build for C# changes, all source gates for production C# changes,
+affected runtime suites/controls and justified reuse of unchanged input-bound
+evidence. Unknown dependencies or missing evidence escalate to class C.
+Class C broad/critical integrations require the complete commands below once on
+the integrated candidate. Releases require complete applicable coverage and
+trusted hosted proof. Active B-only runtime development also requires a complete
+checkpoint by day end or ten runtime-changing dev commits, whichever comes first.
+
+The **complete** local gate is:
 
 ```bash
-bash scripts/refactor-guard.sh check --summary   # 17 checkers, then the compiled-form diff
+bash scripts/refactor-guard.sh check --summary   # source/runtime/golden checks and compiled diff
 bash scripts/ci-build.sh Release                 # 0 errors, 0 warnings (TreatWarningsAsErrors)
 python3 scripts/check-docs-i18n.py               # EN/DE docs agree
 ```
@@ -123,11 +137,15 @@ A hosted green run does not
 replace that local gate.
 
 During implementation, each worker runs the focused suites and source checks
-affected by its changes. The primary agent runs the complete local commands above
-once after all worker changes are integrated into `dev`. A partial suite cannot
-certify the full tree; if a later fix changes the validated tree, rerun its affected
-checks and the complete gate on the final tree before pushing. The targeted suite
-interface and evidence location are documented in `docs/DEVELOPING.md`.
+affected by its changes. The primary agent validates their final union at the
+required risk class. The guard already invokes `wire-tests.sh`, which already
+runs every local suite and the golden executable: do not repeat these commands
+for unchanged inputs. After a bounded repair, rerun affected checks and reuse
+only evidence with unchanged production, fixture, dependency and toolchain
+bindings. Do not restart the entire inventory solely because the candidate SHA
+changed. A partial suite cannot certify the full tree; report inherited evidence
+and hardware limits explicitly. The targeted suite interface and evidence
+location are documented in `docs/DEVELOPING.md`.
 
 **Bundles are built ONLY with `/home/claw/unity-2021.3.5`**, never `unity-2021.3`. The wrong
 editor produces a bundle that loads nothing and fails silently into the procedural fallback;
