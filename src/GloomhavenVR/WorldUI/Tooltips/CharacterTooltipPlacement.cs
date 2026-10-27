@@ -41,12 +41,13 @@ internal static class CharacterTooltipPlacement
     // when character depth is disabled or its model is not ready. This source
     // only leases its original plate as a routing member: no copied content,
     // new depth, material, shader, mask or callback is introduced.
-    private sealed class Annotation : IMenuDepthSource
+    private sealed class Annotation : IMenuDepthWindowAnnotationSource
     {
         internal object Owner = null!;
         public Graphic Graphic { get; }
         public bool IsReady => true;
-        internal Annotation(Graphic graphic) { Graphic = graphic; }
+        public RectTransform AnnotationRect { get; }
+        internal Annotation(Graphic graphic, RectTransform rect) { Graphic = graphic; AnnotationRect = rect; }
         public void BeforeCapture(MenuDepthEye eye) { }
         public void AfterCapture() { }
     }
@@ -64,7 +65,7 @@ internal static class CharacterTooltipPlacement
             && description.transform.IsChildOf(rect))
             plate = description.GetComponent<Graphic>();
         if (plate == null) return;
-        var source = new Annotation(plate) { Owner = owner };
+        var source = new Annotation(plate, rect) { Owner = owner };
         Annotations.Add(rect, source); MenuDepthSources.Register(source);
     }
 
