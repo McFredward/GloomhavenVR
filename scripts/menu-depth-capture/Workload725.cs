@@ -114,6 +114,11 @@ public static partial class MenuDepthProgram
                 using (TextureOwner native = new TextureOwner(Read(scene.Entry.Rt, "725-fresh-mono-fallback")))
                     Check(native.Image.GetPixel(225, 180).b > .7f && native.Image.GetPixel(225, 180).r < .1f,
                         "the mono fallback actually contains newly changed native artwork instead of the previous spatial eye");
+                using(TextureOwner monoMip = new TextureOwner(Read(scene.Entry.MipRt,"725-restored-mono-mip"))) { }
+                File.WriteAllText(Path.Combine(output,"725-restored-photo-state.txt"),
+                    "canvas="+scene.Entry.DisplayGo.GetComponent<Canvas>().enabled+";graphic="+scene.Entry.DisplayImage.enabled
+                    +";cull="+scene.Entry.DisplayImage.canvasRenderer.cull+";texture="+scene.Entry.DisplayImage.texture.name
+                    +";material="+scene.Entry.DisplayImage.material.shader.name+";rendererMaterial="+scene.Entry.DisplayImage.canvasRenderer.GetMaterial(0).shader.name+"\n");
                 using (TextureOwner monoHead = scene.Eye(false,"725-restored-mono-head"))
                 {
                     Color pixel = PhysicalPixel(scene,monoHead.Image,new Vector3(-90,0,0));

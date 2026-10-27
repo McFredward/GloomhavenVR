@@ -475,6 +475,10 @@ public static partial class MenuDepthProgram
             capture.orthographic = true; capture.orthographicSize = .9f; capture.aspect = 16f / 9f;
             capture.nearClipPlane = .1f; capture.farClipPlane = 10; capture.cullingMask = 1 << 8;
             capture.clearFlags = CameraClearFlags.SolidColor; capture.backgroundColor = Color.clear;
+            // Exact production BuildCamera inputs: an HDR intermediate would
+            // resolve ARGB32 only after onPostRender and invalidate the mono witness.
+            capture.stereoTargetEye=StereoTargetEyeMask.None;capture.renderingPath=RenderingPath.Forward;
+            capture.allowHDR=false;capture.allowMSAA=true;capture.allowDynamicResolution=false;capture.useOcclusionCulling=false;
             var rt = new RenderTexture(640, 360, 24); rt.Create(); capture.targetTexture = rt;
             var mip = new RenderTexture(640, 360, 0) { useMipMap = true, autoGenerateMips = false, filterMode = FilterMode.Trilinear }; mip.Create();
             var display = new GameObject("actual window display", typeof(RectTransform), typeof(Canvas)); display.layer = 27;

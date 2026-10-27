@@ -130,6 +130,9 @@ def main():
              'source.Graphic.canvas.rootCanvas != null', 'screen-space consumers with nested canvases are never mistaken for direct world-space previews'),
             ('hidden-source-direct', 'MenuDepthSources.cs', 'graphic.canvasRenderer.GetInheritedAlpha() > 0f',
              'graphic.canvasRenderer.GetInheritedAlpha() >= 0f', 'fully hidden pooled native consumers never borrow the model scene or opt in their window'),
+            ('fixture-hdr-camera-mismatch', 'Program.cs',
+             'capture.allowHDR=false;', 'capture.allowHDR=true;',
+             'retired spatial presentation returns original mono photograph to final head pixels'),
             ('mono-resolve-lost', 'LegacyHelpers.cs',
              'Graphics.Blit(e.Rt, e.MipRt);', '/* injected: native mono display retains stale artwork */',
              'retired spatial presentation returns original mono photograph to final head pixels'),
@@ -211,6 +214,7 @@ def main():
                 if path.name == 'Program.cs':
                     code = code.replace('        Projection();', '        _checks += Routing724.Run(output);\n        Workload725(output);\n        Frame728(output);\n        Projection();')
                     code = code.replace('new GameObject("source scope", typeof(RectTransform))', 'new GameObject("source scope", typeof(RectTransform), typeof(Canvas))')
+                if path.name == filename: code = replace(code, before, after)
                 (bound_fixture / path.name).write_text(code)
             csproj = case / 'MenuDepthCapture.csproj'; shutil.copyfile(fixture / csproj.name, csproj)
             assembly = 'MenuDepth_' + name.replace('-', '_')
