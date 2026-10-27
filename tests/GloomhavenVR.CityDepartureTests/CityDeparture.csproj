@@ -6,6 +6,8 @@
 <Compile Include="$(FixtureDir)/Program.cs"/><Compile Include="$(FixtureDir)/Supplement.cs"/>
 <Compile Include="$(FixtureDir)/Registration.cs"/>
 <Compile Include="$(FixtureDir)/NativeFlowFixture.cs"/>
+<Compile Include="$(FixtureDir)/CompletionFixture.cs"/>
+<Compile Include="$(FixtureDir)/BrowsingRegistration.cs"/>
 <Compile Include="$(ProductionDir)/Boundary.cs"/><Compile Include="$(ProductionDir)/Native.cs"/>
 <Compile Include="$(ProductionDir)/MapCityEventReadyUp.cs"/><Compile Include="$(ProductionDir)/MapQuestDepartureValidation.cs"/>
 </ItemGroup><ItemGroup Condition="'$(RealHarmony)' == 'true'">

@@ -29,6 +29,7 @@ internal static class MapCityEventReadyUp
     private static bool _warned;
     private static bool _actionWarned;
     private static bool _reconciling;
+    private static bool _clearBrowsingPending;
     // NetworkPlayer inherits Bolt's EntityBehaviour<T>, intentionally not a mod build
     // reference. Read its existing public state interface only at proposal edges.
     private static readonly PropertyInfo? NativeState = ReadNativeStateProperty();
@@ -53,6 +54,31 @@ internal static class MapCityEventReadyUp
     }
     internal static uint ContentKey => Active ? _contentKey : 0;
 
+    /// <summary>Logical public decision ownership survives a local 2D/3D participation flip.</summary>
+    internal static bool OwnsMapDecision
+    {
+        get
+        {
+            bool knownEvent = false;
+            try { return MatchesNativeRole() || HasLiveEvent(out knownEvent); }
+            catch (Exception ex)
+            {
+                ReportFailure("public map decision", ex);
+                return _contentKey != 0 || knownEvent;
+            }
+        }
+    }
+
+    /// <summary>Only user browsing in the replaced 3D map UI is gated here.</summary>
+    internal static bool BlocksQuestBrowsing
+    {
+        get
+        {
+            try { return MapRoomDriver.Active && OwnsMapDecision; }
+            catch (Exception ex) { ReportFailure("quest browsing scope", ex); return OwnsMapDecision; }
+        }
+    }
+
     internal static void Install()
     {
         try
@@ -75,6 +101,7 @@ internal static class MapCityEventReadyUp
         _contentKey = 0;
         _refreshPermission = false;
         _roomWasActive = false;
+        _clearBrowsingPending = false;
         return old;
     }
 
@@ -138,21 +165,29 @@ internal static class MapCityEventReadyUp
                 _roomWasActive = false;
                 return;
             }
+            if (!_roomWasActive)
+                _clearBrowsingPending = true;
             _roomWasActive = true;
             UIReadyToggle current = _toggle!;
             uint key = _contentKey;
+            bool clearedBrowsing = TryClearUnacceptedBrowsing();
+            if (_contentKey != key || !ReferenceEquals(_toggle, current))
+                return;
             if (current._allPlayersReady)
             {
                 // The native ACK wait hides input but has not withdrawn the city proposal.
                 // Keep its role protected until the original Reset/StartEvent/cancel edge.
-                current.UpdateVisiblity();
+                if (clearedBrowsing)
+                    RefreshCityPresentation();
+                else
+                    current.UpdateVisiblity();
                 return;
             }
             // ToggleReadyUpUI is a native presentation request, not OnSelectedCityEvent:
             // the latter calls ReadyUp(true). A client's local unready hides its preview,
             // but does not withdraw the host's offer. Keep that original offer observable.
-            if (!_toggle!._requestVisible || _controller!.m_State != EReadyUpToggleStates.CityEvents)
-                _controller!.ToggleReadyUpUI(true, EReadyUpToggleStates.CityEvents);
+            if (!_toggle!._requestVisible || _controller!.m_State != EReadyUpToggleStates.CityEvents || clearedBrowsing)
+                RefreshCityPresentation();
             if (_contentKey != key || !ReferenceEquals(_toggle, current))
                 return; // Native show callbacks may legitimately retire or replace the offer.
             if (_refreshPermission && Singleton<MapChoreographer>.IsInitialized)
@@ -177,6 +212,46 @@ internal static class MapCityEventReadyUp
     }
 
     private static bool MatchesNativeProposal() => MatchesNativeRole() && !_toggle!._allPlayersReady;
+
+    private static void RefreshCityPresentation()
+    {
+        _controller!.ToggleReadyUpUI(true, EReadyUpToggleStates.CityEvents);
+    }
+
+    private static bool HasLiveEvent(out bool knownContent)
+    {
+        knownContent = false;
+        if (!Singleton<UIEventPanel>.IsInitialized)
+            return false;
+        UIEventPanel panel = Singleton<UIEventPanel>.Instance;
+        if (panel == null || panel.eventData == null)
+            return false;
+        knownContent = true;
+        // Native OnFinishedEvent hides this window BEFORE the deferred applied-effects
+        // and reward distribution callbacks. OnDistributedRewards clears eventData at
+        // the actual completion boundary; window fade is never gameplay completion.
+        return true;
+    }
+
+    private static bool TryClearUnacceptedBrowsing()
+    {
+        // CancelTravel is the original presentation cleanup, not its user button callback:
+        // the latter enters WorldMap navigation. Never steal focus from a live encounter.
+        if (!_clearBrowsingPending || HasLiveEvent(out _)
+            || !Singleton<AdventureMapUIManager>.IsInitialized || _controller == null)
+            return false;
+        AdventureMapUIManager map = Singleton<AdventureMapUIManager>.Instance;
+        if (map == null || _controller.HostSelectedQuest != null || map.IsLocked)
+            return false;
+        MapLocation? browsing = map.LocationToTravel;
+        _clearBrowsingPending = false; // At most one native cancel attempt per capture/reentry.
+        if (browsing == null)
+            return false;
+        map.CancelTravel(); // Native CanCancelSelectedLocation still owns the final permission.
+        // HideTravelWarning also hid the native city help text. Refresh the original city
+        // presentation once only when cleanup actually removed this unaccepted browse.
+        return map.LocationToTravel == null;
+    }
 
     private static bool MatchesNativeRole()
     {
@@ -216,6 +291,7 @@ internal static class MapCityEventReadyUp
         _contentKey = hash == 0 ? 1u : hash;
         _refreshPermission = true;
         _roomWasActive = false;
+        _clearBrowsingPending = true;
         VRLog.Info("MapRoom", $"MAP CITY READY proposal — action={actionId}, key={_contentKey}; "
             + "native votes and continuation unchanged.");
     }
@@ -457,5 +533,13 @@ internal static class MapCityEventReadyUp
                 return false;
             }
         }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(QuestManager), "OnSelectedLogQuest")]
+        private static bool BeforeQuestLogBrowse() => !BlocksQuestBrowsing;
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(MapLocation), nameof(MapLocation.OnPointerClick))]
+        private static bool BeforeMapLocationBrowse() => !BlocksQuestBrowsing;
     }
 }

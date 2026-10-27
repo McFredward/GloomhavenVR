@@ -1,3 +1,8 @@
+#nullable disable warnings
+using System;
+using System.Collections.Generic;
+using UnityEngine.EventSystems;
+using MapRuleLibrary.MapState;
 using FFSNet;
 using MapRuleLibrary.Adventure;
 using MapRuleLibrary.PhaseManager;
@@ -79,7 +84,7 @@ public void ToggleReadyUpUI(bool show, EReadyUpToggleStates state)
 		}
 	}
 }
-internal sealed class AdventureMapUIManager
+internal sealed partial class AdventureMapUIManager
 {
     private MapLocation? locationToTravel;
     private readonly NativeButton travelButton=new();
@@ -126,7 +131,7 @@ public void EnableTravelOptions(bool show)
 		}
 	}
 }
-internal sealed class MapLocation { }
+internal sealed partial class MapLocation { }
 internal sealed class NativeButton {internal readonly GameObject gameObject=new();}
 internal sealed class ReadyTrackerProbe {internal int Shows,Refreshes,Hides;internal void RefreshReady()=>Refreshes++;internal void HideTrackers()=>Hides++;}
 internal sealed class HotkeyProbe {internal void SetHotkeyAdded(string key,bool show) { }}
@@ -138,7 +143,12 @@ internal static class NewPartyDisplayUI
     internal sealed class PartyDisplayProbe
     {
         internal DisplayType ActiveDisplay;
+        internal bool IsOpen;
+        internal void Hide(object owner,bool instant,Action done){IsOpen=false;done();}
+        internal void Show(object owner)=>IsOpen=true;
         internal event System.Action<bool,DisplayType>? OnOpenedPanel;
+        internal void HideRequiredCharactersWarning() { }
+        internal void HideClassCharactersWarning() { }
         internal void Change(bool visible,DisplayType display){ActiveDisplay=visible?display:DisplayType.NONE;OnOpenedPanel?.Invoke(visible,display);}
     }
     internal static PartyDisplayProbe PartyDisplay=new();
@@ -146,7 +156,7 @@ internal static class NewPartyDisplayUI
 internal static class CityFlowSetup
 {
     internal static void Create()
-    {Singleton<UIGuildmasterHUD>.Instance=new();Singleton<HelpBox>.Instance=new();NewPartyDisplayUI.PartyDisplay=new();}
+    {Singleton<UIGuildmasterHUD>.Instance=new();Singleton<HelpBox>.Instance=new();Singleton<MapMarkersManager>.Instance=new();Singleton<AdventureMapUIManager>.Instance=new();NewPartyDisplayUI.PartyDisplay=new();}
 }
 
 internal sealed partial class UIMapMultiplayerController
@@ -217,3 +227,141 @@ public void OpenCityEvent()
 		}
 	}
 }
+
+internal sealed partial class AdventureMapUIManager
+{
+    private readonly Dictionary<object,bool> lockInteractionRequests=new();
+    private readonly GameObject warningTravel=new();
+    private Action<MapLocation>? onConfirmTravelCallback;
+    internal int CancelAttempts;
+    internal bool SelectedPopupVisible;
+    public MapLocation LocationToTravel => locationToTravel;
+    public bool IsLocked => !lockInteractionRequests.IsNullOrEmpty();
+    internal void SetLock(bool value){if(value)lockInteractionRequests[this]=false;else lockInteractionRequests.Clear();}
+    internal void Browse(MapLocation location){SetLocationToTravel(location);location.IsSelected=true;SelectedPopupVisible=true;}
+    private void StopHideWarningAnimation() { }
+public void HideTravelOption()
+	{
+		UIWindowManager.UnregisterEscapable(this);
+		ResetLocationToTravel();
+		onConfirmTravelCallback = null;
+		EnableTravelOptions(show: false);
+		HideTravelWarning();
+	}
+public void CancelTravel()
+	{
+		MapLocation mapLocation = ((locationToTravel != null && locationToTravel.IsSelected) ? locationToTravel : null);
+		if (!(mapLocation != null) || Singleton<UIMapMultiplayerController>.Instance.CanCancelSelectedLocation(mapLocation))
+		{
+			HideTravelOption();
+			locationToTravel = mapLocation;
+			locationToTravel?.ForceHighlight(force: false);
+			locationToTravel?.Deselect();
+			ResetLocationToTravel();
+			UIWindowManager.UnregisterEscapable(this);
+		}
+	}
+public void HideTravelWarning()
+	{
+		ClearTravelWarning();
+	}
+private void ClearTravelWarning()
+	{
+		StopHideWarningAnimation();
+		if (Singleton<HelpBox>.Instance != null)
+		{
+			Singleton<HelpBox>.Instance.Hide();
+		}
+		warningTravel.SetActive(value: false);
+		NewPartyDisplayUI.PartyDisplay.HideRequiredCharactersWarning();
+		NewPartyDisplayUI.PartyDisplay.HideClassCharactersWarning();
+	}
+public void OnDeselectedMapLocation(MapLocation mapLocation)
+	{
+		if (mapLocation == locationToTravel)
+		{
+			Debug.LogGUI("OnDeselectedMapLocation");
+			HideTravelOption();
+			Singleton<MapMarkersManager>.Instance.ShowMarkers();
+			Singleton<UIMapMultiplayerController>.Instance.OnDeselectedQuest();
+		}
+		Singleton<UIGuildmasterHUD>.Instance.EnableHeadquartersOptions(this, enableOptions: true);
+	}
+}
+
+internal sealed partial class UIMapMultiplayerController
+{
+internal MapLocation? hostSelectedLocation;
+public bool CanCancelSelectedLocation(MapLocation locationToDeselect)
+	{
+		if (!FFSNetwork.IsOnline || FFSNetwork.IsHost)
+		{
+			return true;
+		}
+		if (Singleton<MapChoreographer>.Instance.IsChoosingLinkedQuestOption() && hostSelectedLocation == locationToDeselect)
+		{
+			return false;
+		}
+		return true;
+	}
+public void OnDeselectedQuest()
+	{
+		if (FFSNetwork.IsOnline)
+		{
+			cancelQuestButton.gameObject.SetActive(value: false);
+			ToggleReadyUpUI(show: false, EReadyUpToggleStates.Quests);
+		}
+	}
+}
+
+internal sealed partial class MapLocation
+{
+    internal int Selects,Deselects;
+    public bool IsSelected;
+    private readonly AudioProfile m_AudioProfile=new();
+    internal void Select(){Selects++;Singleton<AdventureMapUIManager>.Instance.Browse(this);}
+    internal void Deselect(){Deselects++;Singleton<AdventureMapUIManager>.Instance.OnDeselectedMapLocation(this);IsSelected=false;Singleton<AdventureMapUIManager>.Instance.SelectedPopupVisible=false;}
+    internal void ForceHighlight(bool force) { }
+    private bool IsStartingVillageUnlocked()=>true;
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+public void OnPointerClick(PointerEventData eventData)
+	{
+		if (InputManager.GamePadInUse)
+		{
+			AudioControllerUtils.PlaySound(m_AudioProfile.mouseDownAudioItem);
+			Select();
+		}
+		else if (eventData.button == PointerEventData.InputButton.Left)
+		{
+			AudioControllerUtils.PlaySound(m_AudioProfile.mouseDownAudioItem);
+			FFSNet.Console.LogInfo("ON MOUSE UP. IsStartingVillageUnlocked: " + IsStartingVillageUnlocked());
+			Select();
+		}
+	}
+}
+
+internal sealed class QuestManager
+{
+    private readonly Dictionary<CQuestState,MapLocation> locations=new();
+    internal void Bind(CQuestState quest,MapLocation location)=>locations[quest]=location;
+    internal void UserPick(CQuestState quest)=>OnSelectedLogQuest(quest);
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+private void OnSelectedLogQuest(CQuestState quest)
+	{
+		Singleton<MapChoreographer>.Instance.SelectLocation(locations[quest]);
+	}
+}
+
+internal sealed partial class MapChoreographer
+{
+    internal bool LinkedChoice;
+    public bool IsChoosingLinkedQuestOption()=>LinkedChoice;
+    public void SelectLocation(MapLocation location)=>location.Select();
+}
+internal sealed class MapMarkersManager {internal void ShowMarkers() { }}
+internal static class UIWindowManager {internal static int Unregisters;internal static void UnregisterEscapable(object target){NativeProbeFaults.Read("cancel-travel");Unregisters++;}}
+internal sealed class AudioProfile {internal string mouseDownAudioItem="click";}
+internal static class AudioControllerUtils {internal static void PlaySound(string name) { }}
+namespace UnityEngine.EventSystems {internal sealed class PointerEventData {internal enum InputButton{Left,Right} internal InputButton button;}}
+namespace MapRuleLibrary.MapState {internal sealed class CQuestState { }}
+namespace UnityEngine {internal static class Debug {internal static void LogGUI(string message) { }}}

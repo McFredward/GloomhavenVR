@@ -6,7 +6,7 @@ using FFSNet;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI.MapRoom;
 
-internal static class Registration
+internal static partial class Registration
 {
     private static int _assertions;
     private static void Check(bool valid,string message)
@@ -23,7 +23,8 @@ internal static class Registration
                 (typeof(UIMapMultiplayerController),"ClearHostSelectedCityEvent"),(typeof(UIMapMultiplayerController),"ProxyHostCancelledCityEvent"),
                 (typeof(UIMapMultiplayerController),"CancelPreviewCityEvent"),(typeof(MapChoreographer),"ProxySelectedCityEvent"),
                 (typeof(UIMapMultiplayerController),"ToggleReadyUpUI"),
-                (typeof(UIEventPanel),"StartEvent"),(typeof(UIReadyToggle),"get_ShouldBeVisible")})
+                (typeof(UIEventPanel),"StartEvent"),(typeof(UIReadyToggle),"get_ShouldBeVisible"),
+                (typeof(QuestManager),"OnSelectedLogQuest"),(typeof(MapLocation),"OnPointerClick")})
             {
                 MethodInfo original=target.Item1.GetMethod(target.Item2,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)!;
                 var info=HarmonyLib.Harmony.GetPatchInfo(original);
@@ -125,7 +126,8 @@ internal static class Registration
             for(int i=0;i<4;i++)MapCityEventReadyUp.Tick();
             Check(Synchronizer.Actions.Count(x=>x.Type==GameActionType.ReadyUpPlayer)==1,
                 "3D city reentry never replays the user's original 2D consent");
-            System.Console.WriteLine($"City actual HarmonyX: {_assertions} assertions passed; 12 original targets under Unity Mono.");return 0;
+            BrowsingAndCompletionProof();
+            System.Console.WriteLine($"City actual HarmonyX: {_assertions} assertions passed; 14 original targets under Unity Mono.");return 0;
         }
         catch(Exception ex){System.Console.Error.WriteLine(ex);return 1;}
     }

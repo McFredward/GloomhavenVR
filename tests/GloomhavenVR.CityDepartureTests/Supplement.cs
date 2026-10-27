@@ -21,7 +21,13 @@ internal sealed partial class MapChoreographer
     internal void ProxySelectedCityEvent(FFSNet.GameAction action)
     { Singleton<UIReadyToggle>.Instance.Initialize(readyUpToggleState:EReadyUpToggleStates.CityEvents);Singleton<UIMapMultiplayerController>.Instance.m_State=EReadyUpToggleStates.CityEvents; }
 }
-internal sealed class UIEventPanel { [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)] internal void StartEvent() { } }
+internal sealed partial class UIEventPanel
+{
+    internal EventRecord? eventData;
+    internal readonly UIWindow myWindow=new();
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal void StartEvent(){eventData=new();myWindow.Show();}
+}
 namespace FFSNet
 {
     internal sealed partial class GameAction { public int ActionID; }
@@ -46,7 +52,7 @@ namespace GloomhavenVR.Net
 namespace MapRuleLibrary.PhaseManager { internal enum EMapPhaseType { InHQ,AtLinkedScenario } }
 namespace MapRuleLibrary.Adventure
 {
-    internal sealed class CityMapState {private MapRuleLibrary.PhaseManager.EMapPhaseType _phase;internal MapRuleLibrary.PhaseManager.EMapPhaseType CurrentMapPhaseType {get{NativeProbeFaults.Read("city.phase");return _phase;}set=>_phase=value;} }
+    internal sealed partial class CityMapState {private MapRuleLibrary.PhaseManager.EMapPhaseType _phase;internal MapRuleLibrary.PhaseManager.EMapPhaseType CurrentMapPhaseType {get{NativeProbeFaults.Read("city.phase");return _phase;}set=>_phase=value;} }
     internal static class AdventureState { internal static CityMapState MapState=new(); }
 }
 namespace GloomhavenVR.WorldUI.MapRoom { internal static class MapRoomDriver {internal static bool Active=true;} }

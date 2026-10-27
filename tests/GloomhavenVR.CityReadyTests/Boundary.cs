@@ -41,6 +41,8 @@ internal sealed class UIMapMultiplayerController
 {
     internal EReadyUpToggleStates m_State;
     internal int ShowRequests;
+    private object? _proposal;
+    internal object? HostSelectedQuest {get{Faults.Read("host-proposal");return _proposal;}set=>_proposal=value;}
     internal void ToggleReadyUpUI(bool show,EReadyUpToggleStates state)
     { if(!(bool)Hooks.Invoke("PreserveCityRole",this,state)!)return;Faults.Read("show-request");m_State=state;var t=Singleton<UIReadyToggle>.Instance;t._requestVisible=show;t.UpdateVisiblity();if(show)ShowRequests++; }
     internal void OnSelectedCityEvent() { Singleton<UIReadyToggle>.Instance.AutomaticVotes++; }
@@ -57,8 +59,40 @@ internal sealed class MapChoreographer
     { PermissionChecks++;Faults.Read("permission-refresh");var t=Singleton<UIReadyToggle>.Instance;t.IsInteractable=t.ToggleInteractable=Participant;t.UpdateVisiblity();DuringPermissionRefresh?.Invoke(); }
     internal void ProxySelectedCityEvent() { }
 }
-internal sealed class UIEventPanel { internal void StartEvent() { } }
-namespace UnityEngine.UI { internal sealed class UIWindow { internal bool IsOpen; } }
+internal sealed class UIEventPanel
+{
+    internal object? eventData;
+    internal readonly UnityEngine.UI.UIWindow myWindow=new();
+    internal void StartEvent(){Hooks.Invoke("BeforeEventCard");eventData=new();myWindow.IsOpen=true;}
+}
+internal sealed class MapLocation
+{
+    internal int Selections,Unselections;
+    internal void OnPointerClick(){if((bool)Hooks.Invoke("BeforeMapLocationBrowse")!)Select();}
+    internal void Select()=>Selections++;
+    internal void Deselect()=>Unselections++;
+}
+internal sealed class QuestManager
+{internal int Selections;internal void OnSelectedLogQuest(){if((bool)Hooks.Invoke("BeforeQuestLogBrowse")!)Selections++;}}
+internal sealed class AdventureMapUIManager
+{
+    private MapLocation? _location;
+    private bool _locked;
+    internal MapLocation? LocationToTravel {get{Faults.Read("browse-location");return _location;}set=>_location=value;}
+    internal bool IsLocked {get{Faults.Read("browse-lock");return _locked;}set=>_locked=value;}
+    internal int CancelCalls;
+    internal bool CanCancel=true;
+    internal void CancelTravel(){CancelCalls++;Faults.Read("cancel-travel");if(CanCancel){_location?.Deselect();_location=null;}}
+}
+namespace UnityEngine.UI
+{
+    internal sealed class UIWindow
+    {
+        internal bool IsOpen;
+        private bool _visible;
+        internal bool IsVisible {get{Faults.Read("event-visible");return _visible;}set=>_visible=value;}
+    }
+}
 namespace FFSNet
 {
     internal static class FFSNetwork

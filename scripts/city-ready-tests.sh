@@ -42,9 +42,16 @@ try:
  ('unsafe-diagnostic-logger','catch (Exception) { }\n    }\n\n    private static PropertyInfo? ReadNativeStateProperty()','catch (Exception) { throw; }\n    }\n\n    private static PropertyInfo? ReadNativeStateProperty()','failed city diagnostic logger cannot escape native getter'),
  ('focus-steals-city','return !MatchesNativeRole();','return true;','incidental quest focus refresh cannot steal a native city proposal'),
  ('mutable-state-withdrawal','private static bool MatchesNativeProposal() => MatchesNativeRole() && !_toggle!._allPlayersReady;','private static bool MatchesNativeProposal() => MatchesNativeRole() && _controller!.m_State == EReadyUpToggleStates.CityEvents && !_toggle!._allPlayersReady;','mutable native presentation state is not a city withdrawal'),
- ('missing-reentry-repair','if (!_toggle!._requestVisible || _controller!.m_State != EReadyUpToggleStates.CityEvents)','if (!_toggle!._requestVisible)','city reentry repairs controller role even when visibility request already true'),
+ ('missing-reentry-repair','if (!_toggle!._requestVisible || _controller!.m_State != EReadyUpToggleStates.CityEvents || clearedBrowsing)','if (!_toggle!._requestVisible || clearedBrowsing)','city reentry repairs controller role even when visibility request already true'),
  ('ack-wait-loses-role','current.UpdateVisiblity();\n                return;','Reset();\n                return;','native city role stays protected throughout ACK wait'),
- ('same-city-initialize-loses-key','if (!preserveCity)\n                Reset();','if (preserveCity || !preserveCity)\n                Reset();','same native city reinitialization preserves original occurrence across participation flip')]
+ ('same-city-initialize-loses-key','if (!preserveCity)\n                Reset();','if (preserveCity || !preserveCity)\n                Reset();','same native city reinitialization preserves original occurrence across participation flip'),
+ ('native-quest-input-leak','private static bool BeforeQuestLogBrowse() => !BlocksQuestBrowsing;','private static bool BeforeQuestLogBrowse() => true;','city proposal blocks both native user quest entry points'),
+ ('native-marker-input-leak','private static bool BeforeMapLocationBrowse() => !BlocksQuestBrowsing;','private static bool BeforeMapLocationBrowse() => true;','city proposal blocks both native user quest entry points'),
+ ('cleanup-permission-bypass','if (map == null || _controller.HostSelectedQuest != null || map.IsLocked)','if (map == null)','city cleanup preserves a native host-selected quest'),
+ ('cleanup-steals-event-focus','if (!_clearBrowsingPending || HasLiveEvent(out _)','if (!_clearBrowsingPending','live event never triggers automatic local cancel that could steal story focus'),
+ ('visible-only-decision','return MatchesNativeRole() || HasLiveEvent(out knownEvent);','return Active || HasLiveEvent(out knownEvent);','hidden native ACK wait retains public input ownership'),
+ ('fade-as-event-completion','return true;\n    }\n\n    private static bool TryClearUnacceptedBrowsing()','return panel.myWindow != null && (panel.myWindow.IsOpen || panel.myWindow.IsVisible);\n    }\n\n    private static bool TryClearUnacceptedBrowsing()','native event content owns the decision independently of its window visibility'),
+ ('cleanup-repeated-every-frame','_clearBrowsingPending = false; // At most one native cancel attempt per capture/reentry.','_clearBrowsingPending = true; // At most one native cancel attempt per capture/reentry.','original native cancellation permission is retained without repeated attempts')]
  for name,needle,replacement,expected in mutations:
   if text.count(needle)!=1:raise RuntimeError('Mutation target is not exact: '+name)
   production.write_text(text.replace(needle,replacement));shutil.copy2(production,run/(name+'.cs'))
@@ -60,4 +67,4 @@ finally:
  spec=importlib.util.spec_from_file_location('retention',root/'scripts/town_run_retention.py');retention=importlib.util.module_from_spec(spec);spec.loader.exec_module(retention)
  receipt=retention.cleanup_completed_run('city-ready',status,log,root,process_reaped=True);(run/'cleanup.json').write_text(json.dumps(receipt,indent=2)+'\n')
 PY
-python3 "$repo_root/tests/GloomhavenVR.CityDepartureTests/run.py" "$repo_root"
+python3 "$repo_root/tests/GloomhavenVR.CityDepartureTests/run.py" "$repo_root" "$@"

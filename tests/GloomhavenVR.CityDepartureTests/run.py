@@ -3,6 +3,7 @@
 from pathlib import Path
 import hashlib,importlib.util,json,os,re,shutil,subprocess,sys,tempfile
 
+actual_only='--actual-only' in sys.argv[2:]
 root=Path(sys.argv[1]).resolve();suite='city-departure';out=root/'.planning/debug'/suite;out.mkdir(parents=True,exist_ok=True)
 run=Path(tempfile.mkdtemp(prefix='run-',dir=out));project=run/'project';project.mkdir();source=run/'sources';source.mkdir()
 fixture=root/'tests/GloomhavenVR.CityDepartureTests';predecessor=root/'tests/map-quest-ready-runtime'
@@ -25,22 +26,31 @@ if native_path.is_file():
     print('City departure kernel: six exact native initialization/departure/ACK/continuation bodies verified.',flush=True)
     flow=(fixture/'NativeFlowFixture.cs').read_text()
     for filename,signatures in (
-        ('UIMapMultiplayerController.cs',('private bool InQuestSelectionPhase()', 'public void ToggleReadyUpUI(bool show, EReadyUpToggleStates state)', 'public void ConfirmCityEvent()', 'public void OnSelectedCityEvent()')),
-        ('AdventureMapUIManager.cs',('private void SetLocationToTravel(', 'private void ResetLocationToTravel()', 'private void OnPartyPanelToggled(', 'private void SetFocused(', 'public void EnableTravelOptions(bool show)')),
+        ('UIMapMultiplayerController.cs',('private bool InQuestSelectionPhase()', 'public void ToggleReadyUpUI(bool show, EReadyUpToggleStates state)', 'public void ConfirmCityEvent()', 'public void OnSelectedCityEvent()', 'public bool CanCancelSelectedLocation(', 'public void OnDeselectedQuest()')),
+        ('AdventureMapUIManager.cs',('private void SetLocationToTravel(', 'private void ResetLocationToTravel()', 'private void OnPartyPanelToggled(', 'private void SetFocused(', 'public void EnableTravelOptions(bool show)', 'public void HideTravelOption()', 'public void CancelTravel()', 'public void HideTravelWarning()', 'private void ClearTravelWarning()', 'public void OnDeselectedMapLocation(')),
         ('MapChoreographer.cs',('public void OpenCityEvent()',)),
-        ('UIGuildmasterHUD.cs',('public void OpenCityEncounter()',))):
+        ('UIGuildmasterHUD.cs',('public void OpenCityEncounter()',)),
+        ('QuestManager.cs',('private void OnSelectedLogQuest(',)),
+        ('MapLocation.cs',('public void OnPointerClick(',))):
         path=native_path.parent/filename;actual=path.read_text();bindings[str(path)]=hashlib.sha256(path.read_bytes()).hexdigest()
         for signature in signatures:
             start=actual.index(signature);opening=actual.index('{',start);end=opening+1;depth=1
             while depth:depth+=(actual[end]=='{')-(actual[end]=='}');end+=1
             assert actual[start:end] in flow,'Native city/quest flow body mismatch: '+signature
-    print('City/quest native flow: eleven exact visibility, party-focus and explicit city-confirmation bodies verified.',flush=True)
+    print('City/quest native flow: twenty exact visibility, input, cleanup and explicit city-confirmation bodies verified.',flush=True)
+    completion=(fixture/'CompletionFixture.cs').read_text();path=native_path.parent/'UIEventPanel.cs';actual=path.read_text();bindings[str(path)]=hashlib.sha256(path.read_bytes()).hexdigest()
+    for signature in ('private void OnFinishedEvent()', 'private void DistributeRewards(', 'private void OnDistributedRewards()'):
+        start=actual.index(signature);opening=actual.index('{',start);end=opening+1;depth=1
+        while depth:depth+=(actual[end]=='{')-(actual[end]=='}');end+=1
+        assert actual[start:end] in completion,'Native hidden reward lifecycle mismatch: '+signature
+    print('Native event completion: three exact deferred effects/distribution/completion bodies verified.',flush=True)
 # Publicized mod access only; every native algorithm above is retained verbatim apart
 # from its access modifier. Platform supplements never replace the departure/ACK path.
 replacements={
     'internal sealed class UIMapMultiplayerController':'internal sealed partial class UIMapMultiplayerController',
     'internal sealed class NetworkPlayer':'internal sealed partial class NetworkPlayer',
     'internal sealed class GameAction':'internal sealed partial class GameAction',
+    'internal static class ActionProcessor':'internal static partial class ActionProcessor',
     'internal sealed class HarmonyPatch':'internal sealed partial class HarmonyPatch',
     'internal static class VRLog':'internal static partial class VRLog',
     'private bool _requestVisible,_interactable,_allPlayersReady,_isOn;':'public bool _requestVisible,_interactable,_allPlayersReady,_isOn;',
@@ -48,6 +58,8 @@ replacements={
     'ReadyUpPlayer,UnreadyPlayer,AllPlayersReady,ReadyProceed':'ReadyUpPlayer,UnreadyPlayer,AllPlayersReady,ReadyProceed,SelectCityEvent',
     'NotSet,Quests,CityEvents,Reward }':'NotSet,Quests,CityEvents,Reward,Retirement,TownRecords }',
     '=> Actions.Add(new(actionType,supplementaryDataBoolean,PlayerRegistry.MyPlayer.PlayerID,supplementaryDataToken2));':'{ if(FFSNetwork.IsHost&&actionType==GameActionType.SelectCityEvent)PlayerRegistry.MyPlayer.state.LatestProcessedActionID++; Actions.Add(new(actionType,supplementaryDataBoolean,PlayerRegistry.MyPlayer.PlayerID,supplementaryDataToken2)); }',
+    'public bool IsOpen; public void Show()':'public bool IsOpen; public bool Visible;public bool IsVisible {get{NativeProbeFaults.Read("event-visible");return Visible;}}public void Show()',
+    'MapHQ,MapAtLinkedScenario,MapLoadoutScreen,ScenarioEnded':'MapHQ,MapAtLinkedScenario,MapLoadoutScreen,ScenarioEnded,MapEvent',
 }
 for before,after in replacements.items():
     assert boundary.count(before)==1,'Native boundary seam changed: '+before
@@ -75,26 +87,29 @@ def execute(command):
     if result.returncode:raise RuntimeError('Command failed: '+str(command))
     return result.stdout
 try:
-    execute(base);text=execute(['dotnet',str(project/'bin/CityDeparture.dll')])
-    assertions=int(__import__('re').search(r'City native departure: (\d+) assertions',text).group(1))
-    executed=run/'executed-assembly';executed.mkdir()
-    for path in (project/'bin').iterdir():
-        if path.is_file():shutil.copy2(path,executed/path.name)
+    assertions=None;controls=[]
     original=(source/'MapCityEventReadyUp.cs').read_text()
-    controls=[
-        ('departure-disabled','validateReadyUpOnPlayerLeft = true;','validateReadyUpOnPlayerLeft = false;',
-         'native city departure validation option is enabled'),
-        ('wrong-phase','if (phase == ActionPhaseType.MapHQ || phase == ActionPhaseType.MapAtLinkedScenario)','if (true)',
-         'city departure scope excludes unrelated native modes and phases'),
-    ]
-    for name,needle,replacement,expected in controls:
-        assert original.count(needle)==1,'Exact city departure mutation target: '+name
-        (source/'MapCityEventReadyUp.cs').write_text(original.replace(needle,replacement))
-        execute(base);result=subprocess.run(['dotnet',str(project/'bin/CityDeparture.dll')],env=env,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
-        (run/(name+'.log')).write_text(result.stdout)
-        if result.returncode==0 or expected not in result.stdout:raise RuntimeError('Causal departure control failed at wrong boundary: '+name+'\n'+result.stdout)
-        print('City departure negative control: '+name+' rejected.',flush=True)
-    (source/'MapCityEventReadyUp.cs').write_text(original)
+    if not actual_only:
+        execute(base);text=execute(['dotnet',str(project/'bin/CityDeparture.dll')])
+        assertions=int(__import__('re').search(r'City native departure: (\d+) assertions',text).group(1))
+        executed=run/'executed-assembly';executed.mkdir()
+        for path in (project/'bin').iterdir():
+            if path.is_file():shutil.copy2(path,executed/path.name)
+        original=(source/'MapCityEventReadyUp.cs').read_text()
+        controls=[
+            ('departure-disabled','validateReadyUpOnPlayerLeft = true;','validateReadyUpOnPlayerLeft = false;',
+             'native city departure validation option is enabled'),
+            ('wrong-phase','if (phase == ActionPhaseType.MapHQ || phase == ActionPhaseType.MapAtLinkedScenario)','if (true)',
+             'city departure scope excludes unrelated native modes and phases'),
+        ]
+        for name,needle,replacement,expected in controls:
+            assert original.count(needle)==1,'Exact city departure mutation target: '+name
+            (source/'MapCityEventReadyUp.cs').write_text(original.replace(needle,replacement))
+            execute(base);result=subprocess.run(['dotnet',str(project/'bin/CityDeparture.dll')],env=env,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+            (run/(name+'.log')).write_text(result.stdout)
+            if result.returncode==0 or expected not in result.stdout:raise RuntimeError('Causal departure control failed at wrong boundary: '+name+'\n'+result.stdout)
+            print('City departure negative control: '+name+' rejected.',flush=True)
+        (source/'MapCityEventReadyUp.cs').write_text(original)
     # Exercise real HarmonyX parameter binding and all exact target registrations, not
     # only attributes or hand-delivered prefix calls. Existing Unity Mono is reused.
     mono=Path(os.environ.get('GHVR_UNITY_MONO',str(Path.home()/'unity-2021.3.5/Editor/Data/MonoBleedingEdge/bin/mono')))
@@ -107,8 +122,8 @@ try:
             if path.is_file():shutil.copy2(path,actual_assembly/path.name)
     else:
         print('SKIP: actual HarmonyX registration requires existing Unity Mono; no runtime pass claimed.',flush=True)
-    (run/'result.json').write_text(json.dumps({'native_assertions':assertions,'negative_controls':[x[0] for x in controls],
-        'actual_harmony_assertions':actual,'actual_harmony_targets':12 if actual else 0,'hardware_verified':False},indent=2)+'\n')
+    (run/'result.json').write_text(json.dumps({'native_assertions':assertions,'native_departure_reused':actual_only,'negative_controls':[x[0] for x in controls],
+        'actual_harmony_assertions':actual,'actual_harmony_targets':14 if actual else 0,'hardware_verified':False},indent=2)+'\n')
     status=0
 finally:
     spec=importlib.util.spec_from_file_location('retention',root/'scripts/town_run_retention.py');retention=importlib.util.module_from_spec(spec);spec.loader.exec_module(retention)

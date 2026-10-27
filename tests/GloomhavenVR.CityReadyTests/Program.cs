@@ -19,6 +19,7 @@ internal static partial class Program
         Faults.Reset();
         MapCityEventReadyUp.Reset();FFSNetwork.IsOnline=true;FFSNetwork.IsHost=host;MapRoomDriver.Active=true;
         Singleton<UIMapMultiplayerController>.Instance=new();Singleton<UIReadyToggle>.Instance=new();
+        Singleton<AdventureMapUIManager>.Instance=new();Singleton<UIEventPanel>.Instance=null!;
         Singleton<MapChoreographer>.Instance=new(){Participant=participant};PlayerRegistry.MyPlayer=new();
         AdventureState.MapState=new(){CurrentMapPhaseType=EMapPhaseType.InHQ};SharedMapRunIdentity.Key=8193;
         Ready.readyUpToggleState=Controller.m_State=EReadyUpToggleStates.CityEvents;
@@ -124,6 +125,7 @@ internal static partial class Program
             MapCityEventReadyUp.Install();MapCityEventReadyUp.Install();Check(VRSession.Harmony!.Installed==1,"installation is idempotent");
             Check(VRLog.Warnings.Count==1,"all other native transitions reconcile without exception");
             RoleProof();
+            BrowsingProof();
             FaultProof();
             Console.WriteLine($"City readiness: {_assertions} assertions passed.");return 0;
         }
