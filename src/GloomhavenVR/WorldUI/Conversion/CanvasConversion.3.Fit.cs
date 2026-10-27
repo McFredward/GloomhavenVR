@@ -2886,6 +2886,17 @@ internal static partial class CanvasConversion
             fx.SizeCaptured = true;
         }
 
+        // Build728: preserve native font/card scale while the level-up's three
+        // original columns need more width. This changes the frame, never the
+        // accepted host pose or a viewer-specific zoom metric.
+        float levelUpWidth = FixedFitWidthPx + LevelUpComposite.ExtraFrameWidth(panel);
+        bool levelUpFrameChanged = Mathf.Abs(fx.Size.x - levelUpWidth) > FitNoWriteEpsilonPx;
+        if (levelUpFrameChanged)
+        {
+            fx.Size.x = levelUpWidth;
+            fx.ReleaseSolution();
+        }
+
         Rect host = panel.HostRect.rect;
 
         // SPLIT THE SUBTREE. Everything below this line distinguishes the BASE (the character column
@@ -3157,7 +3168,7 @@ internal static partial class CanvasConversion
         // assumed: with a fixed host the slack is whatever the fixed size leaves around the content.
         panel.FitContentPadding = Vector2.Max(Vector2.zero, (fx.Size - size) * 0.5f);
         panel.FitOneShotApplied = true;
-        if (hostWrong)
+        if (hostWrong && !(levelUpFrameChanged && panel.FitMeasuredOnce))
         {
             // ONLY a host-size change re-derives the window's world scale and re-arms the pose
             // re-place. A sub-view re-scale or re-alignment leaves the host rect exactly as it was,
@@ -3171,7 +3182,7 @@ internal static partial class CanvasConversion
         // corner claim, after the reveal, after the one pre-reveal re-place had been refused). The
         // hook re-measures the drawn rect and re-seats the window's anchored edge onto its corner
         // when — and only when — the anchor moved; see ModalFallback.OnFixedFitApplied.
-        ModalFallback.OnFixedFitApplied(panel);
+        if (!levelUpFrameChanged) ModalFallback.OnFixedFitApplied(panel);
         return true;
     }
 

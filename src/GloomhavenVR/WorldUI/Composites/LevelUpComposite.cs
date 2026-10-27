@@ -1,4 +1,6 @@
 using GloomhavenVR.Core;
+using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -27,6 +29,25 @@ internal static class LevelUpComposite
     private static float _previewLeft;
     private static ComparisonSeat? _comparison;
     private static bool _faultLogged;
+    private static RectTransform? _preview;
+    private static readonly List<TMP_Text> PreviewText = new(32);
+    private static int _previewWarmup;
+    private const float MinimumPreviewWidthPx = 640f;
+    private const float PreviewGapPx = 48f;
+
+    // The user727 review explicitly requests a wider level-up composition. This
+    // native-pixel allowance is common to every viewer, never read from live zoom.
+    internal static float ExtraFrameWidth(ConvertedPanel panel) => _owner != null && ReferenceEquals(_owner, FittedView)
+        && ReferenceEquals(FindContainingPanel(_owner), panel) ? 512f : 0f;
+
+    private static void Include(RectTransform rect, RectTransform space)
+    {
+        rect.GetWorldCorners(Corners);
+        for (int i = 0; i < Corners.Length; i++) Include(space.InverseTransformPoint(Corners[i]).x);
+    }
+
+    private static void Include(float x)
+    { _previewRight = Mathf.Max(_previewRight, x); _previewLeft = Mathf.Min(_previewLeft, x); }
 
     /// <summary>The game deliberately keeps the existing deck visible during level-up
     /// (NewPartyDisplayUI._ignoreDisplayTypes includes CARDS). It must share the same
@@ -185,9 +206,10 @@ internal static class LevelUpComposite
 
         if (_mount == null || _rect == null) return;
         var ownerRect = mountParent;
-        // The actual full-card rect is the preview envelope, not its animated glow.
-        // Keep the largest envelope of this opening so hover/reveal never jiggles
-        // the list or lets it cover the right edge of a newly revealed card.
+        // Reserve the original card and its complete text ink, including native
+        // overflow outside the nominal card rect. Do not measure animated glows.
+        // Keep the largest envelope of this opening so hover/reveal cannot jiggle
+        // either list back across readable title/body text.
         RectTransform? preview = leveling && level != null && level.cardHolder != null
             && level.cardHolder.cardHolder != null
             ? (level.cardHolder.cardHolder.Card != null
@@ -195,12 +217,28 @@ internal static class LevelUpComposite
                 : level.cardHolder.cardHolder.transform as RectTransform) : null;
         if (preview != null && preview.rect.width > 1f)
         {
-            preview.GetWorldCorners(Corners);
-            for (int i = 0; i < Corners.Length; i++)
+            Include(preview, ownerRect);
+            if (!ReferenceEquals(_preview, preview))
             {
-                _previewRight = Mathf.Max(_previewRight, ownerRect.InverseTransformPoint(Corners[i]).x);
-                _previewLeft = Mathf.Min(_previewLeft, ownerRect.InverseTransformPoint(Corners[i]).x);
+                _preview = preview;
+                _previewWarmup = 3; // native CreateLayout may finish just after pooled admission
             }
+            if (_previewWarmup > 0)
+            {
+                PreviewText.Clear(); preview.GetComponentsInChildren(true, PreviewText);
+                _previewWarmup--;
+            }
+            for (int i = 0; i < PreviewText.Count; i++)
+            {
+                TMP_Text text = PreviewText[i];
+                if (text == null || !text.gameObject.activeInHierarchy || !text.enabled) continue;
+                Include(text.rectTransform, ownerRect);
+                Bounds ink = text.textBounds;
+                Include(ownerRect.InverseTransformPoint(text.transform.TransformPoint(ink.min)).x);
+                Include(ownerRect.InverseTransformPoint(text.transform.TransformPoint(ink.max)).x);
+            }
+            float center = ownerRect.InverseTransformPoint(preview.TransformPoint(preview.rect.center)).x;
+            Include(center - MinimumPreviewWidthPx * .5f); Include(center + MinimumPreviewWidthPx * .5f);
         }
         // Browsing reset inventory sits beside the original character card list.
         if (!leveling && NewPartyDisplayUI.PartyDisplay?.AbilityCardsDisplay?.transform is RectTransform cards)
@@ -226,12 +264,12 @@ internal static class LevelUpComposite
             _comparison = new ComparisonSeat(comparison, ownerRect);
         if (_comparison != null && _comparison.Mount != null)
         {
-            Vector3 leftSeat = new(_previewLeft - ChromeParkTuning.ChromeGapPx
+            Vector3 leftSeat = new(_previewLeft - (leveling ? PreviewGapPx : ChromeParkTuning.ChromeGapPx)
                 - _comparison.Rect.rect.width * .5f, 0f, 0f);
             if ((_comparison.Mount.anchoredPosition3D - leftSeat).sqrMagnitude > .01f)
                 _comparison.Mount.anchoredPosition3D = leftSeat;
         }
-        Vector3 seat = new(_previewRight + ChromeParkTuning.ChromeGapPx + _rect.rect.width * .5f, 0f, 0f);
+        Vector3 seat = new(_previewRight + (leveling ? PreviewGapPx : ChromeParkTuning.ChromeGapPx) + _rect.rect.width * .5f, 0f, 0f);
         if ((_mount.anchoredPosition3D - seat).sqrMagnitude > .01f)
             _mount.anchoredPosition3D = seat;
         int layer = owner.gameObject.layer;
@@ -282,5 +320,6 @@ internal static class LevelUpComposite
         }
         if (_mount != null) Object.Destroy(_mount.gameObject);
         _mount = _rect = null; _owner = null; _inventory = null; _home = null;
+        _preview = null; PreviewText.Clear(); _previewWarmup = 0;
     }
 }

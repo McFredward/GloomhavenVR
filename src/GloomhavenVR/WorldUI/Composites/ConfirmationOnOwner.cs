@@ -33,6 +33,10 @@ internal static partial class ConfirmationOnOwner
         internal readonly ConvertedPanel Panel;
         internal readonly RectTransform Mount;
         internal readonly Vector2 Frame;
+        // A persistent native box must not become a child of a scene-owned level-up.
+        // Its chrome-free capture host stays in its own scene and shares the owner's
+        // exact world pose/scale, rather than acquiring a second placement author.
+        internal ConvertedPanel? PersistentMember;
 
         internal Seat(ConfirmationBox box, Request request, RectTransform rect,
             ConvertedPanel panel, RectTransform mount)
@@ -70,7 +74,8 @@ internal static partial class ConfirmationOnOwner
         {
             Seat seat = Seats[i];
             if (!Enabled || seat.Box == null || !StillShowing(seat.Box)
-                || !SourceAlive(seat.Request) || !PanelAlive(seat.Panel))
+                || !SourceAlive(seat.Request) || !PanelAlive(seat.Panel)
+                || (seat.PersistentMember != null && !seat.PersistentMember.IsAlive))
                 ReleaseAt(i);
         }
         UIConfirmationBoxManager? manager = Singleton<UIConfirmationBoxManager>.IsInitialized
@@ -111,10 +116,12 @@ internal static partial class ConfirmationOnOwner
             && request.Window.transform.IsChildOf(panel.Target)
             ? request.Window.transform as RectTransform : panel.Target;
         RectTransform? rect = box.transform as RectTransform;
-        // A pooled persistent dialog must never inherit a shorter scene lifetime. The
-        // native game and standalone converter retain ownership when scenes differ.
+        bool separateScene = mount != null && rect != null && mount.gameObject.scene != rect.gameObject.scene;
+        // Only the explicitly requested level-up family receives a persistent visual
+        // member. Unrelated cross-scene producers keep their existing standalone path.
         if (mount == null || rect == null || ReferenceEquals(mount, rect)
-            || mount.IsChildOf(rect) || mount.gameObject.scene != rect.gameObject.scene)
+            || mount.IsChildOf(rect) || (separateScene && request.Source is not UILevelUpWindow
+                && request.Source is not UIResetLevelUpWindow))
         {
             Release(box);
             return IsOwned(box.GetComponent<UIWindow>());
@@ -143,8 +150,18 @@ internal static partial class ConfirmationOnOwner
             var seat = new Seat(box, request, rect, panel, mount);
             Seats.Add(seat); // failed adoption can now unwind its complete native snapshot
             seat.Layout.ignoreLayout = true;
-            rect.SetParent(mount, worldPositionStays: false);
-            if (!ReferenceEquals(rect.parent, mount))
+            if (separateScene)
+            {
+                // Convert preserves the original's DontDestroyOnLoad scene before
+                // reparenting. This is a backing capture only: no grab bar, materialize,
+                // HMD placement or shared-window pose is created or requested.
+                seat.PersistentMember = CanvasConversion.Convert(rect, "LevelUpConfirmationMember",
+                    pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog, fitContent: false,
+                    flattenWindow: true);
+                if (seat.PersistentMember == null) { Release(box); return false; }
+            }
+            else rect.SetParent(mount, worldPositionStays: false);
+            if (seat.PersistentMember == null && !ReferenceEquals(rect.parent, mount))
             {
                 Release(box);
                 return IsOwned(window);
@@ -153,9 +170,12 @@ internal static partial class ConfirmationOnOwner
             rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
             rect.localRotation = Quaternion.identity;
             rect.localScale = Vector3.one;
-            CanvasConversion.TransferSeatedSubtree(rect, panel);
-            seat.Layers.Begin(mount.gameObject.layer);
-            seat.Layers.Walk(rect);
+            if (seat.PersistentMember == null)
+            {
+                CanvasConversion.TransferSeatedSubtree(rect, panel);
+                seat.Layers.Begin(mount.gameObject.layer);
+                seat.Layers.Walk(rect);
+            }
             Apply(seat);
             if (_reports++ < 24)
                 VRLog.Info("WorldUI", $"CONFIRMATION OWNER: '{box.name}' is part of native producer "
@@ -215,6 +235,17 @@ internal static partial class ConfirmationOnOwner
             rect.anchoredPosition = Vector2.zero;
         Vector3 position = rect.localPosition;
         if (position.z != 0f) rect.localPosition = new Vector3(position.x, position.y, 0f);
+        if (seat.PersistentMember != null)
+        {
+            RectTransform host = seat.PersistentMember.HostRect;
+            // Native pixels, not head distance/zoom. Its pose follows only the accepted
+            // owner matrix, including manual drag/resize; a coplanar source would z-fight.
+            host.SetPositionAndRotation(seat.Mount.TransformPoint(new Vector3(0f, 0f, -32f)), seat.Mount.rotation);
+            host.localScale = seat.Mount.lossyScale;
+            if (seat.PersistentMember.HostRaycaster != null)
+                seat.PersistentMember.HostRaycaster.enabled = true;
+            return;
+        }
         if (seat.Layers.Written != seat.Mount.gameObject.layer)
         {
             seat.Layers.Begin(seat.Mount.gameObject.layer);
@@ -244,6 +275,11 @@ internal static partial class ConfirmationOnOwner
             // Modal native Hide/Cancel owns progression. In particular, IsOpen=false
             // can be deliberate parent dimming while a confirmation is up. Never infer
             // cancellation from it, and never invoke a callback from presentation teardown.
+            if (seat.PersistentMember != null)
+            {
+                CanvasConversion.Release(seat.PersistentMember);
+                if (seat.PersistentMember.IsAlive) return false;
+            }
             rect.SetParent(seat.Home != null ? seat.Home : null, worldPositionStays: false);
             if (!ReferenceEquals(rect.parent, seat.Home != null ? seat.Home : null))
                 return false; // Unity can reject reparenting without throwing: retain the restoration record.
