@@ -20,8 +20,8 @@ pictures. Native pool activation/reparenting is the input; the real lifecycle
 observer/discovery code executes, while the campaign ObjectPool is not started.
 
 The independent oracle lifts native flat screenshot ink onto a plane 6.5% of item
-card width or 3.5% of every other card's width in front of its window, then projects
-through the actual head camera. The item case also rejects the prior 3.5% plane
+or full ability-card width, or 3.5% of every smaller card's width, then projects
+through the actual head camera. Full/item cases also reject the prior 3.5% plane
 and requires at least 60% more observed displacement on the same native artwork.
 Continuous white glyph coverage avoids unstable thresholded TMP stem centroids;
 the geometric tolerance stays 1.8 pixels. Actual first automatic frames include

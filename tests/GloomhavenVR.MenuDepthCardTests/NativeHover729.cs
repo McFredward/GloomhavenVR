@@ -97,8 +97,14 @@ public static partial class MenuDepthCardProgram
                     _name + "," + reuse + ",expected=" + expected.ToString("F6") + ",error=" + error + "\n");
                 Check(error < 1.8f,
                     "native character hover renders complete original card text at physical depth on its first automatic draw");
-                Check(Vector2.Scale(White(first).Center - White(flat).Center, new Vector2(first.width, first.height)).magnitude > .7f,
+                float displacement = Vector2.Scale(White(first).Center - White(flat).Center, new Vector2(first.width, first.height)).magnitude;
+                Check(displacement > .7f,
                     "native character hover has meaningful visible protrusion from the flat window");
+                Vector3 prior = Expected(full, White(flat), .035f);
+                float priorDisplacement = Vector2.Scale(new Vector2(prior.x, prior.y) - White(flat).Center,
+                    new Vector2(first.width, first.height)).magnitude;
+                Check(displacement > priorDisplacement * 1.6f,
+                    "native character hover is visibly stronger than the prior 3.5-percent plane");
                 Check(full.Rect.localPosition == nativePosition && full.Rect.localScale == nativeScale,
                     "native hover capture restores accepted native placement and physical scale");
                 Object.DestroyImmediate(first); Object.DestroyImmediate(flat); marker.enabled = true;

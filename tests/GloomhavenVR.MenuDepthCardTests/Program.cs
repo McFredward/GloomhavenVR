@@ -321,21 +321,21 @@ public static partial class MenuDepthCardProgram
                     Vector3 point = OnPlane(_head, baseline.Center, _path == 0 ? _root : _glass);
                     float width = _path == 2 ? _ui.WorldToViewportPoint(card.Rect.TransformPoint(new Vector3(card.Rect.rect.xMax, 0))).x
                         - _ui.WorldToViewportPoint(card.Rect.TransformPoint(new Vector3(card.Rect.rect.xMin, 0))).x : card.Rect.rect.width * card.Rect.TransformVector(Vector3.right).magnitude;
-                    float depth = (card.Owner is ItemCardUI ? .065f : .035f) * width * (_path == 2 ? 1.2f : 1f);
+                    float depth = (card.Owner is ItemCardUI || card.Owner is FullAbilityCard ? .065f : .035f) * width * (_path == 2 ? 1.2f : 1f);
                     Vector3 expected = _head.WorldToViewportPoint(point - Vector3.forward * depth);
                     marker.enabled = true; ++_request; while (_completed != _request) yield return null;
                     Texture2D pixels = Read(card, true, pose); Ink actual = White(pixels);
                     float error = Vector2.Scale(actual.Center - new Vector2(expected.x, expected.y), new Vector2(pixels.width, pixels.height)).magnitude;
                     File.AppendAllText(Path.Combine(_output, "geometry.csv"), _name + "," + card.Owner.GetType().Name + "," + pose + "," + baseline.Center.ToString("F6") + "," + actual.Center.ToString("F6") + "," + expected.ToString("F6") + ",depth=" + depth.ToString("F6") + ",error=" + error + "\n");
                     Check(error < 1.8f, "the complete original card text follows the independently specified raised physical plane");
-                    if (card.Owner is ItemCardUI && pose == 0)
+                    if ((card.Owner is ItemCardUI || card.Owner is FullAbilityCard) && pose == 0)
                     {
                         Vector3 prior = _head.WorldToViewportPoint(point - Vector3.forward * (depth * (.035f / .065f)));
                         float priorDisplacement = Vector2.Scale(new Vector2(prior.x, prior.y) - baseline.Center,
                             new Vector2(pixels.width, pixels.height)).magnitude;
                         float displacement = Vector2.Scale(actual.Center - baseline.Center, new Vector2(pixels.width, pixels.height)).magnitude;
                         Check(displacement > priorDisplacement * 1.6f && Error(actual, prior, pixels) > 2f,
-                            "native item card relief is visibly stronger than the prior 3.5-percent plane");
+                            "native full/item card relief is visibly stronger than the prior 3.5-percent plane");
                     }
                     if (pose == 0)
                     {
@@ -362,12 +362,15 @@ public static partial class MenuDepthCardProgram
         }
 
         private Vector3 Expected(Card card, Ink baseline)
+            => Expected(card, baseline, card.Owner is ItemCardUI || card.Owner is FullAbilityCard ? .065f : .035f);
+
+        private Vector3 Expected(Card card, Ink baseline, float ratio)
         {
             Vector3 point = OnPlane(_head, baseline.Center, _path == 0 ? _root : _glass);
             float width = _path == 2 ? (_ui.WorldToViewportPoint(card.Rect.TransformPoint(new Vector3(card.Rect.rect.xMax, 0))).x
                 - _ui.WorldToViewportPoint(card.Rect.TransformPoint(new Vector3(card.Rect.rect.xMin, 0))).x) * 1.2f
                 : card.Rect.rect.width * card.Rect.TransformVector(Vector3.right).magnitude;
-            return _head.WorldToViewportPoint(point - Vector3.forward * ((card.Owner is ItemCardUI ? .065f : .035f) * width));
+            return _head.WorldToViewportPoint(point - Vector3.forward * (ratio * width));
         }
         private static float Error(Ink ink, Vector3 expected, Texture2D pixels) =>
             Vector2.Scale(ink.Center - new Vector2(expected.x, expected.y), new Vector2(pixels.width, pixels.height)).magnitude;

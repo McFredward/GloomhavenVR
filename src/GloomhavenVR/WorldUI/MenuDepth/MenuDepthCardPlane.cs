@@ -23,6 +23,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     private bool _borrowed, _configured;
     private const float DepthWidthRatio = .035f;
     private const float ItemDepthWidthRatio = .065f;
+    private const float FullDepthWidthRatio = .065f;
     private float _depthWidthRatio;
 
     public Graphic Graphic => Printed() ?? _backgrounds[0];
@@ -34,9 +35,11 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     {
         _owner = owner; _card = card; _backgrounds = backgrounds; _configured = true;
         // Build729 hardware review: the original item cards barely cleared the
-        // window. Keep every other accepted card plane unchanged and give exact
-        // native ItemCardUI roots 6.5% of their physical width of relief.
-        _depthWidthRatio = owner is ItemCardUI ? ItemDepthWidthRatio : DepthWidthRatio;
+        // window, and the full character-card preview was not visibly raised.
+        // Exact native item/full roots get6.5% physical-width relief; smaller
+        // overview cards keep their existing plane. No hover/name heuristic.
+        _depthWidthRatio = owner is ItemCardUI ? ItemDepthWidthRatio
+            : owner is FullAbilityCard ? FullDepthWidthRatio : DepthWidthRatio;
         Rebind(window, backgrounds); MenuDepthSources.Register(this);
     }
 

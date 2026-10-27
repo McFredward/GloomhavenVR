@@ -636,7 +636,7 @@ internal static class NetProtocol
     // exhaust the character crop reservation and repeatedly flatten the entire
     // window. Bound sampling to the actual eye view and retain a stable paired
     // allocation without changing the accepted model framing or memory ceiling.
-    // Give native item cards more physical depth and verify the original pooled
+    // Give native item/full cards more physical depth and verify the original pooled
     // character-card hover preview at its first visible lifecycle boundary.
     // Keep native actions, shared window geometry and the default-on character
     // depth preference. Retain proof while cleaning completed test caches and
