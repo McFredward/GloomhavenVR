@@ -629,7 +629,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 731;
+    public const ushort ModBuild = 733;
+
+    // ModBuild733 — shared city-event readiness across quest and loadout transitions.
+    // The native desktop city proposal never reveals its client ready toggle. Expose
+    // that exact original after SelectCityEvent, without invoking its auto-ready
+    // continuation. Its native action occurrence shares the existing encounter pose
+    // lane until the actual event card takes over; pages and votes remain game-owned.
+    // Keep unassigned observers disabled, reject private X dismissal and adopt the
+    // original readiness markers before conversion. Phase-bound groups, parkers and
+    // leases cannot steal a pooled toggle after quest/city/loadout role changes.
+    // Enable the original city departure quorum/ACK validation so an unready peer
+    // leaving cannot strand the remaining ready party. No synthetic votes, new
+    // gameplay messages, configuration or wire layout; preserve the menu732 lane.
 
     // ModBuild731 — city-event readiness handoff and stable initiative ownership (#18/#24).
     // Retire the exact previous modal before adopting the reused native ready toggle

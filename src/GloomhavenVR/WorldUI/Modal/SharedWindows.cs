@@ -182,6 +182,9 @@ internal enum SharedWindowKind : byte
     /// <c>Singleton&lt;MapStoryController&gt;</c>, and the record's whole addressing is the kind
     /// byte. A pose published under kind 1 would be applied to the map story box.</para>
     /// </summary>
+    // Build733 also lends this kind to the exact native city-event preflight.
+    // Its proposal action occurrence supplies a distinct key; native retirement
+    // hands the identity to UIEventPanel before the actual event card appears.
     Encounter = 4,
 
     /// <summary>Native fullscreen movies, presented through their own VR window and record72.</summary>

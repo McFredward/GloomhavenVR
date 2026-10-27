@@ -583,6 +583,18 @@
       "weight": 30
     },
     {
+      "id": "city-ready-roster",
+      "command": [
+        "bash",
+        "scripts/city-ready-roster-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 40
+    },
+    {
       "id": "quest-window",
       "command": [
         "bash",

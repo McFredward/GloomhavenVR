@@ -1,3 +1,28 @@
+**Shared city-event and quest readiness review, Build733, 2026-10-27.**
+
+The native desktop city proposal leaves clients' original ready window hidden;
+Build731's lifetime fix did not supply common visibility or shared physical
+placement. Observe the exact native SelectCityEvent occurrence, reveal the
+original participant control without invoking its auto-ready continuation, and
+share its pose on the existing encounter lane until the full event takes over.
+Disabled visitors can observe without voting. Native visibility blockers, event
+content, personal votes and ACK authority remain intact.
+
+Phase-specific quest grouping, exact loadout readiness, captured park leases and
+role-specific release prevent the same pooled control from being swallowed by a
+previous window. Reuse the original readiness marker row before city conversion;
+exclude the adopted row from its own button measurement. Preserve native cancel
+rather than a private X/Hide. Enable the original city participant-departure
+validation so an unready third peer leaving cannot strand a ready remaining pair.
+
+Production/helper/actual-Harmony and original native departure kernels, pooled
+ownership and shared identity/geometry tests cover these boundaries. A suspected
+old-quest-vote carryover was rejected by a temporal native ACK/ordered-withdrawal
+proof; no extra gameplay patch was added for that hypothesis. Final source/build
+and focused-scope evidence is recorded in CITY-QUEST-READY-733.md and ignored
+issues18-24/city-sync733. No paired-headset or full-gate result is implied by a
+focused pass. Preserve the separate menu732 integration; dev source only, no ZIP.
+
 **City-event readiness and initiative ownership, Build731, 2026-10-27.**
 
 Open issues18/24 and all their image/video/audio context were reviewed; level-up23

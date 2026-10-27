@@ -26,6 +26,32 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build733: shared city-event readiness
+
+WorldUI registers `MapCityEventReadyUp` before native map proposals can arrive.
+The exact host `SelectCityEvent` occurrence reveals the original client readiness
+control without invoking the city-entry continuation, which would also consent.
+The existing encounter pose channel temporarily follows this original preflight;
+native reset, host withdrawal and actual event entry retire its lease. Native
+event pages, personal votes, participant permissions and ACKs remain game-owned.
+
+The helper observes eleven original Harmony targets: host `ConfirmCityEvent`,
+client `ProxySelectedCityEvent`, ready `Initialize`, `Reset`, `ShouldBeVisible` and
+`InputToggle`, controller `ResetUI`, `ClearHostSelectedCityEvent`,
+`ProxyHostCancelledCityEvent` and `CancelPreviewCityEvent`, and `UIEventPanel.StartEvent`.
+City participant initialization enables the game's existing departure validation.
+The resulting original ACK coroutine, timeout and continuation execute unchanged.
+Disabled observers can see the public offer without receiving a vote; original
+visibility blockers still apply. Presentation/probe failures cannot escape into
+the native network dispatcher or turn a disabled observer into an actionable one.
+
+The pooled toggle's native role now bounds quest grouping, loadout parking and
+parking leases. Its original readiness tracker bar is adopted before the city's
+first conversion and shares the same capture. This adds no new actor, gameplay
+message, wire layout, persisted setting or duplicate native window controller.
+See [the combined review](../.planning/CITY-QUEST-READY-733.md) for evidence and
+the distinction between source/runtime validation and headset outcomes.
+
 ## Build726: one native travel loop per resumed map flow
 
 WorldUI registers `NativeMapTravelAudio` on the six synchronous timed/point map
