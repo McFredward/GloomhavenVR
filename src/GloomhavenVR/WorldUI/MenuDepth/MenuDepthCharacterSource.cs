@@ -353,7 +353,11 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     // Scratch storage is private, fixed-size and reused for every known renderer.
     private sealed class BoundsClipper
     {
-        private const int MaxFaces = 16, MaxVertices = 24;
+        // Six box faces plus at most eight clipping caps give at most14
+        // faces/24 distinct vertices. Raw cap hits occur twice at shared edges;
+        // keep64 slots, including these duplicates and numerical near-coplanar
+        // edges, rather than assuming exact vertex deduplication at world origin.
+        private const int MaxFaces = 16, MaxVertices = 64;
         private Vector3[] _a = new Vector3[MaxFaces * MaxVertices], _b = new Vector3[MaxFaces * MaxVertices];
         private int[] _countsA = new int[MaxFaces], _countsB = new int[MaxFaces];
         private readonly Vector3[] _cap = new Vector3[MaxVertices];
@@ -395,7 +399,30 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
 
         internal void Encapsulate(Bounds bounds, Matrix4x4 projection, ref bool any, ref float x0, ref float x1, ref float y0, ref float y1)
         {
-            Vector3 lo = bounds.min, hi = bounds.max;
+            Vector3 lo = bounds.min, hi = bounds.max, boundsCenter = bounds.center, extents = bounds.extents;
+            float magnitude = Mathf.Max(1f, Mathf.Max(MaxAbs(lo), MaxAbs(hi)));
+            float epsilon = Mathf.Max(1e-6f, magnitude * 2.384185791e-7f), epsilonSquared = epsilon * epsilon;
+            int cuttingPlanes = 0;
+            for (int plane = 0; plane < _planeCount; plane++)
+            {
+                Vector4 p = _planes[plane];
+                float distance = Side(p, boundsCenter);
+                float radius = Mathf.Abs(p.x) * extents.x + Mathf.Abs(p.y) * extents.y + Mathf.Abs(p.z) * extents.z;
+                if (distance + radius < -epsilon) return;
+                if (distance - radius < epsilon) cuttingPlanes |= 1 << plane;
+            }
+            // Most native body/equipment renderers are entirely in the real eye
+            // frustum. Preserve their original eight-corner cost. Wholly outside
+            // bounds stop before touching scratch; only intersecting planes run
+            // polygon clipping, without per-call arrays or hierarchy searches.
+            if (cuttingPlanes == 0)
+            {
+                for (int corner = 0; corner < 8; corner++)
+                    Include(new Vector3((corner & 1) == 0 ? lo.x : hi.x,
+                        (corner & 2) == 0 ? lo.y : hi.y, (corner & 4) == 0 ? lo.z : hi.z), projection,
+                        ref any, ref x0, ref x1, ref y0, ref y1);
+                return;
+            }
             int faces = 6;
             for (int face = 0; face < faces; face++)
             {
@@ -409,6 +436,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             }
             for (int plane = 0; plane < _planeCount && faces > 0; plane++)
             {
+                if ((cuttingPlanes & (1 << plane)) == 0) continue;
                 Vector4 p = _planes[plane]; int nextFaces = 0, capCount = 0;
                 for (int face = 0; face < faces; face++)
                 {
@@ -422,7 +450,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
                             Vector3 intersection = previous + (current - previous) * (previousSide / (previousSide - currentSide));
                             _b[nextFaces * MaxVertices + written++] = intersection;
                             bool duplicate = false;
-                            for (int i = 0; i < capCount; i++) duplicate |= (_cap[i] - intersection).sqrMagnitude < 1e-12f;
+                            for (int i = 0; i < capCount; i++) duplicate |= (_cap[i] - intersection).sqrMagnitude < epsilonSquared;
                             if (!duplicate) _cap[capCount++] = intersection;
                         }
                         if (currentSide >= 0f) _b[nextFaces * MaxVertices + written++] = current;
@@ -448,14 +476,17 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
                 faces = nextFaces;
             }
             for (int face = 0; face < faces; face++) for (int vertex = 0; vertex < _countsA[face]; vertex++)
-            {
-                Vector3 point = _a[face * MaxVertices + vertex]; Vector4 projected = projection * new Vector4(point.x, point.y, point.z, 1f);
-                if (projected.w <= 1e-8f) continue;
-                float x = projected.x / projected.w, y = projected.y / projected.w;
-                if (float.IsNaN(x) || float.IsInfinity(x) || float.IsNaN(y) || float.IsInfinity(y)) continue;
-                any = true; x0 = Mathf.Min(x0, x); x1 = Mathf.Max(x1, x); y0 = Mathf.Min(y0, y); y1 = Mathf.Max(y1, y);
-            }
+                Include(_a[face * MaxVertices + vertex], projection, ref any, ref x0, ref x1, ref y0, ref y1);
         }
+        private static void Include(Vector3 point, Matrix4x4 projection, ref bool any, ref float x0, ref float x1, ref float y0, ref float y1)
+        {
+            Vector4 projected = projection * new Vector4(point.x, point.y, point.z, 1f);
+            if (projected.w <= 1e-8f) return;
+            float x = projected.x / projected.w, y = projected.y / projected.w;
+            if (float.IsNaN(x) || float.IsInfinity(x) || float.IsNaN(y) || float.IsInfinity(y)) return;
+            any = true; x0 = Mathf.Min(x0, x); x1 = Mathf.Max(x1, x); y0 = Mathf.Min(y0, y); y1 = Mathf.Max(y1, y);
+        }
+        private static float MaxAbs(Vector3 point) => Mathf.Max(Mathf.Abs(point.x), Mathf.Max(Mathf.Abs(point.y), Mathf.Abs(point.z)));
         private static float Side(Vector4 plane, Vector3 point) => plane.x * point.x + plane.y * point.y + plane.z * point.z + plane.w;
         private static float Angle(Vector3 point, Vector3 axis, Vector3 second) => Mathf.Atan2(Vector3.Dot(point, second), Vector3.Dot(point, axis));
     }
