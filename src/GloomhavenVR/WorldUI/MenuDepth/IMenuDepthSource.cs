@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI.MenuDepth;
@@ -16,6 +17,16 @@ internal interface IMenuDepthSource
 
 /// <summary>A source that renders into its own sampled texture and needs a per-consumer pixel demand.</summary>
 internal interface IMenuDepthSampledSource : IMenuDepthSource { }
+
+/// <summary>
+/// Original printed surfaces carried by a raised native UI object. Colour and
+/// text remain native; the compositor uses these exact authored silhouettes to
+/// compare a foreground model fragment against the object's physical plane.
+/// </summary>
+internal interface IMenuDepthOcclusionSource : IMenuDepthSource
+{
+    IReadOnlyList<Graphic> DepthGraphics { get; }
+}
 
 /// <summary>Prime a stable native UI batch texture, then refresh its pixels for each actual head eye.</summary>
 internal interface IMenuDepthDirectSource : IMenuDepthSampledSource
