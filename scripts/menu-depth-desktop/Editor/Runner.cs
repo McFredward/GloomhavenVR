@@ -53,7 +53,7 @@ public static class MenuDepthDesktopRunner
                 foreach(string part in new[]{"display","graphic","character"})
                     display.GetField(part=="graphic"?"_depthShader":"_"+part+"Shader",BindingFlags.Static|BindingFlags.NonPublic)
                         .SetValue(null,depthBundle.LoadAsset<Shader>("assets/menudepth/menudepth"+part+".shader"));
-                if(item.method=="HeadNativeCardEdge732")
+                if(item.method=="HeadNativeCardEdge732"||item.method=="HeadFigureCard732")
                     display.GetField("_nativeCardShader",BindingFlags.Static|BindingFlags.NonPublic)
                         .SetValue(null,Shader.Find("GloomhavenVR/FixtureNativeCardDepth"));
                 routine = (IEnumerator)assembly.GetType("MenuDepthDesktopProgram")

@@ -76,7 +76,9 @@ public static partial class MenuDepthDesktopProgram
         => HeadMotionCore730(output, complete, 4040, 4040, true);
     public static IEnumerator HeadAnnotations730(string output,Action<int> complete)
         => HeadMotionCore730(output, complete, 640, 480, false, true);
-    private static IEnumerator HeadMotionCore730(string output,Action<int> complete,int width,int height,bool hardwareRaster,bool annotations=false)
+    public static IEnumerator HeadFigureCard732(string output,Action<int> complete)
+        => HeadMotionCore730(output,complete,640,480,false,false,true);
+    private static IEnumerator HeadMotionCore730(string output,Action<int> complete,int width,int height,bool hardwareRaster,bool annotations=false,bool cards=false)
     {
         _count=0;DesktopEyeInput.Available=true;
         for(int route=0;route<(annotations?4:2);route++)
@@ -121,11 +123,28 @@ public static partial class MenuDepthDesktopProgram
             var tooltip=new GameObject("original right tooltip root without Graphic",typeof(RectTransform));tooltip.layer=5;
             tooltip.transform.SetParent(scene.RootA,false);var tooltipRect=(RectTransform)tooltip.transform;
             tooltipRect.sizeDelta=new Vector2(600,100);tooltipRect.anchoredPosition=new Vector2(900,-350);
+            if(annotations)tooltipRect.localPosition+=Vector3.forward*100;
             var originalPlate=new GameObject("original tooltip plate child",typeof(RectTransform),typeof(CanvasRenderer),typeof(RawImage));originalPlate.layer=5;originalPlate.transform.SetParent(tooltip.transform,false);
             var tip=originalPlate.GetComponent<RawImage>();tip.texture=texture;tip.rectTransform.sizeDelta=new Vector2(600,100);
             var nativeText=new GameObject("exact native description Graphic child",typeof(RectTransform),typeof(CanvasRenderer),typeof(Text));nativeText.layer=5;nativeText.transform.SetParent(tooltip.transform,false);
             var nativeLabel=nativeText.GetComponent<Text>();nativeLabel.font=Resources.GetBuiltinResource<Font>("Arial.ttf");nativeLabel.fontSize=40;nativeLabel.text="CHARACTER QUEST";nativeLabel.alignment=TextAnchor.MiddleCenter;nativeLabel.rectTransform.sizeDelta=new Vector2(600,100);
+            if(annotations)nativeLabel.rectTransform.localPosition+=Vector3.forward*80;
             HeadAnnotation730? annotation=new HeadAnnotation730(nativeLabel,tooltipRect);MenuDepthSources.Register(annotation);
+            RectTransform? cardRect=null;Material? cardMaterial=null,referenceCardMaterial=null;MenuDepthCardPlane? cardPlane=null;float cardDepth=0;
+            if(cards)
+            {
+                var card=new GameObject("original card overlapping real character depth",typeof(RectTransform),typeof(CanvasRenderer),typeof(Image),typeof(ItemCardUI));card.layer=5;card.transform.SetParent(scene.RootA,false);
+                cardRect=(RectTransform)card.transform;cardRect.sizeDelta=new Vector2(500,650);cardRect.anchoredPosition=raw.rectTransform.anchoredPosition;
+                var print=card.GetComponent<Image>();print.color=Color.blue;cardMaterial=new Material(Shader.Find("GUI/AbilityCard_Shd"));print.material=cardMaterial;
+                cardPlane=card.AddComponent<MenuDepthCardPlane>();cardPlane.Configure(card.GetComponent<ItemCardUI>(),cardRect,new Graphic[]{print},null);
+                cardDepth=-cardRect.rect.width*.065f*cardRect.TransformVector(Vector3.right).magnitude/cardRect.TransformVector(Vector3.forward).magnitude;
+                // Isolate the real figure/card depth relationship. Whole-window
+                // UI order, sampling and ink have their separate52-frame oracle.
+                foreach(var other in scene.RootA.GetComponentsInChildren<Graphic>(true))
+                    if(other!=raw&&other!=print)other.enabled=false;
+                foreach(var other in scene.RootB.GetComponentsInChildren<Graphic>(true))other.enabled=false;
+                File.WriteAllText(Path.Combine(output,"figure-card-boundaries.txt"),"Original figure source and card plane execute; native shader availability uses the declared GL stand-ins. Other synthetic UI witnesses are hidden only in this isolated overlap case. Whole-window52-frame tests are unchanged.\n");
+            }
             if(annotations)
             {
                 Check(tooltip.GetComponent<Graphic>()==null&&ReferenceEquals(annotation.Graphic,nativeLabel),"native annotation membership uses the visible child of a root without Graphic");
@@ -139,6 +158,19 @@ public static partial class MenuDepthDesktopProgram
             Matrix4x4 bodyMap=mappingA*BodyMap730(scene.ModelCamera,ground.transform,raw.rectTransform);
             raw.gameObject.SetActive(false);
             GameObject referenceA=CloneUi730(scene.RootA,mappingA),referenceB=CloneUi730(scene.RootB,mappingB);
+            RectTransform? referenceCard=cards?(RectTransform)referenceA.transform.Find(cardRect!.name):null;
+            if(referenceCard!=null)
+            {
+                referenceCard.localPosition+=Vector3.forward*cardDepth;
+                referenceCard.GetComponent<Image>().enabled=false;
+                // An independently opaque physical card writes ordinary mesh
+                // depth. The original flat GUI shader's ZWriteOff would let the
+                // later native overlay draw through this intended raised plane.
+                var physicalCard=GameObject.CreatePrimitive(PrimitiveType.Cube);physicalCard.layer=26;physicalCard.name="independent opaque printed card plane";
+                physicalCard.transform.SetParent(referenceCard,false);physicalCard.transform.localPosition=referenceCard.rect.center;
+                physicalCard.transform.localScale=new Vector3(referenceCard.rect.width,referenceCard.rect.height,.00001f);
+                referenceCardMaterial=new Material(Shader.Find("Unlit/Color"));referenceCardMaterial.color=Color.blue;physicalCard.GetComponent<Renderer>().sharedMaterial=referenceCardMaterial;
+            }
             raw.gameObject.SetActive(!annotations);
             var referenceBody=Object.Instantiate(body);referenceBody.name="independent native actor in fixed physical world";referenceBody.layer=26;
             referenceBody.transform.SetParent(null,false);Pose730(referenceBody.transform,bodyMap*body.transform.localToWorldMatrix);
@@ -162,6 +194,9 @@ public static partial class MenuDepthDesktopProgram
                 panelDisplay.GetComponent<RawImage>().texture=scene.Ui;
                 scene.OriginalA.targetTexture=scene.Ui;
                 entry=PanelSupersample.BindHead(scene.RootA,scene.OriginalA,scene.Ui,panelDisplay.GetComponent<RawImage>());
+                // Converted-window membership is an explicit fixture input;
+                // the dedicated card enrollment suite executes the real driver.
+                if(cardPlane!=null)cardPlane.Rebind(scene.RootA,cardPlane.DepthGraphics);
                 // The source calibration changes with this real conversion lifecycle, not with a head pose.
                 MenuDepthCharacters.Tick();
             }
@@ -182,9 +217,9 @@ public static partial class MenuDepthDesktopProgram
             using(var csv=new StreamWriter(Path.Combine(output,"head-motion-"+path+".csv")))
             {
                 csv.WriteLine("frame,eye,uiCorrelation,modelCorrelation,uiContrast,modelContrast");
-                for(int step=0;step<(hardwareRaster||annotations?4:52);step++)
+                for(int step=0;step<(hardwareRaster||annotations||cards?4:52);step++)
                 {
-                    int frame=hardwareRaster||annotations?new[]{0,13,40,51}[step]:step;
+                    int frame=hardwareRaster||annotations||cards?new[]{0,13,40,51}[step]:step;
                     int before=Time.frameCount;while(Time.frameCount==before)yield return null;
                     Vector3 position;
                     if(frame<4)position=Vector3.zero;
@@ -232,6 +267,18 @@ public static partial class MenuDepthDesktopProgram
                         VRRigDriver.HeadCamera=null;scene.Head.cullingMask=1<<26;scene.Head.Render();VRRigDriver.HeadCamera=scene.Head;
                         Texture2D reference=Read(scene.HeadTarget,Path.Combine(output,"reference-"+path+"-"+frame+"-"+eye+".png"));
                         Color32[] actualPixels=actual.GetPixels32(),referencePixels=reference.GetPixels32();
+                        if(cards&&frame==0&&eye==0)
+                        {
+                            int overlap=0;var plane=new Plane(referenceCard!.forward,referenceCard.position);
+                            for(int p=0;p<referencePixels.Length;p++)
+                            {
+                                if(referencePixels[p].g-referencePixels[p].r<30)continue;
+                                Ray ray=scene.Head.ViewportPointToRay(new Vector3((p%width+.5f)/width,(p/width+.5f)/height));
+                                if(plane.Raycast(ray,out float distance)&&referenceCard.rect.Contains(referenceCard.InverseTransformPoint(ray.GetPoint(distance))))overlap++;
+                            }
+                            File.WriteAllText(Path.Combine(output,"real-figure-card-overlap-"+path+".txt"),overlap.ToString());
+                            Check(overlap>20,"the independent original figure really stands in front of the raised native card");
+                        }
                         long actualInk=0,referenceInk=0;
                         for(int p=0;p<actualPixels.Length;p++){actualInk+=Math.Max(actualPixels[p].r,actualPixels[p].g);referenceInk+=Math.Max(referencePixels[p].r,referencePixels[p].g);}
                         Check(referenceInk<1000||actualInk>referenceInk/10,"actual final head retains original window and figure ink for both eyes");
@@ -270,6 +317,8 @@ public static partial class MenuDepthDesktopProgram
             Object.DestroyImmediate(referenceA);Object.DestroyImmediate(referenceB);Object.DestroyImmediate(referenceBody);
             Object.DestroyImmediate(referenceMaterial);
             Object.DestroyImmediate(texture);Object.DestroyImmediate(cyanTexture);Object.DestroyImmediate(material);Object.DestroyImmediate(bodyMaterial);
+            if(cardMaterial!=null)Object.DestroyImmediate(cardMaterial);
+            if(referenceCardMaterial!=null)Object.DestroyImmediate(referenceCardMaterial);
             }
         }
         complete(_count);

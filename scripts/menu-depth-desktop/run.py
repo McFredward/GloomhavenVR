@@ -113,6 +113,14 @@ internal static class MenuDepthCharacterRotation
         ('head-order730', '', '', '', ''),
         ('head-card-edge732', '', '', '', ''),
         ('head-native-card-edge732', '', '', '', ''),
+        ('head-figure-card732', '', '', '', ''),
+        ('head-native-card-ztest-lost732', 'MenuDepthGraphic.cs',
+         '_depthMaterial.EnableKeyword("UNITY_UI_ALPHACLIP");',
+         '_depthMaterial.EnableKeyword("UNITY_UI_ALPHACLIP"); _depthMaterial.SetInt("unity_GUIZTestMode",8);',
+         'actual final head figure retains direct native-world XY surface detail during movement'),
+        ('head-annotation-glyph-plane732', 'DesktopCapture.cs',
+         '(RectTransform)canvas.transform, _quad.transform.position,', 'annotation.Graphic.rectTransform, _quad.transform.position,',
+         'actual final head text and XY print retain direct native-world pixel detail during movement'),
         ('head-native-card-alpha-lost732', 'MenuDepthGraphic.cs',
          '_depthMaterial.EnableKeyword("UNITY_UI_ALPHACLIP");', '/* native empty sprite fragments write depth */',
          'transparent native card corners do not grant ordinary off-window UI permission'),
@@ -278,7 +286,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else
