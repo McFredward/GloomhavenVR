@@ -15,7 +15,7 @@ internal sealed partial class FlatScreen
     private RenderTexture? _menuDepthRight, _menuDepthLeft, _menuDepthCarrierLeft;
     private MenuDepthDesktopCarrier? _menuDepthCarrier;
     private Rect _menuDepthFrameUv = new(0f, 0f, 1f, 1f);
-    private float _menuDepthFrameChangedAt;
+    private float _menuDepthShrinkSince = -1f;
     private Vector2 _menuDepthPhysicalScale;
     private Camera? _menuDepthBorrowedCamera;
     private Predicate<Graphic>? _menuDepthApplies;
@@ -117,10 +117,8 @@ internal sealed partial class FlatScreen
         float x1 = max.x > 1 ? 1f + Mathf.Ceil(((max.x - 1f) * _uiRt!.width + 2f) / 64f) * 64f / _uiRt.width : 1f;
         float y1 = max.y > 1 ? 1f + Mathf.Ceil(((max.y - 1f) * _uiRt!.height + 2f) / 64f) * 64f / _uiRt.height : 1f;
         Rect requested = Rect.MinMaxRect(x0,y0,x1,y1);
-        if (_menuDepthRight != null && Time.unscaledTime - _menuDepthFrameChangedAt < 2f)
-            requested = Rect.MinMaxRect(Mathf.Min(requested.xMin,_menuDepthFrameUv.xMin),Mathf.Min(requested.yMin,_menuDepthFrameUv.yMin),
-                Mathf.Max(requested.xMax,_menuDepthFrameUv.xMax),Mathf.Max(requested.yMax,_menuDepthFrameUv.yMax));
-        if (requested != _menuDepthFrameUv) _menuDepthFrameChangedAt = Time.unscaledTime;
+        if (_menuDepthRight != null)
+            requested = MenuDepthDesktopResources.RetainFrame(_menuDepthFrameUv, requested, Time.unscaledTime, ref _menuDepthShrinkSince);
         return requested;
     }
 
@@ -139,6 +137,8 @@ internal sealed partial class FlatScreen
             if (width > SystemInfo.maxTextureSize || height > SystemInfo.maxTextureSize)
                 throw new InvalidOperationException("The complete native foreground exceeds the graphics texture limit.");
             bool expanded = frame != new Rect(0f, 0f, 1f, 1f);
+            if (!MenuDepthDesktopResources.Fits(_uiRt.descriptor, width, height, expanded))
+                throw new InvalidOperationException("The complete native foreground exceeds its additional eye-target memory budget.");
             if (_menuDepthRight == null || _menuDepthLeft != _uiRt
                 || _menuDepthRight.width != width || _menuDepthRight.height != height
                 || expanded != (_menuDepthCarrierLeft != null))
@@ -273,6 +273,6 @@ internal sealed partial class FlatScreen
         if (_menuDepthCarrierLeft != null) { _menuDepthCarrierLeft.Release(); UnityEngine.Object.Destroy(_menuDepthCarrierLeft); }
         _menuDepthCarrierLeft = null;
         if (_menuDepthRight != null) { _menuDepthRight.Release(); UnityEngine.Object.Destroy(_menuDepthRight); }
-        _menuDepthRight = _menuDepthLeft = null;
+        _menuDepthRight = _menuDepthLeft = null; _menuDepthShrinkSince = -1f;
     }
 }

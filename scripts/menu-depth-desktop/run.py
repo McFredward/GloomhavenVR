@@ -66,11 +66,14 @@ def main():
         start = stack.index(signature); body += stack[start:stack.index(';', start) + 1] + '\n'
     names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs',
              'MenuDepthSources.cs', 'MenuDepthDisplay.cs', 'MenuDepthGraphic.cs', 'MenuDepthHeightfield.cs',
-             'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs', 'MenuDepthNativeUiScope.cs', 'MenuDepthDesktopCarrier.cs')
+             'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs', 'MenuDepthNativeUiScope.cs', 'MenuDepthDesktopCarrier.cs', 'MenuDepthDesktopResources.cs')
     sources = {name: (depth / name).read_text() for name in names}
     sources['CaptureStack.cs'] = body + '}\n'
     sources['CaptureGuard.cs'] = (flat / 'FlatScreen.7.CaptureRender.cs').read_text()
     sources['DesktopCapture.cs'] = (flat / 'FlatScreen.8.MenuDepth.cs').read_text()
+    budget_at = sources['DesktopCapture.cs'].index('MenuDepthDesktopResources.Fits(_uiRt.descriptor, width, height, expanded)')
+    assert budget_at < sources['DesktopCapture.cs'].index('_menuDepthRight = MenuDepthTarget('), 'Budget must admit before either extra allocation'
+    assert 'MenuDepthDesktopResources.RetainFrame(_menuDepthFrameUv, requested' in sources['DesktopCapture.cs']
     sources['Anchors724.cs'] = (ROOT / 'scripts/menu-depth-desktop/Anchors724.cs').read_text()
     # Explicit XR observation ports only. The original native camera's stored eye
     # matrices are real Unity inputs; the editor cannot report an active XR eye.
@@ -85,6 +88,10 @@ def main():
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
+        ('desktop-resources728', '', '', '', ''),
+        ('desktop-budget-cap-lost728', 'MenuDepthDesktopResources.cs', '160L * 1024 * 1024', 'long.MaxValue', 'extreme native eye allocations are rejected before creating either additional target'),
+        ('desktop-small-shrink-churn728', 'MenuDepthDesktopResources.cs', 'wanted.width <= current.width * .75f || wanted.height <= current.height * .75f',
+         'wanted.width < current.width || wanted.height < current.height', 'small silhouette jitter never reallocates even after the old two-second timeout'),
         ('outer-carrier728', '', '', '', ''),
         ('outer-bounds-lost728', 'DesktopCapture.cs', 'MenuDepthSources.CollectReadyForegroundGraphics(_menuDepthBoundsGraphics);',
          '_menuDepthBoundsGraphics.Clear();', 'actual original character foreground expands beyond the entire old FlatScreen carrier'),
@@ -197,7 +204,7 @@ def main():
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
+                                      'method': ('DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else
                                           'Anchors724' if name.startswith('window-anchors-') else 'Run')})
