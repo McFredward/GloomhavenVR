@@ -44,7 +44,7 @@ def main():
         ('lost-card-lift','MenuDepthCardPlane.cs','private const float DepthWidthRatio = .035f;','private const float DepthWidthRatio = 0f;','the complete original card text follows'),
         ('background-only-lift','MenuDepthCardPlane.cs','_owner = owner; _card = card;','_owner = owner; _card = backgrounds[0].rectTransform;','the complete original card text follows'),
         ('lost-pose-restore','MenuDepthCardPlane.cs','_card.localPosition = _position; _card.localScale = _scale;','/* injected: native root retains a private eye pose */','card capture restores the original root pose'),
-        ('nested-double-lift','MenuDepthCardPlane.cs',' || (_parentPlane != null && _parentPlane.IsReady)','', 'nested native card and modifier content inherits exactly one raised parent plane'),
+        ('nested-double-lift','MenuDepthCardPlane.cs','if (_parentPlane != null && _parentPlane.IsReady) return;','', 'nested native card and modifier content inherits exactly one raised parent plane'),
         ('lost-printed-visibility','MenuDepthCardPlane.cs','&& Printed() != null && Eligible();','&& Eligible();','active native card controllers with no printed graphics'),
         ('lost-late-background','MenuDepthCards.cs','plane.Rebind(windowRoot, graphics);','plane.Rebind(windowRoot, plane.DepthGraphics);','late native background assignment refreshes'),
         ('lost-fit-depth','MenuDepthCardPlane.cs',' * xScale / zScale;',';','native XY-only fitting retains a raised depth proportional'),
