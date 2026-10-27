@@ -10,7 +10,7 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 
 /// <summary>
 /// Lift the complete original ability/item widget during a UI eye capture. Native
-/// Full/MiniAbilityCard and ItemCardUI identities also cover pooled hover popups,
+/// Exact native ability/item/monster/modifier identities cover pooled hover popups,
 /// level-up, deck/enhancement views and item confirmations; no card-name/image
 /// heuristic or substitute artwork is involved. Enrolled world UI and original
 /// screen-space canvases qualify, while physical hand/board/card-bake canvases do not.

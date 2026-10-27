@@ -75,6 +75,36 @@ public static partial class MenuDepthCardProgram
             foreach (Texture2D image in new[] { unmasked, clippedFlat, clippedRaised }) Object.DestroyImmediate(image);
             card.Rect.SetParent(_root, false); mask.enabled = false; scroll.enabled = false; card.Rect.gameObject.SetActive(false);
 
+            // Production subview fitting retains Z while shrinking XY. Depth is
+            // a fraction of the visible physical card width, not its authored width.
+            var fit = (RectTransform)Go("native XY-only subview fit", _root).transform;
+            fit.localScale = new Vector3(.45f, .45f, 1f);
+            var fitted = new Card(typeof(ItemCardUI), fit, 6); fitted.Rect.gameObject.SetActive(true);
+            ++_request; while (_completed != _request) yield return null;
+            var fittedMarker = fitted.Rect.GetComponent<MenuDepthCardPlane>(); fittedMarker.enabled = false;
+            ++_request; while (_completed != _request) yield return null;
+            Texture2D fittedFlat = Read(fitted, false, 215); Vector3 fittedExpected = Expected(fitted, White(fittedFlat));
+            fittedMarker.enabled = true; ++_request; while (_completed != _request) yield return null;
+            Texture2D fittedRaised = Read(fitted, true, 215);
+            Check(Error(White(fittedRaised), fittedExpected, fittedRaised) < 1.8f,
+                "native XY-only fitting retains a raised depth proportional to actual physical card width");
+            fitted.Restored(); Object.DestroyImmediate(fittedFlat); Object.DestroyImmediate(fittedRaised);
+            fit.localScale = new Vector3(.45f, .45f, 1e-12f);
+            MenuDepthSources.BeforeCapture(_root, new MenuDepthEye(false, _head.transform.position, _head, true));
+            try { fitted.Restored(); }
+            finally { MenuDepthSources.AfterCapture(); fit.localScale = new Vector3(.45f, .45f, 1f); }
+            bool invalidEye = false;
+            try { MenuDepthSources.BeforeCapture(_root, new MenuDepthEye(false, new Vector3(float.NaN, 0, 0), _head, true)); }
+            catch (InvalidOperationException) { invalidEye = true; }
+            finally { MenuDepthSources.AfterCapture(); }
+            Check(invalidEye, "a nonfinite projection eye is rejected before borrowing native card state"); fitted.Restored();
+            fitted.Rect.gameObject.SetActive(false);
+            Image unrelated = Image(_root, "Full Ability Item Card names are not native identities", new Vector2(294, 450), Vector2.zero);
+            ++_request; while (_completed != _request) yield return null;
+            Check(unrelated.GetComponent<MenuDepthCardPlane>() == null,
+                "unrelated original UI never becomes a card merely because of its name or rectangle");
+            unrelated.gameObject.SetActive(false);
+
             // An item/monster popup can itself own another typed modifier/card.
             // All exact child silhouette graphics remain available to depth passes;
             // its geometry inherits one parent loan, never a second added loan.

@@ -78,12 +78,20 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     {
         AfterCapture();
         if (!IsReady || _card == null || (_parentPlane != null && _parentPlane.IsReady)) return;
-        Vector3 localEye = _card.InverseTransformPoint(eye.WorldPosition);
-        float depth = -Mathf.Abs(_card.rect.width) * DepthWidthRatio;
+        float xScale = _card.TransformVector(Vector3.right).magnitude;
+        float yScale = _card.TransformVector(Vector3.up).magnitude;
+        float zScale = _card.TransformVector(Vector3.forward).magnitude;
+        if (!MenuDepthProjection.Finite(new Vector3(xScale, yScale, zScale))
+            || Mathf.Min(xScale, Mathf.Min(yScale, zScale)) <= 1e-8f) return;
+        // Native subview fitting scales XY while retaining its original Z scale.
+        // Express relief in physical card widths even beneath that original fit.
+        float depth = -Mathf.Abs(_card.rect.width) * DepthWidthRatio * xScale / zScale;
+        if (float.IsNaN(depth) || float.IsInfinity(depth)) return;
         float factor = 1f;
         Vector3 offset = new(0f, 0f, depth);
         if (eye.ProjectToGraphicPlane)
         {
+            Vector3 localEye = _card.InverseTransformPoint(eye.WorldPosition);
             float denominator = localEye.z - depth;
             factor = localEye.z / denominator;
             if (!MenuDepthProjection.Finite(localEye) || Mathf.Abs(denominator) <= 1e-5f

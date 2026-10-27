@@ -37,6 +37,7 @@ def main():
         ('nested-double-lift','MenuDepthCardPlane.cs',' || (_parentPlane != null && _parentPlane.IsReady)','', 'nested native card and modifier content inherits exactly one raised parent plane'),
         ('lost-printed-visibility','MenuDepthCardPlane.cs','&& Printed() != null && Eligible();','&& Eligible();','active native card controllers with no printed graphics'),
         ('lost-late-background','MenuDepthCards.cs','plane.Rebind(windowRoot, graphics);','plane.Rebind(windowRoot, plane.DepthGraphics);','late native background assignment refreshes'),
+        ('lost-fit-depth','MenuDepthCardPlane.cs',' * xScale / zScale;',';','native XY-only fitting retains a raised depth proportional'),
         ('lost-item-identity','MenuDepthCards.cs','new("ItemCardUI", false,','new("NoSuchNativeItemCard", false,','exact native full mini and item card roots receive'),
     ]
     if args.case:

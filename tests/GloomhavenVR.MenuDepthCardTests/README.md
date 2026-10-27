@@ -28,19 +28,20 @@ invoking early priming. The direct head is enabled; earlier failed manual-disabl
 head hypotheses are retained in development evidence and are not passing proof.
 
 Other proofs cover complete nested/generated text, both stereo selections,
-readonly disabled controllers, late backing references, hide/reuse, physical
+readonly disabled controllers, late backing references/destruction/replacement,
+XY-only native fitting, hide/reuse, physical
 canvas exclusion, nested card coalescing, ScrollRect/RectMask2D, sliced transparent
 art, tint/material identity, unchanged native controls/layout, missing-head/orphan
 cleanup and exact native recovery pixels after a capture exception. The normal
-native desktop path uses orthographic size5/planeDistance7. The additional native
-size450/planeDistance7 clip stress belongs to the shared UI depth-normalization
+native desktop path uses orthographic size 5/planeDistance 7. The additional native
+size 450/planeDistance 7 clip stress belongs to the shared UI depth-normalization
 integration and is not silently represented by the normal-path pass.
 
 Causal source mutations independently remove early priming, root lift, complete
 root membership, restoration, native item identity, nested coalescing, printed
-visibility and late backing renewal. A compile failure is never a mutation pass.
+visibility, late backing renewal and XY-only native fitting. A compile failure is never a mutation pass.
 
-Each run first executes `scripts/menu-depth-cards/audit-native.py` against all13
+Each run first executes `scripts/menu-depth-cards/audit-native.py` against all 13
 original scenes and the original GUI bundle. `native-authoring.json` retains exact
 owner/component/field/Sprite/material identities and source hashes; no artwork or
 mesh is exported. The old AttackModifierCardGUI widget only has a hide consumer;
