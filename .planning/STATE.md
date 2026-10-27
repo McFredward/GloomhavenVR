@@ -29,6 +29,12 @@ and focused-scope evidence is recorded in CITY-QUEST-READY-733.md and ignored
 issues18-24/city-sync733. No paired-headset or full-gate result is implied by a
 focused pass. Preserve the separate menu732 integration; dev source only, no ZIP.
 
+Final city270/27 and actual Harmony72/14 pass; unchanged native departure400/2
+is inherited. Quest selection1338/50, sixteen focused runtime suites and all
+sixteen source gates pass with affected reruns. All306431 goldens, strict
+real/metadata Release0W0E and docs-i18n pass. Compiled review confines runtime
+changes to16 existing UI/map types plus1 helper, with unchanged resources.
+
 **City-event readiness and initiative ownership, Build731, 2026-10-27.**
 
 Open issues18/24 and all their image/video/audio context were reviewed; level-up23

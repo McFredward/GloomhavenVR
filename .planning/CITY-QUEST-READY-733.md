@@ -109,3 +109,29 @@ Passing evidence for unchanged areas is inherited. A focused suite invocation
 is not a new full local gate. Final commands, exact counts, source pins, build
 artifacts, compiled-scope review and cleanup receipts are retained under ignored
 `debug/issues18-24/city-sync733`. No local release ZIP is built.
+
+Final pre-menu-integration evidence on this lane:
+
+- Sixteen relevant runtime suites pass, with unchanged passing evidence reused.
+  Final city helper: 270 assertions / 27 causal controls. Actual Unity Mono /
+  HarmonyX: 72 assertions on 14 original targets. The unchanged original departure
+  kernel's 400 assertions / two controls are inherited, not rerun.
+- Final quest selection: 1,338 assertions / 50 causal controls, with both original
+  and publicized metadata. Map flow: 2,012 / nine; navigation: 205 / two.
+  Shared geometry: 4,463 actual-Unity assertions / 30 controls; preconversion:
+  25 / six. Other unchanged modal, roster, identity and handoff evidence is indexed
+  in the retained validation manifest.
+- All sixteen source gates pass; the four affected gates were rerun after final
+  helper integration. Patch inventory: 219 classes / 333 methods. Diagnostic writes:
+  56 load-bearing fields, below the existing 61 baseline.
+- All 306,431 wire/golden assertions pass at Build733; no later wire or schema
+  change. Strict real-game and metadata Release builds both produce zero warnings
+  and zero errors. Player documentation localization checks pass.
+- Private compiled comparison against published731 plus source review confines
+  runtime changes to sixteen existing UI/map types and one new helper. Nine types
+  differ only by build number; two generated metadata types carry branch/commit
+  identity. Embedded resources are unchanged.
+
+This is focused validation, not a new complete 258-suite invocation or a paired
+headset result. The independent menu732 lane retains its own evidence and delivery
+order; its changes must be preserved when this lane integrates onto current dev.

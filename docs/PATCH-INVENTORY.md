@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**219 patch classes, 330 patched methods.**
+**219 patch classes, 333 patched methods.**
 
 ## Board
 
@@ -247,7 +247,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:82 |
 | `VrGamepadConnectionActivateGuard`<br/><sub>src/GloomhavenVR/WorldUI/Grab/VrGamepadConnectionGuard.cs:20</sub> | `GamepadConnectionBox.Activate()` | prefix | `WorldUIModule`:83 |
 | `VrGamepadConnectionUpdateGuard`<br/><sub>src/GloomhavenVR/WorldUI/Grab/VrGamepadConnectionGuard.cs:44</sub> | `GamepadConnectionBox.Update()` *(private)* | prefix | `WorldUIModule`:84 |
-| `MapCityEventReadyUp.CityProposalSeams`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapCityEventReadyUp.cs:242</sub> | `UIMapMultiplayerController.ConfirmCityEvent()` | prefix | `MapCityEventReadyUp`:62 |
+| `MapCityEventReadyUp.CityProposalSeams`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapCityEventReadyUp.cs:325</sub> | `UIMapMultiplayerController.ConfirmCityEvent()` | prefix | `MapCityEventReadyUp`:88 |
 | &nbsp; | `UIMapMultiplayerController.ConfirmCityEvent()` | postfix | &nbsp; |
 | &nbsp; | `MapChoreographer.ProxySelectedCityEvent()` | postfix | &nbsp; |
 | &nbsp; | `UIReadyToggle.Initialize()` | prefix | &nbsp; |
@@ -257,8 +257,11 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `UIMapMultiplayerController.ProxyHostCancelledCityEvent()` *(private)* | prefix | &nbsp; |
 | &nbsp; | `UIEventPanel.StartEvent()` | prefix | &nbsp; |
 | &nbsp; | `UIMapMultiplayerController.CancelPreviewCityEvent()` *(private)* | prefix | &nbsp; |
+| &nbsp; | `UIMapMultiplayerController.ToggleReadyUpUI()` | prefix | &nbsp; |
 | &nbsp; | `UIReadyToggle.get_ShouldBeVisible()` | postfix | &nbsp; |
 | &nbsp; | `UIReadyToggle.InputToggle()` *(private)* | prefix | &nbsp; |
+| &nbsp; | `QuestManager.OnSelectedLogQuest()` *(private)* | prefix | &nbsp; |
+| &nbsp; | `MapLocation.OnPointerClick()` | prefix | &nbsp; |
 | `MapQuestDepartureValidation.InitializeSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:149</sub> | `UIReadyToggle.Initialize()` | prefix | `MapQuestDepartureValidation`:138 |
 | `MapQuestDepartureValidation.PlayerLeftSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestDepartureValidation.cs:178</sub> | `UIReadyToggle.OnPlayerLeft()` *(private)* | prefix | `MapQuestDepartureValidation`:139 |
 | &nbsp; | `UIReadyToggle.OnPlayerLeft()` *(private)* | postfix | &nbsp; |
