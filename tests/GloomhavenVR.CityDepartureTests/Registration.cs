@@ -15,12 +15,14 @@ internal static class Registration
     {
         try
         {
+            CityFlowSetup.Create();
             MapCityEventReadyUp.Install();
             foreach(var target in new[]{
                 (typeof(UIReadyToggle),"Initialize"),(typeof(UIReadyToggle),"Reset"),(typeof(UIReadyToggle),"InputToggle"),
                 (typeof(UIMapMultiplayerController),"ConfirmCityEvent"),(typeof(UIMapMultiplayerController),"ResetUI"),
                 (typeof(UIMapMultiplayerController),"ClearHostSelectedCityEvent"),(typeof(UIMapMultiplayerController),"ProxyHostCancelledCityEvent"),
                 (typeof(UIMapMultiplayerController),"CancelPreviewCityEvent"),(typeof(MapChoreographer),"ProxySelectedCityEvent"),
+                (typeof(UIMapMultiplayerController),"ToggleReadyUpUI"),
                 (typeof(UIEventPanel),"StartEvent"),(typeof(UIReadyToggle),"get_ShouldBeVisible")})
             {
                 MethodInfo original=target.Item1.GetMethod(target.Item2,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)!;
@@ -41,7 +43,32 @@ internal static class Registration
             controller.ConfirmCityEvent();uint key=MapCityEventReadyUp.ContentKey;
             Check(key!=0,"actual host prefix/postfix capture original action counter");
             Check(PlayerRegistry.MyPlayer.state.LatestProcessedActionID==17,"capture never mutates original action counter");
+            controller.ToggleReadyUpUI(true,EReadyUpToggleStates.CityEvents);
+            var adventure=new AdventureMapUIManager();adventure.SelectLocation();
+            NewPartyDisplayUI.PartyDisplay.Change(true,NewPartyDisplayUI.DisplayType.Character);
+            Check(controller.m_State==EReadyUpToggleStates.CityEvents&&ready.IsVisible,
+                "native party-panel focus cannot overwrite city role through EnableTravelOptions");
+            NewPartyDisplayUI.PartyDisplay.Change(false,NewPartyDisplayUI.DisplayType.Character);
+            Check(controller.m_State==EReadyUpToggleStates.CityEvents&&MapCityEventReadyUp.ContentKey==key,
+                "native party-panel close preserves the same shared city proposal");
+            ready._allPlayersReady=true;ready.UpdateVisiblity();MapCityEventReadyUp.Tick();
+            adventure.EnableTravelOptions(true);
+            Check(controller.m_State==EReadyUpToggleStates.CityEvents&&!ready.IsVisible&&!MapCityEventReadyUp.Active,
+                "native ACK wait remains hidden while its city role is protected");
+            ready._allPlayersReady=false;MapCityEventReadyUp.Tick();
+            Check(MapCityEventReadyUp.ContentKey==key&&ready.IsVisible,"native ACK interruption retains exact city occurrence");
+            controller.m_State=EReadyUpToggleStates.Quests;ready._requestVisible=true;MapCityEventReadyUp.Tick();
+            Check(controller.m_State==EReadyUpToggleStates.CityEvents&&MapCityEventReadyUp.ContentKey==key,
+                "actual city tick repairs presentation role without changing native votes");
+            MapRoomDriver.Active=false;adventure.EnableTravelOptions(false);MapCityEventReadyUp.Tick();
+            Check(controller.m_State==EReadyUpToggleStates.Quests&&!ready.IsVisible,"native map-off focus refresh retains original behavior");
+            MapRoomDriver.Active=true;MapCityEventReadyUp.Tick();
+            Check(controller.m_State==EReadyUpToggleStates.CityEvents&&MapCityEventReadyUp.ContentKey==key,
+                "native map reentry restores retained city proposal");
             ready.Reset();Check(!MapCityEventReadyUp.Active,"actual native Reset hook retires city occurrence");
+            ready.Initialize(readyUpToggleState:EReadyUpToggleStates.Quests);controller.ToggleReadyUpUI(true,EReadyUpToggleStates.Quests);
+            Check(controller.m_State==EReadyUpToggleStates.Quests&&!MapCityEventReadyUp.Active,
+                "genuine native quest initialization permits original quest readiness presentation");
 
             FFSNetwork.IsClient=true;var map=new MapChoreographer();Singleton<MapChoreographer>.Instance=map;
             map.ProxySelectedCityEvent(new GameAction{ActionID=17,ActionTypeID=(int)GameActionType.SelectCityEvent});
@@ -84,7 +111,7 @@ internal static class Registration
             NativeProbeFaults.Arm("network.client");
             typeof(UIMapMultiplayerController).GetMethod("CancelPreviewCityEvent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(controller,new object[0]);
             Check(NativeProbeFaults.Triggered==1&&!MapCityEventReadyUp.Active&&!ready.IsVisible,"actual native cancel survives failed host-role probe without resurrection");
-            System.Console.WriteLine($"City actual HarmonyX: {_assertions} assertions passed; 11 original targets under Unity Mono.");return 0;
+            System.Console.WriteLine($"City actual HarmonyX: {_assertions} assertions passed; 12 original targets under Unity Mono.");return 0;
         }
         catch(Exception ex){System.Console.Error.WriteLine(ex);return 1;}
     }

@@ -10,6 +10,7 @@ for path in fixture.iterdir():
     if path.suffix in ('.cs','.csproj'):shutil.copy2(path,project/path.name)
 native=(predecessor/'NativeDepartureFixture.cs').read_text();boundary=(predecessor/'DepartureBoundary.cs').read_text()
 bindings={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in (predecessor/'NativeDepartureFixture.cs',predecessor/'DepartureBoundary.cs')}
+bindings.update({str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in fixture.glob('*.cs')})
 common=Path(subprocess.check_output(['git','-C',str(root),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
 native_path=common.parent/'decompiled/GH.Runtime/UIReadyToggle.cs'
 if native_path.is_file():
@@ -22,6 +23,16 @@ if native_path.is_file():
         assert actual[start:end] in native,'Native departure body mismatch: '+signature
     bindings[str(native_path)]=hashlib.sha256(native_path.read_bytes()).hexdigest()
     print('City departure kernel: six exact native initialization/departure/ACK/continuation bodies verified.',flush=True)
+    flow=(fixture/'NativeFlowFixture.cs').read_text()
+    for filename,signatures in (
+        ('UIMapMultiplayerController.cs',('private bool InQuestSelectionPhase()', 'public void ToggleReadyUpUI(bool show, EReadyUpToggleStates state)')),
+        ('AdventureMapUIManager.cs',('private void SetLocationToTravel(', 'private void ResetLocationToTravel()', 'private void OnPartyPanelToggled(', 'private void SetFocused(', 'public void EnableTravelOptions(bool show)'))):
+        path=native_path.parent/filename;actual=path.read_text();bindings[str(path)]=hashlib.sha256(path.read_bytes()).hexdigest()
+        for signature in signatures:
+            start=actual.index(signature);opening=actual.index('{',start);end=opening+1;depth=1
+            while depth:depth+=(actual[end]=='{')-(actual[end]=='}');end+=1
+            assert actual[start:end] in flow,'Native city/quest flow body mismatch: '+signature
+    print('City/quest native flow: seven exact proposal visibility and party-focus bodies verified.',flush=True)
 # Publicized mod access only; every native algorithm above is retained verbatim apart
 # from its access modifier. Platform supplements never replace the departure/ACK path.
 replacements={
@@ -89,7 +100,7 @@ try:
     else:
         print('SKIP: actual HarmonyX registration requires existing Unity Mono; no runtime pass claimed.',flush=True)
     (run/'result.json').write_text(json.dumps({'native_assertions':assertions,'negative_controls':[x[0] for x in controls],
-        'actual_harmony_assertions':actual,'actual_harmony_targets':11 if actual else 0,'hardware_verified':False},indent=2)+'\n')
+        'actual_harmony_assertions':actual,'actual_harmony_targets':12 if actual else 0,'hardware_verified':False},indent=2)+'\n')
     status=0
 finally:
     spec=importlib.util.spec_from_file_location('retention',root/'scripts/town_run_retention.py');retention=importlib.util.module_from_spec(spec);spec.loader.exec_module(retention)

@@ -123,6 +123,7 @@ internal static partial class Program
             Check(!MapCityEventReadyUp.Active&&!Ready.Window.IsOpen,"native all-ready gate suppresses observation immediately");
             MapCityEventReadyUp.Install();MapCityEventReadyUp.Install();Check(VRSession.Harmony!.Installed==1,"installation is idempotent");
             Check(VRLog.Warnings.Count==1,"all other native transitions reconcile without exception");
+            RoleProof();
             FaultProof();
             Console.WriteLine($"City readiness: {_assertions} assertions passed.");return 0;
         }

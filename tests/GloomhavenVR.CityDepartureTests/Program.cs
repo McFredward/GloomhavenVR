@@ -21,6 +21,7 @@ internal static class Program
     private static UIReadyToggle Setup(bool apply=true,bool client=false)
     {
         NativeProbeFaults.Reset();VRSession.IsRunning=true;FFSNetwork.IsOnline=true;FFSNetwork.IsClient=client;
+        CityFlowSetup.Create();
         ActionProcessor.CurrentPhase=ActionPhaseType.MapHQ;Timing.Reset();Synchronizer.Actions.Clear();Timekeeper.instance.m_GlobalClock.time=0;
         PlayerRegistry.MyPlayer=new(){PlayerID=1};PlayerRegistry.AllPlayers=new(){PlayerRegistry.MyPlayer,new(){PlayerID=2},new(){PlayerID=3}};
         PlayerRegistry.OnPlayerLeft=null;_proceeded=0;var toggle=new UIReadyToggle();Singleton<UIReadyToggle>.Instance=toggle;

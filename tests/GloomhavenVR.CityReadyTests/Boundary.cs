@@ -42,7 +42,7 @@ internal sealed class UIMapMultiplayerController
     internal EReadyUpToggleStates m_State;
     internal int ShowRequests;
     internal void ToggleReadyUpUI(bool show,EReadyUpToggleStates state)
-    { Faults.Read("show-request");m_State=state;var t=Singleton<UIReadyToggle>.Instance;t._requestVisible=show;t.UpdateVisiblity();if(show)ShowRequests++; }
+    { if(!(bool)Hooks.Invoke("PreserveCityRole",this,state)!)return;Faults.Read("show-request");m_State=state;var t=Singleton<UIReadyToggle>.Instance;t._requestVisible=show;t.UpdateVisiblity();if(show)ShowRequests++; }
     internal void OnSelectedCityEvent() { Singleton<UIReadyToggle>.Instance.AutomaticVotes++; }
     internal void ConfirmCityEvent() { }
     internal void ResetUI() { }

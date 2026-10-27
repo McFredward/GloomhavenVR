@@ -125,7 +125,7 @@ internal static class MapCityEventReadyUp
         _reconciling = true;
         try
         {
-            if (!MatchesNativeProposal())
+            if (!MatchesNativeRole())
             {
                 Reset();
                 return;
@@ -141,10 +141,17 @@ internal static class MapCityEventReadyUp
             _roomWasActive = true;
             UIReadyToggle current = _toggle!;
             uint key = _contentKey;
+            if (current._allPlayersReady)
+            {
+                // The native ACK wait hides input but has not withdrawn the city proposal.
+                // Keep its role protected until the original Reset/StartEvent/cancel edge.
+                current.UpdateVisiblity();
+                return;
+            }
             // ToggleReadyUpUI is a native presentation request, not OnSelectedCityEvent:
             // the latter calls ReadyUp(true). A client's local unready hides its preview,
             // but does not withdraw the host's offer. Keep that original offer observable.
-            if (!_toggle!._requestVisible)
+            if (!_toggle!._requestVisible || _controller!.m_State != EReadyUpToggleStates.CityEvents)
                 _controller!.ToggleReadyUpUI(true, EReadyUpToggleStates.CityEvents);
             if (_contentKey != key || !ReferenceEquals(_toggle, current))
                 return; // Native show callbacks may legitimately retire or replace the offer.
@@ -169,16 +176,16 @@ internal static class MapCityEventReadyUp
         }
     }
 
-    private static bool MatchesNativeProposal()
+    private static bool MatchesNativeProposal() => MatchesNativeRole() && !_toggle!._allPlayersReady;
+
+    private static bool MatchesNativeRole()
     {
         if (_contentKey == 0 || !FFSNetwork.IsOnline || _controller == null || _toggle == null
             || !Singleton<UIMapMultiplayerController>.IsInitialized
             || !Singleton<UIReadyToggle>.IsInitialized
             || !ReferenceEquals(_controller, Singleton<UIMapMultiplayerController>.Instance)
             || !ReferenceEquals(_toggle, Singleton<UIReadyToggle>.Instance)
-            || _controller.m_State != EReadyUpToggleStates.CityEvents
-            || _toggle.readyUpToggleState != EReadyUpToggleStates.CityEvents
-            || _toggle._allPlayersReady)
+            || _toggle.readyUpToggleState != EReadyUpToggleStates.CityEvents)
             return false;
         var map = AdventureState.MapState;
         return map != null && (map.CurrentMapPhaseType == EMapPhaseType.InHQ
@@ -367,6 +374,31 @@ internal static class MapCityEventReadyUp
                 // A failed host/client probe must not resurrect a natively cancelled offer.
                 ForgetModLease();
                 ReportFailure("native cancel preview", ex);
+            }
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(UIMapMultiplayerController), nameof(UIMapMultiplayerController.ToggleReadyUpUI))]
+        private static bool PreserveCityRole(UIMapMultiplayerController __instance, EReadyUpToggleStates state)
+        {
+            // AdventureMapUIManager.EnableTravelOptions unconditionally requests Quests on
+            // an online host, including party-panel focus refreshes unrelated to selection.
+            // This mutable controller presentation field is not a native city withdrawal.
+            // A genuine quest initialization retires this lease first and remains unchanged.
+            if (state != EReadyUpToggleStates.Quests || _contentKey == 0
+                || !ReferenceEquals(_controller, __instance))
+                return true;
+            try
+            {
+                if (!MapRoomDriver.Active || _toggle == null
+                    || _toggle.readyUpToggleState != EReadyUpToggleStates.CityEvents)
+                    return true;
+                return !MatchesNativeRole();
+            }
+            catch (Exception ex)
+            {
+                ReportFailure("city role presentation", ex);
+                return false; // Unknown evidence cannot let a focus refresh steal this role.
             }
         }
 

@@ -9,8 +9,6 @@ internal sealed partial class UIReadyToggle
 internal sealed partial class UIMapMultiplayerController
 {
     internal EReadyUpToggleStates m_State;
-    internal void ToggleReadyUpUI(bool show,EReadyUpToggleStates state)
-    { m_State=state;Singleton<UIReadyToggle>.Instance.ToggleVisibility(show); }
     internal void ConfirmCityEvent() { FFSNet.PlayerRegistry.MyPlayer.state.LatestProcessedActionID++; }
     internal void ResetUI() { Singleton<UIReadyToggle>.Instance.ToggleVisibility(false); }
     internal void ClearHostSelectedCityEvent() { Singleton<UIReadyToggle>.Instance.ToggleVisibility(false); }
