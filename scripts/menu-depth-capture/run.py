@@ -114,7 +114,7 @@ def main():
             ('no-empty-mono-725', 'PanelDepth.cs', 'if (!MenuDepthSources.HasContent(e.Panel.HostRect))\n            {\n                bool skippedMono = e.MenuDepthDisplay != null && !e.Cam.enabled;',
              'if (!MenuDepthSources.HasContent(e.Panel.HostRect))\n            {\n                bool skippedMono = false;', 'leaving spatial content refills a suppressed automatic mono capture immediately'),
             ('sample-ceiling-725', 'MenuDepthProjection.cs', 'Mathf.Min(final.x, intermediate.x), Mathf.Min(final.y, intermediate.y)',
-             'final.x, final.y', 'source sampling demand stops at the actual intermediate UI raster'),
+             'final.x, final.y', 'legacy photographed sampling demand stops at the actual intermediate UI raster'),
             ('near-native-fallback-725', 'MenuDepthProjection.cs', 'if (front < 4) return new Vector2(width, height);',
              'if (front < 4) return Vector2.zero;', 'a visibly near-clipped angled pane receives bounded visible pixel demand instead of native-size fallback'),
             ('masked-source-725', 'MenuDepthSources.cs', '!graphic.canvasRenderer.cull',

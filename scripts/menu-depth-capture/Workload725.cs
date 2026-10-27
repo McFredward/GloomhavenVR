@@ -51,8 +51,8 @@ public static partial class MenuDepthProgram
                     Check(draws == both, "a second head coordinator callback in the same frame cannot render the eye pair again");
                     Check(sampled.Begins - startSources == (tick + 1) * 2 && sampled.Ends == sampled.Begins,
                         "a moving window prepares one sampled source exactly once for each eye and restores every lease");
-                    Check(sampled.Last.x <= 130.01f && sampled.Last.y <= 70.01f,
-                        "source sampling demand stops at the actual intermediate UI raster");
+                    Check(sampled.Last == new Vector2(scene.Head.targetTexture.width,scene.Head.targetTexture.height),
+                        "head-raster source preparation receives the complete actual eye pixel domain without the old native-photo ceiling");
                     if (tick < 4)
                     {
                         watch.Stop(); // Pixel readback/evidence IO is not capture-loop timing.
@@ -62,9 +62,8 @@ public static partial class MenuDepthProgram
                             Vector3 a = scene.Head.WorldToViewportPoint(corners[0]), b = scene.Head.WorldToViewportPoint(corners[2]);
                             float width = Math.Abs(b.x - a.x) * image.Image.width;
                             float height = Math.Abs(b.y - a.y) * image.Image.height;
-                            Check(Math.Abs(sampled.Left.x - Math.Min(width, 130)) < .1f
-                                && Math.Abs(sampled.Left.y - Math.Min(height, 70)) < .1f,
-                                "sampled demand agrees with independent physical head pixels and the native UI ceiling at near mid and far poses");
+                            Check(sampled.Left == sampled.Last && width > 0 && height > 0,
+                                "both head-raster eyes retain one fixed pixel domain at near mid and far poses");
                             int minimum = image.Image.width, maximum = -1;
                             int xmin = Math.Max(0, (int)(Math.Min(a.x, b.x) * image.Image.width) - 2);
                             int xmax = Math.Min(image.Image.width - 1, (int)(Math.Max(a.x, b.x) * image.Image.width) + 2);
@@ -186,6 +185,8 @@ public static partial class MenuDepthProgram
         aperture.GetComponent<MeshRenderer>().sharedMaterial = material;
         try
         {
+            Check(MenuDepthProjection.LimitPixels(new Vector2(800,600),new Vector2(130,70)) == new Vector2(130,70),
+                "legacy photographed sampling demand stops at the actual intermediate UI raster");
             foreach (bool near in new[] { true, false })
             {
                 aperture.transform.SetPositionAndRotation(near ? new Vector3(.1f, 0, .15f) : new Vector3(1.1f, 0, 1f),

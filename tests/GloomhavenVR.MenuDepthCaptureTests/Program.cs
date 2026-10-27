@@ -201,6 +201,7 @@ public static partial class MenuDepthProgram
                     Vector3 position = new(.8f, 0, 0);
                     Check(MenuDepthProjection.TryBuild(scene.Panel, position, out Matrix4x4 view, out Matrix4x4 projection),
                         "direct off-axis mask fixture has a valid actual eye view");
+                    MenuDepthFixture.Left = position;
                     scene.Head.transform.position = position;
                     scene.Head.orthographic = false; scene.Head.worldToCameraMatrix = view; scene.Head.projectionMatrix = projection;
                     using (TextureOwner direct = scene.Eye(false, "direct-rect-aperture"))
@@ -231,9 +232,9 @@ public static partial class MenuDepthProgram
                 scene.Capture();
                 using (TextureOwner eye = scene.Eye(false, "alpha-depth"))
                 {
-                    Check(eye.Image.GetPixel(160, 90).r > .7f,
+                    Check(PhysicalPixel(scene, eye.Image, new Vector3(0,0,10)).r > .7f,
                         "zero-alpha native sprite pixels leave depth open for farther artwork");
-                    Check(eye.Image.GetPixel(122, 90).b > .7f,
+                    Check(PhysicalPixel(scene, eye.Image, new Vector3(-75,0,10)).b > .7f,
                         "opaque nearer native sprite pixels occlude later farther UI triangles");
                 }
             }
@@ -276,6 +277,11 @@ public static partial class MenuDepthProgram
         }
     }
 
+    private static Color PhysicalPixel(Scene scene, Texture2D image, Vector3 originalLocal)
+    {
+        Vector3 viewport = scene.Head.WorldToViewportPoint(scene.Panel.TransformPoint(originalLocal));
+        return image.GetPixel(Mathf.RoundToInt(viewport.x*image.width),Mathf.RoundToInt(viewport.y*image.height));
+    }
     private static bool PrintedControlsVisible(Texture2D image, bool right)
     {
         using (var reference = new CameraOwner())
