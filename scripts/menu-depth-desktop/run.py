@@ -46,6 +46,9 @@ def main():
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--case', action='append')
     args = parser.parse_args()
+    if not os.environ.get('ADB_SERVER_SOCKET'): parser.error('Use the task-private ADB server.')
+    def terminated(signum, frame): raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, terminated)
     output = ROOT / '.planning/debug/menu-depth-desktop'; output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=output)); print('Evidence: ' + str(run), flush=True)
     completion = run / 'completion.log'; completion.write_text('Evidence: ' + str(run) + '\n')
@@ -63,7 +66,7 @@ def main():
         start = stack.index(signature); body += stack[start:stack.index(';', start) + 1] + '\n'
     names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs',
              'MenuDepthSources.cs', 'MenuDepthDisplay.cs', 'MenuDepthGraphic.cs', 'MenuDepthHeightfield.cs',
-             'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs')
+             'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs', 'MenuDepthNativeUiScope.cs')
     sources = {name: (depth / name).read_text() for name in names}
     sources['CaptureStack.cs'] = body + '}\n'
     sources['CaptureGuard.cs'] = (flat / 'FlatScreen.7.CaptureRender.cs').read_text()
@@ -79,9 +82,23 @@ def main():
     fixtures = ROOT / 'tests/GloomhavenVR.MenuDepthDesktopTests'
     inputs = [flat / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.7.CaptureRender.cs', 'FlatScreen.8.MenuDepth.cs')]
     inputs += [depth / name for name in names]
-    inputs += [ROOT / 'scripts/menu-depth-desktop/Anchors724.cs']
+    inputs += [ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
+        ('native-depth-near-domain-lost728', 'MenuDepthNativeUiScope.cs',
+         'camera.nearClipPlane = distance - halfSpan;\n            camera.farClipPlane = distance + halfSpan;',
+         '/* native near/far domain unchanged */',
+         'common UI depth retains foreground geometry in front of the original capture camera near plane'),
+        ('native-depth-stack-clear-lost728', 'MenuDepthNativeUiScope.cs',
+         'camera.clearFlags = CameraClearFlags.Nothing;', '/* native second camera clears prior depth */',
+         'later UI cameras share foreground depth instead of clearing or reinterpreting the first native camera'),
+        ('native-depth-rear-reflection-lost728', 'MenuDepthNativeUiScope.cs',
+         'camera.worldToCameraMatrix = reflected;', '/* rear reflection omitted */',
+         'rear depth places the original front witness behind native glass'),
+        ('native-depth-restore-lost728', 'MenuDepthNativeUiScope.cs',
+         '_camera.nearClipPlane = _near; _camera.farClipPlane = _far;', '/* clip restoration omitted */',
+         'native depth scope restores automatic projection and original camera clears'),
+        ('native-depth-probe728', '', '', '', ''),
         ('production', '', '', '', ''),
         ('window-anchors-724', '', '', '', ''),
         ('window-anchors-native-unit-pixels-725', 'MenuDepthScreenProjection.cs',
@@ -175,7 +192,8 @@ def main():
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
+                                      'method': ('NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
+                                          'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else
                                           'Anchors724' if name.startswith('window-anchors-') else 'Run')})
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
@@ -191,6 +209,9 @@ def main():
         if (run / 'results.txt').exists(): print((run / 'results.txt').read_text(), end='')
         if status: raise RuntimeError('Desktop capture proof failed: ' + str(run))
     finally:
+        editor_dll = project / 'Library/ScriptAssemblies/Assembly-CSharp-Editor.dll'
+        if editor_dll.exists(): shutil.copyfile(editor_dll, run / 'assemblies/Assembly-CSharp-Editor.dll')
+        (run / 'executed-pins.json').write_text(json.dumps({p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (run / 'assemblies').glob('*.dll')}, indent=2) + '\n')
         editors = cleanup_project_editors(run / 'unity', Path('/home/claw/unity-2021.3.5/Editor/Unity'), launcher_reaped=True)
         (run / 'editor-cleanup.json').write_text(json.dumps(editors, indent=2) + '\n')
         if editors['remaining']: raise RuntimeError('Owned editor remains; retaining its project caches.')

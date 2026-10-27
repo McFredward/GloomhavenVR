@@ -9,7 +9,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
-public static class MenuDepthDesktopProgram
+public static partial class MenuDepthDesktopProgram
 {
     private static int _count;
     private static void Check(bool value, string message) { _count++; if (!value) throw new Exception(message); }

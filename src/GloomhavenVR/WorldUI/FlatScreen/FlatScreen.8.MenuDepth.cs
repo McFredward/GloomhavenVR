@@ -39,6 +39,7 @@ internal sealed partial class FlatScreen
             Camera.onPreRender -= BeforeMenuDepthHead;
             Camera.onPostRender -= AfterMenuDepthHead;
             ReleaseMenuDepthScreen();
+            MenuDepthNativeUiScope.Clear();
         }
     }
 
@@ -136,10 +137,13 @@ internal sealed partial class FlatScreen
                 RenderTexture? originalTarget = source.targetTexture;
                 int originalMask = source.cullingMask;
                 _menuDepthBorrowedCamera = source;
+                MenuDepthNativeUiScope? depthScope = null;
                 try
                 {
-                    MenuDepthSources.BeforeCaptureWhere(eye, _menuDepthApplies!, _menuDepthMapper!, _menuDepthPixels!);
                     source.targetTexture = target;
+                    bool rear = _quad != null && Vector3.Dot(eye.WorldPosition - _quad.transform.position, _quad.transform.forward) > 0f;
+                    depthScope = new MenuDepthNativeUiScope(source, MenuDepthNativeUiScope.FindCanvas(source, _menuDepthGraphics), rear);
+                    MenuDepthSources.BeforeCaptureWhere(eye, _menuDepthApplies!, _menuDepthMapper!, _menuDepthPixels!);
                     if (VRLayers.ModLayerMask != VRLayers.GameUiLayerMask) source.cullingMask &= ~VRLayers.ModLayerMask;
                     if (MenuDepthSources.HasPreparedSources) Canvas.ForceUpdateCanvases();
                     source.Render();
@@ -147,6 +151,7 @@ internal sealed partial class FlatScreen
                 finally
                 {
                     MenuDepthSources.AfterCapture();
+                    depthScope?.Dispose();
                     if (source != null) { source.targetTexture = originalTarget; source.cullingMask = originalMask; }
                     _menuDepthBorrowedCamera = null;
                 }
