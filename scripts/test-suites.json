@@ -3102,6 +3102,17 @@
         "local"
       ],
       "weight": 45
+    },
+    {
+      "id": "menu-depth-performance",
+      "command": [
+        "python3",
+        "scripts/menu-depth-perf/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
     }
   ]
 }
