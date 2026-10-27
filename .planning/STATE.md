@@ -1,3 +1,33 @@
+**Moving character cabinets, stronger card previews and cleanup, Build729, 2026-10-27.**
+
+Fresh728/e99f290b7 logs identify repeated New Party window fallback after character
+sampling reservation failure. Clip conservative bounds against actual eye/near
+planes before division, retain closed caps and keep target capacity stable for
+the complete frame. Accepted model framing, native masks/effects/actions, default-on
+depth preference and shared window geometry remain. Item/full ability menu cards
+now protrude by6.5% physical width; smaller cards retain3.5%. Native pooled hover
+registration already works; first-frame old/new raster comparisons prove the
+stronger full preview independently of the window repair.
+
+Final runtime5c8711956 passes strict real Debug/Release and metadata0W0E, all16
+source checks and bounded compiled review. All306431 goldens pass; wire evidence
+is unchanged by the final card metric. Final cards1952+15 controls, desktop368+21,
+capture400+22, graphic582+14, material94+13 and performance863+10 pass. Character
+complete invocation has one legacy witness failure; four affected viewport cases
+pass after a fixture-only current-frustum repair with unchanged tolerance. Aggregate
+character7064+43 controls reuses unchanged passing evidence. No new complete252-suite
+invocation or headset result is claimed. Normal52-frame motion retains X/Y detail
+without warmed pair churn; the distant-accessory budget stress remains explicitly
+qualified in MENU729-MOVING-PREVIEWS-AND-CARDS.md.
+
+Historical cleanup removes26.35GB net logical caches/verified media copies while
+retaining all original/evidence/protected data. Two private board fixtures stop
+duplicating unused loose media and identify completion ownership. All30 retention
+tests pass.29 absent worktree registrations are pruned; both clean current workers
+retire after verified evidence archives and process reaping. Ignored debug/menu729
+retains exact hardware inputs, passing/failed proofs, DLLs and cleanup journals.
+Delivery is dev source; the Windows installation script builds the ZIP.
+
 **Native menu depth, original level-up UI and raised cards, Build728, 2026-10-27.**
 
 The accepted727 character framing remains. Native model surface depth survives
