@@ -20,7 +20,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from town_run_retention import cleanup_completed_run
-from project_compilers import cleanup_project_compilers
+from project_compilers import cleanup_project_compilers, cleanup_project_editors
 
 
 def execute(argv, log, timeout=180):
@@ -42,6 +42,9 @@ def replace_once(code, before, after):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case', action='append')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--editor-mode', action='store_true', default=False, help='Optional direct editor Camera.Render; supplied effect matches native ExecuteInEditMode.')
+    mode.add_argument('--play-mode', dest='editor_mode', action='store_false', help='Default: original Playmode callback execution.')
     parser.add_argument('--api-root', type=Path, default=ROOT,
         help='Read the unchanged shared capture contract from the integration checkout while testing private character sources.')
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
@@ -49,21 +52,33 @@ def main():
     output = ROOT / '.planning/debug/menu-depth-character'; output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=output))
     print('Evidence: ' + str(run), flush=True)
+    (run / 'launch-environment.json').write_text(json.dumps({key: os.environ.get(key)
+        for key in ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
     completion = run / 'completion.log'; completion.write_text('Evidence: ' + str(run) + '\n')
     code_root = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
-    names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs',
+    names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs',
              'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs',
              'MenuDepthCharacterDisplayObserver.cs')
-    api_names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs')
+    api_names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs')
     inputs = {name: (args.api_root / 'src/GloomhavenVR/WorldUI/MenuDepth' / name)
               if name in api_names else code_root / name for name in names}
     sources = {name: path.read_text() for name, path in inputs.items()}
     fixture = ROOT / 'tests/GloomhavenVR.MenuDepthCharacterTests'
     pins = {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in [*inputs.values(), *fixture.glob('*'), Path(__file__),
-                         ROOT / 'scripts/menu-depth-character/Editor/Runner.cs'] if path.is_file()}
+                         ROOT / 'scripts/menu-depth-character/Editor/Runner.cs', Path(__file__).with_name('project_compilers.py')] if path.is_file()}
     variants = [
         ('production', '', '', '', 'Run', ''),
+        ('glass-cabinet', '', '', '', 'GlassCabinet', ''),
+        ('native-ldr-viewports', '', '', '', 'TargetViewport', ''),
+        ('camera-child-head-follow', 'MenuDepthCharacterSource.cs',
+         '            _camera.orthographic = false;',
+         '            _camera.transform.SetPositionAndRotation(view.Position, view.Rotation);\n            _camera.orthographic = false;', 'GlassCabinet',
+         'actual eye raster projects fixed cabinet landmarks from independently authored window-relative 3D'),
+        ('native-ldr-viewport-ignored', 'MenuDepthCharacterProjection.cs',
+         'Rect viewport = source.rect;',
+         'Rect viewport = new Rect(0f, 0f, 1f, 1f);', 'TargetViewport',
+         'actual eye raster projects fixed cabinet landmarks from independently authored window-relative 3D'),
         ('native-lifecycle', '', '', '', 'Lifecycle', ''),
         ('native-close-during-render', '', '', '', 'NativeCloseDuringRender', ''),
         ('throwing-render', 'MenuDepthCharacterSource.cs', '            _camera.Render();',
@@ -116,7 +131,7 @@ def main():
         selected = set(args.case)
         assert selected <= {case[0] for case in variants}, selected
         variants = [case for case in variants if case[0] in selected]
-    manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'harmony': str(run / 'assemblies/0Harmony.dll'), 'cases': []}
+    manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'harmony': str(run / 'assemblies/0Harmony.dll'), 'editorMode': args.editor_mode, 'cases': []}
     exit_code = 1
     try:
         project = run / 'unity'; editor = project / 'Assets/Editor'; editor.mkdir(parents=True)
@@ -125,8 +140,21 @@ def main():
         (project / 'Packages').mkdir()
         (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.ugui': '1.0.0'}}))
         shutil.copyfile(ROOT / 'scripts/menu-depth-character/Editor/Runner.cs', editor / 'Runner.cs')
+        original_fixture = fixture
+        fixture = run / 'source/fixture'; fixture.mkdir(parents=True)
+        for path in original_fixture.iterdir():
+            if path.is_file(): shutil.copyfile(path, fixture / path.name)
+        for shader in fixture.glob('*.shader'): shutil.copyfile(shader, project / 'Assets' / shader.name)
+        boundary = (fixture / 'Boundary.cs').read_text()
+        boundary = replace_once(boundary, 'internal static class VRLog\n    {',
+            'internal static class VRLog\n    {\n        internal static bool WantsDebug => true;\n        internal static void Debug(string scope, string text) => Messages.Add(text);')
+        boundary = replace_once(boundary, 'public sealed class CharacterNativeImageEffect',
+            '[ExecuteInEditMode] // Original native Beautify also carries this attribute.\npublic sealed class CharacterNativeImageEffect')
+        (fixture / 'Boundary.cs').write_text(boundary)
         (run / 'source-pins.json').write_text(json.dumps({'sha256': pins,
             'boundaries': 'Native model/content/manager state and supplied XR eye positions; original Unity camera/image-effect/UI raster and production discovery/projection/leases run.',
+            'fixture_ports': 'Exact copied native state boundary with diagnostic logger members and native Beautify ExecuteInEditMode annotation on the supplied pass-through image effect. Camera.Render/callbacks/GPU remain actual Unity.',
+            'execution': 'EditorApplication.update' if args.editor_mode else 'Playmode',
             'limits': 'No actual game prefab, Beautify parity, provider, multiplayer transport or headset/comfort claim.'}, indent=2) + '\n')
         assemblies = run / 'assemblies'; assemblies.mkdir()
         dotnet = os.environ.get('DOTNET', '/home/claw/.dotnet/dotnet')
@@ -159,6 +187,10 @@ def main():
         if (run / 'results.txt').exists(): print((run / 'results.txt').read_text(), end='')
         if exit_code: raise RuntimeError('Unity character portal proof failed; see ' + str(run))
     finally:
+        editors = cleanup_project_editors(project, args.unity, launcher_reaped=True)
+        (run / 'editor-cleanup.json').write_text(json.dumps(editors, indent=2) + '\n')
+        if editors['remaining']:
+            raise RuntimeError('Private native editor processes remain; retaining project caches: ' + str(run))
         compilers = cleanup_project_compilers(project, editor_reaped=True)
         (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
         if compilers['remaining']:
