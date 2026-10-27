@@ -199,6 +199,8 @@ internal sealed class WorldTooltips
     /// <summary>[Optimize] TooltipScanGate: earliest frame the CanvasManager may be searched for
     /// again while the tooltip canvas is still unresolved.</summary>
     private int _canvasSearchNextFrame;
+    private int _tooltipSearchNextFrame;
+    private Canvas? _tooltipLookupCanvas;
 
     /// <summary>Frames between two CanvasManager searches (~1/6 s at 90 Hz) — a hover needs the
     /// canvas within human reaction time, not within one frame.</summary>
@@ -1077,7 +1079,7 @@ internal sealed class WorldTooltips
             Restore();
             if (WorldUIConfig.ConversionActive && ResolveCanvas())
             {
-                if (_tooltip == null) _tooltip = _canvas!.GetComponentInChildren<UITooltip>(includeInactive: true);
+                ResolveTooltip();
                 if (_tooltip != null) _nativeCharacterHint.Tick(_canvas!, _tooltip);
                 else _nativeCharacterHint.Restore();
             }
@@ -1130,8 +1132,7 @@ internal sealed class WorldTooltips
 
         // Resolve the persistent tooltip content (singleton under the canvas) for the
         // flatten pass, frame clip, the visibility gate AND the ownership test below.
-        if (_tooltip == null)
-            _tooltip = _canvas.GetComponentInChildren<UITooltip>(includeInactive: true);
+        ResolveTooltip();
 
         // MIXED REALITY (user report 2026-08-09, the green tooltip background): register the box
         // for an opaque plate behind the game's own frame — see TooltipBacking for the whole
@@ -1879,6 +1880,16 @@ internal sealed class WorldTooltips
         return _canvas != null;
     }
 
+    private void ResolveTooltip()
+    {
+        if (_tooltip != null || _canvas == null) return;
+        if (PerfConfig.TooltipGateOn && ReferenceEquals(_tooltipLookupCanvas, _canvas)
+            && Time.frameCount < _tooltipSearchNextFrame) return;
+        _tooltipLookupCanvas = _canvas;
+        _tooltipSearchNextFrame = Time.frameCount + CanvasSearchIntervalFrames;
+        _tooltip = _canvas.GetComponentInChildren<UITooltip>(includeInactive: true);
+    }
+
     private void Restore()
     {
         if (!_converted)
@@ -1946,6 +1957,8 @@ internal sealed class WorldTooltips
         _transitionOverridden = false;
 
         _tooltip = null;
+        _tooltipLookupCanvas = null;
+        _tooltipSearchNextFrame = 0;
         _lastShownTime = float.NegativeInfinity;
         _parkedLogged = false;
         // The wire must never carry a torn-down presentation's text (extras record 9 is

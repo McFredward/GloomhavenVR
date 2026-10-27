@@ -8,7 +8,7 @@ from UnityPy.classes import PPtr
 from UnityPy.helpers.TypeTreeGenerator import TypeTreeGenerator
 ROOT=Path(__file__).resolve().parents[2]
 OWNERS={'UIAdventurePartyAssemblyCharacterDisplay','UICharacterSkinSelector','UICampaignAssemblyCharacterInformation','UICharacterCreatorWindow','UICharacterCreatorClassRoster','UICharacterCreatorClassStep','UICharacterCreatorNameStep','UICharacterCreatorPersonalQuestStep','UICharacterCreatorConfirmationBox','UIPersonalQuest','UIPersonalQuestProgress','UICharacterPersonalQuest'}
-FIELDS={'UICharacterSkinSelector':['skinTooltip'],'UIAdventurePartyAssemblyCharacterDisplay':['skinSelector','questTooltip','charTooltip','information','window'],'UICampaignAssemblyCharacterInformation':['descriptionTooltip','personalQuestTooltip'],'UICharacterCreatorWindow':['classStep','nameStep','personalQuestStep'],'UICharacterCreatorClassRoster':['perksTooltip','information'],'UICharacterPersonalQuest':['personalQuest','progressiveObjective']}
+FIELDS={'UICharacterSkinSelector':['skinTooltip'],'UIAdventurePartyAssemblyCharacterDisplay':['skinSelector','questTooltip','charTooltip','information','window'],'UICampaignAssemblyCharacterInformation':['descriptionTooltip','personalQuestTooltip'],'UICharacterCreatorWindow':['classStep','nameStep','personalQuestStep'],'UICharacterCreatorClassRoster':['perksTooltip','information'],'UICharacterPersonalQuest':['personalQuest','progressiveObjective'],'UIPersonalQuest':['questName','questDescription','questObjective']}
 def sha(p):
  with p.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest()
 def main():
@@ -27,7 +27,7 @@ def main():
    if name not in bases:return False
    name=bases[name]['base']
   return False
- result={'native_tooltip_base_contract':{n:v for n,v in bases.items()if tooltip_kind(n)},'unity':'2021.3.5f1','native_runtime_sha256':sha(data/'Managed/GH.Runtime.dll'),'sources':{},'owners':[],'tooltips':[]}
+ result={'native_tooltip_base_contract':{n:v for n,v in bases.items()if tooltip_kind(n)},'unity':'2021.3.5f1','native_runtime_sha256':sha(data/'Managed/GH.Runtime.dll'),'sources':{},'owners':[],'tooltips':[],'shared_tooltip_roots':[]}
  for source in [data/'StreamingAssets/aa/StandaloneWindows64/misc_gui_assets_all.bundle',*[data/('level'+str(i))for i in [2,3,4,5,9,10]]]:
   result['sources'][str(source.relative_to(data))]=sha(source);environment=UnityPy.load(str(source));environment.typetree_generator=generator;trees={};classes={}
   def tree(r):
@@ -58,9 +58,21 @@ def main():
     if transform is None:break
     parent=pointer(tree(transform).get('m_Father'),transform);go=pointer(tree(parent).get('m_GameObject'),parent)if parent else None
    return rows
+  def subtree(r):
+   go=pointer(tree(r).get('m_GameObject'),r);rows=[]
+   def walk(node):
+    rows.append(identity(node));transform=next((c for c in components(node)if c.type.name in ['RectTransform','Transform']),None)
+    if transform:
+     for value in tree(transform).get('m_Children',[]):
+      child=pointer(value,transform);childgo=pointer(tree(child).get('m_GameObject'),child)if child else None
+      if childgo:walk(childgo)
+   if go:walk(go)
+   return rows
   for r in environment.objects:
    if r.type.name!='MonoBehaviour':continue
    name=kind(r)
+   if name=='UITooltip':
+    result['shared_tooltip_roots'].append({'source':str(source.relative_to(data)),'tooltip':identity(r),'route':route(r),'subtree':subtree(r),'object_sha256':hashlib.sha256(r.get_raw_data()).hexdigest()})
    if name in OWNERS:
     d=tree(r);fields={}
     for key in FIELDS.get(name,[]):
@@ -69,7 +81,7 @@ def main():
    if tooltip_kind(name):
     path=route(r)
     if any(any(c in OWNERS for c in row['components'])for row in path):
-     d=tree(r);result['tooltips'].append({'source':str(source.relative_to(data)),'tooltip':identity(r),'route':path,'serialized':{k:v for k,v in d.items()if k not in ['m_GameObject','m_Script','m_EditorClassIdentifier','m_Name']},'object_sha256':hashlib.sha256(r.get_raw_data()).hexdigest(),'references':{k:identity(pointer(v,r))for k,v in d.items()if isinstance(v,dict)and 'm_PathID'in v}})
+     d=tree(r);result['tooltips'].append({'source':str(source.relative_to(data)),'tooltip':identity(r),'route':path,'subtree':subtree(r)if name=='UILocalTooltip'else None,'serialized':{k:v for k,v in d.items()if k not in ['m_GameObject','m_Script','m_EditorClassIdentifier','m_Name']},'object_sha256':hashlib.sha256(r.get_raw_data()).hexdigest(),'references':{k:identity(pointer(v,r))for k,v in d.items()if isinstance(v,dict)and 'm_PathID'in v}})
  skin=[r for r in result['owners']if r['owner']['class']=='UICharacterSkinSelector']
  assert len(skin)==6 and all(r['fields']['skinTooltip']['class']=='UITextTooltipTarget'for r in skin)
  creator=[r for r in result['tooltips']if any('UICharacterCreatorWindow'in n['components']for n in r['route'])]
