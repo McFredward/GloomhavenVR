@@ -32,6 +32,7 @@ internal static class LevelUpComposite
     private static RectTransform? _preview;
     private static readonly List<TMP_Text> PreviewText = new(32);
     private static int _previewWarmup;
+    private static bool _textEvents;
     private const float MinimumPreviewWidthPx = 640f;
     private const float PreviewGapPx = 48f;
 
@@ -48,6 +49,15 @@ internal static class LevelUpComposite
 
     private static void Include(float x)
     { _previewRight = Mathf.Max(_previewRight, x); _previewLeft = Mathf.Min(_previewLeft, x); }
+
+    private static void PreviewTextChanged(Object changed)
+    {
+        // Native CreateLayout and localization can replace glyph objects under the
+        // same pooled FullAbilityCard root. New TMP births invalidate this cache;
+        // ordinary updates to already known glyphs need no hierarchy census.
+        if (_preview != null && changed is TMP_Text text && text.transform.IsChildOf(_preview)
+            && !PreviewText.Contains(text)) _previewWarmup = 3;
+    }
 
     /// <summary>The game deliberately keeps the existing deck visible during level-up
     /// (NewPartyDisplayUI._ignoreDisplayTypes includes CARDS). It must share the same
@@ -223,6 +233,15 @@ internal static class LevelUpComposite
                 _preview = preview;
                 _previewWarmup = 3; // native CreateLayout may finish just after pooled admission
             }
+            if (!_textEvents)
+            {
+                TMPro_EventManager.TEXT_CHANGED_EVENT.Add(PreviewTextChanged);
+                _textEvents = true;
+            }
+            // Destroyed old layout text also invalidates before the next native
+            // mesh event, including a pooled replacement built while inactive.
+            for (int i = 0; i < PreviewText.Count; i++)
+                if (PreviewText[i] == null) { _previewWarmup = 3; break; }
             if (_previewWarmup > 0)
             {
                 PreviewText.Clear(); preview.GetComponentsInChildren(true, PreviewText);
@@ -320,6 +339,8 @@ internal static class LevelUpComposite
         }
         if (_mount != null) Object.Destroy(_mount.gameObject);
         _mount = _rect = null; _owner = null; _inventory = null; _home = null;
+        if (_textEvents) TMPro_EventManager.TEXT_CHANGED_EVENT.Remove(PreviewTextChanged);
+        _textEvents = false;
         _preview = null; PreviewText.Clear(); _previewWarmup = 0;
     }
 }

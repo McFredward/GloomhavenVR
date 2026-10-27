@@ -73,6 +73,8 @@ internal static class Program
             var holder=Rect("Preview holder",highlighter.transform,350,500).gameObject.AddComponent<UILevelUpCardHolder>();
             var card=Rect("Preview card",holder.transform,350,500).gameObject.AddComponent<UILevelUpCard>();
             Preview=Rect("Full ability card",card.transform,300,450);Preview.anchoredPosition=new(185,0);Preview.localScale=new(.8f,.8f,1);
+            var label=Rect("Original overflowing card text",Preview,200,50).gameObject.AddComponent<TMPro.TMP_Text>();
+            label.textBounds=new Bounds { min=new Vector3(-100,-25,0),max=new Vector3(450,25,0) };
             card.fullAbilityCard=Preview.gameObject.AddComponent<FullAbilityCard>();holder.Card=card;highlighter.cardHolder=holder;Native.cardHolder=highlighter;
             Native.header=Rect("Header",Level,500,80);
             Reset=Inventory.gameObject.AddComponent<UIResetLevelUpWindow>();Reset.inventory=Cards;
@@ -120,6 +122,16 @@ internal static class Program
             f.SettleSlide();Rect preview=Bounds(f.Preview,f.Level),list=Bounds(f.Inventory,f.Level);
             Check(list.xMin>=preview.xMax+ChromeParkTuning.ChromeGapPx-.01f,"full preview right edge remains readable beside inventory");
             Check(!list.Overlaps(preview),"native card list cannot cover twenty percent of preview");
+            float originalTextRight=f.Level.InverseTransformPoint(f.Preview.TransformPoint(new Vector3(450,25,0))).x;
+            Check(list.xMin>=originalTextRight+48f-.01f,"native overflow text ink stays complete between the original lists");
+            Check(LevelUpComposite.ExtraFrameWidth(f.Panel)==512f,"level-up alone requests common wider frame in native units");
+            for(int i=0;i<8;i++)f.Tick();
+            var born=Rect("Later native localized layout text",f.Preview,100,50).gameObject.AddComponent<TMPro.TMP_Text>();
+            born.textBounds=new UnityEngine.Bounds {min=new Vector3(-50,-25,0),max=new Vector3(740,25,0)};
+            TMPro.TMPro_EventManager.TEXT_CHANGED_EVENT.Call(born);f.Tick();
+            list=Bounds(f.Inventory,f.Level);
+            Check(list.xMin>=f.Level.InverseTransformPoint(born.transform.TransformPoint(born.textBounds.max)).x+48f-.01f,
+                "same pooled root captures later native TMP births after warmup");
             Rect owned=Bounds(f.Owned,f.Level);
             Check(f.Owned.IsChildOf(f.Level)&&!ReferenceEquals(f.Owned.parent,f.Level),"existing owned deck shares level root through independent mount");
             Check(owned.xMax<=preview.xMin-ChromeParkTuning.ChromeGapPx+.01f&&!owned.Overlaps(preview),"existing owned deck cannot obscure any preview edge");
@@ -130,7 +142,7 @@ internal static class Program
             Check(f.Inventory.gameObject.layer==27&&f.Inventory.GetChild(0).gameObject.layer==27,"entire native inventory joins owning capture layer");
             f.Cards.Select();Check(f.Selected==1,"original native card-selection callback remains wired exactly once");
             float seat=f.Inventory.parent!.localPosition.x;
-            f.Preview.sizeDelta=new(430,450);f.Tick();f.SettleSlide();preview=Bounds(f.Preview,f.Level);list=Bounds(f.Inventory,f.Level);
+            f.Preview.sizeDelta=new(2000,450);f.Tick();f.SettleSlide();preview=Bounds(f.Preview,f.Level);list=Bounds(f.Inventory,f.Level);
             Check(list.xMin>=preview.xMax+ChromeParkTuning.ChromeGapPx-.01f,"larger later preview cannot be hidden behind inventory");
             Check(Bounds(f.Owned,f.Level).xMax<=preview.xMin-ChromeParkTuning.ChromeGapPx+.01f,"larger later preview cannot be hidden behind original owned deck");
             float enlarged=f.Inventory.parent!.localPosition.x;

@@ -291,3 +291,25 @@ namespace GloomhavenVR.WorldUI
     }
     internal static class ChromeParkTuning { internal const float OffsetEpsilonPx=.05f,ChromeGapPx=24f; }
 }
+
+// Authored text ink is an explicit input to this non-rendering hierarchy fixture.
+namespace UnityEngine { public struct Bounds { public Vector3 min, max; } }
+namespace TMPro
+{
+    public static class TMPro_EventManager
+    {
+        public sealed class TextEvent
+        {
+            private event Action<UnityEngine.Object>? Changed;
+            public void Add(Action<UnityEngine.Object> callback)=>Changed+=callback;
+            public void Remove(Action<UnityEngine.Object> callback)=>Changed-=callback;
+            public void Call(UnityEngine.Object value)=>Changed?.Invoke(value);
+        }
+        public static readonly TextEvent TEXT_CHANGED_EVENT=new();
+    }
+    public sealed class TMP_Text : UnityEngine.Behaviour
+    {
+        public UnityEngine.RectTransform rectTransform => (UnityEngine.RectTransform)transform;
+        public UnityEngine.Bounds textBounds;
+    }
+}

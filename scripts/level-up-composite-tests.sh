@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export UseSharedCompilation=false MSBUILDDISABLENODEREUSE=1 DOTNET_CLI_USE_MSBUILD_SERVER=0
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_root="${GHVR_TEST_SOURCE_ROOT:-$repo_root}"
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
@@ -44,12 +45,20 @@ try:
  result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,env=env)
  with log.open('a') as stream:stream.write(result.stdout)
  print(result.stdout,end='',flush=True)
+ def preserve(name):
+  output=run/'executed-assemblies'/name;output.mkdir(parents=True,exist_ok=True)
+  for item in (project/'bin/Release/net8.0').glob('*'):
+   if item.is_file():shutil.copy2(item,output/item.name)
+  (output/'pins.json').write_text(json.dumps({p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in output.iterdir()},indent=2)+'\n')
+ preserve('production')
  if result.returncode:sys.exit(result.returncode)
  # Each control executes the same production-linked hierarchy/geometry fixture.
  mutations=[
   ('lifetime','level.myWindow.IsOpen','level.IsShowing','sibling inventory becomes part of actual native level-up owner'),
   ('handover','if (!ModalFallback.ReleaseForComposite(inventoryWindow)) return;','if (inventoryWindow == null) return;','standalone float retires before native home capture'),
-  ('overlap','_previewRight + ChromeParkTuning.ChromeGapPx + _rect.rect.width * .5f','0f','full preview right edge remains readable beside inventory'),
+  ('overlap','_previewRight + (leveling ? PreviewGapPx : ChromeParkTuning.ChromeGapPx) + _rect.rect.width * .5f','0f','full preview right edge remains readable beside inventory'),
+  ('pooled-text-birth','TMPro_EventManager.TEXT_CHANGED_EVENT.Add(PreviewTextChanged);','/* new native text observation omitted */','same pooled root captures later native TMP births after warmup'),
+  ('text-ink','Bounds ink = text.textBounds;','Bounds ink = default;','native overflow text ink stays complete between the original lists'),
   ('restore','_rect.SetParent(_home, false);','_rect.SetParent(_rect.parent, false);','original parent restored'),
   ('owner-change','if (!ReferenceEquals(inventory, _inventory) || !ReferenceEquals(owner, _owner)\n            || (_mount != null && !ReferenceEquals(_mount.parent, mountParent)))','if (!ReferenceEquals(inventory, _inventory))','reset browse rebinds same inventory to current party owner'),
   ('native-hide','Layers.Restore();','Layers.Restore(); _inventory!.GetComponent<UIWindow>()!.Hide();','native show/hide callbacks untouched'),
@@ -64,6 +73,7 @@ try:
   mutant_env=env.copy();mutant_env.pop('GHVR_LEVELUP_REPORT',None)
   result=subprocess.run(mutant_command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,env=mutant_env)
   (run/(name+'.log')).write_text(result.stdout)
+  preserve(name)
   if result.returncode==0:raise RuntimeError('Negative control escaped fixture: '+name)
   if expected not in result.stdout:raise RuntimeError('Negative control failed at wrong boundary: '+name+'\n'+result.stdout)
   message='Level-up composite negative control: '+name+' rejected.\n'
