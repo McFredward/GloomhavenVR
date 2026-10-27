@@ -69,9 +69,7 @@ namespace GloomhavenVR.WorldUI
         {
             frame = MenuDepthAllocationFrame(entry,frame);
             int msaa = entry.Msaa;
-            long budget = Math.Min(MaxPanelVramBytes,MaxTotalVramBytes - (_vramTotal - entry.VramBytes)
-                - (_menuDepthVramTotal - entry.MenuDepthBytes));
-            if (MenuDepth.MenuDepthSources.HasContent(entry.Panel.HostRect)) budget /= 2;
+            long budget = Math.Min(MaxPanelVramBytes,MaxTotalVramBytes - (_vramTotal - entry.VramBytes));
             ResolveRate(entry,frame,ref msaa,budget,out float rate,out int width,out int height,out long bytes);
             if (bytes > budget || (width == entry.RtW && height == entry.RtH)) return;
             ReleaseMenuDepth(entry,preserveFrame:true);

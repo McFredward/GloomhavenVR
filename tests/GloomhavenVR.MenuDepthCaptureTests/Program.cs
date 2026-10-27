@@ -152,19 +152,41 @@ public static partial class MenuDepthProgram
             scene.Capture();
             var aux = new GameObject("nested mono camera").AddComponent<Camera>(); aux.enabled = false; aux.cullingMask = 0;
             aux.targetTexture = new RenderTexture(16, 16, 0); aux.targetTexture.Create();
+            using TextureOwner firstRight = scene.Eye(true, "nested-right-first");
+            using (TextureOwner selected = new TextureOwner(Read(scene.SeenRight!,"selected-right-raster")))
+            {
+                Color32[] captured = selected.Image.GetPixels32(), final = firstRight.Image.GetPixels32();
+                bool clean = true;
+                for(int i=0;i<captured.Length;i++)
+                    if(captured[i].a==0 && captured[i].r==0 && captured[i].g==0 && captured[i].b==0
+                        && (final[i].r>7 || final[i].g>7 || final[i].b>7)) clean=false;
+                Check(clean,"private mono photograph cannot add ink outside the current head raster");
+            }
+            using TextureOwner baselineRight = scene.Eye(true, "nested-right-baseline");
+            Check(Difference(firstRight.Image,baselineRight.Image,new RectInt(0,0,firstRight.Image.width,firstRight.Image.height)) <= 1,
+                "consecutive actual head callbacks retain identical final pixels at an unchanged eye pose");
+            bool nestedEyeRestored = false;
             Camera.CameraCallback interleave = camera =>
             {
                 if (camera != scene.Head || MenuDepthFixture.CurrentEye != Camera.MonoOrStereoscopicEye.Right) return;
                 MenuDepthFixture.CurrentEye = Camera.MonoOrStereoscopicEye.Mono;
-                aux.Render(); MenuDepthFixture.CurrentEye = Camera.MonoOrStereoscopicEye.Right;
+                aux.Render();
+                nestedEyeRestored = Shader.GetGlobalFloat("_GvrMenuDepthEye") > .5f;
+                MenuDepthFixture.CurrentEye = Camera.MonoOrStereoscopicEye.Right;
             };
             Camera.onPreRender += interleave;
             try
             {
                 using (TextureOwner right = scene.Eye(true, "nested-right"))
-                using (TextureOwner left = scene.Eye(false, "nested-left"))
-                    Check(Difference(left.Image, right.Image, new RectInt(50, 40, 220, 115)) > 100,
+                {
+                    Check(nestedEyeRestored,
                         "nested mono render restores the enclosing right eye shader selection");
+                    Check(Difference(baselineRight.Image,right.Image,new RectInt(0,0,right.Image.width,right.Image.height)) <= 1,
+                        "interleaved original mono camera leaves the complete final right-eye raster unchanged");
+                    using (TextureOwner left = scene.Eye(false, "nested-left"))
+                        Check(Difference(left.Image,right.Image,new RectInt(50,40,220,115)) > 100,
+                            "interleaved native rendering retains distinct final stereo perspectives");
+                }
             }
             finally
             {
@@ -251,8 +273,6 @@ public static partial class MenuDepthProgram
             direct.transform.position = new Vector3(-3, 0, 3);
             var source = new TestSource(MakeImage(direct.transform, "direct content", new Vector2(20, 20), Vector2.zero, Color.white, 0));
             MenuDepthSources.Register(source);
-            Action<Camera> offscreen = camera => PanelSupersample.Capture(camera);
-            MenuDepthSources.BeforeHeadCapture += offscreen;
             try
             {
                 scene.Head.Render();
@@ -262,7 +282,6 @@ public static partial class MenuDepthProgram
             }
             finally
             {
-                MenuDepthSources.BeforeHeadCapture -= offscreen;
                 MenuDepthSources.Unregister(source); Object.DestroyImmediate(direct);
             }
             scene.Source.OnBegin = () => PanelSupersample.Clear();
@@ -416,6 +435,7 @@ public static partial class MenuDepthProgram
                 CamGo = capture.gameObject, DisplayGo = display, Rt = rt, MipRt = mip, DisplayImage = raw,
                 Frame = Panel.rect, RtW = rt.width, RtH = rt.height, VramBytes = (long)rt.width * rt.height * 40 / 3 };
             PanelSupersample.Add(Entry); PanelSupersample.Synchronize(Entry);
+            MenuDepthSources.BeforeHeadCapture += PanelSupersample.CaptureAgain;
             Canvas.ForceUpdateCanvases(); capture.Render(); Graphics.Blit(rt, mip); mip.GenerateMips();
             OriginalView = capture.worldToCameraMatrix; OriginalProjection = capture.projectionMatrix;
         }
@@ -423,6 +443,7 @@ public static partial class MenuDepthProgram
         {
             PrepareEye(false);
             PanelSupersample.Capture(Head);
+            Head.Render(); // Complete the actual observing head draw and restore its photograph lease.
             if (Entry.MenuDepthDisplay != null)
                 SeenRight = (RenderTexture)typeof(MenuDepthDisplay).GetField("_headRight", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Entry.MenuDepthDisplay)!;
         }
@@ -430,6 +451,14 @@ public static partial class MenuDepthProgram
         {
             PrepareEye(right);
             Canvas.ForceUpdateCanvases(); Head.Render();
+            if(name.StartsWith("nested") && Entry.MenuDepthDisplay!=null)
+            {
+                foreach(string side in new[]{"_headLeft","_headRight"})
+                {
+                    var target=(RenderTexture)typeof(MenuDepthDisplay).GetField(side,BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(Entry.MenuDepthDisplay)!;
+                    using var proof=new TextureOwner(Read(target,name+side));
+                }
+            }
             return new TextureOwner(Read(_result, name));
         }
         internal void PrepareEye(bool right)
@@ -455,6 +484,7 @@ public static partial class MenuDepthProgram
         }
         public void Dispose()
         {
+            MenuDepthSources.BeforeHeadCapture -= PanelSupersample.CaptureAgain;
             MenuDepthSources.Unregister(Source); PanelSupersample.Clear(); VRRigDriver.HeadCamera = null;
             // Deliberate release mutants are cleaned only after the real assertion.
             if (SeenRight != null) { SeenRight.Release(); Object.DestroyImmediate(SeenRight); }

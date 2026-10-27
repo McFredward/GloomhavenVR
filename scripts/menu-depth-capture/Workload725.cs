@@ -48,6 +48,7 @@ public static partial class MenuDepthProgram
                     Check(draws - prior == 2 && draws - startDraws == (tick + 1) * 2,
                         "a successful spatial window has exactly two UI camera draws per tick and no automatic third draw");
                     int both = draws; PanelSupersample.CaptureAgain(scene.Head);
+                    scene.Head.Render(); // Complete that cached observer draw; no private UI recapture is allowed.
                     Check(draws == both, "a second head coordinator callback in the same frame cannot render the eye pair again");
                     Check(sampled.Begins - startSources == (tick + 1) * 2 && sampled.Ends == sampled.Begins,
                         "a moving window prepares one sampled source exactly once for each eye and restores every lease");
