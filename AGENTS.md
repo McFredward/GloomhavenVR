@@ -53,6 +53,13 @@ to Codex and record the user's instructions of 2026-09-08.
 - The maintainer's 2026-10-27 delivery clarification supersedes earlier local ZIP requests:
   the Windows installation script already builds the archive. Integrate and push changes to
   `dev`; do not build or deliver a local ZIP unless explicitly requested again.
+- The maintainer's Build729 motion review requires stable quality for the entire
+  character window, including its text and figure. Player movement must not trigger
+  capture-rate reductions, pixel mush or flicker. Source-only sampling/target tests
+  cannot certify this: exercise the actual window coordinator and final head pixels.
+  Skin/personal-quest tooltips belong to the right of the unchanged window; audit
+  character creation too. Laser dragging the portrait rotates only its presentation
+  about its fixed native ground origin, never the gameplay actor or window.
 - The maintainer's 2026-10-18 video review ruling places every deliberate movie
   test action under Advanced > Cheats, behind the existing default-off Cheats
   configuration gate. These movies contain major spoilers. Do not expose their

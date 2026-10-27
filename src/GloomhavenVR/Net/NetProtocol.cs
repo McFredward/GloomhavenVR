@@ -629,7 +629,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 729;
+    public const ushort ModBuild = 730;
+
+    // ModBuild730 — stable whole-window detail, readable character hints and preview rotation.
+    // The729 hardware report confirms no flat fallback, but head/player motion
+    // repeatedly reallocates the outer New Party capture and drops its authored
+    // sampling rate from1.5 to0.25. Preserve original UI layout, model framing and
+    // actual foreground depth without movement-driven quality reduction for the
+    // complete window. Verify final text/model pixels through the real coordinator.
+    // Seat the exact skin/personal-quest and colliding creation hints to the right
+    // of the existing window without increasing its input/shared layout frame.
+    // Laser press-and-horizontal-drag turns the private character preview around
+    // its fixed native ground axis; native gameplay actors and window pose remain
+    // authoritative. Preserve off/default-on preference, native styles/callbacks
+    // and movies/story assets. Delivery is dev source; Windows builds its archive.
 
     // ModBuild729 — stable moving character cabinets and stronger menu-card previews.
     // The maintainer accepts the stationary728 appearance, but moving eyes can
