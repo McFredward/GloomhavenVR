@@ -51,7 +51,8 @@ def main():
     try:
         source = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
         names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs',
-                 'MenuDepthDisplay.cs', 'MenuDepthHeightfield.cs', 'MenuDepthGraphic.cs', 'MenuDepthCatalogue.cs', 'MenuDepthDriver.cs', 'MenuDepthCharacterDisplayObserver.cs')
+                 'MenuDepthDisplay.cs', 'MenuDepthHeightfield.cs', 'MenuDepthGraphic.cs', 'MenuDepthCatalogue.cs', 'MenuDepthDriver.cs', 'MenuDepthCharacterDisplayObserver.cs',
+                 'MenuDepthCards.cs', 'MenuDepthCardPlane.cs')
         source_files = {name: source / name for name in names}
         source_files['CardFaceMipBake.cs'] = ROOT / 'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs'
         sources = {name: path.read_text() for name, path in source_files.items()}

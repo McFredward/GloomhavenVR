@@ -106,6 +106,7 @@ internal static class MenuDepthDriver
             MenuDepthSources.SetDiscoveryPump(CapturePump);
         }
         MenuDepthCharacters.Tick();
+        MenuDepthCards.Maintain();
         RefreshRoots();
         FlushArrivals();
         ApplyBindings();
@@ -235,7 +236,7 @@ internal static class MenuDepthDriver
         {
             if (graphic == null || (!MovedGraphics.Contains(graphic) && KnownGraphics.Contains(graphic))) continue;
             bool scoped = HasRoot(graphic.transform);
-            if (!scoped && !MovedGraphics.Contains(graphic)) continue;
+            if (!scoped && !MovedGraphics.Contains(graphic) && !MenuDepthCards.IsNativeFlatGraphic(graphic)) continue;
             KnownGraphics.Add(graphic);
             // New active prefab branches expose their original typed owner on
             // the path to the enrolled window. Existing neighbours are never rescanned.
@@ -246,7 +247,7 @@ internal static class MenuDepthDriver
                     ++AncestorVisits;
                     Behaviours.Clear(); parent.GetComponents(Behaviours);
                     for (int i = 0; i < Behaviours.Count; i++)
-                        if (scoped || OwnerBindings.ContainsKey(Behaviours[i])) Register(Behaviours[i]);
+                        if (scoped || OwnerBindings.ContainsKey(Behaviours[i]) || MenuDepthCards.IsCardOwner(Behaviours[i])) Register(Behaviours[i]);
                 }
                 if (Roots.ContainsKey(parent)) break;
             }
@@ -275,6 +276,7 @@ internal static class MenuDepthDriver
     private static void Register(MonoBehaviour owner)
     {
         if (owner == null) return;
+        MenuDepthCards.Register(owner, FindRoot(owner.transform));
         if (OwnerBindings.TryGetValue(owner, out List<Binding>? existing))
         {
             UIWindow window = owner.GetComponentInParent<UIWindow>();
@@ -328,6 +330,13 @@ internal static class MenuDepthDriver
                     && emitted.Add(method.MethodHandle)) yield return method;
             }
         }
+        foreach (Type type in MenuDepthCards.NativeTypes())
+            foreach (string name in new[] { "Awake", "OnEnable" })
+            {
+                MethodInfo? method = AccessTools.Method(type, name, Type.EmptyTypes);
+                if (method != null && method.DeclaringType?.Assembly == typeof(StoryImageViewer).Assembly
+                    && emitted.Add(method.MethodHandle)) yield return method;
+            }
     }
 
     private static void BindImage(Binding binding, Image image)
@@ -461,6 +470,7 @@ internal static class MenuDepthDriver
         _running = false;
         MenuDepthSources.SetDiscoveryPump(null);
         MenuDepthCharacters.Shutdown();
+        MenuDepthCards.Shutdown();
         foreach (KeyValuePair<Image, Owned> item in OwnedImages)
             if (item.Value.Mesh != null)
             { item.Value.Mesh.enabled = false; UnityEngine.Object.Destroy(item.Value.Mesh); }

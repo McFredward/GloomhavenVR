@@ -57,8 +57,15 @@ def main():
         paths = list(source.glob('*.cs')) + [ROOT / 'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs']
         sources = {path.name: path.read_text() for path in paths}
         fixture = ROOT / 'tests/GloomhavenVR.MenuDepthPerformanceTests'
-        baseline = {path.name: subprocess.check_output(['git', 'show', args.baseline + ':' + str(path.relative_to(ROOT))], cwd=ROOT, text=True)
-                    for path in paths}
+        # Added source helpers do not exist in the actual shipped724 tree. Its
+        # original Driver/Sources do not reference them; keep that baseline exact.
+        baseline = {}
+        for path in paths:
+            historical = args.baseline + ':' + str(path.relative_to(ROOT))
+            exists = subprocess.run(['git', 'cat-file', '-e', historical], cwd=ROOT,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if exists.returncode == 0:
+                baseline[path.name] = subprocess.check_output(['git', 'show', historical], cwd=ROOT, text=True)
         cases = [
             ('production', '', '', '', ''),
             ('baseline724', '', '', '', ''),
