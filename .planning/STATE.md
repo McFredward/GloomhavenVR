@@ -1,3 +1,37 @@
+**Common character framing and encounter audio, Build726, 2026-10-27.**
+
+The maintainer accepts725 and requests one character alignment/scale, real rear
+views through the physical windows, and a repair for overlapping travel audio
+after encounters. Character framing now uses the original main actor's ground
+origin and one2.4-native-unit span with uniform XYZ scale. Smaller bodies remain
+smaller; equipment/companions cannot shift or resize the main actor. Original
+poses, animation and child scales remain native. Rear eyes use reflected off-axis
+matrices with finally-restored culling; desktop mapping admits both half-spaces.
+Discovery, bounded adaptive targets, original camera-child transforms and accepted
+story/video resources remain unchanged.
+
+Native encounter travel leaves a looping Moving request alive, then continuation
+requests it again. Record the concrete objects of that flow's configured moving
+item and retire its old request before the next native leg, including scheduled
+starts. Native statements, callbacks, unrelated sounds and simultaneous native
+layers still run. Weak playback generations protect same-frame pooled reuse.
+Supplied725 logs establish the travel lifecycle, not audible source counts.
+
+Integrated focused validation passes17 local suites, all16 source checks and all
+306431 goldens. Character1500+31 controls, Desktop255+11 and actual native audio
+36+10 pass; Performance863+10 retains the725 work removal. Strict real Debug,
+Release and private reference-assembly compiles pass0W0E; docs-i18n passes. The
+read-only native audit verifies34 forms,21 configs,243 skinned renderers and12
+apertures against65 input pins. Compiled review changes only the three intended
+menu types, audio registration/two helpers and build stamps. Unchanged local
+coverage is inherited from725; this is not a new complete250-suite gate.
+
+The normal Debug installer ZIP remains dist/GloomhavenVR-1.2.2.zip. Engineering,
+failed/passing proof, worker archive verification and delivery receipts are under
+ignored debug/menu726. Test processes are stopped/reaped before cache cleanup;
+hardware inputs and retained proof remain. Headset picture/audible acceptance is
+still outstanding. See MENU726-COMMON-CHARACTERS-AND-TRAVEL.md for exact boundaries.
+
 **Menu frame pacing and character cabinets, Build725, 2026-10-27.**
 
 The maintainer accepts724 story depth. Fresh724/c5f70993d logs onRTX4090/D3D11

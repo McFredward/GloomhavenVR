@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-27: Build725 removes periodic menu discovery stalls and improves character fit, sampling and direct rendering.
+Updated 2026-10-27: Build726 aligns character previews in common native units, adds real rear views and repairs overlapping travel audio after encounters.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MENU726-COMMON-CHARACTERS-AND-TRAVEL.md](MENU726-COMMON-CHARACTERS-AND-TRAVEL.md) | Common original character ground/scale, front/rear cabinet projection, native travel-loop ownership, original-asset audit and focused integration evidence |
 | [MENU725-PERFORMANCE-AND-PREVIEWS.md](MENU725-PERFORMANCE-AND-PREVIEWS.md) | Build724 hardware stall evidence, event-driven discovery, shallow character cabinets, adaptive targets, direct first-head repair and qualified integration coverage |
 | [MENU724-SPATIAL-UI-REPAIR.md](MENU724-SPATIAL-UI-REPAIR.md) | Build723 hardware causes, fixed camera-child scenes, actual native mip depth binding, final-glass proofs and focused delivery validation |
 | [MENU723-SPATIAL-UI.md](MENU723-SPATIAL-UI.md) | Native character portals, complete source-bound illustration depth corpus, UI layers and validation boundaries |
