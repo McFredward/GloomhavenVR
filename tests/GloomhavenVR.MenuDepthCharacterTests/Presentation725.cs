@@ -115,7 +115,7 @@ public static class MenuDepthCharacterPresentation725
         return new Vector2((float)(x / weight / image.width), (float)(y / weight / image.height));
     }
 
-    private sealed class Scene : IDisposable
+    internal sealed class Scene : IDisposable
     {
         internal readonly Camera NativeCamera, Head;
         internal readonly MenuDepthCharacterSource Source;
@@ -135,8 +135,15 @@ public static class MenuDepthCharacterPresentation725
         private readonly string _output;
         private readonly List<MenuDepthCharacterSource> _extra = new List<MenuDepthCharacterSource>();
         private Vector3 _sampledBone;
+        internal RawImage Image => _image;
+        internal RectTransform Root => _root;
+        internal RenderTexture Native => _native;
+        internal RenderTexture Final => _final;
+        internal Character3DDisplayManager Manager => _manager;
+        internal Transform Holder => _holder;
+        internal void SetFrequency(int frequency) => _pattern.SetFloat("_Frequency", frequency);
         private Vector3 _center => new Vector3(Envelope.center.x, Envelope.center.y, Envelope.min.z + .035f * Aperture * Scale.z);
-        internal Scene(string output, bool effect)
+        internal Scene(string output, bool effect, bool seed = true)
         {
             _output = output; _log = new StreamWriter(Path.Combine(output, "presentation-and-samples.csv"));
             _native = new RenderTexture(1024, 1024, 24); _native.Create(); _final = new RenderTexture(2048, 1536, 24); _final.Create();
@@ -224,9 +231,12 @@ public static class MenuDepthCharacterPresentation725
             // Seed the completed original at a deliberately different animation
             // phase. Rigid/skinned equipment must use authored bind-pose membership,
             // while the original real render still sees that animated pose.
-            _bone.localPosition = _sampledBone = new Vector3(.9f, 0, 0);
-            CaptureTarget(new Vector3(0, 0, -1.2f), false, new Vector2(1024, 1024));
-            _bone.localPosition = _sampledBone = Vector3.zero;
+            if (seed)
+            {
+                _bone.localPosition = _sampledBone = new Vector3(.9f, 0, 0);
+                CaptureTarget(new Vector3(0, 0, -1.2f), false, new Vector2(1024, 1024));
+                _bone.localPosition = _sampledBone = Vector3.zero;
+            }
         }
         private Transform Marker(string name, Vector3 point, Material material)
         {

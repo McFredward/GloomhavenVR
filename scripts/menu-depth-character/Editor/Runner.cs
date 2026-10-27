@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.IO;
 using System.Reflection;
 using UnityEditor;
@@ -10,7 +11,11 @@ public static class MenuDepthCharacterRunner
     [Serializable] private sealed class Case { public string name, dll, method, expected; }
     [Serializable] private sealed class Manifest { public string result, evidence, harmony; public bool editorMode; public Case[] cases; }
     private static Manifest manifest;
-    private static bool ran, updateNoted;
+    private static bool ran, updateNoted, finished, pass = true;
+    private static StreamWriter writer;
+    private static int index, pendingCount;
+    private static IEnumerator pending;
+    private static Case active;
     public static void Start()
     {
         Debug.Log("MENU DEPTH CHARACTER FIXTURE: Start entered");
@@ -31,38 +36,65 @@ public static class MenuDepthCharacterRunner
     private static void Run()
     {
         if (!updateNoted) { updateNoted = true; Debug.Log("MENU DEPTH CHARACTER FIXTURE: update entered; playing=" + EditorApplication.isPlaying); }
-        if ((!manifest.editorMode && !EditorApplication.isPlaying) || ran) return;
-        ran = true;
-        bool pass = true;
-        using (var writer = new StreamWriter(manifest.result))
+        if ((!manifest.editorMode && !EditorApplication.isPlaying) || finished) return;
+        if (!ran)
         {
+            ran = true; writer = new StreamWriter(manifest.result);
             writer.WriteLine("Unity " + Application.unityVersion + "; " + SystemInfo.graphicsDeviceName + "; " + SystemInfo.graphicsDeviceType);
-            foreach (Case item in manifest.cases)
+        }
+        while (pending != null || index < manifest.cases.Length)
+        {
+            if (pending != null)
             {
                 try
                 {
-                    string output = Path.Combine(manifest.evidence, item.name); Directory.CreateDirectory(output);
-                    string type = item.method == "Presentation" || item.method == "NativeLdrEffect" ? "MenuDepthCharacterPresentation725"
-                        : item.method == "GlassCabinet" || item.method == "TargetViewport" ? "MenuDepthCharacterWindowProof" : "MenuDepthCharacterProgram";
-                    int count = (int)Assembly.LoadFile(item.dll).GetType(type)
-                        .GetMethod(item.method).Invoke(null, new object[] { output });
-                    if (!string.IsNullOrEmpty(item.expected)) throw new Exception("Negative control escaped: " + item.name);
-                    writer.WriteLine("PASS " + item.name + ": " + count + " assertions");
+                    if (pending.MoveNext())
+                    {
+                        if (pending.Current is int count) pendingCount = count;
+                        return; // Real Unity frames/cleanup callbacks continue.
+                    }
+                    if (pendingCount < 0) throw new Exception("Asynchronous fixture did not return its assertion count.");
+                    Success(active, pendingCount);
                 }
-                catch (Exception exception)
-                {
-                    while (exception is TargetInvocationException && exception.InnerException != null) exception = exception.InnerException;
-                    if (!string.IsNullOrEmpty(item.expected) && exception.Message.Contains(item.expected))
-                        writer.WriteLine("PASS negative control " + item.name + ": " + exception.Message);
-                    else { pass = false; writer.WriteLine("FAIL " + item.name + ": " + exception); }
-                }
-                finally
-                {
-                    foreach (GameObject go in UnityEngine.Object.FindObjectsOfType<GameObject>()) UnityEngine.Object.DestroyImmediate(go);
-                }
-                writer.Flush();
+                catch (Exception error) { Failure(active, error); }
+                EndCase();
+                continue;
             }
+            active = manifest.cases[index++];
+            try
+            {
+                string output = Path.Combine(manifest.evidence, active.name); Directory.CreateDirectory(output);
+                string type = active.method.StartsWith("Automatic", StringComparison.Ordinal) ? "MenuDepthCharacterDirectProof"
+                    : active.method == "Presentation" || active.method == "NativeLdrEffect" ? "MenuDepthCharacterPresentation725"
+                    : active.method == "GlassCabinet" || active.method == "TargetViewport" ? "MenuDepthCharacterWindowProof" : "MenuDepthCharacterProgram";
+                object result = Assembly.LoadFile(active.dll).GetType(type).GetMethod(active.method).Invoke(null, new object[] { output });
+                if (result is IEnumerator continuation)
+                { pending = continuation; pendingCount = -1; continue; }
+                Success(active, (int)result);
+            }
+            catch (Exception error) { Failure(active, error); }
+            EndCase();
         }
-        EditorApplication.Exit(pass ? 0 : 1);
+        finished = true; writer.Dispose(); EditorApplication.Exit(pass ? 0 : 1);
+    }
+    private static void Success(Case item, int count)
+    {
+        if (!string.IsNullOrEmpty(item.expected)) throw new Exception("Negative control escaped: " + item.name);
+        writer.WriteLine("PASS " + item.name + ": " + count + " assertions");
+    }
+    private static void Failure(Case item, Exception error)
+    {
+        while (error is TargetInvocationException && error.InnerException != null) error = error.InnerException;
+        if (!string.IsNullOrEmpty(item.expected) && error.Message.Contains(item.expected))
+            writer.WriteLine("PASS negative control " + item.name + ": " + error.Message);
+        else { pass = false; writer.WriteLine("FAIL " + item.name + ": " + error); }
+    }
+    private static void EndCase()
+    {
+        try { (pending as IDisposable)?.Dispose(); }
+        catch (Exception error) { pass = false; writer.WriteLine("FAIL fixture cleanup: " + error); }
+        pending = null;
+        foreach (GameObject go in UnityEngine.Object.FindObjectsOfType<GameObject>()) UnityEngine.Object.DestroyImmediate(go);
+        writer.Flush();
     }
 }

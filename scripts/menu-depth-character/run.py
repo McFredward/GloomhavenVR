@@ -49,6 +49,8 @@ def main():
         help='Read the unchanged shared capture contract from the integration checkout while testing private character sources.')
     parser.add_argument('--discovery-root', type=Path, default=ROOT,
         help='Read frozen character discovery/observer production from a parallel integration checkout.')
+    parser.add_argument('--character-root', type=Path, default=ROOT,
+        help='Read frozen native character Source/Projection production without modifying the owning worker checkout.')
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     args = parser.parse_args()
     output = ROOT / '.planning/debug/menu-depth-character'; output.mkdir(parents=True, exist_ok=True)
@@ -58,13 +60,15 @@ def main():
         for key in ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
     completion = run / 'completion.log'; completion.write_text('Evidence: ' + str(run) + '\n')
     code_root = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
-    names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs',
+    names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs', 'MenuDepthDisplay.cs',
              'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs',
              'MenuDepthCharacterDisplayObserver.cs')
-    api_names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs')
+    api_names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs', 'MenuDepthDisplay.cs')
     discovery_names = ('MenuDepthCharacters.cs', 'MenuDepthCharacterDisplayObserver.cs')
+    character_names = ('MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs')
     inputs = {name: (args.api_root / 'src/GloomhavenVR/WorldUI/MenuDepth' / name) if name in api_names
               else (args.discovery_root / 'src/GloomhavenVR/WorldUI/MenuDepth' / name) if name in discovery_names
+              else (args.character_root / 'src/GloomhavenVR/WorldUI/MenuDepth' / name) if name in character_names
               else code_root / name for name in names}
     sources = {name: path.read_text() for name, path in inputs.items()}
     fixture = ROOT / 'tests/GloomhavenVR.MenuDepthCharacterTests'
@@ -72,6 +76,22 @@ def main():
             for path in [*inputs.values(), *fixture.glob('*'), Path(__file__),
                          ROOT / 'scripts/menu-depth-character/Editor/Runner.cs', Path(__file__).with_name('project_compilers.py')] if path.is_file()}
     variants = [
+        ('automatic-head725', '', '', '', 'AutomaticHead', ''),
+        ('automatic-head-failure725', 'MenuDepthCharacterSource.cs', '            _camera.Render();',
+         '            throw new InvalidOperationException("injected automatic head failure");', 'AutomaticHeadFailure', ''),
+        ('late-head-texture-loan725', 'MenuDepthSources.cs',
+         'Canvas.preWillRenderCanvases += PrimeDirectSources;', '/* injected: Canvas batches retain the native mono sampler */', 'AutomaticHead',
+         'automatic head final raster contains both native preview landmarks'),
+        ('direct-native-alpha-lost725', 'MenuDepthCharacterSource.cs',
+         '_image.texture = target;', '_image.color = Color.white; _image.texture = target;', 'AutomaticHead',
+         'automatic native UI retains its original colour alpha and ancestor fade'),
+        ('direct-native-masks-lost725', 'MenuDepthCharacterSource.cs',
+         '_image.texture = target;', '_image.maskable = false; _image.texture = target;', 'AutomaticHead',
+         'automatic native stencil and rectangle masks clip the original preview'),
+        ('orphan-direct-prime725', 'MenuDepthSources.cs',
+         'if (_cleaningDirect || (onlyIfStale && _directPrimeFrame == Time.frameCount)) return;',
+         'if (_cleaningDirect || Time.frameCount >= 0) return;', 'AutomaticHead',
+         'actual next Unity frame restores orphaned texture primes when no head draw occurs'),
         ('presentation725', '', '', '', 'Presentation', ''),
         ('presentation725-native-ldr-effect', '', '', '', 'NativeLdrEffect', ''),
         ('reversed-rig-order725', 'MenuDepthCharacterSource.cs',
@@ -177,6 +197,8 @@ def main():
         selected = set(args.case)
         assert selected <= {case[0] for case in variants}, selected
         variants = [case for case in variants if case[0] in selected]
+    if args.editor_mode and any(case[4].startswith('Automatic') for case in variants):
+        raise ValueError('Automatic Canvas/head/next-frame cases require the default real Playmode execution.')
     manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'harmony': str(run / 'assemblies/0Harmony.dll'), 'editorMode': args.editor_mode, 'cases': []}
     exit_code = 1
     try:
