@@ -92,8 +92,8 @@ unity_GUIZTestMode, and an actual ScreenSpaceCamera GPU control respects existin
 foreground depth. Original UI cameras share orthographic size100, near=-100,
 far1000 and planeDistance100; serialized Canvas zero TRS is only a placeholder.
 Depth comparisons and outer transparent carriers must use the live native basis.
-Those final multi-camera, rear and whole-window edge contracts are being qualified
-separately from the already passing front-side source composition and card cases.
+The final multi-camera, rear and whole-window edge contracts pass their real
+Unity GPU controls, separately from eventual headset acceptance.
 
 ## Final composition contracts under integration
 
@@ -120,3 +120,85 @@ zero card getter accesses for that additional calculation. This prevents an
 otherwise quadratic query introduced by the wider menu-card registry. Original
 complete-card depth uses the actual X/Z scale ratio so native XY-only subview
 fitting preserves the same small physical proportion.
+
+## Native material and discovery qualification
+
+All12 real Character3D RawImages use Character 3D Mask / UI/Inverted soft alpha
+mask (compatible with canvas group). The wrapper retains the actual native DXBC
+semantics: separate MainTex/Mask transforms, inverse mask alpha, vertex colour
+without material_Color, original stencil, and source-alpha blending on the alpha
+channel. Destination alpha remains A² + Dalpha*(1-A), including previously drawn
+partial/opaque UI. The GPU reference is a semantic translation of the pinned
+native programs; it does not claim native Windows bytecode executed on Linux.
+Only real foreground fragments bypass the physical planar aperture.
+
+A400-image, two-root CanvasScaler fixture performs48 real captures over24 frames.
+Warm root/ancestor/behaviour censuses stay unchanged; real parent changes and an
+image born during onPreRender remain discoverable. No direct or deferred Canvas
+hierarchy callback is observed for these actual root-mode leases. The proposed
+observer/known-Graphic suppression was therefore removed. The early proposed
+post-prime global Canvas rebuild was also removed after independent comparison.
+
+A read-only audit distinguishes seven printed card families from ordinary UI.
+The six BattleGoalPickerSlot instances are512x227.91 quest/reward columns with a
+transparent, sprite-free hit target, separate paper title, scrollable rewards and
+vertical quest frame. They are not a native printed-card face; raising the hidden
+button would be incorrect. Obsolete AttackModifier/AttackModifierCardGUI consumers
+are likewise not substitutes for the actual perk/scenario modifier card families.
+The actual native card FX shader's compiled parameters do not use _PosAndBounds;
+no unnecessary material-vector mutation is introduced.
+
+## Final delivery and evidence
+
+Runtime source is frozen at56231b6b3. Strict real Debug and Release builds pass with
+zero warnings/errors, as does the private metadata build against RefAsm. All16
+source checks pass. Source census preserves all670 configuration keys and248
+literal Harmony entries; the sole added log token is LEVEL-UP NATIVE CONTINUE
+(4840 total), with no removals. Patch inventory remains218 classes/318 methods,
+registered once. Player documentation passes EN/DE structure/link checks.
+
+Compiled comparison uses the exact727 Release baseline and real game references,
+with no adjacent XML input. Only the12 intended existing menu types change;
+nine new helper/API types replace the old custom ContinueButton class. Nine
+other existing types contain only the literal727-to728 build substitution.
+Only exact declared build timestamps/commit identities are normalized.
+
+The33237-byte rendering bundle is built by exact Unity2021.3.5f1 for Windows64,
+with D3D11/OpenGLCore/Vulkan, type trees and runtime load/support verification.
+All provenance hashes match. Movies and prepared story assets remain unchanged.
+The Windows installation script builds the archive; delivery is origin/dev source.
+
+Root debug/menu728 retains exact hardware inputs, baseline source/DLLs, executed
+assemblies, native audits, source pins, captures, failed hypotheses and honest
+worker scopes. Final worker evidence is byte-verified before retiring all three
+clean worktrees. Owned processes stop/reap before cleanup; protected pins and
+borrowed inputs survive. Complete invocation, bounded fixture repairs and golden-vector results are
+recorded below without claiming an all-suite pass from a focused rerun.
+
+No Build728 headset, D3D11/Vulkan execution, real Beautify appearance or paired
+multiplayer hardware result is claimed. Native depthless post-effect pixels retain
+colour in the original aperture, without invented geometry depth. Actual native
+widget/font/assets and Unity source kernels run; synthetic bodies, session/XR
+observations and named surrounding conversion-service ports remain explicit.
+
+## Complete integration qualification
+
+The complete local invocation records all252 suites:250 pass, with two fixture
+failures. Desktop's old negative control confused conservative crop width with
+actual sampling tier; the repaired assertion checks both the real SamplingEdge
+and allocated growth. Performance's separate mutation assemblies retained the
+first Unity bundle identity; the completed case now unloads it after retiring all
+consumers/graphics. Both repairs are test-only. Their complete affected suites
+pass2/2 in the final scheduler rerun. All other passing evidence is reused. This
+is complete aggregate252-suite coverage, not a new passing252-suite invocation.
+All306431 golden-vector assertions pass separately after that invocation's early
+nonzero exit, using a pinned executed binary. Runtime source remains byte-identical
+to the strict-build/source-gate/compiled-review tree throughout both repairs.
+
+Root evidence: full-gate/suites/results.json; fixture-final/results.json;
+goldens/run-yioz9q2c; strict/run-i_fr6ywe; metadata/run-r4mp4wgu;
+source-final/results.json; source-surface-final.json; compiled/scope-review.json;
+verification-scope.json and integration-fixture-repairs.json under debug/menu728.
+The complete invocation's2663 source/test/script inputs stayed unchanged until
+it finished. Only the two identified fixture files changed afterwards; the exact
+product source/resource identity is verified independently.

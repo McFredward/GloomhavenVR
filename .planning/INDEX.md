@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-27: Build728 integrates native menu depth, original level-up presentation and raised menu cards; final integration qualification is in progress. The Windows installation script builds the archive.
+Updated 2026-10-27: Build728 completes native menu depth, original level-up presentation and raised menu cards; aggregate252-suite coverage, goldens and strict builds pass. The Windows installation script builds the archive.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
