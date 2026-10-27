@@ -25,13 +25,15 @@ public static partial class MenuDepthCardProgram
 
     public static IEnumerator Run(string output) => RunCore(output, false);
     public static IEnumerator RunNativeUiFreeze(string output) => RunCore(output, true);
+    public static IEnumerator RunNativeHover(string output) => RunCore(output, false, true);
 
-    private static IEnumerator RunCore(string output, bool nativeFreezeOnly)
+    private static IEnumerator RunCore(string output, bool nativeFreezeOnly, bool nativeHoverOnly = false)
     {
         _checks = 0; _output = output; VRSession.IsRunning = true;
         var native = new Harmony("MenuDepthCards.NativePorts." + typeof(MenuDepthCardProgram).Assembly.GetName().Name);
         var observer = new Harmony(native.Id + ".observer");
         native.CreateClassProcessor(typeof(NativePorts)).Patch();
+        if (nativeHoverOnly) native.CreateClassProcessor(typeof(NativeHoverPorts)).Patch();
         observer.CreateClassProcessor(typeof(MenuDepthLifecycleObserver)).Patch();
         try
         {
@@ -43,13 +45,14 @@ public static partial class MenuDepthCardProgram
             else for (int path = 0; path < 3; path++)
                 using (var scene = new Scene(path))
                 {
-                    IEnumerator proof = scene.Prove();
+                    IEnumerator proof = nativeHoverOnly ? scene.ProveNativeHover729() : scene.Prove();
                     while (proof.MoveNext()) yield return proof.Current;
                 }
         }
         finally
         {
             MenuDepthDriver.Shutdown(); MenuDepthDisplay.Shutdown(); VRRigDriver.HeadCamera = null;
+            _hoverScene = null;
             observer.UnpatchAll(observer.Id); native.UnpatchAll(native.Id);
             for (int i = Owned.Count - 1; i >= 0; i--) if (Owned[i] != null) Object.DestroyImmediate(Owned[i]);
             Owned.Clear();
@@ -62,7 +65,7 @@ public static partial class MenuDepthCardProgram
     {
         private static IEnumerable<MethodBase> TargetMethods()
         {
-            foreach (Type type in new[] { typeof(FullAbilityCard), typeof(MiniAbilityCard), typeof(ItemCardUI), typeof(FullAbilityCardAction), typeof(MonsterRoundCardUI), typeof(MonsterBaseUI), typeof(UIPerkAttackModifier), typeof(UIScenarioAttackModifier), typeof(ExtendedButton) })
+            foreach (Type type in new[] { typeof(AbilityCardUI), typeof(FullAbilityCard), typeof(MiniAbilityCard), typeof(ItemCardUI), typeof(FullAbilityCardAction), typeof(MonsterRoundCardUI), typeof(MonsterBaseUI), typeof(UIPerkAttackModifier), typeof(UIScenarioAttackModifier), typeof(ExtendedButton) })
                 foreach (string name in new[] { "Awake", "Start", "OnEnable", "OnDisable", "OnDestroy" })
                 {
                     MethodInfo method = AccessTools.DeclaredMethod(type, name);
@@ -318,13 +321,22 @@ public static partial class MenuDepthCardProgram
                     Vector3 point = OnPlane(_head, baseline.Center, _path == 0 ? _root : _glass);
                     float width = _path == 2 ? _ui.WorldToViewportPoint(card.Rect.TransformPoint(new Vector3(card.Rect.rect.xMax, 0))).x
                         - _ui.WorldToViewportPoint(card.Rect.TransformPoint(new Vector3(card.Rect.rect.xMin, 0))).x : card.Rect.rect.width * card.Rect.TransformVector(Vector3.right).magnitude;
-                    float depth = .035f * width * (_path == 2 ? 1.2f : 1f);
+                    float depth = (card.Owner is ItemCardUI ? .065f : .035f) * width * (_path == 2 ? 1.2f : 1f);
                     Vector3 expected = _head.WorldToViewportPoint(point - Vector3.forward * depth);
                     marker.enabled = true; ++_request; while (_completed != _request) yield return null;
                     Texture2D pixels = Read(card, true, pose); Ink actual = White(pixels);
                     float error = Vector2.Scale(actual.Center - new Vector2(expected.x, expected.y), new Vector2(pixels.width, pixels.height)).magnitude;
                     File.AppendAllText(Path.Combine(_output, "geometry.csv"), _name + "," + card.Owner.GetType().Name + "," + pose + "," + baseline.Center.ToString("F6") + "," + actual.Center.ToString("F6") + "," + expected.ToString("F6") + ",depth=" + depth.ToString("F6") + ",error=" + error + "\n");
                     Check(error < 1.8f, "the complete original card text follows the independently specified raised physical plane");
+                    if (card.Owner is ItemCardUI && pose == 0)
+                    {
+                        Vector3 prior = _head.WorldToViewportPoint(point - Vector3.forward * (depth * (.035f / .065f)));
+                        float priorDisplacement = Vector2.Scale(new Vector2(prior.x, prior.y) - baseline.Center,
+                            new Vector2(pixels.width, pixels.height)).magnitude;
+                        float displacement = Vector2.Scale(actual.Center - baseline.Center, new Vector2(pixels.width, pixels.height)).magnitude;
+                        Check(displacement > priorDisplacement * 1.6f && Error(actual, prior, pixels) > 2f,
+                            "native item card relief is visibly stronger than the prior 3.5-percent plane");
+                    }
                     if (pose == 0)
                     {
                         Ink firstInk = White(first);
@@ -355,7 +367,7 @@ public static partial class MenuDepthCardProgram
             float width = _path == 2 ? (_ui.WorldToViewportPoint(card.Rect.TransformPoint(new Vector3(card.Rect.rect.xMax, 0))).x
                 - _ui.WorldToViewportPoint(card.Rect.TransformPoint(new Vector3(card.Rect.rect.xMin, 0))).x) * 1.2f
                 : card.Rect.rect.width * card.Rect.TransformVector(Vector3.right).magnitude;
-            return _head.WorldToViewportPoint(point - Vector3.forward * (.035f * width));
+            return _head.WorldToViewportPoint(point - Vector3.forward * ((card.Owner is ItemCardUI ? .065f : .035f) * width));
         }
         private static float Error(Ink ink, Vector3 expected, Texture2D pixels) =>
             Vector2.Scale(ink.Center - new Vector2(expected.x, expected.y), new Vector2(pixels.width, pixels.height)).magnitude;

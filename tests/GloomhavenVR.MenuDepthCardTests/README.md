@@ -19,8 +19,10 @@ font atlas; screenshots do not claim to be original game artwork or headset
 pictures. Native pool activation/reparenting is the input; the real lifecycle
 observer/discovery code executes, while the campaign ObjectPool is not started.
 
-The independent oracle lifts native flat screenshot ink onto a plane 3.5% of card
-width in front of its window, then projects through the actual head camera.
+The independent oracle lifts native flat screenshot ink onto a plane 6.5% of item
+card width or 3.5% of every other card's width in front of its window, then projects
+through the actual head camera. The item case also rejects the prior 3.5% plane
+and requires at least 60% more observed displacement on the same native artwork.
 Continuous white glyph coverage avoids unstable thresholded TMP stem centroids;
 the geometric tolerance stays 1.8 pixels. Actual first automatic frames include
 both pre-enrolled cards and popups born after the final menu tick, without manually
@@ -47,6 +49,25 @@ owner/component/field/Sprite/material identities and source hashes; no artwork o
 mesh is exported. The old AttackModifierCardGUI widget only has a hide consumer;
 the separate obsolete AttackModifier class has no active type consumer. Actual
 perk/scenario modifier cards and monster hover/transition cards are covered.
+
+Build729's `native-hover` case follows the original character ability overview's
+actual `AbilityCardUI.fullAbilityCard` path. The audit pins both pointer/gamepad
+prefabs, their 294x450/360x555 Full rectangles, the original button's persistent
+OnPointerEnter/OnPointerExit callbacks and all six authored overview instances.
+The real native `ToggleFullCardPreview` executes activation, original Full/Mini
+layout, its transient Canvas and raycast blocking. Gameplay/asset services and
+the existing TooltipOnWindow placement are explicit ports. The complete Full
+widget is detached to the enrolled root, beneath XY-only native fitting, with its
+native controller disabled; three pool reuse cycles per prefab must show correct
+depth on their first automatic frames, without another Driver tick or root census.
+Separate controls remove exact Full identity and card depth; both must fail the
+new GPU proof. An additional item control restores only the prior relief amount.
+
+This case passes against the unchanged Full registry from Build728. It does not
+establish a missing native card type as the cause of the hardware report. The
+fresh Build728 logs independently record whole-window character-pool fallbacks
+on the same New Party display root. Integrated moving-character coverage belongs
+to that resource repair; this isolated card fixture does not run a native model.
 
 Evidence includes executed assemblies, pinned sources/native inputs, GPU images,
 geometry/callback traces and failed attempts. Exact owned Editor/compiler cleanup

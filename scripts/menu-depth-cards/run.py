@@ -30,6 +30,7 @@ def main():
     source=ROOT/'src/GloomhavenVR/WorldUI/MenuDepth'; paths=[*source.glob('*.cs'),ROOT/'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs']
     sources={p.name:p.read_text()for p in paths}; fixture=ROOT/'tests/GloomhavenVR.MenuDepthCardTests'
     variants=[('production','','','',''),
+        ('native-hover','','','',''),
         ('native-ui-freeze','','','',''),
         ('lost-native-freeze-parent','MenuDepthDriver.cs',
          'if (hierarchyChanged) { MovedGraphics.Add(graphic); PendingGraphics.Add(graphic); }',
@@ -48,6 +49,9 @@ def main():
         ('lost-late-background','MenuDepthCards.cs','plane.Rebind(windowRoot, graphics);','plane.Rebind(windowRoot, plane.DepthGraphics);','late native background assignment refreshes'),
         ('lost-fit-depth','MenuDepthCardPlane.cs',' * xScale / zScale;',';','native XY-only fitting retains a raised depth proportional'),
         ('lost-item-identity','MenuDepthCards.cs','new("ItemCardUI", false,','new("NoSuchNativeItemCard", false,','exact native full mini and item card roots receive'),
+        ('lost-item-relief','MenuDepthCardPlane.cs','private const float ItemDepthWidthRatio = .065f;','private const float ItemDepthWidthRatio = .035f;','the complete original card text follows'),
+        ('lost-hover-identity','MenuDepthCards.cs','new("FullAbilityCard", false,','new("NoSuchNativeFullCard", false,','native character hover admits its detached disabled-controller card'),
+        ('lost-hover-depth','MenuDepthCardPlane.cs','private const float DepthWidthRatio = .035f;','private const float DepthWidthRatio = 0f;','native character hover renders complete original card text'),
     ]
     if args.case:
         selection=set(args.case);assert selection<={v[0]for v in variants};variants=[v for v in variants if v[0]in selection]
@@ -77,7 +81,7 @@ def main():
             command=['/home/claw/.dotnet/dotnet','build',str(csproj),'-c','Release','-v','quiet','--nologo','--disable-build-servers','-nr:false','-p:UseSharedCompilation=false','-p:CaseName='+assembly,'-p:FixtureDir='+str(retained/'fixture'),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(unity.parent/'Data/Managed'),'-p:GameManaged='+str(game),'-p:DepthBundle='+str(bundle)]
             if execute(command,case/'build.log'):raise RuntimeError('Compilation failure is not a causal-control pass: '+name)
             binary=case/'bin/Release/net472'/(assembly+'.dll');target=run/'assemblies';target.mkdir(exist_ok=True);shutil.copy2(binary,target/binary.name)
-            manifest['cases'].append({'name':name,'dll':str(target/binary.name),'expected':expected,'method':'RunNativeUiFreeze' if name in {'native-ui-freeze','lost-native-freeze-birth','lost-native-freeze-parent'} else 'Run'})
+            manifest['cases'].append({'name':name,'dll':str(target/binary.name),'expected':expected,'method':'RunNativeUiFreeze' if name in {'native-ui-freeze','lost-native-freeze-birth','lost-native-freeze-parent'} else 'RunNativeHover' if name in {'native-hover','lost-hover-identity','lost-hover-depth'} else 'Run'})
         for folder in ['Assets/Editor','Packages','ProjectSettings']:(project/folder).mkdir(parents=True)
         (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{'com.unity.ugui':'1.0.0','com.unity.textmeshpro':'3.0.6','com.unity.modules.assetbundle':'1.0.0','com.unity.modules.imageconversion':'1.0.0'}})+'\n')

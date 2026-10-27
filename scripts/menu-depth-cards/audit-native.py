@@ -28,7 +28,8 @@ FIELDS = {
         ('bottomActionButton', 'defaultActionButton', 'm_TargetGraphic')],
     'MiniAbilityCard': [('miniAbilityBackgroundImage',)],
     'ItemCardUI': [('cardBackground',)],
-    'AbilityCardUI': [('fullAbilityCard',), ('miniAbilityCard',)],
+    'AbilityCardUI': [('fullAbilityCard',), ('miniAbilityCard',), ('button',)],
+    'UIPartyCharacterAbilityCardsDisplay': [('abilityCardsPanel', 'm_Content'), ('fullCardAreaToFit',)],
     'MonsterRoundCardUI': [('background',), ('$rootImage',)],
     'MonsterBaseUI': [('backgroundImage',), ('textBackgroundOpacityImage',)],
     'UIPerkAttackModifier': [('button', 'm_TargetGraphic')],
@@ -89,10 +90,16 @@ def main():
         d = tree(reader); go = pointer(d.get('m_GameObject'), reader)
         result = {'serialized_file': reader.assets_file.name, 'path_id': reader.path_id,
                   'class': script(reader), 'name': tree(go).get('m_Name') if go else d.get('m_Name')}
-        for key in ['m_Color', 'm_Type', 'm_RaycastTarget', 'm_Maskable', 'm_Sprite', 'm_Material',
+        for key in ['m_Enabled', 'm_IsActive', 'm_Color', 'm_Type', 'm_RaycastTarget', 'm_Maskable', 'm_Sprite', 'm_Material',
                     'm_RenderMode', 'm_OverrideSorting', 'm_SortingOrder', 'm_LocalPosition',
                     'm_LocalScale', 'm_SizeDelta', 'm_Pivot', 'm_AnchorMin', 'm_AnchorMax']:
             if key in d: result[key] = d[key]
+        if reader.type.name == 'MonoBehaviour':
+            events = {}
+            for key in ('onMouseEnter', 'onMouseExit'):
+                if key in d:
+                    events[key] = d[key]
+            if events: result['pointer_events'] = events
         return result
 
     shaders = set()
@@ -125,6 +132,23 @@ def main():
                 'serialized_sha256': hashlib.sha256(owner.get_raw_data()).hexdigest(),
                 'root_components': [identity(part) for part in components(owner)],
                 'fields': {'.'.join(path): identity(follow(owner, path)) for path in FIELDS[name]}})
+    by_id = {(row['owner']['serialized_file'], row['owner']['path_id']): row for row in report['owners']}
+    report['character_hover_prefabs'] = []
+    for row in report['owners']:
+        if row['owner']['class'] != 'AbilityCardUI' or row['owner']['name'] not in ('AbilityCard', 'AbilityCard_gamepad'): continue
+        full = row['fields']['fullAbilityCard']; mini = row['fields']['miniAbilityCard']
+        assert full and full['class'] == 'FullAbilityCard' and mini and mini['class'] == 'MiniAbilityCard'
+        full_row = by_id[(full['serialized_file'], full['path_id'])]
+        button = row['fields']['button']; assert button
+        for event, method in [('onMouseEnter', 'OnPointerEnter'), ('onMouseExit', 'OnPointerExit')]:
+            calls = button.get('pointer_events', {}).get(event, {}).get('m_PersistentCalls', {}).get('m_Calls', [])
+            assert any(call.get('m_MethodName') == method and call.get('m_Target', {}).get('m_PathID') == row['owner']['path_id']
+                       for call in calls), ('Missing original hover callback', row['owner'], method)
+        report['character_hover_prefabs'].append({'row': row['owner'], 'full': full, 'mini': mini,
+            'row_button': button, 'full_root_components': full_row['root_components'],
+            'full_printed_graphics': full_row['fields']})
+    assert len(report['character_hover_prefabs']) == 2, 'Missing exact native pointer/gamepad ability hover prefab'
+    assert any(row['owner']['class'] == 'UIPartyCharacterAbilityCardsDisplay' for row in report['owners']), 'Missing character ability overview authoring'
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
     counts = {name: sum(row['owner']['class'] == name for row in report['owners']) for name in FIELDS}

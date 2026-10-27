@@ -22,6 +22,8 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     private Vector3 _position, _scale;
     private bool _borrowed, _configured;
     private const float DepthWidthRatio = .035f;
+    private const float ItemDepthWidthRatio = .065f;
+    private float _depthWidthRatio;
 
     public Graphic Graphic => Printed() ?? _backgrounds[0];
     public IReadOnlyList<Graphic> DepthGraphics => _backgrounds;
@@ -31,6 +33,10 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     internal void Configure(MonoBehaviour owner, RectTransform card, IReadOnlyList<Graphic> backgrounds, Transform? window)
     {
         _owner = owner; _card = card; _backgrounds = backgrounds; _configured = true;
+        // Build729 hardware review: the original item cards barely cleared the
+        // window. Keep every other accepted card plane unchanged and give exact
+        // native ItemCardUI roots 6.5% of their physical width of relief.
+        _depthWidthRatio = owner is ItemCardUI ? ItemDepthWidthRatio : DepthWidthRatio;
         Rebind(window, backgrounds); MenuDepthSources.Register(this);
     }
 
@@ -85,7 +91,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
             || Mathf.Min(xScale, Mathf.Min(yScale, zScale)) <= 1e-8f) return;
         // Native subview fitting scales XY while retaining its original Z scale.
         // Express relief in physical card widths even beneath that original fit.
-        float depth = -Mathf.Abs(_card.rect.width) * DepthWidthRatio * xScale / zScale;
+        float depth = -Mathf.Abs(_card.rect.width) * _depthWidthRatio * xScale / zScale;
         if (float.IsNaN(depth) || float.IsInfinity(depth)) return;
         float factor = 1f;
         Vector3 offset = new(0f, 0f, depth);
