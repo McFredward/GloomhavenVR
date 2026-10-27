@@ -121,6 +121,20 @@ internal static class MenuDepthSources
         }
     }
 
+    internal static bool TryGetForegroundBounds(Graphic graphic, MenuDepthEye eye, out Rect graphicLocalBounds)
+    {
+        FlushPendingContent();
+        for (int i = 0; i < Sources.Count; i++)
+        {
+            IMenuDepthSource source = Sources[i];
+            if (ReferenceEquals(source.Graphic, graphic) && Visible(graphic) && source.IsReady
+                && source is IMenuDepthBoundsSource bounds)
+                return bounds.TryGetForegroundBounds(eye, out graphicLocalBounds);
+        }
+        graphicLocalBounds = default;
+        return false;
+    }
+
     /// <summary>Screen-space UI uses the physical window-to-original-graphic eye mapper.</summary>
     internal static void BeforeCaptureWhere(MenuDepthEye eye, Predicate<Graphic> applies,
         Func<Graphic, MenuDepthEye> mapper, Func<Graphic, Vector2>? pixels = null)
