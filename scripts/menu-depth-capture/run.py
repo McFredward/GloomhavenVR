@@ -214,6 +214,11 @@ def main():
                 if path.name == 'Program.cs':
                     code = code.replace('        Projection();', '        _checks += Routing724.Run(output);\n        Workload725(output);\n        Frame728(output);\n        Projection();')
                     code = code.replace('new GameObject("source scope", typeof(RectTransform))', 'new GameObject("source scope", typeof(RectTransform), typeof(Canvas))')
+                    if name == 'mixed-scope-order':
+                        # Exercise the intended mixed lease overlap before the
+                        # separate no-direct-source callback pixel witness.
+                        code = replace(code, '        Workload725(output);',
+                            '        MixedCaptureOrder();\n        Workload725(output);')
                 if path.name == filename: code = replace(code, before, after)
                 (bound_fixture / path.name).write_text(code)
             csproj = case / 'MenuDepthCapture.csproj'; shutil.copyfile(fixture / csproj.name, csproj)
