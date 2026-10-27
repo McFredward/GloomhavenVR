@@ -207,7 +207,7 @@ public static class MenuDepthCharacterCabinet726
         return new Sample(new Vector2((float)(x / weight / image.width), (float)(y / weight / image.height)), high - low + 1, other);
     }
 
-    private sealed class Scene : IDisposable
+    internal sealed class Scene : IDisposable
     {
         internal readonly Camera Head;
         private readonly Camera _nativeCamera, _ui;
@@ -236,6 +236,26 @@ public static class MenuDepthCharacterCabinet726
         private Material? _nativeSoftMask;
         private RectTransform? _otherPanel;
         private float _previewWidth = 1.2f, _previewHeight = .9f;
+        internal MenuDepthCharacterSource Source => _source;
+        internal MenuDepthEye LastEye;
+        internal RectTransform Frame => _frame;
+        internal RenderTexture Final => _final;
+        internal RawImage Graphic => _image;
+        internal void SetPattern(int frequency)
+        {
+            _front.shader = _back.shader = Shader.Find("Hidden/GloomhavenVR/MenuDepthCharacterMotionPattern729");
+            _front.SetFloat("_Frequency", frequency); _back.SetFloat("_Frequency", frequency);
+        }
+        internal void TranslateNative(Vector3 offset) => _nativeCamera.transform.position += offset;
+        internal void AddOffscreenAccessory(float x = 800f)
+        {
+            var accessory = GameObject.CreatePrimitive(PrimitiveType.Cube); accessory.layer = 8;
+            accessory.name = "active native accessory outside the actual head frustum";
+            accessory.transform.SetParent(_actor, false);
+            accessory.transform.localPosition = new Vector3(x, 1.2f, -.28f);
+            accessory.transform.localScale = Vector3.one * .1f;
+            accessory.GetComponent<Renderer>().sharedMaterial = _extra;
+        }
         internal Scene(string output, int path)
         {
             bool supersampled = path == 1; _desktop = path == 2;
@@ -319,7 +339,11 @@ public static class MenuDepthCharacterCabinet726
                 new Vector3(-.225f,0,.18f), new Vector3(-.225f,height,.18f), new Vector3(.225f,height,.18f), new Vector3(.225f,0,.18f) };
             int[][] faces = { new[] { 0,1,2,3 }, new[] { 7,6,5,4 }, new[] { 4,5,1,0 }, new[] { 3,2,6,7 }, new[] { 1,5,6,2 }, new[] { 4,0,3,7 } };
             _bodyMesh.Clear(); for (int face = 0; face < 6; face++) for (int corner = 0; corner < 4; corner++) vertices[face * 4 + corner] = p[faces[face][corner]];
-            _bodyMesh.vertices = vertices; _bodyMesh.subMeshCount = 6;
+            _bodyMesh.vertices = vertices;
+            var uv = new Vector2[24];
+            for (int face = 0; face < 6; face++)
+            { uv[face * 4] = Vector2.zero; uv[face * 4 + 1] = Vector2.up; uv[face * 4 + 2] = Vector2.one; uv[face * 4 + 3] = Vector2.right; }
+            _bodyMesh.uv = uv; _bodyMesh.subMeshCount = 6;
             for (int face = 0; face < 6; face++) { int start = face * 4; _bodyMesh.SetTriangles(new[] { start,start+1,start+2,start,start+2,start+3 }, face); }
             _bodyMesh.RecalculateNormals(); _bodyMesh.RecalculateBounds(); body.GetComponent<MeshFilter>().sharedMesh = _bodyMesh;
             body.GetComponent<MeshRenderer>().sharedMaterials = colors;
@@ -342,12 +366,13 @@ public static class MenuDepthCharacterCabinet726
             Vector3 point = (native - origin - Vector3.up * 1.2f) / units;
             return _frame.position + _frame.right * point.x + _frame.up * point.y + _frame.forward * point.z;
         }
-        internal Texture2D Capture(Vector3 localEye, bool right, string label, bool lookAtCenter = false)
+        internal Texture2D Capture(Vector3 localEye, bool right, string label, bool lookAtCenter = false, bool save = true)
         {
             _right = right; bool rear = localEye.z > 0;
             Vector3 position = _frame.position + _frame.right * localEye.x + _frame.up * localEye.y + _frame.forward * localEye.z;
             Head.transform.SetPositionAndRotation(position, _frame.rotation * Quaternion.Euler(0, rear ? 180 : 0, 0));
             if (lookAtCenter) Head.transform.rotation = Quaternion.LookRotation(_frame.position - position, _frame.up);
+            LastEye = new MenuDepthEye(right, position, Head);
             if (_display != null)
             {
                 Vector3 other = position + Head.transform.right * (right ? -.064f : .064f);
@@ -364,7 +389,7 @@ public static class MenuDepthCharacterCabinet726
             RenderTexture previous = RenderTexture.active; RenderTexture.active = _final;
             var pixels = new Texture2D(_final.width, _final.height, TextureFormat.RGBA32, false);
             pixels.ReadPixels(new Rect(0,0,pixels.width,pixels.height),0,0); pixels.Apply(); RenderTexture.active = previous;
-            File.WriteAllBytes(Path.Combine(_output, _path + "-" + label + ".png"), pixels.EncodeToPNG()); return pixels;
+            if (save) File.WriteAllBytes(Path.Combine(_output, _path + "-" + label + ".png"), pixels.EncodeToPNG()); return pixels;
         }
         internal void CheckNativeWindowGeometry()
         {
@@ -432,14 +457,15 @@ public static class MenuDepthCharacterCabinet726
         }
         private void CaptureDesktop(Vector3 physicalEye, bool right)
         {
-            Check(MenuDepthScreenProjection.TryMap(_screen, _ui, _image.rectTransform, physicalEye, out Vector3 nativeEye),
+            Check(MenuDepthScreenProjection.TryMap(_screen, _ui, _image.rectTransform, physicalEye, out Vector3 nativeEye, out Matrix4x4 nativeToPhysical),
                 "the native desktop mapper admits both physical window sides without changing its fixed metric");
             Vector2 pixels = MenuDepthScreenProjection.PixelFootprint(_screen, _ui, _image.rectTransform, new MenuDepthEye(right, physicalEye, Head));
             RenderTexture target = right ? _desktopRight! : _capture; _ui.targetTexture = target;
             RenderTexture active = RenderTexture.active; RenderTexture.active = target; GL.Clear(true,true,Color.clear); RenderTexture.active = active;
             bool rear = Vector3.Dot(physicalEye - _frame.position,_frame.forward) > 0;
             using var nativeScope = new MenuDepthNativeUiScope(_ui,_root.GetComponent<Canvas>(),rear);
-            MenuDepthSources.BeforeCapture(_root, new MenuDepthEye(right, nativeEye, Head, true, pixels));
+            LastEye = new MenuDepthEye(right, nativeEye, Head, true, pixels, MenuDepthEye.HeadClip(right, physicalEye, Head) * nativeToPhysical);
+            MenuDepthSources.BeforeCapture(_root, LastEye);
             try
             {
                 Canvas.ForceUpdateCanvases();
