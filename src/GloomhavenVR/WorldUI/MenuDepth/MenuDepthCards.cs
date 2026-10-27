@@ -80,8 +80,6 @@ internal static class MenuDepthCards
             RegisterMember(owner, "miniAbilityCard", windowRoot);
             return;
         }
-        if (Cards.TryGetValue(owner, out MenuDepthCardPlane plane) && plane != null)
-        { plane.Rebind(windowRoot); return; }
         var rect = owner.transform as RectTransform;
         if (rect == null) return;
         Canvas sourceCanvas = owner.GetComponentInParent<Canvas>();
@@ -94,6 +92,8 @@ internal static class MenuDepthCards
             for (int p = 0; value != null && p < kind.Backgrounds[i].Length; p++) value = Read(value, kind.Backgrounds[i][p]);
             if (value is Graphic graphic && !graphics.Contains(graphic)) graphics.Add(graphic);
         }
+        if (Cards.TryGetValue(owner, out MenuDepthCardPlane plane) && plane != null)
+        { plane.Rebind(windowRoot, graphics); return; }
         if (graphics.Count == 0) return; // Original fields may still be assigned by a native late initializer.
         var go = new GameObject("GloomhavenVR.MenuDepth.CardPlane", typeof(RectTransform), typeof(CanvasRenderer), typeof(LayoutElement));
         go.layer = owner.gameObject.layer;

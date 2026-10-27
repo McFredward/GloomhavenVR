@@ -12,7 +12,7 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// The temporary root pose is restored before native input/animation resumes.
 /// </summary>
 [DisallowMultipleComponent]
-internal sealed class MenuDepthCardPlane : MaskableGraphic, IMenuDepthOcclusionSource
+internal sealed class MenuDepthCardPlane : MaskableGraphic, IMenuDepthOcclusionSource, IMenuDepthDirectSource
 {
     private MonoBehaviour? _owner;
     private RectTransform? _card;
@@ -24,20 +24,31 @@ internal sealed class MenuDepthCardPlane : MaskableGraphic, IMenuDepthOcclusionS
 
     public Graphic Graphic => this;
     public IReadOnlyList<Graphic> DepthGraphics => _backgrounds;
-    public bool IsReady => _configured && IsActive() && _owner != null && _owner.isActiveAndEnabled
-        && _card != null && _card.gameObject.activeInHierarchy && _card.rect.width > 1e-5f && Eligible();
+    public bool IsReady => _configured && IsActive() && _owner != null && _owner.gameObject.activeInHierarchy
+        && _card != null && _card.gameObject.activeInHierarchy && _card.rect.width > 1e-5f && Printed() && Eligible();
 
     internal void Configure(MonoBehaviour owner, RectTransform card, IReadOnlyList<Graphic> backgrounds, Transform? window)
     {
         _owner = owner; _card = card; _backgrounds = backgrounds; _configured = true;
         raycastTarget = false; color = Color.white;
-        Rebind(window); MenuDepthSources.Register(this);
+        Rebind(window, backgrounds); MenuDepthSources.Register(this);
     }
 
-    internal void Rebind(Transform? window)
+    internal void Rebind(Transform? window, IReadOnlyList<Graphic> backgrounds)
     {
-        _window = window;
+        _window = window; _backgrounds = backgrounds;
         if (_card != null) gameObject.layer = _card.gameObject.layer;
+    }
+
+    private bool Printed()
+    {
+        for (int i = 0; i < _backgrounds.Count; i++)
+        {
+            Graphic graphic = _backgrounds[i];
+            if (graphic != null && graphic.isActiveAndEnabled && graphic.color.a > 0f
+                && graphic.canvasRenderer.GetInheritedAlpha() > 0f) return true;
+        }
+        return false;
     }
 
     private bool Eligible()
@@ -50,6 +61,14 @@ internal sealed class MenuDepthCardPlane : MaskableGraphic, IMenuDepthOcclusionS
         return (_window != null && _card.IsChildOf(_window))
             || (cardCanvas != null && cardCanvas.rootCanvas != null && cardCanvas.rootCanvas.renderMode != RenderMode.WorldSpace);
     }
+
+    // Native uGUI batches world-space transforms before Camera.onPreCull, just
+    // as it retains a character preview's texture identity. Prime the fixed card
+    // plane at that existing early boundary; the real head then supplies natural
+    // perspective for either eye. Input/animation never retains the borrowed pose.
+    public void PrimeDirectCapture(MenuDepthEye samplingEye) => BeforeCapture(samplingEye);
+    public void BeforeDirectCapture(MenuDepthEye eye) { if (!_borrowed) BeforeCapture(eye); }
+    public void CancelDirectCapture() => AfterCapture();
 
     public void BeforeCapture(MenuDepthEye eye)
     {

@@ -229,7 +229,7 @@ internal static class MenuDepthDriver
     private static void FlushArrivals()
     {
         foreach (MonoBehaviour owner in PendingOwners)
-            if (owner != null && (OwnerBindings.ContainsKey(owner) || HasRoot(owner.transform))) Register(owner);
+            if (owner != null && (OwnerBindings.ContainsKey(owner) || HasRoot(owner.transform) || MenuDepthCards.IsCardOwner(owner))) Register(owner);
         PendingOwners.Clear();
         WalkedAncestors.Clear();
         foreach (Graphic graphic in PendingGraphics)
