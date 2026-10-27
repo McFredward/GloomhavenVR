@@ -35,15 +35,25 @@ The existing encounter pose channel temporarily follows this original preflight;
 native reset, host withdrawal and actual event entry retire its lease. Native
 event pages, personal votes, participant permissions and ACKs remain game-owned.
 
-The helper observes eleven original Harmony targets: host `ConfirmCityEvent`,
+The helper observes fourteen original Harmony targets: host `ConfirmCityEvent`,
 client `ProxySelectedCityEvent`, ready `Initialize`, `Reset`, `ShouldBeVisible` and
 `InputToggle`, controller `ResetUI`, `ClearHostSelectedCityEvent`,
-`ProxyHostCancelledCityEvent` and `CancelPreviewCityEvent`, and `UIEventPanel.StartEvent`.
+`ProxyHostCancelledCityEvent`, `CancelPreviewCityEvent` and `ToggleReadyUpUI`,
+`UIEventPanel.StartEvent`, `QuestManager.OnSelectedLogQuest` and
+`MapLocation.OnPointerClick`.
 City participant initialization enables the game's existing departure validation.
 The resulting original ACK coroutine, timeout and continuation execute unchanged.
 Disabled observers can see the public offer without receiving a vote; original
 visibility blockers still apply. Presentation/probe failures cannot escape into
 the native network dispatcher or turn a disabled observer into an actionable one.
+
+The exact native city role remains authoritative during incidental quest-focus
+refreshes and the all-ready ACK wait. A same-role original 2D confirmation retains
+its occurrence without adding a vote. New quest browsing yields to public city
+readiness and the native event card, including original questlog and map pointer
+input; gameplay selection methods and event actions run unchanged. The existing
+causal browsing register retires superseded openings rather than replaying them
+after the event. Accepted native quest proposals are preserved.
 
 The pooled toggle's native role now bounds quest grouping, loadout parking and
 parking leases. Its original readiness tracker bar is adopted before the city's
