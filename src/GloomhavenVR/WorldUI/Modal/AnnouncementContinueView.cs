@@ -3,6 +3,7 @@ using GloomhavenVR.Core;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
@@ -30,7 +31,6 @@ internal sealed class AnnouncementContinueView
         if (_root == null || _button == null) return;
         _continue = onContinue;
         _button.interactable = canConfirm;
-        _button.TextLanguageKey = "GUI_CONTINUE";
         // Follow the original card's pose, never our own fitted bounds or the inventory.
         RectTransform? content = owner.cardHolder?.cardHolder?.Card?.fullAbilityCard?.transform as RectTransform
             ?? owner.cardHolder?.transform as RectTransform;
@@ -96,7 +96,12 @@ internal sealed class AnnouncementContinueView
             _button.onClick = new Button.ButtonClickedEvent();
             _button.onMouseEnter = new UnityEvent(); _button.onMouseExit = new UnityEvent();
             _button.onSelected = new UnityEvent(); _button.onDeselected = new UnityEvent();
-            _button.onClick.AddListener(Continue);
+            // The native ExtendedButton imports a reward/ESC interactability check
+            // which ClickTrackerExtended.ProcessClick never had. Keep its complete
+            // visual behavior, while a narrow relay uses only the original tracker
+            // permission through the existing TryConfirm callback.
+            copy.AddComponent<AnnouncementNativeContinuePointer>().Press = Continue;
+            _button.TextLanguageKey = "GUI_CONTINUE"; // native OnEnable subscribes language changes
             _root.SetParent(parent, false);
             _root.anchorMin = _root.anchorMax = parent.pivot;
             _root.pivot = new Vector2(.5f, .5f);
@@ -127,4 +132,12 @@ internal sealed class AnnouncementContinueView
         if (_root != null) Object.Destroy(_root.gameObject);
         _root = null; _button = null; _owner = null;
     }
+}
+
+internal sealed class AnnouncementNativeContinuePointer : MonoBehaviour, IPointerClickHandler, ISubmitHandler
+{
+    internal Action? Press;
+    public void OnPointerClick(PointerEventData eventData)
+    { if (eventData.button == PointerEventData.InputButton.Left) Press?.Invoke(); }
+    public void OnSubmit(BaseEventData eventData) => Press?.Invoke();
 }
