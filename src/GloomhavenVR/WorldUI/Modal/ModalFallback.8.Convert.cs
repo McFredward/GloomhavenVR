@@ -864,7 +864,13 @@ internal static partial class ModalFallback
                 // path that hides the window without CloseFloatedWindow would leave the frame
                 // standing with nothing in it. The reasoning is written out on that method.
                 Sticky = (MenuWindowFamily.IsGameOwnedMenu(window) || MapRoomParallel(window))
-                         && !isTransient && !IsIntroductionWindow(window),
+                         && !isTransient && !IsIntroductionWindow(window)
+                         // The native pooled ready toggle serves city events, quests, rewards
+                         // and loadout. Its native Hide ends that offer; keeping its old label
+                         // force-visible leaves an inert city-event button after completion.
+                         // Keep MapRoomParallel's nonblocking input policy, only decline its
+                         // presentation lifetime extension for this exact component (#18).
+                         && window.GetComponent<UIReadyToggle>() == null,
                 Transient = isTransient,
                 // ModBuild 230 (liveness): the clock every grace and dwell in TickWindowLiveness is
                 // measured from, and the "had been standing for" term of its release line.

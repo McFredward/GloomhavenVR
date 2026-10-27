@@ -1227,6 +1227,20 @@ internal static class MapTravelConfirm
             return false;
         }
 
+        // A city-event readiness button can already be a standalone modal when this SAME
+        // pooled native toggle starts serving Quests. Hand over the old conversion before
+        // recording its home or moving it. Otherwise the modal's later refusal/release restores
+        // the toggle OUT of this quest, and ReconcileCore mistakes that competing mod writer
+        // for a native reparent and disables travel parking for the entire map visit (#18).
+        // This also cancels an in-flight dissolve callback for the exact native target. No
+        // native Hide, readiness answer, assignment or gameplay callback is invoked here.
+        if (readyToggle)
+        {
+            UIWindow? nativeWindow = options.GetComponent<UIWindow>();
+            if (nativeWindow == null || !ModalFallback.ReleaseForComposite(nativeWindow))
+                return false;
+        }
+
         // ModBuild 226 — THE RECORD IS PER OBJECT. The latch used to be a bare bool because there was
         // only ever one container to record; with two (offline travel options / online ready toggle)
         // a single latch would apply the FIRST object's home to the SECOND on unpark, which is a
