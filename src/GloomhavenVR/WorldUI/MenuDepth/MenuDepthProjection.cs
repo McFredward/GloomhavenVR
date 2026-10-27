@@ -56,13 +56,23 @@ internal static class MenuDepthProjection
         Vector3 bl, Vector3 tl, Vector3 tr, Vector3 br)
     {
         if (width <= 0f || height <= 0f) return Vector2.zero;
+        int front = Front(matrix, bl) + Front(matrix, tl) + Front(matrix, tr) + Front(matrix, br);
+        if (front == 0) return Vector2.zero;
+        // A visible near-clipped aperture has no finite full-rectangle extent.
+        // Give it the complete visible raster demand, rather than falling back to
+        // native1024 exactly when it is largest. Intermediate/source budgets still
+        // limit the result; nothing here can request an unbounded target.
+        if (front < 4) return new Vector2(width, height);
         if (!ProjectPixel(matrix, width, height, bl, out Vector2 p0)
             || !ProjectPixel(matrix, width, height, tl, out Vector2 p1)
             || !ProjectPixel(matrix, width, height, tr, out Vector2 p2)
             || !ProjectPixel(matrix, width, height, br, out Vector2 p3)) return Vector2.zero;
-        return new Vector2(Mathf.Max(Vector2.Distance(p0, p3), Vector2.Distance(p1, p2)),
-            Mathf.Max(Vector2.Distance(p0, p1), Vector2.Distance(p3, p2)));
+        return new Vector2(Mathf.Min(width * 2f, Mathf.Max(Vector2.Distance(p0, p3), Vector2.Distance(p1, p2))),
+            Mathf.Min(height * 2f, Mathf.Max(Vector2.Distance(p0, p1), Vector2.Distance(p3, p2))));
     }
+
+    private static int Front(Matrix4x4 matrix, Vector3 point)
+        => Finite(point) && (matrix * new Vector4(point.x, point.y, point.z, 1f)).w > 1e-5f ? 1 : 0;
 
     private static bool ProjectPixel(Matrix4x4 matrix, float width, float height, Vector3 point, out Vector2 pixel)
     {

@@ -86,6 +86,15 @@ public static partial class MenuDepthProgram
                 File.WriteAllText(Path.Combine(output, "725-capture-workload.txt"), "60 explicit moving ticks; actualUIrenders="
                     + (draws - startDraws) + "; sampledPrepares=" + (sampled.Begins - startSources) + "; elapsedMs=" + watch.Elapsed.TotalMilliseconds + "\n");
 
+                var clip = new GameObject("725 actual native clip", typeof(RectTransform), typeof(RectMask2D));
+                clip.layer = 8; clip.transform.SetParent(scene.Panel, false); clip.GetComponent<RectTransform>().sizeDelta = new Vector2(20, 20);
+                raw.transform.SetParent(clip.transform, false); raw.rectTransform.anchoredPosition = new Vector2(200, 0);
+                Canvas.ForceUpdateCanvases(); int masked = sampled.Begins; scene.Capture();
+                Check(raw.canvasRenderer.cull && sampled.Begins == masked,
+                    "native RectMask2D-clipped sampled content performs no eye-resource work");
+                raw.transform.SetParent(scene.Panel, false); raw.rectTransform.anchoredPosition = Vector2.zero;
+                Object.DestroyImmediate(clip); Canvas.ForceUpdateCanvases();
+
                 scene.Entry.Panel.RenderHidden = true; PanelSupersample.Visibility(scene.Entry);
                 int hiddenDraws = draws, hiddenSources = sampled.Begins; scene.Capture();
                 Check(draws == hiddenDraws && sampled.Begins == hiddenSources && scene.Entry.MenuDepthDisplay == null,
@@ -110,6 +119,55 @@ public static partial class MenuDepthProgram
                     "a right preparation failure draws the completed left and fresh mono fallback while restoring all begun leases");
             }
             finally { Camera.onPreCull -= count; MenuDepthSources.Unregister(sampled); }
+        }
+        Sampling725(output);
+    }
+
+    private static void Sampling725(string output)
+    {
+        var head = new GameObject("725 near-aperture head").AddComponent<Camera>(); head.enabled = false;
+        head.stereoTargetEye = StereoTargetEyeMask.None; head.fieldOfView = 70; head.aspect = 4f / 3f;
+        head.nearClipPlane = .03f; head.farClipPlane = 20; head.cullingMask = 1 << 29;
+        head.clearFlags = CameraClearFlags.SolidColor; head.backgroundColor = Color.black;
+        var target = new RenderTexture(640, 480, 24); target.Create(); head.targetTexture = target;
+        var aperture = GameObject.CreatePrimitive(PrimitiveType.Quad); aperture.layer = 29;
+        var material = new Material(Shader.Find("Unlit/Color")); material.color = Color.white;
+        aperture.GetComponent<MeshRenderer>().sharedMaterial = material;
+        try
+        {
+            foreach (bool near in new[] { true, false })
+            {
+                aperture.transform.SetPositionAndRotation(near ? new Vector3(.1f, 0, .15f) : new Vector3(1.1f, 0, 1f),
+                    Quaternion.Euler(0, near ? 80 : 35, 0));
+                aperture.transform.localScale = new Vector3(1, .5f, 1);
+                Vector3 bl = aperture.transform.TransformPoint(new Vector3(-.5f, -.5f));
+                Vector3 tl = aperture.transform.TransformPoint(new Vector3(-.5f, .5f));
+                Vector3 tr = aperture.transform.TransformPoint(new Vector3(.5f, .5f));
+                Vector3 br = aperture.transform.TransformPoint(new Vector3(.5f, -.5f));
+                Vector2 pixels = MenuDepthProjection.HeadPixels(new MenuDepthEye(false, Vector3.zero, head), bl, tl, tr, br);
+                head.Render();
+                using (TextureOwner raster = new TextureOwner(Read(target, near ? "725-near-clipped" : "725-partly-offscreen")))
+                {
+                    int visible = 0; foreach (Color32 p in raster.Image.GetPixels32()) if (p.r > 230) visible++;
+                    Check(visible > 1000 && pixels.x > 0 && pixels.y > 0 && pixels.x <= target.width * 2 && pixels.y <= target.height * 2,
+                        "a visibly near-clipped angled pane receives bounded visible pixel demand instead of native-size fallback");
+                }
+            }
+            MethodInfo? allocated = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", BindingFlags.Public | BindingFlags.Static);
+            var counter = allocated != null ? (Func<long>)Delegate.CreateDelegate(typeof(Func<long>), allocated) : null;
+            Vector3 p0 = new(-.5f, -.5f, 1), p1 = new(-.5f, .5f, 1), p2 = new(.5f, .5f, 1), p3 = new(.5f, -.5f, 1);
+            var eye = new MenuDepthEye(false, Vector3.zero, head);
+            for (int i = 0; i < 64; i++) MenuDepthProjection.HeadPixels(eye, p0, p1, p2, p3);
+            var watch = new Stopwatch(); long before = counter?.Invoke() ?? 0; float checksum = 0;
+            watch.Start(); for (int i = 0; i < 10000; i++) checksum += MenuDepthProjection.HeadPixels(eye, p0, p1, p2, p3).x; watch.Stop();
+            long bytes = counter != null ? counter() - before : -1;
+            File.WriteAllText(Path.Combine(output, "725-sampling-cost.txt"), "10000 sampled aperture projections; elapsedMs="
+                + watch.Elapsed.TotalMilliseconds + "; threadAllocatedBytes=" + bytes + "; checksum=" + checksum + "\n");
+        }
+        finally
+        {
+            head.targetTexture = null; target.Release(); Object.DestroyImmediate(target); Object.DestroyImmediate(material);
+            Object.DestroyImmediate(aperture); Object.DestroyImmediate(head.gameObject);
         }
     }
 
