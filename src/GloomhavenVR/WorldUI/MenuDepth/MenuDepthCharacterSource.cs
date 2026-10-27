@@ -1,4 +1,8 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Reflection.Emit;
 using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
@@ -11,24 +15,36 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// targets under a strict finally-restored lease. Its Update/animation is never
 /// advanced here, and its native target remains the normal game's mono output.
 /// </summary>
-internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
+internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDisposable
 {
+    private const long MaxPoolBytes = 96L * 1024 * 1024;
+    private static readonly int[] ResolutionTiers = { 256, 512, 768, 1024, 1536, 2048 };
+    private static readonly Dictionary<Character3DDisplayManager, CalibrationCache> Calibrations = new();
+    private static readonly Func<Character3DDisplayManager, object?>? ReadOriginal = CreateOriginalReader();
+    private static long _poolBytes;
     private readonly RawImage _image;
     private readonly Camera _camera;
     private readonly Character3DDisplayManager _manager;
     private readonly Transform _holder;
     private readonly Func<Character3DDisplayManager, bool> _readHidden;
     private readonly RenderTexture _nativeTarget;
+    private readonly CalibrationCache _calibration;
     private RenderTexture? _left, _right, _borrowed;
     private Texture? _restoreTexture;
     private bool _disposed;
     private bool _rendering;
+    private int _width, _height;
+    private long _pairBytes;
+    private float _lastCapture, _lowerSince = -1f;
 
     internal MenuDepthCharacterSource(RawImage image, Camera camera,
         Character3DDisplayManager manager, Transform holder, Func<Character3DDisplayManager, bool> readHidden)
     {
         _image = image; _camera = camera; _manager = manager; _holder = holder; _readHidden = readHidden;
         _nativeTarget = camera.targetTexture;
+        if (!Calibrations.TryGetValue(manager, out CalibrationCache cache))
+            Calibrations.Add(manager, cache = new CalibrationCache(camera, holder));
+        _calibration = cache; cache.References++;
     }
 
     public Graphic Graphic => _image;
@@ -38,16 +54,21 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
     public bool IsReady => BindingAlive && _image.isActiveAndEnabled && _image.gameObject.activeInHierarchy
         && _camera.isActiveAndEnabled && _manager.isActiveAndEnabled
         && _holder.gameObject.activeInHierarchy && _nativeTarget.IsCreated()
+        && (ReadOriginal == null || ReadOriginal(_manager) != null)
         && !_readHidden(_manager);
 
     public void BeforeCapture(MenuDepthEye eye)
     {
         AfterCapture();
         if (!IsReady || _rendering) throw new InvalidOperationException("Original character preview is not ready for this capture.");
+        if (!_calibration.TryGet(ReadOriginal?.Invoke(_manager) ?? _holder, out Bounds modelBounds))
+            throw new InvalidOperationException("Original character has no authored mesh envelope.");
         if (!MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
-            _image.uvRect, eye.WorldPosition, out MenuDepthCharacterProjection.View view))
+            _image.uvRect, eye.WorldPosition, modelBounds, out MenuDepthCharacterProjection.View view))
             throw new InvalidOperationException("Original character preview has no valid front-facing portal.");
+        SelectResolution(eye.PixelFootprint);
         RenderTexture target = EnsureTarget(eye.Right);
+        _lastCapture = Time.unscaledTime;
         Texture original = _image.texture;
         RenderOriginal(target, view);
         // A native render callback may replace a pooled preview. Do not overwrite
@@ -75,7 +96,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
     private RenderTexture EnsureTarget(bool right)
     {
         RenderTexture? target = right ? _right : _left;
-        if (target != null && (!target.IsCreated() || target.width != _nativeTarget.width || target.height != _nativeTarget.height
+        if (target != null && (!target.IsCreated() || target.width != _width || target.height != _height
             || target.graphicsFormat != _nativeTarget.graphicsFormat || target.antiAliasing != _nativeTarget.antiAliasing))
         {
             Release(target);
@@ -85,6 +106,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
         if (target == null)
         {
             RenderTextureDescriptor descriptor = _nativeTarget.descriptor;
+            descriptor.width = _width; descriptor.height = _height;
             descriptor.vrUsage = VRTextureUsage.None;
             descriptor.volumeDepth = 1;
             descriptor.dimension = UnityEngine.Rendering.TextureDimension.Tex2D;
@@ -101,6 +123,59 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
             if (right) _right = target; else _left = target;
         }
         return target;
+    }
+
+    private void SelectResolution(Vector2 footprint)
+    {
+        float longest = Mathf.Max(_nativeTarget.width, _nativeTarget.height);
+        float scale = footprint.x > 0f && footprint.y > 0f
+            ? Mathf.Max(footprint.x / (Mathf.Abs(_image.uvRect.width) * _nativeTarget.width),
+                footprint.y / (Mathf.Abs(_image.uvRect.height) * _nativeTarget.height)) : 1f;
+        float wanted = Mathf.Clamp(longest * scale, ResolutionTiers[0], ResolutionTiers[ResolutionTiers.Length - 1]);
+        int current = Mathf.Max(_width, _height);
+        // Hold a lower demand for1.5s before shrinking. Head jitter at a tier
+        // boundary cannot repeatedly allocate/release native GPU resources.
+        if (current > 0 && wanted < current * .55f)
+        {
+            if (_lowerSince < 0f) _lowerSince = Time.unscaledTime;
+            if (Time.unscaledTime - _lowerSince < 1.5f) return;
+        }
+        else
+        {
+            _lowerSince = -1f;
+            if (current > 0 && wanted <= current * 1.12f) return;
+        }
+        long available = MaxPoolBytes - _poolBytes + _pairBytes;
+        int selected = 0, width = 0, height = 0; long bytes = 0;
+        for (int i = 0; i < ResolutionTiers.Length; i++)
+        {
+            int edge = ResolutionTiers[i];
+            int w = Mathf.Max(16, Mathf.RoundToInt(_nativeTarget.width * edge / longest));
+            int h = Mathf.Max(16, Mathf.RoundToInt(_nativeTarget.height * edge / longest));
+            long cost = PairCost(w, h);
+            if (cost > available) break;
+            selected = edge; width = w; height = h; bytes = cost;
+            if (edge >= wanted) break;
+        }
+        if (selected == 0) throw new InvalidOperationException("Character eye pool is fully reserved.");
+        if (width == _width && height == _height) return;
+        ReleaseTargets();
+        _width = width; _height = height; _pairBytes = bytes; _poolBytes += bytes;
+        _lowerSince = -1f;
+    }
+
+    private long PairCost(int width, int height)
+    {
+        long color = Math.Max(4L, (long)UnityEngine.Experimental.Rendering.GraphicsFormatUtility.GetBlockSize(_nativeTarget.graphicsFormat));
+        long depth = _nativeTarget.depth > 0 ? 4L : 0L;
+        long bytes = width * (long)height * (color + depth) * Math.Max(1, _nativeTarget.antiAliasing) * 2;
+        return _nativeTarget.useMipMap ? bytes * 4 / 3 : bytes;
+    }
+
+    // Called by the bounded known-consumer maintenance loop, never a scene scan.
+    internal void MaintainResources(float now)
+    {
+        if (!_rendering && _borrowed == null && _pairBytes > 0 && now - _lastCapture > 2f) ReleaseTargets();
     }
 
     private void RenderOriginal(RenderTexture target, MenuDepthCharacterProjection.View view)
@@ -169,6 +244,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
         if (_disposed) return;
         AfterCapture();
         _disposed = true;
+        if (--_calibration.References == 0) Calibrations.Remove(_manager);
         if (!_rendering) ReleaseTargets();
     }
 
@@ -176,6 +252,66 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
     {
         Release(_left); Release(_right);
         _left = _right = null;
+        _poolBytes -= _pairBytes; _pairBytes = 0; _width = _height = 0;
+    }
+
+    private static Func<Character3DDisplayManager, object?>? CreateOriginalReader()
+    {
+        FieldInfo? field = typeof(Character3DDisplayManager).GetField("character3D", BindingFlags.Instance | BindingFlags.NonPublic);
+        if (field == null || field.FieldType.IsValueType) return null;
+        var method = new DynamicMethod("GloomhavenVR_MenuDepth_ReadOriginalCharacter", typeof(object),
+            new[] { typeof(Character3DDisplayManager) }, typeof(MenuDepthCharacterSource), true);
+        ILGenerator il = method.GetILGenerator(); il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, field); il.Emit(OpCodes.Ret);
+        return (Func<Character3DDisplayManager, object?>)method.CreateDelegate(typeof(Func<Character3DDisplayManager, object?>));
+    }
+
+    private sealed class CalibrationCache
+    {
+        internal int References;
+        private readonly Camera _camera;
+        private readonly Transform _holder;
+        private readonly Dictionary<object, Bounds> _bounds = new();
+        internal CalibrationCache(Camera camera, Transform holder) { _camera = camera; _holder = holder; }
+        internal bool TryGet(object original, out Bounds result)
+        {
+            if (_bounds.TryGetValue(original, out result)) return true;
+            bool any = false; result = default;
+            if (ReferenceEquals(original, _holder)) Collect(_holder, ref any, ref result); // explicit fixture/unknown-runtime fallback
+            else
+            {
+                FieldInfo? models = original.GetType().GetField("models", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (models?.GetValue(original) is IEnumerable list)
+                    foreach (object member in list)
+                    {
+                        Component? actor = member.GetType().GetProperty("CharacterManager")?.GetValue(member, null) as Component;
+                        if (actor != null) Collect(actor.transform, ref any, ref result);
+                    }
+            }
+            if (!any || result.size.x <= 1e-4f || result.size.y <= 1e-4f) return false;
+            if (_bounds.Count >= 32) _bounds.Clear();
+            _bounds.Add(original, result); return true;
+        }
+        private void Collect(Transform root, ref bool any, ref Bounds result)
+        {
+            // Authored local envelopes remain stable across animation. World
+            // Renderer.bounds and per-frame hierarchy walks are deliberately absent.
+            foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (!renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
+                Bounds local;
+                if (renderer is SkinnedMeshRenderer skinned && skinned.sharedMesh != null) local = skinned.localBounds;
+                else if (renderer is MeshRenderer && renderer.GetComponent<MeshFilter>() is MeshFilter filter && filter.sharedMesh != null) local = filter.sharedMesh.bounds;
+                else continue;
+                Matrix4x4 transform = _camera.transform.worldToLocalMatrix * renderer.localToWorldMatrix;
+                Vector3 lo = local.min, hi = local.max;
+                for (int i = 0; i < 8; i++)
+                {
+                    Vector3 point = transform.MultiplyPoint3x4(new Vector3((i & 1) == 0 ? lo.x : hi.x,
+                        (i & 2) == 0 ? lo.y : hi.y, (i & 4) == 0 ? lo.z : hi.z));
+                    if (!any) { result = new Bounds(point, Vector3.zero); any = true; } else result.Encapsulate(point);
+                }
+            }
+        }
     }
 
     private static void Release(RenderTexture? target)
