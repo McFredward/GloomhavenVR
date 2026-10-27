@@ -1443,7 +1443,14 @@ internal static partial class ModalFallback
             WindowGroupRule rule = WindowGroups[r];
             if (rule.RequiresMapRoom && !MapRoom.MapRoomDriver.Active)
                 continue; // nothing can re-home it here — see WindowGroupRule.RequiresMapRoom
-            if (window.GetComponent(rule.Member) == null)
+            Component? member = window.GetComponent(rule.Member);
+            if (member == null)
+                continue;
+            // The ready toggle is one pooled native window for quests, city events,
+            // loadouts, rewards and retirement. Only its Quests incarnation belongs
+            // to UIQuestPopup. An older visible quest card must not suppress a city
+            // proposal (or any other ready-up) merely because the component matches.
+            if (member is UIReadyToggle ready && ready.readyUpToggleState != EReadyUpToggleStates.Quests)
                 continue;
             for (int i = 0; i < Converted.Count; i++)
             {
