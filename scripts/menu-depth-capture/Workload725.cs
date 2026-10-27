@@ -105,12 +105,21 @@ public static partial class MenuDepthProgram
                 Check(!scene.Entry.Cam.enabled && scene.Entry.MenuDepthDisplay != null, "reopening a spatial window recovers stereo ownership without a stale target");
                 sampled.Ready = false; scene.Source.Ready = false;
                 scene.Image.color = Color.blue;
+                Vector3 monoCenter = scene.Panel.position - scene.Panel.forward*4f;
+                MenuDepthFixture.Left = monoCenter-scene.Panel.right*.032f;
+                MenuDepthFixture.Right = monoCenter+scene.Panel.right*.032f;
                 int empty = draws; scene.Capture();
                 Check(draws == empty + 1 && scene.Entry.MenuDepthDisplay == null,
                     "leaving spatial content refills a suppressed automatic mono capture immediately");
                 using (TextureOwner native = new TextureOwner(Read(scene.Entry.Rt, "725-fresh-mono-fallback")))
                     Check(native.Image.GetPixel(225, 180).b > .7f && native.Image.GetPixel(225, 180).r < .1f,
                         "the mono fallback actually contains newly changed native artwork instead of the previous spatial eye");
+                using (TextureOwner monoHead = scene.Eye(false,"725-restored-mono-head"))
+                {
+                    Color pixel = PhysicalPixel(scene,monoHead.Image,new Vector3(-90,0,0));
+                    Check(pixel.b>.7f && pixel.r<.1f,
+                        "retired spatial presentation returns original mono photograph to final head pixels");
+                }
                 PanelSupersample.Visibility(scene.Entry);
                 Check(scene.Entry.Cam.enabled, "an ordinary window regains its original automatic mono capture policy");
                 sampled.Ready = true; scene.Source.Ready = true; scene.Capture(); PanelSupersample.Visibility(scene.Entry);

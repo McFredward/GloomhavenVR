@@ -70,9 +70,10 @@ def main():
         originals['Frame728.cs'] = (Path(__file__).parent / 'Frame728.cs').read_text()
         legacy_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs'
         legacy = legacy_path.read_text()
-        copied = 'using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n'
+        copied = 'using GloomhavenVR.Core;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n'
         for signature in ('    private static long VramBytesFor(', '    private static long CaptureVramBytesFor(',
-                          '    private static long MipVramBytesFor(', '    private static RenderTexture DisplayTexture('):
+                          '    private static long MipVramBytesFor(', '    private static RenderTexture DisplayTexture(',
+                          '    private static void ResolveAndMip(', '    private static float ApplyMipLodOffset('):
             start = legacy.index(signature)
             if '{' in legacy[start:legacy.index(';', start)]: copied += member(legacy, signature)
             else: copied += legacy[start:legacy.index(';', start) + 1] + '\n'
@@ -87,6 +88,8 @@ def main():
             declarations = re.findall(r'    private const (?:int|float) ' + name + r' = [^;]+;', core)
             assert len(declarations) == 1, name
             copied += declarations[0] + '\n'
+        copied += re.search(r'    private const float MipLodOffsetEpsilon = [^;]+;', legacy).group(0) + '\n'
+        copied += '    private static bool _mipBiasWriteWarned;\n'
         originals['LegacyHelpers.cs'] = copied + '}\n'
         core_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs'
         limits = re.findall(r'    private const long (?:MaxPanelVramBytes|MaxTotalVramBytes) = [^;]+;', core_path.read_text())
@@ -127,8 +130,23 @@ def main():
              'source.Graphic.canvas.rootCanvas != null', 'screen-space consumers with nested canvases are never mistaken for direct world-space previews'),
             ('hidden-source-direct', 'MenuDepthSources.cs', 'graphic.canvasRenderer.GetInheritedAlpha() > 0f',
              'graphic.canvasRenderer.GetInheritedAlpha() >= 0f', 'fully hidden pooled native consumers never borrow the model scene or opt in their window'),
+            ('mono-resolve-lost', 'LegacyHelpers.cs',
+             'Graphics.Blit(e.Rt, e.MipRt);', '/* injected: native mono display retains stale artwork */',
+             'retired spatial presentation returns original mono photograph to final head pixels'),
+            ('photo-canvas-restore-lost', 'MenuDepthHeadCarrier.cs',
+             'if (_photoCanvas != null && !_photoCanvas.enabled) _photoCanvas.enabled = _canvasEnabled;',
+             '/* injected: original photo Canvas remains retired */',
+             'retired spatial presentation returns original mono photograph to final head pixels'),
+            ('photo-canvas-foreign-enable-lost', 'MenuDepthHeadCarrier.cs',
+             'if (_photoCanvas != null && !_photoCanvas.enabled) _photoCanvas.enabled = _canvasEnabled;',
+             'if (_photoCanvas != null) _photoCanvas.enabled = _canvasEnabled;',
+             'a foreign later photo Canvas enable survives head presentation disposal'),
+            ('head-sorting-frozen', 'MenuDepthHeadCarrier.cs',
+             'if (_renderer.sortingOrder != order) _renderer.sortingOrder = order;',
+             '/* injected: presentation retains its first native order */',
+             'head carrier follows the original live photo order above an independent native surface'),
             ('original-photo-ghost', 'MenuDepthHeadCarrier.cs',
-             '_original.enabled = false;', '/* injected: original photograph remains visible to a rebuilt Canvas batch */',
+             'if (_photoCanvas != null) _photoCanvas.enabled = false;', '/* injected: original photograph remains visible to a rebuilt Canvas batch */',
              'private mono photograph cannot add ink outside the current head raster'),
             ('cached-head-carrier-lost', 'PanelDepth.cs',
              'e.MenuDepthDisplay?.PrepareHead(head);', '/* injected: cached head carrier stays absent during culling */',

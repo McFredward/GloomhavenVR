@@ -49,6 +49,7 @@ namespace GloomhavenVR.WorldUI
             internal long MenuDepthBytes;
             internal int MenuDepthFrame = -1, MenuDepthFailures;
             internal int NextCaptureFrame, CameraOffWhileVisible, RawQuadFrames;
+            internal int ResolveSizeMismatch, MipCount, MotionResolves, StillResolves;
             internal bool MipFallback = false;
             internal float MinContentScale = 1f, AskedFactor;
         }
@@ -94,6 +95,9 @@ namespace GloomhavenVR.WorldUI
             CaptureMenuDepth(head);
         }
         internal static void Synchronize(Entry entry) => SyncProjection(entry);
+        internal static void ResolveMono(Entry entry) => ResolveAndMip(entry);
+        private static float AskedMipLodOffset() => 0f; // Explicit original sampler preference input.
+        private static bool IsMoving(Entry entry) => false; // Diagnostic counter input; camera geometry is exercised independently.
         // Explicit editor tick boundary; native frame scheduling is not emulated
         // by a replacement renderer. Actual enabled cameras execute Camera.Render.
         internal static void Visibility(Entry entry) { entry.NextCaptureFrame = Time.frameCount; SyncVisibility(entry); }

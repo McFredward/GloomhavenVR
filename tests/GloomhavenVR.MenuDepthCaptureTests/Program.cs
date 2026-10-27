@@ -97,6 +97,8 @@ public static partial class MenuDepthProgram
         MaskedContent();
         MixedCaptureOrder();
         DirectAndNested();
+        PhotoCanvasLifecycle();
+        HeadSorting();
         Check(PanelSupersample.ExtraBytes == 0, "all owned eye resources are released after window teardown");
         return _checks;
     }
@@ -321,6 +323,59 @@ public static partial class MenuDepthProgram
         internal CameraOwner() { Camera = new GameObject("independent physical landmark camera").AddComponent<Camera>(); Camera.enabled=false; }
         public void Dispose() => Object.DestroyImmediate(Camera.gameObject);
     }
+    private static void PhotoCanvasLifecycle()
+    {
+        for(int variant=0;variant<3;variant++)
+        using(var scene=new Scene())
+        {
+            Canvas photo=scene.Entry.DisplayGo.GetComponent<Canvas>(), native=scene.Panel.GetComponent<Canvas>();
+            bool original=variant==0, foreign=variant==2;
+            photo.enabled=original;
+            int layer=scene.Entry.DisplayGo.layer;
+            Vector3 position=scene.Panel.position, scale=scene.Panel.localScale;
+            scene.Capture();
+            Check(scene.Entry.MenuDepthDisplay!=null && scene.Entry.MenuDepthDisplay.HasHeadPresentation
+                && !photo.enabled && native.enabled && scene.Entry.DisplayImage.enabled
+                && scene.Entry.DisplayGo.layer==layer && scene.Panel.position==position && scene.Panel.localScale==scale,
+                "head presentation retires only its private photo Canvas and preserves native widgets geometry and layers");
+            if(foreign) photo.enabled=true;
+            scene.Source.Ready=false;scene.Capture();
+            Check(photo.enabled==(original||foreign) && scene.Entry.DisplayImage.enabled && native.enabled,
+                foreign ? "a foreign later photo Canvas enable survives head presentation disposal"
+                    : "head presentation disposal restores the exact original photo Canvas enabled state");
+            Check(scene.Entry.MenuDepthDisplay==null && PanelSupersample.ExtraBytes==0,
+                "retiring head presentation releases its pair before returning to ordinary mono ownership");
+            if(original||foreign)
+            using(TextureOwner mono=scene.Eye(false,"restored-photo-head-"+variant))
+                Check(PhysicalPixel(scene,mono.Image,new Vector3(-40,0,0)).r>.7f,
+                    "restored photo Canvas submits original mono artwork to actual final head pixels");
+        }
+    }
+    private static void HeadSorting()
+    {
+        using(var scene=new Scene())
+        {
+            scene.Capture();
+            var overlay=GameObject.CreatePrimitive(PrimitiveType.Quad);overlay.name="independent native order witness";overlay.layer=27;
+            overlay.transform.position=scene.Panel.TransformPoint(new Vector3(-40,0,0));overlay.transform.localScale=Vector3.one*.3f;
+            var texture=new Texture2D(1,1,TextureFormat.RGBA32,false);texture.SetPixel(0,0,Color.blue);texture.Apply();
+            var material=new Material(Shader.Find("Unlit/Transparent"));material.mainTexture=texture;
+            MeshRenderer renderer=overlay.GetComponent<MeshRenderer>();renderer.sharedMaterial=material;renderer.sortingOrder=10;
+            Canvas photo=scene.Entry.DisplayGo.GetComponent<Canvas>();
+            try
+            {
+                photo.sortingOrder=19;
+                using(TextureOwner front=scene.Eye(false,"head-order-front"))
+                    Check(PhysicalPixel(scene,front.Image,new Vector3(-40,0,0)).r>.7f,
+                        "head carrier follows the original live photo order above an independent native surface");
+                photo.sortingOrder=0;
+                using(TextureOwner rear=scene.Eye(false,"head-order-rear"))
+                    Check(PhysicalPixel(scene,rear.Image,new Vector3(-40,0,0)).b>.7f,
+                        "head carrier follows a later native order change below the same independent surface");
+            }
+            finally { Object.DestroyImmediate(overlay);Object.DestroyImmediate(material);Object.DestroyImmediate(texture); }
+        }
+    }
     private static int Difference(Texture2D left, Texture2D right, RectInt rect)
     {
         int count = 0;
@@ -436,8 +491,13 @@ public static partial class MenuDepthProgram
                 Frame = Panel.rect, RtW = rt.width, RtH = rt.height, VramBytes = (long)rt.width * rt.height * 40 / 3 };
             PanelSupersample.Add(Entry); PanelSupersample.Synchronize(Entry);
             MenuDepthSources.BeforeHeadCapture += PanelSupersample.CaptureAgain;
-            Canvas.ForceUpdateCanvases(); capture.Render(); Graphics.Blit(rt, mip); mip.GenerateMips();
+            Camera.onPostRender += ResolveMono;
+            Canvas.ForceUpdateCanvases(); capture.Render();
             OriginalView = capture.worldToCameraMatrix; OriginalProjection = capture.projectionMatrix;
+        }
+        private void ResolveMono(Camera camera)
+        {
+            if(camera==Entry.Cam && !MenuDepthDisplay.IsCapturing(camera)) PanelSupersample.ResolveMono(Entry);
         }
         internal void Capture()
         {
@@ -484,6 +544,7 @@ public static partial class MenuDepthProgram
         }
         public void Dispose()
         {
+            Camera.onPostRender -= ResolveMono;
             MenuDepthSources.BeforeHeadCapture -= PanelSupersample.CaptureAgain;
             MenuDepthSources.Unregister(Source); PanelSupersample.Clear(); VRRigDriver.HeadCamera = null;
             // Deliberate release mutants are cleaned only after the real assertion.
