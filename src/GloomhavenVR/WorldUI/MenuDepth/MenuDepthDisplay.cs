@@ -40,6 +40,7 @@ internal sealed class MenuDepthDisplay : IDisposable
     private Camera? _headCamera;
     internal long HeadBytes { get; private set; }
     internal bool IsHeadRaster => _rightCapture == null;
+    internal bool HasHeadPresentation => !_disposed && _headCarrier != null && _headCarrier.HasHeadPresentation;
     private readonly RenderTexture? _rightMip;
     private bool _disposed;
     private bool _rendering;

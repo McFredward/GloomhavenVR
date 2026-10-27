@@ -12,15 +12,26 @@ internal sealed class MenuDepthHeadCarrier : IDisposable
     private readonly RawImage? _original;
     private readonly Renderer? _originalRenderer;
     private readonly Transform _transform;
+    private readonly Canvas? _photoCanvas;
+    private readonly bool _canvasEnabled;
+    private bool _disposed;
     private readonly GameObject _owner;
     private readonly Mesh _mesh;
     private readonly MeshRenderer _renderer;
-    private bool _hidden, _wasCulled, _originalEnabled;
+    private bool _hidden, _rendererEnabled;
     internal MenuDepthHeadCarrier(RawImage original, Material material) : this(original.transform, material, original) { }
     internal MenuDepthHeadCarrier(Transform original, Material material) : this(original, material, null) { }
     private MenuDepthHeadCarrier(Transform original, Material material, RawImage? image)
     {
         _original = image; _transform = original;
+        if (image != null)
+        {
+            // BuildDisplay owns this exact same-object, one-photograph Canvas.
+            // Never walk to an original game HostCanvas or alter its widgets.
+            _photoCanvas = image.GetComponent<Canvas>()
+                ?? throw new InvalidOperationException("The mod-owned photograph requires its own Canvas.");
+            _canvasEnabled = _photoCanvas.enabled;
+        }
         _originalRenderer = image == null ? original.GetComponent<Renderer>() : null;
         _owner = new GameObject("GloomhavenVR.MenuDepth.HeadRaster", typeof(MeshFilter), typeof(MeshRenderer));
         _owner.hideFlags = HideFlags.HideAndDontSave;
@@ -33,34 +44,26 @@ internal sealed class MenuDepthHeadCarrier : IDisposable
         _mesh.triangles = new[] { 0,1,2,0,2,3 };
         _owner.GetComponent<MeshFilter>().sharedMesh = _mesh;
         _renderer = _owner.GetComponent<MeshRenderer>(); _renderer.sharedMaterial = material;
-        if (image != null && image.canvas != null)
-        { _renderer.sortingLayerID = image.canvas.sortingLayerID; _renderer.sortingOrder = image.canvas.sortingOrder; }
-        else if (_originalRenderer != null)
-        { _renderer.sortingLayerID = _originalRenderer.sortingLayerID; _renderer.sortingOrder = _originalRenderer.sortingOrder; }
+        RefreshOrder();
         _renderer.enabled = false;
+        // A world-space Canvas can submit its cached mono batch after a head
+        // post-render callback. Per-eye cull/alpha/component/layer leases all
+        // reproduced the extra mono-shaped ink. Retire only this private proxy
+        // Canvas for the head presentation's lifetime; dispose restores it.
+        if (_photoCanvas != null) _photoCanvas.enabled = false;
     }
     internal void Draw(Camera head)
     {
-        if (_transform == null || !_transform.gameObject.activeInHierarchy
-            || (_original != null && !_original.isActiveAndEnabled && !_hidden)) return;
+        if (_disposed || _transform == null || !_transform.gameObject.activeInHierarchy || (_original != null && !_original.isActiveAndEnabled)) return;
+        RefreshOrder();
         float scale = Mathf.Max(1e-8f, Mathf.Min(_owner.transform.lossyScale.x,
             Mathf.Min(_owner.transform.lossyScale.y, _owner.transform.lossyScale.z)));
         _mesh.bounds = new Bounds(_owner.transform.InverseTransformPoint(head.transform.position),
             Vector3.one * (head.farClipPlane * 4f / scale));
         if (!_hidden)
         {
-            _wasCulled = _original != null ? _original.canvasRenderer.cull : _originalRenderer != null && !_originalRenderer.enabled;
-            _originalEnabled = _original != null && _original.enabled;
+            _rendererEnabled = _originalRenderer != null && _originalRenderer.enabled;
             _hidden = true;
-        }
-        if (_original != null)
-        {
-            // Unity may submit a previously batched photograph even after late
-            // cull/renderer-alpha writes. Disable only this mod-owned RawImage:
-            // Graphic.OnDisable clears its cached CanvasRenderer submission.
-            // The original game Canvas, widgets, input and this child carrier
-            // remain active. EndDraw restores the exact component state.
-            _original.enabled = false;
         }
         if (_originalRenderer != null) _originalRenderer.enabled = false;
         _renderer.enabled = true;
@@ -68,14 +71,24 @@ internal sealed class MenuDepthHeadCarrier : IDisposable
     internal void EndDraw()
     {
         if (_renderer != null) _renderer.enabled = false;
-        if (_hidden && _original != null)
-        {
-            _original.enabled = _originalEnabled;
-            _original.canvasRenderer.cull = _wasCulled;
-        }
-        if (_hidden && _originalRenderer != null) _originalRenderer.enabled = !_wasCulled;
+        if (_hidden && _originalRenderer != null) _originalRenderer.enabled = _rendererEnabled;
         _hidden = false;
     }
+    internal bool HasHeadPresentation => !_disposed && _photoCanvas != null && !_photoCanvas.enabled
+        && _transform != null && _transform.gameObject.activeInHierarchy;
+    private void RefreshOrder()
+    {
+        int layer = _photoCanvas != null ? _photoCanvas.sortingLayerID : _originalRenderer != null ? _originalRenderer.sortingLayerID : _renderer.sortingLayerID;
+        int order = _photoCanvas != null ? _photoCanvas.sortingOrder : _originalRenderer != null ? _originalRenderer.sortingOrder : _renderer.sortingOrder;
+        if (_renderer.sortingLayerID != layer) _renderer.sortingLayerID = layer;
+        if (_renderer.sortingOrder != order) _renderer.sortingOrder = order;
+    }
     public void Dispose()
-    { EndDraw(); UnityEngine.Object.Destroy(_owner); UnityEngine.Object.Destroy(_mesh); }
+    {
+        if (_disposed) return;
+        EndDraw(); _disposed = true;
+        // A foreign later enable is authoritative; only undo our own false.
+        if (_photoCanvas != null && !_photoCanvas.enabled) _photoCanvas.enabled = _canvasEnabled;
+        UnityEngine.Object.Destroy(_owner); UnityEngine.Object.Destroy(_mesh);
+    }
 }
