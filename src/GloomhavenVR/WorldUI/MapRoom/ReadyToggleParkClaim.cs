@@ -55,13 +55,16 @@ internal static class ReadyToggleParkClaim
     private static float _claimedUntil;
     private static string _why = "never claimed";
     private static GameObject? _claimedObject;
+    private static UIReadyToggle? _claimedToggle;
+    private static EReadyUpToggleStates _claimedPhase;
 
     /// <summary>
     /// Is the ready toggle being presented somewhere else right now? False whenever the claim has
     /// not been re-asserted inside <see cref="ClaimLifetimeSeconds"/> — see the class doc for why
     /// the lapse is the safe direction.
     /// </summary>
-    internal static bool Claimed => _claimedObject != null && Time.unscaledTime < _claimedUntil;
+    internal static bool Claimed => _claimedObject != null && Time.unscaledTime < _claimedUntil
+        && _claimedToggle != null && _claimedToggle.readyUpToggleState == _claimedPhase;
 
     /// <summary>The parker's own words for what it did, for the log line the reader prints when it
     /// refuses a float. Never empty.</summary>
@@ -84,13 +87,26 @@ internal static class ReadyToggleParkClaim
         {
             _claimedUntil = 0f;
             _claimedObject = null;
+            _claimedToggle = null;
             _why = string.IsNullOrEmpty(why) ? "the parker dropped its claim" : why;
             return;
         }
 
         _claimedObject = target;
+        // One native object serves quests, city events and loadout in succession. An
+        // exact object match alone is insufficient: the previous parker's lease must
+        // stop immediately when Initialize changes its role, even before its next tick.
+        _claimedToggle = target.GetComponent<UIReadyToggle>();
+        _claimedPhase = _claimedToggle != null ? _claimedToggle.readyUpToggleState : EReadyUpToggleStates.NotSet;
         _claimedUntil = Time.unscaledTime + ClaimLifetimeSeconds;
         _why = string.IsNullOrEmpty(why) ? "parked by MapTravelConfirm" : why;
+    }
+
+    /// <summary>A retiring parker may release its own phase, never its successor's lease.</summary>
+    internal static void Drop(EReadyUpToggleStates phase, string why)
+    {
+        if (_claimedToggle != null && _claimedPhase == phase)
+            Set(null, why);
     }
 
     /// <summary>Forget everything — the room stood down, so no claim can be in force.</summary>
@@ -98,6 +114,7 @@ internal static class ReadyToggleParkClaim
     {
         _claimedUntil = 0f;
         _claimedObject = null;
+        _claimedToggle = null;
         _why = "the map room stood down";
     }
 }

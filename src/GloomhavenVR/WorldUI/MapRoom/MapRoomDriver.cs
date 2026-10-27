@@ -258,6 +258,7 @@ internal static class MapRoomDriver
     /// </summary>
     internal static void TickPredicate()
     {
+        MapCityEventReadyUp.Tick();
         // THE SWITCH INVERTED AND WAS RENAMED AT ModBuild 230 (user ruling: the 3D map room is the
         // default presentation, and the dial names the OPT-OUT — see Plugin.Vanilla2DMap's doc).
         // The SHAPE of this guard is deliberately unchanged: a NULL entry still stands the room
@@ -699,6 +700,9 @@ internal static class MapRoomDriver
     {
         if (!Active)
             return;
+        // Native city proposals initialize the pooled toggle hidden on clients. Reveal
+        // that exact public offer before quest parking/catch-all evaluate its ownership.
+        MapCityEventReadyUp.Tick();
         bool have = Parchment.Ensure(_choreo);
         using (PerfMonitor.Scope("MapRoom.Icons"))
             Icons.Tick(have ? head : null, Parchment.Renderer, _choreo);
@@ -715,6 +719,14 @@ internal static class MapRoomDriver
         // live in the flat map HUD, which this room does not draw, so without this they exist and
         // cannot be reached. Level-triggered; see MapTravelConfirm.
         MapTravelConfirm.Reconcile(ModalFallback.FloatedQuestConfirmationWindow());
+        // Adopt the original participant markers before the city's first conversion.
+        // Its native window is also the confirm root; the roster's city measurement
+        // excludes its own subtree so the row cannot push itself higher every frame.
+        UnityEngine.UI.UIWindow? cityReady = MapCityEventReadyUp.Window;
+        bool cityReadyVisible = cityReady != null && cityReady.IsOpen;
+        MapQuestReadyRoster.Tick(ReadyRosterSite.CityEvent,
+            cityReadyVisible ? cityReady : null,
+            cityReadyVisible ? cityReady!.gameObject : null, confirmPosed: true);
         // "No character selected" is not a state on the map either (user ruling 2026-08-15, "Auch in
         // der Map soll gelten…"). Level-triggered and self-cadenced — two float compares on all but
         // every fourth frame — and entirely self-guarding, so it never throws into this call. It must

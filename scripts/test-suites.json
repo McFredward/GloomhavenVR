@@ -547,6 +547,66 @@
       "weight": 45
     },
     {
+      "id": "city-ready",
+      "command": [
+        "bash",
+        "scripts/city-ready-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "ready-phase-owner",
+      "command": [
+        "bash",
+        "scripts/ready-phase-owner-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "shared-city-identity",
+      "command": [
+        "bash",
+        "scripts/shared-city-identity-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "city-ready-roster",
+      "command": [
+        "bash",
+        "scripts/city-ready-roster-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "city-preconvert",
+      "command": [
+        "bash",
+        "scripts/city-preconvert-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 30
+    },
+    {
       "id": "quest-window",
       "command": [
         "bash",

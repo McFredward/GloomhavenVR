@@ -174,6 +174,20 @@ internal static class Program
         Check(!ReadyToggleParkClaim.Claimed,"room reset relinquishes presentation claims immediately");
         MapQuestReadyUp.TickClaim(current,true,current,window,true,false); current.Destroyed=true;
         Check(!ReadyToggleParkClaim.Claimed,"destroyed native target immediately relinquishes its claim");
+        state=Setup(); current=state.Toggle.window.gameObject;
+        ReadyToggleParkClaim.Set(current,"quest owns original");
+        state.Toggle.readyUpToggleState=EReadyUpToggleStates.CityEvents;
+        Check(!ReadyToggleParkClaim.Claimed,"pooled city offer immediately invalidates the prior quest lease");
+        state.Toggle.readyUpToggleState=EReadyUpToggleStates.NotSet;
+        ReadyToggleParkClaim.Set(current,"new loadout owner");
+        ReadyToggleParkClaim.Drop(EReadyUpToggleStates.Quests,"old quest parker stands down");
+        Check(ReadyToggleParkClaim.Claimed,"old quest teardown cannot revoke the successor loadout claim");
+        ReadyToggleParkClaim.Drop(EReadyUpToggleStates.NotSet,"loadout stands down");
+        Check(!ReadyToggleParkClaim.Claimed,"current loadout teardown releases its own claim");
+        state.Toggle.readyUpToggleState=EReadyUpToggleStates.Quests;
+        ReadyToggleParkClaim.Set(current,"new quest owner");
+        ReadyToggleParkClaim.Drop(EReadyUpToggleStates.NotSet,"old loadout parker stands down");
+        Check(ReadyToggleParkClaim.Claimed,"old loadout teardown cannot revoke the successor quest claim");
         System.Console.WriteLine($"Map quest readiness: {_assertions} assertions; {layouts} host/VR membership layouts; full production dispatcher and native visibility/Initialize/ReadyUp/presenter bodies passed.");
     }
 }

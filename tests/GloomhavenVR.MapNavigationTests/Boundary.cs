@@ -126,6 +126,8 @@ namespace GloomhavenVR.Hands.Interact
 }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
+    // Native map-mask navigation boundary; city ownership has its own runtime suite.
+    internal static class MapCityEventReadyUp { internal static bool BlocksQuestBrowsing => false; }
     internal sealed class MapLocationPoke : UnityEngine.Object { }
     internal sealed class MapIconHoverPads
     {

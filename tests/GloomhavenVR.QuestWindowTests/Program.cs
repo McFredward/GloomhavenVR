@@ -50,6 +50,7 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
+    internal static class MapCityEventReadyUp { internal static UnityEngine.UI.UIWindow? Window => null; }
     internal static class MapRoomDriver { internal static bool Active { get; set; } = true; }
     internal static class NativeMapQuestSelection
     {

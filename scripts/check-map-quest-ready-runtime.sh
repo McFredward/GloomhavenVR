@@ -44,17 +44,23 @@ project="$repo_root/tests/map-quest-ready-runtime/Ready.csproj"
 dotnet run --project "$project" --configuration Release --property:FixtureDir="$repo_root/tests/map-quest-ready-runtime" \
     --property:ProductionDir="$fixture_dir" --property:NativeSource="$fixture_dir/Native.cs"
 cp "$fixture_dir/MapQuestReadyUp.cs" "$fixture_dir/Original.cs"
-for mutation in visible-shortcut reset-discard wrong-controller desktop-cleanup stale-claim flat-replay destroyed-claim; do
+cp "$fixture_dir/ReadyToggleParkClaim.cs" "$fixture_dir/OriginalClaim.txt"
+for mutation in visible-shortcut reset-discard wrong-controller desktop-cleanup stale-claim flat-replay destroyed-claim phase-claim successor-claim; do
     python3 - "$fixture_dir" "$mutation" <<'PY'
 from pathlib import Path
 import sys
 folder=Path(sys.argv[1]); source=(folder/'Original.cs').read_text()
-if sys.argv[2]=='destroyed-claim':
+(folder/'ReadyToggleParkClaim.cs').write_bytes((folder/'OriginalClaim.txt').read_bytes())
+if sys.argv[2] in ('destroyed-claim','phase-claim','successor-claim'):
     (folder/'MapQuestReadyUp.cs').write_text(source)
     path=folder/'ReadyToggleParkClaim.cs'; original=path.read_text()
-    needle='_claimedObject != null && Time.unscaledTime < _claimedUntil'
+    needle,replacement={
+        'destroyed-claim': ('_claimedObject != null && Time.unscaledTime < _claimedUntil','Time.unscaledTime < _claimedUntil'),
+        'phase-claim': ('&& _claimedToggle.readyUpToggleState == _claimedPhase',''),
+        'successor-claim': ('&& _claimedPhase == phase',''),
+    }[sys.argv[2]]
     assert original.count(needle)==1
-    path.write_text(original.replace(needle,'Time.unscaledTime < _claimedUntil'))
+    path.write_text(original.replace(needle,replacement))
     raise SystemExit(0)
 changes={
  'visible-shortcut': ('        if (!Singleton<UIReadyToggle>.IsInitialized)\n            return;\n        UIReadyToggle? toggle',
@@ -85,6 +91,8 @@ PY
         stale-claim) expected='stale parked singleton cannot claim the current confirm' ;;
         flat-replay) expected='native 2D prompt already answered must not replay on room entry' ;;
         destroyed-claim) expected='destroyed native target immediately relinquishes its claim' ;;
+        phase-claim) expected='pooled city offer immediately invalidates the prior quest lease' ;;
+        successor-claim) expected='old quest teardown cannot revoke the successor loadout claim' ;;
     esac
     if ! rg -Fq "System.InvalidOperationException: $expected" "$fixture_dir/$mutation.log"; then
         cat "$fixture_dir/$mutation.log"; echo "FAIL: negative control failed outside its causal assertion." >&2; exit 1

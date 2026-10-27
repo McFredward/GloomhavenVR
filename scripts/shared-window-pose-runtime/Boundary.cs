@@ -65,11 +65,11 @@ namespace UnityEngine
     }
 }
 namespace FFSNet { internal static class FixtureNamespace { } }
-namespace UnityEngine.UI { internal sealed class UIWindow { internal string name="native window"; } }
+namespace UnityEngine.UI { internal class UIWindow { internal string name="native window"; } }
 internal sealed class DialogLineDTO { internal string text="page-key", character="hero-guid"; }
 internal sealed class UICharacterStoryBox { internal List<DialogLineDTO>? dialogs=new() { new() }; internal int currentDialogIndex=0; }
 internal sealed class UIQuestPopup { internal uint Key = 303; }
-internal sealed class UIEventPanel { internal uint Key = 404; }
+internal sealed class UIEventPanel : UnityEngine.UI.UIWindow { internal uint Key = 404; }
 namespace GloomhavenVR.Core
 {
     internal static class VRLog { internal static void Info(string area,string message) { } }
@@ -251,9 +251,9 @@ namespace GloomhavenVR.Net
         internal static UIEventPanel? CurrentEvent=new();
         private static UICharacterStoryBox? MapBox()=>CurrentBox;
         private static UIQuestPopup? QuestPopup()=>CurrentQuest;
-        private static UIEventPanel? EventPanel()=>CurrentEvent;
+        private static UnityEngine.UI.UIWindow? EventPanel()=>CurrentEvent;
         private static uint QuestKey(UIQuestPopup popup)=>popup.Key;
-        private static uint EncounterKey(UIEventPanel panel)=>panel.Key;
+        private static uint EncounterKey(UnityEngine.UI.UIWindow panel)=>((UIEventPanel)panel).Key;
         private static void Note(string reason) { }
         private static void WarnIfOutOfCone(SharedWindowKind kind,int peer,Vector3 pos) { }
         private static void ObserveReflow(int sender,in PresenceState p) { }

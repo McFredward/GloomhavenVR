@@ -629,9 +629,37 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 732;
+    public const ushort ModBuild = 734;
 
-    // ModBuild732 — stable whole-window detail, readable character hints and preview rotation.
+    // ModBuild734 — complete menu-quality delivery after shared city readiness733.
+    // Finish the unpublished732 menu checkpoint on the current integration branch.
+    // Fixed actual-head rasters preserve complete native UI/character detail during
+    // movement, with persistent private-photo retirement and both-eye preparation.
+    // Preserve the original window frame while exact native character hints occupy
+    // their approved right-hand lane, independently of character-depth readiness.
+    // Raised card backgrounds carry real sprite alpha/depth; native GUI effects
+    // retain original programs with scoped depth state and the original alpha clip.
+    // Laser dragging turns only preview presentation around its fixed ground axis.
+    // Keep published733 city/quest authority, source-only delivery and exact cleanup.
+
+    // ModBuild733 — shared city-event readiness across quest and loadout transitions.
+    // The native desktop city proposal never reveals its client ready toggle. Expose
+    // that exact original after SelectCityEvent, without invoking its auto-ready
+    // continuation. Its native action occurrence shares the existing encounter pose
+    // lane until the actual event card takes over; pages and votes remain game-owned.
+    // Keep unassigned observers disabled, reject private X dismissal and adopt the
+    // original readiness markers before conversion. Phase-bound groups, parkers and
+    // leases cannot steal a pooled toggle after quest/city/loadout role changes.
+    // Enable the original city departure quorum/ACK validation so an unready peer
+    // leaving cannot strand the remaining ready party. No synthetic votes, new
+    // gameplay messages, configuration or wire layout; preserve the menu732 lane.
+    // City role authority survives incidental quest-focus refreshes and ACK waits;
+    // original 2D confirmation retains its occurrence without repeating a vote.
+    // Public city/event decisions fence competing questlog/table browsing and its
+    // cached/pending cosmetic openings. Preserve accepted native quest proposals,
+    // pure scripted selection and native ready/cancel/event continuations.
+
+    // ModBuild732 — unpublished menu checkpoint for stable detail, hints and rotation.
     // The729 hardware report confirms no flat fallback, but head/player motion
     // repeatedly reallocates the outer New Party capture and drops its authored
     // sampling rate from1.5 to0.25. Capture the complete original UI and model on
@@ -647,7 +675,7 @@ internal static class NetProtocol
     // its fixed native ground axis; native gameplay actors and window pose remain
     // authoritative. Preserve off/default-on preference, native styles/callbacks
     // and movies/story assets. Delivery is dev source; Windows builds its archive.
-    // The menu lane originally reserved730; integrate after parallel731 as732.
+    // The menu lane reserved730/732; its final delivery follows published733 as734.
 
     // ModBuild731 — city-event readiness handoff and stable initiative ownership (#18/#24).
     // Retire the exact previous modal before adopting the reused native ready toggle

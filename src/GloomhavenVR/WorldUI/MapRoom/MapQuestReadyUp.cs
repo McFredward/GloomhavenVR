@@ -740,7 +740,8 @@ internal static class MapQuestReadyUp
         _claimed = null;
         _claimHost = null;
         _claimWhy = "nothing is claimed";
-        ReadyToggleParkClaim.Set(null, "MapTravelConfirm is not presenting the quest confirm");
+        ReadyToggleParkClaim.Drop(EReadyUpToggleStates.Quests,
+            "MapTravelConfirm is not presenting the quest confirm");
     }
 
     /// <summary>Release room presentation — the map room stood down. Called from

@@ -23,6 +23,7 @@ internal static class Program
         FFSNetwork.IsOnline = online; FFSNetwork.IsClient = client;
         Time.unscaledTime = 0; Time.frameCount = 0;
         MapRoomDriver.Active = true;
+        MapCityEventReadyUp.OwnsMapDecision = false;
         Singleton<UIQuestPopupManager>.Instance = new();
         Singleton<UIMapMultiplayerController>.Instance = new();
         Singleton<AdventureMapUIManager>.Instance = new();
@@ -859,13 +860,75 @@ internal static class Program
         Check(!b.IsSelected, "Consumed invalid opening must not replay onto an unrelated future native location");
     }
 
+    private static void PublicCityDecision()
+    {
+        const int owner = 1001001, local = 2002002;
+        foreach (bool client in new[] { false, true })
+        foreach (string phase in new[] { "city proposal", "city ACK wait", "native encounter" })
+        {
+            var observer = Reset(client); var a = new MapLocation("public-A", "A"); var b = new MapLocation("public-B", "B");
+            RemoteMapRoom.Begin(observer, a, b); RemoteMapRoom.Snapshot(local);
+            MapCityEventReadyUp.OwnsMapDecision = true;
+            Check(MapInputGate.IsBlocked && NativeMapQuestSelection.BlocksSharedBrowsing,
+                "Public city/encounter decision blocks every participant's browsing: " + phase);
+            Check(!observer.PrepareSharedSelectionChange(b) && MapQuestReadyUp.Edges.Count == 0,
+                "Public city ownership cannot trigger quest-unready while preparing a cosmetic selection");
+            Check(!observer.AdoptSelection(b, "blocked public decision") && !b.IsSelected,
+                "Public city ownership rejects native cosmetic selection before dispatch");
+            var old = VersionEvent(owner, 1, 0, 0, b);
+            RemoteMapRoom.Receive(owner, old); RemoteMapRoom.Tick();
+            Check(!b.IsSelected && !RemoteMapRoom.Pending && observer.PointerDispatches == 0,
+                "Public city ownership retires incoming browsing instead of queuing a future click");
+            MapCityEventReadyUp.OwnsMapDecision = false;
+            RemoteMapRoom.Receive(owner, old); RemoteMapRoom.Tick();
+            Check(!b.IsSelected && !RemoteMapRoom.Pending,
+                "A pre-city browsing opening cannot replay after public city retirement");
+            RemoteMapRoom.Receive(owner, VersionEvent(owner, 2, 0, 0, b)); RemoteMapRoom.Tick();
+            Check(b.IsSelected && observer.PointerDispatches == 1,
+                "Fresh post-city browsing resumes through the unchanged original native selection");
+        }
+
+        var state = Delivery(); Map.IsLocked = true;
+        RemoteMapRoom.Packet(1, 255, state.Second); RemoteMapRoom.Tick();
+        Check(RemoteMapRoom.Pending, "Existing native lock can hold a browsing replacement before city begins");
+        MapCityEventReadyUp.OwnsMapDecision = true; Map.IsLocked = false; RemoteMapRoom.Tick();
+        Check(!RemoteMapRoom.Pending && !state.Second.IsSelected,
+            "A new public city decision fences an already pending browsing replacement");
+        MapCityEventReadyUp.OwnsMapDecision = false; RemoteMapRoom.Tick();
+        Check(!state.Second.IsSelected, "City cancellation cannot replay a discarded pending browsing click");
+
+        foreach (bool initialSample in new[] { false, true })
+        {
+            var observerOff = Reset(client: true); var before = new MapLocation("mode-A", "A");
+            RemoteMapRoom.Begin(observerOff, before);
+            if (initialSample) RemoteMapRoom.Snapshot(local);
+            var prior = VersionEvent(owner, 1, 0, 0, before);
+            RemoteMapRoom.Receive(owner, prior); RemoteMapRoom.Tick();
+            MapRoomDriver.Active = false; MapCityEventReadyUp.OwnsMapDecision = true;
+            Check(MapRoomDriver.ActiveLocations == null && !MapInputGate.PublicDecisionOwnsInput,
+                "Original 2D input remains outside the VR city browsing gate");
+            RemoteMapRoom.Snapshot(local);
+            MapCityEventReadyUp.OwnsMapDecision = false; MapRoomDriver.Active = true;
+            Check(!RemoteMapRoom.Snapshot(local).HasMapSelectionVersion,
+                "Native city authority retires the old browsing epoch even across 2D presentation");
+            before.Deselect(); observerOff.Sample();
+            RemoteMapRoom.Receive(owner, prior); RemoteMapRoom.Tick();
+            Check(!before.IsSelected, "Native city authority retires the old browsing epoch even across 2D presentation");
+            Check(observerOff.AdoptSelection(before, "fresh post-city user click", true),
+                "A genuine post-city click still reaches the original native map pointer");
+            var fresh = RemoteMapRoom.Snapshot(local);
+            Check(fresh.HasMapSelectionVersion && fresh.MapSelectionRevision > 1 && RemoteMapRoom.HasAuthoredVersion,
+                "Consuming a retired adoption cannot consume a later genuine post-city input");
+        }
+    }
+
     public static void Main()
     {
         foreach (bool flatHost in new[] { true, false })
         foreach (bool flatCompanion in new[] { true, false })
         foreach (bool reconnect in new[] { true, false }) Client(flatHost, flatCompanion, reconnect);
         Host(true); Host(false);
-        DelayedInitialization(); LinkedQuest(); UncommittedBrowsing(); LockedDelivery(); VersionPolicy(); VersionDelivery(); NativeCensusDelivery();
+        DelayedInitialization(); LinkedQuest(); UncommittedBrowsing(); LockedDelivery(); VersionPolicy(); VersionDelivery(); NativeCensusDelivery(); PublicCityDecision();
         System.Console.WriteLine($"Map quest selection runtime: {_assertions} assertions; {_roles} host/client/reconnect paths; original native proposal, preview, cancel and selection methods.");
     }
 }

@@ -808,20 +808,20 @@ internal static partial class RemoteMapStory
         }
     }
 
-    /// <summary>The FLOATED encounter panel ("Begegnung"), or null. Resolved through
+    /// <summary>The FLOATED encounter or its native city-event readiness preflight, or null. Resolved through
     /// <see cref="SharedWindows.WindowOf"/> — i.e. through <c>Singleton&lt;UIEventPanel&gt;</c> and
     /// its <c>[RequireComponent(typeof(UIWindow))]</c> pairing, never by name or id — and then asked
     /// of the FLOAT SET for the same reason <see cref="QuestPopup"/> is: this record only ever
     /// describes a window that exists in world space, and a window that is open but not converted
     /// has no pose to publish and nowhere to apply one.</summary>
-    private static UIEventPanel? EventPanel()
+    private static UIWindow? EventPanel()
     {
         UIWindow? w = SharedWindows.WindowOf(SharedWindowKind.Encounter);
         if (w == null || !w.IsOpen)
             return null;
         if (!ModalFallback.TryGetGrabFor(w, out GrabbableModal? grab) || grab == null)
             return null;
-        return w.GetComponent<UIEventPanel>();
+        return w;
     }
 
     /// <summary>
@@ -834,12 +834,20 @@ internal static partial class RemoteMapStory
     /// which is record 19's discipline verbatim: better to leave a window where it is than to move
     /// it to where a different window stands on somebody else's table.</para>
     /// </summary>
-    private static uint EncounterKey(UIEventPanel? panel)
+    private static uint EncounterKey(UIWindow? window)
     {
-        if (panel == null)
+        if (window == null)
             return 0u;
+        // The same pooled toggle can serve many city proposals and then a quest. Its
+        // native SelectCityEvent action occurrence, not a translated caption or local
+        // visibility, addresses this pose. It can never move the subsequent story card.
+        if (ReferenceEquals(MapCityEventReadyUp.Window, window))
+            return MapCityEventReadyUp.ContentKey;
         try
         {
+            UIEventPanel? panel = window.GetComponent<UIEventPanel>();
+            if (panel == null)
+                return 0u;
             MapRuleLibrary.YML.Events.CRoadEvent? ev = panel.eventData;
             string? id = ev != null ? ev.ID : null;
             return string.IsNullOrEmpty(id) ? 0u : NetProtocol.HashMapKey(id!);
@@ -1058,7 +1066,7 @@ internal static partial class RemoteMapStory
         // …) at decompiled/GH.Runtime/UIEventPanel.cs:606/610/724 → ClientContinueRoadEvent :869).
         // A second channel for it is forbidden. What travels here is the POSE — the half the mod
         // owns and the half the game has no opinion about.
-        UIEventPanel? evPanel = EventPanel();
+        UIWindow? evPanel = EventPanel();
         if (evPanel == null)
         {
             TrackFrame(SharedWindowKind.Encounter, EncounterLocal, reset: true);
@@ -1082,7 +1090,7 @@ internal static partial class RemoteMapStory
             n++;
             // The window's ARRIVAL edge, keyed on the encounter's own identity so a re-sample never
             // repeats it and a second encounter always gets its own line.
-            if (key != 0u && key != _encounterNotedKey)
+            if (key != 0u && key != _encounterNotedKey && evPanel.GetComponent<UIEventPanel>() != null)
             {
                 _encounterNotedKey = key;
                 NoteEncounterArrival(key);
@@ -1547,7 +1555,7 @@ internal static partial class RemoteMapStory
 
         // The encounter: POSE ONLY. There is deliberately no page arm here at all — not a disabled
         // one, not a guarded one. Nothing in this class may advance a road event.
-        UIEventPanel? evPanel = EventPanel();
+        UIWindow? evPanel = EventPanel();
         if (evPanel == null)
         {
             EncounterLocal.FollowingPeer = 0;

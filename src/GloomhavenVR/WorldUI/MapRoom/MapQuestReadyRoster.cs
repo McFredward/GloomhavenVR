@@ -179,7 +179,7 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 // WHY THE TWO SITES CANNOT COLLIDE OVER THE ONE SINGLETON BAR. They are mutually exclusive BY THE
 // GAME'S OWN FIELD, and it is the same field `LoadoutConfirmPark` already relies on:
 // `MapQuestReadyUp` claims the ready toggle only while `readyUpToggleState` reads `Quests`, and
-// `LoadoutConfirmPark.ResolveControl` refuses it unless it reads anything else (`MPConfirmEnterScenario`
+// `LoadoutConfirmPark.ResolveControl` refuses it unless it reads `NotSet` (`MPConfirmEnterScenario`
 // calls `Initialize` without that argument, leaving the default `NotSet`, UIReadyToggle.cs:452,467).
 // Both parkers still TICK every frame, though, so the offers are collected and resolved rather than
 // acted on in call order — see <see cref="Tick"/>. A frame in which BOTH offer a confirm is a
@@ -203,7 +203,7 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 // ---------------------------------------------------------------------------
 
 /// <summary>
-/// WHICH CONFIRMATION the ready row is being asked for. The two are separate WINDOWS with separate
+/// WHICH CONFIRMATION the ready row is being asked for. These are separate WINDOWS with separate
 /// parkers and separate geometry, and they share one singleton bar — so the site has to be said out
 /// loud rather than inferred from whichever parker happened to call.
 /// </summary>
@@ -219,6 +219,10 @@ internal enum ReadyRosterSite
     /// against the character rows and the window's painted content, and the row hangs in the empty
     /// column above it — so this site reserves nothing.</summary>
     EnterDungeon,
+
+    /// <summary>The public city-event readiness window. The native ready control is the host
+    /// itself; only the existing tracker bar moves above its button, without moving the button.</summary>
+    CityEvent,
 }
 
 /// <summary>
@@ -346,9 +350,9 @@ internal static class MapQuestReadyRoster
     private static float _noticeTopY, _noticeBottomY, _noticeRectH, _noticeRectW;
     private static float _noticePrefH, _noticePrefW;
 
-    // ---- C: which confirmation, and the two parkers' offers -------------------------------------------
+    // ---- C: which confirmation, and the three presentation sites' offers ------------------------------
 
-    private const int SiteCount = 2;
+    private const int SiteCount = 3;
 
     /// <summary>How many frames an offer stays live. Two, so a parker that skips one tick — a frame
     /// hitch, a guarded throw — does not drop the row, and one that stands down stops holding it
@@ -363,7 +367,7 @@ internal static class MapQuestReadyRoster
     /// <summary>Initialised so far in the past that no <c>Time.frameCount</c> can be within
     /// <see cref="OfferLifetimeFrames"/> of it, and far enough from <c>int.MinValue</c> that the
     /// subtraction cannot overflow [[sentinel-overflow-and-silent-scans]].</summary>
-    private static readonly int[] _offerFrame = { int.MinValue / 2, int.MinValue / 2 };
+    private static readonly int[] _offerFrame = { int.MinValue / 2, int.MinValue / 2, int.MinValue / 2 };
 
     /// <summary>Which confirmation the row is being held for right now. Only meaningful while
     /// <c>_row != null</c>; <see cref="ReservedHeight"/> is gated on it so the loadout site can never
@@ -550,14 +554,14 @@ internal static class MapQuestReadyRoster
     /// <summary>
     /// Offer this site's live state, once per frame, from that site's own parker —
     /// <see cref="MapTravelConfirm.Reconcile"/> for <see cref="ReadyRosterSite.Quest"/> and
-    /// <c>LoadoutConfirmPark.Tick</c> for <see cref="ReadyRosterSite.EnterDungeon"/>. Both run from
-    /// the map room's own Update tick, in the same place each site's parking runs.
+    /// <c>LoadoutConfirmPark.Tick</c> for <see cref="ReadyRosterSite.EnterDungeon"/>, and the
+    /// public native city proposal for <see cref="ReadyRosterSite.CityEvent"/>.
     ///
     /// <para>WHY AN OFFER AND NOT A COMMAND. There is exactly ONE tracker bar (a
-    /// <c>Singleton&lt;UIReadyTrackerBar&gt;</c>) and TWO parkers that both tick every frame. If each
+    /// <c>Singleton&lt;UIReadyTrackerBar&gt;</c>) and three sites that tick every frame. If each
     /// call acted immediately, the site with nothing to show would release the row the other site had
     /// just taken, once per frame, for ever — a write war with itself. So each call records what its
-    /// site can offer and then RESOLVES over both offers, which makes the outcome independent of
+    /// site can offer and then RESOLVES over the offers, which makes the outcome independent of
     /// which parker happens to run first [[dont-win-a-write-war]].</para>
     ///
     /// <para>An offer is live for <see cref="OfferLifetimeFrames"/> frames, so a parker that skips a
@@ -589,7 +593,7 @@ internal static class MapQuestReadyRoster
     }
 
     /// <summary>
-    /// Decide, over BOTH sites' live offers, who gets the one bar this frame — then hold or release
+    /// Decide, over all sites' live offers, who gets the one bar this frame — then hold or release
     /// it, and run the notice and the report.
     /// </summary>
     private static void Resolve()
@@ -601,7 +605,8 @@ internal static class MapQuestReadyRoster
         int offers = 0;
         for (int i = 0; i < SiteCount; i++)
         {
-            bool live = roomStands && now - _offerFrame[i] <= OfferLifetimeFrames;
+            bool live = roomStands && now - _offerFrame[i] <= OfferLifetimeFrames
+                && IsCurrentSite((ReadyRosterSite)i, _offerConfirm[i]);
             if (!live || _offerHost[i] == null || _offerConfirm[i] == null)
                 continue;
             offers++;
@@ -609,19 +614,19 @@ internal static class MapQuestReadyRoster
                 winner = i;
         }
 
-        // BOTH AT ONCE IS A CONTRADICTION OF THE GAME'S OWN FIELD, not a preference to express.
-        // `readyUpToggleState` reads `Quests` for one parker and anything else for the other, so two
-        // live confirms mean one of them is holding an object it should already have handed back.
+        // Multiple live offers contradict the game's phase. Validate the exact original and
+        // phase above, including offers retained for two frames: an old quest/loadout offer
+        // must never take the city row back while the pooled ready toggle is being reused.
         // Reported once per episode; the first offer still wins, because a row on the wrong one of two
         // confirms beats no row and beats a flap.
         if (offers > 1 && !_collisionWarned)
         {
             _collisionWarned = true;
             VRLog.Warn(Scope, "MAP QUEST READY ROW: BOTH confirmations are offering a parked ready "
-                              + "toggle in the same frame — the quest card and the Character-UI's "
-                              + "'Verlies betreten'. They are supposed to be mutually exclusive by the "
-                              + "game's own UIReadyToggle.readyUpToggleState (Quests for the quest "
-                              + "card, anything else for the loadout), so one parker is holding an "
+                              + "toggle in the same frame — quest, loadout or city-event readiness. "
+                              + "They are mutually exclusive by the game's own "
+                              + "UIReadyToggle.readyUpToggleState (Quests, NotSet or CityEvents), "
+                              + "so one presentation site is holding an "
                               + "object it should have handed back. The FIRST offer keeps the row; "
                               + "the button on the other confirmation is unaffected and still "
                               + "pressable, which is the right way round for a decoration and a "
@@ -634,10 +639,12 @@ internal static class MapQuestReadyRoster
 
         if (winner < 0)
         {
-            bool anyHost = roomStands && (_offerHost[0] != null || _offerHost[1] != null);
+            bool anyHost = false;
+            for (int i = 0; i < SiteCount; i++)
+                anyHost |= roomStands && _offerHost[i] != null;
             ReleaseRow(!roomStands ? "the map room stood down"
-                : !anyHost ? "neither confirmation has a floated window to sit in"
-                : "the game's multiplayer confirm is not parked in either window");
+                : !anyHost ? "no confirmation has a floated window to sit in"
+                : "the game's multiplayer confirm has no matching live presentation site");
         }
         else
         {
@@ -657,7 +664,8 @@ internal static class MapQuestReadyRoster
         // the most expensive kind of wrong an instrument can be [[an-instrument-can-assert-a-cause]].
         // The loadout is not left silent: LOADOUT CONFIRM REACHABLE already reports its own blocker.
         int questSlot = (int)ReadyRosterSite.Quest;
-        bool questLive = roomStands && now - _offerFrame[questSlot] <= OfferLifetimeFrames;
+        bool questLive = roomStands && now - _offerFrame[questSlot] <= OfferLifetimeFrames
+            && IsCurrentSite(ReadyRosterSite.Quest, _offerConfirm[questSlot]);
         UIWindow? questWindow = questLive ? _offerHost[questSlot] : null;
         bool wantNotice = questWindow != null && _offerConfirm[questSlot] == null && FFSNetwork.IsOnline;
         if (wantNotice)
@@ -671,6 +679,25 @@ internal static class MapQuestReadyRoster
         // the thing rather than the thing that is there.
         Report(winner >= 0 ? _offerHost[winner] : questWindow,
                winner >= 0 ? _offerConfirm[winner] : null);
+    }
+
+    /// <summary>Bind each retained offer to the exact native pooled toggle and its current phase.
+    /// A missing confirm still permits the quest-only assignment notice in the native quest phase.
+    /// This reads native readiness; it never populates cells, changes a vote or changes permission.</summary>
+    private static bool IsCurrentSite(ReadyRosterSite site, GameObject? confirm)
+    {
+        if (!Singleton<UIReadyToggle>.IsInitialized)
+            return false;
+        UIReadyToggle toggle = Singleton<UIReadyToggle>.Instance;
+        if (toggle == null || (confirm != null && !ReferenceEquals(toggle.gameObject, confirm)))
+            return false;
+        return site switch
+        {
+            ReadyRosterSite.Quest => toggle.readyUpToggleState == EReadyUpToggleStates.Quests,
+            ReadyRosterSite.EnterDungeon => toggle.readyUpToggleState == EReadyUpToggleStates.NotSet,
+            ReadyRosterSite.CityEvent => toggle.readyUpToggleState == EReadyUpToggleStates.CityEvents,
+            _ => false,
+        };
     }
 
     /// <summary>
@@ -931,8 +958,16 @@ internal static class MapQuestReadyRoster
                       + "none of them is drawn, so there is no picture to place";
             return;
         }
-        if (!MapTravelConfirm.TryInkBounds(win, confirmRect, out Rect confirmInk, out int confirmCount)
-            || confirmCount == 0)
+        // City readiness hosts the row INSIDE the same root that paints its button.
+        // Exclude that adopted child when measuring the button, or each refresh counts
+        // the row as the button's top and moves it upward again. Other sites retain
+        // their existing independent sibling measurements unchanged.
+        Rect confirmInk;
+        int confirmCount;
+        bool confirmMeasured = _site == ReadyRosterSite.CityEvent
+            ? MapTravelConfirm.TryInkBounds(win, confirmRect, rowRect, out confirmInk, out confirmCount)
+            : MapTravelConfirm.TryInkBounds(win, confirmRect, out confirmInk, out confirmCount);
+        if (!confirmMeasured || confirmCount == 0)
         {
             _inkValid = false;
             _inkWhy = "the confirm paints no visible graphic this tick (the game usually has it "
@@ -1644,13 +1679,16 @@ internal static class MapQuestReadyRoster
         // over its own source — scripts/patch-inventory.py loses the nesting depth on it and then
         // reports the Harmony class below as unattributed. Flat locals, one clause each.
         string cardName = host != null ? host.name : "<none>";
-        string siteClause = _site == ReadyRosterSite.Quest
-            ? "the QUEST card's confirm ('Quest wählen' / 'Quest annehmen', the ready toggle "
+        string siteClause = _site switch
+        {
+            ReadyRosterSite.Quest => "the QUEST card's confirm ('Quest wählen' / 'Quest annehmen', the ready toggle "
               + "MapChoreographer.InitializeSelectQuestReadyUp labels GUI_SELECT_QUEST for the host "
-              + "and GUI_ACCEPT_QUEST for a client)"
-            : "the CHARACTER-UI's 'Verlies betreten' (GUI_LOADOUT_ENTER_SCENARIO, the ready toggle "
+              + "and GUI_ACCEPT_QUEST for a client)",
+            ReadyRosterSite.CityEvent => "the public CITY-EVENT ready-up (GUI_DRAW_CITY_EVENT / GUI_CITY_EVENT_CANCEL)",
+            _ => "the CHARACTER-UI's 'Verlies betreten' (GUI_LOADOUT_ENTER_SCENARIO, the ready toggle "
               + "UILoadoutManager.MPConfirmEnterScenario initialises at :507 before calling "
-              + "ShowLoadoutMultiplayer at :516)";
+              + "ShowLoadoutMultiplayer at :516)",
+        };
         string confirmClause = parkedConfirm != null
             ? $"YES ('{parkedConfirm.name}', the game's own UIReadyToggle — pressing it runs the "
               + "game's UIReadyToggle.InputToggle -> ReadyUp -> ReadyUpPlayer and nothing of this "
