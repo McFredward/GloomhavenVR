@@ -52,3 +52,14 @@ Evidence includes executed assemblies, pinned sources/native inputs, GPU images,
 geometry/callback traces and failed attempts. Exact owned Editor/compiler cleanup
 runs before `cleanup_completed_run`; regenerable caches are removed on success,
 failure and interruption. Automated GPU checks do not establish headset quality.
+
+The `native-ui-freeze` case executes 400 original Unity Images across two actual
+ScreenSpaceCamera roots with independent active CanvasScalers, plus the audited
+Overlay/Notification child shape. Over 24 real frames, both eyes use actual
+expanded Camera.Render calls and restore camera matrices, native layout/TRS and
+scaler state. Warm Driver root/ancestor/behaviour counters remain exactly still.
+A real parent change and a new Image component born directly in onPreRender must
+still be discovered; separate source controls suppress each edge. The original
+400×48 comparison with/without a proposed observer guard was equally quiet, so no
+unnecessary guard or fake hierarchy notification is retained. Read-only reflection
+observes the actual private known-Graphic set without adding a product test API.

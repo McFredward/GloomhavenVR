@@ -23,7 +23,10 @@ public static partial class MenuDepthCardProgram
     private static GameObject Go(string name, Transform? parent = null)
     { var go = new GameObject(name, typeof(RectTransform)); if (parent != null) go.transform.SetParent(parent, false); Owned.Add(go); return go; }
 
-    public static IEnumerator Run(string output)
+    public static IEnumerator Run(string output) => RunCore(output, false);
+    public static IEnumerator RunNativeUiFreeze(string output) => RunCore(output, true);
+
+    private static IEnumerator RunCore(string output, bool nativeFreezeOnly)
     {
         _checks = 0; _output = output; VRSession.IsRunning = true;
         var native = new Harmony("MenuDepthCards.NativePorts." + typeof(MenuDepthCardProgram).Assembly.GetName().Name);
@@ -32,7 +35,12 @@ public static partial class MenuDepthCardProgram
         observer.CreateClassProcessor(typeof(MenuDepthLifecycleObserver)).Patch();
         try
         {
-            for (int path = 0; path < 3; path++)
+            if (nativeFreezeOnly)
+            {
+                IEnumerator freeze = ProveNativeUiFreeze728(output);
+                while (freeze.MoveNext()) yield return freeze.Current;
+            }
+            else for (int path = 0; path < 3; path++)
                 using (var scene = new Scene(path))
                 {
                     IEnumerator proof = scene.Prove();

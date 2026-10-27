@@ -8,7 +8,7 @@ using UnityEngine;
 
 public static class MenuDepthCardRunner
 {
-    [Serializable] private sealed class Case { public string name, dll, expected; }
+    [Serializable] private sealed class Case { public string name, dll, expected, method; }
     [Serializable] private sealed class Manifest { public string result, evidence, gameManaged, harmonyRuntime; public Case[] cases; }
     private static Manifest manifest;
     private static bool ran, passed = true;
@@ -56,7 +56,7 @@ public static class MenuDepthCardRunner
                     active = manifest.cases[index++]; count = -1;
                     string output = Path.Combine(manifest.evidence, active.name); Directory.CreateDirectory(output);
                     assembly = Assembly.LoadFile(active.dll);
-                    pending = (IEnumerator)assembly.GetType("MenuDepthCardProgram").GetMethod("Run").Invoke(null, new object[] { output });
+                    pending = (IEnumerator)assembly.GetType("MenuDepthCardProgram").GetMethod(string.IsNullOrEmpty(active.method) ? "Run" : active.method).Invoke(null, new object[] { output });
                 }
                 if (pending.MoveNext()) { if (pending.Current is int checks) count = checks; return; }
                 if (count < 0) throw new Exception("Native card coroutine returned no assertion count.");
