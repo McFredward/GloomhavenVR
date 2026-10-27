@@ -1,4 +1,4 @@
-# Build730: stable character windows, readable hints and laser rotation
+# Build732: stable character windows, readable hints and laser rotation
 
 ## Hardware report and exact inputs
 
@@ -33,7 +33,10 @@ head text and model pixels, retaining native masks, effects and physical occlusi
 
 Three disjoint workers start at currentdev0a87ac8a1: complete rendering quality,
 exact tooltip routing, and portrait laser interaction. Root owns enrollment/API
-integration, build730, documentation, full required validation and direct dev push.
+integration, documentation, full required validation and direct dev push. The lane
+initially reserves730, but concurrent readiness/initiative fixes ship731 first.
+Integrate those unchanged and deliver this work as732; its evidence/worktree names
+remain menu730 so existing source and input pins stay valid.
 Each test reaps its processes and uses completion cleanup; retain sources, inputs,
 results, captures, native audits and current deliverables. Retire clean worktrees
 only after verified evidence archives. No local ZIP is requested.
