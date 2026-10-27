@@ -629,7 +629,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 729;
+    public const ushort ModBuild = 731;
+
+    // ModBuild731 — city-event readiness handoff and stable initiative ownership (#18/#24).
+    // Retire the exact previous modal before adopting the reused native ready toggle
+    // into a quest, and let native Hide end readiness offers without map stickiness.
+    // Bind the initiative dock, picker and cleanup to one exact native source/host
+    // lease; replace expired leases without replaying a completed home restoration.
+    // Unit-edge portrait normals retain ray picks at small board zoom in actual Unity.
+    // Preserve native assignment/votes/actions, board geometry and wire version3.
+    // Scoped production-coordinator tests and causal controls reproduce the source
+    // defects; issue media supplies context, not an unlogged four-headset validation.
+    // Build730 is reserved by the parallel menu-quality lane, which is not modified here.
 
     // ModBuild729 — stable moving character cabinets and stronger menu-card previews.
     // The maintainer accepts the stationary728 appearance, but moving eyes can

@@ -1,3 +1,33 @@
+**City-event readiness and initiative ownership, Build731, 2026-10-27.**
+
+Open issues18/24 and all their image/video/audio context were reviewed; level-up23
+remains with the parallel menu lane. Ready-toggle reuse previously recorded an
+old modal host as native home, so a second mod owner removed the scenario-start
+control and latched parking off until map reentry. Retire that exact old float
+before adoption; native Hide/Cancel now ends pooled readiness offers instead of
+leaving their old labels sticky. Preserve native assignment, votes and callbacks.
+
+The initiative dock now binds geometry, original effects and input to one exact
+native track/live host, restores the old original on replacement, and never
+replays an already completed native-home snapshot. A real Unity reproduction
+also identifies zero portrait-plane normals at small board zoom; normalized
+independent edges repair picking without changing any visible world geometry.
+
+Integrated map8/8 and board6/6 subsets, all16 source gates, all306431 goldens,
+strict real/metadata Release0W0E and docs-i18n pass. New tests52+5 controls and
+146 realUnity+7 controls execute production coordinators. Compiled review confines
+behavior to3 UI types, with9 build-number-only differences and no resource/type
+changes. Configuration670/patches248 remain; one bounded lifecycle log is added.
+This is focused evidence inheriting unchanged729 coverage, not a new complete
+252-suite or paired-headset pass. Current729/remote717 logs are differentruns;
+the video narrative says all players already had characters, so the temporary
+assignment notice is not classified as a user error. See ISSUES18-24-REVIEW.md.
+
+Build730 remains reserved by the independent menu lane; its unpublished changes
+are untouched. Delivery is dev source only. Original media, all passing/failed
+proofs and cleanup receipts remain under ignored debug/issues18-24; own generated
+caches and the three worker/integration trees are retired after evidence archival.
+
 **Moving character cabinets, stronger card previews and cleanup, Build729, 2026-10-27.**
 
 Fresh728/e99f290b7 logs identify repeated New Party window fallback after character

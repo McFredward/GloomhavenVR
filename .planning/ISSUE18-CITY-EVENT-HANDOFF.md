@@ -15,6 +15,13 @@ is absent and the start control is still absent. Neither the video's mod build
 nor matching reporter logs were supplied. Current maintainer729 and remote717
 logs belong to different runs and must not be treated as paired evidence.
 
+Full audio review adds important context: the narrator says all four players
+already have characters, and another player toggles assignment as a recovery
+attempt before describing a city offer which persists after Cancel. The temporary
+notice does not establish a user mistake. The already cached Whisper model
+transcribed the audio locally; no audio was uploaded to an API. Eight additional
+full-resolution frames at 28–49 seconds were reviewed.
+
 The video does not prove which native controllable belongs to that player.
 Readiness must continue to refuse an unassigned participant. A table showing
 four characters is not proof that four network players own a participant each.
@@ -58,6 +65,12 @@ Converted ready toggles no longer receive Sticky. Their original IsOpen governs
 presentation lifetime in every readiness phase. The map's existing nonblocking
 input classification remains unchanged, and merchant/temple windows still stay
 open across ordinary sibling hides.
+
+Native explicit Cancel reaches `CancelPreviewCityEvent`, then
+`ToggleReadyUpUI(false, CityEvents)`, `UIReadyToggle.ToggleVisibility(false)`,
+`UpdateVisiblity` and `window.Hide`. The same non-sticky lifetime repair therefore
+also covers the cancellation described in the audio; no alternate Cancel or
+native state mutation is introduced.
 
 An unrelated native `ResetUI` ordering observation was reviewed but deliberately
 not patched: ClearHostSelectedQuest can change the current state before

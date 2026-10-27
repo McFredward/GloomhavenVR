@@ -476,6 +476,17 @@
       "weight": 47
     },
     {
+      "id": "initiative-binding-runtime",
+      "command": [
+        "python3",
+        "scripts/check-initiative-binding-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 42
+    },
+    {
       "id": "card-loss-modal",
       "command": [
         "bash",
@@ -516,6 +527,18 @@
       "command": [
         "bash",
         "scripts/check-map-quest-ready-runtime.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "map-ready-handoff",
+      "command": [
+        "bash",
+        "scripts/map-ready-handoff-tests.sh"
       ],
       "groups": [
         "local",
