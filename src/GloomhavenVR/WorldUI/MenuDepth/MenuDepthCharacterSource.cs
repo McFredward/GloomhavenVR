@@ -455,7 +455,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     {
         Release(_left); Release(_right);
         _left = _right = null;
-        _poolBytes -= _pairBytes; _pairBytes = 0; _width = _height = 0;
+        _poolBytes -= _pairBytes; _pairBytes = 0; _width = _height = _samplingEdge = 0; _lowerSince = -1f;
     }
 
     private static Func<Character3DDisplayManager, object?>? CreateOriginalReader()
@@ -541,7 +541,8 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
 internal sealed class MenuDepthCharacterSurface : BaseMeshEffect, IMaterialModifier
 {
     private Material? _material, _original;
-    private bool _retired;
+    private Shader? _sourceShader;
+    private bool _retired, _nativeSoftMask;
     private MenuDepthCharacterProjection.View _view;
     private RenderTexture? _depth;
     private Rect _viewport, _uv, _captureClip;
@@ -569,6 +570,19 @@ internal sealed class MenuDepthCharacterSurface : BaseMeshEffect, IMaterialModif
             _material = new Material(shader) { name = "GloomhavenVR.MenuDepth.CharacterSurface", hideFlags = HideFlags.HideAndDontSave };
         }
         _material.CopyPropertiesFromMaterial(original);
+        Shader sourceShader = original.shader;
+        if (_sourceShader != sourceShader)
+        {
+            _sourceShader = sourceShader;
+            _nativeSoftMask = sourceShader != null && sourceShader.name == "UI/Inverted soft alpha mask (compatible with canvas group)";
+        }
+        bool nativeSoftMask = _nativeSoftMask;
+        _material.SetFloat("_GvrNativeSoftMask", nativeSoftMask ? 1f : 0f);
+        _material.SetFloat("_GvrCharacterSrcAlphaBlend", nativeSoftMask ? 5f : 1f);
+        // The original compiled character mask multiplies only vertex colour;
+        // its material has no _Color uniform. Keep its actual alpha-mask texture
+        // and independent _MainTex/_Mask transforms copied above.
+        if (nativeSoftMask) _material.SetColor("_Color", Color.white);
         Apply();
         return _material;
     }

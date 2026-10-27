@@ -6,6 +6,9 @@ Shader "GloomhavenVR/MenuDepthCharacter"
     {
         [PerRendererData] _MainTex ("Native colour", 2D) = "white" {}
         _NativeDepth ("Native surface depth", 2D) = "white" {}
+        _Mask ("Original inverted alpha mask", 2D) = "white" {}
+        [HideInInspector] _GvrNativeSoftMask ("Original character mask shader", Float) = 0
+        [HideInInspector] _GvrCharacterSrcAlphaBlend ("Original source alpha blend", Float) = 1
         _Color ("Tint", Color) = (1,1,1,1)
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
@@ -23,7 +26,7 @@ Shader "GloomhavenVR/MenuDepthCharacter"
         Cull Off Lighting Off
         ZWrite [_GvrCharacterDepthWrite]
         ZTest [unity_GUIZTestMode]
-        Blend One OneMinusSrcAlpha
+        Blend One OneMinusSrcAlpha, [_GvrCharacterSrcAlphaBlend] OneMinusSrcAlpha
         ColorMask [_ColorMask]
         CGINCLUDE
         #include "UnityCG.cginc"
@@ -31,7 +34,9 @@ Shader "GloomhavenVR/MenuDepthCharacter"
         struct appdata { float4 vertex : POSITION; float4 color : COLOR; float2 uv : TEXCOORD0; };
         struct v2f { float4 vertex : SV_POSITION; fixed4 color : COLOR; float2 uv : TEXCOORD0; float4 mask : TEXCOORD1; };
         struct output { fixed4 color : SV_Target; float depth : SV_Depth; };
-        sampler2D _MainTex;
+        sampler2D _MainTex, _Mask;
+        float4 _MainTex_ST, _Mask_ST;
+        float _GvrNativeSoftMask;
         UNITY_DECLARE_DEPTH_TEXTURE(_NativeDepth);
         fixed4 _Color, _TextureSampleAdd;
         float4 _ClipRect, _NativeViewport, _NativePlane, _ImageUV, _CaptureOldUV, _CaptureRect, _CaptureUVScaleOffset;
@@ -62,7 +67,7 @@ Shader "GloomhavenVR/MenuDepthCharacter"
         output sample(v2f i, bool frontPass)
         {
             output result; result.depth = i.vertex.z;
-            float2 uv = i.uv;
+            float2 uv = _GvrNativeSoftMask > .5 ? i.uv * _MainTex_ST.xy + _MainTex_ST.zw : i.uv;
             if (_GvrCharacterActive > 0.5) uv = uv * _CaptureUVScaleOffset.xy + _CaptureUVScaleOffset.zw;
             float nativeDepth = SAMPLE_DEPTH_TEXTURE(_NativeDepth, uv);
             bool valid = false;
@@ -103,10 +108,14 @@ Shader "GloomhavenVR/MenuDepthCharacter"
             {
                 clip(min(min(i.uv.x - _ImageUV.x, _ImageUV.z - i.uv.x), min(i.uv.y - _ImageUV.y, _ImageUV.w - i.uv.y)));
             }
-            i.color.a = round(i.color.a * 255.0) / 255.0;
-            fixed4 color = (tex2D(_MainTex, uv) + _TextureSampleAdd) * i.color;
+            if (_GvrNativeSoftMask < .5) i.color.a = round(i.color.a * 255.0) / 255.0;
+            fixed4 color = tex2D(_MainTex, uv);
+            if (_GvrNativeSoftMask < .5) color += _TextureSampleAdd;
+            color *= i.color;
+            if (!frontPass && _GvrNativeSoftMask > .5)
+                color.a *= 1 - tex2D(_Mask, i.uv * _Mask_ST.xy + _Mask_ST.zw).a;
             #ifdef UNITY_UI_CLIP_RECT
-            if (!frontPass)
+            if (!frontPass && _GvrNativeSoftMask < .5)
             {
                 half2 mask = saturate((_ClipRect.zw - _ClipRect.xy - abs(i.mask.xy)) * i.mask.zw);
                 color.a *= mask.x * mask.y;

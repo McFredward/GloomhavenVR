@@ -26,7 +26,8 @@ Shader "GloomhavenVR/MenuDepthDisplay"
         Cull Off
         Lighting Off
         ZWrite Off
-        ZTest [unity_GUIZTestMode]
+        // This carrier also renders through native MeshRenderers, outside uGUI.
+        ZTest LEqual
         Blend One OneMinusSrcAlpha
         ColorMask [_ColorMask]
         CGINCLUDE
