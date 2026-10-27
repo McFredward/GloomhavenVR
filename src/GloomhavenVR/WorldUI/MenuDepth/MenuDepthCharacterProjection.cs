@@ -25,18 +25,48 @@ internal static class MenuDepthCharacterProjection
         internal readonly Vector4 NativePlane;
         internal readonly float Near, Far;
         internal readonly bool Reversed;
+        internal readonly bool Reflected;
         internal View(Vector3 position, Quaternion rotation, Matrix4x4 view, Matrix4x4 projection,
-            float near, float far, bool reversed, Matrix4x4 nativeToGraphic, Vector4 nativePlane)
+            float near, float far, bool reversed, Matrix4x4 nativeToGraphic, Vector4 nativePlane, bool? reflected = null)
         { Position = position; Rotation = rotation; WorldToCamera = view; Projection = projection;
-            Near = near; Far = far; Reversed = reversed; NativeToGraphic = nativeToGraphic; NativePlane = nativePlane; }
+            Near = near; Far = far; Reversed = reversed; Reflected = reflected ?? reversed; NativeToGraphic = nativeToGraphic; NativePlane = nativePlane; }
 
         internal View Expanded(Rect clip)
         {
             Matrix4x4 projection = Projection;
             projection.SetRow(0, (Projection.GetRow(0) - Projection.GetRow(3) * clip.center.x) * (2f / clip.width));
             projection.SetRow(1, (Projection.GetRow(1) - Projection.GetRow(3) * clip.center.y) * (2f / clip.height));
-            return new View(Position, Rotation, WorldToCamera, projection, Near, Far, Reversed, NativeToGraphic, NativePlane);
+            return new View(Position, Rotation, WorldToCamera, projection, Near, Far, Reversed, NativeToGraphic, NativePlane, Reflected);
         }
+    }
+
+    internal static View Rotated(View original, Matrix4x4 rotation)
+    {
+        Matrix4x4 view = original.WorldToCamera * rotation;
+        return new View(view.inverse.MultiplyPoint3x4(Vector3.zero), original.Rotation,
+            view, original.Projection, original.Near, original.Far, original.Reversed,
+            original.NativeToGraphic * rotation, rotation.transpose * original.NativePlane, original.Reflected);
+    }
+
+    internal static View Head(View portal, RectTransform graphic, MenuDepthEye eye)
+    {
+        if (!eye.HasWorldToHeadClip || eye.HeadCamera == null)
+            throw new System.InvalidOperationException("The actual head raster has no eye projection.");
+        Camera head = eye.HeadCamera;
+        Camera.StereoscopicEye side = eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left;
+        Matrix4x4 projection = head.stereoEnabled ? head.GetStereoProjectionMatrix(side) : head.projectionMatrix;
+        Matrix4x4 scaledView = projection.inverse * eye.WorldToHeadClip * graphic.localToWorldMatrix * portal.NativeToGraphic;
+        float sx = scaledView.MultiplyVector(Vector3.right).magnitude;
+        float sy = scaledView.MultiplyVector(Vector3.up).magnitude;
+        float sz = scaledView.MultiplyVector(Vector3.forward).magnitude;
+        float scale = Mathf.Pow(sx * sy * sz, 1f / 3f);
+        if (!(scale > 1e-8f)) throw new System.InvalidOperationException("The native head metric is singular.");
+        Matrix4x4 view = scaledView;
+        for (int row = 0; row < 3; row++) view.SetRow(row, view.GetRow(row) / scale);
+        for (int row = 0; row < 4; row++) projection[row, 3] /= scale;
+        Vector3 position = view.inverse.MultiplyPoint3x4(Vector3.zero);
+        return new View(position, portal.Rotation, view, projection, head.nearClipPlane / scale,
+            head.farClipPlane / scale, portal.Reversed, portal.NativeToGraphic, portal.NativePlane, view.determinant > 0f);
     }
 
     internal static bool TryBuild(Camera source, Transform holder, RectTransform rectangle,

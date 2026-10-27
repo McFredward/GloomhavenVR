@@ -134,7 +134,7 @@ public static partial class MenuDepthDesktopProgram
         complete(_count);
     }
 
-    private sealed class Scene : IDisposable
+    private sealed partial class Scene : IDisposable
     {
         internal readonly Camera OriginalA, OriginalB, Head, ModelCamera;
         internal readonly RenderTexture Ui, Background, HeadTarget, ModelTarget;

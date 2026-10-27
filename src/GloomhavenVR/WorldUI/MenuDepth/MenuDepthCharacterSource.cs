@@ -42,6 +42,18 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private Rect _captureClip;
     private Vector2 _captureScale = Vector2.one;
     private int _samplingEdge, _demandEdge;
+    private bool _headTargets;
+    internal static Func<RawImage, object, float>? YawProvider { get; set; }
+    internal object? ReadyIdentity
+    {
+        get
+        {
+            if (!BindingAlive || !_image.isActiveAndEnabled || !_image.gameObject.activeInHierarchy
+                || !_camera.isActiveAndEnabled || !_manager.isActiveAndEnabled
+                || !_holder.gameObject.activeInHierarchy || !_nativeTarget.IsCreated() || _readHidden(_manager)) return null;
+            return ReadOriginal == null ? _holder : ReadOriginal(_manager);
+        }
+    }
     internal int SamplingEdge => _samplingEdge;
 
     internal MenuDepthCharacterSource(RawImage image, Camera camera,
@@ -61,23 +73,26 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     internal bool BindingAlive => !_disposed && _image != null && _camera != null && _manager != null
         && _holder != null && _nativeTarget != null && (_rendering || ReferenceEquals(_camera.targetTexture, _nativeTarget))
         && (ReferenceEquals(_image.texture, _nativeTarget) || ReferenceEquals(_image.texture, _borrowed));
-    public bool IsReady => BindingAlive && _image.isActiveAndEnabled && _image.gameObject.activeInHierarchy
-        && _camera.isActiveAndEnabled && _manager.isActiveAndEnabled
-        && _holder.gameObject.activeInHierarchy && _nativeTarget.IsCreated()
-        && (ReadOriginal == null || ReadOriginal(_manager) != null)
-        && !_readHidden(_manager);
+    public bool IsReady => ReadyIdentity != null;
 
     public void PrimeDirectCapture(MenuDepthEye samplingEye)
     {
         AfterCapture();
-        if (!IsReady || _rendering) throw new InvalidOperationException("Original character preview cannot prime its UI batch.");
-        object original = ReadOriginal?.Invoke(_manager) ?? _holder;
+        object original = ReadyIdentity ?? throw new InvalidOperationException("Original character preview cannot prime its UI batch.");
+        if (_rendering) throw new InvalidOperationException("Original character preview cannot prime its UI batch.");
         if (!_calibration.TryGet(original, out Vector3 origin)
             || !MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
                 _image.uvRect, samplingEye.WorldPosition, origin, out MenuDepthCharacterProjection.View view))
             throw new InvalidOperationException("Original character preview has no valid direct batch frame.");
+        if (samplingEye.HasWorldToHeadClip && samplingEye.HeadCamera != null)
+        {
+            SelectHeadResolution(MenuDepthHeadRaster.Size(samplingEye.HeadCamera));
+            _directBatchFrame = Time.frameCount;
+            Borrow(EnsureTarget(false), _image.texture);
+            return;
+        }
         Rect clip = SamplingClip(original, view, samplingEye);
-        if (MenuDepthDisplay.TryGetEyePositions(samplingEye.HeadCamera, out Vector3 left, out Vector3 right))
+        if (samplingEye.HeadCamera != null && MenuDepthDisplay.TryGetEyePositions(samplingEye.HeadCamera, out Vector3 left, out Vector3 right))
         {
             if (MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform, _image.uvRect, left, origin, out var l)) clip = Union(clip, SamplingClip(original, l, new MenuDepthEye(false, left, samplingEye.HeadCamera)));
             if (MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform, _image.uvRect, right, origin, out var r)) clip = Union(clip, SamplingClip(original, r, new MenuDepthEye(true, right, samplingEye.HeadCamera)));
@@ -114,28 +129,44 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private void Capture(MenuDepthEye eye, bool direct)
     {
         AfterCapture();
-        if (!IsReady || _rendering) throw new InvalidOperationException("Original character preview is not ready for this capture.");
-        object identity = ReadOriginal?.Invoke(_manager) ?? _holder;
+        object identity = ReadyIdentity ?? throw new InvalidOperationException("Original character preview is not ready for this capture.");
+        if (_rendering) throw new InvalidOperationException("Original character preview is not ready for this capture.");
         if (!_calibration.TryGet(identity, out Vector3 origin))
             throw new InvalidOperationException("Original character has no completed main actor origin.");
         if (!MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
             _image.uvRect, eye.WorldPosition, origin, out MenuDepthCharacterProjection.View view))
             throw new InvalidOperationException("Original character preview has no valid window portal.");
-        view = ExpandCapture(identity, view, eye);
+        float yaw = YawProvider?.Invoke(_image, identity) ?? 0f;
+        if (yaw != 0f)
+        {
+            Vector3 ground = _camera.transform.TransformPoint(origin);
+            Vector3 up = _camera.cameraToWorldMatrix.MultiplyVector(Vector3.up).normalized;
+            Matrix4x4 rotation = Matrix4x4.Translate(ground) * Matrix4x4.Rotate(Quaternion.AngleAxis(yaw, up)) * Matrix4x4.Translate(-ground);
+            view = MenuDepthCharacterProjection.Rotated(view, rotation);
+        }
+        bool headRaster = (MenuDepthHeadRaster.Active || direct) && eye.HasWorldToHeadClip;
+        if (!headRaster && _headTargets) ReleaseTargets();
+        if (headRaster)
+        {
+            view = MenuDepthCharacterProjection.Head(view, _image.rectTransform, eye);
+            SelectHeadResolution(MenuDepthHeadRaster.Active ? MenuDepthHeadRaster.Pixels : MenuDepthHeadRaster.Size(eye.HeadCamera));
+        }
+        else view = ExpandCapture(identity, view, eye);
         // A native Canvas batch has already retained this frame's left texture
         // identity. Refresh that same surface for either direct eye; only an early
         // batch boundary may resize it. No third surface or late sampler swap.
-        if (_directBatchFrame != Time.frameCount && _pairFrame != Time.frameCount)
+        if (!headRaster && _directBatchFrame != Time.frameCount && _pairFrame != Time.frameCount)
         { SelectResolution(eye.PixelFootprint); _pairFrame = Time.frameCount; }
-        RenderTexture target = EnsureTarget(!direct && eye.Right);
+        RenderTexture target = EnsureTarget(!headRaster && !direct && eye.Right);
         _lastCapture = Time.unscaledTime;
         Texture original = _image.texture;
-        RenderOriginal(target, view);
+        RenderOriginal(target, view, headRaster);
         // A native render callback may replace a pooled preview. Do not overwrite
         // that new original with an eye of the retired character.
         if (!BindingAlive || !ReferenceEquals(_image.texture, original))
             throw new InvalidOperationException("Original character preview changed during its render.");
-        _surface.Capture(view, target, _camera.rect, _image.uvRect, _captureClip);
+        _surface.Capture(view, target, headRaster ? new Rect(0f, 0f, 1f, 1f) : _camera.rect, _image.uvRect,
+            headRaster ? new Rect(-1f, -1f, 2f, 2f) : _captureClip, headRaster, _image.transform.InverseTransformPoint(eye.WorldPosition));
         Borrow(target, original);
     }
 
@@ -199,6 +230,22 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             if (right) _right = target; else _left = target;
         }
         return target;
+    }
+
+    private void SelectHeadResolution(Vector2Int pixels)
+    {
+        int width = pixels.x, height = pixels.y;
+        if (width > SystemInfo.maxTextureSize || height > SystemInfo.maxTextureSize)
+            throw new InvalidOperationException("The actual head raster exceeds the graphics texture limit.");
+        long bytes = PairCost(width, height) / 2;
+        if (bytes > MaxPoolBytes - _poolBytes + _pairBytes)
+            throw new InvalidOperationException("The actual head raster exceeds the native-scene scratch budget.");
+        if (!_headTargets || width != _width || height != _height)
+        {
+            ReleaseTargets(); _headTargets = true; _width = width; _height = height;
+            _pairBytes = bytes; _poolBytes += bytes;
+        }
+        _samplingEdge = _demandEdge = Mathf.Max(width, height);
     }
 
     private void SelectResolution(Vector2 footprint)
@@ -510,11 +557,12 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
 
     internal RenderTexture? DepthTexture(bool right) => right ? _right : _left;
 
-    private void RenderOriginal(RenderTexture target, MenuDepthCharacterProjection.View view)
+    private void RenderOriginal(RenderTexture target, MenuDepthCharacterProjection.View view, bool headRaster = false)
     {
         // Keep source-owned image effects and their native configuration. Copying
         // a Camera component alone loses Beautify and other attached callbacks.
         RenderTexture originalTarget = _camera.targetTexture;
+        Rect originalViewport = _camera.rect;
         RenderTexture? originalActive = RenderTexture.active;
         Vector3 originalPosition = _camera.transform.position;
         Quaternion originalRotation = _camera.transform.rotation;
@@ -543,6 +591,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             RenderTexture.active = target;
             GL.Clear(true, true, _camera.backgroundColor);
             _camera.targetTexture = target;
+            if (headRaster) _camera.rect = new Rect(0f, 0f, 1f, 1f);
             // The actual native holder (including models and lights) is a child
             // of this Camera in both game scenes. Moving the Camera Transform to
             // an eye also moved the entire cabinet scene with the viewer. Borrow
@@ -555,7 +604,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             // Rear eyes retain the window's original right/up texture axes.
             // This reflected view needs the opposite winding so the original
             // model's actual back surfaces remain visible through that same UV.
-            GL.invertCulling = originalCullingInverted ^ view.Reversed;
+            GL.invertCulling = originalCullingInverted ^ view.Reflected;
             _camera.Render();
         }
         finally
@@ -564,6 +613,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             if (_camera != null)
             {
                 _camera.targetTexture = originalTarget;
+                _camera.rect = originalViewport;
                 _camera.transform.SetPositionAndRotation(originalPosition, originalRotation);
                 _camera.orthographic = originalOrtho;
                 _camera.nearClipPlane = originalNear; _camera.farClipPlane = originalFar;
@@ -591,7 +641,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     {
         Release(_left); Release(_right);
         _left = _right = null;
-        _poolBytes -= _pairBytes; _pairBytes = 0; _width = _height = _samplingEdge = _demandEdge = 0; _lowerSince = -1f; _pairFrame = -1;
+        _headTargets = false; _poolBytes -= _pairBytes; _pairBytes = 0; _width = _height = _samplingEdge = _demandEdge = 0; _lowerSince = -1f; _pairFrame = -1;
     }
 
     private static Func<Character3DDisplayManager, object?>? CreateOriginalReader()
@@ -682,12 +732,14 @@ internal sealed class MenuDepthCharacterSurface : BaseMeshEffect, IMaterialModif
     private MenuDepthCharacterProjection.View _view;
     private RenderTexture? _depth;
     private Rect _viewport, _uv, _captureClip;
-    private bool _capturing;
+    private bool _capturing, _headRaster;
+    private Vector3 _eyeGraphic;
 
     internal void Configure() { graphic.SetMaterialDirty(); }
 
-    internal void Capture(MenuDepthCharacterProjection.View view, RenderTexture depth, Rect viewport, Rect uv, Rect captureClip)
+    internal void Capture(MenuDepthCharacterProjection.View view, RenderTexture depth, Rect viewport, Rect uv, Rect captureClip, bool headRaster = false, Vector3 eyeGraphic = default)
     {
+        _headRaster = headRaster; _eyeGraphic = eyeGraphic;
         _view = view; _depth = depth; _viewport = viewport; _uv = uv; _captureClip = captureClip; _capturing = true;
         Apply();
     }
@@ -727,6 +779,10 @@ internal sealed class MenuDepthCharacterSurface : BaseMeshEffect, IMaterialModif
     {
         if (_material == null) return;
         _material.SetFloat("_GvrCharacterActive", _capturing ? 1f : 0f);
+        _material.SetFloat("_GvrCharacterHeadRaster", _capturing && _headRaster ? 1f : 0f);
+        _material.SetVector("_GvrCharacterEyeGraphic", _eyeGraphic);
+        Rect originalRect = graphic.rectTransform.rect;
+        _material.SetVector("_GvrCharacterGraphicRect", new Vector4(originalRect.xMin, originalRect.yMin, originalRect.width, originalRect.height));
         _material.SetFloat("_GvrCharacterDepthWrite", _capturing ? 1f : 0f);
         if (!_capturing)
         {

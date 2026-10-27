@@ -21,6 +21,7 @@ internal sealed class MenuDepthDisplay : IDisposable
     private static readonly int RightTextureId = Shader.PropertyToID("_RightTex");
     private static readonly Stack<int> PreviousEyes = new(4);
     private static readonly List<Graphic> BoundGraphics = new(16);
+    private static readonly List<MenuDepthDisplay> HeadDisplays = new(8);
     private static AssetBundle? _bundle;
     private static Shader? _displayShader;
     private static Shader? _depthShader;
@@ -33,7 +34,12 @@ internal sealed class MenuDepthDisplay : IDisposable
     private readonly RawImage _image;
     private readonly Material _originalMaterial;
     private readonly Material _material;
-    private readonly RenderTexture _rightCapture;
+    private readonly RenderTexture? _rightCapture;
+    private RenderTexture? _headLeft, _headRight;
+    private MenuDepthHeadCarrier? _headCarrier;
+    private Camera? _headCamera;
+    internal long HeadBytes { get; private set; }
+    internal bool IsHeadRaster => _rightCapture == null;
     private readonly RenderTexture? _rightMip;
     private bool _disposed;
     private bool _rendering;
@@ -95,13 +101,14 @@ internal sealed class MenuDepthDisplay : IDisposable
         Camera.onPostRender += AfterCamera;
     }
 
-    internal MenuDepthDisplay(RawImage image, RenderTexture leftCapture, RenderTexture leftDisplay)
+    internal MenuDepthDisplay(RawImage image, RenderTexture leftCapture, RenderTexture leftDisplay, bool headRaster = false)
     {
         if (!TryLoad(out string reason)) throw new InvalidOperationException(reason);
         _image = image;
         _originalMaterial = image.material;
         _material = CreateDisplayMaterial(leftDisplay, leftDisplay);
         _material.CopyPropertiesFromMaterial(_originalMaterial);
+        if (headRaster) return;
         _rightCapture = new RenderTexture(leftCapture.descriptor)
         {
             name = "GloomhavenVR.MenuDepth.RightCapture", hideFlags = HideFlags.HideAndDontSave,
@@ -130,11 +137,98 @@ internal sealed class MenuDepthDisplay : IDisposable
     }
 
     internal bool Matches(RenderTexture leftCapture, RenderTexture leftDisplay) => !_disposed
-        && _rightCapture.IsCreated() && _rightCapture.width == leftCapture.width
+        && (_rightCapture == null || (_rightCapture.IsCreated() && _rightCapture.width == leftCapture.width
         && _rightCapture.height == leftCapture.height && _rightCapture.antiAliasing == leftCapture.antiAliasing
         && (ReferenceEquals(leftCapture, leftDisplay) ? _rightMip == null
             : _rightMip != null && _rightMip.IsCreated() && _rightMip.width == leftDisplay.width
-                && _rightMip.height == leftDisplay.height);
+                && _rightMip.height == leftDisplay.height)));
+
+    internal static long HeadCost(Camera head, RenderTexture original)
+    {
+        return MenuDepthHeadRaster.Bytes(original.descriptor, MenuDepthHeadRaster.Size(head));
+    }
+
+    internal void RenderHead(Camera capture, RectTransform plane, Rect frame, RenderTexture original,
+        MenuDepthEye left, MenuDepthEye right)
+    {
+        Vector2Int size = MenuDepthHeadRaster.Size(left.HeadCamera);
+        if (_headLeft == null || _headLeft.width != size.x || _headLeft.height != size.y)
+        {
+            if (size.x > SystemInfo.maxTextureSize || size.y > SystemInfo.maxTextureSize)
+                throw new InvalidOperationException("The actual UI head raster exceeds the texture limit.");
+            var descriptor = MenuDepthHeadRaster.Descriptor(original.descriptor, size);
+            var l = new RenderTexture(descriptor) { name = "GloomhavenVR.MenuDepth.HeadLeft", hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Point };
+            var r = new RenderTexture(descriptor) { name = "GloomhavenVR.MenuDepth.HeadRight", hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Point };
+            if (!l.Create() || !r.Create()) { Release(l); Release(r); throw new InvalidOperationException("The actual UI head raster could not be created."); }
+            Release(_headLeft); Release(_headRight); _headLeft = l; _headRight = r;
+            HeadBytes = HeadCost(left.HeadCamera, original);
+        }
+        if (_capturingCamera != null) throw new InvalidOperationException("A nested private head raster is not owned.");
+        CameraState state = new(capture); Rect viewport = capture.rect;
+        RenderTexture? active = RenderTexture.active;
+        _capturingCamera = capture; _rendering = true;
+        try
+        {
+            CaptureHeadEye(capture, plane, _headLeft!, left, size);
+            CaptureHeadEye(capture, plane, _headRight!, right, size);
+            SetHeadCapture(_material, _headLeft!, _headRight!, left, right,
+                plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
+                Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized);
+            _headCamera = left.HeadCamera;
+            _headCarrier ??= new MenuDepthHeadCarrier(_image, _material);
+            if (!HeadDisplays.Contains(this)) HeadDisplays.Add(this);
+            _headCarrier.Draw(_headCamera);
+        }
+        finally
+        {
+            try { MenuDepthSources.AfterCapture(); }
+            finally
+            {
+                state.Restore(capture); capture.rect = viewport;
+                RenderTexture.active = active; _capturingCamera = null; _rendering = false;
+                if (_disposeRequested) Dispose();
+            }
+        }
+    }
+
+    internal static void SetHeadCapture(Material material, RenderTexture left, RenderTexture right,
+        MenuDepthEye leftEye, MenuDepthEye rightEye, Vector3 point, Vector3 normal)
+    {
+        material.mainTexture = left; material.SetTexture(RightTextureId, right);
+        material.SetTexture("_GvrDepthLeft", left, UnityEngine.Rendering.RenderTextureSubElement.Depth);
+        material.SetTexture("_GvrDepthRight", right, UnityEngine.Rendering.RenderTextureSubElement.Depth);
+        material.SetFloat("_GvrHeadRaster", 1f);
+        material.SetMatrix("_GvrHeadInverseLeft", GpuClip(leftEye).inverse);
+        material.SetMatrix("_GvrHeadInverseRight", GpuClip(rightEye).inverse);
+        material.SetVector("_GvrHeadEyeLeft", leftEye.WorldPosition); material.SetVector("_GvrHeadEyeRight", rightEye.WorldPosition);
+        material.SetVector("_GvrPlanePoint", point); material.SetVector("_GvrPlaneNormal", normal);
+    }
+    private static Matrix4x4 GpuClip(MenuDepthEye eye)
+    {
+        Camera head = eye.HeadCamera;
+        Matrix4x4 projection = head.stereoEnabled ? head.GetStereoProjectionMatrix(
+            eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left) : head.projectionMatrix;
+        return GL.GetGPUProjectionMatrix(projection, true) * projection.inverse * eye.WorldToHeadClip;
+    }
+
+    private static void CaptureHeadEye(Camera capture, RectTransform plane, RenderTexture target, MenuDepthEye eye, Vector2Int size)
+    {
+        Matrix4x4 projection = eye.HeadCamera.stereoEnabled
+            ? eye.HeadCamera.GetStereoProjectionMatrix(eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left)
+            : eye.HeadCamera.projectionMatrix;
+        capture.targetTexture = target; capture.rect = new Rect(0,0,1,1);
+        capture.orthographic = false; capture.nearClipPlane = eye.HeadCamera.nearClipPlane; capture.farClipPlane = eye.HeadCamera.farClipPlane;
+        capture.worldToCameraMatrix = projection.inverse * eye.WorldToHeadClip;
+        capture.projectionMatrix = projection; capture.cullingMatrix = eye.WorldToHeadClip;
+        RenderTexture.active = target; GL.Clear(true, true, Color.clear);
+        using (MenuDepthHeadRaster.Begin(size))
+        {
+            MenuDepthSources.BeforeCapture(plane,
+                new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, false, new Vector2(size.x,size.y), eye.WorldToHeadClip));
+            try { Canvas.ForceUpdateCanvases(); capture.Render(); }
+            finally { MenuDepthSources.AfterCapture(); }
+        }
+    }
 
     internal static Rect ForegroundFrame(RectTransform plane, Rect frame, MenuDepthEye left, MenuDepthEye right)
     {
@@ -180,14 +274,14 @@ internal sealed class MenuDepthDisplay : IDisposable
         try
         {
             CaptureEye(capture, plane, frame, sampledFrame, leftCapture, leftDisplay, leftEye, out float leftDepth, out float leftScale);
-            CaptureEye(capture, plane, frame, sampledFrame, _rightCapture, _rightMip ?? _rightCapture, rightEye, out float rightDepth, out float rightScale);
+            CaptureEye(capture, plane, frame, sampledFrame, _rightCapture!, _rightMip ?? _rightCapture!, rightEye, out float rightDepth, out float rightScale);
             if (_disposeRequested) throw new OperationCanceledException("The original menu window closed during its eye capture.");
             _material.SetTexture(RightTextureId, _rightMip ?? _rightCapture);
             BindCarrier(plane, sampledFrame);
             Rect originalUv = new((frame.xMin - sampledFrame.xMin) / sampledFrame.width,
                 (frame.yMin - sampledFrame.yMin) / sampledFrame.height, frame.width / sampledFrame.width, frame.height / sampledFrame.height);
             Vector3 normal = Vector3.Cross(plane.TransformVector(Vector3.right).normalized, plane.TransformVector(Vector3.up).normalized).normalized;
-            SetCaptureWindow(_material, leftCapture, _rightCapture, originalUv, new Vector2(leftDepth,rightDepth),
+            SetCaptureWindow(_material, leftCapture, _rightCapture!, originalUv, new Vector2(leftDepth,rightDepth),
                 new Vector2(leftScale,rightScale), plane.TransformPoint(new Vector3(frame.center.x,frame.center.y)), normal);
             // Bind only after BOTH fresh eyes exist. Native mono capture remains the
             // fallback on every earlier allocation/preparation/decoder failure.
@@ -397,8 +491,15 @@ internal sealed class MenuDepthDisplay : IDisposable
     {
         PreviousEyes.Push(_currentEye);
         ApplyEye(camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right ? 1 : 0);
+        for (int i = 0; i < HeadDisplays.Count; i++)
+            if (HeadDisplays[i]._headCamera == camera) HeadDisplays[i]._headCarrier?.Draw(camera);
     }
-    private static void AfterCamera(Camera camera) => ApplyEye(PreviousEyes.Count > 0 ? PreviousEyes.Pop() : 0);
+    private static void AfterCamera(Camera camera)
+    {
+        for (int i = 0; i < HeadDisplays.Count; i++)
+            if (HeadDisplays[i]._headCamera == camera) HeadDisplays[i]._headCarrier?.EndDraw();
+        ApplyEye(PreviousEyes.Count > 0 ? PreviousEyes.Pop() : 0);
+    }
     private static void ApplyEye(int eye) { _currentEye = eye; Shader.SetGlobalFloat(EyeId, eye); }
 
     private static void Release(RenderTexture? texture)
@@ -412,6 +513,8 @@ internal sealed class MenuDepthDisplay : IDisposable
         if (_disposed) return;
         if (_rendering) { _disposeRequested = true; return; }
         _disposed = true;
+        HeadDisplays.Remove(this); _headCarrier?.Dispose(); _headCarrier = null;
+        Release(_headLeft); Release(_headRight); _headLeft = _headRight = null; HeadBytes = 0;
         if (_image != null && _image.material == _material)
         {
             _image.material = _originalMaterial;

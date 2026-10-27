@@ -1115,7 +1115,7 @@ internal static partial class PanelSupersample
         // the test, because it carries its own cadence and its own thrash guards and because a
         // measurement that only runs when something else already changed would be exactly this
         // project's "a rule read too late never runs". See ServiceEyeGrid.
-        bool gridChanged = ServiceEyeGrid(e);
+        bool gridChanged = e.MenuDepthDisplay?.IsHeadRaster != true && ServiceEyeGrid(e);
         if (dirty || scaleChanged || frameChanged || gridChanged)
         {
             // ModBuild 204: ATTRIBUTE THE RE-ALLOCATION. The three conditions can co-occur and the
@@ -1624,9 +1624,10 @@ internal static partial class PanelSupersample
         TargetLife life = LifeOf(e);
         bool moving = IsMoving(e);
         int msaa = e.Msaa;
-        long budget = System.Math.Min(MaxPanelVramBytes,
-            MaxTotalVramBytes - (_vramTotal - e.VramBytes) - (_menuDepthVramTotal - e.MenuDepthBytes));
-        if (MenuDepth.MenuDepthSources.HasContent(e.Panel.HostRect)) budget /= 2;
+        long headReservation = MenuDepthReservation(e);
+        long budget = System.Math.Min(MaxPanelVramBytes - headReservation,
+            MaxTotalVramBytes - (_vramTotal - e.VramBytes) - (_menuDepthVramTotal - e.MenuDepthBytes) - headReservation);
+        if (headReservation == 0 && MenuDepth.MenuDepthSources.HasContent(e.Panel.HostRect)) budget /= 2;
         ResolveRate(e, MenuDepthAllocationFrame(e, frame), ref msaa, budget, out float rate, out int rtW, out int rtH,
                     out long vram);
         if (rtW == e.RtW && rtH == e.RtH)
@@ -1684,7 +1685,8 @@ internal static partial class PanelSupersample
             return;
         }
         long previous = e.VramBytes;
-        ReleaseMenuDepth(e, preserveFrame: true);
+        if (e.MenuDepthDisplay == null || !e.MenuDepthDisplay.IsHeadRaster)
+            ReleaseMenuDepth(e, preserveFrame: true);
         RenderTexture old = e.Rt;
         RenderTexture? oldMip = e.MipRt;
         // The texture the quad is showing RIGHT NOW, captured before it is replaced: the carry-over

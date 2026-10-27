@@ -20,7 +20,7 @@ internal sealed class MenuDepthNativeUiScope : IDisposable
     private readonly float _near, _far;
     private readonly Rect _rect;
     private readonly RenderTexture? _target;
-    private readonly bool _automaticProjection, _automaticCulling, _automaticView;
+    private readonly bool _automaticProjection, _automaticCulling, _automaticView, _orthographic;
     private readonly List<CanvasState> _frozen = new(8);
     private bool _disposed;
 
@@ -56,7 +56,7 @@ internal sealed class MenuDepthNativeUiScope : IDisposable
 
     internal MenuDepthNativeUiScope(Camera camera, Canvas? canvas, bool reversed = false)
     {
-        _camera = camera; _clear = camera.clearFlags; _near = camera.nearClipPlane; _far = camera.farClipPlane;
+        _camera = camera; _orthographic = camera.orthographic; _clear = camera.clearFlags; _near = camera.nearClipPlane; _far = camera.farClipPlane;
         _rect = camera.rect; _target = camera.targetTexture;
         _view = camera.worldToCameraMatrix;
         camera.ResetWorldToCameraMatrix(); _automaticView = Same(camera.worldToCameraMatrix, _view);
@@ -134,6 +134,26 @@ internal sealed class MenuDepthNativeUiScope : IDisposable
         _camera.cullingMatrix = projection * _camera.worldToCameraMatrix;
     }
 
+    internal void HeadCapture(RenderTexture target, MenuDepthEye eye, IReadOnlyList<Graphic> graphics)
+    {
+        FindCanvas(_camera, graphics);
+        if (Families.TryGetValue(_camera, out Family? family))
+            for (int i = 0; i < family.Roots.Count; i++)
+            {
+                Canvas canvas = family.Roots[i];
+                if (!Matches(canvas, _camera) || !canvas.isActiveAndEnabled) continue;
+                var state = new CanvasState(canvas); _frozen.Add(state); state.Freeze();
+            }
+        if (_frozen.Count == 0) throw new InvalidOperationException("No original UI Canvas can preserve its head raster basis.");
+        Camera head = eye.HeadCamera;
+        Matrix4x4 projection = head.stereoEnabled ? head.GetStereoProjectionMatrix(
+            eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left) : head.projectionMatrix;
+        _camera.targetTexture = target; _camera.rect = new Rect(0,0,1,1);
+        _camera.orthographic = false; _camera.nearClipPlane = head.nearClipPlane; _camera.farClipPlane = head.farClipPlane;
+        _camera.worldToCameraMatrix = projection.inverse * eye.WorldToHeadClip;
+        _camera.projectionMatrix = projection; _camera.cullingMatrix = eye.WorldToHeadClip;
+    }
+
     private sealed class CanvasState
     {
         private readonly Canvas _canvas;
@@ -186,7 +206,7 @@ internal sealed class MenuDepthNativeUiScope : IDisposable
             if (_camera != null)
             {
                 _camera.targetTexture = _target; _camera.rect = _rect; _camera.clearFlags = _clear;
-                _camera.nearClipPlane = _near; _camera.farClipPlane = _far;
+                _camera.orthographic = _orthographic; _camera.nearClipPlane = _near; _camera.farClipPlane = _far;
                 if (_automaticView) _camera.ResetWorldToCameraMatrix(); else _camera.worldToCameraMatrix = _view;
                 if (_automaticProjection) _camera.ResetProjectionMatrix(); else _camera.projectionMatrix = _projection;
                 if (_automaticCulling) _camera.ResetCullingMatrix(); else _camera.cullingMatrix = _culling;

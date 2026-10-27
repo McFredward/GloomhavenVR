@@ -9,6 +9,8 @@ namespace GloomhavenVR.WorldUI;
 internal static partial class PanelSupersample
 {
     private static long _menuDepthVramTotal;
+    private static readonly Dictionary<Entry, long> HeadReservations = new();
+    private static long MenuDepthReservation(Entry entry) => HeadReservations.TryGetValue(entry, out long bytes) ? bytes : 0;
     private static readonly Dictionary<Entry, MenuDepthCaptureFrame> MenuDepthFrames = new();
 
     private sealed class MenuDepthCaptureFrame
@@ -79,28 +81,30 @@ internal static partial class PanelSupersample
                 }
                 var leftEye = new MenuDepthEye(false, left, head);
                 var rightEye = new MenuDepthEye(true, right, head);
-                Rect captureFrame = PrepareMenuDepthFrame(e, leftEye, rightEye);
+                // No eye-dependent expansion of the native photograph. A complete
+                // original UI draw now has its actual head-pixel raster instead.
+                long headBytes = MenuDepthDisplay.HeadCost(head, e.Rt);
+                HeadReservations[e] = headBytes;
                 if (e.MenuDepthDisplay != null && !e.MenuDepthDisplay.Matches(e.Rt, DisplayTexture(e)))
                     ReleaseMenuDepth(e, preserveFrame: true);
                 if (e.MenuDepthDisplay == null)
                 {
-                    long extra = VramBytesFor(e.RtW, e.RtH, e.Msaa);
+                    long extra = headBytes;
                     if (e.VramBytes + extra > MaxPanelVramBytes || _vramTotal + _menuDepthVramTotal + extra > MaxTotalVramBytes)
                     {
                         // A source can appear after the ordinary mono engage. Reuse
                         // the existing symmetric rate/MSAA step-down for BOTH eyes.
                         Reallocate(e, e.Frame, ReallocTrigger.EyeGrid);
-                        extra = VramBytesFor(e.RtW, e.RtH, e.Msaa);
+                        extra = MenuDepthDisplay.HeadCost(head, e.Rt);
                     }
                     if (e.VramBytes + extra > MaxPanelVramBytes || _vramTotal + _menuDepthVramTotal + extra > MaxTotalVramBytes)
                         throw new InvalidOperationException("The symmetric menu-depth eye pair exceeds the existing window memory budget.");
-                    e.MenuDepthDisplay = new MenuDepthDisplay(e.DisplayImage, e.Rt, DisplayTexture(e));
+                    e.MenuDepthDisplay = new MenuDepthDisplay(e.DisplayImage, e.Rt, DisplayTexture(e), headRaster: true);
                     e.MenuDepthBytes = extra;
                     _menuDepthVramTotal += extra;
                 }
                 SyncDisplayPose(e);
-                e.MenuDepthDisplay.Render(e.Cam, e.Panel.HostRect, e.Frame, e.Rt, DisplayTexture(e),
-                    leftEye, rightEye, captureFrame);
+                e.MenuDepthDisplay.RenderHead(e.Cam, e.Panel.HostRect, e.Frame, e.Rt, leftEye, rightEye);
                 NoteCaptureCompleted(e);
             }
             catch (Exception error)
@@ -132,7 +136,7 @@ internal static partial class PanelSupersample
 
     private static void ReleaseMenuDepth(Entry e, bool preserveFrame = false)
     {
-        if (!preserveFrame) MenuDepthFrames.Remove(e);
+        if (!preserveFrame) { MenuDepthFrames.Remove(e); HeadReservations.Remove(e); }
         if (e.MenuDepthDisplay == null) return;
         e.MenuDepthDisplay.Dispose();
         e.MenuDepthDisplay = null;

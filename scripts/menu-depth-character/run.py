@@ -61,10 +61,10 @@ def main():
         for key in ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
     completion = run / 'completion.log'; completion.write_text('Evidence: ' + str(run) + '\n')
     code_root = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
-    names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs', 'MenuDepthDisplay.cs',
+    names = ('IMenuDepthSource.cs', 'MenuDepthHeadRaster.cs', 'MenuDepthHeadCarrier.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs', 'MenuDepthDisplay.cs',
              'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs',
              'MenuDepthCharacterDisplayObserver.cs')
-    api_names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs', 'MenuDepthDisplay.cs')
+    api_names = ('IMenuDepthSource.cs', 'MenuDepthHeadRaster.cs', 'MenuDepthHeadCarrier.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs', 'MenuDepthDisplay.cs')
     discovery_names = ('MenuDepthCharacters.cs', 'MenuDepthCharacterDisplayObserver.cs')
     character_names = ('MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs')
     inputs = {name: (args.api_root / 'src/GloomhavenVR/WorldUI/MenuDepth' / name) if name in api_names

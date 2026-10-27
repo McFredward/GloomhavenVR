@@ -53,7 +53,7 @@ def main():
     try:
         fixture = ROOT / 'tests/GloomhavenVR.MenuDepthCaptureTests'
         source = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
-        names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs',
+        names = ('IMenuDepthSource.cs', 'MenuDepthHeadRaster.cs', 'MenuDepthHeadCarrier.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs',
                  'MenuDepthProjection.cs', 'MenuDepthDisplay.cs')
         originals = {name: (source / name).read_text() for name in names}
         originals['PanelDepth.cs'] = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs').read_text()

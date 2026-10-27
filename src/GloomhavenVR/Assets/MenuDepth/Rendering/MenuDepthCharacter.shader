@@ -40,7 +40,8 @@ Shader "GloomhavenVR/MenuDepthCharacter"
         UNITY_DECLARE_DEPTH_TEXTURE(_NativeDepth);
         fixed4 _Color, _TextureSampleAdd;
         float4 _ClipRect, _NativeViewport, _NativePlane, _ImageUV, _CaptureOldUV, _CaptureRect, _CaptureUVScaleOffset;
-        float _UIMaskSoftnessX, _UIMaskSoftnessY, _GvrCharacterActive, _FrontSide;
+        float _UIMaskSoftnessX, _UIMaskSoftnessY, _GvrCharacterActive, _FrontSide, _GvrCharacterHeadRaster;
+        float4 _GvrCharacterGraphicRect, _GvrCharacterEyeGraphic;
         float4x4 _NativeInverseVP, _NativeToGraphic, _GraphicLocalToWorld;
         v2f vert(appdata v)
         {
@@ -62,13 +63,22 @@ Shader "GloomhavenVR/MenuDepthCharacter"
             float4 rect = clamp(_ClipRect, -2e10, 2e10);
             o.mask = float4(v.vertex.xy * 2 - rect.xy - rect.zw,
                 0.25 / (0.25 * half2(_UIMaskSoftnessX, _UIMaskSoftnessY) + abs(pixelSize.xy)));
-            o.color = v.color * _Color; o.uv = oldUV; return o;
+            o.color = v.color * _Color; o.uv = oldUV;
+            if (_GvrCharacterHeadRaster > .5)
+            {
+                float2 location = (v.uv - _ImageUV.xy) / (_ImageUV.zw - _ImageUV.xy);
+                o.vertex = float4(location * 2 - 1, 0, 1);
+                o.vertex.y *= _ProjectionParams.x;
+                o.uv = location;
+            }
+            return o;
         }
         output sample(v2f i, bool frontPass)
         {
             output result; result.depth = i.vertex.z;
             float2 uv = _GvrNativeSoftMask > .5 ? i.uv * _MainTex_ST.xy + _MainTex_ST.zw : i.uv;
-            if (_GvrCharacterActive > 0.5) uv = uv * _CaptureUVScaleOffset.xy + _CaptureUVScaleOffset.zw;
+            if (_GvrCharacterHeadRaster > .5) uv = i.uv;
+            else if (_GvrCharacterActive > 0.5) uv = uv * _CaptureUVScaleOffset.xy + _CaptureUVScaleOffset.zw;
             float nativeDepth = SAMPLE_DEPTH_TEXTURE(_NativeDepth, uv);
             bool valid = false;
             #if defined(UNITY_REVERSED_Z)
@@ -77,6 +87,7 @@ Shader "GloomhavenVR/MenuDepthCharacter"
                 valid = nativeDepth < 0.999999;
             #endif
             bool foreground = false;
+            float2 imageUV = i.uv;
             if (_GvrCharacterActive > 0.5 && valid)
             {
                 float z = nativeDepth;
@@ -87,6 +98,13 @@ Shader "GloomhavenVR/MenuDepthCharacter"
                 float4 nativePosition = mul(_NativeInverseVP, float4(clipUV, z, 1)); nativePosition /= nativePosition.w;
                 foreground = dot(_NativePlane, nativePosition) * _FrontSide > 0;
                 float4 physical = mul(_NativeToGraphic, nativePosition);
+                if (_GvrCharacterHeadRaster > .5)
+                {
+                    float3 ray = physical.xyz - _GvrCharacterEyeGraphic.xyz;
+                    float denominator = abs(ray.z) > 0.0000001 ? ray.z : (ray.z < 0 ? -0.0000001 : 0.0000001);
+                    float2 plane = _GvrCharacterEyeGraphic.xy + ray.xy * (-_GvrCharacterEyeGraphic.z / denominator);
+                    imageUV = lerp(_ImageUV.xy, _ImageUV.zw, (plane - _GvrCharacterGraphicRect.xy) / _GvrCharacterGraphicRect.zw);
+                }
                 float4 projected = mul(UNITY_MATRIX_VP, mul(_GraphicLocalToWorld, physical));
                 result.depth = projected.z / projected.w;
                 #if defined(SHADER_API_GLCORE) || defined(SHADER_API_GLES) || defined(SHADER_API_GLES3)
@@ -103,17 +121,26 @@ Shader "GloomhavenVR/MenuDepthCharacter"
                     result.depth = 1;
                 #endif
             }
+            if (_GvrCharacterHeadRaster > .5 && !valid)
+            {
+                float4 farPosition = mul(_NativeInverseVP, float4(uv * 2 - 1, .5, 1)); farPosition /= farPosition.w;
+                float3 farPoint = mul(_NativeToGraphic, farPosition).xyz;
+                float3 ray = farPoint - _GvrCharacterEyeGraphic.xyz;
+                float denominator = abs(ray.z) > 0.0000001 ? ray.z : (ray.z < 0 ? -0.0000001 : 0.0000001);
+                float2 plane = _GvrCharacterEyeGraphic.xy + ray.xy * (-_GvrCharacterEyeGraphic.z / denominator);
+                imageUV = lerp(_ImageUV.xy, _ImageUV.zw, (plane - _GvrCharacterGraphicRect.xy) / _GvrCharacterGraphicRect.zw);
+            }
             if (frontPass != foreground) discard;
             if (!frontPass)
             {
-                clip(min(min(i.uv.x - _ImageUV.x, _ImageUV.z - i.uv.x), min(i.uv.y - _ImageUV.y, _ImageUV.w - i.uv.y)));
+                clip(min(min(imageUV.x - _ImageUV.x, _ImageUV.z - imageUV.x), min(imageUV.y - _ImageUV.y, _ImageUV.w - imageUV.y)));
             }
             if (_GvrNativeSoftMask < .5) i.color.a = round(i.color.a * 255.0) / 255.0;
             fixed4 color = tex2D(_MainTex, uv);
             if (_GvrNativeSoftMask < .5) color += _TextureSampleAdd;
             color *= i.color;
             if (!frontPass && _GvrNativeSoftMask > .5)
-                color.a *= 1 - tex2D(_Mask, i.uv * _Mask_ST.xy + _Mask_ST.zw).a;
+                color.a *= 1 - tex2D(_Mask, imageUV * _Mask_ST.xy + _Mask_ST.zw).a;
             #ifdef UNITY_UI_CLIP_RECT
             if (!frontPass && _GvrNativeSoftMask < .5)
             {

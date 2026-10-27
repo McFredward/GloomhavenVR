@@ -64,21 +64,22 @@ def main():
         body += member(stack, signature)
     for signature in ('    private static bool IsUiCamera(', '    private RenderTexture? TargetFor('):
         start = stack.index(signature); body += stack[start:stack.index(';', start) + 1] + '\n'
-    names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs',
+    names = ('IMenuDepthSource.cs', 'MenuDepthHeadRaster.cs', 'MenuDepthHeadCarrier.cs', 'MenuDepthEye.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs',
              'MenuDepthSources.cs', 'MenuDepthDisplay.cs', 'MenuDepthGraphic.cs', 'MenuDepthHeightfield.cs',
              'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs', 'MenuDepthNativeUiScope.cs', 'MenuDepthDesktopCarrier.cs', 'MenuDepthDesktopResources.cs')
     sources = {name: (depth / name).read_text() for name in names}
     sources['CaptureStack.cs'] = body + '}\n'
+    sources['PanelDepth.cs'] = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs').read_text()
     sources['CaptureGuard.cs'] = (flat / 'FlatScreen.7.CaptureRender.cs').read_text()
     sources['DesktopCapture.cs'] = (flat / 'FlatScreen.8.MenuDepth.cs').read_text()
-    budget_at = sources['DesktopCapture.cs'].index('MenuDepthDesktopResources.Fits(_uiRt.descriptor, width, height, expanded)')
+    budget_at = sources['DesktopCapture.cs'].index('MenuDepthDesktopResources.Fits(')
     assert budget_at < sources['DesktopCapture.cs'].index('_menuDepthRight = MenuDepthTarget('), 'Budget must admit before either extra allocation'
-    assert 'MenuDepthDesktopResources.RetainFrame(_menuDepthFrameUv, requested' in sources['DesktopCapture.cs']
     sources['Anchors724.cs'] = (ROOT / 'scripts/menu-depth-desktop/Anchors724.cs').read_text()
     # Explicit XR observation ports only. The original native camera's stored eye
     # matrices are real Unity inputs; the editor cannot report an active XR eye.
     sources['MenuDepthDisplay.cs'] = replace_once(sources['MenuDepthDisplay.cs'],
         'head == null || !head.stereoEnabled', 'head == null || !global::DesktopEyeInput.Available')
+    sources['MenuDepthDisplay.cs'] = sources['MenuDepthDisplay.cs'].replace('camera.stereoActiveEye', 'global::DesktopEyeInput.Read(camera)')
     sources['DesktopCapture.cs'] = sources['DesktopCapture.cs'].replace(
         'camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right',
         'global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right')
@@ -88,6 +89,7 @@ def main():
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
+        ('head-motion730', '', '', '', ''),
         ('head-frustum729', '', '', '', ''),
         ('head-frustum-native-mapping-lost729', 'MenuDepthScreenProjection.cs',
          'new Vector3(1f / xScale, 1f / yScale, 1f / Mathf.Sqrt(xScale * yScale))) * nativeFrame;',
@@ -211,7 +213,7 @@ def main():
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadMotion730' if name.startswith('head-motion') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else

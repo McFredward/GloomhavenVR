@@ -14,6 +14,8 @@ internal sealed partial class FlatScreen
     private readonly List<Camera> _menuDepthCameras = new(8);
     private RenderTexture? _menuDepthRight, _menuDepthLeft, _menuDepthCarrierLeft;
     private MenuDepthDesktopCarrier? _menuDepthCarrier;
+    private MenuDepthHeadCarrier? _menuDepthHeadCarrier;
+    private Material? _menuDepthHeadMaterial;
     private Rect _menuDepthFrameUv = new(0f, 0f, 1f, 1f);
     private float _menuDepthShrinkSince = -1f;
     private Vector2 _menuDepthPhysicalScale;
@@ -75,9 +77,9 @@ internal sealed partial class FlatScreen
         return false;
     }
 
-    private static RenderTexture MenuDepthTarget(RenderTexture original, int width, int height, string eye)
+    private static RenderTexture MenuDepthTarget(RenderTexture original, int width, int height, string eye, bool headRaster = false)
     {
-        var descriptor = original.descriptor; descriptor.width = width; descriptor.height = height;
+        var descriptor = headRaster ? MenuDepthHeadRaster.Descriptor(original.descriptor, new Vector2Int(width,height)) : original.descriptor; descriptor.width = width; descriptor.height = height;
         var target = new RenderTexture(descriptor) { name = "GloomhavenVR.FlatScreenRT.MenuDepth" + eye,
             hideFlags = HideFlags.HideAndDontSave, filterMode = original.filterMode, wrapMode = TextureWrapMode.Clamp };
         if (target.Create()) return target;
@@ -134,20 +136,21 @@ internal sealed partial class FlatScreen
         { ReleaseMenuDepthScreen(); return; }
         try
         {
-            Rect frame = MenuDepthCaptureFrame(head, left, right);
-            int width = Mathf.RoundToInt(frame.width * _uiRt.width), height = Mathf.RoundToInt(frame.height * _uiRt.height);
+            Rect frame = new(0f,0f,1f,1f);
+            Vector2Int pixels = MenuDepthHeadRaster.Size(head);
+            int width = pixels.x, height = pixels.y;
             if (width > SystemInfo.maxTextureSize || height > SystemInfo.maxTextureSize)
                 throw new InvalidOperationException("The complete native foreground exceeds the graphics texture limit.");
-            bool expanded = frame != new Rect(0f, 0f, 1f, 1f);
-            if (!MenuDepthDesktopResources.Fits(_uiRt.descriptor, width, height, expanded))
+            bool expanded = true; // two complete eye rasters; original UI target remains native
+            if (!MenuDepthDesktopResources.Fits(MenuDepthHeadRaster.Descriptor(_uiRt.descriptor,pixels), width, height, expanded))
                 throw new InvalidOperationException("The complete native foreground exceeds its additional eye-target memory budget.");
             if (_menuDepthRight == null || _menuDepthLeft != _uiRt
                 || _menuDepthRight.width != width || _menuDepthRight.height != height
                 || expanded != (_menuDepthCarrierLeft != null))
             {
                 ReleaseMenuDepthScreen();
-                _menuDepthRight = MenuDepthTarget(_uiRt, width, height, "Right");
-                if (expanded) _menuDepthCarrierLeft = MenuDepthTarget(_uiRt, width, height, "Left");
+                _menuDepthRight = MenuDepthTarget(_uiRt, width, height, "Right", headRaster: true);
+                if (expanded) _menuDepthCarrierLeft = MenuDepthTarget(_uiRt, width, height, "Left", headRaster: true);
                 _menuDepthLeft = _uiRt;
             }
             _menuDepthFrameUv = frame;
@@ -166,8 +169,12 @@ internal sealed partial class FlatScreen
             }
             CaptureMenuDepthUi(_menuDepthCarrierLeft ?? _uiRt, new MenuDepthEye(false, left, head));
             CaptureMenuDepthUi(_menuDepthRight!, new MenuDepthEye(true, right, head));
-            _menuDepthCarrier ??= new MenuDepthDesktopCarrier(_quad.transform, _glassMaterial,
-                _menuDepthCarrierLeft ?? _uiRt, _menuDepthRight!);
+            _menuDepthHeadMaterial ??= MenuDepthDisplay.CreateDisplayMaterial(_menuDepthCarrierLeft!, _menuDepthRight!);
+            if (_glassMaterial.HasProperty("_Color")) _menuDepthHeadMaterial.SetColor("_Color", _glassMaterial.GetColor("_Color"));
+            MenuDepthDisplay.SetHeadCapture(_menuDepthHeadMaterial, _menuDepthCarrierLeft!, _menuDepthRight!,
+                new MenuDepthEye(false,left,head), new MenuDepthEye(true,right,head), _quad.transform.position,
+                Vector3.Cross(_quad.transform.TransformVector(Vector3.right),_quad.transform.TransformVector(Vector3.up)).normalized);
+            _menuDepthHeadCarrier ??= new MenuDepthHeadCarrier(_quad.transform, _menuDepthHeadMaterial);
             // The visual replacement must exist before head culling. PreRender
             // still selects the actual eye, but cannot admit an inactive mesh.
             BeforeMenuDepthHead(head);
@@ -212,10 +219,17 @@ internal sealed partial class FlatScreen
                 {
                     bool rear = _quad != null && Vector3.Dot(eye.WorldPosition - _quad.transform.position, _quad.transform.forward) > 0f;
                     depthScope = new MenuDepthNativeUiScope(source, MenuDepthNativeUiScope.FindCanvas(source, _menuDepthGraphics), rear);
+                    using var headScope = MenuDepthHeadRaster.Begin(new Vector2Int(target.width,target.height));
                     MenuDepthSources.BeforeCaptureWhere(eye, _menuDepthApplies!, _menuDepthMapper!, _menuDepthPixels!);
                     if (VRLayers.ModLayerMask != VRLayers.GameUiLayerMask) source.cullingMask &= ~VRLayers.ModLayerMask;
                     if (MenuDepthSources.HasPreparedSources) Canvas.ForceUpdateCanvases();
-                    depthScope.ExpandCapture(target, _menuDepthFrameUv, _menuDepthGraphics);
+                    Canvas? canvas = MenuDepthNativeUiScope.FindCanvas(source, _menuDepthGraphics);
+                    if (canvas == null || !MenuDepthScreenProjection.TryMap(_quad!.transform, source, (RectTransform)canvas.transform,
+                        eye.WorldPosition, out Vector3 nativeEye, out Matrix4x4 nativeToPhysical))
+                        throw new InvalidOperationException("The original UI root has no physical head mapping.");
+                    var mapped = new MenuDepthEye(eye.Right, nativeEye, eye.HeadCamera, false,
+                        worldToHeadClip: eye.WorldToHeadClip * nativeToPhysical);
+                    depthScope.HeadCapture(target, mapped, _menuDepthGraphics);
                     source.Render();
                 }
                 finally
@@ -249,7 +263,7 @@ internal sealed partial class FlatScreen
             || !MenuDepthScreenProjection.TryMap(_quad.transform, _menuDepthBorrowedCamera, graphic.rectTransform,
                 _menuDepthEye.WorldPosition, out Vector3 position, out Matrix4x4 nativeToPhysical))
             throw new InvalidOperationException("The original menu graphic has no valid physical eye mapping.");
-        return new MenuDepthEye(_menuDepthEye.Right, position, _menuDepthEye.HeadCamera, true,
+        return new MenuDepthEye(_menuDepthEye.Right, position, _menuDepthEye.HeadCamera, false,
             worldToHeadClip: _menuDepthEye.WorldToHeadClip * nativeToPhysical);
     }
 
@@ -259,19 +273,20 @@ internal sealed partial class FlatScreen
         _glassMaterial.mainTexture = _menuDepthFrame == Time.frameCount
             && camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right ? _menuDepthRight : _menuDepthCarrierLeft ?? _uiRt;
         bool right = camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right;
-        if (_menuDepthFrame == Time.frameCount && _menuDepthCarrier != null)
-            _menuDepthCarrier.Draw((RenderTexture)_glassMaterial.mainTexture, _menuDepthFrameUv,
-                right ? _menuDepthPhysicalScale.y : _menuDepthPhysicalScale.x);
+        if (_menuDepthFrame == Time.frameCount) _menuDepthHeadCarrier?.Draw(camera);
     }
     private void AfterMenuDepthHead(Camera camera)
     {
         if (camera != Rig.VRRigDriver.HeadCamera) return;
-        _menuDepthCarrier?.EndDraw();
+        _menuDepthCarrier?.EndDraw(); _menuDepthHeadCarrier?.EndDraw();
         if (_glassMaterial != null && _uiRt != null) _glassMaterial.mainTexture = _uiRt;
     }
     private void ReleaseMenuDepthScreen()
     {
         _menuDepthCarrier?.Dispose(); _menuDepthCarrier = null;
+        _menuDepthHeadCarrier?.Dispose(); _menuDepthHeadCarrier = null;
+        if (_menuDepthHeadMaterial != null) MenuDepthDisplay.ReleaseDisplayMaterial(_menuDepthHeadMaterial);
+        _menuDepthHeadMaterial = null;
         if (_glassMaterial != null) _glassMaterial.mainTexture = _uiRt;
         if (_menuDepthCarrierLeft != null) { _menuDepthCarrierLeft.Release(); UnityEngine.Object.Destroy(_menuDepthCarrierLeft); }
         _menuDepthCarrierLeft = null;

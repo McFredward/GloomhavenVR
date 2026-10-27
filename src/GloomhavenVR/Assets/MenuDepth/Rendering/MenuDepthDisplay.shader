@@ -43,7 +43,9 @@ Shader "GloomhavenVR/MenuDepthDisplay"
         float4 _ClipRect, _GvrDisplayRect, _GvrOriginalGlassUV, _GvrGlassDepth;
         float4x4 _GvrDisplayLocalToWorld;
         float3 _GvrPlanePoint, _GvrPlaneNormal;
-        float _GvrDisplayActive, _GvrCaptureDepthActive;
+        float _GvrDisplayActive, _GvrCaptureDepthActive, _GvrHeadRaster;
+        float4x4 _GvrHeadInverseLeft, _GvrHeadInverseRight;
+        float3 _GvrHeadEyeLeft, _GvrHeadEyeRight;
         float _UIMaskSoftnessX, _UIMaskSoftnessY, _GvrMenuDepthEye;
         v2f vert(appdata v)
         {
@@ -59,14 +61,51 @@ Shader "GloomhavenVR/MenuDepthDisplay"
             float4 rect = clamp(_ClipRect, -2e10, 2e10);
             o.mask = float4(v.vertex.xy * 2 - rect.xy - rect.zw,
                 0.25 / (0.25 * half2(_UIMaskSoftnessX, _UIMaskSoftnessY) + abs(pixelSize.xy)));
-            o.color = v.color * _Color; o.uv = v.uv; return o;
+            o.color = v.color * _Color; o.uv = v.uv;
+            if (_GvrHeadRaster > .5)
+            {
+                o.vertex = float4(v.uv * 2 - 1, 0, 1);
+                o.vertex.y *= _ProjectionParams.x;
+            }
+            return o;
         }
         output sample(v2f i, bool depthOnly)
         {
             bool right = _GvrMenuDepthEye > .5;
             bool foreground = false;
             output result; result.depth = i.vertex.z;
-            if (_GvrCaptureDepthActive > .5)
+            if (_GvrHeadRaster > .5)
+            {
+                float raw = right ? SAMPLE_DEPTH_TEXTURE(_GvrDepthRight, i.uv) : SAMPLE_DEPTH_TEXTURE(_GvrDepthLeft, i.uv);
+                bool valid;
+                #if defined(UNITY_REVERSED_Z)
+                    valid = raw > 0.000001;
+                #else
+                    valid = raw < 0.999999;
+                #endif
+                float z = raw;
+                #if !defined(UNITY_REVERSED_Z)
+                    z = lerp(UNITY_NEAR_CLIP_VALUE, 1, z);
+                #endif
+                float4x4 inverseVP = right ? _GvrHeadInverseRight : _GvrHeadInverseLeft;
+                float3 eye = right ? _GvrHeadEyeRight : _GvrHeadEyeLeft;
+                float4 position = mul(inverseVP, float4(i.uv * 2 - 1, z, 1)); position /= position.w;
+                float side = dot(eye - _GvrPlanePoint, _GvrPlaneNormal) < 0 ? -1 : 1;
+                foreground = valid && dot(position.xyz - _GvrPlanePoint, _GvrPlaneNormal) * side > .000001;
+                if (foreground) result.depth = raw;
+                else
+                {
+                    float3 ray = position.xyz - eye;
+                    float denominator = dot(ray, _GvrPlaneNormal);
+                    float along = dot(_GvrPlanePoint - eye, _GvrPlaneNormal) / denominator;
+                    float4 glass = mul(UNITY_MATRIX_VP, float4(eye + ray * along, 1));
+                    result.depth = glass.z / glass.w;
+                    #if defined(SHADER_API_GLCORE) || defined(SHADER_API_GLES) || defined(SHADER_API_GLES3)
+                        result.depth = result.depth * .5 + .5;
+                    #endif
+                }
+            }
+            else if (_GvrCaptureDepthActive > .5)
             {
                 float raw = right ? SAMPLE_DEPTH_TEXTURE(_GvrDepthRight, i.uv) : SAMPLE_DEPTH_TEXTURE(_GvrDepthLeft, i.uv);
                 float glass = right ? _GvrGlassDepth.y : _GvrGlassDepth.x;
