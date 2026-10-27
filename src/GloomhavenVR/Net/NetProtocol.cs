@@ -629,7 +629,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 725;
+    public const ushort ModBuild = 726;
+
+    // ModBuild726 — common character units, rear cabinet views and encounter travel audio.
+    // The725 hardware review asks for one shared model scale/ground axis, preserving
+    // intrinsic short/tall bodies instead of fitting each equipment/companion envelope.
+    // Use the completed native main actor's authored origin and a common scene metric;
+    // preserve native transforms/animation, tracked perspective and bounded sampling.
+    // Rear window eyes receive the model's actual back through a finally-restored
+    // reflected view, including native-screen UI mapping. Keep725 discovery/capture
+    // ownership and accepted story/video resources intact.
+    // Native travel starts a scheduled moving loop before a road encounter and starts
+    // it again on continuation without retiring the first request. Replace only that
+    // flow's concrete owned audio objects before the next native producer; keep native
+    // callbacks, multichannel groups, unrelated audio and flat behavior authoritative.
+    // Source/native-fixture evidence and new headset outcomes remain separate; see
+    // .planning/MENU726-COMMON-CHARACTERS-AND-TRAVEL.md.
 
     // ModBuild725 — address the Build724 character framing and pulsed-flight report.
     // Replace quarter-second UI hierarchy/global preview sweeps with pooled cold

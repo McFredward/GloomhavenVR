@@ -53,6 +53,7 @@ internal sealed class WorldUIModule : IVRModule
         MapRoom.MapQuestReadyUp.Install();
         MapRoom.MapQuestDepartureValidation.Install();
         MapRoom.MapRetirementPrompt.Install();
+        MapRoom.NativeMapTravelAudio.Install();
 
         // The town bank is large and optional. Start its Unity async requests while
         // the player is still in the menu, before the first map frame can create NPCs.
