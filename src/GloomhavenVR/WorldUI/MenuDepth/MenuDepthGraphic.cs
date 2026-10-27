@@ -15,20 +15,21 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
 {
     private readonly List<UIVertex> _input = new(96);
     private readonly List<UIVertex> _stream = new(96);
-    private readonly List<UIVertex> _grid = new(4096);
-    private readonly List<int> _triangles = new(16000);
+    private readonly List<UIVertex> _grid = new();
+    private readonly List<int> _triangles = new();
     private Image? _image;
     private Sprite? _sprite;
     private MenuDepthHeightfield? _field;
     private float _depthRatio;
     private Vector4 _depthUv = new(1f, 1f, 0f, 0f);
-    private bool _configured;
+    private bool _configured, _planeOnly;
+    private readonly List<MenuDepthCardPlane> _planeOwners = new(2);
     private bool _projected;
     private Vector3 _eye;
     private Material? _baseMaterial, _depthMaterial;
     private Material? _nativeMaterial;
     private Shader? _nativeShader;
-    private bool _nativeDissolve;
+    private bool _nativeDissolve, _nativeCardMaterial;
     private static readonly int DissolveId = Shader.PropertyToID("_GvrMenuDepthDissolve");
     private static readonly int SourceBlendId = Shader.PropertyToID("_GvrMenuDepthSrcBlend");
     private static readonly int MaskId = Shader.PropertyToID("_Mask");
@@ -38,12 +39,49 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
 
     public Graphic Graphic => graphic;
     public bool IsReady => _configured && IsActive() && _image != null && (_field == null || _sprite != null)
-        && _image.overrideSprite == _sprite && (_field == null || MenuDepthDisplay.DepthShader != null);
+        && _image.overrideSprite == _sprite && (_field == null || MenuDepthDisplay.DepthShader != null)
+        && (!_planeOnly || HasPlaneOwner(false));
 
     internal void Configure(Image image, MenuDepthHeightfield? field, float depthRatio)
         => ConfigureMapped(image, field, depthRatio, new Vector4(1f, 1f, 0f, 0f));
 
     internal void ConfigureMapped(Image image, MenuDepthHeightfield? field, float depthRatio, Vector4 depthUv)
+    {
+        _planeOnly = false; ConfigureCore(image, field, depthRatio, depthUv);
+    }
+
+    internal void ConfigurePlaneOcclusion(Image image, MenuDepthCardPlane owner)
+    {
+        if (!_planeOwners.Contains(owner)) _planeOwners.Add(owner);
+        if (!_configured || _planeOnly)
+        {
+            _planeOnly = true;
+            ConfigureCore(image, null, 0f, new Vector4(1f,1f,0f,0f));
+        }
+        if (MenuDepthHeadRaster.Active) image.SetMaterialDirty();
+    }
+
+    internal void ReleasePlaneOcclusion(MenuDepthCardPlane owner)
+    {
+        _planeOwners.Remove(owner);
+        if (graphic != null) graphic.SetMaterialDirty();
+        if (_planeOnly && _planeOwners.Count == 0) { MenuDepthSources.Unregister(this); ReleaseMaterial(); }
+    }
+
+    internal void EndPlaneCapture() { if (graphic != null) graphic.SetMaterialDirty(); }
+
+    private bool HasPlaneOwner(bool borrowed)
+    {
+        for (int i = 0; i < _planeOwners.Count; i++)
+        {
+            MenuDepthCardPlane owner = _planeOwners[i];
+            if (owner != null && owner.OwnsDepthGraphic(graphic)
+                && (borrowed ? owner.HasHeadLease : owner.IsReady || owner.HasHeadLease)) return true;
+        }
+        return false;
+    }
+
+    private void ConfigureCore(Image image, MenuDepthHeightfield? field, float depthRatio, Vector4 depthUv)
     {
         Sprite current = image.overrideSprite;
         if (_configured && _image == image && _sprite == current && ReferenceEquals(_field, field)
@@ -90,8 +128,14 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
 
     public Material GetModifiedMaterial(Material original)
     {
-        if (!IsReady || _field == null) return original;
-        Shader? shader = MenuDepthDisplay.DepthShader;
+        bool plane = MenuDepthHeadRaster.Active && HasPlaneOwner(true);
+        if (!IsReady || (_field == null && !plane)) return original;
+        // Only the native colour contracts covered by the existing renderer
+        // can transport a raised plane; other shaders keep their own material.
+        string sourceName = original.shader.name;
+        bool nativeCard = plane && sourceName == "GUI/AbilityCard_Shd";
+        if (_field == null && sourceName != "UI/Default" && sourceName != "UI/Dissolve mask" && !nativeCard) return original;
+        Shader? shader = nativeCard ? MenuDepthDisplay.NativeCardShader : MenuDepthDisplay.DepthShader;
         if (shader == null) return original;
         if (_depthMaterial == null || _baseMaterial != original)
         {
@@ -99,14 +143,24 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
             _baseMaterial = original;
             _depthMaterial = new Material(shader) { name = "GloomhavenVR.MenuDepthGraphic", hideFlags = HideFlags.HideAndDontSave };
         }
+        if (_depthMaterial.shader != shader) _depthMaterial.shader = shader;
         _depthMaterial.CopyPropertiesFromMaterial(original);
+        _nativeCardMaterial = nativeCard;
+        if (nativeCard)
+        {
+            // Exact original DXBC and effect properties; only the derived pass's
+            // depth write differs. Its existing alpha-clip variant rejects empty
+            // animated sprite ink instead of writing a rectangular depth blocker.
+            _depthMaterial.EnableKeyword("UNITY_UI_ALPHACLIP");
+            return _depthMaterial;
+        }
         SyncNativeEffect();
         return _depthMaterial;
     }
 
     private void SyncNativeEffect()
     {
-        if (_depthMaterial == null || _image == null) return;
+        if (_depthMaterial == null || _image == null || _nativeCardMaterial) return;
         Material source = _image.material;
         Shader shader = source.shader;
         if (_nativeMaterial != source || _nativeShader != shader)
@@ -185,6 +239,10 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
             if (float.IsNaN(_stream[i].uv0.x) || float.IsInfinity(_stream[i].uv0.x)
                 || float.IsNaN(_stream[i].uv0.y) || float.IsInfinity(_stream[i].uv0.y))
             { Refuse("non-finite native image UVs"); return false; }
+        // Card-plane helpers never build a heightfield. Retain the warm buffers
+        // only once an actual image relief needs them.
+        if (_grid.Capacity < 4096) _grid.Capacity = 4096;
+        if (_triangles.Capacity < 16000) _triangles.Capacity = 16000;
         int columns = Mathf.Clamp(Mathf.CeilToInt(_image!.rectTransform.rect.width / 24f), 8, 64);
         int rows = Mathf.Clamp(Mathf.CeilToInt(_image.rectTransform.rect.height / 24f), 8, 40);
         float depth = _image.rectTransform.rect.width * _depthRatio;
@@ -247,7 +305,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
     {
         if (_depthMaterial != null) UnityEngine.Object.Destroy(_depthMaterial);
         _depthMaterial = _baseMaterial = null;
-        _nativeMaterial = null; _nativeShader = null; _nativeDissolve = false;
+        _nativeMaterial = null; _nativeShader = null; _nativeDissolve = _nativeCardMaterial = false;
     }
     private static void Refuse(string reason)
     {

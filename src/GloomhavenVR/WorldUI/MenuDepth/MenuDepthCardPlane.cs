@@ -20,11 +20,50 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     private MenuDepthCardPlane? _parentPlane;
     private IReadOnlyList<Graphic> _backgrounds = Array.Empty<Graphic>();
     private Vector3 _position, _scale;
-    private bool _borrowed, _configured;
+    private bool _borrowed, _configured, _headCapture;
+    private Transform? _headParent;
+    private Canvas? _headNativeCanvas;
     private const float DepthWidthRatio = .035f;
     private const float ItemDepthWidthRatio = .065f;
     private const float FullDepthWidthRatio = .065f;
     private float _depthWidthRatio;
+    private readonly List<(Image Image, MenuDepthGraphic Surface)> _depthSurfaces = new(6);
+
+    internal bool OwnsDepthGraphic(Graphic graphic)
+    {
+        if (_card == null || graphic == null || !graphic.transform.IsChildOf(_card)) return false;
+        for (int i = 0; i < _backgrounds.Count; i++) if (ReferenceEquals(_backgrounds[i], graphic)) return true;
+        return false;
+    }
+    internal bool HasHeadLease => MenuDepthHeadRaster.Active && _headCapture && isActiveAndEnabled
+        && _owner != null && _owner.gameObject.activeInHierarchy && _card != null && _card.gameObject.activeInHierarchy
+        && _card.parent == _headParent && Printed() != null
+        && (Eligible() || (_headNativeCanvas != null && _headNativeCanvas.isActiveAndEnabled
+            && _card.IsChildOf(_headNativeCanvas.transform)))
+        && (_borrowed || (_parentPlane != null && _parentPlane._card != null
+            && _card.IsChildOf(_parentPlane._card) && _parentPlane.HasHeadLease));
+
+    private void RebindDepthSurfaces()
+    {
+        bool same = _backgrounds.Count == _depthSurfaces.Count;
+        for (int i = 0; same && i < _depthSurfaces.Count; i++)
+            same = ReferenceEquals(_backgrounds[i], _depthSurfaces[i].Image) && _depthSurfaces[i].Surface != null;
+        if (same)
+        {
+            for (int i = 0; i < _depthSurfaces.Count; i++)
+                if (_depthSurfaces[i].Surface != null) _depthSurfaces[i].Surface.EndPlaneCapture();
+            return;
+        }
+        for (int i = 0; i < _depthSurfaces.Count; i++)
+            if (_depthSurfaces[i].Surface != null) _depthSurfaces[i].Surface.ReleasePlaneOcclusion(this);
+        _depthSurfaces.Clear();
+        for (int i = 0; i < _backgrounds.Count; i++)
+            if (_backgrounds[i] is Image image && image != null)
+            {
+                MenuDepthGraphic surface = image.GetComponent<MenuDepthGraphic>() ?? image.gameObject.AddComponent<MenuDepthGraphic>();
+                surface.ConfigurePlaneOcclusion(image, this); _depthSurfaces.Add((image, surface));
+            }
+    }
 
     public Graphic Graphic => Printed() ?? _backgrounds[0];
     public IReadOnlyList<Graphic> DepthGraphics => _backgrounds;
@@ -47,7 +86,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     {
         _window = window;
         if (backgrounds.Count != 0) _backgrounds = backgrounds;
-        RebindParent();
+        RebindParent(); RebindDepthSurfaces();
     }
 
     internal void RebindParent() => _parentPlane = _card != null && _card.parent != null
@@ -86,7 +125,17 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     public void BeforeCapture(MenuDepthEye eye)
     {
         AfterCapture();
-        if (!IsReady || _card == null || (_parentPlane != null && _parentPlane.IsReady)) return;
+        if (!IsReady || _card == null) return;
+        _headCapture = MenuDepthHeadRaster.Active;
+        _headParent = _card.parent;
+        Canvas canvas = Graphic.canvas;
+        _headNativeCanvas = canvas != null && canvas.rootCanvas != null
+            && canvas.rootCanvas.renderMode != RenderMode.WorldSpace ? canvas.rootCanvas : null;
+        RebindDepthSurfaces();
+        for (int i = 0; i < _depthSurfaces.Count; i++)
+            if (_depthSurfaces[i].Surface != null && _depthSurfaces[i].Image != null)
+                _depthSurfaces[i].Surface.ConfigurePlaneOcclusion(_depthSurfaces[i].Image, this);
+        if (_parentPlane != null && _parentPlane.IsReady) return;
         float xScale = _card.TransformVector(Vector3.right).magnitude;
         float yScale = _card.TransformVector(Vector3.up).magnitude;
         float zScale = _card.TransformVector(Vector3.forward).magnitude;
@@ -118,6 +167,10 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
 
     public void AfterCapture()
     {
+        _headCapture = false;
+        _headParent = null; _headNativeCanvas = null;
+        for (int i = 0; i < _depthSurfaces.Count; i++)
+            if (_depthSurfaces[i].Surface != null) _depthSurfaces[i].Surface.EndPlaneCapture();
         if (!_borrowed) return;
         _borrowed = false;
         if (_card != null) { _card.localPosition = _position; _card.localScale = _scale; }
@@ -126,7 +179,15 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     private void OnEnable()
     { if (_configured) MenuDepthSources.Register(this); }
     private void OnDisable()
-    { AfterCapture(); MenuDepthSources.Unregister(this); }
+    {
+        AfterCapture(); MenuDepthSources.Unregister(this);
+        for (int i = 0; i < _depthSurfaces.Count; i++)
+            if (_depthSurfaces[i].Surface != null) _depthSurfaces[i].Surface.ReleasePlaneOcclusion(this);
+    }
     private void OnDestroy()
-    { AfterCapture(); MenuDepthSources.Unregister(this); }
+    {
+        AfterCapture(); MenuDepthSources.Unregister(this);
+        for (int i = 0; i < _depthSurfaces.Count; i++)
+            if (_depthSurfaces[i].Surface != null) _depthSurfaces[i].Surface.ReleasePlaneOcclusion(this);
+    }
 }

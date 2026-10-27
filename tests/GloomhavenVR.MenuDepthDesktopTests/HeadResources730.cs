@@ -12,11 +12,12 @@ using Object = UnityEngine.Object;
 
 public static partial class MenuDepthDesktopProgram
 {
-    private sealed class HeadAnnotation730 : IMenuDepthSource
+    private sealed class HeadAnnotation730 : IMenuDepthWindowAnnotationSource
     {
         public Graphic Graphic { get; }
         public bool IsReady => Graphic != null && Graphic.isActiveAndEnabled;
-        internal HeadAnnotation730(Graphic graphic) => Graphic = graphic;
+        public RectTransform AnnotationRect { get; }
+        internal HeadAnnotation730(Graphic graphic, RectTransform? rect = null) { Graphic = graphic; AnnotationRect = rect ?? graphic.rectTransform; }
         public void BeforeCapture(MenuDepthEye eye) { }
         public void AfterCapture() { }
     }

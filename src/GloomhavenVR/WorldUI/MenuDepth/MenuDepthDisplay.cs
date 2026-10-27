@@ -17,15 +17,20 @@ internal sealed class MenuDepthDisplay : IDisposable
     private const string DisplayShaderPath = "assets/menudepth/menudepthdisplay.shader";
     private const string DepthShaderPath = "assets/menudepth/menudepthgraphic.shader";
     private const string CharacterShaderPath = "assets/menudepth/menudepthcharacter.shader";
+    private const string NativeCardShaderPath = "assets/menudepth/menudepthnativecard.shader";
     private static readonly int EyeId = Shader.PropertyToID("_GvrMenuDepthEye");
     private static readonly int RightTextureId = Shader.PropertyToID("_RightTex");
     private static readonly Stack<int> PreviousEyes = new(4);
     private static readonly List<Graphic> BoundGraphics = new(16);
     private static readonly List<MenuDepthDisplay> HeadDisplays = new(8);
+    private static readonly List<IMenuDepthWindowAnnotationSource> WindowAnnotations = new(8);
+    private static readonly Matrix4x4[] AnnotationInverses = new Matrix4x4[8];
+    private static readonly Vector4[] AnnotationRects = new Vector4[8];
     private static AssetBundle? _bundle;
     private static Shader? _displayShader;
     private static Shader? _depthShader;
     private static Shader? _characterShader;
+    private static Shader? _nativeCardShader;
     private static string? _loadFailure;
     private static Camera? _capturingCamera;
     private static int _liveDisplays;
@@ -54,6 +59,16 @@ internal sealed class MenuDepthDisplay : IDisposable
     internal static Shader? CharacterShader
     {
         get { TryLoad(out _); return _characterShader; }
+    }
+
+    internal static Shader? NativeCardShader
+    {
+        get
+        {
+            if (!TryLoad(out _)) return null;
+            if (_nativeCardShader == null && _bundle != null) _nativeCardShader = _bundle.LoadAsset<Shader>(NativeCardShaderPath);
+            return _nativeCardShader != null && _nativeCardShader.isSupported ? _nativeCardShader : null;
+        }
     }
 
     internal static Shader RequireCharacterShader()
@@ -184,6 +199,8 @@ internal sealed class MenuDepthDisplay : IDisposable
             SetHeadCapture(_material, _headLeft!, _headRight!, left, right,
                 plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
                 Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized);
+            MenuDepthSources.CollectWindowAnnotations(WindowAnnotations, plane);
+            SetHeadClip(_material, plane.worldToLocalMatrix, frame, WindowAnnotations);
             _headCamera = left.HeadCamera;
             _headCarrier ??= new MenuDepthHeadCarrier(_image, _material);
             if (!HeadDisplays.Contains(this)) HeadDisplays.Add(this);
@@ -213,6 +230,29 @@ internal sealed class MenuDepthDisplay : IDisposable
         material.SetVector("_GvrHeadEyeLeft", leftEye.WorldPosition); material.SetVector("_GvrHeadEyeRight", rightEye.WorldPosition);
         material.SetVector("_GvrPlanePoint", point); material.SetVector("_GvrPlaneNormal", normal);
     }
+    internal static void SetHeadClip(Material material, Matrix4x4 worldToFrame, Rect frame,
+        IReadOnlyList<IMenuDepthWindowAnnotationSource> annotations,
+        Func<IMenuDepthWindowAnnotationSource, Matrix4x4>? nativeToPhysical = null)
+    {
+        int count = 0;
+        for (int i = 0; i < annotations.Count && count < AnnotationInverses.Length; i++)
+        {
+            IMenuDepthWindowAnnotationSource source = annotations[i];
+            RectTransform rect = source.AnnotationRect;
+            if (rect == null || rect.rect.width <= 0f || rect.rect.height <= 0f) continue;
+            Matrix4x4 toPhysical = nativeToPhysical?.Invoke(source) ?? Matrix4x4.identity;
+            AnnotationInverses[count] = rect.worldToLocalMatrix * toPhysical.inverse;
+            Rect r = rect.rect;
+            AnnotationRects[count] = new Vector4(r.xMin,r.yMin,r.xMax,r.yMax); count++;
+        }
+        material.SetMatrix("_GvrHeadGlassInverse", worldToFrame);
+        material.SetVector("_GvrHeadGlassRect", new Vector4(frame.xMin,frame.yMin,frame.xMax,frame.yMax));
+        material.SetMatrixArray("_GvrHeadAnnotationInverse", AnnotationInverses);
+        material.SetVectorArray("_GvrHeadAnnotationRects", AnnotationRects);
+        material.SetFloat("_GvrHeadAnnotationCount", count);
+        material.SetFloat("_GvrHeadClipActive", 1f);
+    }
+
     private static Matrix4x4 GpuClip(MenuDepthEye eye)
     {
         Camera head = eye.HeadCamera;

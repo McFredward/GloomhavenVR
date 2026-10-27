@@ -45,6 +45,9 @@ Shader "GloomhavenVR/MenuDepthDisplay"
         float3 _GvrPlanePoint, _GvrPlaneNormal;
         float _GvrDisplayActive, _GvrCaptureDepthActive, _GvrHeadRaster;
         float4x4 _GvrHeadInverseLeft, _GvrHeadInverseRight;
+        float4x4 _GvrHeadGlassInverse, _GvrHeadAnnotationInverse[8];
+        float4 _GvrHeadGlassRect, _GvrHeadAnnotationRects[8];
+        float _GvrHeadClipActive, _GvrHeadAnnotationCount;
         float3 _GvrHeadEyeLeft, _GvrHeadEyeRight;
         float _UIMaskSoftnessX, _UIMaskSoftnessY, _GvrMenuDepthEye;
         v2f vert(appdata v)
@@ -69,6 +72,16 @@ Shader "GloomhavenVR/MenuDepthDisplay"
             }
             return o;
         }
+        bool rayInside(float4x4 inverseFrame, float4 rect, float3 eye, float3 position)
+        {
+            float3 origin = mul(inverseFrame, float4(eye, 1)).xyz;
+            float3 destination = mul(inverseFrame, float4(position, 1)).xyz;
+            float3 ray = destination - origin;
+            if (abs(ray.z) < .00000001) return false;
+            float along = -origin.z / ray.z;
+            float2 plane = origin.xy + ray.xy * along;
+            return along >= 0 && all(plane >= rect.xy) && all(plane <= rect.zw);
+        }
         output sample(v2f i, bool depthOnly)
         {
             bool right = _GvrMenuDepthEye > .5;
@@ -92,6 +105,19 @@ Shader "GloomhavenVR/MenuDepthDisplay"
                 float4 position = mul(inverseVP, float4(i.uv * 2 - 1, z, 1)); position /= position.w;
                 float side = dot(eye - _GvrPlanePoint, _GvrPlaneNormal) < 0 ? -1 : 1;
                 foreground = valid && (abs(dot(eye-_GvrPlanePoint,_GvrPlaneNormal)) < .00001 || dot(position.xyz - _GvrPlanePoint, _GvrPlaneNormal) * side > .000001);
+                if (_GvrHeadClipActive > .5 && !foreground
+                    && !rayInside(_GvrHeadGlassInverse, _GvrHeadGlassRect, eye, position.xyz))
+                {
+                    fixed alpha = right ? tex2D(_RightTex, i.uv).a : tex2D(_MainTex, i.uv).a;
+                    if (alpha * i.color.a <= .001) discard;
+                    bool annotation = false;
+                    for (int a = 0; a < 8; a++)
+                    {
+                        if (a >= _GvrHeadAnnotationCount) break;
+                        annotation = annotation || rayInside(_GvrHeadAnnotationInverse[a], _GvrHeadAnnotationRects[a], eye, position.xyz);
+                    }
+                    if (!annotation) discard;
+                }
                 if (foreground) result.depth = raw;
                 else
                 {

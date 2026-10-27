@@ -125,10 +125,9 @@ public static partial class MenuDepthDesktopProgram
             var tip=originalPlate.GetComponent<RawImage>();tip.texture=texture;tip.rectTransform.sizeDelta=new Vector2(600,100);
             var nativeText=new GameObject("exact native description Graphic child",typeof(RectTransform),typeof(CanvasRenderer),typeof(Text));nativeText.layer=5;nativeText.transform.SetParent(tooltip.transform,false);
             var nativeLabel=nativeText.GetComponent<Text>();nativeLabel.font=Resources.GetBuiltinResource<Font>("Arial.ttf");nativeLabel.fontSize=40;nativeLabel.text="CHARACTER QUEST";nativeLabel.alignment=TextAnchor.MiddleCenter;nativeLabel.rectTransform.sizeDelta=new Vector2(600,100);
-            HeadAnnotation730? annotation=null;
+            HeadAnnotation730? annotation=new HeadAnnotation730(nativeLabel,tooltipRect);MenuDepthSources.Register(annotation);
             if(annotations)
             {
-                annotation=new HeadAnnotation730(nativeLabel);MenuDepthSources.Register(annotation);
                 Check(tooltip.GetComponent<Graphic>()==null&&ReferenceEquals(annotation.Graphic,nativeLabel),"native annotation membership uses the visible child of a root without Graphic");
                 WorldUIConfig.CharacterPreviewDepth.Value=route<2?false:true;
                 scene.ModelCamera.GetComponent<Character3DDisplayManager>().enabled=route<2;

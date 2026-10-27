@@ -121,6 +121,18 @@ internal static class MenuDepthSources
         }
     }
 
+    internal static void CollectWindowAnnotations(List<IMenuDepthWindowAnnotationSource> destination, Transform? root = null)
+    {
+        FlushPendingContent(); destination.Clear();
+        for (int i = 0; i < Sources.Count; i++)
+            if (Sources[i] is IMenuDepthWindowAnnotationSource annotation
+                && Visible(annotation.Graphic) && annotation.IsReady && annotation.AnnotationRect != null
+                && annotation.AnnotationRect.gameObject.activeInHierarchy
+                && annotation.Graphic.transform.IsChildOf(annotation.AnnotationRect)
+                && (root == null || annotation.Graphic.transform.IsChildOf(root)))
+                destination.Add(annotation);
+    }
+
     internal static void CollectReadyForegroundGraphics(List<Graphic> destination)
     {
         FlushPendingContent(); destination.Clear();

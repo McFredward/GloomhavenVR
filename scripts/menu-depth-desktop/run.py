@@ -66,7 +66,7 @@ def main():
         start = stack.index(signature); body += stack[start:stack.index(';', start) + 1] + '\n'
     names = ('IMenuDepthSource.cs', 'MenuDepthHeadRaster.cs', 'MenuDepthHeadCarrier.cs', 'MenuDepthEye.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs',
              'MenuDepthSources.cs', 'MenuDepthDisplay.cs', 'MenuDepthGraphic.cs', 'MenuDepthHeightfield.cs',
-             'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs', 'MenuDepthNativeUiScope.cs', 'MenuDepthDesktopCarrier.cs', 'MenuDepthDesktopResources.cs')
+             'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs', 'MenuDepthCardPlane.cs', 'MenuDepthNativeUiScope.cs', 'MenuDepthDesktopCarrier.cs', 'MenuDepthDesktopResources.cs')
     sources = {name: (depth / name).read_text() for name in names}
     # Rotation dispatch is proved by the dedicated real-input integration suite.
     # Rendering fixtures supply no pointer lifecycle; this explicit port keeps
@@ -93,6 +93,11 @@ internal static class MenuDepthCharacterRotation
     sources['MenuDepthDisplay.cs'] = replace_once(sources['MenuDepthDisplay.cs'],
         'head == null || !head.stereoEnabled', 'head == null || !global::DesktopEyeInput.Available')
     sources['MenuDepthDisplay.cs'] = sources['MenuDepthDisplay.cs'].replace('camera.stereoActiveEye', 'global::DesktopEyeInput.Read(camera)')
+    # Supply the actual stored XR views even when the editor has no provider.
+    # Projection remains the explicitly configured real mono lens for both eyes.
+    sources['MenuDepthEye.cs'] = replace_once(sources['MenuDepthEye.cs'],
+        'head.stereoEnabled ? head.GetStereoViewMatrix(side)',
+        'global::DesktopEyeInput.Available ? head.GetStereoViewMatrix(side)')
     sources['DesktopCapture.cs'] = sources['DesktopCapture.cs'].replace(
         'camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right',
         'global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right')
@@ -106,6 +111,17 @@ internal static class MenuDepthCharacterRotation
         ('head-raster4040', '', '', '', ''),
         ('head-resources730', '', '', '', ''),
         ('head-order730', '', '', '', ''),
+        ('head-card-edge732', '', '', '', ''),
+        ('head-native-card-edge732', '', '', '', ''),
+        ('head-native-card-alpha-lost732', 'MenuDepthGraphic.cs',
+         '_depthMaterial.EnableKeyword("UNITY_UI_ALPHACLIP");', '/* native empty sprite fragments write depth */',
+         'transparent native card corners do not grant ordinary off-window UI permission'),
+        ('head-card-plane-depth-lost732', 'MenuDepthGraphic.cs',
+         'bool plane = MenuDepthHeadRaster.Active && HasPlaneOwner(true);', 'bool plane = false;',
+         'the real head compositor preserves the accepted native card sprite outside its window frame'),
+        ('head-card-plane-unscoped732', 'MenuDepthCardPlane.cs',
+         'MenuDepthHeadRaster.Active && _headCapture && isActiveAndEnabled', 'MenuDepthHeadRaster.Active && isActiveAndEnabled',
+         'an unrelated head capture cannot adopt an already primed direct card material'),
         ('head-order-stale730','MenuDepthHeadCarrier.cs','        RefreshOrder();\n        float scale',
          '        /* stale constructor-time sorting */\n        float scale',
          'actual final head pixels follow native window focus sorting changes without reopening'),
@@ -177,13 +193,13 @@ internal static class MenuDepthCharacterRotation
          'return ReadOriginal == null ? _holder : ReadOriginal(_manager);', 'return _holder;',
          'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
         ('window-anchors-rear-rejected726', 'MenuDepthScreenProjection.cs',
-         'Mathf.Abs(Vector3.Dot(center - nativeEye, forward)) > 1e-5f',
-         'Vector3.Dot(center - nativeEye, forward) > 1e-5f',
+         '(allowCoplanar || Mathf.Abs(Vector3.Dot(center - nativeEye, forward)) > 1e-5f)',
+         '(Vector3.Dot(center - nativeEye, forward) > 1e-5f)',
          'the calibrated original renders both sampled eye targets from a mapped physical pixel demand'),
         ('window-anchors-native-image-effect', '', '', '', ''),
         ('window-anchors-ui-image-effect', '', '', '', ''),
         ('window-anchors-frozen-eye', 'MenuDepthScreenProjection.cs',
-         'Vector3 offset = physicalEye - physicalCenter;', 'Vector3 offset = -screen.forward * 2f;',
+         'Matrix4x4.TRS(physicalCenter, screen.rotation,', 'Matrix4x4.TRS(physicalCenter + screen.right * .15f, screen.rotation,',
          'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
         ('window-anchors-forced-full-viewport', 'MenuDepthScreenProjection.cs',
          'nativeEye = Vector3.zero;\n        nativeToPhysical = Matrix4x4.identity;\n        Rect viewport = original.rect;',
@@ -205,9 +221,9 @@ internal static class MenuDepthCharacterRotation
          '        if (camera != null && ReferenceEquals(camera, _menuDepthBorrowedCamera)) return;',
          '        /* injected: ordinary capture rewrites a borrowed right target */',
          'both original native UI cameras populate the borrowed eye target without ordinary-route overwrite'),
-        ('head-right-selection-lost', 'DesktopCapture.cs',
-         'MenuDepthDisplay.SetHeadCapture(_menuDepthHeadMaterial, _menuDepthCarrierLeft!, _menuDepthRight!,',
-         'MenuDepthDisplay.SetHeadCapture(_menuDepthHeadMaterial, _menuDepthRight!, _menuDepthCarrierLeft!,',
+        ('head-right-selection-lost', 'MenuDepthDisplay.cs',
+         'ApplyEye(global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right ? 1 : 0);',
+         'ApplyEye(0);',
          'actual head rendering selects the correct original glass eye before draw'),
         ('native-depth-projection-lost', 'MenuDepthGraphic.cs',
          'UIVertex vertex = _stream[i]; vertex.position.z += depth;',
@@ -262,7 +278,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else

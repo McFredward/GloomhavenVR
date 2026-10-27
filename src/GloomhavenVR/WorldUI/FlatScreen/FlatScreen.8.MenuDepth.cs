@@ -12,6 +12,8 @@ internal sealed partial class FlatScreen
     private readonly List<Graphic> _menuDepthGraphics = new(32);
     private readonly List<Graphic> _menuDepthBoundsGraphics = new(4);
     private readonly List<Camera> _menuDepthCameras = new(8);
+    private readonly List<IMenuDepthWindowAnnotationSource> _menuDepthAnnotations = new(8);
+    private Func<IMenuDepthWindowAnnotationSource, Matrix4x4>? _menuDepthAnnotationMapper;
     private RenderTexture? _menuDepthRight, _menuDepthLeft, _menuDepthCarrierLeft;
     private MenuDepthDesktopCarrier? _menuDepthCarrier;
     private MenuDepthHeadCarrier? _menuDepthHeadCarrier;
@@ -175,6 +177,16 @@ internal sealed partial class FlatScreen
             MenuDepthDisplay.SetHeadCapture(_menuDepthHeadMaterial, _menuDepthCarrierLeft!, _menuDepthRight!,
                 new MenuDepthEye(false,left,head), new MenuDepthEye(true,right,head), _quad.transform.position,
                 Vector3.Cross(_quad.transform.TransformVector(Vector3.right),_quad.transform.TransformVector(Vector3.up)).normalized);
+            MenuDepthSources.CollectWindowAnnotations(_menuDepthAnnotations);
+            for (int i = _menuDepthAnnotations.Count - 1; i >= 0; i--)
+            {
+                Camera? camera = NativeUiCamera(_menuDepthAnnotations[i].Graphic);
+                if (camera == null || !camera.isActiveAndEnabled || !CapturedSet.TryGetValue(camera, out CapturedCamera captured)
+                    || !captured.IsUi) _menuDepthAnnotations.RemoveAt(i);
+            }
+            _menuDepthAnnotationMapper ??= MapHeadAnnotation;
+            MenuDepthDisplay.SetHeadClip(_menuDepthHeadMaterial, _quad.transform.worldToLocalMatrix,
+                new Rect(-.5f,-.5f,1f,1f), _menuDepthAnnotations, _menuDepthAnnotationMapper);
             _menuDepthHeadCarrier ??= new MenuDepthHeadCarrier(_quad.transform, _menuDepthHeadMaterial);
             // The visual replacement must exist before head culling. PreRender
             // still selects the actual eye, but cannot admit an inactive mesh.
@@ -249,6 +261,17 @@ internal sealed partial class FlatScreen
             }
         }
         finally { _menuDepthBorrowedCamera = null; RenderTexture.active = active; }
+    }
+
+    private Matrix4x4 MapHeadAnnotation(IMenuDepthWindowAnnotationSource annotation)
+    {
+        Camera? source = NativeUiCamera(annotation.Graphic);
+        Canvas? canvas = source != null ? MenuDepthNativeUiScope.FindCanvas(source, _menuDepthGraphics) : null;
+        if (_quad == null || source == null || canvas == null || !MenuDepthScreenProjection.TryMap(_quad.transform, source,
+            (RectTransform)canvas.transform, _quad.transform.position,
+            out _, out Matrix4x4 nativeToPhysical, allowCoplanar: true))
+            throw new InvalidOperationException("The original native annotation has no physical window mapping.");
+        return nativeToPhysical;
     }
 
     private bool MenuDepthApplies(Graphic graphic) => NativeUiCamera(graphic) == _menuDepthBorrowedCamera;

@@ -24,6 +24,9 @@ public static class MenuDepthDesktopRunner
             UnityEditorInternal.InternalEditorUtility.AddTag("UICamera");
         depthBundle = AssetBundle.LoadFromFile(manifest.depthBundle);
         if(depthBundle==null)throw new Exception("Actual production depth bundle missing");
+        var optionalNative=depthBundle.LoadAsset<Shader>("assets/menudepth/menudepthnativecard.shader");
+        if(optionalNative==null||optionalNative.name!="GloomhavenVR/MenuDepthNativeCard")throw new Exception("Audited optional native card shader cannot load");
+        Debug.Log("Exact native card shader loaded; supported="+optionalNative.isSupported+" on "+SystemInfo.graphicsDeviceType+"; original programs are D3D11-only.");
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload | EnterPlayModeOptions.DisableSceneReload;
         writer = new StreamWriter(manifest.result);
@@ -50,6 +53,9 @@ public static class MenuDepthDesktopRunner
                 foreach(string part in new[]{"display","graphic","character"})
                     display.GetField(part=="graphic"?"_depthShader":"_"+part+"Shader",BindingFlags.Static|BindingFlags.NonPublic)
                         .SetValue(null,depthBundle.LoadAsset<Shader>("assets/menudepth/menudepth"+part+".shader"));
+                if(item.method=="HeadNativeCardEdge732")
+                    display.GetField("_nativeCardShader",BindingFlags.Static|BindingFlags.NonPublic)
+                        .SetValue(null,Shader.Find("GloomhavenVR/FixtureNativeCardDepth"));
                 routine = (IEnumerator)assembly.GetType("MenuDepthDesktopProgram")
                     .GetMethod(item.method).Invoke(null, new object[] { output, done });
             }

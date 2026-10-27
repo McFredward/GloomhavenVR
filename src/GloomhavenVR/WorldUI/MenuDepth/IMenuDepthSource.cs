@@ -16,6 +16,12 @@ internal interface IMenuDepthSource
     void AfterCapture();
 }
 
+/// <summary>One explicitly approved native hint outside the unchanged window frame.</summary>
+internal interface IMenuDepthWindowAnnotationSource : IMenuDepthSource
+{
+    RectTransform AnnotationRect { get; }
+}
+
 /// <summary>A source that renders into its own sampled texture and needs a per-consumer pixel demand.</summary>
 internal interface IMenuDepthSampledSource : IMenuDepthSource { }
 

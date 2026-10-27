@@ -14,6 +14,8 @@ public static class DesktopEyeInput
     public static Camera.MonoOrStereoscopicEye Read(Camera camera) => Right
         ? Camera.MonoOrStereoscopicEye.Right : Camera.MonoOrStereoscopicEye.Left;
 }
+public sealed class ItemCardUI : MonoBehaviour { }
+public sealed class FullAbilityCard : MonoBehaviour { }
 public sealed class Character3DDisplayManager : MonoBehaviour
 {
     private Transform character3DHolder = null!;
