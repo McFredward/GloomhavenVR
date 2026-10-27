@@ -181,6 +181,8 @@ internal sealed class WorldTooltips
     /// few frames instead of watching it jump to a fallback spot as it fades out.
     /// </summary>
     private RectTransform? _hoveredRect;
+    private bool _characterHintOnRight;
+    private Transform? _characterHintParent;
 
     /// <summary>The host decision last LOGGED (reference-compared, so the change-gated diagnostic
     /// allocates its line only when the answer actually changes — never per frame).</summary>
@@ -663,6 +665,12 @@ internal sealed class WorldTooltips
     private Vector3 ResolveMenuFrameCenter(RectTransform host, Quaternion rotation,
                                            float ttHalfW, float ttHalfH)
     {
+        // The maintainer's Build730 review explicitly seats character hints
+        // beside the RIGHT edge. Do not apply the ordinary inside/left flip:
+        // that puts their text back through the live character cabinet.
+        if (_characterHintOnRight)
+            return CharacterTooltipPlacement.RightCenter(host, rotation, _hoveredRect,
+                ttHalfW, ttHalfH, MenuPanelProudZ);
         Vector3 right = rotation * Vector3.right;
         Vector3 up = rotation * Vector3.up;
         // TOWARD the viewer: the floated panel's +Z points AWAY from the head (PanelPlacement
@@ -776,12 +784,20 @@ internal sealed class WorldTooltips
             {
                 _hostWindow = null; // hint gone for good — next hover decides afresh
                 _hoveredRect = null;
+                _characterHintOnRight = false;
+                _characterHintParent = null;
             }
             return;
         }
 
         Transform? hovered = _tooltip != null ? _tooltip.m_AnchorToTarget : null;
         ConvertedPanel? owner = ModalFallback.FindOwningWindow(hovered);
+        if (!ReferenceEquals(_hoveredRect, hovered) || !ReferenceEquals(_hostWindow, owner)
+            || !ReferenceEquals(_characterHintParent, hovered != null ? hovered.parent : null))
+        {
+            _characterHintOnRight = owner != null && CharacterTooltipPlacement.IsSharedHint(hovered as RectTransform);
+            _characterHintParent = hovered != null ? hovered.parent : null;
+        }
         _hostWindow = owner;
         _hoveredRect = hovered as RectTransform;
 
@@ -1934,6 +1950,9 @@ internal sealed class WorldTooltips
         // session a stale window reference (its panel is released by then), and the change-gated
         // diagnostic re-arms so the first decision after a restore is logged again.
         _hostWindow = null;
+        _hoveredRect = null;
+        _characterHintOnRight = false;
+        _characterHintParent = null;
         _hostLoggedWindow = null;
         _hostLoggedOnce = false;
 

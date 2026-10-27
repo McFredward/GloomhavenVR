@@ -409,6 +409,8 @@ internal static class TooltipOnWindow
     {
         public RectTransform Rect;
         public ConvertedPanel Owner;
+        public bool CharacterHintOnRight;
+        public RectTransform? CharacterHintAnchor;
 
         /// <summary>
         /// THE POOLED OWNER WHOSE TRANSFORM *IS* THE WIDGET'S HOME, when the family has one — and the
@@ -762,6 +764,7 @@ internal static class TooltipOnWindow
         ConvertedPanel? owner = ModalFallback.FindOwningWindow(rect);
         if (owner == null || !owner.IsAlive || owner.HostRect == null)
             return;
+        bool characterHint = CharacterTooltipPlacement.TryLocalHint(widget, out RectTransform? characterAnchor);
 
         // Flatten FIRST: the clamp measures the box's world corners, and a box that is still
         // carrying a stale pooled rotation would be measured at the wrong extent.
@@ -769,6 +772,15 @@ internal static class TooltipOnWindow
         // Then RAISE, and only then clamp — the clamp writes through the widget's own parent
         // basis, so it must be the last of the three and it must see the FINAL parent.
         string raiseNote = RaiseToWindowTop(rect, owner, homeOwner);
+        for (int i = 0; i < Raised.Count; i++)
+        {
+            RaiseRecord record = Raised[i];
+            if (!ReferenceEquals(record.Rect, rect)) continue;
+            record.CharacterHintOnRight = characterHint;
+            record.CharacterHintAnchor = characterHint ? characterAnchor : null;
+            Raised[i] = record;
+            break;
+        }
         // Pin the number on the SAME call that took the raise, so the very first frame of a hover is
         // already ordered correctly. The game creates the preview's Canvas immediately before calling
         // ChangeFullCardPosition, which is what brought us here, so there is a canvas to pin.
@@ -802,6 +814,13 @@ internal static class TooltipOnWindow
         float limY = Mathf.Max(0f, winHalfH - boxHalfH);
         float wantX = Mathf.Clamp(offX, -limX, limX);
         float wantY = Mathf.Clamp(offY, -limY, limY);
+        if (characterHint)
+        {
+            Vector3 beside = CharacterTooltipPlacement.RightCenter(host, hostRot, characterAnchor,
+                boxHalfW, boxHalfH, 0f) - winCenter;
+            wantX = Vector3.Dot(beside, right);
+            wantY = Vector3.Dot(beside, up);
+        }
 
         float dx = wantX - offX;
         float dy = wantY - offY;
@@ -833,7 +852,8 @@ internal static class TooltipOnWindow
             + $"inherits the window's plane, rotation and scale ({lossy.x:F5} m/px) by PARENTING "
             + "rather than by a pose this mod computes. Box "
             + $"{boxHalfW * 2f:F3}x{boxHalfH * 2f:F3} m in a {winHalfW * 2f:F3}x{winHalfH * 2f:F3} m "
-            + $"window; in-plane clamp {(corrected ? $"MOVED it by ({dx:F3}, {dy:F3}) m to keep it inside" : "was a no-op (already inside)")}. "
+            + $"window; {(characterHint ? "character annotation RIGHT of the fixed frame" : "in-plane clamp")} "
+            + $"{(corrected ? $"MOVED it by ({dx:F3}, {dy:F3}) m" : "was a no-op (already seated)")}. "
             + "The game's own screen-fit term is cut for this rect (see TooltipWindowPatches): "
             + "DeltaWorldPositionToFitTheScreen resolves BOTH of its screen bounds to the UI "
             + "camera's own position (ScreenToWorldPoint of a Vector2 carries z = 0, i.e. zero "
@@ -1848,6 +1868,11 @@ internal static class TooltipOnWindow
             // this window that sorts as its own entry. See the method's own doc for why the raise
             // alone was never enough.
             KeepRaisedOverlayOnTop(rec.Rect, rec.Owner);
+            // Native quest text can finish layout after Show returns. Keep its
+            // left edge beside the unchanged host even when width/height change;
+            // the original refresh postfix remains the final native-call writer.
+            if (rec.CharacterHintOnRight && rec.Owner.HostRect != null)
+                CharacterTooltipPlacement.PlaceLocal(rec.Rect, rec.Owner.HostRect, rec.CharacterHintAnchor);
         }
     }
 
