@@ -190,6 +190,7 @@ public static class MenuDepthDesktopProgram
             var model = GameObject.CreatePrimitive(PrimitiveType.Cube); model.layer = 8; model.transform.SetParent(holder.transform, false);
             model.transform.localPosition = new Vector3(-.3f, .4f, 0); model.transform.localScale = new Vector3(.3f, .7f, .25f);
             model.GetComponent<MeshRenderer>().sharedMaterial = _modelMaterial;
+            manager.BindOriginal(model.transform);
             var preview = new GameObject("actual original creator RawImage", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
             preview.layer = 5; preview.transform.SetParent(_canvasA, false);
             RawImage raw = preview.GetComponent<RawImage>(); raw.texture = ModelTarget; raw.rectTransform.sizeDelta = new Vector2(70, 70);
@@ -223,6 +224,17 @@ public static class MenuDepthDesktopProgram
             Vector3 left = centre - Screen.right * .032f, right = centre + Screen.right * .032f;
             Head.SetStereoViewMatrix(Camera.StereoscopicEye.Left, Matrix4x4.Scale(new Vector3(1, 1, -1)) * Matrix4x4.TRS(left, Screen.rotation, Vector3.one).inverse);
             Head.SetStereoViewMatrix(Camera.StereoscopicEye.Right, Matrix4x4.Scale(new Vector3(1, 1, -1)) * Matrix4x4.TRS(right, Screen.rotation, Vector3.one).inverse);
+        }
+        internal void NativePixels725(int factor)
+        {
+            Ui.Release(); Ui.width *= factor; Ui.height *= factor; Ui.Create();
+            foreach (RectTransform root in new[] { _canvasA, _canvasB })
+                foreach (RectTransform item in root.GetComponentsInChildren<RectTransform>(true))
+                {
+                    if (item == root) continue;
+                    item.anchoredPosition *= factor; item.sizeDelta *= factor;
+                    if (item.GetComponent<Text>() is Text label) label.fontSize *= factor;
+                }
         }
         internal void Render(bool right) { DesktopEyeInput.Right = right; Head.Render(); }
         internal void CheckOriginalState()

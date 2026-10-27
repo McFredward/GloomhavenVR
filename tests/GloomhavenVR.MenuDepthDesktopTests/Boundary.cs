@@ -18,9 +18,24 @@ public sealed class Character3DDisplayManager : MonoBehaviour
 {
     private Transform character3DHolder = null!;
     private bool isHidden;
+    private object? character3D;
     public void Bind(Transform holder) { character3DHolder = holder; isHidden = false; }
     public Transform Holder => character3DHolder;
     public bool Hidden => isHidden;
+    public bool HasOriginal => character3D != null;
+    public void BindOriginal(Component model) => character3D = new DesktopOriginal725(model);
+}
+// Native presentation identity shape: Character3D.models -> CharacterManager.
+// No gameplay controller is run or supplied by this fixture boundary.
+internal sealed class DesktopOriginal725
+{
+    private readonly List<DesktopModel725> models;
+    internal DesktopOriginal725(Component model) => models = new List<DesktopModel725> { new DesktopModel725(model) };
+}
+internal sealed class DesktopModel725
+{
+    public Component CharacterManager { get; }
+    internal DesktopModel725(Component model) => CharacterManager = model;
 }
 internal sealed class DesktopFaultSource : IMenuDepthSource
 {

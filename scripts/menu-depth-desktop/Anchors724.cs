@@ -2,6 +2,8 @@ using System;
 using System.Collections;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
+using GloomhavenVR.WorldUI.MenuDepth;
 using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
@@ -38,7 +40,18 @@ public static partial class MenuDepthDesktopProgram
             var marker = GameObject.CreatePrimitive(PrimitiveType.Sphere); marker.layer = 8;
             marker.transform.SetParent(holder, false); marker.transform.localPosition = new Vector3(-.3f, .4f, .6f);
             marker.transform.localScale = Vector3.one * .13f; marker.GetComponent<MeshRenderer>().sharedMaterial = material;
+            var manager = scene.ModelCamera.GetComponent<Character3DDisplayManager>(); manager.BindOriginal(marker.transform);
+            Check(manager.HasOriginal, "the calibrated cabinet uses the native original models CharacterManager identity path");
+            // A camera child unrelated to Character3D.models must not inflate the
+            // authored body envelope. The real source camera excludes its layer.
+            var unrelated = GameObject.CreatePrimitive(PrimitiveType.Cube); unrelated.layer = 9;
+            unrelated.transform.SetParent(holder, false); unrelated.transform.localPosition = new Vector3(10, 0, 0);
+            unrelated.GetComponent<MeshRenderer>().sharedMaterial = material;
             RawImage raw = Object.FindObjectsOfType<RawImage>().Single(image => ReferenceEquals(image.texture, scene.ModelTarget));
+            // The old miniature UI fixture had only70px in the character pane.
+            // Supply a native-like280px aperture while retaining physical layout.
+            scene.NativePixels725(4);
+            scene.ModelTarget.Release(); scene.ModelTarget.width = scene.ModelTarget.height = 1024; scene.ModelTarget.Create();
             raw.uvRect = new Rect(.15f, .12f, .7f, .76f);
             scene.ModelCamera.rect = new Rect(.1f, .05f, .8f, .9f);
             scene.OriginalA.rect = new Rect(.08f, .12f, .83f, .76f);
@@ -84,10 +97,26 @@ public static partial class MenuDepthDesktopProgram
             Check(Vector2.Distance(uiRaster, rectUi) < .75f && Vector2.Distance(uiRaster, fullUi) > 10f,
                 "actual native HDR-disabled UI render target retains its authored camera viewport");
             int before = Time.frameCount; while (Time.frameCount == before) yield return null;
-            Vector3 fixedPoint = VirtualLandmark(scene, raw, holder, marker.transform.position);
+            Vector3 fixedPoint = VirtualLandmark(scene, raw, marker.transform.position);
             File.WriteAllText(Path.Combine(output, "724-anchor-calibration.txt"), "Fixed physical landmark=" + fixedPoint + "\n");
-            Vector3[] offsets = { Vector3.zero, new Vector3(.23f, 0, 0), new Vector3(-.19f, 0, 0),
-                new Vector3(0, .15f, 0), new Vector3(0, -.12f, 0), new Vector3(0, 0, .27f), new Vector3(.12f, .08f, -.18f) };
+            Vector3 pane = WindowPoint(scene, raw.rectTransform.TransformPoint(raw.rectTransform.rect.center));
+            Vector3 offsetToPane = new Vector3(Vector3.Dot(pane - scene.Screen.position, scene.Screen.right),
+                Vector3.Dot(pane - scene.Screen.position, scene.Screen.up), 0);
+            Vector3[] offsets = { offsetToPane + new Vector3(0, 0, -2), offsetToPane,
+                offsetToPane + new Vector3(.23f, 0, 0), offsetToPane + new Vector3(0, .15f, 0),
+                offsetToPane + new Vector3(0, 0, 1.6f), offsetToPane + new Vector3(.02f, -.01f, 1.6f),
+                offsetToPane + new Vector3(.12f, .08f, -.18f) };
+            var sampled = new DesktopSamples725(raw); MenuDepthSources.Register(sampled);
+            bool observing = false; var sizes = new List<int>();
+            Camera.CameraCallback observer = camera =>
+            {
+                if (observing && camera == scene.ModelCamera && camera.targetTexture != scene.ModelTarget)
+                    sizes.Add(camera.targetTexture.width);
+            };
+            Camera.onPreRender += observer;
+            int farSize = 0;
+            try
+            {
             for (int i = 0; i < offsets.Length; i++)
             {
                 before = Time.frameCount; while (Time.frameCount == before) yield return null;
@@ -100,7 +129,18 @@ public static partial class MenuDepthDesktopProgram
                     MenuDepthAnchorsImageEffect724? effect = modelEffect ? scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>()
                         : uiEffect ? scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>() : null;
                     int effectDraws = effect != null ? effect.Draws : 0;
-                    scene.Render(eye != 0);
+                    int priorSizes = sizes.Count; observing = true;
+                    try { scene.Render(eye != 0); } finally { observing = false; }
+                    if (eye == 0)
+                    {
+                        Check(sizes.Count == priorSizes + 2 && sampled.Left.x > 0 && sampled.Left.y > 0,
+                            "the calibrated original renders both sampled eye targets from a mapped physical pixel demand");
+                        if (i == 0) farSize = sizes[priorSizes];
+                        if (i == 4) Check(farSize < sizes[priorSizes] && sizes[priorSizes] <= 2048,
+                            "the real original character eye targets grow from far to near displayed pixels within their bounded tier");
+                        File.AppendAllText(Path.Combine(output, "725-native-screen-samples.csv"), i + "," + sampled.Left.x + ","
+                            + sampled.Left.y + "," + sizes[priorSizes] + "," + sizes[priorSizes + 1] + "\n");
+                    }
                     if (effect != null) Check(effect.Draws - effectDraws == (eye == 0 ? 2 : 0),
                         "each prepared eye retains the original image effect once without repeating it during the second final glass draw");
                     Texture2D image = Read(scene.HeadTarget, Path.Combine(output, "724-final-glass-" + i + "-" + eye + ".png"));
@@ -115,6 +155,8 @@ public static partial class MenuDepthDesktopProgram
                     Object.DestroyImmediate(image);
                 }
             }
+            }
+            finally { Camera.onPreRender -= observer; MenuDepthSources.Unregister(sampled); }
         }
         complete(_count);
     }
@@ -132,36 +174,41 @@ public static partial class MenuDepthDesktopProgram
         return new Vector2((float)(x / total), (float)(y / total));
     }
 
-    private static Vector3 VirtualLandmark(Scene scene, RawImage image, Transform holder, Vector3 nativePoint)
+    private static Vector3 VirtualLandmark(Scene scene, RawImage image, Vector3 nativePoint)
     {
         // Independent inverse calibration from native frustum/UV and original UI
         // viewport to physical window. No tracked eye or production portal helper.
-        Camera model = scene.ModelCamera; Matrix4x4 nativeProjection = model.projectionMatrix;
-        float depth = Vector3.Dot(holder.position - model.transform.position, model.transform.forward) * .85f;
-        float width = 2 * depth / nativeProjection.m00, height = 2 * depth / nativeProjection.m11;
-        // The HDR-disabled camera contract is supplied from the actual native
-        // camera census. Raster probes above establish its retained viewport;
-        // HDR-enabled Unity intermediates are a different, unclaimed path.
-        Rect viewport = model.rect, uv = image.uvRect;
-        Vector3 nativeCentre = model.transform.position + model.transform.forward * depth
-            + model.transform.right * (nativeProjection.m02 * depth / nativeProjection.m00)
-            + model.transform.up * (nativeProjection.m12 * depth / nativeProjection.m11);
-        Vector3 cropCentre = nativeCentre + model.transform.right * (((uv.center.x - viewport.x) / viewport.width - .5f) * width)
-            + model.transform.up * (((uv.center.y - viewport.y) / viewport.height - .5f) * height);
         var corners = new Vector3[4]; image.rectTransform.GetWorldCorners(corners);
         Vector3 bottomLeft = WindowPoint(scene, corners[0]), topLeft = WindowPoint(scene, corners[1]), bottomRight = WindowPoint(scene, corners[3]);
         Vector3 right = (bottomRight - bottomLeft).normalized, up = (topLeft - bottomLeft).normalized;
         Vector3 forward = Vector3.Cross(right, up).normalized;
-        float sx = Vector3.Distance(bottomRight, bottomLeft) / (width * uv.width / viewport.width);
-        float sy = Vector3.Distance(topLeft, bottomLeft) / (height * uv.height / viewport.height);
-        Vector3 offset = nativePoint - cropCentre;
-        return (topLeft + bottomRight) * .5f + right * (Vector3.Dot(offset, model.transform.right) * sx)
-            + up * (Vector3.Dot(offset, model.transform.up) * sy) + forward * (Vector3.Dot(offset, model.transform.forward) * Mathf.Sqrt(sx * sy));
+        float width = Vector3.Distance(corners[3], corners[0]), height = Vector3.Distance(corners[1], corners[0]);
+        // Independent declared primitive envelope, not the production bounds cache
+        // or projection result. Native actor dimensions are .13 in all three axes.
+        var bounds = new Bounds(new Vector3(.1f, -.05f, 3.16f), Vector3.one * .13f);
+        float xy = Math.Max(bounds.size.x / (.82f * width), bounds.size.y / (.75f * height));
+        float z = Math.Max(xy, bounds.size.z / (.14f * Math.Min(width, height)));
+        float protrusion = Math.Min(.035f * Math.Min(width, height), .30f * bounds.size.z / z);
+        Vector3 local = scene.ModelCamera.transform.InverseTransformPoint(nativePoint)
+            - new Vector3(bounds.center.x, bounds.center.y, bounds.min.z + protrusion * z);
+        float sx = Vector3.Distance(bottomRight, bottomLeft) / width, sy = Vector3.Distance(topLeft, bottomLeft) / height;
+        return (topLeft + bottomRight) * .5f + right * (local.x / xy * sx) + up * (local.y / xy * sy)
+            + forward * (local.z / z * Mathf.Sqrt(sx * sy));
     }
 
     private static Vector3 WindowPoint(Scene scene, Vector3 nativeUiPoint)
     {
         Vector3 view = scene.OriginalA.WorldToViewportPoint(nativeUiPoint); Rect rect = scene.OriginalA.rect;
         return scene.Screen.TransformPoint(new Vector3(rect.x + view.x * rect.width - .5f, rect.y + view.y * rect.height - .5f));
+    }
+
+    private sealed class DesktopSamples725 : IMenuDepthSampledSource
+    {
+        public Graphic Graphic { get; }
+        public bool IsReady => true;
+        internal Vector2 Left;
+        internal DesktopSamples725(Graphic graphic) => Graphic = graphic;
+        public void BeforeCapture(MenuDepthEye eye) { if (!eye.Right) Left = eye.PixelFootprint; }
+        public void AfterCapture() { }
     }
 }
