@@ -21,7 +21,8 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private static readonly int[] ResolutionTiers = { 256, 512, 768, 1024, 1536, 2048 };
     private static readonly Dictionary<Character3DDisplayManager, CalibrationCache> Calibrations = new();
     private static readonly Func<Character3DDisplayManager, object?>? ReadOriginal = CreateOriginalReader();
-    private static long _poolBytes;
+    private static long _poolBytes, _headPoolBytes;
+    private static readonly Dictionary<MenuDepthCharacterSource, long> HeadScratchReservations = new();
     private readonly RawImage _image;
     private readonly Camera _camera;
     private readonly Character3DDisplayManager _manager;
@@ -199,8 +200,10 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private RenderTexture EnsureTarget(bool right)
     {
         RenderTexture? target = right ? _right : _left;
-        if (target != null && (!target.IsCreated() || target.width != _width || target.height != _height
-            || target.graphicsFormat != _nativeTarget.graphicsFormat || target.antiAliasing != _nativeTarget.antiAliasing))
+        if (target != null && (_headTargets
+            ? !MenuDepthHeadRaster.Matches(target, _nativeTarget.descriptor, new Vector2Int(_width, _height))
+            : !target.IsCreated() || target.width != _width || target.height != _height
+                || target.graphicsFormat != _nativeTarget.graphicsFormat || target.antiAliasing != _nativeTarget.antiAliasing))
         {
             Release(target);
             if (right) _right = null; else _left = null;
@@ -208,7 +211,8 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         }
         if (target == null)
         {
-            RenderTextureDescriptor descriptor = _nativeTarget.descriptor;
+            RenderTextureDescriptor descriptor = _headTargets
+                ? MenuDepthHeadRaster.Descriptor(_nativeTarget.descriptor, new Vector2Int(_width, _height)) : _nativeTarget.descriptor;
             descriptor.width = _width; descriptor.height = _height;
             descriptor.vrUsage = VRTextureUsage.None;
             descriptor.volumeDepth = 1;
@@ -218,7 +222,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             {
                 name = "GloomhavenVR.MenuDepth.Character." + (right ? "Right" : "Left"),
                 hideFlags = HideFlags.HideAndDontSave,
-                filterMode = _nativeTarget.filterMode,
+                filterMode = _headTargets ? FilterMode.Point : _nativeTarget.filterMode,
                 wrapMode = _nativeTarget.wrapMode,
                 anisoLevel = _nativeTarget.anisoLevel,
                 mipMapBias = _nativeTarget.mipMapBias,
@@ -237,13 +241,19 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         int width = pixels.x, height = pixels.y;
         if (width > SystemInfo.maxTextureSize || height > SystemInfo.maxTextureSize)
             throw new InvalidOperationException("The actual head raster exceeds the graphics texture limit.");
-        long bytes = PairCost(width, height) / 2;
-        if (bytes > MenuDepthHeadRaster.SceneBudget(_nativeTarget.descriptor, pixels) - _poolBytes + _pairBytes)
+        long bytes = MenuDepthHeadRaster.SingleBytes(_nativeTarget.descriptor, pixels);
+        long held = _headTargets ? _pairBytes : 0;
+        long largest = bytes;
+        foreach (long reserved in HeadScratchReservations.Values) largest = Math.Max(largest, reserved);
+        long budget = MenuDepthHeadRaster.Budget(largest, MenuDepthHeadRaster.SceneSlots, 96L * 1024 * 1024);
+        if ((!_headTargets && HeadScratchReservations.Count >= MenuDepthHeadRaster.SceneSlots)
+            || bytes > budget - _headPoolBytes + held)
             throw new InvalidOperationException("The actual head raster exceeds the native-scene scratch budget.");
-        if (!_headTargets || width != _width || height != _height)
+        if (!_headTargets || width != _width || height != _height || bytes != _pairBytes
+            || (_left != null && !MenuDepthHeadRaster.Matches(_left, _nativeTarget.descriptor, pixels)))
         {
             ReleaseTargets(); _headTargets = true; _width = width; _height = height;
-            _pairBytes = bytes; _poolBytes += bytes;
+            _pairBytes = bytes; _headPoolBytes += bytes; HeadScratchReservations[this] = bytes;
         }
         _samplingEdge = _demandEdge = Mathf.Max(width, height);
     }
@@ -641,7 +651,9 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     {
         Release(_left); Release(_right);
         _left = _right = null;
-        _headTargets = false; _poolBytes -= _pairBytes; _pairBytes = 0; _width = _height = _samplingEdge = _demandEdge = 0; _lowerSince = -1f; _pairFrame = -1;
+        if (_headTargets) { _headPoolBytes -= _pairBytes; HeadScratchReservations.Remove(this); }
+        else _poolBytes -= _pairBytes;
+        _headTargets = false; _pairBytes = 0; _width = _height = _samplingEdge = _demandEdge = 0; _lowerSince = -1f; _pairFrame = -1;
     }
 
     private static Func<Character3DDisplayManager, object?>? CreateOriginalReader()

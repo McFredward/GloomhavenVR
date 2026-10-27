@@ -145,7 +145,8 @@ internal sealed partial class FlatScreen
             if (MenuDepthHeadRaster.Bytes(_uiRt.descriptor,pixels) > MenuDepthHeadRaster.WindowBudget(_uiRt.descriptor,pixels))
                 throw new InvalidOperationException("The complete native foreground exceeds its additional eye-target memory budget.");
             if (_menuDepthRight == null || _menuDepthLeft != _uiRt
-                || _menuDepthRight.width != width || _menuDepthRight.height != height
+                || !MenuDepthHeadRaster.Matches(_menuDepthRight, _uiRt.descriptor, pixels)
+                || _menuDepthCarrierLeft == null || !MenuDepthHeadRaster.Matches(_menuDepthCarrierLeft, _uiRt.descriptor, pixels)
                 || expanded != (_menuDepthCarrierLeft != null))
             {
                 ReleaseMenuDepthScreen();
@@ -225,7 +226,7 @@ internal sealed partial class FlatScreen
                     if (MenuDepthSources.HasPreparedSources) Canvas.ForceUpdateCanvases();
                     Canvas? canvas = MenuDepthNativeUiScope.FindCanvas(source, _menuDepthGraphics);
                     if (canvas == null || !MenuDepthScreenProjection.TryMap(_quad!.transform, source, (RectTransform)canvas.transform,
-                        eye.WorldPosition, out Vector3 nativeEye, out Matrix4x4 nativeToPhysical))
+                        eye.WorldPosition, out Vector3 nativeEye, out Matrix4x4 nativeToPhysical, allowCoplanar: true))
                         throw new InvalidOperationException("The original UI root has no physical head mapping.");
                     var mapped = new MenuDepthEye(eye.Right, nativeEye, eye.HeadCamera, false,
                         worldToHeadClip: eye.WorldToHeadClip * nativeToPhysical);
@@ -261,7 +262,7 @@ internal sealed partial class FlatScreen
     {
         if (_quad == null || _menuDepthBorrowedCamera == null
             || !MenuDepthScreenProjection.TryMap(_quad.transform, _menuDepthBorrowedCamera, graphic.rectTransform,
-                _menuDepthEye.WorldPosition, out Vector3 position, out Matrix4x4 nativeToPhysical))
+                _menuDepthEye.WorldPosition, out Vector3 position, out Matrix4x4 nativeToPhysical, allowCoplanar: _menuDepthEye.HasWorldToHeadClip))
             throw new InvalidOperationException("The original menu graphic has no valid physical eye mapping.");
         return new MenuDepthEye(_menuDepthEye.Right, position, _menuDepthEye.HeadCamera, false,
             worldToHeadClip: _menuDepthEye.WorldToHeadClip * nativeToPhysical);

@@ -68,6 +68,19 @@ def main():
              'MenuDepthSources.cs', 'MenuDepthDisplay.cs', 'MenuDepthGraphic.cs', 'MenuDepthHeightfield.cs',
              'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs', 'MenuDepthNativeUiScope.cs', 'MenuDepthDesktopCarrier.cs', 'MenuDepthDesktopResources.cs')
     sources = {name: (depth / name).read_text() for name in names}
+    # Rotation dispatch is proved by the dedicated real-input integration suite.
+    # Rendering fixtures supply no pointer lifecycle; this explicit port keeps
+    # discovery enrollment intact without importing gameplay-owned UI ancestry.
+    sources['RotationBoundary730.cs'] = """using System; using UnityEngine.UI;
+namespace GloomhavenVR.WorldUI.MenuDepth;
+internal static class MenuDepthCharacterRotation
+{
+    internal static float GetYaw(RawImage image, object identity) => 0f;
+    internal static void Bind(RawImage image, Character3DDisplayManager manager, Func<object?> readyIdentity) { }
+    internal static void Unbind(RawImage image) { }
+    internal static void Shutdown() { }
+}
+"""
     sources['CaptureStack.cs'] = body + '}\n'
     sources['PanelDepth.cs'] = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs').read_text()
     sources['CaptureGuard.cs'] = (flat / 'FlatScreen.7.CaptureRender.cs').read_text()
@@ -90,6 +103,11 @@ def main():
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
         ('head-motion730', '', '', '', ''),
+        ('head-raster4040', '', '', '', ''),
+        ('head-coplanar-lost730','MenuDepthScreenProjection.cs',
+         '(allowCoplanar || Mathf.Abs(Vector3.Dot(center - nativeEye, forward)) > 1e-5f)',
+         '(Mathf.Abs(Vector3.Dot(center - nativeEye, forward)) > 1e-5f)',
+         'fixed head mapping admits the exact physical glass-plane crossing'),
         ('head-motion-downsample-lost730','MenuDepthHeadRaster.cs',
          'Mathf.CeilToInt(head.targetTexture.width * head.rect.width)',
          'Mathf.CeilToInt(head.targetTexture.width * head.rect.width * .25f)',
@@ -225,7 +243,7 @@ def main():
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadMotion730' if name.startswith('head-motion') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name == 'head-coplanar-lost730' else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else

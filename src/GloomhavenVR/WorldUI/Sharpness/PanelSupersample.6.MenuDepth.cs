@@ -84,27 +84,26 @@ internal static partial class PanelSupersample
                 // No eye-dependent expansion of the native photograph. A complete
                 // original UI draw now has its actual head-pixel raster instead.
                 long headBytes = MenuDepthDisplay.HeadCost(head, e.Rt);
-                HeadReservations[e] = headBytes;
                 if (e.MenuDepthDisplay != null && !e.MenuDepthDisplay.Matches(e.Rt, DisplayTexture(e)))
                     ReleaseMenuDepth(e, preserveFrame: true);
+                if (!HeadReservations.ContainsKey(e) && HeadReservations.Count >= MenuDepthHeadRaster.WindowSlots)
+                    throw new InvalidOperationException("The fixed head-raster window slots are fully reserved.");
+                // During an actual XR/format change old admitted pairs may still
+                // be retiring. Charge their real bytes until release, using the
+                // largest live pair for this finite-slot ceiling. Head movement
+                // neither changes the ceiling nor asks mono ResolveRate to shrink.
+                long largest = headBytes;
+                foreach (long held in HeadReservations.Values) largest = Math.Max(largest, held);
+                long budget = MenuDepthHeadRaster.Budget(largest, MenuDepthHeadRaster.WindowSlots, 448L * 1024 * 1024);
+                if (headBytes > budget - _menuDepthVramTotal + e.MenuDepthBytes)
+                    throw new InvalidOperationException("The fixed head-raster window memory budget is fully reserved.");
+                HeadReservations[e] = headBytes;
                 if (e.MenuDepthDisplay == null)
-                {
-                    long extra = headBytes;
-                    if (e.VramBytes > MaxPanelVramBytes || _vramTotal > MaxTotalVramBytes)
-                    {
-                        // A source can appear after the ordinary mono engage. Reuse
-                        // the existing symmetric rate/MSAA step-down for BOTH eyes.
-                        Reallocate(e, e.Frame, ReallocTrigger.EyeGrid);
-                        extra = MenuDepthDisplay.HeadCost(head, e.Rt);
-                    }
-                    if (e.VramBytes > MaxPanelVramBytes || _vramTotal > MaxTotalVramBytes)
-                        throw new InvalidOperationException("The symmetric menu-depth eye pair exceeds the existing window memory budget.");
                     e.MenuDepthDisplay = new MenuDepthDisplay(e.DisplayImage, e.Rt, DisplayTexture(e), headRaster: true);
-                    e.MenuDepthBytes = extra;
-                    _menuDepthVramTotal += extra;
-                }
                 SyncDisplayPose(e);
                 e.MenuDepthDisplay.RenderHead(e.Cam, e.Panel.HostRect, e.Frame, e.Rt, leftEye, rightEye);
+                _menuDepthVramTotal += e.MenuDepthDisplay.HeadBytes - e.MenuDepthBytes;
+                e.MenuDepthBytes = e.MenuDepthDisplay.HeadBytes;
                 NoteCaptureCompleted(e);
             }
             catch (Exception error)

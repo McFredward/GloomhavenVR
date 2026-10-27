@@ -71,6 +71,10 @@ public static partial class MenuDepthDesktopProgram
         clone.SetActive(true);return clone;
     }
     public static IEnumerator HeadMotion730(string output,Action<int> complete)
+        => HeadMotionCore730(output, complete, 640, 480, false);
+    public static IEnumerator HeadRaster4040(string output,Action<int> complete)
+        => HeadMotionCore730(output, complete, 4040, 4040, true);
+    private static IEnumerator HeadMotionCore730(string output,Action<int> complete,int width,int height,bool hardwareRaster)
     {
         _count=0;DesktopEyeInput.Available=true;
         for(int path=0;path<2;path++)
@@ -78,7 +82,7 @@ public static partial class MenuDepthDesktopProgram
         {
             scene.HideSpatial730();scene.NativePixels725(4);
             scene.Head.orthographic=false;scene.Head.fieldOfView=70;scene.Head.nearClipPlane=.01f;
-            scene.HeadTarget.Release();scene.HeadTarget.width=640;scene.HeadTarget.height=480;scene.HeadTarget.Create();
+            scene.HeadTarget.Release();scene.HeadTarget.width=width;scene.HeadTarget.height=height;scene.HeadTarget.Create();
             scene.ModelCamera.allowHDR=scene.ModelCamera.allowMSAA=false;
             scene.ModelCamera.gameObject.AddComponent<MenuDepthAnchorsImageEffect724>();
             scene.OriginalA.allowHDR=scene.OriginalB.allowHDR=false;scene.OriginalA.allowMSAA=scene.OriginalB.allowMSAA=false;
@@ -154,15 +158,17 @@ public static partial class MenuDepthDesktopProgram
                 if(c==scene.ModelCamera&&c.targetTexture!=scene.ModelTarget)
                 {
                     sourceIds.Add(c.targetTexture.GetInstanceID());
-                    sourceDimensionsExact &= c.targetTexture.width==scene.HeadTarget.width&&c.targetTexture.height==scene.HeadTarget.height;
+                    sourceDimensionsExact &= c.targetTexture.width==scene.HeadTarget.width&&c.targetTexture.height==scene.HeadTarget.height
+                        && c.targetTexture.antiAliasing==1&&!c.targetTexture.useMipMap&&!c.targetTexture.descriptor.useDynamicScale;
                 }
             };
             Camera.onPreRender+=sample;
             using(var csv=new StreamWriter(Path.Combine(output,"head-motion-"+path+".csv")))
             {
                 csv.WriteLine("frame,eye,uiCorrelation,modelCorrelation,uiContrast,modelContrast");
-                for(int frame=0;frame<52;frame++)
+                for(int step=0;step<(hardwareRaster?4:52);step++)
                 {
+                    int frame=hardwareRaster?new[]{0,13,40,51}[step]:step;
                     int before=Time.frameCount;while(Time.frameCount==before)yield return null;
                     Vector3 position;
                     if(frame<4)position=Vector3.zero;
@@ -174,6 +180,12 @@ public static partial class MenuDepthDesktopProgram
                     else position=Vector3.zero;
                     Quaternion rotation=Quaternion.LookRotation(scene.Screen.position-position,Vector3.up);
                     Vector3 left=position-rotation*Vector3.right*.032f,right=position+rotation*Vector3.right*.032f;
+                    if(frame==40) left=scene.Screen.TransformPoint(new Vector3(.2f,.03f,0)); // actual eye exactly coplanar, not merely head centre
+                    if(frame==40&&path==0)
+                    {
+                        Check(!MenuDepthScreenProjection.TryMap(scene.Screen,scene.OriginalA,raw.rectTransform,left,out _),"legacy off-axis mapping retains its coplanar gate");
+                        Check(MenuDepthScreenProjection.TryMap(scene.Screen,scene.OriginalA,raw.rectTransform,left,out _,out _,allowCoplanar:true),"fixed head mapping admits the exact physical glass-plane crossing");
+                    }
                     scene.Head.transform.SetPositionAndRotation(left,rotation);
                     scene.Head.SetStereoViewMatrix(Camera.StereoscopicEye.Left,Matrix4x4.Scale(new Vector3(1,1,-1))*Matrix4x4.TRS(left,rotation,Vector3.one).inverse);
                     scene.Head.SetStereoViewMatrix(Camera.StereoscopicEye.Right,Matrix4x4.Scale(new Vector3(1,1,-1))*Matrix4x4.TRS(right,rotation,Vector3.one).inverse);
@@ -189,7 +201,17 @@ public static partial class MenuDepthDesktopProgram
                         Check(scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-uiBefore==(eye==0?2:0),
                             "each head stereo pair executes the original native UI image effect exactly once per eye");
                         Texture2D actual=Read(scene.HeadTarget,Path.Combine(output,"actual-"+path+"-"+frame+"-"+eye+".png"));
-                        referenceMaterial.SetVector("_Eye",worldToGlass.MultiplyPoint3x4(eyePosition));
+                        Vector3 referenceEye = worldToGlass.MultiplyPoint3x4(eyePosition);
+                        if(frame==40&&eye==0)
+                        {
+                            // The eye was authored by screen.TransformPoint(z=0).
+                            // Matrix inversion in this independent reference may
+                            // accumulate native-unit epsilon; retain the exact
+                            // authored physical plane rather than picking a side.
+                            File.WriteAllText(Path.Combine(output,"coplanar-reference-"+path+".txt"),referenceEye.ToString("R"));
+                            referenceEye.z=0;
+                        }
+                        referenceMaterial.SetVector("_Eye",referenceEye);
                         VRRigDriver.HeadCamera=null;scene.Head.cullingMask=1<<26;scene.Head.Render();VRRigDriver.HeadCamera=scene.Head;
                         Texture2D reference=Read(scene.HeadTarget,Path.Combine(output,"reference-"+path+"-"+frame+"-"+eye+".png"));
                         Color32[] actualPixels=actual.GetPixels32(),referencePixels=reference.GetPixels32();
@@ -204,7 +226,16 @@ public static partial class MenuDepthDesktopProgram
                         Check(model>.97,"actual final head figure retains direct native-world XY surface detail during movement");
                         Check(sourceDimensionsExact,"native scene scratch always retains actual head pixel dimensions during movement");
                         Check(scene.Screen.position==screenPosition&&scene.Screen.localScale==screenScale&&scene.Screen.rotation==screenRotation,"moving head raster never moves the original physical window");
-                        if(path==0&&scene.Flat.Right!=null)ids.Add(scene.Flat.Right.GetInstanceID());
+                        if(path==0&&scene.Flat.Right!=null)
+                        {
+                            ids.Add(scene.Flat.Right.GetInstanceID());
+                            Check(MenuDepthHeadRaster.Matches(scene.Flat.Right,scene.Ui.descriptor,new Vector2Int(width,height)),"final NativeFlat raster has the exact normalized head descriptor");
+                        }
+                        if(entry!=null)
+                        {
+                            Check(entry.MenuDepthDisplay!=null,"actual panel coordinator keeps the fixed head display admitted");
+                            Check(entry.MenuDepthBytes==MenuDepthHeadRaster.Bytes(scene.Ui.descriptor,new Vector2Int(width,height)),"actual panel ledger charges both exact head rasters independently of mono budget");
+                        }
                         Object.DestroyImmediate(actual);Object.DestroyImmediate(reference);
                     }
                 }

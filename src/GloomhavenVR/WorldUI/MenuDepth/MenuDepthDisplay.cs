@@ -157,15 +157,17 @@ internal sealed class MenuDepthDisplay : IDisposable
         MenuDepthEye left, MenuDepthEye right)
     {
         Vector2Int size = MenuDepthHeadRaster.Size(left.HeadCamera);
-        if (_headLeft == null || _headLeft.width != size.x || _headLeft.height != size.y)
+        if (_headLeft == null || _headRight == null || !MenuDepthHeadRaster.Matches(_headLeft, original.descriptor, size)
+            || !MenuDepthHeadRaster.Matches(_headRight, original.descriptor, size))
         {
             if (size.x > SystemInfo.maxTextureSize || size.y > SystemInfo.maxTextureSize)
                 throw new InvalidOperationException("The actual UI head raster exceeds the texture limit.");
+            Release(_headLeft); Release(_headRight); _headLeft = _headRight = null; HeadBytes = 0;
             var descriptor = MenuDepthHeadRaster.Descriptor(original.descriptor, size);
             var l = new RenderTexture(descriptor) { name = "GloomhavenVR.MenuDepth.HeadLeft", hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Point };
             var r = new RenderTexture(descriptor) { name = "GloomhavenVR.MenuDepth.HeadRight", hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Point };
             if (!l.Create() || !r.Create()) { Release(l); Release(r); throw new InvalidOperationException("The actual UI head raster could not be created."); }
-            Release(_headLeft); Release(_headRight); _headLeft = l; _headRight = r;
+            _headLeft = l; _headRight = r;
             HeadBytes = HeadCost(left.HeadCamera, original);
         }
         if (_capturingCamera != null) throw new InvalidOperationException("A nested private head raster is not owned.");

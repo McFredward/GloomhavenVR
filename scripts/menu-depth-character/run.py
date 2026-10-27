@@ -74,6 +74,19 @@ def main():
     scope_root = args.native_scope_root or args.api_root
     inputs['MenuDepthNativeUiScope.cs'] = scope_root / 'src/GloomhavenVR/WorldUI/MenuDepth/MenuDepthNativeUiScope.cs'
     sources = {name: path.read_text() for name, path in inputs.items()}
+    # Rotation dispatch is proved by the dedicated real-input integration suite.
+    # Rendering fixtures supply no pointer lifecycle; this explicit port keeps
+    # discovery enrollment intact without importing gameplay-owned UI ancestry.
+    sources['RotationBoundary730.cs'] = """using System; using UnityEngine.UI;
+namespace GloomhavenVR.WorldUI.MenuDepth;
+internal static class MenuDepthCharacterRotation
+{
+    internal static float GetYaw(RawImage image, object identity) => 0f;
+    internal static void Bind(RawImage image, Character3DDisplayManager manager, Func<object?> readyIdentity) { }
+    internal static void Unbind(RawImage image) { }
+    internal static void Shutdown() { }
+}
+"""
     fixture = ROOT / 'tests/GloomhavenVR.MenuDepthCharacterTests'
     pins = {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in [*inputs.values(), *fixture.glob('*'), Path(__file__),
