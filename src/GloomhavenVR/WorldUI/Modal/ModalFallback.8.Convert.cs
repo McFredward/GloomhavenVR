@@ -122,6 +122,21 @@ internal static partial class ModalFallback
         begin == 0 || end == 0 ? -1d
         : (end - begin) * 1000d / System.Diagnostics.Stopwatch.Frequency;
 
+    /// <summary>Make the native city proposal complete before its first conversion snapshot.
+    /// VRRigDriver and the world-UI driver have no guaranteed Update order. Reconcile both old
+    /// owners here, then adopt the original ready-tracker bar before recording native homes,
+    /// bounds or captures. This is presentation only; native consent remains a manual action.</summary>
+    private static void PrepareCityReadinessForConversion(UIWindow window)
+    {
+        if (!MapRoom.MapRoomDriver.Active || !window.IsOpen
+            || !ReferenceEquals(MapRoom.MapCityEventReadyUp.Window, window))
+            return;
+        MapRoom.MapTravelConfirm.Reconcile(FloatedQuestConfirmationWindow());
+        LoadoutConfirmPark.Tick();
+        MapRoom.MapQuestReadyRoster.Tick(MapRoom.ReadyRosterSite.CityEvent,
+            window, window.gameObject, confirmPosed: true);
+    }
+
     /// <summary>
     /// THE WINDOW FLATNESS GUARANTEE (ModBuild 193) — why every window this method floats now
     /// converts with <c>flattenWindow: true</c>.
@@ -220,6 +235,7 @@ internal static partial class ModalFallback
         ReleaseScreenBind(window, "the float takes over — the window draws itself now");
         try
         {
+            PrepareCityReadinessForConversion(window);
             var rect = window.transform as RectTransform;
             if (rect == null)
             {
