@@ -71,7 +71,11 @@ public static partial class MenuDepthDesktopProgram
                 File.WriteAllText(Path.Combine(output,"window-admission.txt"),"admitted="+admitted+";refused="+refused+";ledger="+Ledger730()+"\n"+string.Join("\n",GloomhavenVR.Core.VRLog.Messages));
                 Check(admitted==8&&refused==1,"the ninth real window is refused before allocating a ninth head pair");
                 Check(Ledger730()==64L*64*8*2*8,"all eight actual window pairs are charged independently of ordinary mono captures");
+                Check(entries.TrueForAll(e=>e.MenuDepthDisplay==null||(e.MenuDepthDisplay.HasHeadPresentation
+                    && !e.DisplayImage.GetComponent<Canvas>().enabled && e.DisplayImage.isActiveAndEnabled
+                    && e.Panel.HostRect.GetComponent<Canvas>().enabled)),"spatial presentation retires only its private photograph while native game Canvases remain active");
                 PanelSupersample.Entry retired=entries.Find(e=>e.MenuDepthDisplay!=null)!;PanelSupersample.EndHead(retired);entries.Remove(retired);
+                Check(retired.DisplayImage.GetComponent<Canvas>().enabled,"closing the native spatial window restores its original private photograph Canvas");
                 int before=Time.frameCount;while(Time.frameCount==before)yield return null;scene.Head.Render();
                 Check(entries.TrueForAll(e=>e.MenuDepthDisplay!=null),"closing an admitted native window immediately makes its head slot reusable");
                 scene.HeadTarget.Release();scene.HeadTarget.width=128;scene.HeadTarget.height=96;scene.HeadTarget.Create();
