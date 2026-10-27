@@ -67,10 +67,22 @@ The former source-only motion tests could not observe this omission.
 The hardware eye target is4040x4040 ARGB32, not the small desktop fixture target.
 Two normalized RGBA32/D24 eye targets require249.05MiB; one normalized native
 scene scratch requires124.52MiB. Old photograph budgets cannot admit this real
-head raster. Resource ownership therefore needs a finite, exact XR-derived ledger
-and single-sample, non-mipped scratch descriptors. These are capacity limits,
-not a movement-sensitive sampling dial. Final resource and coplanar-crossing
-qualification is pending at this checkpoint.
+head raster. Eight active window-pair slots and four active one-eye scene-scratch
+slots bound separate, exact XR/format-derived ledgers. The ordinary mono budget
+remains448MiB. At the supplied eye size the additional admission ceilings are
+1992.38MiB for converted window pairs and498.10MiB for scene scratches; NativeFlat
+can own one separate249.05MiB pair. These are lazy capacity limits, not eager
+allocations or a movement-sensitive sampling dial. Resource proofs exercise the
+real4040 eye descriptor, bounded simultaneous owners, actual format/size changes,
+exact release accounting and annotations without a ready character source.
+
+Full head pixels also expose stale mono-shaped ink outside an otherwise correct
+private head raster. Restoring the mod-owned photograph after each eye draw can
+leave Unity's cached Canvas submission active. The spatial presentation therefore
+leases only that private photograph Canvas for its complete lifetime; the original
+game host, widgets, input, layout and callbacks remain native. Retiring the spatial
+presentation restores the original photograph state. Mixed-reality backing and
+native focus order must follow the active replacement too.
 
 ## Original hints and preview interaction
 
@@ -80,8 +92,11 @@ outside the unchanged right edge, retaining content, style, hierarchy, vertical
 layout and native show/hide callbacks. NativeFlat and converted windows both need
 an annotation routing member when character depth is disabled or not yet ready.
 The original campaign quest tooltip has no root Graphic; its exact serialized
-description child must provide that membership. A root-Image fixture was found
-to hide this authoring distinction and is being corrected before final validation.
+description child provides that membership. A root-Image fixture was found to hide
+this authoring distinction and was corrected. The final native fixture initializes
+original TMP resources and checks actual visible quest text pixels. The read-only
+authoring census covers62 owners and20 emitters, including creation perks and skin
+hints; unrelated tooltip classes retain their native placement.
 
 Eight of the twelve original live preview consumers belong to interactive private
 party/creation owners. Their original RawImage becomes the normal laser drag

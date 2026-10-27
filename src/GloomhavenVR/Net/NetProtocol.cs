@@ -634,9 +634,13 @@ internal static class NetProtocol
     // ModBuild732 — stable whole-window detail, readable character hints and preview rotation.
     // The729 hardware report confirms no flat fallback, but head/player motion
     // repeatedly reallocates the outer New Party capture and drops its authored
-    // sampling rate from1.5 to0.25. Preserve original UI layout, model framing and
-    // actual foreground depth without movement-driven quality reduction for the
-    // complete window. Verify final text/model pixels through the real coordinator.
+    // sampling rate from1.5 to0.25. Capture the complete original UI and model on
+    // fixed actual-head pixel grids, with finite eight-window/four-scratch ledgers
+    // independent of the mono photograph budget. Preserve native layout/framing,
+    // masks/effects and surface depth. Suppress the private cached flat photograph
+    // for the spatial presentation's lifetime; head-draw-only leases can leave
+    // duplicate Canvas ink. Exercise final text/model pixels and both eye draws
+    // through the real coordinator, including native-flat and depth-off hints.
     // Seat the exact skin/personal-quest and colliding creation hints to the right
     // of the existing window without increasing its input/shared layout frame.
     // Laser press-and-horizontal-drag turns the private character preview around
