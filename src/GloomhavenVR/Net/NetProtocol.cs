@@ -629,7 +629,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 727;
+    public const ushort ModBuild = 728;
+
+    // ModBuild728 — native menu depth composition, level-up presentation and raised cards.
+    // The maintainer accepts727 character size, but side views let later flat UI
+    // cover character surfaces that should be physically in front. Preserve true
+    // depth through composition, native colour/effects/masks and both window paths.
+    // Restore the level-up Continue widget's game-authored presentation, retain
+    // native permission/callbacks, and fit the complete middle preview/text beside
+    // both original side panes. Embed its persistent original confirmation safely
+    // into the same owner instead of opening an independent physical window.
+    // Original ability/item cards shown on flat menus, including hover previews,
+    // receive slight depth as complete original widgets with native text/effects.
+    // Keep727 default-on local character preference, shared absolute geometry,
+    // native actor authority and accepted story/video media. Delivery is dev source;
+    // the maintainer's Windows installation script builds the archive.
 
     // ModBuild727 — optional live character depth, enabled by default on every system.
     // The maintainer requests a persisted switch for the cabinet character previews.
