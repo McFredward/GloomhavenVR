@@ -41,14 +41,15 @@ public static partial class MenuDepthProgram
                     finally { foreach (NonBounds728 source in ordinary) MenuDepthSources.Unregister(source); }
                     Canvas.ForceUpdateCanvases(); scene.Capture();
                     Rect sampled = PanelSupersample.AllocationFrame(scene.Entry);
-                    Check(sampled.width > original.width && sampled.height == original.height,
-                        "actual foreground footprint expands only the private sampling frame");
-                    Check(scene.Entry.Rt.width >= sampled.width && scene.Entry.Rt.height >= sampled.height,
-                        "the real ResolveRate decision preserves original capture density when overspill grows");
+                    Check(sampled == original,
+                        "fixed head raster never expands the original mono photograph frame");
+                    Check(scene.Entry.Rt.width == 640 && scene.Entry.Rt.height == 360,
+                        "actual original mono dimensions remain unchanged when foreground bounds grow");
                     Check(scene.Entry.Frame == original && scene.Panel.position == position && scene.Panel.localScale == scale,
                         "expanded capture never changes native layout input or synchronized window geometry");
-                    Check(scene.Entry.VramBytes + PanelSupersample.ExtraBytes <= 160L*1024*1024,
-                        "both actually created expanded eye targets remain inside the native panel memory ceiling");
+                    Check(PanelSupersample.ExtraBytes == MenuDepthDisplay.HeadCost(scene.Head,scene.Entry.Rt)
+                        && PanelSupersample.ExtraBytes <= MenuDepthHeadRaster.WindowBudget(scene.Entry.Rt.descriptor,MenuDepthHeadRaster.Size(scene.Head)),
+                        "both actual head targets charge their exact independently bounded head-raster cost");
                     using (TextureOwner expanded = scene.Eye(false,"728-expanded-capture"))
                     {
                         Color32[] a = baseline.Image.GetPixels32(), b = expanded.Image.GetPixels32();

@@ -45,8 +45,8 @@ public static partial class MenuDepthProgram
             using (TextureOwner left = scene.Eye(false, "left"))
             using (TextureOwner right = scene.Eye(true, "right"))
             {
-                Check(Difference(left.Image, right.Image, new RectInt(6, 6, 80, 28)) <= 1,
-                    "coplanar native text and controls retain identical eye pixels");
+                Check(PrintedControlsVisible(left.Image, false) && PrintedControlsVisible(right.Image, true),
+                    "coplanar native text and controls remain at independently projected physical positions for both eyes");
                 Check(Difference(left.Image, right.Image, new RectInt(50, 40, 220, 115)) > 100,
                     "actual depth geometry produces distinct recorded eye perspectives");
             }
@@ -80,9 +80,10 @@ public static partial class MenuDepthProgram
             Check(scene.Entry.MenuDepthDisplay == null && PanelSupersample.ExtraBytes == 0,
                 "leaving the spatial subview releases its extra eye pair");
             scene.Source.Ready = true;
+            long headBytes = MenuDepthDisplay.HeadCost(scene.Head, scene.Entry.Rt);
             PanelSupersample.ExhaustBudget(); scene.Capture();
-            Check(scene.Entry.MenuDepthDisplay == null && PanelSupersample.ExtraBytes == 0,
-                "existing memory ceilings refuse an unaffordable symmetric eye pair");
+            Check(scene.Entry.MenuDepthDisplay != null && PanelSupersample.ExtraBytes == headBytes,
+                "ordinary mono budget exhaustion cannot downsample or refuse an independently admitted head raster");
         }
         using (var scene = new Scene())
         {
@@ -275,6 +276,26 @@ public static partial class MenuDepthProgram
         }
     }
 
+    private static bool PrintedControlsVisible(Texture2D image, bool right)
+    {
+        using (var reference = new CameraOwner())
+        {
+            reference.Camera.transform.position = right ? MenuDepthFixture.Right : MenuDepthFixture.Left;
+            reference.Camera.fieldOfView = 2f * Mathf.Atan(.9f / 3f) * Mathf.Rad2Deg;
+            reference.Camera.aspect = 16f / 9f;
+            Vector3 pixel = reference.Camera.WorldToViewportPoint(new Vector3(-215*.005f,-146*.005f,3));
+            int x = Mathf.RoundToInt(pixel.x*image.width), y = Mathf.RoundToInt(pixel.y*image.height);
+            if (x < 0 || y < 0 || x >= image.width || y >= image.height) return false;
+            Color color = image.GetPixel(x,y);
+            return color.b > .65f && color.b > color.r*2f;
+        }
+    }
+    private sealed class CameraOwner : IDisposable
+    {
+        internal readonly Camera Camera;
+        internal CameraOwner() { Camera = new GameObject("independent physical landmark camera").AddComponent<Camera>(); Camera.enabled=false; }
+        public void Dispose() => Object.DestroyImmediate(Camera.gameObject);
+    }
     private static int Difference(Texture2D left, Texture2D right, RectInt rect)
     {
         int count = 0;
@@ -382,7 +403,7 @@ public static partial class MenuDepthProgram
             displayRect.SetPositionAndRotation(Panel.position, Panel.rotation); displayRect.localScale = Panel.lossyScale;
             var raw = display.AddComponent<RawImage>(); raw.texture = mip; raw.raycastTarget = false;
             Head = new GameObject("observed head camera").AddComponent<Camera>(); Head.enabled = false;
-            Head.orthographic = true; Head.orthographicSize = .9f; Head.aspect = 16f / 9f; Head.cullingMask = 1 << 27;
+            Head.orthographic = false; Head.fieldOfView = 2f * Mathf.Atan(.9f / 3f) * Mathf.Rad2Deg; Head.aspect = 16f / 9f; Head.cullingMask = 1 << 27;
             Head.clearFlags = CameraClearFlags.SolidColor; Head.backgroundColor = Color.black;
             _result = new RenderTexture(320, 180, 24); _result.Create(); Head.targetTexture = _result; VRRigDriver.HeadCamera = Head;
             Entry = new PanelSupersample.Entry { Panel = new ConvertedPanel { HostRect = Panel }, Cam = capture,
@@ -394,15 +415,22 @@ public static partial class MenuDepthProgram
         }
         internal void Capture()
         {
+            PrepareEye(false);
             PanelSupersample.Capture(Head);
             if (Entry.MenuDepthDisplay != null)
-                SeenRight = (RenderTexture)typeof(MenuDepthDisplay).GetField("_rightCapture", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Entry.MenuDepthDisplay)!;
+                SeenRight = (RenderTexture)typeof(MenuDepthDisplay).GetField("_headRight", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(Entry.MenuDepthDisplay)!;
         }
         internal TextureOwner Eye(bool right, string name)
         {
-            MenuDepthFixture.CurrentEye = right ? Camera.MonoOrStereoscopicEye.Right : Camera.MonoOrStereoscopicEye.Left;
+            PrepareEye(right);
             Canvas.ForceUpdateCanvases(); Head.Render();
             return new TextureOwner(Read(_result, name));
+        }
+        internal void PrepareEye(bool right)
+        {
+            MenuDepthFixture.CurrentEye = right ? Camera.MonoOrStereoscopicEye.Right : Camera.MonoOrStereoscopicEye.Left;
+            Head.transform.position = right ? MenuDepthFixture.Right : MenuDepthFixture.Left;
+            Head.ResetWorldToCameraMatrix();
         }
         internal void AddMask(bool stencil)
         {
