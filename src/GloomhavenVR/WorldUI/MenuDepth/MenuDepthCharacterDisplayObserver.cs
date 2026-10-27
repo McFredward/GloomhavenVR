@@ -68,6 +68,8 @@ internal static class MenuDepthLifecycleObserver
                     if (graphic is UnityEngine.UI.RawImage removed) MenuDepthCharacters.ForgetImage(removed);
                     return;
                 }
+                if (__originalMethod.Name == "OnCanvasHierarchyChanged" && MenuDepthDriver.IsKnownGraphic(graphic)
+                    && MenuDepthNativeUiScope.IsOwnHierarchyChange(graphic)) return;
                 MenuDepthDriver.ObserveGraphic(graphic, __originalMethod.Name == "OnTransformParentChanged"
                     || __originalMethod.Name == "OnCanvasHierarchyChanged");
                 if (graphic is UnityEngine.UI.RawImage image) MenuDepthCharacters.ObserveImage(image);

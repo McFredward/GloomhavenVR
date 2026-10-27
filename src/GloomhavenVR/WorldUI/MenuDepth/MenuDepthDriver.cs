@@ -207,6 +207,8 @@ internal static class MenuDepthDriver
 
     // These native postfix notifications only coalesce identities. No observer
     // callback walks children or reflects fields while the game initializes them.
+    internal static bool IsKnownGraphic(Graphic graphic) => KnownGraphics.Contains(graphic);
+
     internal static void ObserveGraphic(Graphic graphic, bool hierarchyChanged = false)
     {
         if (!_running || graphic == null || (graphic is not Image && graphic is not RawImage)) return;
