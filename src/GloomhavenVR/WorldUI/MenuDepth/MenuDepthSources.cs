@@ -121,14 +121,26 @@ internal static class MenuDepthSources
         }
     }
 
+    internal static void CollectReadyForegroundGraphics(List<Graphic> destination)
+    {
+        FlushPendingContent(); destination.Clear();
+        for (int i = 0; i < Sources.Count; i++)
+        {
+            IMenuDepthSource source = Sources[i];
+            if (source is not IMenuDepthBoundsSource) continue;
+            Graphic graphic = source.Graphic;
+            if (Visible(graphic) && source.IsReady && !destination.Contains(graphic)) destination.Add(graphic);
+        }
+    }
+
     internal static bool TryGetForegroundBounds(Graphic graphic, MenuDepthEye eye, out Rect graphicLocalBounds)
     {
         FlushPendingContent();
         for (int i = 0; i < Sources.Count; i++)
         {
             IMenuDepthSource source = Sources[i];
-            if (ReferenceEquals(source.Graphic, graphic) && Visible(graphic) && source.IsReady
-                && source is IMenuDepthBoundsSource bounds)
+            if (source is IMenuDepthBoundsSource bounds
+                && ReferenceEquals(source.Graphic, graphic) && Visible(graphic) && source.IsReady)
                 return bounds.TryGetForegroundBounds(eye, out graphicLocalBounds);
         }
         graphicLocalBounds = default;

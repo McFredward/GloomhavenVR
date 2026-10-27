@@ -139,7 +139,7 @@ internal sealed class MenuDepthDisplay : IDisposable
     internal static Rect ForegroundFrame(RectTransform plane, Rect frame, MenuDepthEye left, MenuDepthEye right)
     {
         float x0 = frame.xMin, x1 = frame.xMax, y0 = frame.yMin, y1 = frame.yMax;
-        MenuDepthSources.CollectReadyGraphics(BoundGraphics);
+        MenuDepthSources.CollectReadyForegroundGraphics(BoundGraphics);
         for (int i = 0; i < BoundGraphics.Count; i++)
         {
             Graphic graphic = BoundGraphics[i];

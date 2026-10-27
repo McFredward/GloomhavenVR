@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using GloomhavenVR.WorldUI;
 using GloomhavenVR.WorldUI.MenuDepth;
 using UnityEngine;
@@ -27,6 +28,17 @@ public static partial class MenuDepthProgram
                 MenuDepthSources.Register(bounds);
                 try
                 {
+                    var ordinary = new List<NonBounds728>();
+                    for (int i=0;i<64;i++) { var source=new NonBounds728(scene.Image); ordinary.Add(source); MenuDepthSources.Register(source); }
+                    try
+                    {
+                        var collected = new List<Graphic>(); MenuDepthSources.CollectReadyForegroundGraphics(collected);
+                        Check(collected.Count==1 && collected[0]==scene.Image,
+                            "foreground collection admits only actual footprint sources among many native cards");
+                        foreach (NonBounds728 source in ordinary) Check(source.Reads==0,
+                            "ordinary card graphics and readiness are never touched by foreground collection");
+                    }
+                    finally { foreach (NonBounds728 source in ordinary) MenuDepthSources.Unregister(source); }
                     Canvas.ForceUpdateCanvases(); scene.Capture();
                     Rect sampled = PanelSupersample.AllocationFrame(scene.Entry);
                     Check(sampled.width > original.width && sampled.height == original.height,
@@ -61,6 +73,17 @@ public static partial class MenuDepthProgram
                 finally { MenuDepthSources.Unregister(bounds); }
             }
         }
+    }
+
+    private sealed class NonBounds728 : IMenuDepthSource
+    {
+        private readonly Graphic _graphic;
+        internal int Reads;
+        internal NonBounds728(Graphic graphic) => _graphic=graphic;
+        public Graphic Graphic { get { Reads++; return _graphic; } }
+        public bool IsReady { get { Reads++; return true; } }
+        public void BeforeCapture(MenuDepthEye eye) { }
+        public void AfterCapture() { }
     }
 
     private sealed class Bounds728 : IMenuDepthBoundsSource
