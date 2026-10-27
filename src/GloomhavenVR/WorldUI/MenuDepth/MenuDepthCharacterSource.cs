@@ -167,8 +167,20 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         if (!BindingAlive || !ReferenceEquals(_image.texture, original))
             throw new InvalidOperationException("Original character preview changed during its render.");
         _surface.Capture(view, target, headRaster ? new Rect(0f, 0f, 1f, 1f) : _camera.rect, _image.uvRect,
-            headRaster ? new Rect(-1f, -1f, 2f, 2f) : _captureClip, headRaster, _image.transform.InverseTransformPoint(eye.WorldPosition));
+            headRaster ? new Rect(-1f, -1f, 2f, 2f) : _captureClip, headRaster, EyeGraphic(eye.WorldPosition, headRaster));
         Borrow(target, original);
+    }
+
+    private Vector3 EyeGraphic(Vector3 position, bool headRaster)
+    {
+        Vector3 local = _image.transform.InverseTransformPoint(position);
+        // Original ScreenSpaceCamera units may be hundreds/thousands of pixels.
+        // Converting that same glass to world space can leave sub-millipixel Z
+        // error at an exactly coplanar eye. Pick the authored plane once instead
+        // of alternating the front/back aperture classification across frames.
+        float epsilon = Mathf.Max(_image.rectTransform.rect.width, _image.rectTransform.rect.height) * 1e-6f;
+        if (headRaster && Mathf.Abs(local.z) <= epsilon) local.z = 0f;
+        return local;
     }
 
     private void Borrow(RenderTexture target, Texture original)

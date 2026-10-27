@@ -104,6 +104,10 @@ internal static class MenuDepthCharacterRotation
     variants = [
         ('head-motion730', '', '', '', ''),
         ('head-raster4040', '', '', '', ''),
+        ('head-coplanar-side-noise730','MenuDepthCharacterSource.cs',
+         'if (headRaster && Mathf.Abs(local.z) <= epsilon) local.z = 0f;',
+         '/* injected: round-trip native units choose an arbitrary plane side */',
+         'actual final head figure retains direct native-world XY surface detail during movement'),
         ('head-coplanar-lost730','MenuDepthScreenProjection.cs',
          '(allowCoplanar || Mathf.Abs(Vector3.Dot(center - nativeEye, forward)) > 1e-5f)',
          '(Mathf.Abs(Vector3.Dot(center - nativeEye, forward)) > 1e-5f)',
@@ -243,7 +247,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name == 'head-coplanar-lost730' else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else
