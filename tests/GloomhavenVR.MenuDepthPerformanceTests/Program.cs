@@ -36,6 +36,7 @@ public static class MenuDepthPerformanceProof
     private static string _output = string.Empty;
     private static int _assertions, _rootCalls, _globalCalls, _count, _warmup, _lastFrame;
     private static int _steadyRoot, _steadyGlobal, _steadyVisits, _steadyAncestors;
+    private static int _sourceRegistrations, _steadyRegistrations;
     private static bool _baseline, _firstDrawOnly, _restoreAfterRender, _prepareBeforeRender;
     private static float _started;
     private static Func<long>? _allocated;
@@ -62,14 +63,16 @@ public static class MenuDepthPerformanceProof
     private static void CountGlobal() => _globalCalls++;
     private static bool SkipGameSceneStart() => false;
     private static void CountDisplay() => _nativeDisplays++;
+    private static void CountRegistration() => _sourceRegistrations++;
 
     public static void Begin(string output, bool baseline, bool firstDraw, bool restoreAfterRender, bool prepareBeforeRender, bool automatic)
     {
         _output = output; _baseline = baseline; _firstDrawOnly = firstDraw; _restoreAfterRender = restoreAfterRender; _prepareBeforeRender = prepareBeforeRender; _automatic = automatic; _automaticDone = false; _assertions = _rootCalls = _globalCalls = _nativeDisplays = 0;
-        _count = 0; _warmup = 12; _lastFrame = -1;
+        _count = 0; _warmup = 12; _lastFrame = -1; _sourceRegistrations = 0;
         _harmony = new Harmony("GloomhavenVR.MenuDepthPerf." + typeof(MenuDepthPerformanceProof).Assembly.GetName().Name);
         _harmony.Patch(AccessTools.Method(typeof(MenuDepthDriver), "Discover"), prefix: new HarmonyMethod(typeof(MenuDepthPerformanceProof), nameof(CountRoot)));
         _harmony.Patch(AccessTools.Method(typeof(MenuDepthCharacters), "Discover"), prefix: new HarmonyMethod(typeof(MenuDepthPerformanceProof), nameof(CountGlobal)));
+        _harmony.Patch(AccessTools.Method(typeof(MenuDepthSources), "Register"), prefix: new HarmonyMethod(typeof(MenuDepthPerformanceProof), nameof(CountRegistration)));
         _harmony.Patch(AccessTools.Method(typeof(UIWindow), "Start"), prefix: new HarmonyMethod(typeof(MenuDepthPerformanceProof), nameof(SkipGameSceneStart)));
         _harmony.Patch(AccessTools.Method(typeof(Character3DDisplayManager), "Start"), prefix: new HarmonyMethod(typeof(MenuDepthPerformanceProof), nameof(SkipGameSceneStart)));
         _harmony.Patch(AccessTools.Method(typeof(Character3DDisplayManager), "Display"), postfix: new HarmonyMethod(typeof(MenuDepthPerformanceProof), nameof(CountDisplay)));
@@ -435,6 +438,7 @@ public static class MenuDepthPerformanceProof
                 _steadyRoot = _rootCalls; _steadyGlobal = _globalCalls;
                 _steadyVisits = Counter(typeof(MenuDepthDriver), "BehaviourVisits");
                 _steadyAncestors = Counter(typeof(MenuDepthDriver), "AncestorVisits");
+                _steadyRegistrations = _sourceRegistrations;
                 _started = Time.unscaledTime;
             }
             return false;
@@ -451,6 +455,10 @@ public static class MenuDepthPerformanceProof
             Check(Counter(typeof(MenuDepthDriver), "BehaviourVisits") == _steadyVisits
                 && Counter(typeof(MenuDepthDriver), "AncestorVisits") == _steadyAncestors,
                 "stable frame work is bounded to retained typed owners and known sources without behaviour or ancestor walks");
+            if(_sourceRegistrations!=_steadyRegistrations)
+                File.WriteAllText(Path.Combine(_output,"unexpected-registrations.txt"),"sample="+_count+";registerCalls="+(_sourceRegistrations-_steadyRegistrations));
+            Check(_sourceRegistrations==_steadyRegistrations,
+                "stable retained native graphics never repeat source registration membership searches");
         }
         return (_count >= 180 && Time.unscaledTime - _started >= 3f) || _count >= Samples.Length;
     }
@@ -495,6 +503,7 @@ public static class MenuDepthPerformanceProof
             globalResultArrays = 2 * (_globalCalls - _steadyGlobal),
             behaviourVisits = Counter(typeof(MenuDepthDriver), "BehaviourVisits") - _steadyVisits,
             ancestorVisits = Counter(typeof(MenuDepthDriver), "AncestorVisits") - _steadyAncestors,
+            sourceRegistrations = _sourceRegistrations - _steadyRegistrations,
             allocatedBytes = _allocated == null ? -1 : Allocations.Take(_count).Sum(),
             panels = CanvasConversion.ActivePanels.Count, nativeWindows = Windows.Count, nativeDisplayCalls = _nativeDisplays,
         };
@@ -514,7 +523,7 @@ public static class MenuDepthPerformanceProof
     }
     [Serializable] private sealed class Statistics
     {
-        public int samples, rootCensuses, globalCensuses, globalResultArrays, behaviourVisits, ancestorVisits, panels, nativeWindows, nativeDisplayCalls;
+        public int samples, rootCensuses, globalCensuses, globalResultArrays, behaviourVisits, ancestorVisits, sourceRegistrations, panels, nativeWindows, nativeDisplayCalls;
         public string allocationMetric = "calibrated thread bytes, or -1 when native Mono counter is unsupported";
         public float elapsedSeconds;
         public double meanMs, p50Ms, p95Ms, p99Ms, maxMs;
