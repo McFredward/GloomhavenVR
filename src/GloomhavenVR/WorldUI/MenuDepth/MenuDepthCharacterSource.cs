@@ -135,7 +135,10 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSource, IDisposable
             RenderTexture.active = target;
             GL.Clear(true, true, _camera.backgroundColor);
             _camera.targetTexture = target;
-            _camera.transform.SetPositionAndRotation(view.Position, view.Rotation);
+            // The actual native holder (including models and lights) is a child
+            // of this Camera in both game scenes. Moving the Camera Transform to
+            // an eye also moved the entire cabinet scene with the viewer. Borrow
+            // only its view/projection; keep every native scene Transform fixed.
             _camera.orthographic = false;
             _camera.nearClipPlane = view.Near; _camera.farClipPlane = view.Far;
             _camera.worldToCameraMatrix = view.WorldToCamera;
