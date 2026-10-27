@@ -2,7 +2,13 @@
 
 `run.py` builds complete current production DLLs into isolated private outputs,
 then executes their original tooltip patches in Unity2021.3.5f1/OpenGLCore. It
-requires the task-private ADB environment. Repeatable `--case` selects a bounded
+requires the task-private ADB environment. The empty private project imports
+the pinned TMP3.0.6 Essential Resources and waits for import completion before
+starting native UI; otherwise TextMeshProUGUI.Awake deliberately leaves its
+mesh uninitialized. A first lifecycle frame and explicit glyph/mesh preparation
+make the fixture font input ready before pixel measurements. Failed pixel
+witnesses retain their actual image and counts before asserting.
+Repeatable `--case` selects a bounded
 subset; a subset does not certify the complete repository gate.
 
 The native skin, campaign description/conceal and creator perks references are

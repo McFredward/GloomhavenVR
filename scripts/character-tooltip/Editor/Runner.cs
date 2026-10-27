@@ -28,6 +28,38 @@ public static class CharacterTooltipRunner
         manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(args[Array.IndexOf(args, "-characterTooltipManifest") + 1]));
         writer = new StreamWriter(manifest.result);
         writer.WriteLine("Unity " + Application.unityVersion + "; " + SystemInfo.graphicsDeviceName + "; " + SystemInfo.graphicsDeviceType);
+        writer.Flush();
+        // Empty private projects lack the package's Essential Resources. TMP
+        // deliberately leaves Awake incomplete without TMP_Settings. Import is
+        // asynchronous: begin native UI only from its completion callback.
+        if (TMPro.TMP_Settings.instance == null)
+        {
+            AssetDatabase.importPackageCompleted += EssentialsReady;
+            AssetDatabase.importPackageFailed += EssentialsFailed;
+            string essentials = Path.GetFullPath(Path.Combine(Application.dataPath,
+                "../Library/PackageCache/com.unity.textmeshpro@3.0.6/Package Resources/TMP Essential Resources.unitypackage"));
+            AssetDatabase.ImportPackage(essentials, false);
+            return;
+        }
+        BeginPlay();
+    }
+    private static void EssentialsReady(string packageName)
+    {
+        AssetDatabase.importPackageCompleted -= EssentialsReady;
+        AssetDatabase.importPackageFailed -= EssentialsFailed;
+        AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+        if (TMPro.TMP_Settings.instance == null)
+        { EssentialsFailed(packageName, "Pinned TMP settings are unavailable after import."); return; }
+        BeginPlay();
+    }
+    private static void EssentialsFailed(string packageName, string error)
+    {
+        AssetDatabase.importPackageCompleted -= EssentialsReady;
+        AssetDatabase.importPackageFailed -= EssentialsFailed;
+        writer.WriteLine("FAIL essential resources: " + error); writer.Dispose(); EditorApplication.Exit(1);
+    }
+    private static void BeginPlay()
+    {
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload | EnterPlayModeOptions.DisableSceneReload;
         EditorApplication.update += Tick;
@@ -185,6 +217,13 @@ public static class CharacterTooltipRunner
         Native<UITextTooltipTarget>(ordinary.gameObject);
         Vector2 fixedSize = host.sizeDelta; Transform originalLocalParent = local.parent; Vector2 originalPivot = local.pivot;
         var roles = new[] { skinRect, description, conceal, perks };
+        // The original game tooltip and TMP atlas already exist before hover.
+        // Let this freshly authored fixture complete its first native TMP
+        // lifecycle frame before measuring same-frame tooltip placement.
+        yield return null;
+        questText.font.TryAddCharacters(questText.text);
+        questText.ForceMeshUpdate(true, true);
+        Canvas.ForceUpdateCanvases();
         foreach (float yaw in new[] { 0f, 37f, -51f })
         foreach (float scale in new[] { .0005f, .001f })
         {
@@ -257,9 +296,15 @@ public static class CharacterTooltipRunner
         { Color32 c = colors[y * rt.width + x]; if (c.b > 180 && c.r < 80 && c.g < 80) bodyPixels++;
           if (x > rightEdge && c.r > 180 && c.g > 180 && c.b < 80) questPixels++;
           if (x > rightEdge && c.r > 180 && c.g > 180 && c.b > 180) textPixels++; }
+        File.WriteAllBytes(Path.Combine(output, "actual-quest-beside-character.png"), pixels.EncodeToPNG());
+        File.WriteAllText(Path.Combine(output, "quest-pixel-counts.txt"),
+            "body=" + bodyPixels + " plate=" + questPixels + " text=" + textPixels + " rightEdge=" + rightEdge
+            + " font=" + (questText.font != null ? questText.font.name : "missing")
+            + " characters=" + (questText.textInfo != null ? questText.textInfo.characterCount : -1)
+            + " vertices=" + (questText.textInfo != null && questText.textInfo.meshInfo != null
+                && questText.textInfo.meshInfo.Length > 0 ? questText.textInfo.meshInfo[0].vertexCount : -1) + "\n");
         Check(bodyPixels > 2000 && questPixels > 200 && textPixels > 40,
-            "original quest ink and text remain readable beside an actually rendered foreground character volume");
-        File.WriteAllBytes(Path.Combine(output, "actual-quest-beside-character.png"), pixels.EncodeToPNG()); Object.DestroyImmediate(pixels); Object.DestroyImmediate(bodyMaterial);
+            "original quest ink and text remain readable beside an actually rendered foreground character volume"); Object.DestroyImmediate(pixels); Object.DestroyImmediate(bodyMaterial);
         button.onClick.Invoke(); Check(clicked == 1, "tooltip placement leaves the original skin button callback unchanged");
         Check(host.sizeDelta == fixedSize && local.pivot == originalPivot, "all original fixed geometry survives the complete hover sequence");
         Call(world, "ResolveHostOwner", false, false); Check(!(bool)Get(world, "_characterHintOnRight"), "closed tooltip releases its side-lane decision");
