@@ -88,6 +88,13 @@ def main():
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
+        ('head-frustum729', '', '', '', ''),
+        ('head-frustum-native-mapping-lost729', 'MenuDepthScreenProjection.cs',
+         'new Vector3(1f / xScale, 1f / yScale, 1f / Mathf.Sqrt(xScale * yScale))) * nativeFrame;',
+         'Vector3.one);', 'native frustum mapping recovers the actual physical viewer through anisotropic UI scale'),
+        ('head-frustum-sampling-copy-lost729', 'MenuDepthSources.cs',
+         'eye.HasWorldToHeadClip ? eye.WorldToHeadClip : null',
+         'null', 'sampling-demand dispatch preserves the mapped physical frustum'),
         ('desktop-resources728', '', '', '', ''),
         ('desktop-budget-cap-lost728', 'MenuDepthDesktopResources.cs', '160L * 1024 * 1024', 'long.MaxValue', 'extreme native eye allocations are rejected before creating either additional target'),
         ('desktop-small-shrink-churn728', 'MenuDepthDesktopResources.cs', 'wanted.width <= current.width * .75f || wanted.height <= current.height * .75f',
@@ -204,7 +211,8 @@ def main():
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
+                                      'method': ('HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                          'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else
                                           'Anchors724' if name.startswith('window-anchors-') else 'Run')})

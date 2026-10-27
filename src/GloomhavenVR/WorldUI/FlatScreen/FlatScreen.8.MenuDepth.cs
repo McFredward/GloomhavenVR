@@ -98,8 +98,10 @@ internal sealed partial class FlatScreen
             for (int side = 0; side < 2; side++)
             {
                 if (!MenuDepthScreenProjection.TryMap(_quad!.transform, camera, graphic.rectTransform,
-                    side == 0 ? left : right, out Vector3 eye)) continue;
-                if (!MenuDepthSources.TryGetForegroundBounds(graphic, new MenuDepthEye(side != 0, eye, head, true), out Rect bounds)) continue;
+                    side == 0 ? left : right, out Vector3 eye, out Matrix4x4 nativeToPhysical)) continue;
+                Matrix4x4 headClip = MenuDepthEye.HeadClip(side != 0, side == 0 ? left : right, head);
+                if (!MenuDepthSources.TryGetForegroundBounds(graphic,
+                    new MenuDepthEye(side != 0, eye, head, true, worldToHeadClip: headClip * nativeToPhysical), out Rect bounds)) continue;
                 for (int corner = 0; corner < 4; corner++)
                 {
                     Vector3 point = graphic.rectTransform.TransformPoint(new Vector3((corner & 1) == 0 ? bounds.xMin : bounds.xMax,
@@ -245,9 +247,10 @@ internal sealed partial class FlatScreen
     {
         if (_quad == null || _menuDepthBorrowedCamera == null
             || !MenuDepthScreenProjection.TryMap(_quad.transform, _menuDepthBorrowedCamera, graphic.rectTransform,
-                _menuDepthEye.WorldPosition, out Vector3 position))
+                _menuDepthEye.WorldPosition, out Vector3 position, out Matrix4x4 nativeToPhysical))
             throw new InvalidOperationException("The original menu graphic has no valid physical eye mapping.");
-        return new MenuDepthEye(_menuDepthEye.Right, position, _menuDepthEye.HeadCamera, true);
+        return new MenuDepthEye(_menuDepthEye.Right, position, _menuDepthEye.HeadCamera, true,
+            worldToHeadClip: _menuDepthEye.WorldToHeadClip * nativeToPhysical);
     }
 
     private void BeforeMenuDepthHead(Camera camera)

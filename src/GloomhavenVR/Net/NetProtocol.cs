@@ -629,7 +629,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 728;
+    public const ushort ModBuild = 729;
+
+    // ModBuild729 — stable moving character cabinets and stronger menu-card previews.
+    // The maintainer accepts the stationary728 appearance, but moving eyes can
+    // exhaust the character crop reservation and repeatedly flatten the entire
+    // window. Bound sampling to the actual eye view and retain a stable paired
+    // allocation without changing the accepted model framing or memory ceiling.
+    // Give native item cards more physical depth and enroll the original pooled
+    // character-card hover preview at its real visible lifecycle boundary.
+    // Keep native actions, shared window geometry and the default-on character
+    // depth preference. Retain proof while cleaning completed test caches and
+    // retiring this round's clean worktrees; the Windows installer builds the ZIP.
 
     // ModBuild728 — native menu depth composition, level-up presentation and raised cards.
     // The maintainer accepts727 character size, but side views let later flat UI
