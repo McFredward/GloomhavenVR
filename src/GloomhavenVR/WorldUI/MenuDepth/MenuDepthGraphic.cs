@@ -22,7 +22,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
     private MenuDepthHeightfield? _field;
     private float _depthRatio;
     private Vector4 _depthUv = new(1f, 1f, 0f, 0f);
-    private bool _configured, _planeOnly;
+    private bool _configured, _planeOnly, _planeRegistrationReleased;
     private readonly List<MenuDepthCardPlane> _planeOwners = new(2);
     private bool _projected;
     private Vector3 _eye;
@@ -65,7 +65,10 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
     {
         _planeOwners.Remove(owner);
         if (graphic != null) graphic.SetMaterialDirty();
-        if (_planeOnly && _planeOwners.Count == 0) { MenuDepthSources.Unregister(this); ReleaseMaterial(); }
+        if (_planeOnly && _planeOwners.Count == 0)
+        {
+            MenuDepthSources.Unregister(this); _planeRegistrationReleased = true; ReleaseMaterial();
+        }
     }
 
     internal void EndPlaneCapture() { if (graphic != null) graphic.SetMaterialDirty(); }
@@ -83,15 +86,18 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
 
     private void ConfigureCore(Image image, MenuDepthHeightfield? field, float depthRatio, Vector4 depthUv)
     {
-        // Native hidden pools are learned before activation. Unity may destroy
-        // those components without OnDisable/OnDestroy, so they must not own a
-        // registration yet. OnEnable admits them when they become live. Renew
-        // an active registration before the same-state return too: a released
-        // card owner can reacquire its unchanged helper without another enable.
-        if (IsActive()) MenuDepthSources.Register(this);
         Sprite current = image.overrideSprite;
-        if (_configured && _image == image && _sprite == current && ReferenceEquals(_field, field)
-            && _depthRatio == depthRatio && _depthUv == depthUv) return;
+        bool unchanged = _configured && _image == image && _sprite == current && ReferenceEquals(_field, field)
+            && _depthRatio == depthRatio && _depthUv == depthUv;
+        // Retained decorative owners bind every Tick. Keep their unchanged path
+        // free of the registry's linear membership search. Only a last-card-owner
+        // release needs same-state renewal without another component enable.
+        if (unchanged && !_planeRegistrationReleased) return;
+        // Never-active native pools may receive no destruction callbacks. Their
+        // first OnEnable owns admission; active replacements/reacquires admit now.
+        if (IsActive()) MenuDepthSources.Register(this);
+        _planeRegistrationReleased = false;
+        if (unchanged) return;
         _image = image; _sprite = current; _field = field; _depthRatio = depthRatio; _depthUv = depthUv;
         _configured = field == null || current != null; // Native decorative Images may use the white quad without a sprite.
         _input.Clear(); _grid.Clear(); _triangles.Clear();
@@ -118,7 +124,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
     protected override void OnEnable()
     {
         base.OnEnable();
-        if (_configured) MenuDepthSources.Register(this);
+        if (_configured) { MenuDepthSources.Register(this); _planeRegistrationReleased = false; }
     }
     protected override void OnDisable()
     {
