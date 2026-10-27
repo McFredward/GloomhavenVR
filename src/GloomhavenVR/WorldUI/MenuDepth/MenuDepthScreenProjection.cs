@@ -50,6 +50,6 @@ internal static class MenuDepthScreenProjection
             + up * (Vector3.Dot(offset, screen.up) * yScale)
             + forward * (Vector3.Dot(offset, screen.forward) * Mathf.Sqrt(xScale * yScale));
         return MenuDepthProjection.Finite(nativeEye)
-            && Vector3.Dot(center - nativeEye, forward) > 1e-5f;
+            && Mathf.Abs(Vector3.Dot(center - nativeEye, forward)) > 1e-5f;
     }
 }

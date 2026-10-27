@@ -62,10 +62,10 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IDispos
     {
         AfterCapture();
         if (!IsReady || _rendering) throw new InvalidOperationException("Original character preview cannot prime its UI batch.");
-        if (!_calibration.TryGet(ReadOriginal?.Invoke(_manager) ?? _holder, out Bounds bounds)
+        if (!_calibration.TryGet(ReadOriginal?.Invoke(_manager) ?? _holder, out Vector3 origin)
             || !MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
-                _image.uvRect, samplingEye.WorldPosition, bounds, out _))
-            throw new InvalidOperationException("Original character preview has no valid direct batch envelope.");
+                _image.uvRect, samplingEye.WorldPosition, origin, out _))
+            throw new InvalidOperationException("Original character preview has no valid direct batch frame.");
         if (_directBatchFrame != Time.frameCount)
         {
             SelectResolution(samplingEye.PixelFootprint);
@@ -98,11 +98,11 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IDispos
     {
         AfterCapture();
         if (!IsReady || _rendering) throw new InvalidOperationException("Original character preview is not ready for this capture.");
-        if (!_calibration.TryGet(ReadOriginal?.Invoke(_manager) ?? _holder, out Bounds modelBounds))
-            throw new InvalidOperationException("Original character has no authored mesh envelope.");
+        if (!_calibration.TryGet(ReadOriginal?.Invoke(_manager) ?? _holder, out Vector3 origin))
+            throw new InvalidOperationException("Original character has no completed main actor origin.");
         if (!MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
-            _image.uvRect, eye.WorldPosition, modelBounds, out MenuDepthCharacterProjection.View view))
-            throw new InvalidOperationException("Original character preview has no valid front-facing portal.");
+            _image.uvRect, eye.WorldPosition, origin, out MenuDepthCharacterProjection.View view))
+            throw new InvalidOperationException("Original character preview has no valid window portal.");
         // A native Canvas batch has already retained this frame's left texture
         // identity. Refresh that same surface for either direct eye; only an early
         // batch boundary may resize it. No third surface or late sampler swap.
@@ -249,6 +249,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IDispos
         if (!generatedCulling) _camera.cullingMatrix = originalCulling;
         float originalNear = _camera.nearClipPlane, originalFar = _camera.farClipPlane;
         bool originalOrtho = _camera.orthographic;
+        bool originalCullingInverted = GL.invertCulling;
         try
         {
             _rendering = true;
@@ -264,10 +265,15 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IDispos
             _camera.worldToCameraMatrix = view.WorldToCamera;
             _camera.projectionMatrix = view.Projection;
             _camera.cullingMatrix = view.Projection * view.WorldToCamera;
+            // Rear eyes retain the window's original right/up texture axes.
+            // This reflected view needs the opposite winding so the original
+            // model's actual back surfaces remain visible through that same UV.
+            GL.invertCulling = originalCullingInverted ^ view.Reversed;
             _camera.Render();
         }
         finally
         {
+            GL.invertCulling = originalCullingInverted;
             if (_camera != null)
             {
                 _camera.targetTexture = originalTarget;
@@ -315,111 +321,31 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IDispos
         internal int References;
         private readonly Camera _camera;
         private readonly Transform _holder;
-        private readonly Dictionary<object, Bounds> _bounds = new();
-        private readonly HashSet<object> _unresolvedRigs = new();
+        private readonly Dictionary<object, Vector3> _origins = new();
         internal CalibrationCache(Camera camera, Transform holder) { _camera = camera; _holder = holder; }
-        internal bool TryGet(object original, out Bounds result)
+        internal bool TryGet(object original, out Vector3 result)
         {
-            if (_bounds.TryGetValue(original, out result)) return true;
-            if (_unresolvedRigs.Contains(original)) { result = default; return false; }
-            bool any = false; result = default;
-            if (ReferenceEquals(original, _holder))
-            { if (!Collect(_holder, ref any, ref result)) { RejectRig(original); return false; } } // explicit fixture/unknown-runtime fallback
-            else
+            if (_origins.TryGetValue(original, out result)) return true;
+            Transform? main = ReferenceEquals(original, _holder) ? _holder : null;
+            if (main == null)
             {
                 FieldInfo? models = original.GetType().GetField("models", BindingFlags.Instance | BindingFlags.NonPublic);
                 if (models?.GetValue(original) is IEnumerable list)
                     foreach (object member in list)
                     {
                         Component? actor = member.GetType().GetProperty("CharacterManager")?.GetValue(member, null) as Component;
-                        if (actor != null && !Collect(actor.transform, ref any, ref result)) { RejectRig(original); return false; }
+                        // Native CreateCharacter appends the main actor before
+                        // companions. Its placement root is the authored ground
+                        // axis, independent of equipment/animation bounds. Do
+                        // not substitute a later companion for a missing main.
+                        main = actor != null ? actor.transform : null;
+                        break;
                     }
             }
-            if (!any || result.size.x <= 1e-4f || result.size.y <= 1e-4f) return false;
-            if (_bounds.Count + _unresolvedRigs.Count >= 32) { _bounds.Clear(); _unresolvedRigs.Clear(); }
-            _bounds.Add(original, result); return true;
-        }
-        private void RejectRig(object original)
-        {
-            if (_bounds.Count + _unresolvedRigs.Count >= 32) { _bounds.Clear(); _unresolvedRigs.Clear(); }
-            _unresolvedRigs.Add(original);
-        }
-        private bool Collect(Transform root, ref bool any, ref Bounds result)
-        {
-            // Authored local envelopes remain stable across animation. World
-            // Renderer.bounds and per-frame hierarchy walks are deliberately absent.
-            Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
-            var bones = new Dictionary<Transform, Matrix4x4>();
-            if (!BuildBones(renderers, root, bones)) return false;
-            foreach (Renderer renderer in renderers)
-            {
-                if (!renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
-                Bounds local;
-                if (renderer is SkinnedMeshRenderer skinned && skinned.sharedMesh != null) local = skinned.localBounds;
-                else if (renderer is MeshRenderer && renderer.GetComponent<MeshFilter>() is MeshFilter filter && filter.sharedMesh != null) local = filter.sharedMesh.bounds;
-                else continue;
-                Matrix4x4 transform = AuthoredTransform(renderer.transform, root, bones);
-                Vector3 lo = local.min, hi = local.max;
-                for (int i = 0; i < 8; i++)
-                {
-                    Vector3 point = transform.MultiplyPoint3x4(new Vector3((i & 1) == 0 ? lo.x : hi.x,
-                        (i & 2) == 0 ? lo.y : hi.y, (i & 4) == 0 ? lo.z : hi.z));
-                    if (!any) { result = new Bounds(point, Vector3.zero); any = true; } else result.Encapsulate(point);
-                }
-            }
-            return true;
-        }
-
-        private readonly struct SkinBinding
-        {
-            internal readonly SkinnedMeshRenderer Skin;
-            internal readonly Transform[] Bones;
-            internal readonly Matrix4x4[] Poses;
-            internal SkinBinding(SkinnedMeshRenderer skin)
-            { Skin = skin; Bones = skin.bones; Poses = skin.sharedMesh.bindposes; }
-        }
-
-        private bool BuildBones(Renderer[] renderers, Transform root, Dictionary<Transform, Matrix4x4> bones)
-        {
-            var imported = new HashSet<Transform>();
-            var pending = new List<SkinBinding>();
-            foreach (Renderer renderer in renderers)
-            {
-                if (!(renderer is SkinnedMeshRenderer skin) || skin.sharedMesh == null
-                    || !renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
-                var binding = new SkinBinding(skin); pending.Add(binding);
-                foreach (Transform bone in binding.Bones) if (bone != null) imported.Add(bone);
-            }
-            // Native DoEquip also attaches skinned weapon prefabs to body bones.
-            // Resolve that dependency before their own bind maps, independently
-            // of renderer/sibling enumeration order. Never seed body bones from
-            // a weapon's current animated parent pose.
-            while (pending.Count != 0)
-            {
-                bool progress = false;
-                for (int index = pending.Count - 1; index >= 0; index--)
-                {
-                    SkinBinding binding = pending[index]; bool waiting = false;
-                    for (Transform? parent = binding.Skin.transform.parent; parent != null && parent != root && parent != root.parent; parent = parent.parent)
-                        if (imported.Contains(parent)) { waiting = !bones.ContainsKey(parent); break; }
-                    if (waiting) continue;
-                    Matrix4x4 skinToCamera = AuthoredTransform(binding.Skin.transform, root, bones);
-                    for (int i = 0; i < Math.Min(binding.Bones.Length, binding.Poses.Length); i++)
-                        if (binding.Bones[i] != null && !bones.ContainsKey(binding.Bones[i]))
-                            bones.Add(binding.Bones[i], skinToCamera * binding.Poses[i].inverse);
-                    pending.RemoveAt(index); progress = true;
-                }
-                if (!progress) return false; // An unresolved rig keeps native mono; never cache an animated approximation.
-            }
-            return true;
-        }
-
-        private Matrix4x4 AuthoredTransform(Transform renderer, Transform root, Dictionary<Transform, Matrix4x4> bones)
-        {
-            for (Transform? ancestor = renderer; ancestor != null && ancestor != root.parent; ancestor = ancestor.parent)
-                if (bones.TryGetValue(ancestor, out Matrix4x4 bind))
-                    return bind * ancestor.worldToLocalMatrix * renderer.localToWorldMatrix;
-            return _camera.transform.worldToLocalMatrix * renderer.localToWorldMatrix;
+            result = main != null ? _camera.transform.InverseTransformPoint(main.position) : default;
+            if (main == null || !MenuDepthProjection.Finite(result)) return false;
+            if (_origins.Count >= 32) _origins.Clear();
+            _origins.Add(original, result); return true;
         }
     }
 
