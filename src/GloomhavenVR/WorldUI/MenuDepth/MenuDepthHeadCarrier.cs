@@ -15,7 +15,7 @@ internal sealed class MenuDepthHeadCarrier : IDisposable
     private readonly GameObject _owner;
     private readonly Mesh _mesh;
     private readonly MeshRenderer _renderer;
-    private bool _hidden, _wasCulled;
+    private bool _hidden, _wasCulled, _originalEnabled;
     internal MenuDepthHeadCarrier(RawImage original, Material material) : this(original.transform, material, original) { }
     internal MenuDepthHeadCarrier(Transform original, Material material) : this(original, material, null) { }
     private MenuDepthHeadCarrier(Transform original, Material material, RawImage? image)
@@ -41,20 +41,38 @@ internal sealed class MenuDepthHeadCarrier : IDisposable
     }
     internal void Draw(Camera head)
     {
-        if (_transform == null || !_transform.gameObject.activeInHierarchy || (_original != null && !_original.isActiveAndEnabled)) return;
+        if (_transform == null || !_transform.gameObject.activeInHierarchy
+            || (_original != null && !_original.isActiveAndEnabled && !_hidden)) return;
         float scale = Mathf.Max(1e-8f, Mathf.Min(_owner.transform.lossyScale.x,
             Mathf.Min(_owner.transform.lossyScale.y, _owner.transform.lossyScale.z)));
         _mesh.bounds = new Bounds(_owner.transform.InverseTransformPoint(head.transform.position),
             Vector3.one * (head.farClipPlane * 4f / scale));
-        if (!_hidden) { _wasCulled = _original != null ? _original.canvasRenderer.cull : _originalRenderer != null && !_originalRenderer.enabled; _hidden = true; }
-        if (_original != null) _original.canvasRenderer.cull = true;
+        if (!_hidden)
+        {
+            _wasCulled = _original != null ? _original.canvasRenderer.cull : _originalRenderer != null && !_originalRenderer.enabled;
+            _originalEnabled = _original != null && _original.enabled;
+            _hidden = true;
+        }
+        if (_original != null)
+        {
+            // Unity may submit a previously batched photograph even after late
+            // cull/renderer-alpha writes. Disable only this mod-owned RawImage:
+            // Graphic.OnDisable clears its cached CanvasRenderer submission.
+            // The original game Canvas, widgets, input and this child carrier
+            // remain active. EndDraw restores the exact component state.
+            _original.enabled = false;
+        }
         if (_originalRenderer != null) _originalRenderer.enabled = false;
         _renderer.enabled = true;
     }
     internal void EndDraw()
     {
         if (_renderer != null) _renderer.enabled = false;
-        if (_hidden && _original != null) _original.canvasRenderer.cull = _wasCulled;
+        if (_hidden && _original != null)
+        {
+            _original.enabled = _originalEnabled;
+            _original.canvasRenderer.cull = _wasCulled;
+        }
         if (_hidden && _originalRenderer != null) _originalRenderer.enabled = !_wasCulled;
         _hidden = false;
     }
