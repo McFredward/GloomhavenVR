@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI.MenuDepth;
@@ -26,6 +27,16 @@ internal interface IMenuDepthSampledSource : IMenuDepthSource { }
 internal interface IMenuDepthOcclusionSource : IMenuDepthSource
 {
     IReadOnlyList<Graphic> DepthGraphics { get; }
+}
+
+/// <summary>
+/// Conservative foreground footprint on the original Graphic's local z=0 plane.
+/// Capture carriers may include this transparent overspill without changing the
+/// native layout, input rectangle or synchronized world-window geometry.
+/// </summary>
+internal interface IMenuDepthBoundsSource : IMenuDepthSource
+{
+    bool TryGetForegroundBounds(MenuDepthEye eye, out Rect graphicLocalBounds);
 }
 
 /// <summary>Prime a stable native UI batch texture, then refresh its pixels for each actual head eye.</summary>
