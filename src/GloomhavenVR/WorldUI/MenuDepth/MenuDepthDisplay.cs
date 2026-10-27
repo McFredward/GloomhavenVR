@@ -143,6 +143,11 @@ internal sealed class MenuDepthDisplay : IDisposable
             : _rightMip != null && _rightMip.IsCreated() && _rightMip.width == leftDisplay.width
                 && _rightMip.height == leftDisplay.height)));
 
+    internal void PrepareHead(Camera head)
+    {
+        if (_headCamera == head) _headCarrier?.Draw(head);
+    }
+
     internal static long HeadCost(Camera head, RenderTexture original)
     {
         return MenuDepthHeadRaster.Bytes(original.descriptor, MenuDepthHeadRaster.Size(head));

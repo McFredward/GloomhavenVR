@@ -72,7 +72,7 @@ def main():
     sources['PanelDepth.cs'] = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs').read_text()
     sources['CaptureGuard.cs'] = (flat / 'FlatScreen.7.CaptureRender.cs').read_text()
     sources['DesktopCapture.cs'] = (flat / 'FlatScreen.8.MenuDepth.cs').read_text()
-    budget_at = sources['DesktopCapture.cs'].index('MenuDepthDesktopResources.Fits(')
+    budget_at = sources['DesktopCapture.cs'].index('MenuDepthHeadRaster.WindowBudget(')
     assert budget_at < sources['DesktopCapture.cs'].index('_menuDepthRight = MenuDepthTarget('), 'Budget must admit before either extra allocation'
     sources['Anchors724.cs'] = (ROOT / 'scripts/menu-depth-desktop/Anchors724.cs').read_text()
     # Explicit XR observation ports only. The original native camera's stored eye
@@ -86,10 +86,20 @@ def main():
     fixtures = ROOT / 'tests/GloomhavenVR.MenuDepthDesktopTests'
     inputs = [flat / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.7.CaptureRender.cs', 'FlatScreen.8.MenuDepth.cs')]
     inputs += [depth / name for name in names]
-    inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
+    inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), *fixtures.glob('*.shader'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
         ('head-motion730', '', '', '', ''),
+        ('head-motion-downsample-lost730','MenuDepthHeadRaster.cs',
+         'Mathf.CeilToInt(head.targetTexture.width * head.rect.width)',
+         'Mathf.CeilToInt(head.targetTexture.width * head.rect.width * .25f)',
+         'actual final head text and XY print retain direct native-world pixel detail during movement'),
+        ('head-motion-second-eye-lost730','PanelDepth.cs',
+         'e.MenuDepthDisplay?.PrepareHead(head);', '/* cached pair was not readmitted before second-eye culling */',
+         'actual final head retains original window and figure ink for both eyes'),
+        ('head-motion-source-detail-lost730','MenuDepthCharacterSource.cs',
+         'int width = pixels.x, height = pixels.y;', 'int width = pixels.x / 4, height = pixels.y / 4;',
+         'actual final head figure retains direct native-world XY surface detail during movement'),
         ('head-frustum729', '', '', '', ''),
         ('head-frustum-native-mapping-lost729', 'MenuDepthScreenProjection.cs',
          'new Vector3(1f / xScale, 1f / yScale, 1f / Mathf.Sqrt(xScale * yScale))) * nativeFrame;',
@@ -176,6 +186,8 @@ def main():
         (project / 'ProjectSettings').mkdir(); (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project / 'Packages').mkdir(); (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
         shutil.copyfile(ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs', editor / 'Runner.cs')
+        for shader in fixtures.glob('*.shader'):
+            shutil.copyfile(shader, project / 'Assets' / shader.name)
         manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'depthBundle': str(source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle'), 'cases': []}
         (run / 'source-pins.json').write_text(json.dumps({'inputs': pins,
             'boundaries': 'Already-visible screen resources and native scene/manager geometry; actual screen-space Canvas, uGUI, native Camera.Render, original capture route/clears/guard/desktop mapper/registry/character and graphic production run. XR availability/active eye are supplied, real Unity stored stereo matrices remain.',

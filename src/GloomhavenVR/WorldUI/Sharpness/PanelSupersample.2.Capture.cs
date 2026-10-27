@@ -1625,8 +1625,10 @@ internal static partial class PanelSupersample
         bool moving = IsMoving(e);
         int msaa = e.Msaa;
         long headReservation = MenuDepthReservation(e);
-        long budget = System.Math.Min(MaxPanelVramBytes - headReservation,
-            MaxTotalVramBytes - (_vramTotal - e.VramBytes) - (_menuDepthVramTotal - e.MenuDepthBytes) - headReservation);
+        // The ordinary photo budget stays unchanged. Head rasters have their
+        // separate exact XR-sized reservation, never a movement-driven rate.
+        long budget = System.Math.Min(MaxPanelVramBytes,
+            MaxTotalVramBytes - (_vramTotal - e.VramBytes));
         if (headReservation == 0 && MenuDepth.MenuDepthSources.HasContent(e.Panel.HostRect)) budget /= 2;
         ResolveRate(e, MenuDepthAllocationFrame(e, frame), ref msaa, budget, out float rate, out int rtW, out int rtH,
                     out long vram);

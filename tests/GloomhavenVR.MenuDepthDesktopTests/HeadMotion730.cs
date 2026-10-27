@@ -52,7 +52,11 @@ public static partial class MenuDepthDesktopProgram
             double b=model?Math.Max(0,reference[i].g-reference[i].r):reference[i].r*reference[i].a/255.0;
             if(a+b<5)continue; sa+=a;sb+=b;saa+=a*a;sbb+=b*b;sab+=a*b;n++;
         }
-        Check(n>60,"actual final head framebuffer retains independent native ink/model pixels");
+        if (n <= 60)
+        {
+            Check(saa < 1000 && sbb < 1000,"an edge-on original plane has no invented visible ink");
+            contrast=0;return 1;
+        }
         double va=saa-sa*sa/n,vb=sbb-sb*sb/n;contrast=Math.Sqrt(va/n);
         return (sab-sa*sb/n)/Math.Sqrt(Math.Max(1e-12,va*vb));
     }
@@ -119,6 +123,12 @@ public static partial class MenuDepthDesktopProgram
             raw.gameObject.SetActive(true);
             var referenceBody=Object.Instantiate(body);referenceBody.name="independent native actor in fixed physical world";referenceBody.layer=26;
             referenceBody.transform.SetParent(null,false);Pose730(referenceBody.transform,bodyMap*body.transform.localToWorldMatrix);
+            var referenceMaterial=new Material(Shader.Find("GloomhavenVR.Tests/GlassAperture730"));referenceMaterial.mainTexture=cyanTexture;
+            Matrix4x4 worldToGlass=(mappingA*raw.rectTransform.localToWorldMatrix).inverse;
+            referenceMaterial.SetMatrix("_WorldToGlass",worldToGlass);
+            Rect aperture=raw.rectTransform.rect;
+            referenceMaterial.SetVector("_GlassRect",new Vector4(aperture.xMin,aperture.yMin,aperture.xMax,aperture.yMax));
+            referenceBody.GetComponent<MeshRenderer>().sharedMaterial=referenceMaterial;
             GameObject? panelDisplay=null;PanelSupersample.Entry? entry=null;
             if(path==1)
             {
@@ -135,16 +145,33 @@ public static partial class MenuDepthDesktopProgram
                 // The source calibration changes with this real conversion lifecycle, not with a head pose.
                 MenuDepthCharacters.Tick();
             }
+            try
+            {
             Vector3 screenPosition=scene.Screen.position,screenScale=scene.Screen.localScale;Quaternion screenRotation=scene.Screen.rotation;
-            var ids=new HashSet<int>();double minimumUi=1,minimumModel=1;
+            var ids=new HashSet<int>();var sourceIds=new HashSet<int>();bool sourceDimensionsExact=true;double minimumUi=1,minimumModel=1;
+            Camera.CameraCallback sample=c=>
+            {
+                if(c==scene.ModelCamera&&c.targetTexture!=scene.ModelTarget)
+                {
+                    sourceIds.Add(c.targetTexture.GetInstanceID());
+                    sourceDimensionsExact &= c.targetTexture.width==scene.HeadTarget.width&&c.targetTexture.height==scene.HeadTarget.height;
+                }
+            };
+            Camera.onPreRender+=sample;
             using(var csv=new StreamWriter(Path.Combine(output,"head-motion-"+path+".csv")))
             {
                 csv.WriteLine("frame,eye,uiCorrelation,modelCorrelation,uiContrast,modelContrast");
-                for(int frame=0;frame<16;frame++)
+                for(int frame=0;frame<52;frame++)
                 {
                     int before=Time.frameCount;while(Time.frameCount==before)yield return null;
-                    bool rear=frame>=10&&frame<=12;
-                    Vector3 position=frame<3?new Vector3(0,0,0):frame<6?new Vector3(.35f,.13f,.9f):frame<10?new Vector3(.8f,.12f,1.7f):rear?new Vector3(.25f,.1f,3.1f):new Vector3(0,0,0);
+                    Vector3 position;
+                    if(frame<4)position=Vector3.zero;
+                    else if(frame<16){float t=(frame-4)/11f;position=new Vector3(Mathf.Lerp(0,.35f,t),.13f*Mathf.Sin(t*3),Mathf.Lerp(0,.9f,t));}
+                    else if(frame<28){float t=(frame-16)/11f;position=Vector3.Lerp(new Vector3(.35f,.13f,.9f),new Vector3(.8f,.12f,1.9f),t);}
+                    else if(frame<40){float t=(frame-28)/11f;position=Vector3.Lerp(new Vector3(.8f,.12f,1.9f),new Vector3(.25f,.1f,3.1f),t);}
+                    else if(frame==40)position=new Vector3(.8f,.12f,2f); // exact glass-plane crossing
+                    else if(frame<48){float t=(frame-41)/6f;position=Vector3.Lerp(new Vector3(.25f,.1f,3.1f),new Vector3(-.3f,-.12f,.4f),t);}
+                    else position=Vector3.zero;
                     Quaternion rotation=Quaternion.LookRotation(scene.Screen.position-position,Vector3.up);
                     Vector3 left=position-rotation*Vector3.right*.032f,right=position+rotation*Vector3.right*.032f;
                     scene.Head.transform.SetPositionAndRotation(left,rotation);
@@ -154,26 +181,46 @@ public static partial class MenuDepthDesktopProgram
                     {
                         Vector3 eyePosition=eye==0?left:right;scene.Head.transform.SetPositionAndRotation(eyePosition,rotation);
                         scene.Head.worldToCameraMatrix=scene.Head.GetStereoViewMatrix(eye==0?Camera.StereoscopicEye.Left:Camera.StereoscopicEye.Right);
+                        int modelBefore=scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>().Draws;
+                        int uiBefore=scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws;
                         scene.Head.cullingMask=1<<27;scene.Render(eye!=0);
+                        Check(scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-modelBefore==(eye==0?2:0),
+                            "each head stereo pair executes the original native model image effect exactly once per eye");
+                        Check(scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-uiBefore==(eye==0?2:0),
+                            "each head stereo pair executes the original native UI image effect exactly once per eye");
                         Texture2D actual=Read(scene.HeadTarget,Path.Combine(output,"actual-"+path+"-"+frame+"-"+eye+".png"));
+                        referenceMaterial.SetVector("_Eye",worldToGlass.MultiplyPoint3x4(eyePosition));
                         VRRigDriver.HeadCamera=null;scene.Head.cullingMask=1<<26;scene.Head.Render();VRRigDriver.HeadCamera=scene.Head;
                         Texture2D reference=Read(scene.HeadTarget,Path.Combine(output,"reference-"+path+"-"+frame+"-"+eye+".png"));
-                        double ui=Corr730(actual.GetPixels32(),reference.GetPixels32(),false,out double uiContrast);
-                        double model=Corr730(actual.GetPixels32(),reference.GetPixels32(),true,out double modelContrast);
+                        Color32[] actualPixels=actual.GetPixels32(),referencePixels=reference.GetPixels32();
+                        long actualInk=0,referenceInk=0;
+                        for(int p=0;p<actualPixels.Length;p++){actualInk+=Math.Max(actualPixels[p].r,actualPixels[p].g);referenceInk+=Math.Max(referencePixels[p].r,referencePixels[p].g);}
+                        Check(referenceInk<1000||actualInk>referenceInk/10,"actual final head retains original window and figure ink for both eyes");
+                        double ui=Corr730(actualPixels,referencePixels,false,out double uiContrast);
+                        double model=Corr730(actualPixels,referencePixels,true,out double modelContrast);
                         csv.WriteLine(frame+","+eye+","+ui+","+model+","+uiContrast+","+modelContrast);csv.Flush();
                         minimumUi=Math.Min(minimumUi,ui);minimumModel=Math.Min(minimumModel,model);
                         Check(ui>.99,"actual final head text and XY print retain direct native-world pixel detail during movement");
                         Check(model>.97,"actual final head figure retains direct native-world XY surface detail during movement");
+                        Check(sourceDimensionsExact,"native scene scratch always retains actual head pixel dimensions during movement");
                         Check(scene.Screen.position==screenPosition&&scene.Screen.localScale==screenScale&&scene.Screen.rotation==screenRotation,"moving head raster never moves the original physical window");
                         if(path==0&&scene.Flat.Right!=null)ids.Add(scene.Flat.Right.GetInstanceID());
                         Object.DestroyImmediate(actual);Object.DestroyImmediate(reference);
                     }
                 }
             }
-            File.WriteAllText(Path.Combine(output,"summary-"+path+".txt"),"UI="+minimumUi+",model="+minimumModel+",targetIDs="+ids.Count);
+            Camera.onPreRender-=sample;
+            Check(sourceIds.Count==1,"continuous motion reuses one native scene scratch across both eyes and all frames");
+            if(path==0)Check(ids.Count==1,"continuous motion retains one final right-eye head raster identity");
+            File.WriteAllText(Path.Combine(output,"summary-"+path+".txt"),"UI="+minimumUi+",model="+minimumModel+",targetIDs="+ids.Count+",sourceIDs="+sourceIds.Count);
+            }
+            finally
+            {
             if(entry!=null)PanelSupersample.EndHead(entry);if(panelDisplay!=null)Object.DestroyImmediate(panelDisplay);
             Object.DestroyImmediate(referenceA);Object.DestroyImmediate(referenceB);Object.DestroyImmediate(referenceBody);
+            Object.DestroyImmediate(referenceMaterial);
             Object.DestroyImmediate(texture);Object.DestroyImmediate(cyanTexture);Object.DestroyImmediate(material);Object.DestroyImmediate(bodyMaterial);
+            }
         }
         complete(_count);
     }

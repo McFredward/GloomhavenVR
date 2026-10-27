@@ -97,6 +97,7 @@ Shader "GloomhavenVR/MenuDepthCharacter"
                 float2 clipUV = (uv - _NativeViewport.xy) / _NativeViewport.zw * 2 - 1;
                 float4 nativePosition = mul(_NativeInverseVP, float4(clipUV, z, 1)); nativePosition /= nativePosition.w;
                 foreground = dot(_NativePlane, nativePosition) * _FrontSide > 0;
+                if (_GvrCharacterHeadRaster > .5 && abs(_GvrCharacterEyeGraphic.z) < .00001) foreground = true;
                 float4 physical = mul(_NativeToGraphic, nativePosition);
                 if (_GvrCharacterHeadRaster > .5)
                 {

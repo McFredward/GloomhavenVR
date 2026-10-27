@@ -82,7 +82,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         if (_rendering) throw new InvalidOperationException("Original character preview cannot prime its UI batch.");
         if (!_calibration.TryGet(original, out Vector3 origin)
             || !MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
-                _image.uvRect, samplingEye.WorldPosition, origin, out MenuDepthCharacterProjection.View view))
+                _image.uvRect, samplingEye.WorldPosition, origin, out MenuDepthCharacterProjection.View view, allowCoplanar: samplingEye.HasWorldToHeadClip))
             throw new InvalidOperationException("Original character preview has no valid direct batch frame.");
         if (samplingEye.HasWorldToHeadClip && samplingEye.HeadCamera != null)
         {
@@ -133,8 +133,9 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         if (_rendering) throw new InvalidOperationException("Original character preview is not ready for this capture.");
         if (!_calibration.TryGet(identity, out Vector3 origin))
             throw new InvalidOperationException("Original character has no completed main actor origin.");
+        bool headRaster = (MenuDepthHeadRaster.Active || direct) && eye.HasWorldToHeadClip;
         if (!MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
-            _image.uvRect, eye.WorldPosition, origin, out MenuDepthCharacterProjection.View view))
+            _image.uvRect, eye.WorldPosition, origin, out MenuDepthCharacterProjection.View view, allowCoplanar: headRaster))
             throw new InvalidOperationException("Original character preview has no valid window portal.");
         float yaw = YawProvider?.Invoke(_image, identity) ?? 0f;
         if (yaw != 0f)
@@ -144,7 +145,6 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             Matrix4x4 rotation = Matrix4x4.Translate(ground) * Matrix4x4.Rotate(Quaternion.AngleAxis(yaw, up)) * Matrix4x4.Translate(-ground);
             view = MenuDepthCharacterProjection.Rotated(view, rotation);
         }
-        bool headRaster = (MenuDepthHeadRaster.Active || direct) && eye.HasWorldToHeadClip;
         if (!headRaster && _headTargets) ReleaseTargets();
         if (headRaster)
         {
@@ -238,7 +238,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         if (width > SystemInfo.maxTextureSize || height > SystemInfo.maxTextureSize)
             throw new InvalidOperationException("The actual head raster exceeds the graphics texture limit.");
         long bytes = PairCost(width, height) / 2;
-        if (bytes > MaxPoolBytes - _poolBytes + _pairBytes)
+        if (bytes > MenuDepthHeadRaster.SceneBudget(_nativeTarget.descriptor, pixels) - _poolBytes + _pairBytes)
             throw new InvalidOperationException("The actual head raster exceeds the native-scene scratch budget.");
         if (!_headTargets || width != _width || height != _height)
         {

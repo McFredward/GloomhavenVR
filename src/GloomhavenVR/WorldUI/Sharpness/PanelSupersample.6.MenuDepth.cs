@@ -58,7 +58,7 @@ internal static partial class PanelSupersample
         {
             if (i >= Entries.Count) continue;
             Entry e = Entries[i];
-            if (e.MenuDepthFrame == Time.frameCount) continue;
+            if (e.MenuDepthFrame == Time.frameCount) { e.MenuDepthDisplay?.PrepareHead(head); continue; }
             e.MenuDepthFrame = Time.frameCount;
             if (e.Panel.HostRect == null || e.Cam == null || e.Rt == null || e.DisplayImage == null
                 || !e.DisplayImage.isActiveAndEnabled)
@@ -90,14 +90,14 @@ internal static partial class PanelSupersample
                 if (e.MenuDepthDisplay == null)
                 {
                     long extra = headBytes;
-                    if (e.VramBytes + extra > MaxPanelVramBytes || _vramTotal + _menuDepthVramTotal + extra > MaxTotalVramBytes)
+                    if (e.VramBytes > MaxPanelVramBytes || _vramTotal > MaxTotalVramBytes)
                     {
                         // A source can appear after the ordinary mono engage. Reuse
                         // the existing symmetric rate/MSAA step-down for BOTH eyes.
                         Reallocate(e, e.Frame, ReallocTrigger.EyeGrid);
                         extra = MenuDepthDisplay.HeadCost(head, e.Rt);
                     }
-                    if (e.VramBytes + extra > MaxPanelVramBytes || _vramTotal + _menuDepthVramTotal + extra > MaxTotalVramBytes)
+                    if (e.VramBytes > MaxPanelVramBytes || _vramTotal > MaxTotalVramBytes)
                         throw new InvalidOperationException("The symmetric menu-depth eye pair exceeds the existing window memory budget.");
                     e.MenuDepthDisplay = new MenuDepthDisplay(e.DisplayImage, e.Rt, DisplayTexture(e), headRaster: true);
                     e.MenuDepthBytes = extra;

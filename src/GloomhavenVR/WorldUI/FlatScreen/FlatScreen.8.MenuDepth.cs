@@ -142,7 +142,7 @@ internal sealed partial class FlatScreen
             if (width > SystemInfo.maxTextureSize || height > SystemInfo.maxTextureSize)
                 throw new InvalidOperationException("The complete native foreground exceeds the graphics texture limit.");
             bool expanded = true; // two complete eye rasters; original UI target remains native
-            if (!MenuDepthDesktopResources.Fits(MenuDepthHeadRaster.Descriptor(_uiRt.descriptor,pixels), width, height, expanded))
+            if (MenuDepthHeadRaster.Bytes(_uiRt.descriptor,pixels) > MenuDepthHeadRaster.WindowBudget(_uiRt.descriptor,pixels))
                 throw new InvalidOperationException("The complete native foreground exceeds its additional eye-target memory budget.");
             if (_menuDepthRight == null || _menuDepthLeft != _uiRt
                 || _menuDepthRight.width != width || _menuDepthRight.height != height

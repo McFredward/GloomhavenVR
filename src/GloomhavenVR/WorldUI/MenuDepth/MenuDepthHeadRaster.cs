@@ -46,6 +46,15 @@ internal static class MenuDepthHeadRaster
         }
         catch (OverflowException) { return long.MaxValue; }
     }
+    // Head resources are bounded by the actual XR framebuffer, not by the
+    // former glass-photo dimensions. The4040x4040 maintainer target legitimately
+    // owns about249MiB for two RGBA32/depth eye rasters. Reducing it to an old
+    // 160MiB photograph cap would reproduce the reported movement pixel loss.
+    internal static long WindowBudget(RenderTextureDescriptor original, Vector2Int pixels)
+        => Math.Max(160L * 1024 * 1024, Bytes(original, pixels));
+    internal static long SceneBudget(RenderTextureDescriptor original, Vector2Int pixels)
+        => Math.Max(96L * 1024 * 1024, checked(Bytes(original, pixels) * 2));
+
     internal static Lease Begin(Vector2Int pixels)
     {
         if (Active) throw new InvalidOperationException("Nested head-raster preparation is not owned.");

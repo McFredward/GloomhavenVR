@@ -70,7 +70,7 @@ internal static class MenuDepthCharacterProjection
     }
 
     internal static bool TryBuild(Camera source, Transform holder, RectTransform rectangle,
-        Rect uv, Vector3 eye, Vector3 stableMainOrigin, out View result)
+        Rect uv, Vector3 eye, Vector3 stableMainOrigin, out View result, bool allowCoplanar = false)
     {
         result = default;
         Rect rect = rectangle.rect;
@@ -88,7 +88,7 @@ internal static class MenuDepthCharacterProjection
         Vector3 physicalCenter = rectangle.TransformPoint(new Vector3(rect.center.x, rect.center.y));
         Vector3 relativeEye = eye - physicalCenter;
         float signedDistance = -Vector3.Dot(relativeEye, physicalForward);
-        if (!MenuDepthProjection.Finite(relativeEye) || Mathf.Abs(signedDistance) <= 1e-5f) return false;
+        if (!MenuDepthProjection.Finite(relativeEye) || (!allowCoplanar && Mathf.Abs(signedDistance) <= 1e-5f)) return false;
 
         Matrix4x4 originalView = source.worldToCameraMatrix;
         Matrix4x4 cameraToWorld = originalView.inverse;
@@ -110,7 +110,8 @@ internal static class MenuDepthCharacterProjection
         bool reversed = signedDistance < 0f;
         Vector3 facing = reversed ? -forward : forward;
         float distance = Vector3.Dot(center - position, facing);
-        if (distance <= 1e-4f || !MenuDepthProjection.Finite(position)) return false;
+        if ((!allowCoplanar && distance <= 1e-4f) || !MenuDepthProjection.Finite(position)) return false;
+        if (allowCoplanar) distance = Mathf.Max(distance, 1e-4f);
         float near = Mathf.Max(1e-5f, Mathf.Min(source.nearClipPlane, distance * .2f));
         float far = Mathf.Max(near * 2f, source.farClipPlane + distance);
         Vector3 offset = center - position;

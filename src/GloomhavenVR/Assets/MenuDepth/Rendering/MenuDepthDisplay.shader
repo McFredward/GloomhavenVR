@@ -91,7 +91,7 @@ Shader "GloomhavenVR/MenuDepthDisplay"
                 float3 eye = right ? _GvrHeadEyeRight : _GvrHeadEyeLeft;
                 float4 position = mul(inverseVP, float4(i.uv * 2 - 1, z, 1)); position /= position.w;
                 float side = dot(eye - _GvrPlanePoint, _GvrPlaneNormal) < 0 ? -1 : 1;
-                foreground = valid && dot(position.xyz - _GvrPlanePoint, _GvrPlaneNormal) * side > .000001;
+                foreground = valid && (abs(dot(eye-_GvrPlanePoint,_GvrPlaneNormal)) < .00001 || dot(position.xyz - _GvrPlanePoint, _GvrPlaneNormal) * side > .000001);
                 if (foreground) result.depth = raw;
                 else
                 {
