@@ -19,22 +19,32 @@ internal static class NativeTravelLoop
         internal readonly List<Receipt> Objects = new();
     }
 
+    private sealed class Generation
+    {
+        internal long Value;
+    }
+
     private sealed class Receipt
     {
         internal readonly AudioObject Object;
         internal readonly AudioSubItem SubItem;
         internal readonly double Started;
         internal readonly string Item;
+        private readonly Generation _generation;
+        private readonly long _version;
 
-        internal Receipt(AudioObject source, string item)
+        internal Receipt(AudioObject source, string item, Generation generation)
         {
             Object = source;
             SubItem = source.subItem;
             Started = source.startedPlayingAtTime;
             Item = item;
+            _generation = generation;
+            _version = generation.Value;
         }
 
         internal bool StillOwned => Object != null && Object.gameObject.activeInHierarchy
+            && _generation.Value == _version
             && ReferenceEquals(Object.subItem, SubItem) && Object.startedPlayingAtTime == Started
             && string.Equals(Object.audioID, Item, StringComparison.OrdinalIgnoreCase);
     }
@@ -52,11 +62,26 @@ internal static class NativeTravelLoop
             Previous = previous;
         }
 
-        internal void Remember(AudioObject source)
+        private void Remember(AudioObject source, Generation generation)
         {
             for (int i = 0; i < _owner.Objects.Count; i++)
-                if (ReferenceEquals(_owner.Objects[i].Object, source)) return;
-            _owner.Objects.Add(new Receipt(source, Item));
+                if (ReferenceEquals(_owner.Objects[i].Object, source))
+                {
+                    // Item-mode native subitems may return the same leaf through multiple
+                    // nested calls. Keep the receipt of this request's final native generation.
+                    _owner.Objects[i] = new Receipt(source, Item, generation);
+                    return;
+                }
+            _owner.Objects.Add(new Receipt(source, Item, generation));
+        }
+
+        internal bool Observe(AudioSubItem? item, AudioObject source)
+        {
+            if (item?.item == null || !string.Equals(item.item.Name, Item, StringComparison.OrdinalIgnoreCase)) return false;
+            Generation generation = Generations.GetValue(source, _ => new Generation());
+            generation.Value++;
+            Remember(source, generation);
+            return true;
         }
 
         internal static Capture Start(object producer, string item, Capture? previous)
@@ -70,6 +95,7 @@ internal static class NativeTravelLoop
     }
 
     private static readonly ConditionalWeakTable<object, Owner> Owners = new();
+    private static readonly ConditionalWeakTable<AudioObject, Generation> Generations = new();
     private static Capture? _capture;
     private static int _failures;
 
@@ -99,9 +125,13 @@ internal static class NativeTravelLoop
     {
         try
         {
-            if (_capture != null && item?.item != null && source != null
-                && string.Equals(item.item.Name, _capture.Item, StringComparison.OrdinalIgnoreCase))
-                _capture.Remember(source);
+            if (source == null) return;
+            // ClockStone's timestamp advances once per Update. A pooled same-item replay
+            // in the same frame can retain both that timestamp and the same AudioSubItem.
+            // Invalidate tracked receipts at every real reuse, including outside travel;
+            // unrelated objects incur only a weak-table lookup and allocate no entry.
+            if (_capture?.Observe(item, source) != true
+                && Generations.TryGetValue(source, out Generation generation)) generation.Value++;
         }
         catch (Exception ex) { Failure(ex); }
     }
