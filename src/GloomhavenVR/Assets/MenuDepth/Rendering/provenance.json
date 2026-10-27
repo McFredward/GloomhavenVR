@@ -8,8 +8,8 @@
   ],
   "type_trees": true,
   "runtime_load_checked": true,
-  "bundle_bytes": 39698,
-  "bundle_sha256": "d9e73a38a359002b3693d2ae7e02b8f2eb352081457aaa88b4a8ba05fbc0c9f1",
+  "bundle_bytes": 42755,
+  "bundle_sha256": "fbf5d1da6bece74e17de81734d7fb9763a45ae5e68255f50d089d2a64638fb7c",
   "sources": [
     {
       "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthDisplay.shader",
@@ -21,7 +21,7 @@
     },
     {
       "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthCharacter.shader",
-      "sha256": "57e0c655e44bcbde80b560e3ecf7d96744ba60a4d7aacfb741982948bf4eb689"
+      "sha256": "0a345f2ae34bd91353b7aba5c33c4cb3c01ad104ca63999bafdf8485855af567"
     },
     {
       "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/Unity-LICENSE.txt",

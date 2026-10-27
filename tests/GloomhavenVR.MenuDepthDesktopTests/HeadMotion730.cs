@@ -213,11 +213,11 @@ public static partial class MenuDepthDesktopProgram
                         int modelBefore=scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>().Draws;
                         int uiBefore=scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws;
                         scene.Head.cullingMask=1<<27;scene.Render(eye!=0);
+                        if(annotations)Check(path==0?scene.Flat.Right!=null:entry!.MenuDepthDisplay!=null,"original outboard annotations admit both real head routes when character depth is off or not ready");
                         Check(scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-modelBefore==(!annotations&&eye==0?2:0),
                             "each head stereo pair executes the original native model image effect exactly once per eye");
                         Check(scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-uiBefore==(eye==0?2:0),
                             "each head stereo pair executes the original native UI image effect exactly once per eye");
-                        if(annotations)Check(path==0?scene.Flat.Right!=null:entry!.MenuDepthDisplay!=null,"original outboard annotations admit both real head routes when character depth is off or not ready");
                         Texture2D actual=Read(scene.HeadTarget,Path.Combine(output,"actual-"+path+"-"+frame+"-"+eye+".png"));
                         Vector3 referenceEye = worldToGlass.MultiplyPoint3x4(eyePosition);
                         if(frame==40&&eye==0)

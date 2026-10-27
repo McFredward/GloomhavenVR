@@ -818,7 +818,13 @@ internal sealed class MenuDepthCharacterSurface : BaseMeshEffect, IMaterialModif
         _material.SetMatrix("_NativeInverseVP", (GL.GetGPUProjectionMatrix(_view.Projection, true) * _view.WorldToCamera).inverse);
         _material.SetMatrix("_NativeToGraphic", _view.NativeToGraphic);
         _material.SetMatrix("_GraphicLocalToWorld", graphic.transform.localToWorldMatrix);
-        _material.SetVector("_NativePlane", _view.NativePlane);
+        Vector4 nativePlane = _view.NativePlane;
+        // Reconstructing a24-bit native scene depth must not classify its exact
+        // glass plane as foreground because of sub-millimetre float roundoff.
+        // The unchanged common metric makes this1e-4-native-unit tolerance far
+        // below a final head pixel; actual protruding geometry stays unrestricted.
+        if (_headRaster) nativePlane.w += (_view.Reversed ? -1f : 1f) * .0001f;
+        _material.SetVector("_NativePlane", nativePlane);
         _material.SetFloat("_FrontSide", _view.Reversed ? 1f : -1f);
         _material.SetVector("_NativeViewport", new Vector4(_viewport.x, _viewport.y, _viewport.width, _viewport.height));
         _material.SetVector("_ImageUV", new Vector4(_uv.xMin, _uv.yMin, _uv.xMax, _uv.yMax));

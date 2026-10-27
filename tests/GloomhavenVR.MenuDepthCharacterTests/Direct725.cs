@@ -15,12 +15,13 @@ using Object = UnityEngine.Object;
 public static class MenuDepthCharacterDirectProof
 {
     private static int _checks;
+    private static string _output = "";
     private static void Check(bool value, string message) { _checks++; if (!value) throw new Exception(message); }
     public static IEnumerator AutomaticHead(string output) => Run(output, false);
     public static IEnumerator AutomaticHeadFailure(string output) => Run(output, true);
     private static IEnumerator Run(string output, bool failure)
     {
-        _checks = 0; VRSession.IsRunning = true;
+        _checks = 0; _output=output; VRSession.IsRunning = true;
         using (var scene = new MenuDepthCharacterPresentation725.Scene(output, true, seed: false))
         {
             scene.SetFrequency(0);
@@ -71,8 +72,9 @@ public static class MenuDepthCharacterDirectProof
                 }
                 Check(loaned,"actual Canvas callback loans each consumer its stable batch texture before the first head draw");
                 Check(!ReferenceEquals(leftA,leftB), "differently placed original consumers retain separate native eye surfaces");
-                Check((leftA.width * (long)leftA.height + leftB.width * (long)leftB.height) * 16 <= 96L*1024*1024,
-                    "automatic direct consumers retain the shared96MiB eye-pair reservation cap");
+                Check((leftA.width * (long)leftA.height + leftB.width * (long)leftB.height) * 8
+                        <= MenuDepthHeadRaster.SceneBudget(scene.Native.descriptor,new Vector2Int(scene.Final.width,scene.Final.height)),
+                    "automatic direct consumers retain the finite actual-head scene scratch reservation cap");
                 if (failure)
                     Check(VRLog.Messages.Exists(s=>s.Contains("injected automatic head failure")),
                         "automatic failure remains visible in bounded native capture diagnostics");
@@ -189,6 +191,7 @@ public static class MenuDepthCharacterDirectProof
         }
         Vector2 clipped=Project(head,window.Map(new Vector3(.4f,.72f,2.56f)));
         Color sample=pixels.GetPixel((int)(clipped.x*pixels.width),(int)(clipped.y*pixels.height));
+        File.AppendAllText(Path.Combine(_output,"mask-probes.txt"),"half="+half+";uv="+clipped.ToString("R")+";sample="+sample.ToString("R")+";clip="+window.Image.canvasRenderer.hasRectClipping+";material="+window.Image.materialForRendering+";keywords="+string.Join(",",window.Image.materialForRendering.shaderKeywords)+"\n");
         Check(Mathf.Max(sample.r,Mathf.Max(sample.g,sample.b))<.04f,"automatic native stencil and rectangle masks clip the original preview");
     }
     private static void CheckFallback(Texture2D pixels,Camera head,Window window)

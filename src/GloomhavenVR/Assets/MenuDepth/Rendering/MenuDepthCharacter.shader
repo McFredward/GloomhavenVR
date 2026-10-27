@@ -145,7 +145,23 @@ Shader "GloomhavenVR/MenuDepthCharacter"
             #ifdef UNITY_UI_CLIP_RECT
             if (!frontPass && _GvrNativeSoftMask < .5)
             {
-                half2 mask = saturate((_ClipRect.zw - _ClipRect.xy - abs(i.mask.xy)) * i.mask.zw);
+                float4 originalMask = i.mask;
+                if (_GvrCharacterHeadRaster > .5)
+                {
+                    // The full-head triangle no longer interpolates the original
+                    // Graphic's plane coordinates. Clip its behind-glass colour
+                    // at the same native aperture intersection as the original.
+                    float2 location = (imageUV - _ImageUV.xy) / (_ImageUV.zw - _ImageUV.xy);
+                    float2 plane = _GvrCharacterGraphicRect.xy + location * _GvrCharacterGraphicRect.zw;
+                    float4 world = mul(_GraphicLocalToWorld, float4(plane, 0, 1));
+                    float4 nativeVertex = mul(unity_WorldToObject, world);
+                    float4 planeClip = mul(UNITY_MATRIX_VP, world);
+                    float2 pixelSize = planeClip.w / abs(mul((float2x2)UNITY_MATRIX_P, _ScreenParams.xy));
+                    float4 rect = clamp(_ClipRect, -2e10, 2e10);
+                    originalMask = float4(nativeVertex.xy * 2 - rect.xy - rect.zw,
+                        0.25 / (0.25 * half2(_UIMaskSoftnessX, _UIMaskSoftnessY) + abs(pixelSize.xy)));
+                }
+                half2 mask = saturate((_ClipRect.zw - _ClipRect.xy - abs(originalMask.xy)) * originalMask.zw);
                 color.a *= mask.x * mask.y;
             }
             #endif
