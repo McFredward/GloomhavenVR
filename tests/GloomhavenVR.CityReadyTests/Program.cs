@@ -113,12 +113,14 @@ internal static class Program
             MapRoomDriver.Active=true;MapCityEventReadyUp.Tick();Check(MapCityEventReadyUp.Active&&Ready.Window.IsOpen,"map rebuild preserves genuine native pending proposal");
             Fresh();object?[] before={null};Hooks.Invoke("BeforeHostProposal",before);PlayerRegistry.MyPlayer!.state.LatestProcessedActionID=3;Hooks.Invoke("AfterHostProposal",before[0]);
             Check(!MapCityEventReadyUp.Active,"ambiguous native action counter cannot invent an opening");
+            Check(VRLog.Warnings.Count==1&&VRLog.Warnings[0].Contains("before=0, after=3"),"ambiguous eligible host occurrence records useful normal-level failure context");
+            Hooks.Invoke("AfterHostProposal",before[0]);Check(VRLog.Warnings.Count==1,"ambiguous host occurrence warning is bounded");
             Fresh(false);Hooks.Invoke("AfterClientProposal",new GameAction{ActionID=17,ActionTypeID=(int)GameActionType.SelectQuest});
             Check(!MapCityEventReadyUp.Active,"unrelated native proposal cannot acquire city identity");
             Fresh(false);ClientOffer();Ready._allPlayersReady=true;Ready.UpdateVisiblity();MapCityEventReadyUp.Tick();
             Check(!MapCityEventReadyUp.Active&&!Ready.Window.IsOpen,"native all-ready gate suppresses observation immediately");
             MapCityEventReadyUp.Install();MapCityEventReadyUp.Install();Check(VRSession.Harmony!.Installed==1,"installation is idempotent");
-            Check(VRLog.Warnings.Count==0,"all exercised native transitions reconcile without exception");
+            Check(VRLog.Warnings.Count==1,"all other native transitions reconcile without exception");
             Console.WriteLine($"City readiness: {_assertions} assertions passed.");return 0;
         }
         catch(Exception ex){Console.Error.WriteLine(ex);return 1;}

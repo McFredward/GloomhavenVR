@@ -27,6 +27,7 @@ internal static class MapCityEventReadyUp
     private static bool _roomWasActive;
     private static bool _installed;
     private static bool _warned;
+    private static bool _actionWarned;
     private static bool _reconciling;
     // NetworkPlayer inherits Bolt's EntityBehaviour<T>, intentionally not a mod build
     // reference. Read its existing public state interface only at proposal edges.
@@ -184,8 +185,32 @@ internal static class MapCityEventReadyUp
         {
             // ConfirmCityEvent constructs exactly SelectCityEvent before ReadyUpPlayer's
             // caller constructs its following action. Refuse an ambiguous action sequence.
-            if (__state >= 0 && FFSNetwork.IsHost && NativeActionId() == __state + 1)
-                Capture(__state + 1);
+            if (!FFSNetwork.IsOnline || !FFSNetwork.IsHost
+                || !Singleton<UIMapMultiplayerController>.IsInitialized
+                || !Singleton<UIReadyToggle>.IsInitialized)
+                return;
+            UIMapMultiplayerController controller = Singleton<UIMapMultiplayerController>.Instance;
+            UIReadyToggle toggle = Singleton<UIReadyToggle>.Instance;
+            var map = AdventureState.MapState;
+            if (controller == null || toggle == null || map == null
+                || controller.m_State != EReadyUpToggleStates.CityEvents
+                || toggle.readyUpToggleState != EReadyUpToggleStates.CityEvents
+                || (map.CurrentMapPhaseType != EMapPhaseType.InHQ
+                    && map.CurrentMapPhaseType != EMapPhaseType.AtLinkedScenario))
+                return;
+            int current = NativeActionId();
+            if (__state >= 0 && current == __state + 1)
+            {
+                Capture(current);
+                return;
+            }
+            if (_actionWarned)
+                return;
+            _actionWarned = true;
+            try { VRLog.Warn("MapRoom", "MAP CITY READY host occurrence unavailable — "
+                + $"native action counter before={__state}, after={current}. Native city proposal retained; "
+                + "shared placement cannot use ambiguous provenance. One report per process."); }
+            catch (Exception) { }
         }
 
         [HarmonyPostfix]
@@ -199,7 +224,37 @@ internal static class MapCityEventReadyUp
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Initialize))]
-        private static void BeforeReadyInitialize() => Reset();
+        private static void BeforeReadyInitialize(ref bool validateReadyUpOnPlayerLeft,
+                                                 UIReadyToggle.EReadyUpType readyUpType,
+                                                 EReadyUpToggleStates readyUpToggleState)
+        {
+            Reset();
+            // City initialization disables the same original departure validation as quests.
+            // With host+one peer ready, an unready third participant leaving otherwise returns
+            // from native OnPlayerLeft before the now-sufficient quorum starts its ACK path.
+            // Enable that existing native path, rather than manufacturing votes or proceeding.
+            try
+            {
+                if (!VRSession.IsRunning || !FFSNetwork.IsOnline
+                    || readyUpType != UIReadyToggle.EReadyUpType.Participant
+                    || readyUpToggleState != EReadyUpToggleStates.CityEvents)
+                    return;
+                ActionPhaseType phase = ActionProcessor.CurrentPhase;
+                if (phase == ActionPhaseType.MapHQ || phase == ActionPhaseType.MapAtLinkedScenario)
+                    validateReadyUpOnPlayerLeft = true;
+            }
+            catch (Exception ex)
+            {
+                // Missing native phase evidence cannot authorize a change to the caller's
+                // option, nor may a diagnostic abort the original native initialization.
+                if (_warned)
+                    return;
+                _warned = true;
+                try { VRLog.Warn("MapRoom", "MAP CITY READY departure probe failed — "
+                    + $"{ex.GetType().Name}: {ex.Message}. Native initialization retained."); }
+                catch (Exception) { }
+            }
+        }
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Reset))]

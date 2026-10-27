@@ -10,6 +10,7 @@ internal static class Singleton<T> where T:class
 internal enum EReadyUpToggleStates { NotSet,Quests,CityEvents,Reward,Retirement,TownRecords }
 internal sealed class UIReadyToggle
 {
+    internal enum EReadyUpType { Participant,Player }
     internal EReadyUpToggleStates readyUpToggleState;
     internal bool _requestVisible,_allPlayersReady;
     internal readonly HashSet<object> _visibilityRequests=new();
@@ -24,7 +25,7 @@ internal sealed class UIReadyToggle
     internal T GetComponent<T>() where T:class=> (Window as T)!;
     internal void UpdateVisiblity() { bool show=ShouldBeVisible;if(show!=Window.IsOpen) { Window.IsOpen=show;if(show)ShowCount++;else HideCount++; } }
     internal void Initialize(EReadyUpToggleStates state)
-    { Hooks.Invoke("BeforeReadyInitialize");readyUpToggleState=state;IsInteractable=ToggleInteractable=false;_allPlayersReady=false;UpdateVisiblity(); }
+    { Hooks.Invoke("BeforeReadyInitialize",false,EReadyUpType.Participant,state);readyUpToggleState=state;IsInteractable=ToggleInteractable=false;_allPlayersReady=false;UpdateVisiblity(); }
     internal void Reset()
     { Hooks.Invoke("BeforeReadyReset");_requestVisible=false;IsInteractable=ToggleInteractable=false;UpdateVisiblity(); }
     internal bool InputToggle()
@@ -54,6 +55,8 @@ namespace UnityEngine.UI { internal sealed class UIWindow { internal bool IsOpen
 namespace FFSNet
 {
     internal static class FFSNetwork { internal static bool IsOnline=true,IsHost=true;internal static bool IsClient=>IsOnline&&!IsHost; }
+    internal enum ActionPhaseType { MapHQ,MapAtLinkedScenario,MapLoadoutScreen,ScenarioEnded }
+    internal static class ActionProcessor { internal static ActionPhaseType CurrentPhase=ActionPhaseType.MapHQ; }
     internal enum GameActionType { SelectCityEvent=7,SelectQuest=8 }
     internal sealed class GameAction { internal int ActionID,ActionTypeID; }
     internal sealed class PlayerState { public int LatestProcessedActionID {get;set;} }
@@ -78,7 +81,7 @@ namespace HarmonyLib
 }
 namespace GloomhavenVR.Core
 {
-    internal static class VRSession {internal static HarmonyLib.Harmony? Harmony=new();}
+    internal static class VRSession {internal static bool IsRunning=true;internal static HarmonyLib.Harmony? Harmony=new();}
     internal static class VRLog {internal static void Info(string scope,string text){}internal static void Warn(string scope,string text)=>Warnings.Add(text);internal static readonly List<string> Warnings=new();}
 }
 namespace GloomhavenVR.Net

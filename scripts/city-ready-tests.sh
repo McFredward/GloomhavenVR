@@ -49,3 +49,4 @@ finally:
  spec=importlib.util.spec_from_file_location('retention',root/'scripts/town_run_retention.py');retention=importlib.util.module_from_spec(spec);spec.loader.exec_module(retention)
  receipt=retention.cleanup_completed_run('city-ready',status,log,root,process_reaped=True);(run/'cleanup.json').write_text(json.dumps(receipt,indent=2)+'\n')
 PY
+python3 "$repo_root/tests/GloomhavenVR.CityDepartureTests/run.py" "$repo_root"
