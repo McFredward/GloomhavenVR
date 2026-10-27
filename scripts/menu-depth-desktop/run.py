@@ -142,7 +142,14 @@ def main():
         for name, filename, before, after, expected in variants:
             case = run / name; production = case / 'production'; production.mkdir(parents=True)
             for source_name, code in sources.items():
-                if source_name == filename: code = replace_once(code, before, after)
+                if source_name == filename:
+                    if name == 'window-anchors-holder-fallback-725':
+                        # Prime and actual capture must both abandon the native
+                        # original identity for this intended fallback mutant.
+                        assert code.count(before) == 2, (name, code.count(before))
+                        code = code.replace(before, after)
+                    else:
+                        code = replace_once(code, before, after)
                 (production / source_name).write_text(code)
             private_fixture = case / 'fixture'; private_fixture.mkdir()
             for path in fixtures.glob('*.cs'):
