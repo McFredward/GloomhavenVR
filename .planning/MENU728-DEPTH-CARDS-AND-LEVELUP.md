@@ -35,9 +35,12 @@ never move that native controller into a shorter scene lifetime. Complete middle
 text ink and deterministic frame width must preserve the original text scale,
 both side panes and the accepted window pose/shared geometry.
 
-Native FullAbilityCard, MiniAbilityCard and ItemCardUI roots own complete card
-presentation. Lift their original subtrees during capture and restore the exact
-pose afterwards. Native header/action/item graphics supply precise silhouettes.
+Native FullAbilityCard, MiniAbilityCard, ItemCardUI, MonsterRoundCardUI,
+MonsterBaseUI, UIPerkAttackModifier and UIScenarioAttackModifier roots own complete
+menu-card presentation. Lift their original subtrees during capture and restore
+the exact pose afterwards. Native header/action/item/monster/modifier graphics
+supply precise silhouettes. Nested cards share the lifted parent plane while
+retaining their own exact printed silhouettes.
 Scope enrollment to actual menu windows/native screen-space UI, excluding physical
 hand/board/NPC cards. Real pooled births, reparenting and late layouts must reach
 the first visible capture without recurring global or hierarchy sweeps.
@@ -53,3 +56,41 @@ The727 character switch stays default-on on every system. Existing native action
 story/movie media and shared absolute world geometry remain authoritative. The
 maintainer's Windows installation script builds the archive; no local ZIP is
 requested. Source/GPU evidence remains separate from the eventual headset review.
+
+## Integrated implementation checkpoints
+
+The original colour RenderTexture supplies its own depth subelement through
+Unity2021.3.5 Material.SetTexture. No second native model render, separate depth
+attachment or runtime readback is needed. A source-specific UI material reconstructs
+the same original scene surface into the common2.4-unit character cabinet. Behind
+fragments retain original Stencil/RectMask2D clipping; real foreground fragments
+can extend outside that aperture. Conservative sampling bounds use cached renderer
+identities and current native bounds, without changing model pose, scale or clock.
+The native scene target, partial viewport and image-effect path remain original.
+
+Early complete-card transformation belongs at the existing Canvas pre-render
+batching boundary. A late empty marker Graphic can miss a freshly spawned card's
+first visible batch. The production marker is therefore a MonoBehaviour on the
+original card root, using its real visible printed Graphic for registration.
+A proposed global post-prime Canvas rebuild was independently tested with and
+without it and removed; it is not the first-draw fix. Read-only disabled native
+controllers remain eligible when their original card graphics are visible.
+
+UILevelUpWindow has no visible authored Continue to reuse. The entire original
+UICampaignRewardWindow Continue widget is cloned under inactive construction;
+cloned gameplay/input scripts and serialized reward callbacks are retired before
+activation. Native graphics, sprite transitions, font, layout and localization
+remain. A narrow pointer relay invokes the existing level-up TryConfirm authority,
+without importing ExtendedButton's additional reward/ESC input-manager gate.
+Preview fitting includes native TMP ink and late pooled text births. A persistent
+confirmation gains a chrome-free visual member following its accepted owner's
+matrix; its native object retains DontDestroyOnLoad lifetime and callbacks.
+
+A read-only audit of all original UI cameras disproves a blanket screen-UI Always
+depth-test assumption: the authored UI/TMP/Dissolve materials use the dynamic
+unity_GUIZTestMode, and an actual ScreenSpaceCamera GPU control respects existing
+foreground depth. Original UI cameras share orthographic size100, near=-100,
+far1000 and planeDistance100; serialized Canvas zero TRS is only a placeholder.
+Depth comparisons and outer transparent carriers must use the live native basis.
+Those final multi-camera, rear and whole-window edge contracts are being qualified
+separately from the already passing front-side source composition and card cases.

@@ -113,11 +113,13 @@ die Belohnung; der Spieler des betroffenen Characters bestätigt für die Gruppe
 **Räumliche Menüs:** Charaktervorschauen zeigen das lebendige Modell mit einer Perspektive,
 die deiner Blickposition folgt. Story- und Ereignisbilder haben Tiefe innerhalb ihrer Fenster;
 Symbole, Rahmen und Reiter sind leicht räumlich gestaffelt. Kompendium-Abbildungen liegen
-etwas hinter ihrem Rahmen. Verschiebe ein Fenster oder lehne dich zur Seite, um den Effekt
-zu sehen; Texte und Bedienelemente bleiben scharf.
+etwas hinter ihrem Rahmen. Fähigkeits-, Gegenstands-, Monster- und Angriffsmodifikatorkarten
+in Menüs ragen ebenfalls leicht aus dem Fenster heraus, auch beim Darüberzeigen. Verschiebe
+ein Fenster oder lehne dich zur Seite, um den Effekt zu sehen; Texte und Bedienelemente
+bleiben scharf.
 Unter **VR Optionen ▸ Tafeln ▸ 2D-Schirm ▸ 3D-Figurenvorschau** wechselst du sofort zwischen
 räumlichen Figuren und ihrem ursprünglichen flachen Livebild. Die Option ist auf allen
-Systemen standardmäßig eingeschaltet; Story- und Videotiefe bleiben unverändert.
+Systemen standardmäßig eingeschaltet; Karten-, Story- und Videotiefe bleiben unverändert.
 
 **3D-Videos:** Intro, Charakterfilme, Umgebungsfilme und Studio-Logo haben Tiefe im
 beweglichen Videofenster. Mit aktivierten Cheats kannst du im Szenario unter **VR Optionen ▸
