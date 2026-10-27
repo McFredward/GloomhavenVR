@@ -188,7 +188,6 @@ internal static class MenuDepthSources
         if (_directCamera == camera) { _directCamera = null; AfterCapture(); }
         if (_capturing) return;
         string phase = "offscreen coordinators";
-        string cameraName = camera.name;
         IMenuDepthSource? sourceInProgress = null;
         try
         {
@@ -236,6 +235,7 @@ internal static class MenuDepthSources
             {
                 Graphic? graphic = null;
                 try { graphic = sourceInProgress?.Graphic; } catch { } // Diagnostics must not replace the original failure.
+                string cameraName = camera != null ? camera.name : "destroyed";
                 string context = "phase='" + phase + "', camera='" + cameraName + "', source='"
                     + (sourceInProgress?.GetType().Name ?? "none") + "', graphic='" + (graphic != null ? graphic.name : "none") + "'";
                 VRLog.Warn("WorldUI", "MENU DEPTH DIRECT CAPTURE: " + error.GetType().Name
