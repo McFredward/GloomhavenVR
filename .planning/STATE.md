@@ -1,3 +1,33 @@
+**Menu frame pacing and character cabinets, Build725, 2026-10-27.**
+
+The maintainer accepts724 story depth. Fresh724/c5f70993d logs onRTX4090/D3D11
+identify recurring MenuDepth main-thread stalls during joystick movement:449
+reported spikes spend at least40ms there. Replace quarter-second full UI/global
+preview searches with cold pooled discovery and coalesced native lifecycle work.
+Fit completed original character/companion bounds around the pane, with shallow
+protrusion and physical-demand eye targets up to2048 under a shared96MiB budget.
+Imported body/equipment bind poses establish the fit without initial animation
+phase or head following. Suppress hidden/redundant UI captures and retain native
+mono fallback, colour/material clocks, callbacks and absolute shared geometry.
+
+A stricter automatic first-head test also proves an older724 direct-canvas batch
+identity defect. Early stable texture priming repairs it with the existing target;
+per-eye pixels refresh without additional normal renders, targets or blits. Native
+masks, alpha, effects, texture restoration and missing-head cleanup are covered.
+Final Character1095+29, Capture323+22, Desktop198+10 and Performance863+10 pass.
+The complete249-suite invocation has248 passes/one historical raster failure;
+15 affected suites plus two narrow selector-only reruns cover the bounded repair,
+producing249 distinct passing local results. Unchanged evidence is inherited;
+this is not a new single complete-gate pass. Final source16/16,306431 goldens,
+strict real/metadata builds0W0E and docs-i18n pass. Hosted final-runtime CI passes.
+
+The normal Debug ZIP target remains dist/GloomhavenVR-1.2.2.zip, with22 external
+movies,516 story companions and unchanged rendering shaders. Clean delivery
+identities/byte checks and retained failed/passing evidence live under ignored
+debug/menu-depth725. No new headset acceptance is claimed. See
+MENU725-PERFORMANCE-AND-PREVIEWS.md for causes, native/fixture boundaries, exact
+aggregate scope, final archive evidence and cleanup qualifications.
+
 **Spatial UI hardware repairs, Build724, 2026-10-27.**
 
 Both supplied local logs identify723 / `5ddc94991`; the remote717 drop is stale.
