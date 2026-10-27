@@ -534,6 +534,10 @@ public static class MenuDepthPerformanceProof
         if (_harmony != null) _harmony.UnpatchAll(_harmony.Id);
         DestroyRoots();
         Object.DestroyImmediate(_sprite); Object.DestroyImmediate(_colour); Object.DestroyImmediate(_automaticBlue); _automaticBlue = null;
+        // Each causal case owns a different assembly's shader statics, but
+        // Unity shares bundle identity across those assemblies. Release the
+        // completed case after all its native graphics/consumers are gone.
+        MenuDepthDisplay.Shutdown();
         File.WriteAllLines(Path.Combine(_output, "lifecycle.log"), VRLog.Messages);
     }
 }

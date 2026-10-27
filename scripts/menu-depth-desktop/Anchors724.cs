@@ -119,7 +119,7 @@ public static partial class MenuDepthDesktopProgram
                     sizes.Add(camera.targetTexture.width);
             };
             Camera.onPreRender += observer;
-            int farSize = 0;
+            int farSize = 0, farSamplingEdge = 0;
             try
             {
             for (int i = 0; i < offsets.Length; i++)
@@ -141,11 +141,16 @@ public static partial class MenuDepthDesktopProgram
                     {
                         Check(sizes.Count == priorSizes + 2 && sampled.Left.x > 0 && sampled.Left.y > 0,
                             "the calibrated original renders both sampled eye targets from a mapped physical pixel demand");
-                        if (i == 0) farSize = sizes[priorSizes];
-                        if (i == 4) Check(farSize < sizes[priorSizes] && sizes[priorSizes] <= 2048,
+                        // The RT width also follows the conservative body crop. A
+                        // wider crop is not evidence that physical pixel demand rose.
+                        var sources = (IEnumerable<MenuDepthCharacterSource>)typeof(MenuDepthCharacters)
+                            .GetField("Sources", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
+                        int samplingEdge = sources.Single(source => ReferenceEquals(source.Graphic, raw)).SamplingEdge;
+                        if (i == 0) { farSize = sizes[priorSizes]; farSamplingEdge = samplingEdge; }
+                        if (i == 4) Check(farSize < sizes[priorSizes] && farSamplingEdge < samplingEdge && samplingEdge <= 2048,
                             "the real original character eye targets grow from far to near displayed pixels within their bounded tier");
                         File.AppendAllText(Path.Combine(output, "725-native-screen-samples.csv"), i + "," + sampled.Left.x + ","
-                            + sampled.Left.y + "," + sizes[priorSizes] + "," + sizes[priorSizes + 1] + "\n");
+                            + sampled.Left.y + "," + sizes[priorSizes] + "," + sizes[priorSizes + 1] + "," + samplingEdge + "\n");
                     }
                     if (effect != null) Check(effect.Draws - effectDraws == (eye == 0 ? 2 : 0),
                         "each prepared eye retains the original image effect once without repeating it during the second final glass draw");
