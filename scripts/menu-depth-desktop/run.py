@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
 from town_run_retention import cleanup_completed_run
-from project_compilers import cleanup_project_compilers
+from project_compilers import cleanup_project_compilers, cleanup_project_editors
 
 
 def member(source, signature):
@@ -68,6 +68,7 @@ def main():
     sources['CaptureStack.cs'] = body + '}\n'
     sources['CaptureGuard.cs'] = (flat / 'FlatScreen.7.CaptureRender.cs').read_text()
     sources['DesktopCapture.cs'] = (flat / 'FlatScreen.8.MenuDepth.cs').read_text()
+    sources['Anchors724.cs'] = (ROOT / 'scripts/menu-depth-desktop/Anchors724.cs').read_text()
     # Explicit XR observation ports only. The original native camera's stored eye
     # matrices are real Unity inputs; the editor cannot report an active XR eye.
     sources['MenuDepthDisplay.cs'] = replace_once(sources['MenuDepthDisplay.cs'],
@@ -78,9 +79,26 @@ def main():
     fixtures = ROOT / 'tests/GloomhavenVR.MenuDepthDesktopTests'
     inputs = [flat / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.7.CaptureRender.cs', 'FlatScreen.8.MenuDepth.cs')]
     inputs += [depth / name for name in names]
+    inputs += [ROOT / 'scripts/menu-depth-desktop/Anchors724.cs']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
         ('production', '', '', '', ''),
+        ('window-anchors-724', '', '', '', ''),
+        ('window-anchors-frozen-eye', 'MenuDepthScreenProjection.cs',
+         'Vector3 offset = physicalEye - physicalCenter;', 'Vector3 offset = -screen.forward * 2f;',
+         'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
+        ('window-anchors-stored-viewport', 'MenuDepthScreenProjection.cs',
+         'Rect viewport = original.targetTexture != null ? new Rect(0f, 0f, 1f, 1f) : original.rect;',
+         'Rect viewport = original.rect;',
+         'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
+        ('window-anchors-moving-native-scene', 'MenuDepthCharacterSource.cs',
+         '            _camera.targetTexture = target;',
+         '            _camera.targetTexture = target;\n            _camera.transform.SetPositionAndRotation(view.Position, view.Rotation);',
+         'native hierarchical landmark is visible through the actual final glass head draw'),
+        ('window-anchors-wrong-eye', 'DesktopCapture.cs',
+         '_glassMaterial.mainTexture = _menuDepthFrame == Time.frameCount\n            && global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right ? _menuDepthRight : _uiRt;',
+         '_glassMaterial.mainTexture = _uiRt;',
+         'final physical glass keeps the independently calibrated native landmark fixed across lateral vertical depth and stereo head motion'),
         ('no-native-window-mapping', 'MenuDepthScreenProjection.cs',
          'nativeEye = center + right * (Vector3.Dot(offset, screen.right) * xScale)',
          'nativeEye = center + right * 0f',
@@ -117,18 +135,30 @@ def main():
             for source_name, code in sources.items():
                 if source_name == filename: code = replace_once(code, before, after)
                 (production / source_name).write_text(code)
+            private_fixture = case / 'fixture'; private_fixture.mkdir()
+            for path in fixtures.glob('*.cs'):
+                code = path.read_text()
+                if path.name == 'Boundary.cs':
+                    code = code.replace('internal static void Warn(string scope, string text)',
+                        'internal static void Debug(string scope, string text) => Messages.Add(text);\n        internal static void Warn(string scope, string text)')
+                if path.name == 'Program.cs':
+                    code = code.replace('public static class MenuDepthDesktopProgram', 'public static partial class MenuDepthDesktopProgram')
+                (private_fixture / path.name).write_text(code)
             csproj = case / 'MenuDepthDesktop.csproj'; shutil.copyfile(fixtures / csproj.name, csproj)
             assembly = 'MenuDepthDesktop_' + name.replace('-', '_')
             command = ['/home/claw/.dotnet/dotnet', 'build', str(csproj), '-c', 'Release', '-v', 'quiet', '--nologo',
                 '--disable-build-servers', '-nr:false', '-p:UseSharedCompilation=false', '-p:CaseName=' + assembly,
-                '-p:FixtureDir=' + str(fixtures), '-p:ProductionDir=' + str(production),
+                '-p:FixtureDir=' + str(private_fixture), '-p:ProductionDir=' + str(production),
                 '-p:UnityManaged=/home/claw/unity-2021.3.5/Editor/Data/Managed',
                 '-p:GameManaged=' + str(ROOT / 'ressources/GH_Data/Managed')]
             if execute(command, case / 'build.log'):
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
-            manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected})
+            manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
+                                      'method': 'Anchors724' if name.startswith('window-anchors-') else 'Run'})
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        (run / 'command-environment.json').write_text(json.dumps({name: os.environ.get(name) for name in
+            ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
         status = execute(['xvfb-run', '-a', '/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-glcore',
             '-projectPath', str(project), '-executeMethod', 'MenuDepthDesktopRunner.Start', '-menuDepthDesktopManifest', str(run / 'manifest.json'),
             '-logFile', str(run / 'unity.log')], run / 'launch.log', 420)
@@ -139,6 +169,9 @@ def main():
         if (run / 'results.txt').exists(): print((run / 'results.txt').read_text(), end='')
         if status: raise RuntimeError('Desktop capture proof failed: ' + str(run))
     finally:
+        editors = cleanup_project_editors(run / 'unity', Path('/home/claw/unity-2021.3.5/Editor/Unity'), launcher_reaped=True)
+        (run / 'editor-cleanup.json').write_text(json.dumps(editors, indent=2) + '\n')
+        if editors['remaining']: raise RuntimeError('Owned editor remains; retaining its project caches.')
         compilers = cleanup_project_compilers(project, editor_reaped=True)
         (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
         if compilers['remaining']:

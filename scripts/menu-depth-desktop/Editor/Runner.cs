@@ -7,7 +7,7 @@ using UnityEngine;
 
 public static class MenuDepthDesktopRunner
 {
-    [Serializable] private sealed class Case { public string name, dll, expected; }
+    [Serializable] private sealed class Case { public string name, dll, expected, method; }
     [Serializable] private sealed class Manifest { public string result, evidence; public Case[] cases; }
     private static Manifest manifest;
     private static StreamWriter writer;
@@ -43,7 +43,7 @@ public static class MenuDepthDesktopRunner
                 string output = Path.Combine(manifest.evidence, item.name); Directory.CreateDirectory(output);
                 Action<int> done = count => assertions = count;
                 routine = (IEnumerator)Assembly.LoadFile(item.dll).GetType("MenuDepthDesktopProgram")
-                    .GetMethod("Run").Invoke(null, new object[] { output, done });
+                    .GetMethod(item.method).Invoke(null, new object[] { output, done });
             }
             if (routine.MoveNext()) return;
             if (!string.IsNullOrEmpty(item.expected)) throw new Exception("Negative control escaped: " + item.name);
