@@ -50,15 +50,39 @@ namespace GloomhavenVR.WorldUI
             internal int MenuDepthFrame = -1, MenuDepthFailures;
             internal int NextCaptureFrame, CameraOffWhileVisible, RawQuadFrames;
             internal bool MipFallback = false;
+            internal float MinContentScale = 1f, AskedFactor;
         }
         private const string Scope = "WorldUI";
         private static readonly List<Entry> Entries = new();
         private static long _vramTotal;
         private static int _completed;
         private enum ReallocTrigger { EyeGrid }
-        // Legacy allocation policy and entry construction are outside this bounded
-        // fixture. The real new coordinator must refuse if the allocator cannot fit.
-        private static void Reallocate(Entry entry, Rect frame, ReallocTrigger trigger) { }
+        // Eye-grid demand is an explicit fixture input. The exact production
+        // ResolveRate (including dimension/cost/step-down policy) executes; only
+        // its original resource factory/swap boundary is supplied here.
+        private sealed class TargetLife { internal long GridVramLocked, GridVramUnlocked; internal float GridRateUnlocked = 1f; }
+        private static readonly TargetLife AllocationLife = new();
+        private static TargetLife LifeOf(Entry entry) => AllocationLife;
+        private static float EyeGridRate(Entry entry, float scale) => 1f;
+        internal static Rect AllocationFrame(Entry entry) => MenuDepthAllocationFrame(entry,entry.Frame);
+        private static void Reallocate(Entry entry, Rect frame, ReallocTrigger trigger)
+        {
+            frame = MenuDepthAllocationFrame(entry,frame);
+            int msaa = entry.Msaa;
+            long budget = Math.Min(MaxPanelVramBytes,MaxTotalVramBytes - (_vramTotal - entry.VramBytes)
+                - (_menuDepthVramTotal - entry.MenuDepthBytes));
+            if (MenuDepth.MenuDepthSources.HasContent(entry.Panel.HostRect)) budget /= 2;
+            ResolveRate(entry,frame,ref msaa,budget,out float rate,out int width,out int height,out long bytes);
+            if (bytes > budget || (width == entry.RtW && height == entry.RtH)) return;
+            ReleaseMenuDepth(entry,preserveFrame:true);
+            RenderTexture old = entry.Rt, oldMip = entry.MipRt;
+            var target = new RenderTexture(width,height,24); target.Create();
+            var mip = new RenderTexture(width,height,0) { useMipMap=true,autoGenerateMips=false,filterMode=FilterMode.Trilinear }; mip.Create();
+            _vramTotal += bytes - entry.VramBytes; entry.VramBytes = bytes;
+            entry.Rt = target; entry.MipRt = mip; entry.RtW=width; entry.RtH=height;
+            entry.Cam.targetTexture = target; entry.DisplayImage.texture = mip;
+            old.Release(); oldMip.Release(); UnityEngine.Object.DestroyImmediate(old); UnityEngine.Object.DestroyImmediate(oldMip);
+        }
         private static void NoteCaptureCompleted(Entry entry) => _completed++;
         private static void ApplyCaptureClear(Camera camera) => camera.backgroundColor = Color.clear;
         internal static void Add(Entry entry) { Entries.Add(entry); _vramTotal += entry.VramBytes; }

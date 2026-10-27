@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI.MenuDepth;
 using UnityEngine;
@@ -8,6 +9,43 @@ namespace GloomhavenVR.WorldUI;
 internal static partial class PanelSupersample
 {
     private static long _menuDepthVramTotal;
+    private static readonly Dictionary<Entry, MenuDepthCaptureFrame> MenuDepthFrames = new();
+
+    private sealed class MenuDepthCaptureFrame
+    {
+        internal readonly Rect Original;
+        internal Rect Frame;
+        private float _shrinkSince = -1f;
+        internal MenuDepthCaptureFrame(Rect original) { Original = Frame = original; }
+        internal bool Update(Rect wanted)
+        {
+            Vector2 size = Vector2.Max(Frame.size, wanted.size);
+            if (wanted.width < size.x * .75f || wanted.height < size.y * .75f)
+            {
+                if (_shrinkSince < 0f) _shrinkSince = Time.unscaledTime;
+                if (Time.unscaledTime - _shrinkSince >= 1.5f) { size = wanted.size; _shrinkSince = -1f; }
+            }
+            else _shrinkSince = -1f;
+            bool resize = size != Frame.size;
+            Frame = new Rect(wanted.center - size * .5f, size);
+            return resize;
+        }
+    }
+
+    // The native frame remains the layout/hit/shared-geometry authority. Only
+    // its owned capture allocation and transparent photograph include overspill.
+    private static Rect MenuDepthAllocationFrame(Entry entry, Rect nativeFrame)
+        => MenuDepthFrames.TryGetValue(entry, out MenuDepthCaptureFrame state) && state.Original == nativeFrame
+            ? state.Frame : nativeFrame;
+
+    private static Rect PrepareMenuDepthFrame(Entry entry, MenuDepthEye left, MenuDepthEye right)
+    {
+        if (!MenuDepthFrames.TryGetValue(entry, out MenuDepthCaptureFrame state) || state.Original != entry.Frame)
+            MenuDepthFrames[entry] = state = new MenuDepthCaptureFrame(entry.Frame);
+        Rect wanted = MenuDepthDisplay.ForegroundFrame(entry.Panel.HostRect, entry.Frame, left, right);
+        if (state.Update(wanted)) Reallocate(entry, entry.Frame, ReallocTrigger.EyeGrid);
+        return state.Frame;
+    }
 
     // Ordinary windows keep their exact mono capture. Deliberately spatial content
     // opts its own containing window in; text and controls at z=0 project to identical
@@ -39,8 +77,11 @@ internal static partial class PanelSupersample
                     if (skippedMono) RestoreMenuDepthMono(e);
                     continue;
                 }
+                var leftEye = new MenuDepthEye(false, left, head);
+                var rightEye = new MenuDepthEye(true, right, head);
+                Rect captureFrame = PrepareMenuDepthFrame(e, leftEye, rightEye);
                 if (e.MenuDepthDisplay != null && !e.MenuDepthDisplay.Matches(e.Rt, DisplayTexture(e)))
-                    ReleaseMenuDepth(e);
+                    ReleaseMenuDepth(e, preserveFrame: true);
                 if (e.MenuDepthDisplay == null)
                 {
                     long extra = VramBytesFor(e.RtW, e.RtH, e.Msaa);
@@ -59,7 +100,7 @@ internal static partial class PanelSupersample
                 }
                 SyncDisplayPose(e);
                 e.MenuDepthDisplay.Render(e.Cam, e.Panel.HostRect, e.Frame, e.Rt, DisplayTexture(e),
-                    new MenuDepthEye(false, left, head), new MenuDepthEye(true, right, head));
+                    leftEye, rightEye, captureFrame);
                 NoteCaptureCompleted(e);
             }
             catch (Exception error)
@@ -89,8 +130,9 @@ internal static partial class PanelSupersample
         }
     }
 
-    private static void ReleaseMenuDepth(Entry e)
+    private static void ReleaseMenuDepth(Entry e, bool preserveFrame = false)
     {
+        if (!preserveFrame) MenuDepthFrames.Remove(e);
         if (e.MenuDepthDisplay == null) return;
         e.MenuDepthDisplay.Dispose();
         e.MenuDepthDisplay = null;

@@ -1148,8 +1148,9 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void RecordAchievedFactor(Entry e)
     {
-        float w = e.Frame.width > 1f ? e.RtW / e.Frame.width : e.EffectiveFactor;
-        float h = e.Frame.height > 1f ? e.RtH / e.Frame.height : e.EffectiveFactor;
+        Rect sampledFrame = MenuDepthAllocationFrame(e, e.Frame);
+        float w = sampledFrame.width > 1f ? e.RtW / sampledFrame.width : e.EffectiveFactor;
+        float h = sampledFrame.height > 1f ? e.RtH / sampledFrame.height : e.EffectiveFactor;
         e.AchievedFactor = Mathf.Min(w, h);
     }
 
@@ -1626,7 +1627,7 @@ internal static partial class PanelSupersample
         long budget = System.Math.Min(MaxPanelVramBytes,
             MaxTotalVramBytes - (_vramTotal - e.VramBytes) - (_menuDepthVramTotal - e.MenuDepthBytes));
         if (MenuDepth.MenuDepthSources.HasContent(e.Panel.HostRect)) budget /= 2;
-        ResolveRate(e, frame, ref msaa, budget, out float rate, out int rtW, out int rtH,
+        ResolveRate(e, MenuDepthAllocationFrame(e, frame), ref msaa, budget, out float rate, out int rtW, out int rtH,
                     out long vram);
         if (rtW == e.RtW && rtH == e.RtH)
         {
@@ -1683,7 +1684,7 @@ internal static partial class PanelSupersample
             return;
         }
         long previous = e.VramBytes;
-        ReleaseMenuDepth(e);
+        ReleaseMenuDepth(e, preserveFrame: true);
         RenderTexture old = e.Rt;
         RenderTexture? oldMip = e.MipRt;
         // The texture the quad is showing RIGHT NOW, captured before it is replaced: the carry-over

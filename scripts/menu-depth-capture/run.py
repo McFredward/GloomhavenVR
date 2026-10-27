@@ -67,6 +67,7 @@ def main():
             + member(isolation, '    private static int AcquireLayer()') + member(isolation, '    private static void ReleaseLayer(int layer)') + '}\n')
         originals['Routing724.cs'] = (Path(__file__).parent / 'Routing724.cs').read_text()
         originals['Workload725.cs'] = (Path(__file__).parent / 'Workload725.cs').read_text()
+        originals['Frame728.cs'] = (Path(__file__).parent / 'Frame728.cs').read_text()
         legacy_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs'
         legacy = legacy_path.read_text()
         copied = 'using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n'
@@ -80,6 +81,12 @@ def main():
         for signature in ('    private static bool SameComponents(Vector2', '    private static bool SameComponents(Vector3',
                           '    private static bool SameComponents(Quaternion'):
             start = legacy.index(signature); copied += legacy[start:legacy.index(';', start) + 1] + '\n'
+        copied += member(legacy, '    private static void ResolveRate(')
+        core = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs').read_text()
+        for name in ('MaxRtDimension', 'MinStepDownFactor', 'RateQuantum', 'MinContentScaleFloor'):
+            declarations = re.findall(r'    private const (?:int|float) ' + name + r' = [^;]+;', core)
+            assert len(declarations) == 1, name
+            copied += declarations[0] + '\n'
         originals['LegacyHelpers.cs'] = copied + '}\n'
         core_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs'
         limits = re.findall(r'    private const long (?:MaxPanelVramBytes|MaxTotalVramBytes) = [^;]+;', core_path.read_text())
@@ -178,7 +185,7 @@ def main():
                     code = code.replace('internal static readonly List<string> Messages',
                         'internal static bool WantsDebug => true; internal static void Debug(string scope, string message) => Messages.Add(message);\n        internal static readonly List<string> Messages')
                 if path.name == 'Program.cs':
-                    code = code.replace('        Projection();', '        _checks += Routing724.Run(output);\n        Workload725(output);\n        Projection();')
+                    code = code.replace('        Projection();', '        _checks += Routing724.Run(output);\n        Workload725(output);\n        Frame728(output);\n        Projection();')
                     code = code.replace('new GameObject("source scope", typeof(RectTransform))', 'new GameObject("source scope", typeof(RectTransform), typeof(Canvas))')
                 (bound_fixture / path.name).write_text(code)
             csproj = case / 'MenuDepthCapture.csproj'; shutil.copyfile(fixture / csproj.name, csproj)
@@ -206,7 +213,7 @@ def main():
             'com.unity.modules.assetbundle': '1.0.0', 'com.unity.modules.ui': '1.0.0'}}) + '\n')
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         pins = [*(source / name for name in names), legacy_path, core_path, isolation_path, Path(__file__).parent / 'Routing724.cs',
-                Path(__file__).parent / 'Workload725.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
+                Path(__file__).parent / 'Workload725.cs', Path(__file__).parent / 'Frame728.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
                 *fixture.glob('*'), Path(__file__), Path(__file__).parent / 'Editor/MenuDepthRunner.cs',
                 ROOT / 'scripts/menu-depth-character/project_compilers.py',
                 ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle']
