@@ -7,8 +7,9 @@
     "Vulkan"
   ],
   "type_trees": true,
-  "bundle_bytes": 18483,
-  "bundle_sha256": "beee5adbf2ebaba133e3e827269b45d267648ba681a465609c73cc51261b3c96",
+  "runtime_load_checked": true,
+  "bundle_bytes": 26421,
+  "bundle_sha256": "dbc90f977bdf4d38e51bcb01461bc94692572f85a81ffaeafccf367bf4c18b5a",
   "sources": [
     {
       "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthDisplay.shader",
@@ -19,13 +20,16 @@
       "sha256": "ad504c496ff2bd6201135918f929b864c42ea04869f85a8ca81653edfce444eb"
     },
     {
+      "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/MenuDepthCharacter.shader",
+      "sha256": "aa809922ae1ae8217dc1bccb60576e68b80013227d53a42909d156a607931cf1"
+    },
+    {
       "path": "src/GloomhavenVR/Assets/MenuDepth/Rendering/Unity-LICENSE.txt",
       "sha256": "9ce7cf0c6902bea1d3919d78c20ef28fb052b545fecace901e4d98e8c2bcf4ce"
     },
     {
       "path": "unity/menu-depth-render/Editor/MenuDepthBuilder.cs",
-      "sha256": "9899bdcd5fdf65b9bf9a38860155fb2d75e5ee09b9de6575a60f33b5c62121d3"
+      "sha256": "3a3e8a7bdd5bcff8d51d1a15831062fa00e38e890ffe02dab37653b1c142aeaf"
     }
-  ],
-  "runtime_load_checked": true
+  ]
 }

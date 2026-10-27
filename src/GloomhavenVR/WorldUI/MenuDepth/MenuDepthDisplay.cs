@@ -16,12 +16,14 @@ internal sealed class MenuDepthDisplay : IDisposable
     internal const string BundleResource = "GloomhavenVR.MenuDepth.Rendering.bundle";
     private const string DisplayShaderPath = "assets/menudepth/menudepthdisplay.shader";
     private const string DepthShaderPath = "assets/menudepth/menudepthgraphic.shader";
+    private const string CharacterShaderPath = "assets/menudepth/menudepthcharacter.shader";
     private static readonly int EyeId = Shader.PropertyToID("_GvrMenuDepthEye");
     private static readonly int RightTextureId = Shader.PropertyToID("_RightTex");
     private static readonly Stack<int> PreviousEyes = new(4);
     private static AssetBundle? _bundle;
     private static Shader? _displayShader;
     private static Shader? _depthShader;
+    private static Shader? _characterShader;
     private static string? _loadFailure;
     private static Camera? _capturingCamera;
     private static int _liveDisplays;
@@ -39,6 +41,17 @@ internal sealed class MenuDepthDisplay : IDisposable
     internal static Shader? DepthShader
     {
         get { TryLoad(out _); return _depthShader; }
+    }
+
+    internal static Shader? CharacterShader
+    {
+        get { TryLoad(out _); return _characterShader; }
+    }
+
+    internal static Shader RequireCharacterShader()
+    {
+        if (!TryLoad(out string reason) || _characterShader == null) throw new InvalidOperationException(reason);
+        return _characterShader;
     }
 
     internal static bool IsCapturing(Camera camera) => ReferenceEquals(camera, _capturingCamera);
@@ -177,6 +190,18 @@ internal sealed class MenuDepthDisplay : IDisposable
         capture.nearClipPlane = Mathf.Max(1e-5f, Mathf.Min(capture.nearClipPlane, planeDistance - relief));
         capture.farClipPlane = Mathf.Max(capture.farClipPlane, planeDistance + relief);
         capture.targetTexture = target;
+        Matrix4x4 originalView = capture.worldToCameraMatrix;
+        Vector3 planePoint = plane.TransformPoint(new Vector3(frame.center.x, frame.center.y));
+        Vector3 normal = Vector3.Cross(plane.TransformVector(Vector3.right), plane.TransformVector(Vector3.up)).normalized;
+        if (Vector3.Dot(eye.WorldPosition - planePoint, normal) > 0f)
+        {
+            // The carrier is viewed from the rear. Keep the exact native XY
+            // projection/glyph raster, but order physical surfaces from that
+            // side of the glass instead of the private camera's front side.
+            Vector4 z = originalView.GetRow(2);
+            float atPlane = Vector4.Dot(z, new Vector4(planePoint.x, planePoint.y, planePoint.z, 1f));
+            capture.worldToCameraMatrix = MatrixWithDepthSide(originalView, z, atPlane);
+        }
         MenuDepthSources.BeforeCapture(plane,
             new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, projectToGraphicPlane: true), capture);
         try
@@ -191,7 +216,12 @@ internal sealed class MenuDepthDisplay : IDisposable
                 display.GenerateMips();
             }
         }
-        finally { MenuDepthSources.AfterCapture(); }
+        finally { MenuDepthSources.AfterCapture(); capture.worldToCameraMatrix = originalView; }
+    }
+
+    private static Matrix4x4 MatrixWithDepthSide(Matrix4x4 view, Vector4 z, float atPlane)
+    {
+        z = -z; z.w += 2f * atPlane; view.SetRow(2, z); return view;
     }
 
     private readonly struct CameraState
@@ -235,7 +265,8 @@ internal sealed class MenuDepthDisplay : IDisposable
 
     private static bool TryLoad(out string reason)
     {
-        if (_displayShader != null && _depthShader != null && _displayShader.isSupported && _depthShader.isSupported)
+        if (_displayShader != null && _depthShader != null && _characterShader != null
+            && _displayShader.isSupported && _depthShader.isSupported && _characterShader.isSupported)
         { reason = string.Empty; return true; }
         if (_loadFailure != null) { reason = _loadFailure; return false; }
         try
@@ -247,13 +278,15 @@ internal sealed class MenuDepthDisplay : IDisposable
             if (_bundle == null) throw new InvalidDataException("Menu-depth rendering bundle could not load.");
             _displayShader = _bundle.LoadAsset<Shader>(DisplayShaderPath);
             _depthShader = _bundle.LoadAsset<Shader>(DepthShaderPath);
-            if (_displayShader == null || _depthShader == null || !_displayShader.isSupported || !_depthShader.isSupported)
+            _characterShader = _bundle.LoadAsset<Shader>(CharacterShaderPath);
+            if (_displayShader == null || _depthShader == null || _characterShader == null
+                || !_displayShader.isSupported || !_depthShader.isSupported || !_characterShader.isSupported)
                 throw new InvalidDataException("Menu-depth UI shaders are unsupported on this graphics API.");
             reason = string.Empty; return true;
         }
         catch (Exception error)
         {
-            _displayShader = _depthShader = null;
+            _displayShader = _depthShader = _characterShader = null;
             if (_bundle != null) _bundle.Unload(true);
             _bundle = null; _loadFailure = reason = error.Message;
             return false;
@@ -292,7 +325,7 @@ internal sealed class MenuDepthDisplay : IDisposable
     internal static void Shutdown()
     {
         if (_liveDisplays != 0) return; // Original native materials must be restored first.
-        _displayShader = _depthShader = null; _loadFailure = null;
+        _displayShader = _depthShader = _characterShader = null; _loadFailure = null;
         if (_bundle != null) _bundle.Unload(true);
         _bundle = null;
     }

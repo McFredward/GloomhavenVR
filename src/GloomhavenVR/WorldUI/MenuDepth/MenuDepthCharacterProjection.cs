@@ -21,12 +21,22 @@ internal static class MenuDepthCharacterProjection
         internal readonly Quaternion Rotation;
         internal readonly Matrix4x4 WorldToCamera;
         internal readonly Matrix4x4 Projection;
+        internal readonly Matrix4x4 NativeToGraphic;
+        internal readonly Vector4 NativePlane;
         internal readonly float Near, Far;
         internal readonly bool Reversed;
         internal View(Vector3 position, Quaternion rotation, Matrix4x4 view, Matrix4x4 projection,
-            float near, float far, bool reversed)
+            float near, float far, bool reversed, Matrix4x4 nativeToGraphic, Vector4 nativePlane)
         { Position = position; Rotation = rotation; WorldToCamera = view; Projection = projection;
-            Near = near; Far = far; Reversed = reversed; }
+            Near = near; Far = far; Reversed = reversed; NativeToGraphic = nativeToGraphic; NativePlane = nativePlane; }
+
+        internal View Expanded(Rect clip)
+        {
+            Matrix4x4 projection = Projection;
+            projection.SetRow(0, (Projection.GetRow(0) - Projection.GetRow(3) * clip.center.x) * (2f / clip.width));
+            projection.SetRow(1, (Projection.GetRow(1) - Projection.GetRow(3) * clip.center.y) * (2f / clip.height));
+            return new View(Position, Rotation, WorldToCamera, projection, Near, Far, Reversed, NativeToGraphic, NativePlane);
+        }
     }
 
     internal static bool TryBuild(Camera source, Transform holder, RectTransform rectangle,
@@ -85,8 +95,18 @@ internal static class MenuDepthCharacterProjection
         view.SetRow(0, new Vector4(right.x, right.y, right.z, -Vector3.Dot(right, position)));
         view.SetRow(1, new Vector4(up.x, up.y, up.z, -Vector3.Dot(up, position)));
         view.SetRow(2, new Vector4(-facing.x, -facing.y, -facing.z, Vector3.Dot(facing, position)));
+        Matrix4x4 nativeFrame = Matrix4x4.identity;
+        nativeFrame.SetRow(0, new Vector4(right.x, right.y, right.z, -Vector3.Dot(right, croppedCenter)));
+        nativeFrame.SetRow(1, new Vector4(up.x, up.y, up.z, -Vector3.Dot(up, croppedCenter)));
+        nativeFrame.SetRow(2, new Vector4(forward.x, forward.y, forward.z, -Vector3.Dot(forward, croppedCenter)));
+        Matrix4x4 physicalFrame = Matrix4x4.identity;
+        physicalFrame.SetColumn(0, new Vector4(physicalRight.x, physicalRight.y, physicalRight.z, 0f) / nativePerUnit);
+        physicalFrame.SetColumn(1, new Vector4(physicalUp.x, physicalUp.y, physicalUp.z, 0f) / nativePerUnit);
+        physicalFrame.SetColumn(2, new Vector4(physicalForward.x, physicalForward.y, physicalForward.z, 0f) / nativePerUnit);
+        physicalFrame.SetColumn(3, new Vector4(physicalCenter.x, physicalCenter.y, physicalCenter.z, 1f));
         result = new View(position, Quaternion.LookRotation(facing, up), view,
-            Matrix4x4.Frustum(left, rightEdge, bottom, top, near, far), near, far, reversed);
+            Matrix4x4.Frustum(left, rightEdge, bottom, top, near, far), near, far, reversed,
+            rectangle.worldToLocalMatrix * physicalFrame * nativeFrame, nativeFrame.GetRow(2));
         return true;
     }
 }
