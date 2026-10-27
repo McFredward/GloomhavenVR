@@ -635,6 +635,7 @@ internal static class TooltipOnWindow
     {
         if (!WorldUIConfig.ConversionActive)
         {
+            CharacterTooltipPlacement.TickNativeLocals(false);
             // STAND-DOWN: conversion switched off (VR off, hot reload, a scene without floated
             // windows). Every raised box goes home before this class stops running, because a
             // reversible move that is never reversed is not reversible.
@@ -644,6 +645,7 @@ internal static class TooltipOnWindow
         }
 
         PruneFlattened();
+        CharacterTooltipPlacement.TickNativeLocals(true);
         TickRaises();
         Rescan();
 
@@ -762,9 +764,16 @@ internal static class TooltipOnWindow
         if (widget.transform is not RectTransform rect)
             return;
         ConvertedPanel? owner = ModalFallback.FindOwningWindow(rect);
-        if (owner == null || !owner.IsAlive || owner.HostRect == null)
+        if (owner == null)
+        {
+            CharacterTooltipPlacement.SettleNativeLocal(widget);
             return;
+        }
+        if (!owner.IsAlive || owner.HostRect == null)
+            return;
+        CharacterTooltipPlacement.ReleaseNativeLocal(widget);
         bool characterHint = CharacterTooltipPlacement.TryLocalHint(widget, out RectTransform? characterAnchor);
+        if (!characterHint) CharacterTooltipPlacement.ReleaseConvertedAnnotation(rect);
 
         // Flatten FIRST: the clamp measures the box's world corners, and a box that is still
         // carrying a stale pooled rotation would be measured at the wrong extent.
@@ -816,6 +825,7 @@ internal static class TooltipOnWindow
         float wantY = Mathf.Clamp(offY, -limY, limY);
         if (characterHint)
         {
+            CharacterTooltipPlacement.TrackConvertedAnnotation(rect);
             Vector3 beside = CharacterTooltipPlacement.RightCenter(host, hostRot, characterAnchor,
                 boxHalfW, boxHalfH, 0f) - winCenter;
             wantX = Vector3.Dot(beside, right);
@@ -1885,6 +1895,8 @@ internal static class TooltipOnWindow
     private static void RestoreRaise(RaiseRecord rec)
     {
         RectTransform rect = rec.Rect;
+        if (rec.CharacterHintOnRight && !ReferenceEquals(rect, null))
+            CharacterTooltipPlacement.ReleaseConvertedAnnotation(rect);
         if (rect == null)
             return;
         if (rec.RaisedTo == null || !ReferenceEquals(rect.parent, rec.RaisedTo))
@@ -2000,6 +2012,7 @@ internal static class TooltipOnWindow
     /// it did before the mod touched them.</summary>
     internal static void Shutdown()
     {
+        CharacterTooltipPlacement.TickNativeLocals(false);
         ReleaseAllRaises("module shutdown / hot reload");
         for (int i = 0; i < Flattened.Count; i++)
         {

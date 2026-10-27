@@ -26,9 +26,26 @@ button callbacks. Actual world-canvas pixels show the personal-quest body/text
 beside an opaque rendered foreground volume. Artwork/text are controlled inputs,
 not exported game artwork or a headset/D3D11/Vulkan acceptance claim.
 
+`--native-flat` separately exercises the actual native
+UITooltipTarget.OnPointerEnter/OnPointerExit, UITextTooltipTarget content builder
+and original UILocalTooltip.Show/Hide/RefreshPosition through production
+WorldTooltips.LateTick in Menu2D. The source UI camera being captured by FlatScreen
+and the native canvas/controller references are explicit inputs. Full and partial
+camera viewports must place the original body beyond the fixed full UI frame;
+the character subwindow is not mistaken for that frame. Native content, parent,
+pivot, canvas mode and depth styling remain original. The desktop input-kind
+observation is pinned to mouse input; platform boot and gameplay services stay
+dormant. This focused fixture proves native layout and callback contracts, not
+the separately owned head-capture raster or headset appearance.
+
 The new head-space menu capture is independently owned by the rendering lane. Its
 integration must retain the original local annotation outside HostRect without
 expanding the physical window or forcing a larger planar UI photograph.
+Exact active annotation plates register as no-op IMenuDepthSource members, so
+their head capture also remains available when character depth is disabled or
+the character source is not ready. The original graphic, material and parent
+remain original; hide/restore withdraws membership. The bounded fixtures verify
+that routing contract independently from the integrated head raster.
 
 Every invocation reaps its Editor/compiler processes and uses the central
 cleanup_completed_run API. The exact pinned InputSystem Remote source namespace

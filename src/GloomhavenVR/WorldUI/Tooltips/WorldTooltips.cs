@@ -183,6 +183,7 @@ internal sealed class WorldTooltips
     private RectTransform? _hoveredRect;
     private bool _characterHintOnRight;
     private Transform? _characterHintParent;
+    private readonly CharacterTooltipPlacement.NativeShared _nativeCharacterHint = new();
 
     /// <summary>The host decision last LOGGED (reference-compared, so the change-gated diagnostic
     /// allocates its line only when the answer actually changes — never per frame).</summary>
@@ -1056,7 +1057,9 @@ internal sealed class WorldTooltips
         // closed. One bool store per frame.
         _backingShown = false;
 
-        // Menu2D keeps the vanilla 2D tooltip path (UICamera → FlatScreen RT); every
+        // Menu2D keeps the native canvas and styling (UICamera → FlatScreen RT);
+        // exact character annotations are seated beside its fixed frame below.
+        // Every
         // scenario mode (incl. ModalUI/BoardTargeting — Recompute() only leaves
         // Menu2D while a scenario runs) gets the world-space presentation.
         // [WorldUI] Tooltips AND [WorldUI] ActionElementHints are GONE (user ruling 2026-08-13):
@@ -1072,24 +1075,18 @@ internal sealed class WorldTooltips
         if (!want)
         {
             Restore();
+            if (WorldUIConfig.ConversionActive && ResolveCanvas())
+            {
+                if (_tooltip == null) _tooltip = _canvas!.GetComponentInChildren<UITooltip>(includeInactive: true);
+                if (_tooltip != null) _nativeCharacterHint.Tick(_canvas!, _tooltip);
+                else _nativeCharacterHint.Restore();
+            }
+            else _nativeCharacterHint.Restore();
             return;
         }
 
-        if (_canvas == null)
-        {
-            // [Optimize] TooltipScanGate (2026-07 perf pass): this full-scene FindObjectOfType had
-            // NO interval gate, so on any scene where the CanvasManager is absent or not yet built
-            // it re-scanned the whole scene EVERY FRAME, forever. Retrying a handful of times a
-            // second finds it just as fast in human terms (the canvas is needed for a hover, not
-            // for a frame) and costs ~1/10 of the scans.
-            if (PerfConfig.TooltipGateOn && Time.frameCount < _canvasSearchNextFrame)
-                return;
-            _canvasSearchNextFrame = Time.frameCount + CanvasSearchIntervalFrames;
-            var manager = Object.FindObjectOfType<CanvasManager>();
-            _canvas = manager != null ? manager.tooltipCanvas : null;
-            if (_canvas == null)
-                return;
-        }
+        _nativeCharacterHint.Restore();
+        if (!ResolveCanvas() || _canvas == null) return;
 
         // Scale WITH THE BOARD (user #7a): the control board's live lossy scale (diorama ×
         // tray-grab resize) when it exists, else the diorama scale (menu / no-tray fallback).
@@ -1870,6 +1867,18 @@ internal sealed class WorldTooltips
             + "cards in the slots) nor from the box's own size while it is shown.");
     }
 
+    private bool ResolveCanvas()
+    {
+        if (_canvas != null) return true;
+        // A negative cold lookup is interval-gated on both native and converted
+        // routes. The steady state never scans the scene or hierarchy again.
+        if (PerfConfig.TooltipGateOn && Time.frameCount < _canvasSearchNextFrame) return false;
+        _canvasSearchNextFrame = Time.frameCount + CanvasSearchIntervalFrames;
+        var manager = Object.FindObjectOfType<CanvasManager>();
+        _canvas = manager != null ? manager.tooltipCanvas : null;
+        return _canvas != null;
+    }
+
     private void Restore()
     {
         if (!_converted)
@@ -1968,5 +1977,9 @@ internal sealed class WorldTooltips
         }
     }
 
-    public void Shutdown() => Restore();
+    public void Shutdown()
+    {
+        _nativeCharacterHint.Restore();
+        Restore();
+    }
 }

@@ -8,12 +8,12 @@ layout execute verbatim. Native data is read only; no headset result is claimed.
 """
 from pathlib import Path
 import argparse,hashlib,json,os,shutil,signal,subprocess,sys,tempfile
+sys.dont_write_bytecode=True
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'scripts'))
 from town_run_retention import cleanup_completed_run
 sys.path.insert(0,str(ROOT/'scripts/menu-depth-character'))
 from project_compilers import cleanup_project_compilers,cleanup_project_editors
-sys.dont_write_bytecode=True
 
 def execute(command,log,timeout=300):
  with log.open('w')as stream:
@@ -42,7 +42,7 @@ def retain_package_sources(project,run):
  (run/'retained-package-sources.json').write_text(json.dumps(records,indent=2)+'\n')
  return records
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--case',action='append');a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--case',action='append');p.add_argument('--native-flat',action='store_true');a=p.parse_args()
  if not os.environ.get('ADB_SERVER_SOCKET'):p.error('Use the task-private ADB server.')
  signal.signal(signal.SIGTERM,lambda signum,frame:(_ for _ in()).throw(SystemExit(128+signum)))
  out=ROOT/'.planning/debug/character-tooltips';out.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=out));completion=run/'completion.log';completion.write_text('Evidence: '+str(run)+'\n');print('Evidence: '+str(run),flush=True)
@@ -54,6 +54,15 @@ def main():
   ('lost-creator-identity','CharacterTooltipPlacement.cs','UICharacterCreatorClassRoster? roster = creator != null','UICharacterCreatorClassRoster? roster = creator != null && Time.frameCount < 0','native creation perks hint uses right lane'),
   ('lost-exact-scope','CharacterTooltipPlacement.cs','if (anchor == null) return false;','if (anchor == null) return false;\n        if (anchor.GetComponent<UITooltipTarget>() != null) return true;','unrelated same-name tooltip retains ordinary inside-window placement'),
   ('lost-warm-cache','WorldTooltips.cs','if (!ReferenceEquals(_hoveredRect, hovered) || !ReferenceEquals(_hostWindow, owner)','if (Time.frameCount >= 0 || !ReferenceEquals(_hoveredRect, hovered) || !ReferenceEquals(_hostWindow, owner)','warm owner ticks never repeat character hierarchy classification')]
+ if a.native_flat:
+  variants=[('native-flat-production','','','',''),
+   ('lost-native-route','WorldTooltips.cs','if (_tooltip != null) _nativeCharacterHint.Tick(_canvas!, _tooltip);','if (_tooltip != null && Time.frameCount < 0) _nativeCharacterHint.Tick(_canvas!, _tooltip);','native character hint clears the full fixed screen frame'),
+   ('lost-native-full-frame','CharacterTooltipPlacement.cs','Place(hint, frame, fullFrame, anchor, true);','Place(hint, frame, frame.rect, anchor, true);','native partial viewport seats beside the full fixed screen frame'),
+   ('lost-native-local','CharacterTooltipPlacement.cs','if (!TryLocalHint(local, out _)) return;','if (!TryLocalHint(local, out _) || Time.frameCount >= 0) return;','native local quest clears the full fixed screen frame'),
+   ('lost-native-exact-scope','CharacterTooltipPlacement.cs','if (anchor == null) return false;','if (anchor == null) return false;\n        if (anchor.GetComponent<UITooltipTarget>() != null) return true;','native ordinary hint keeps the original position'),
+   ('lost-native-late','CharacterTooltipPlacement.cs','else record.Placement.TickLocal(record.Widget);','else if (Time.frameCount < 0) record.Placement.TickLocal(record.Widget);','late native quest layout retains the full fixed screen frame'),
+   ('lost-native-membership','CharacterTooltipPlacement.cs','Annotations.Add(rect, source); MenuDepthSources.Register(source);','Annotations.Add(rect, source); if (Time.frameCount < 0) MenuDepthSources.Register(source);','native annotation retains head capture without a ready character source'),
+   ('lost-native-warm','CharacterTooltipPlacement.cs','RectTransform? anchor = tooltip.m_AnchorToTarget;','RectTransform? anchor = tooltip.m_AnchorToTarget;\n            _anchor = null;','warm native ticks never repeat character hierarchy classification')]
  if a.case:
   wanted=set(a.case);assert wanted<={v[0]for v in variants};variants=[v for v in variants if v[0]in wanted]
  paths=[p for p in (ROOT/'src').rglob('*.cs')if not {'obj','bin'}.intersection(p.parts)]+list(files.values())+[Path(__file__),ROOT/'scripts/character-tooltip/Editor/Runner.cs',ROOT/'scripts/character-tooltip/audit-native.py']
@@ -76,7 +85,7 @@ def main():
    command=['/home/claw/.dotnet/dotnet','build',str(ROOT/'src/GloomhavenVR/GloomhavenVR.csproj'),'-c','Debug','-v','quiet','--nologo','--disable-build-servers','-nr:false','-p:UseSharedCompilation=false','-p:AssemblyName='+assembly,'-p:BaseIntermediateOutputPath='+str(case/'obj')+'/','-p:OutputPath='+str(case/'bin')+'/','-p:CustomAfterMicrosoftCommonTargets='+str(target)]
    (case/'build-command.json').write_text(json.dumps(command,indent=2)+'\n')
    if execute(command,case/'build.log'):raise RuntimeError('Private production compilation failed: '+name)
-   dll=assemblies/(assembly+'.dll');shutil.copy2(case/'bin'/dll.name,dll);manifest['cases'].append({'name':name,'dll':str(dll),'expected':expected})
+   dll=assemblies/(assembly+'.dll');shutil.copy2(case/'bin'/dll.name,dll);manifest['cases'].append({'name':name,'dll':str(dll),'expected':expected,'nativeFlat':a.native_flat})
   for name in ['Assets/Plugins','Assets/Editor','Packages','ProjectSettings']:(project/name).mkdir(parents=True)
   (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
   (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{'com.unity.textmeshpro':'3.0.6','com.unity.inputsystem':'1.4.4','com.unity.ugui':'1.0.0',**{'com.unity.modules.'+n:'1.0.0'for n in ['ui','physics','animation','imageconversion','jsonserialize','assetbundle','audio','director','particlesystem','terrain','video','cloth','physics2d','unitywebrequest','unitywebrequestassetbundle','unitywebrequestaudio','unitywebrequesttexture','unitywebrequestwww','ai','imgui','xr']}}}))

@@ -6,12 +6,13 @@ using System.Reflection;
 using HarmonyLib;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 public static class CharacterTooltipRunner
 {
-    [Serializable] public sealed class Case { public string name, dll, expected; }
+    [Serializable] public sealed class Case { public string name, dll, expected; public bool nativeFlat; }
     [Serializable] public sealed class Manifest { public string result, evidence; public Case[] cases; }
     private static Manifest manifest;
     private static StreamWriter writer;
@@ -55,11 +56,13 @@ public static class CharacterTooltipRunner
                 harmony.CreateClassProcessor(mod.GetType("GloomhavenVR.WorldUI.Patches.TooltipWindowPatches")).Patch();
                 harmony.Patch(AccessTools.Method(mod.GetType("GloomhavenVR.WorldUI.CharacterTooltipPlacement"), "IsSharedHint"),
                     postfix: new HarmonyMethod(typeof(CharacterTooltipRunner), nameof(Classified)));
-                routine = Run(Path.Combine(manifest.evidence, item.name));
+                routine = item.nativeFlat ? RunNativeFlat(Path.Combine(manifest.evidence, item.name))
+                    : Run(Path.Combine(manifest.evidence, item.name));
             }
             if (routine.MoveNext()) return;
             if (!string.IsNullOrEmpty(item.expected)) throw new Exception("Negative control escaped: " + item.name);
-            writer.WriteLine("PASS " + item.name + ": " + assertions + " native layout/GPU assertions");
+            writer.WriteLine("PASS " + item.name + ": " + assertions
+                + (item.nativeFlat ? " native layout/callback assertions" : " native layout/GPU assertions"));
         }
         catch (Exception error)
         {
@@ -75,6 +78,7 @@ public static class CharacterTooltipRunner
     }
     private static readonly object Done = new object();
     private static bool DormantLifecycle() => false;
+    private static bool NativeMouseInput(ref bool __result) { __result = false; return false; }
     private static void Classified() => classifications++;
     private static void Check(bool value, string message) { assertions++; if (!value) throw new Exception(message); }
     private static object Get(object target, string field)
@@ -204,6 +208,8 @@ public static class CharacterTooltipRunner
             local.SetParent(originalLocalParent, false); local.sizeDelta = new Vector2(600, 130.31f); local.pivot = originalPivot;
             questTooltip.Show(); Canvas.ForceUpdateCanvases();
             Right(host, local, "the original personal quest explanation clears the fixed right edge");
+            Check((bool)Call(mod.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthSources"), "HasContent", host),
+                "converted quest annotation retains head capture without a ready character source");
             Check(local.parent == nativeRoot, "the original local quest tooltip retains the existing raise/restore lifecycle");
             Check(host.sizeDelta == fixedSize && local.pivot == originalPivot, "quest placement preserves fixed window size and native tooltip pivot");
             local.sizeDelta = new Vector2(720, 350); Canvas.ForceUpdateCanvases(); Call(localType, "TickRaises");
@@ -249,6 +255,161 @@ public static class CharacterTooltipRunner
         Check(host.sizeDelta == fixedSize && local.pivot == originalPivot, "all original fixed geometry survives the complete hover sequence");
         Call(world, "ResolveHostOwner", false, false); Check(!(bool)Get(world, "_characterHintOnRight"), "closed tooltip releases its side-lane decision");
         converted.Clear(); rt.Release(); Object.DestroyImmediate(rt);
+        yield return Done;
+    }
+
+    private static void NativeRight(Camera camera, RectTransform frame, RectTransform hint, string message)
+    {
+        var corners = new Vector3[4]; hint.GetWorldCorners(corners); float left = float.MaxValue;
+        foreach (Vector3 corner in corners)
+            left = Mathf.Min(left, camera.rect.x + camera.WorldToViewportPoint(corner).x * camera.rect.width);
+        float originalPixel = frame.TransformVector(Vector3.right).magnitude;
+        float gap = 12f * originalPixel / (2f * camera.orthographicSize * camera.aspect) * camera.rect.width;
+        Check(Mathf.Abs(left - 1f - gap) < .00003f, message);
+    }
+
+    private static IEnumerator RunNativeFlat(string output)
+    {
+        Directory.CreateDirectory(output);
+        Type flatType = mod.GetType("GloomhavenVR.WorldUI.FlatScreen");
+        Type worldType = mod.GetType("GloomhavenVR.WorldUI.WorldTooltips");
+        Type policy = mod.GetType("GloomhavenVR.WorldUI.CharacterTooltipPlacement");
+        object world = Activator.CreateInstance(worldType, true);
+        var camera = new GameObject("original native UI camera").AddComponent<Camera>();
+        camera.orthographic = true; camera.orthographicSize = 5.4f; camera.aspect = 1988f / 1080f;
+        camera.transform.position = new Vector3(0, 0, -10); camera.clearFlags = CameraClearFlags.SolidColor;
+        var target = new RenderTexture(1988, 1080, 24); target.Create(); camera.targetTexture = target;
+        object capturedRecord = Activator.CreateInstance(flatType.GetNestedType("CapturedCamera", BindingFlags.NonPublic), true);
+        Set(capturedRecord, "Camera", camera); Set(capturedRecord, "IsUi", true);
+        IDictionary captured = (IDictionary)Get(flatType, "CapturedSet"); captured.Add(camera, capturedRecord);
+        var frame = Rect("original native full-UI canvas", null, new Vector2(1988, 1080), Vector2.zero);
+        Canvas source = frame.gameObject.AddComponent<Canvas>(); source.renderMode = RenderMode.ScreenSpaceCamera;
+        source.worldCamera = camera; source.planeDistance = 1;
+        var partyRect = Rect("original character subwindow", frame, new Vector2(1300, 980), new Vector2(-200, 0));
+        UIAdventurePartyAssemblyCharacterDisplay party = Native<UIAdventurePartyAssemblyCharacterDisplay>(partyRect.gameObject);
+        var skinRect = Rect("arbitrary native name", partyRect, new Vector2(240, 50), new Vector2(420, -150));
+        UICharacterSkinSelector selector = Native<UICharacterSkinSelector>(skinRect.gameObject);
+        UITextTooltipTarget skin = Native<UITextTooltipTarget>(skinRect.gameObject); Set(selector, "skinTooltip", skin);
+        var infoRoot = Rect("native campaign information", partyRect, new Vector2(600, 700), new Vector2(-200, 0));
+        UICampaignAssemblyCharacterInformation info = Native<UICampaignAssemblyCharacterInformation>(infoRoot.gameObject);
+        Set(party, "information", new List<UICharacterInformation> { info });
+        var titleRect = Rect("original description target", partyRect, new Vector2(450, 60), new Vector2(-200, 350));
+        UITextTooltipTarget title = Native<UITextTooltipTarget>(titleRect.gameObject); Set(info, "descriptionTooltip", title);
+        var questRect = Rect("original quest-state print", infoRoot, new Vector2(522, 170), new Vector2(17, -90));
+        Native<UIPersonalQuestState>(questRect.gameObject); Native<UIPersonalQuest>(questRect.gameObject);
+        var concealRect = Rect("original conceal target", questRect, new Vector2(32, 32), new Vector2(240, 60));
+        UITextTooltipTarget conceal = Native<UITextTooltipTarget>(concealRect.gameObject); Set(info, "personalQuestTooltip", conceal);
+        var localRect = Rect("original local quest explanation", questRect, new Vector2(600, 130.31f), new Vector2(-15, -92));
+        localRect.pivot = new Vector2(1, .5f); localRect.gameObject.AddComponent<Image>().color = Color.yellow;
+        UILocalTooltip quest = Native<UILocalTooltip>(localRect.gameObject); Set(quest, "target", questRect); Set(quest, "targetOffset", new Vector2(-15, -90));
+        var creatorRect = Rect("native creator window", frame, new Vector2(1300, 980), Vector2.zero);
+        Native<UICharacterCreatorWindow>(creatorRect.gameObject);
+        var rosterRect = Rect("native class roster", creatorRect, new Vector2(600, 700), new Vector2(-280, 0));
+        UICharacterCreatorClassRoster roster = Native<UICharacterCreatorClassRoster>(rosterRect.gameObject);
+        var perksRect = Rect("native starting-perks target", rosterRect, new Vector2(400, 60), new Vector2(0, -200));
+        UITextTooltipTarget perks = Native<UITextTooltipTarget>(perksRect.gameObject);
+        TextLocalizedListener perksInfo = Native<TextLocalizedListener>(perksRect.gameObject); Set(roster, "information", perksInfo);
+        var ordinaryRect = Rect(skinRect.name, partyRect, skinRect.sizeDelta, new Vector2(200, 250));
+        UITextTooltipTarget ordinary = Native<UITextTooltipTarget>(ordinaryRect.gameObject);
+        var tooltipRoot = Rect("original native tooltip canvas", null, new Vector2(1988, 1080), Vector2.zero);
+        Canvas tooltipCanvas = tooltipRoot.gameObject.AddComponent<Canvas>(); tooltipCanvas.renderMode = RenderMode.ScreenSpaceCamera;
+        tooltipCanvas.worldCamera = camera; tooltipCanvas.planeDistance = .5f;
+        var body = Rect("original native tooltip body", tooltipRoot, new Vector2(320, 160), Vector2.zero);
+        Image plate = body.gameObject.AddComponent<Image>(); plate.color = Color.yellow;
+        UITooltip tooltip = Native<UITooltip>(body.gameObject); tooltip.enabled = true;
+        Set(tooltip, "m_Rect", body); Set(tooltip, "m_Canvas", tooltipCanvas); Set(tooltip, "m_image", plate);
+        Set(tooltip, "m_CanvasGroup", body.GetComponent<CanvasGroup>());
+        Set(tooltip, "m_LayoutGroup", body.GetComponent<VerticalLayoutGroup>());
+        Set(tooltip, "m_SizeFitter", body.GetComponent<ContentSizeFitter>()); Set(typeof(UITooltip), "mInstance", tooltip);
+        var font = TMPro.TMP_FontAsset.CreateFontAsset(Resources.GetBuiltinResource<Font>("Arial.ttf"));
+        Set(tooltip, "m_TitleFont", font); Set(tooltip, "m_PCTitleFontSize", 30); tooltip.transition = UITooltip.Transition.None;
+        harmony.Patch(AccessTools.PropertyGetter(typeof(InputManager), "GamePadInUse"),
+            prefix: new HarmonyMethod(typeof(CharacterTooltipRunner), nameof(NativeMouseInput)));
+        UIManager manager = Native<UIManager>(new GameObject("original native UI manager boundary"));
+        Set(manager, "uiCamera", camera); Set(typeof(UIManager), "Instance", manager);
+        Set(world, "_canvas", tooltipCanvas); Set(world, "_tooltip", tooltip);
+        Button button = skinRect.gameObject.AddComponent<Button>(); int clicked = 0; button.onClick.AddListener(() => clicked++);
+        Transform originalParent = body.parent, originalLocalParent = localRect.parent;
+        var pointers = new[] { skin, title, conceal, perks };
+        try
+        {
+            foreach (Rect viewport in new[] { new Rect(0, 0, 1, 1), new Rect(.15f, .1f, .7f, .8f) })
+            {
+                camera.rect = viewport; Canvas.ForceUpdateCanvases(); Vector2 fixedFrame = frame.rect.size;
+                foreach (UITextTooltipTarget pointer in pointers)
+                {
+                    pointer.Initialize(UITooltip.Corner.TopRight, Vector2.zero, false, 320, 160, false, false);
+                    pointer.SetText("ORIGINAL NATIVE CHARACTER HINT");
+                    pointer.OnPointerEnter(new PointerEventData(null)); Canvas.ForceUpdateCanvases();
+                    // The original callback may complete native camera/canvas
+                    // layout. Freeze the observed frame at the mod's entry.
+                    fixedFrame = frame.rect.size; Vector2 fixedParty = partyRect.sizeDelta;
+                    Vector2 pivot = body.pivot; Quaternion rotation = body.localRotation; float z = body.localPosition.z;
+                    Call(world, "LateTick");
+                    NativeRight(camera, frame, body, viewport.width < 1 ? "native partial viewport seats beside the full fixed screen frame"
+                        : "native character hint clears the full fixed screen frame");
+                    Check(pointer.TooltipShown && (RectTransform)Get(tooltip, "m_AnchorToTarget") == pointer.transform,
+                        "native pointer callback retains the actual target and shown bookkeeping");
+                    Check(body.parent == originalParent && body.pivot == pivot && body.localRotation == rotation
+                        && body.localPosition.z == z && tooltipCanvas.renderMode == RenderMode.ScreenSpaceCamera,
+                        "native annotation retains original parent, canvas mode, pivot, rotation and depth styling");
+                    Check(frame.rect.size == fixedFrame && partyRect.sizeDelta == fixedParty,
+                        "native character hints leave full screen and character subwindow geometry fixed");
+                    TMPro.TextMeshProUGUI text = body.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+                    Check(text != null && text.text == "ORIGINAL NATIVE CHARACTER HINT", "native character hint retains original content construction");
+                    var ready = new List<Graphic>();
+                    Call(mod.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthSources"), "CollectReadyGraphics", ready);
+                    Check(ready.Contains(plate), "native annotation retains head capture without a ready character source");
+                    int before = classifications;
+                    for (int i = 0; i < 200; i++) Call(world, "LateTick");
+                    Check(classifications == before, "warm native ticks never repeat character hierarchy classification");
+                    body.sizeDelta += new Vector2(140, 80); Canvas.ForceUpdateCanvases(); Call(world, "LateTick");
+                    NativeRight(camera, frame, body, "late native shared hint layout keeps the full fixed screen frame");
+                    pointer.OnPointerExit(null); Call(world, "LateTick");
+                    Check(!pointer.TooltipShown && tooltip.alpha == 0f && (RectTransform)Get(tooltip, "m_AnchorToTarget") == null,
+                        "native pointer exit remains sole hide and content-lifetime authority");
+                    ready.Clear(); Call(mod.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthSources"), "CollectReadyGraphics", ready);
+                    Check(!ready.Contains(plate), "hidden native hint withdraws its head capture membership");
+                    yield return null;
+                }
+                ordinary.Initialize(UITooltip.Corner.TopRight, Vector2.zero, false, 320, 160, false, false);
+                ordinary.SetText("ORDINARY SAME-NAME NATIVE HINT"); ordinary.OnPointerEnter(new PointerEventData(null));
+                Canvas.ForceUpdateCanvases(); Vector3 nativePosition = body.localPosition; Call(world, "LateTick");
+                Check(Vector3.Distance(nativePosition, body.localPosition) < 1e-6f, "native ordinary hint keeps the original position");
+                var ordinaryReady = new List<Graphic>();
+                Call(mod.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthSources"), "CollectReadyGraphics", ordinaryReady);
+                Check(!ordinaryReady.Contains(plate), "ordinary same-name hint gains no annotation head capture membership");
+                ordinary.OnPointerExit(null); Call(world, "LateTick"); yield return null;
+                localRect.sizeDelta = new Vector2(600, 130.31f); quest.Show(); Canvas.ForceUpdateCanvases();
+                NativeRight(camera, frame, localRect, "native local quest clears the full fixed screen frame");
+                var localReady = new List<Graphic>();
+                Call(mod.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthSources"), "CollectReadyGraphics", localReady);
+                Check(localReady.Contains(localRect.GetComponent<Image>()), "native local quest retains head capture without a ready character source");
+                Check(localRect.parent == originalLocalParent && localRect.pivot == new Vector2(1, .5f),
+                    "native local quest retains its original parent and pivot");
+                localRect.sizeDelta = new Vector2(720, 350); Canvas.ForceUpdateCanvases(); Call(policy, "TickNativeLocals", true);
+                NativeRight(camera, frame, localRect, "late native quest layout retains the full fixed screen frame");
+                Check(frame.rect.size == fixedFrame, "late native quest layout cannot resize the screen frame");
+                quest.Hide(); Call(policy, "TickNativeLocals", true);
+                Check(!quest.IsShown && localRect.parent == originalLocalParent, "native local quest hide retains original lifetime and hierarchy");
+            }
+            // Teardown hands the exact native body placement back, while a new
+            // original writer or reparent would win without being overwritten.
+            skin.OnPointerEnter(new PointerEventData(null)); Canvas.ForceUpdateCanvases(); Vector3 native = body.localPosition;
+            Call(world, "LateTick"); Call(world, "Shutdown");
+            Check(Vector3.Distance(native, body.localPosition) < 1e-6f && body.parent == originalParent,
+                "native tooltip shutdown restores only its own original XY write");
+            button.onClick.Invoke(); Check(clicked == 1, "native flat hint leaves the original skin button callback unchanged");
+            File.WriteAllText(Path.Combine(output, "native-flat-contract.txt"),
+                "Original UITooltipTarget pointer enter/exit and UITextTooltipTarget content construction executed.\n"
+                + "WorldTooltips.LateTick Menu2D path and native UILocalTooltip Show/Hide/RefreshPosition executed.\n"
+                + "Full and partial original camera viewports covered; geometry only, no head-capture pixels claimed.\n");
+        }
+        finally
+        {
+            Call(world, "Shutdown"); Call(policy, "TickNativeLocals", false); captured.Clear();
+            target.Release(); Object.DestroyImmediate(target); Object.DestroyImmediate(font);
+        }
         yield return Done;
     }
 }
