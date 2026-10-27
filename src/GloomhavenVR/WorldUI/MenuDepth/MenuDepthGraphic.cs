@@ -83,13 +83,18 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
 
     private void ConfigureCore(Image image, MenuDepthHeightfield? field, float depthRatio, Vector4 depthUv)
     {
+        // Native hidden pools are learned before activation. Unity may destroy
+        // those components without OnDisable/OnDestroy, so they must not own a
+        // registration yet. OnEnable admits them when they become live. Renew
+        // an active registration before the same-state return too: a released
+        // card owner can reacquire its unchanged helper without another enable.
+        if (IsActive()) MenuDepthSources.Register(this);
         Sprite current = image.overrideSprite;
         if (_configured && _image == image && _sprite == current && ReferenceEquals(_field, field)
             && _depthRatio == depthRatio && _depthUv == depthUv) return;
         _image = image; _sprite = current; _field = field; _depthRatio = depthRatio; _depthUv = depthUv;
         _configured = field == null || current != null; // Native decorative Images may use the white quad without a sprite.
         _input.Clear(); _grid.Clear(); _triangles.Clear();
-        MenuDepthSources.Register(this);
         image.SetVerticesDirty(); image.SetMaterialDirty();
     }
 
