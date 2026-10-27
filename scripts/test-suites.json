@@ -3274,6 +3274,17 @@
         "local"
       ],
       "weight": 45
+    },
+    {
+      "id": "menu-depth-native-card",
+      "command": [
+        "bash",
+        "scripts/menu-depth-native-card-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 4
     }
   ]
 }
