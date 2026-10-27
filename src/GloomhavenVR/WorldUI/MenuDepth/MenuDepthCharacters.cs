@@ -42,11 +42,14 @@ internal static class MenuDepthCharacters
     private static bool _reflectionReported;
     private static int _openings;
 
-    internal static void Tick()
+    internal static void Tick() => Update(true);
+    internal static void FlushForCapture() => Update(false);
+
+    private static void Update(bool maintainResources)
     {
         if (!VRSession.IsRunning) { Shutdown(); return; }
         if (!_enabled) { _enabled = true; Discover(); }
-        RetireStale();
+        RetireStale(maintainResources);
         foreach (Character3DDisplayManager manager in PendingManagers) AddManager(manager);
         PendingManagers.Clear();
         // Only the few original GUI cameras are polled. The native target can be
@@ -111,11 +114,12 @@ internal static class MenuDepthCharacters
     internal static void ForgetImage(RawImage image)
     { Images.Remove(image); PendingImages.Remove(image); }
 
-    private static void RetireStale()
+    private static void RetireStale(bool maintainResources)
     {
         for (int i = Sources.Count - 1; i >= 0; i--)
         {
-            if (Sources[i].BindingAlive) continue;
+            if (Sources[i].BindingAlive)
+            { if (maintainResources) Sources[i].MaintainResources(Time.unscaledTime); continue; }
             RawImage? image = Sources[i].Graphic as RawImage;
             MenuDepthSources.Unregister(Sources[i]); Sources[i].Dispose(); Sources.RemoveAt(i);
             if (image != null) QueueImage(image);

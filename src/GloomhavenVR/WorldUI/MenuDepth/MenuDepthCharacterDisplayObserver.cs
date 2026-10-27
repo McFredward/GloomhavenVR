@@ -36,18 +36,20 @@ internal static class MenuDepthLifecycleObserver
     [HarmonyTargetMethods]
     private static System.Collections.Generic.IEnumerable<System.Reflection.MethodBase> Targets()
     {
-        var emitted = new System.Collections.Generic.HashSet<System.Reflection.MethodBase>();
+        var emitted = new System.Collections.Generic.HashSet<RuntimeMethodHandle>();
         foreach (System.Reflection.MethodBase method in MenuDepthDriver.NativeOwnerLifecycles())
-            if (emitted.Add(method)) yield return method;
+            if (emitted.Add(method.MethodHandle)) yield return method;
         foreach (System.Reflection.MethodBase? method in new System.Reflection.MethodBase?[]
         {
             AccessTools.Method(typeof(UnityEngine.UI.Graphic), "OnEnable", Type.EmptyTypes),
             AccessTools.Method(typeof(UnityEngine.UI.Graphic), "OnDestroy", Type.EmptyTypes),
+            AccessTools.Method(typeof(UnityEngine.UI.Graphic), "OnTransformParentChanged", Type.EmptyTypes),
+            AccessTools.Method(typeof(UnityEngine.UI.Graphic), "OnCanvasHierarchyChanged", Type.EmptyTypes),
             AccessTools.PropertySetter(typeof(UnityEngine.UI.RawImage), "texture"),
             AccessTools.Method(typeof(UnityEngine.UI.UIWindow), "OnEnable", Type.EmptyTypes),
             AccessTools.Method(typeof(Character3DDisplayManager), "Start", Type.EmptyTypes),
         })
-            if (method != null && emitted.Add(method)) yield return method;
+            if (method != null && emitted.Add(method.MethodHandle)) yield return method;
     }
 
     [HarmonyPostfix]
@@ -66,7 +68,8 @@ internal static class MenuDepthLifecycleObserver
                     if (graphic is UnityEngine.UI.RawImage removed) MenuDepthCharacters.ForgetImage(removed);
                     return;
                 }
-                MenuDepthDriver.ObserveGraphic(graphic);
+                MenuDepthDriver.ObserveGraphic(graphic, __originalMethod.Name == "OnTransformParentChanged"
+                    || __originalMethod.Name == "OnCanvasHierarchyChanged");
                 if (graphic is UnityEngine.UI.RawImage image) MenuDepthCharacters.ObserveImage(image);
             }
             else if (__instance is Character3DDisplayManager manager) MenuDepthCharacters.ObserveManager(manager);

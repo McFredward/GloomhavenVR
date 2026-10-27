@@ -83,6 +83,8 @@ internal static class MenuDepthDriver
     private static readonly HashSet<UIWindow> KnownWindows = new();
     private static readonly HashSet<Graphic> KnownGraphics = new();
     private static readonly HashSet<Graphic> PendingGraphics = new();
+    private static readonly HashSet<Graphic> MovedGraphics = new();
+    private static readonly HashSet<Transform> WalkedAncestors = new();
     private static readonly HashSet<MonoBehaviour> PendingOwners = new();
     private static readonly List<Transform> DeadRoots = new();
     private static readonly List<MonoBehaviour> DeadOwners = new();
@@ -90,15 +92,27 @@ internal static class MenuDepthDriver
     // Structural work counters are advanced only at real births, never a timed sweep.
     internal static int RootCensuses, BehaviourVisits, AncestorVisits;
     private static int _epoch, _rootEpoch;
-    private static bool _running;
+    private static bool _running, _pumping;
+    private static readonly Action CapturePump = FlushBeforeCapture;
     private static int _bindingNotes, _missingNotes;
 
     internal static void Tick()
     {
         if (!VRSession.IsRunning || !WorldUIConfig.ConversionActive)
         { if (_running) Shutdown(); return; }
-        _running = true;
+        if (!_running)
+        {
+            _running = true;
+            MenuDepthSources.SetDiscoveryPump(CapturePump);
+        }
         MenuDepthCharacters.Tick();
+        RefreshRoots();
+        FlushArrivals();
+        ApplyBindings();
+    }
+
+    private static void RefreshRoots()
+    {
         // Native registries are small identity sets, not scene/hierarchy censuses.
         // Include hidden enabled windows: pooled content is learned before first reveal.
         ++_rootEpoch;
@@ -115,7 +129,27 @@ internal static class MenuDepthDriver
                 if (frame != null) AddFrame(window, frame);
             }
         }
-        FlushArrivals();
+    }
+
+    private static void FlushBeforeCapture()
+    {
+        if (!_running || _pumping || !VRSession.IsRunning || !WorldUIConfig.ConversionActive) return;
+        _pumping = true;
+        try
+        {
+            // Display and asynchronous target/texture assignment may occur after
+            // the last Late Tick. Existing capture admission flushes these exact
+            // queued identities before its first source selection, even from an
+            // empty registry. Stable draws never repeat typed binding/hierarchy work.
+            MenuDepthCharacters.FlushForCapture();
+            if (PendingGraphics.Count == 0 && PendingOwners.Count == 0) return;
+            RefreshRoots(); FlushArrivals(); ApplyBindings();
+        }
+        finally { _pumping = false; }
+    }
+
+    private static void ApplyBindings()
+    {
         ++_epoch;
         for (int i = 0; i < Bindings.Count; i++)
         {
@@ -172,10 +206,11 @@ internal static class MenuDepthDriver
 
     // These native postfix notifications only coalesce identities. No observer
     // callback walks children or reflects fields while the game initializes them.
-    internal static void ObserveGraphic(Graphic graphic)
+    internal static void ObserveGraphic(Graphic graphic, bool hierarchyChanged = false)
     {
         if (!_running || graphic == null || (graphic is not Image && graphic is not RawImage)) return;
-        if (!KnownGraphics.Contains(graphic)) PendingGraphics.Add(graphic);
+        if (hierarchyChanged) { MovedGraphics.Add(graphic); PendingGraphics.Add(graphic); }
+        else if (!KnownGraphics.Contains(graphic)) PendingGraphics.Add(graphic);
     }
 
     internal static void ObserveOwner(MonoBehaviour owner)
@@ -193,23 +228,30 @@ internal static class MenuDepthDriver
     private static void FlushArrivals()
     {
         foreach (MonoBehaviour owner in PendingOwners)
-            if (owner != null && HasRoot(owner.transform)) Register(owner);
+            if (owner != null && (OwnerBindings.ContainsKey(owner) || HasRoot(owner.transform))) Register(owner);
         PendingOwners.Clear();
+        WalkedAncestors.Clear();
         foreach (Graphic graphic in PendingGraphics)
         {
-            if (graphic == null || KnownGraphics.Contains(graphic) || !HasRoot(graphic.transform)) continue;
+            if (graphic == null || (!MovedGraphics.Contains(graphic) && KnownGraphics.Contains(graphic))) continue;
+            bool scoped = HasRoot(graphic.transform);
+            if (!scoped && !MovedGraphics.Contains(graphic)) continue;
             KnownGraphics.Add(graphic);
             // New active prefab branches expose their original typed owner on
             // the path to the enrolled window. Existing neighbours are never rescanned.
             for (Transform? parent = graphic.transform; parent != null; parent = parent.parent)
             {
-                ++AncestorVisits;
-                Behaviours.Clear(); parent.GetComponents(Behaviours);
-                for (int i = 0; i < Behaviours.Count; i++) Register(Behaviours[i]);
+                if (WalkedAncestors.Add(parent))
+                {
+                    ++AncestorVisits;
+                    Behaviours.Clear(); parent.GetComponents(Behaviours);
+                    for (int i = 0; i < Behaviours.Count; i++)
+                        if (scoped || OwnerBindings.ContainsKey(Behaviours[i])) Register(Behaviours[i]);
+                }
                 if (Roots.ContainsKey(parent)) break;
             }
         }
-        PendingGraphics.Clear();
+        PendingGraphics.Clear(); MovedGraphics.Clear(); WalkedAncestors.Clear();
         DeadOwners.Clear();
         foreach (MonoBehaviour owner in OwnerBindings.Keys) if (owner == null) DeadOwners.Add(owner!);
         for (int i = 0; i < DeadOwners.Count; i++)
@@ -220,12 +262,13 @@ internal static class MenuDepthDriver
         }
         DeadRoots.Clear(); foreach (Transform root in Roots.Keys) if (root == null) DeadRoots.Add(root!);
         for (int i = 0; i < DeadRoots.Count; i++) Roots.Remove(DeadRoots[i]);
+        // UIWindow components can be destroyed while their Transform survives.
+        KnownWindows.RemoveWhere(window => window == null);
         if (DeadRoots.Count != 0)
         {
             // Never-active pooled graphics need not receive OnDestroy. A real
             // scope retirement can prune their dead cached identities once.
             KnownGraphics.RemoveWhere(graphic => graphic == null);
-            KnownWindows.RemoveWhere(window => window == null);
         }
     }
 
@@ -268,11 +311,11 @@ internal static class MenuDepthDriver
     }
 
     internal static void ForgetGraphic(Graphic graphic)
-    { KnownGraphics.Remove(graphic); PendingGraphics.Remove(graphic); }
+    { KnownGraphics.Remove(graphic); PendingGraphics.Remove(graphic); MovedGraphics.Remove(graphic); }
 
     internal static IEnumerable<MethodBase> NativeOwnerLifecycles()
     {
-        var emitted = new HashSet<MethodBase>();
+        var emitted = new HashSet<RuntimeMethodHandle>();
         for (int i = 0; i < Specs.Length; i++)
         {
             Type? type = typeof(StoryImageViewer).Assembly.GetType(Specs[i].TypeName)
@@ -282,7 +325,7 @@ internal static class MenuDepthDriver
             {
                 MethodInfo? method = AccessTools.Method(type, name, Type.EmptyTypes);
                 if (method != null && method.DeclaringType?.Assembly == typeof(StoryImageViewer).Assembly
-                    && emitted.Add(method)) yield return method;
+                    && emitted.Add(method.MethodHandle)) yield return method;
             }
         }
     }
@@ -415,12 +458,14 @@ internal static class MenuDepthDriver
 
     internal static void Shutdown()
     {
+        _running = false;
+        MenuDepthSources.SetDiscoveryPump(null);
         MenuDepthCharacters.Shutdown();
         foreach (KeyValuePair<Image, Owned> item in OwnedImages)
             if (item.Value.Mesh != null)
             { item.Value.Mesh.enabled = false; UnityEngine.Object.Destroy(item.Value.Mesh); }
         OwnedImages.Clear(); Bindings.Clear(); OwnerBindings.Clear(); Roots.Clear(); KnownWindows.Clear(); KnownGraphics.Clear();
-        PendingGraphics.Clear(); PendingOwners.Clear(); DeadRoots.Clear(); DeadOwners.Clear();
+        PendingGraphics.Clear(); MovedGraphics.Clear(); WalkedAncestors.Clear(); PendingOwners.Clear(); DeadRoots.Clear(); DeadOwners.Clear();
         _running = false;
         RootCensuses = BehaviourVisits = AncestorVisits = 0;
         _bindingNotes = _missingNotes = 0;
