@@ -629,7 +629,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 723;
+    public const ushort ModBuild = 724;
+
+    // ModBuild724 — repair the spatial UI paths rejected in the Build723 headset test.
+    // The native character holder and its lights are children of the GUI3D Camera:
+    // moving that Transform for an eye also moved the displayed scene with the head.
+    // Keep every native scene Transform fixed and borrow only the eye view/projection.
+    // Story/event depth now resolves the actual mip baker's original-sprite provenance,
+    // including async old/new artwork and native default slots. Reconstructed region
+    // sprites map their displayed UVs back to the original full-texture depth field;
+    // the native colour, dissolve clock and layout remain original. Direct eye capture
+    // accepts only visible world canvases and follows private-layer ownership changes,
+    // avoiding a second, unmapped capture of native screen-space or supersampled UI.
+    // Bounded failure reports now identify their phase/source/message; detail stays Debug.
+    // No media, wire, config, native input authority or shared window metric changes.
 
     // ModBuild723 — spatial native menus and prepared narrative illustration relief.
     // User approved all reviewed menu-depth families on 2026-10-26. Render the original
