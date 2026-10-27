@@ -25,9 +25,27 @@ The actual model camera renders asymmetric original-input meshes through the
 production native rotation matrix. Front,90-degree side and rear images must show
 different authored markers while every original model transform and its ground
 origin stay fixed. Meshes and unlit materials are controlled inputs, not native
-game artwork or a Beautify visual claim. Integration of the yaw into the actual
-character source renderer belongs to the parent/quality lane and requires its own
-source-bound capture checks.
+game artwork or a Beautify visual claim.
+
+`python3 scripts/menu-depth-rotation/run-integrated.py` additionally runs unchanged
+Characters, CharacterSource, CharacterProjection, Eye and Projection sources.
+`--api-root` reads a parallel integration checkout; `--api-commit` freezes its Git
+revision without changing either checkout. Characters.Tick discovers the actual
+Camera/RT/RawImage identities, binds the receiver using Source.ReadyIdentity and
+sets the real Source.YawProvider. An actual GraphicRaycaster/UguiPointer drag then
+changes the image produced by Source's actual Camera.Render. Front/side/back
+markers, measured native camera-space ground, unchanged model/holder/camera
+transforms, replacement identity and depth-off retirement are checked for party
+and creation owners. Four controls break enrollment, the callback connection,
+capture yaw and the source pivot independently.
+
+This integration fixture supplies native manager state/model bootstrap and only
+the surrounding Register/Unregister registry, unused head-raster switch and UI
+shader admission ports. It reads the actual source colour target before the final
+UI compositor. It supplies no enrollment result, readiness result, yaw callback,
+view/projection, renderer or alternative rotation mathematics. Final UI depth,
+direct-head composition and actual native game artwork remain rendering-suite
+responsibilities; this test establishes no headset claim.
 
 Eleven causal controls remove raycast admission/restoration, the first drag delta,
 pointer ownership, identity reset, native ground, visible turn, native focus,

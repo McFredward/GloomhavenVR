@@ -1,0 +1,100 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+// Original manager's native state shape only. No native gameplay controller is
+// started; Characters discovers these real Camera/RT/RawImage identities itself.
+public sealed class Character3DDisplayManager : MonoBehaviour
+{
+    private Transform character3DHolder = null!;
+    private bool isHidden;
+    private NativeCharacter character3D = null!;
+    private sealed class NativeCharacter
+    {
+        private readonly List<NativeModel> models;
+        internal NativeCharacter(Transform main) => models = new() { new NativeModel { CharacterManager = main } };
+    }
+    private sealed class NativeModel { public Component CharacterManager { get; set; } = null!; }
+    public object Identity => character3D;
+    public bool Hidden { get => isHidden; set => isHidden = value; }
+    public void Supply(Transform holder, Transform main) { character3DHolder = holder; character3D = new(main); }
+    public void Replace(Transform main) => character3D = new(main);
+}
+public sealed class UIAdventurePartyAssemblyCharacterDisplay : MonoBehaviour { }
+public sealed class UICharacterCreatorWindow : MonoBehaviour { }
+
+namespace UnityEngine.UI
+{
+    // Source-audited native focus contract; no gameplay/bootstrap substitute.
+    public sealed class UIWindow : MonoBehaviour, UnityEngine.EventSystems.IPointerDownHandler
+    {
+        public int Downs;
+        public void OnPointerDown(UnityEngine.EventSystems.PointerEventData data) => Downs++;
+    }
+}
+
+namespace GloomhavenVR.Core
+{
+    internal static class VRSession { internal static bool IsRunning = true; }
+    internal static class PerfConfig { internal static bool Quiet = true; }
+    internal static class VRLog
+    {
+        internal static void Warn(string scope, string text) { }
+        internal static void Info(string scope, string text) { }
+        internal static void Note(string scope, string text) { }
+    }
+}
+namespace GloomhavenVR
+{
+    internal sealed class Setting { internal bool Value; internal Setting(bool value) => Value = value; }
+    internal static class Plugin { internal static readonly Setting ScrollWithStickOnly = new(false); }
+}
+namespace GloomhavenVR.WorldUI
+{
+    internal static class WorldUIConfig { internal static readonly Setting CharacterPreviewDepth = new(true); }
+    internal static class UiSoundEar { internal static void BeforeUiEvent() { } }
+    internal static class ModalFallback { internal static bool ShouldSwallowMenuTabClick(GameObject target) => false; }
+    internal static class VRKeyboard { internal static void NoticeClick(GameObject? target) { } }
+    namespace Surfaces { internal static class InitiativePortraitClickSound { internal static void NoticeClick(GameObject target) { } } }
+}
+namespace GloomhavenVR.WorldUI.MenuDepth
+{
+    // Only the surrounding registry boundary: retain exactly what production
+    // Characters registers. Enrollment, readiness and all rendering stay original.
+    internal static class MenuDepthSources
+    {
+        internal static readonly List<IMenuDepthSource> Registered = new();
+        internal static void Register(IMenuDepthSource source) => Registered.Add(source);
+        internal static void Unregister(IMenuDepthSource source) => Registered.Remove(source);
+    }
+    // This focused lane reads the actual Source camera colour target. The final
+    // UI surface shader and direct-head compositor run in the rendering suite.
+    internal static class MenuDepthDisplay
+    {
+        internal static Shader? CharacterShader => null;
+        internal static void RequireCharacterShader() { }
+        internal static bool TryGetEyePositions(Camera camera, out Vector3 left, out Vector3 right)
+        { left = right = default; return false; }
+    }
+    internal static class MenuDepthHeadRaster
+    {
+        internal static bool Active => false;
+        internal static Vector2Int Pixels => new(512, 512);
+        internal static Vector2Int Size(Camera camera) => new(512, 512);
+    }
+}
+
+// Real Camera.Render invokes this original-style image-effect callback. Its
+// measured view is an oracle, never a supplied view or duplicated yaw formula.
+public sealed class RotationNativeImageEffect : MonoBehaviour
+{
+    public Transform Ground = null!;
+    public Vector3 ObservedGround;
+    public int Draws;
+    private void OnRenderImage(RenderTexture source, RenderTexture destination)
+    {
+        Draws++;
+        ObservedGround = GetComponent<Camera>().worldToCameraMatrix.MultiplyPoint3x4(Ground.position);
+        Graphics.Blit(source, destination);
+    }
+}
