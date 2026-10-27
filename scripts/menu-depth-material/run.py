@@ -67,7 +67,7 @@ def main():
             'limit': 'Original native programs are D3D11-only. GL uses an independently compiled source reference transcribed from direct DXBC, with the original BC1 mip payload and an independent CPU scalar/blend oracle.'}, indent=2) + '\n')
         source = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
         names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs',
-                 'MenuDepthDisplay.cs', 'MenuDepthHeightfield.cs', 'MenuDepthGraphic.cs')
+                 'MenuDepthDisplay.cs', 'MenuDepthHeadRaster.cs', 'MenuDepthHeadCarrier.cs', 'MenuDepthHeightfield.cs', 'MenuDepthGraphic.cs')
         sources = {name: (source / name).read_text() for name in names}
         fixture = ROOT / 'tests/GloomhavenVR.MenuDepthMaterialTests'
         cases = [

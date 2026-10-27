@@ -51,7 +51,12 @@ internal static class MenuDepthCharacters
         // depth. Retire its borrowed textures/resources before the next capture;
         // enabling again discovers original previews without a native Display call.
         if (!VRSession.IsRunning || !WorldUIConfig.CharacterPreviewDepth.Value) { Shutdown(); return; }
-        if (!_enabled) { _enabled = true; Discover(); }
+        if (!_enabled)
+        {
+            _enabled = true;
+            MenuDepthCharacterSource.YawProvider = MenuDepthCharacterRotation.GetYaw;
+            Discover();
+        }
         RetireStale(maintainResources);
         foreach (Character3DDisplayManager manager in PendingManagers) AddManager(manager);
         PendingManagers.Clear();
@@ -115,7 +120,10 @@ internal static class MenuDepthCharacters
     { Images.Add(image); PendingImages.Add(image); }
 
     internal static void ForgetImage(RawImage image)
-    { Images.Remove(image); PendingImages.Remove(image); }
+    {
+        MenuDepthCharacterRotation.Unbind(image);
+        Images.Remove(image); PendingImages.Remove(image);
+    }
 
     private static void RetireStale(bool maintainResources)
     {
@@ -124,6 +132,7 @@ internal static class MenuDepthCharacters
             if (Sources[i].BindingAlive)
             { if (maintainResources) Sources[i].MaintainResources(Time.unscaledTime); continue; }
             RawImage? image = Sources[i].Graphic as RawImage;
+            if (!ReferenceEquals(image, null)) MenuDepthCharacterRotation.Unbind(image!);
             MenuDepthSources.Unregister(Sources[i]); Sources[i].Dispose(); Sources.RemoveAt(i);
             if (image != null) QueueImage(image);
         }
@@ -175,6 +184,7 @@ internal static class MenuDepthCharacters
             if (manager.Holder == null || manager.Target == null || !ReferenceEquals(texture, manager.Target)) continue;
             var source = new MenuDepthCharacterSource(image, manager.Camera, manager.Original, manager.Holder, ReadHidden);
             Sources.Add(source); MenuDepthSources.Register(source);
+            MenuDepthCharacterRotation.Bind(image, manager.Original, () => source.ReadyIdentity);
             int count = ++_openings;
             if (count <= 4 || (count & (count - 1)) == 0)
                 VRLog.Note("WorldUI", "MENU DEPTH CHARACTER SOURCE: native model scene bound to its original preview; separate window projection registered; count=" + count + ".");
@@ -210,6 +220,8 @@ internal static class MenuDepthCharacters
 
     internal static void Shutdown()
     {
+        MenuDepthCharacterRotation.Shutdown();
+        MenuDepthCharacterSource.YawProvider = null;
         for (int i = Sources.Count - 1; i >= 0; i--)
         {
             MenuDepthSources.Unregister(Sources[i]);
