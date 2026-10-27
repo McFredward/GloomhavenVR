@@ -15,13 +15,18 @@ public static class MenuDepthRunner
     public static void Start()
     {
         string[] args = Environment.GetCommandLineArgs();
-        manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(args[Array.IndexOf(args, "-menuDepthManifest") + 1]));
+        string input = args[Array.IndexOf(args, "-menuDepthManifest") + 1];
+        File.AppendAllText(input + ".startup.log", "executeMethod entered\n");
+        manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(input));
+        File.AppendAllText(input + ".startup.log", "manifest read\n");
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+        File.AppendAllText(input + ".startup.log", "empty scene ready\n");
         EditorApplication.update += Run;
     }
     private static void Run()
     {
         if (ran) return;
+        File.AppendAllText(Path.Combine(manifest.evidence, "update-entered.log"), "Editor update entered\n");
         ran = true; bool passed = true;
         using (var writer = new StreamWriter(manifest.result))
         {

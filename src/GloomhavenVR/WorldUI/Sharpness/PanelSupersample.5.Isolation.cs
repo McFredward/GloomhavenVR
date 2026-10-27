@@ -228,6 +228,7 @@ internal static partial class PanelSupersample
         int layer = FreeLayers[last];
         FreeLayers.RemoveAt(last);
         _poolMask |= 1 << layer;
+        MenuDepth.MenuDepthSources.ExcludedDirectLayers = _poolMask;
         return layer;
     }
 
@@ -237,6 +238,7 @@ internal static partial class PanelSupersample
         if (layer < 0)
             return;
         _poolMask &= ~(1 << layer);
+        MenuDepth.MenuDepthSources.ExcludedDirectLayers = _poolMask;
         for (int i = 0; i < FreeLayers.Count; i++)
         {
             if (FreeLayers[i] == layer)

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from town_run_retention import cleanup_completed_run
 sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
-from project_compilers import cleanup_project_compilers
+from project_compilers import cleanup_project_compilers, cleanup_project_editors
 
 
 def execute(argv, log, timeout=420):
@@ -53,6 +53,15 @@ def main():
                  'MenuDepthProjection.cs', 'MenuDepthDisplay.cs')
         originals = {name: (source / name).read_text() for name in names}
         originals['PanelDepth.cs'] = (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs').read_text()
+        isolation_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.5.Isolation.cs'
+        isolation = isolation_path.read_text()
+        originals['LayerReservation724.cs'] = ('using System.Collections.Generic;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n'
+            'private static readonly List<int> FreeLayers = new(); private static readonly List<int> LayerPool = new(); private static int _poolMask;\n'
+            'private static void ResolvePool() {} // Explicit already-resolved native layer pool input.\n'
+            'internal static void ResetLayerProof() { FreeLayers.Clear(); LayerPool.Clear(); FreeLayers.AddRange(new[]{8,9}); LayerPool.AddRange(new[]{8,9}); _poolMask=0; }\n'
+            'internal static int TakeLayerProof()=>AcquireLayer(); internal static void ReturnLayerProof(int layer)=>ReleaseLayer(layer);\n'
+            + member(isolation, '    private static int AcquireLayer()') + member(isolation, '    private static void ReleaseLayer(int layer)') + '}\n')
+        originals['Routing724.cs'] = (Path(__file__).parent / 'Routing724.cs').read_text()
         legacy_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs'
         legacy = legacy_path.read_text()
         copied = 'using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n'
@@ -80,6 +89,14 @@ def main():
             'head.GetStereoViewMatrix(Camera.StereoscopicEye.Right).inverse.MultiplyPoint3x4(Vector3.zero)', 'global::MenuDepthFixture.Right')
         cases = [
             ('production', '', '', '', ''),
+            ('stale-private-exclusion', 'LayerReservation724.cs',
+             '_poolMask |= 1 << layer;\n        MenuDepth.MenuDepthSources.ExcludedDirectLayers = _poolMask;',
+             '_poolMask |= 1 << layer;', 'the second actual private-layer reservation updates direct-capture exclusion ownership immediately'),
+            ('screen-ui-direct', 'MenuDepthSources.cs',
+             'source.Graphic.canvas.rootCanvas.renderMode == RenderMode.WorldSpace',
+             'source.Graphic.canvas.rootCanvas != null', 'screen-space consumers with nested canvases are never mistaken for direct world-space previews'),
+            ('hidden-source-direct', 'MenuDepthSources.cs', 'graphic.canvasRenderer.GetInheritedAlpha() > 0f',
+             'graphic.canvasRenderer.GetInheritedAlpha() >= 0f', 'fully hidden pooled native consumers never borrow the model scene or opt in their window'),
             ('old-mono-path', 'PanelDepth.cs',
              'e.MenuDepthDisplay.Render(e.Cam, e.Panel.HostRect, e.Frame, e.Rt, DisplayTexture(e),\n                    new MenuDepthEye(false, left, head), new MenuDepthEye(true, right, head));',
              'e.Cam.Render();', 'each eye prepares and restores the same native source exactly once'),
@@ -96,7 +113,7 @@ def main():
              'private camera retains original target and automatic mono matrices after both eyes'),
             ('missing-source-restore', 'MenuDepthSources.cs', 'try { Prepared[i].AfterCapture(); }',
              'try { /* injected: native content lease survives */ }',
-             'each eye prepares and restores the same native source exactly once'),
+             'every begun direct source lease restores before the head callback completes'),
             ('nested-eye-lost', 'MenuDepthDisplay.cs',
              'private static void AfterCamera(Camera camera) => ApplyEye(PreviousEyes.Count > 0 ? PreviousEyes.Pop() : 0);',
              'private static void AfterCamera(Camera camera) => ApplyEye(0);',
@@ -128,11 +145,21 @@ def main():
                     code = replace(code, 'Prepared[i].BeforeCapture(eye);\n            }\n        }\n        catch (Exception error)',
                         'Prepared[i].BeforeCapture(eye);\n            }\n            BeforeHeadCapture?.Invoke(camera);\n        }\n        catch (Exception error)')
                 (bound / filename_actual).write_text(code)
+            bound_fixture = case / 'fixture'; bound_fixture.mkdir()
+            for path in fixture.glob('*.cs'):
+                code = path.read_text()
+                if path.name == 'Boundary.cs':
+                    code = code.replace('internal static readonly List<string> Messages',
+                        'internal static bool WantsDebug => true; internal static void Debug(string scope, string message) => Messages.Add(message);\n        internal static readonly List<string> Messages')
+                if path.name == 'Program.cs':
+                    code = code.replace('        Projection();', '        _checks += Routing724.Run(output);\n        Projection();')
+                    code = code.replace('new GameObject("source scope", typeof(RectTransform))', 'new GameObject("source scope", typeof(RectTransform), typeof(Canvas))')
+                (bound_fixture / path.name).write_text(code)
             csproj = case / 'MenuDepthCapture.csproj'; shutil.copyfile(fixture / csproj.name, csproj)
             assembly = 'MenuDepth_' + name.replace('-', '_')
             argv = ['/home/claw/.dotnet/dotnet', 'build', str(csproj), '-c', 'Release', '-v', 'quiet', '--nologo',
                     '--disable-build-servers', '-nr:false', '-p:UseSharedCompilation=false', '-p:CaseName=' + assembly,
-                    '-p:FixtureDir=' + str(fixture), '-p:ProductionDir=' + str(bound),
+                    '-p:FixtureDir=' + str(bound_fixture), '-p:ProductionDir=' + str(bound),
                     '-p:UnityManaged=/home/claw/unity-2021.3.5/Editor/Data/Managed',
                     '-p:GameManaged=' + str(ROOT / 'ressources/GH_Data/Managed'),
                     '-p:DepthBundle=' + str(ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle')]
@@ -152,7 +179,7 @@ def main():
         (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.ugui': '1.0.0',
             'com.unity.modules.assetbundle': '1.0.0', 'com.unity.modules.ui': '1.0.0'}}) + '\n')
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        pins = [*(source / name for name in names), legacy_path, core_path, ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
+        pins = [*(source / name for name in names), legacy_path, core_path, isolation_path, Path(__file__).parent / 'Routing724.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
                 *fixture.glob('*'), Path(__file__), Path(__file__).parent / 'Editor/MenuDepthRunner.cs',
                 ROOT / 'scripts/menu-depth-character/project_compilers.py',
                 ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle']
@@ -164,12 +191,17 @@ def main():
                 '-projectPath', str(project), '-executeMethod', 'MenuDepthRunner.Start',
                 '-menuDepthManifest', str(run / 'manifest.json'), '-logFile', str(run / 'unity.log')]
         (run / 'command.json').write_text(json.dumps(argv, indent=2) + '\n')
+        (run / 'command-environment.json').write_text(json.dumps({name: os.environ.get(name) for name in
+            ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
         status = execute(argv, run / 'launch.log')
         print((run / 'results.txt').read_text() if (run / 'results.txt').exists() else 'No Unity results', flush=True)
         for name, sha in hashes.items(): assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == sha, name
         (run / 'source-stability.json').write_text(json.dumps({'unchanged': True, 'inputs': len(hashes)}) + '\n')
         return status
     finally:
+        editors = cleanup_project_editors(run / 'unity', Path('/home/claw/unity-2021.3.5/Editor/Unity'), launcher_reaped=True)
+        (run / 'editor-cleanup.json').write_text(json.dumps(editors, indent=2) + '\n')
+        if editors['remaining']: raise RuntimeError('Owned editor remains; retaining its project caches.')
         compilers = cleanup_project_compilers(run / 'unity', editor_reaped=True)
         (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
         if compilers['remaining']:
