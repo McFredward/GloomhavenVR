@@ -40,7 +40,14 @@ namespace GloomhavenVR.Cards
 
 public sealed class MenuDepthPerfRenderStamp : MonoBehaviour
 {
-    public int Draws;
+    public int Draws, OwnedDraws;
+    public RenderTexture? NativeTarget;
+    public Texture? NativeBlue;
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
-    { Draws++; Graphics.Blit(source, destination); }
+    {
+        Draws++;
+        bool owned = NativeTarget != null && !ReferenceEquals(GetComponent<Camera>().targetTexture, NativeTarget);
+        if (owned) OwnedDraws++;
+        Graphics.Blit(!owned && NativeBlue != null ? NativeBlue : source, destination);
+    }
 }

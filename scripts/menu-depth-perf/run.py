@@ -38,6 +38,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case', action='append')
     parser.add_argument('--direct-batch-probe', action='store_true', help='Private source-copy diagnostic; never a production pass')
+    parser.add_argument('--direct-cull-rebuild-probe', action='store_true', help='Private scoped cull-gated Graphic rebuild discriminator')
     parser.add_argument('--prepare-before-render-probe', action='store_true', help='Private explicit capture-before-camera discriminator')
     parser.add_argument('--direct-restore-probe', action='store_true', help='Private post-head restore timing diagnostic; never a production pass')
     parser.add_argument('--direct-rebuild-probe', action='store_true', help='Private owned-Graphic rebuild diagnostic; never a production pass')
@@ -61,6 +62,7 @@ def main():
             ('production', '', '', '', ''),
             ('baseline724', '', '', '', ''),
             ('first-draw', '', '', '', ''),
+            ('automatic-first-draw', '', '', '', ''),
             ('periodic-root-sweeps', 'MenuDepthDriver.cs',
              '        FlushArrivals();',
              '        FlushArrivals();\n        if (Time.unscaledTime >= _restoredCensus)\n        {\n            _restoredCensus = Time.unscaledTime + .25f;\n            IReadOnlyList<ConvertedPanel> restoredPanels = CanvasConversion.ActivePanels;\n            for (int i = 0; i < restoredPanels.Count; i++) if (restoredPanels[i].Target != null) Discover(restoredPanels[i].Target);\n        }',
@@ -108,6 +110,10 @@ def main():
             cases = [('direct-restore-probe', 'MenuDepthSources.cs',
                 '        _directCamera = null;\n        AfterCapture();',
                 '        _directCamera = null;\n        /* private diagnostic: restore explicitly after head.Render returns */', '')]
+        if args.direct_cull_rebuild_probe:
+            cases = [('direct-cull-rebuild-probe', 'MenuDepthSources.cs',
+                '                Prepared[i].BeforeCapture(SampleEye(Prepared[i], eye));',
+                '                Prepared[i].BeforeCapture(SampleEye(Prepared[i], eye));\n                bool priorCull = Prepared[i].Graphic.canvasRenderer.cull;\n                try { Prepared[i].Graphic.canvasRenderer.cull = false; Prepared[i].Graphic.Rebuild(CanvasUpdate.PreRender); }\n                finally { Prepared[i].Graphic.canvasRenderer.cull = priorCull; }', '')]
         if args.prepare_before_render_probe:
             cases = [('pre-render-capture-probe', '', '', '', '')]
         if args.case:
@@ -122,13 +128,13 @@ def main():
         pins = [game / 'GH.Runtime.dll', game / 'UnityEngine.UI.dll', game / 'GH.Runtime.FirstPass.dll', *paths, *original_fixture.glob('*'), Path(__file__), Path(__file__).parent / 'Editor/Runner.cs',
                 ROOT / 'scripts/menu-depth-character/project_compilers.py', bundle]
         hashes = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in pins if path.is_file()}
-        (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'baseline': args.baseline, 'private_direct_batch_probe': args.direct_batch_probe, 'private_direct_rebuild_probe': args.direct_rebuild_probe, 'private_direct_restore_probe': args.direct_restore_probe, 'private_pre_render_capture_probe': args.prepare_before_render_probe,
+        (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'baseline': args.baseline, 'private_direct_batch_probe': args.direct_batch_probe, 'private_direct_rebuild_probe': args.direct_rebuild_probe, 'private_direct_restore_probe': args.direct_restore_probe, 'private_pre_render_capture_probe': args.prepare_before_render_probe, 'private_direct_cull_rebuild_probe': args.direct_cull_rebuild_probe,
             'boundaries': 'Actual GH.Runtime typed owners, UIWindow registry/lifecycle, actual native Character3DDisplayManager.Display cached-original fast path, real uGUI hierarchy/enable/texture events, all production driver/discovery/catalogue/mesh/source code. Only session/config/converted panel roster and unrelated card services are supplied. Native UIWindow/manager Start and Beautify shader initialization are suppressed because no complete gameplay scene/native shader resources exist; authored owner fields and native cached model membership with authored primitive mesh are fixture inputs. No discovery notification is called by the test.',
             'limits': 'CPU scheduling under explicitly constructed heavy native UI, not an imported full game scene, XR or headset locomotion. Canvas drawing is disabled only during CPU timing; two actual first-head draws execute original native cached-model Display and real character source rendering from an initially empty registry, after last Tick. Separate borrowed-RT reentry guard also uses an explicit valid lease identity; independent character GPU suites cover broader visual projection.'}, indent=2) + '\n')
         game = ROOT / 'ressources/GH_Data/Managed'
         harmony = Path('/home/claw/.nuget/packages/lib.harmony/2.4.2/lib/net472')
         manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'gameManaged': str(game),
-                    'harmonyRuntime': str(harmony), 'cases': []}
+                    'harmonyRuntime': str(harmony), 'automatic': any(item[0] == 'automatic-first-draw' for item in cases), 'cases': []}
         for directory in ('Assets/Editor', 'ProjectSettings', 'Packages'): (project / directory).mkdir(parents=True)
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.ugui': '1.0.0', 'com.unity.modules.assetbundle': '1.0.0', 'com.unity.modules.imageconversion': '1.0.0', 'com.unity.modules.physics': '1.0.0'}}) + '\n')
@@ -157,9 +163,9 @@ def main():
             retained = run / 'assemblies' / (assembly + '.dll'); retained.parent.mkdir(exist_ok=True)
             shutil.copyfile(case / 'bin/Release/net472' / retained.name, retained)
             manifest['cases'].append({'name': name, 'dll': str(retained), 'expected': expected, 'baseline': name == 'baseline724',
-                'firstDraw': name in ('first-draw', 'missing-first-draw-pump', 'direct-batch-probe', 'direct-rebuild-probe', 'direct-restore-probe', 'pre-render-capture-probe'),
-                'restoreAfterRender': name in ('direct-restore-probe', 'pre-render-capture-probe'),
-                'prepareBeforeRender': name == 'pre-render-capture-probe'})
+                'firstDraw': name in ('automatic-first-draw', 'first-draw', 'missing-first-draw-pump', 'direct-batch-probe', 'direct-rebuild-probe', 'direct-restore-probe', 'pre-render-capture-probe', 'direct-cull-rebuild-probe'),
+                'restoreAfterRender': name in ('direct-restore-probe', 'pre-render-capture-probe', 'direct-cull-rebuild-probe'),
+                'prepareBeforeRender': name == 'pre-render-capture-probe', 'automatic': name == 'automatic-first-draw'})
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         argv = ['xvfb-run', '-a', '/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-glcore',
                 '-projectPath', str(project), '-executeMethod', 'MenuDepthPerformanceRunner.Start',

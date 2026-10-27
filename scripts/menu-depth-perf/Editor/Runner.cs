@@ -7,8 +7,8 @@ using UnityEngine;
 
 public static class MenuDepthPerformanceRunner
 {
-    [Serializable] private sealed class Case { public string name, dll, expected; public bool baseline, firstDraw, restoreAfterRender, prepareBeforeRender; }
-    [Serializable] private sealed class Manifest { public string result, evidence, gameManaged, harmonyRuntime; public Case[] cases; }
+    [Serializable] private sealed class Case { public string name, dll, expected; public bool baseline, firstDraw, restoreAfterRender, prepareBeforeRender, automatic; }
+    [Serializable] private sealed class Manifest { public string result, evidence, gameManaged, harmonyRuntime; public bool automatic; public Case[] cases; }
     private static Manifest manifest;
     private static int index;
     private static Type proof;
@@ -26,6 +26,11 @@ public static class MenuDepthPerformanceRunner
         results.WriteLine("Unity " + Application.unityVersion + "; " + SystemInfo.graphicsDeviceName + "; actual Playmode frames"); results.Flush();
         File.WriteAllText(Path.Combine(manifest.evidence, "startup.txt"), "Start entered; actual Playmode updates scheduled.\n");
         EditorApplication.update += Update;
+        if (manifest.automatic)
+        {
+            Type gameView = typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView", true);
+            EditorWindow.GetWindow(gameView).Show(); EditorWindow.GetWindow(gameView).Focus();
+        }
         EditorApplication.EnterPlaymode();
     }
     private static Assembly Resolve(object sender, ResolveEventArgs args)
@@ -51,7 +56,7 @@ public static class MenuDepthPerformanceRunner
                 started = true;
                 string output = Path.Combine(manifest.evidence, item.name); Directory.CreateDirectory(output);
                 proof = Assembly.LoadFile(item.dll).GetType("MenuDepthPerformanceProof", true);
-                proof.GetMethod("Begin").Invoke(null, new object[] { output, item.baseline, item.firstDraw, item.restoreAfterRender, item.prepareBeforeRender });
+                proof.GetMethod("Begin").Invoke(null, new object[] { output, item.baseline, item.firstDraw, item.restoreAfterRender, item.prepareBeforeRender, item.automatic });
                 return;
             }
             if (!(bool)proof.GetMethod("Step").Invoke(null, null)) return;

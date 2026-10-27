@@ -45,6 +45,14 @@ public static class MenuDepthPerformanceProof
     private static Texture2D _colour = null!;
     private static Sprite _sprite = null!;
     private static int _nativeDisplays;
+    private static bool _automatic, _automaticDone;
+    private static float _automaticStarted;
+    private static Camera? _automaticHead;
+    private static RawImage? _automaticPreview;
+    private static RenderTexture? _automaticNative;
+    private static MenuDepthPerfRenderStamp? _automaticStamp;
+    private static Texture2D? _automaticBlue;
+    private static Camera.CameraCallback? _headAutoComplete;
 
     private static void Check(bool value, string message) { _assertions++; if (!value) throw new Exception(message); }
     private static FieldInfo Field(Type type, string name) => AccessTools.Field(type, name) ?? throw new Exception("Native field missing: " + type + "." + name);
@@ -55,9 +63,9 @@ public static class MenuDepthPerformanceProof
     private static bool SkipGameSceneStart() => false;
     private static void CountDisplay() => _nativeDisplays++;
 
-    public static void Begin(string output, bool baseline, bool firstDraw, bool restoreAfterRender, bool prepareBeforeRender)
+    public static void Begin(string output, bool baseline, bool firstDraw, bool restoreAfterRender, bool prepareBeforeRender, bool automatic)
     {
-        _output = output; _baseline = baseline; _firstDrawOnly = firstDraw; _restoreAfterRender = restoreAfterRender; _prepareBeforeRender = prepareBeforeRender; _assertions = _rootCalls = _globalCalls = _nativeDisplays = 0;
+        _output = output; _baseline = baseline; _firstDrawOnly = firstDraw; _restoreAfterRender = restoreAfterRender; _prepareBeforeRender = prepareBeforeRender; _automatic = automatic; _automaticDone = false; _assertions = _rootCalls = _globalCalls = _nativeDisplays = 0;
         _count = 0; _warmup = 12; _lastFrame = -1;
         _harmony = new Harmony("GloomhavenVR.MenuDepthPerf." + typeof(MenuDepthPerformanceProof).Assembly.GetName().Name);
         _harmony.Patch(AccessTools.Method(typeof(MenuDepthDriver), "Discover"), prefix: new HarmonyMethod(typeof(MenuDepthPerformanceProof), nameof(CountRoot)));
@@ -354,11 +362,24 @@ public static class MenuDepthPerformanceProof
             }
             else preview.texture = native;
             RenderTexture? active = RenderTexture.active; RenderTexture.active = native; GL.Clear(true, true, Color.blue); RenderTexture.active = active;
-            string sampled = string.Empty, postState = string.Empty;
+            if (_automatic)
+            {
+                _automaticHead = head; _automaticPreview = preview; _automaticNative = native; _automaticStamp = stamp;
+                stamp.NativeTarget = native; _camera.depth = -10; head.depth = 0;
+                _automaticBlue = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+                _automaticBlue.SetPixel(0, 0, Color.blue); _automaticBlue.Apply(); stamp.NativeBlue = _automaticBlue;
+                _headAutoComplete = camera =>
+                { if (ReferenceEquals(camera, head)) { _automaticDone = true; head.enabled = false; } };
+                Camera.onPostRender += _headAutoComplete;
+                _automaticStarted = Time.realtimeSinceStartup; head.enabled = true;
+                return; // Actual engine render, never an additional Driver.Tick or Camera.Render.
+            }
+            string sampled = string.Empty, sampledCull = string.Empty, postState = string.Empty;
+            bool beforeCull = preview.canvasRenderer.cull;
             Func<string> state = () => "texture=" + preview.texture.name + ";mainTexture=" + preview.mainTexture.name
-                + ";color=" + preview.color + ";uv=" + preview.uvRect + ";rendererColor=" + preview.canvasRenderer.GetColor();
+                + ";cull=" + preview.canvasRenderer.cull + ";color=" + preview.color + ";uv=" + preview.uvRect + ";rendererColor=" + preview.canvasRenderer.GetColor();
             Camera.CameraCallback post = camera => { if (ReferenceEquals(camera, head)) postState = state(); };
-            Camera.CameraCallback sample = camera => { if (ReferenceEquals(camera, head)) sampled = preview.texture.name; };
+            Camera.CameraCallback sample = camera => { if (ReferenceEquals(camera, head)) { sampled = preview.texture.name; sampledCull = preview.canvasRenderer.cull.ToString(); } };
             Camera.onPreRender += sample; Camera.onPostRender += post;
             try
             {
@@ -375,7 +396,7 @@ public static class MenuDepthPerformanceProof
                 var eyePixels = new Texture2D(eye.width, eye.height, TextureFormat.RGBA32, false);
                 eyePixels.ReadPixels(new Rect(0, 0, eye.width, eye.height), 0, 0); eyePixels.Apply();
                 File.WriteAllBytes(Path.Combine(_output, "native-eye-" + mode + ".png"), eyePixels.EncodeToPNG());
-                File.WriteAllText(Path.Combine(_output, "first-draw-" + mode + ".txt"), "head_HDR=" + head.allowHDR + "\nsampled_texture=" + sampled + "\nnative_eye_red_pixels=" + eyePixels.GetPixels32().Count(c => c.r > 150 && c.g < 60 && c.b < 60) + "\n");
+                File.WriteAllText(Path.Combine(_output, "first-draw-" + mode + ".txt"), "head_HDR=" + head.allowHDR + "\npre_source_cull=" + beforeCull + "\nhead_pre_render_cull=" + sampledCull + "\nsampled_texture=" + sampled + "\nnative_eye_red_pixels=" + eyePixels.GetPixels32().Count(c => c.r > 150 && c.g < 60 && c.b < 60) + "\n");
                 Object.DestroyImmediate(eyePixels); RenderTexture.active = previous;
             }
             Check(stamp.Draws == 1, "the first actual head draw flushes native Display or texture arrivals after the last Tick from an empty registry");
@@ -392,7 +413,14 @@ public static class MenuDepthPerformanceProof
 
     public static bool Step()
     {
-        if (_firstDrawOnly) return true;
+        if (_firstDrawOnly)
+        {
+            if (!_automatic) return true;
+            Check(_automaticDone || Time.realtimeSinceStartup - _automaticStarted < 10f,
+                "the enabled native head receives an automatic engine render callback");
+            if (!_automaticDone) return false;
+            CompleteAutomatic(); return true;
+        }
         if (Time.frameCount == _lastFrame) return false; _lastFrame = Time.frameCount;
         if (_warmup > 0)
         {
@@ -420,6 +448,33 @@ public static class MenuDepthPerformanceProof
                 "stable frame work is bounded to retained typed owners and known sources without behaviour or ancestor walks");
         }
         return (_count >= 180 && Time.unscaledTime - _started >= 3f) || _count >= Samples.Length;
+    }
+    private static void CompleteAutomatic()
+    {
+        Camera.onPostRender -= _headAutoComplete;
+        Check(_automaticStamp!.OwnedDraws == 1,
+            "the first automatic head frame prepares exactly one actual native eye from an initially empty registry");
+        Check(ReferenceEquals(_automaticPreview!.texture, _automaticNative),
+            "the first automatic head frame restores its native consumer target");
+        RenderTexture? active = RenderTexture.active;
+        object? source = CharacterSource(_automaticPreview!);
+        RenderTexture eye = (RenderTexture)Field(source!.GetType(), "_left").GetValue(source)!;
+        foreach (var item in new[] { ("automatic-native-blue", _automaticNative!), ("automatic-owned-eye", eye), ("automatic-head", _automaticHead!.targetTexture) })
+        {
+            RenderTexture.active = item.Item2; var image = new Texture2D(item.Item2.width, item.Item2.height, TextureFormat.RGBA32, false);
+            image.ReadPixels(new Rect(0, 0, image.width, image.height), 0, 0); image.Apply();
+            Color32[] colours = image.GetPixels32();
+            File.WriteAllBytes(Path.Combine(_output, item.Item1 + ".png"), image.EncodeToPNG());
+            int red = colours.Count(c => c.r > 150 && c.g < 60 && c.b < 60), blue = colours.Count(c => c.b > 150 && c.r < 60 && c.g < 60);
+            File.AppendAllText(Path.Combine(_output, "automatic-pixels.txt"), item.Item1 + ":red=" + red + ";blue=" + blue + "\n");
+            Object.DestroyImmediate(image);
+            if (item.Item1 == "automatic-head") Check(red > 40,
+                "the first automatic head frame draws the native eye after readiness arrives after the last Tick");
+            else if (item.Item1 == "automatic-native-blue") Check(red == 0 && blue > colours.Length / 2,
+                "automatic native mono output remains blue independently of the rendered eye");
+            else Check(red > 40 && blue == 0, "the actual automatic native eye contains model pixels independently of the forced-blue mono target");
+        }
+        RenderTexture.active = active;
     }
     private static double Milliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
     private static double Percentile(double[] sorted, double probability) => sorted[(int)Math.Floor((sorted.Length - 1) * probability)];
@@ -469,10 +524,11 @@ public static class MenuDepthPerformanceProof
     }
     public static void Dispose()
     {
+        Camera.onPostRender -= _headAutoComplete;
         MenuDepthDriver.Shutdown(); CanvasConversion.ActivePanels.Clear();
         if (_harmony != null) _harmony.UnpatchAll(_harmony.Id);
         DestroyRoots();
-        Object.DestroyImmediate(_sprite); Object.DestroyImmediate(_colour);
+        Object.DestroyImmediate(_sprite); Object.DestroyImmediate(_colour); Object.DestroyImmediate(_automaticBlue); _automaticBlue = null;
         File.WriteAllLines(Path.Combine(_output, "lifecycle.log"), VRLog.Messages);
     }
 }
