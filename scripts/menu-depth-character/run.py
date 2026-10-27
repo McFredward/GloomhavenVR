@@ -199,6 +199,9 @@ def main():
         variants = [case for case in variants if case[0] in selected]
     if args.editor_mode and any(case[4].startswith('Automatic') for case in variants):
         raise ValueError('Automatic Canvas/head/next-frame cases require the default real Playmode execution.')
+    # Detect an evolved production seam before compiling unrelated variants.
+    for name, filename, before, after, method, expected in variants:
+        if filename: replace_once(sources[filename], before, after)
     manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'harmony': str(run / 'assemblies/0Harmony.dll'), 'editorMode': args.editor_mode, 'cases': []}
     exit_code = 1
     try:
@@ -263,6 +266,15 @@ def main():
         (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
         if compilers['remaining']:
             raise RuntimeError('Private project compiler processes remain; retaining project caches: ' + str(run))
+        # The editor runner and generated uGUI assemblies actually executed too.
+        # Retain their exact bytes outside Library before completion cleanup.
+        retained_editor = run / 'assemblies/editor'; retained_editor.mkdir(parents=True, exist_ok=True)
+        editor_hashes = {}
+        for compiled in sorted((project / 'Library/ScriptAssemblies').glob('*')):
+            if compiled.is_file() and compiled.suffix in ('.dll', '.pdb', '.mdb'):
+                shutil.copyfile(compiled, retained_editor / compiled.name)
+                editor_hashes[compiled.name] = hashlib.sha256(compiled.read_bytes()).hexdigest()
+        (run / 'editor-assemblies.json').write_text(json.dumps(editor_hashes, indent=2) + '\n')
         receipt = cleanup_completed_run('menu-depth-character', exit_code, completion, ROOT, process_reaped=True)
         (run / 'cache-cleanup.json').write_text(json.dumps(receipt, indent=2) + '\n')
     return exit_code
