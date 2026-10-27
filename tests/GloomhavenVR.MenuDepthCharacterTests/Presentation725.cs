@@ -16,8 +16,6 @@ public static class MenuDepthCharacterPresentation725
     private static int _checks;
     private static void Check(bool value, string text) { _checks++; if (!value) throw new Exception(text); }
     private static readonly Vector3 Front = new Vector3(.4f, -.1f, 2.3f), Back = new Vector3(1.2f, .5f, 2.9f);
-    // Includes the authored skinned envelope and both complete marker quads.
-    private static readonly Bounds Envelope = new Bounds(new Vector3(.595f, -.1f, 2.6f), new Vector3(1.29f, 1.8f, .6f));
 
     public static int Presentation(string output) => Run(output, false);
     public static int NativeLdrEffect(string output) => Run(output, true);
@@ -29,15 +27,16 @@ public static class MenuDepthCharacterPresentation725
             // These are absolute authored presentation requirements, independent
             // of the old mono framing and independent of production matrices.
             Vector3 front = scene.Map(Front), back = scene.Map(Back);
-            Check(front.z < -.02f * scene.Aperture && front.z >= -.036f * scene.Aperture,
-                "the front of the authored figure protrudes only slightly through the glass");
-            Check(back.z > 0 && back.z < .11f * scene.Aperture,
-                "the complete authored figure stays in a shallow cabinet around the pane");
-            Check(Mathf.Abs(scene.Map(Envelope.center).x) < .0001f && Mathf.Abs(scene.Map(Envelope.center).y) < .0001f,
-                "the completed model and companion envelope is centered on the pane");
+            Check(front.z < 0f && front.z > -.1f * scene.Aperture,
+                "the authored figure keeps its original depth in the common cabinet metric");
+            Check(back.z > 0 && back.z < .15f * scene.Aperture,
+                "the companion retains its native depth behind the fixed main-actor ground plane");
+            Check(Mathf.Abs(scene.Map(new Vector3(.4f, .2f, 2.56f)).x) < .0001f
+                && Mathf.Abs(scene.Map(new Vector3(.4f, .2f, 2.56f)).y) < .0001f,
+                "the main actor ground axis establishes the shared frame independently of asymmetric equipment and companion bounds");
             float bodyHeight = 1.8f / scene.Scale.x;
-            Check(Mathf.Abs(bodyHeight / scene.Height - .75f) < .001f,
-                "authored body height uses an appropriate three-quarter window fit");
+            Check(Mathf.Abs(bodyHeight / scene.Height - .5625f) < .001f,
+                "authored body height preserves the fixed native-unit metric rather than independent model normalization");
             var motions = new[] { Vector3.zero, new Vector3(.17f, .10f, .2f), new Vector3(-.18f, -.08f, -.25f) };
             foreach (Vector3 motion in motions)
             {
@@ -53,7 +52,7 @@ public static class MenuDepthCharacterPresentation725
                         raster[eye, marker] = observed;
                         float error = Vector2.Distance(Vector2.Scale(observed - expected, new Vector2(image.width, image.height)), Vector2.zero);
                         scene.Log("anchor," + localEye + "," + marker + "," + observed + "," + expected + "," + error);
-                        Check(error < 1.5f, "actual rendered landmarks occupy the independently specified shallow centered cabinet");
+                        Check(error < 1.5f, "actual rendered landmarks occupy the independently specified common native-unit cabinet");
                     }
                     Check(scene.Invariant, "original camera holder lights skinned model and animation stay fixed during every native eye draw");
                     scene.Restored(); Object.DestroyImmediate(image);
@@ -72,7 +71,10 @@ public static class MenuDepthCharacterPresentation725
             {
                 scene.Source.MaintainResources(Time.unscaledTime + 3f);
                 float pixels = scene.Height * scene.Head.pixelHeight / (2 * distance * Mathf.Tan(30 * Mathf.Deg2Rad));
-                int frequency = distance < 1 ? 400 : distance < 2 ? 160 : 80;
+                //320 cycles exceed the old1024 eye capacity, while remaining
+                //below the bounded2048 target's cropped LDR viewport Nyquist
+                //after preserving this fixture body's smaller native height.
+                int frequency = distance < 1 ? 320 : distance < 2 ? 160 : 80;
                 Texture2D image = scene.Capture(new Vector3(0, 0, -distance), false,
                     new Vector2(pixels * scene.Width / scene.Height, pixels), frequency, "frequency-" + distance);
                 double correlation = scene.FrequencyCorrelation(image, distance, frequency);
@@ -142,7 +144,7 @@ public static class MenuDepthCharacterPresentation725
         internal Character3DDisplayManager Manager => _manager;
         internal Transform Holder => _holder;
         internal void SetFrequency(int frequency) => _pattern.SetFloat("_Frequency", frequency);
-        private Vector3 _center => new Vector3(Envelope.center.x, Envelope.center.y, Envelope.min.z + .035f * Aperture * Scale.z);
+        private Vector3 _center => new Vector3(.4f, .2f, 2.56f);
         internal Scene(string output, bool effect, bool seed = true)
         {
             _output = output; _log = new StreamWriter(Path.Combine(output, "presentation-and-samples.csv"));
@@ -193,7 +195,10 @@ public static class MenuDepthCharacterPresentation725
             weaponPart.transform.SetParent(weaponBone, false); weaponPart.transform.localPosition = new Vector3(.1f, 0, 0);
             weaponPart.transform.localScale = Vector3.one * .05f; weaponPart.GetComponent<MeshRenderer>().sharedMaterial = _pattern;
             Transform frontMarker = Marker("front figure detail", Front, _red), backMarker = Marker("back companion detail", Back, _green);
-            _manager.ReplaceOriginal(_body, frontMarker, backMarker);
+            Transform actor = new GameObject("native main actor ground root").transform; actor.SetParent(_holder, false);
+            actor.position = new Vector3(.4f, -1f, 2.56f); actor.rotation = Quaternion.identity;
+            _body.SetParent(actor, true);
+            _manager.ReplaceOriginal(actor, frontMarker, backMarker);
             var unusedSkin = GameObject.CreatePrimitive(PrimitiveType.Cube); unusedSkin.name = "inactive cached wardrobe variant";
             unusedSkin.layer = 8; unusedSkin.transform.SetParent(_body, false); unusedSkin.transform.localScale = Vector3.one * 100;
             unusedSkin.SetActive(false);
@@ -213,8 +218,8 @@ public static class MenuDepthCharacterPresentation725
             if (effect) _image.uvRect = new Rect(.1f, .15f, .7f, .7f);
             Canvas.ForceUpdateCanvases();
             Width = 1.2f * 1.3f; Height = .9f * .85f; Aperture = Mathf.Min(Width, Height);
-            float n = Mathf.Max(Envelope.size.x / (.82f * Width), Envelope.size.y / (.75f * Height));
-            Scale = new Vector3(n, n, Mathf.Max(n, Envelope.size.z / (.14f * Aperture)));
+            float n = Mathf.Max(2.4f / (.82f * Width), 2.4f / (.75f * Height));
+            Scale = Vector3.one * n;
             Head = new GameObject("actual physical perspective head").AddComponent<Camera>(); Head.enabled = false;
             Head.targetTexture = _final; Head.fieldOfView = 60; Head.aspect = 4f / 3; Head.nearClipPlane = .01f; Head.farClipPlane = 20;
             Head.allowHDR = false; Head.allowMSAA = false; Head.cullingMask = 1 << 5; Head.backgroundColor = Color.black;

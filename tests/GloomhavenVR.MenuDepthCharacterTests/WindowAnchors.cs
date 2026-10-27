@@ -145,13 +145,13 @@ public static class MenuDepthCharacterWindowProof
             {
                 float w = Desktop ? Image.rectTransform.rect.width * Image.rectTransform.TransformVector(Vector3.right).magnitude : Width;
                 float h = Desktop ? Image.rectTransform.rect.height * Image.rectTransform.TransformVector(Vector3.up).magnitude : Height;
-                float n = Mathf.Max(Envelope.size.x / (w * .82f), Envelope.size.y / (h * .75f));
+                float n = Mathf.Max(2.4f / (w * .82f), 2.4f / (h * .75f));
                 // The original UI frustum and the actual Graphic rectangle are
                 // independent: Canvas pixel rounding/camera viewport can make
                 // the latter slightly different from the full native frustum.
                 float x = Desktop ? (2 * UiCamera.orthographicSize * UiCamera.aspect) / (Width * _uiViewport.width) : 1f;
                 float y = Desktop ? (2 * UiCamera.orthographicSize) / (Height * _uiViewport.height) : 1f;
-                return new Vector3(n * x, n * y, Mathf.Max(n, Envelope.size.z / (Mathf.Min(w, h) * .14f)) * Mathf.Sqrt(x * y));
+                return new Vector3(n * x, n * y, n * Mathf.Sqrt(x * y));
             }
         }
         private Vector3 Offset
@@ -168,12 +168,7 @@ public static class MenuDepthCharacterWindowProof
         {
             get
             {
-                float w = Desktop ? Image.rectTransform.rect.width * Image.rectTransform.TransformVector(Vector3.right).magnitude : Width;
-                float h = Desktop ? Image.rectTransform.rect.height * Image.rectTransform.TransformVector(Vector3.up).magnitude : Height;
-                float n = Mathf.Max(Envelope.size.x / (w * .82f), Envelope.size.y / (h * .75f));
-                float z = Mathf.Max(n, Envelope.size.z / (Mathf.Min(w, h) * .14f));
-                float outFront = Mathf.Min(Mathf.Min(w, h) * .035f, Envelope.size.z / z * .30f);
-                return new Vector3(Envelope.center.x, Envelope.center.y, Envelope.min.z + outFront * z);
+                return new Vector3(.4f, .75f, 2.56f);
             }
         }
         internal Vector3 SceneToPhysical(Vector3 scene) { Vector3 delta = scene - CropCenter, scale = Scale; return Offset + new Vector3(delta.x / scale.x, delta.y / scale.y, delta.z / scale.z); }

@@ -83,7 +83,15 @@ public static class MenuDepthCharacterProgram
             Texture2D right = scene.Capture(center + scene.Image.rectTransform.right * .032f, true, Path.Combine(output, "eye-right.png"));
             Check(Centroid(right, 1) - Centroid(left, 1) > .2f,
                 "each recorded eye renders the native model from its own physical window-relative viewpoint");
-            Check(Difference(left, right) > .15f, "native character eye targets are distinct rendered views rather than duplicated mono");
+            // Build726 preserves native body sizes instead of expanding this
+            // small fixture group to fill the pane. Total changed-pixel area is
+            // no longer a meaningful stereo threshold: measure the independent
+            //64mm pinhole disparity of its companion at native depth+.6 instead.
+            float units = Mathf.Max(2.4f / (1.2f * .82f), 2.4f / (.9f * .75f));
+            float depth = .6f / units;
+            float expectedDisparity = .064f * depth / (scene.NeutralDistance(scene.Image) + depth) * 256f / 1.2f;
+            Check(Mathf.Abs(Centroid(right, 1) - Centroid(left, 1) - expectedDisparity) < .35f,
+                "the native64mm eye baseline produces the independently specified physical companion disparity");
             Object.DestroyImmediate(left); Object.DestroyImmediate(right);
 
             Texture2D side = scene.Capture(center + scene.Image.rectTransform.right * .18f, false, Path.Combine(output, "head-side.png"));

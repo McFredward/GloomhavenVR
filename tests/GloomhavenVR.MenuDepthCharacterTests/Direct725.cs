@@ -143,7 +143,7 @@ public static class MenuDepthCharacterDirectProof
         window.Image.color = new Color(1,1,1,.65f);
         var mask = new GameObject(stencil ? "original stencil mask" : "original rectangular mask", typeof(RectTransform)); mask.layer = 5;
         mask.transform.SetParent(window.Root,false); var rect = (RectTransform)mask.transform;
-        rect.sizeDelta = new Vector2(window.Root.rect.width*.9f,window.Root.rect.height*.6f);
+        rect.sizeDelta = new Vector2(window.Root.rect.width*.9f,window.Root.rect.height*.3f);
         if (stencil) { mask.AddComponent<CanvasRenderer>(); mask.AddComponent<Image>(); mask.AddComponent<Mask>().showMaskGraphic = false; }
         else mask.AddComponent<RectMask2D>();
         window.Image.transform.SetParent(rect,false);
@@ -205,10 +205,9 @@ public static class MenuDepthCharacterDirectProof
         {
             float w=Image.rectTransform.rect.width*Image.rectTransform.TransformVector(Vector3.right).magnitude;
             float h=Image.rectTransform.rect.height*Image.rectTransform.TransformVector(Vector3.up).magnitude;
-            float n=Mathf.Max(1.29f/(w*.82f),1.8f/(h*.75f)),z=Mathf.Max(n,.6f/(Mathf.Min(w,h)*.14f));
-            float plane=2.3f+Mathf.Min(Mathf.Min(w,h)*.035f,.6f/z*.30f)*z;
-            Vector3 d=native-new Vector3(.595f,-.1f,plane);
-            return Root.position+Root.right*d.x/n+Root.up*d.y/n+Root.forward*d.z/z;
+            float n=Mathf.Max(2.4f/(w*.82f),2.4f/(h*.75f));
+            Vector3 d=native-new Vector3(.4f,.2f,2.56f);
+            return Root.position+Root.right*d.x/n+Root.up*d.y/n+Root.forward*d.z/n;
         }
     }
     private sealed class FaultSource : IMenuDepthDirectSource

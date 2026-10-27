@@ -218,12 +218,14 @@ public static class MenuDepthDesktopProgram
             go.layer = layer; go.transform.SetParent(parent, false); var image = go.GetComponent<Image>(); image.sprite = _sprite;
             image.color = color; image.rectTransform.sizeDelta = size; image.rectTransform.anchoredPosition = position; return image;
         }
-        internal void Eyes(Vector3 localOffset)
+        internal void Eyes(Vector3 localOffset, bool rear = false)
         {
             Vector3 centre = Screen.position - Screen.forward * 2f + Screen.right * localOffset.x + Screen.up * localOffset.y + Screen.forward * localOffset.z;
-            Vector3 left = centre - Screen.right * .032f, right = centre + Screen.right * .032f;
-            Head.SetStereoViewMatrix(Camera.StereoscopicEye.Left, Matrix4x4.Scale(new Vector3(1, 1, -1)) * Matrix4x4.TRS(left, Screen.rotation, Vector3.one).inverse);
-            Head.SetStereoViewMatrix(Camera.StereoscopicEye.Right, Matrix4x4.Scale(new Vector3(1, 1, -1)) * Matrix4x4.TRS(right, Screen.rotation, Vector3.one).inverse);
+            Quaternion rotation = Screen.rotation * Quaternion.Euler(0, rear ? 180 : 0, 0);
+            Vector3 axis = rotation * Vector3.right;
+            Vector3 left = centre - axis * .032f, right = centre + axis * .032f;
+            Head.SetStereoViewMatrix(Camera.StereoscopicEye.Left, Matrix4x4.Scale(new Vector3(1, 1, -1)) * Matrix4x4.TRS(left, rotation, Vector3.one).inverse);
+            Head.SetStereoViewMatrix(Camera.StereoscopicEye.Right, Matrix4x4.Scale(new Vector3(1, 1, -1)) * Matrix4x4.TRS(right, rotation, Vector3.one).inverse);
         }
         internal void NativePixels725(int factor)
         {

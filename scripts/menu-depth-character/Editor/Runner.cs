@@ -64,7 +64,7 @@ public static class MenuDepthCharacterRunner
             try
             {
                 string output = Path.Combine(manifest.evidence, active.name); Directory.CreateDirectory(output);
-                string type = active.method.StartsWith("Automatic", StringComparison.Ordinal) ? "MenuDepthCharacterDirectProof"
+                string type = (active.method == "CommonCabinet726" || active.method == "DesktopCabinet726" || active.method == "RearThrow726") ? "MenuDepthCharacterCabinet726" : active.method.StartsWith("Automatic", StringComparison.Ordinal) ? "MenuDepthCharacterDirectProof"
                     : active.method == "Presentation" || active.method == "NativeLdrEffect" ? "MenuDepthCharacterPresentation725"
                     : active.method == "GlassCabinet" || active.method == "TargetViewport" ? "MenuDepthCharacterWindowProof" : "MenuDepthCharacterProgram";
                 object result = Assembly.LoadFile(active.dll).GetType(type).GetMethod(active.method).Invoke(null, new object[] { output });

@@ -39,8 +39,11 @@ public static partial class MenuDepthDesktopProgram
             Material material = holder.GetComponentInChildren<MeshRenderer>(true).sharedMaterial; material.color = Color.cyan;
             var marker = GameObject.CreatePrimitive(PrimitiveType.Sphere); marker.layer = 8;
             marker.transform.SetParent(holder, false); marker.transform.localPosition = new Vector3(-.3f, .4f, .6f);
-            marker.transform.localScale = Vector3.one * .13f; marker.GetComponent<MeshRenderer>().sharedMaterial = material;
-            var manager = scene.ModelCamera.GetComponent<Character3DDisplayManager>(); manager.BindOriginal(marker.transform);
+            marker.transform.localScale = Vector3.one * .4f; marker.GetComponent<MeshRenderer>().sharedMaterial = material;
+            Transform actor = new GameObject("native main-actor ground placement").transform;
+            actor.SetParent(holder, false); actor.position = scene.ModelCamera.transform.TransformPoint(new Vector3(.1f, -1.25f, 2.56f));
+            marker.transform.SetParent(actor, true);
+            var manager = scene.ModelCamera.GetComponent<Character3DDisplayManager>(); manager.BindOriginal(actor);
             Check(manager.HasOriginal, "the calibrated cabinet uses the native original models CharacterManager identity path");
             // A camera child unrelated to Character3D.models must not inflate the
             // authored body envelope. The real source camera excludes its layer.
@@ -105,7 +108,9 @@ public static partial class MenuDepthDesktopProgram
             Vector3[] offsets = { offsetToPane + new Vector3(0, 0, -2), offsetToPane,
                 offsetToPane + new Vector3(.23f, 0, 0), offsetToPane + new Vector3(0, .15f, 0),
                 offsetToPane + new Vector3(0, 0, 1.6f), offsetToPane + new Vector3(.02f, -.01f, 1.6f),
-                offsetToPane + new Vector3(.12f, .08f, -.18f) };
+                offsetToPane + new Vector3(.12f, .08f, -.18f),
+                offsetToPane + new Vector3(0, 0, 4), offsetToPane + new Vector3(.20f, .13f, 3.5f),
+                offsetToPane + new Vector3(-.23f, -.08f, 3.5f) };
             var sampled = new DesktopSamples725(raw); MenuDepthSources.Register(sampled);
             bool observing = false; var sizes = new List<int>();
             Camera.CameraCallback observer = camera =>
@@ -120,12 +125,13 @@ public static partial class MenuDepthDesktopProgram
             for (int i = 0; i < offsets.Length; i++)
             {
                 before = Time.frameCount; while (Time.frameCount == before) yield return null;
-                scene.Eyes(offsets[i]);
+                bool rear = offsets[i].z > 2f;
+                scene.Eyes(offsets[i], rear);
                 for (int eye = 0; eye < 2; eye++)
                 {
                     Vector3 position = scene.Head.GetStereoViewMatrix(eye == 0 ? Camera.StereoscopicEye.Left : Camera.StereoscopicEye.Right)
                         .inverse.MultiplyPoint3x4(Vector3.zero);
-                    scene.Head.transform.SetPositionAndRotation(position, scene.Screen.rotation);
+                    scene.Head.transform.SetPositionAndRotation(position, scene.Screen.rotation * Quaternion.Euler(0, rear ? 180 : 0, 0));
                     MenuDepthAnchorsImageEffect724? effect = modelEffect ? scene.ModelCamera.GetComponent<MenuDepthAnchorsImageEffect724>()
                         : uiEffect ? scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>() : null;
                     int effectDraws = effect != null ? effect.Draws : 0;
@@ -183,17 +189,15 @@ public static partial class MenuDepthDesktopProgram
         Vector3 right = (bottomRight - bottomLeft).normalized, up = (topLeft - bottomLeft).normalized;
         Vector3 forward = Vector3.Cross(right, up).normalized;
         float width = Vector3.Distance(corners[3], corners[0]), height = Vector3.Distance(corners[1], corners[0]);
-        // Independent declared primitive envelope, not the production bounds cache
-        // or projection result. Native actor dimensions are .13 in all three axes.
-        var bounds = new Bounds(new Vector3(.1f, -.05f, 3.16f), Vector3.one * .13f);
-        float xy = Math.Max(bounds.size.x / (.82f * width), bounds.size.y / (.75f * height));
-        float z = Math.Max(xy, bounds.size.z / (.14f * Math.Min(width, height)));
-        float protrusion = Math.Min(.035f * Math.Min(width, height), .30f * bounds.size.z / z);
+        // The native main actor ground is an explicit input. The source now
+        // preserves one2.4-unit metric for every body; unrelated content and
+        // conservative animated renderer envelopes never establish its frame.
+        float xy = Math.Max(2.4f / (.82f * width), 2.4f / (.75f * height));
         Vector3 local = scene.ModelCamera.transform.InverseTransformPoint(nativePoint)
-            - new Vector3(bounds.center.x, bounds.center.y, bounds.min.z + protrusion * z);
+            - new Vector3(.1f, -.05f, 2.56f);
         float sx = Vector3.Distance(bottomRight, bottomLeft) / width, sy = Vector3.Distance(topLeft, bottomLeft) / height;
         return (topLeft + bottomRight) * .5f + right * (local.x / xy * sx) + up * (local.y / xy * sy)
-            + forward * (local.z / z * Mathf.Sqrt(sx * sy));
+            + forward * (local.z / xy * Mathf.Sqrt(sx * sy));
     }
 
     private static Vector3 WindowPoint(Scene scene, Vector3 nativeUiPoint)

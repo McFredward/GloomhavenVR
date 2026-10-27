@@ -9,6 +9,7 @@
     <Compile Include="$(FixtureDir)/*.cs"/><Compile Include="$(ProductionDir)/*.cs"/>
     <Reference Include="$(UnityManaged)/UnityEngine/*.dll"><Private>false</Private></Reference>
     <Reference Include="$(GameManaged)/UnityEngine.UI.dll"><Private>false</Private></Reference>
+    <EmbeddedResource Include="$(DepthBundle)" LogicalName="GloomhavenVR.MenuDepth.Rendering.bundle"/>
     <PackageReference Include="HarmonyX" Version="2.7.0" PrivateAssets="all"/>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all"/>
   </ItemGroup>
