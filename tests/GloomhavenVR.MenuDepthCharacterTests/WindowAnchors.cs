@@ -255,9 +255,8 @@ public static class MenuDepthCharacterWindowProof
             Effect = Source.gameObject.AddComponent<CharacterNativeImageEffect>();
             Effect.BeforeBlit = () =>
             {
-                if (_captureLabel.StartsWith("native-screen", StringComparison.Ordinal))
-                    Log("actual-native-eye," + _captureLabel + "," + Source.worldToCameraMatrix.inverse.MultiplyPoint3x4(Vector3.zero)
-                        + ",projection," + Source.projectionMatrix + ",target," + Source.targetTexture.width + ",nativeViewport," + Source.pixelRect);
+                Log("actual-native-eye," + _captureLabel + "," + Source.worldToCameraMatrix.inverse.MultiplyPoint3x4(Vector3.zero)
+                        + ",projection," + Source.projectionMatrix + ",target," + Source.targetTexture.width + "x" + Source.targetTexture.height + ",nativeViewport," + Source.pixelRect);
                 InvariantDuringRender &= Source.transform.position == Vector3.zero && Source.transform.rotation == Quaternion.identity
                     && Holder.position == _holderPosition && Light.position == lightPosition;
                 InvariantDuringRender &= Vector3.Distance(_animatedBody.position, _sampledBody) < .00001f;
@@ -312,18 +311,21 @@ public static class MenuDepthCharacterWindowProof
                 Log("original-native-input," + _captureLabel + ",eye," + nativeEye + ",expected-eye," + consumer.NativeEye(localEye)
                     + ",rect," + consumer.Image.rectTransform.rect + ",matrix," + consumer.Image.rectTransform.localToWorldMatrix
                     + ",ui-projection," + consumer.UiCamera.projectionMatrix + ",pixelRect," + consumer.UiCamera.pixelRect);
-            // This fixture supplies mapped XR eyes and uses a UI capture camera,
-            // not a physical head camera. Supply its explicit effective sample
-            // boundary instead of projecting native units as physical head pixels.
-            MenuDepthSources.BeforeCapture(consumer.Root, new MenuDepthEye(right, nativeEye, consumer.UiCamera, false, new Vector2(2048, 2048)));
+            if (!consumer.Desktop)
+            {
+                Check(MenuDepthProjection.TryBuild(consumer.Root, worldEye, out Matrix4x4 view, out Matrix4x4 projection), "actual private window camera admits the independent eye");
+                consumer.UiCamera.worldToCameraMatrix = view; consumer.UiCamera.projectionMatrix = projection;
+                consumer.UiCamera.cullingMatrix = projection * view;
+            }
+            // This witness renders an actual UI-camera raster, not a tracked
+            // physical head. Its current explicit capture VP is the visibility
+            // boundary in this same graphic/native world. A stale/default camera
+            // transform or the previous eye's portal is not that boundary.
+            Matrix4x4 rasterClip = consumer.UiCamera.projectionMatrix * consumer.UiCamera.worldToCameraMatrix;
+            MenuDepthSources.BeforeCapture(consumer.Root, new MenuDepthEye(right, nativeEye, consumer.UiCamera, false,
+                new Vector2(2048, 2048), rasterClip));
             try
             {
-                if (!consumer.Desktop)
-                {
-                    Check(MenuDepthProjection.TryBuild(consumer.Root, worldEye, out Matrix4x4 view, out Matrix4x4 projection), "actual private window camera admits the independent eye");
-                    consumer.UiCamera.worldToCameraMatrix = view; consumer.UiCamera.projectionMatrix = projection;
-                    consumer.UiCamera.cullingMatrix = projection * view;
-                }
                 // Each original camera clears only its own viewport. This
                 // shared fixture output must not retain a previous window's
                 // tall marker tails outside the next camera's partial rect.
