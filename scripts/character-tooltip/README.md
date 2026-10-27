@@ -9,6 +9,11 @@ The native skin, campaign description/conceal and creator perks references are
 read from real GH.Runtime components. `audit-native.py` independently pins the
 original scene/controller/field authoring, including pointer/gamepad variants,
 the original600px personal-quest explanation and every native creation tooltip.
+The original local quest root has no Graphic: its exact serialized
+UIPersonalQuest.questDescription listener supplies the existing TMP child used
+for routing, validated as a descendant of that tooltip. The fixtures preserve
+that hierarchy rather than inventing a root Image. The persistent level1
+UITooltip root has its own original Image, as the native Awake method expects.
 Identity never comes from scene-object names or translated tooltip text.
 
 The live native controllers are dormant except the actual
@@ -41,7 +46,7 @@ the separately owned head-capture raster or headset appearance.
 The new head-space menu capture is independently owned by the rendering lane. Its
 integration must retain the original local annotation outside HostRect without
 expanding the physical window or forcing a larger planar UI photograph.
-Exact active annotation plates register as no-op IMenuDepthSource members, so
+Exact active original annotation graphics register as no-op IMenuDepthSource members, so
 their head capture also remains available when character depth is disabled or
 the character source is not ready. The original graphic, material and parent
 remain original; hide/restore withdraws membership. The bounded fixtures verify

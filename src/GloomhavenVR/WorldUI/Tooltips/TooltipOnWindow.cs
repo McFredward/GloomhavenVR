@@ -825,7 +825,7 @@ internal static class TooltipOnWindow
         float wantY = Mathf.Clamp(offY, -limY, limY);
         if (characterHint)
         {
-            CharacterTooltipPlacement.TrackConvertedAnnotation(rect);
+            CharacterTooltipPlacement.TrackConvertedAnnotation(rect, characterAnchor);
             Vector3 beside = CharacterTooltipPlacement.RightCenter(host, hostRot, characterAnchor,
                 boxHalfW, boxHalfH, 0f) - winCenter;
             wantX = Vector3.Dot(beside, right);

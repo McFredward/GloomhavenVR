@@ -25,6 +25,7 @@ internal static class CharacterTooltipPlacement
     private static readonly FieldInfo? CreatorPerks = Field(typeof(UICharacterCreatorClassRoster), "perksTooltip");
     private static readonly FieldInfo? CreatorInformation = Field(typeof(UICharacterCreatorClassRoster), "information");
     private static readonly FieldInfo? LocalTarget = Field(typeof(UILocalTooltip), "target");
+    private static readonly FieldInfo? QuestDescription = Field(typeof(UIPersonalQuest), "questDescription");
     private static readonly Vector3[] HostCorners = new Vector3[4], TargetCorners = new Vector3[4], HintCorners = new Vector3[4];
     private const float GapPixels = 12f;
     private sealed class NativeLocal
@@ -50,10 +51,18 @@ internal static class CharacterTooltipPlacement
         public void AfterCapture() { }
     }
 
-    private static void TrackAnnotation(RectTransform rect, object owner)
+    private static void TrackAnnotation(RectTransform rect, object owner, RectTransform? anchor)
     {
         if (Annotations.TryGetValue(rect, out Annotation? current)) { current.Owner = owner; return; }
         Graphic? plate = rect.GetComponent<Graphic>();
+        // The original local quest root has layout/window components but no
+        // Graphic. Its exact UIPersonalQuest.questDescription reference names
+        // the original visible TMP child; never search arbitrary descendants or
+        // add an invisible root Image just to make routing appear to work.
+        if (plate == null && anchor != null && anchor.GetComponent<UIPersonalQuest>() is UIPersonalQuest quest
+            && QuestDescription?.GetValue(quest) is Component description
+            && description.transform.IsChildOf(rect))
+            plate = description.GetComponent<Graphic>();
         if (plate == null) return;
         var source = new Annotation(plate) { Owner = owner };
         Annotations.Add(rect, source); MenuDepthSources.Register(source);
@@ -65,7 +74,8 @@ internal static class CharacterTooltipPlacement
         MenuDepthSources.Unregister(source); Annotations.Remove(rect);
     }
 
-    internal static void TrackConvertedAnnotation(RectTransform rect) => TrackAnnotation(rect, ConvertedAnnotationOwner);
+    internal static void TrackConvertedAnnotation(RectTransform rect, RectTransform? anchor)
+        => TrackAnnotation(rect, ConvertedAnnotationOwner, anchor);
     internal static void ReleaseConvertedAnnotation(RectTransform rect) => ReleaseAnnotation(rect, ConvertedAnnotationOwner);
 
     private static FieldInfo? Field(System.Type type, string name)
@@ -272,7 +282,7 @@ internal static class CharacterTooltipPlacement
             if (!_positionHeld || !SameXY(position, _appliedPosition)) _nativePosition = position;
             Place(hint, frame, fullFrame, anchor, true);
             _appliedPosition = hint.localPosition; _positionHeld = true;
-            TrackAnnotation(hint, this);
+            TrackAnnotation(hint, this, anchor);
         }
 
         private static bool SameXY(Vector3 left, Vector3 right) =>

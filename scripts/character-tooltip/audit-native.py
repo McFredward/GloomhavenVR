@@ -28,7 +28,7 @@ def main():
    name=bases[name]['base']
   return False
  result={'native_tooltip_base_contract':{n:v for n,v in bases.items()if tooltip_kind(n)},'unity':'2021.3.5f1','native_runtime_sha256':sha(data/'Managed/GH.Runtime.dll'),'sources':{},'owners':[],'tooltips':[],'shared_tooltip_roots':[]}
- for source in [data/'StreamingAssets/aa/StandaloneWindows64/misc_gui_assets_all.bundle',*[data/('level'+str(i))for i in [2,3,4,5,9,10]]]:
+ for source in [data/'StreamingAssets/aa/StandaloneWindows64/misc_gui_assets_all.bundle',*[data/('level'+str(i))for i in [1,2,3,4,5,9,10]]]:
   result['sources'][str(source.relative_to(data))]=sha(source);environment=UnityPy.load(str(source));environment.typetree_generator=generator;trees={};classes={}
   def tree(r):
    key=(r.assets_file.name,r.path_id)
@@ -88,6 +88,15 @@ def main():
  assert len(creator)==2 and all(r['tooltip']['class']=='UITextTooltipTarget'and r['serialized']['tooltipText']=='GUI_STARTING_PERK_POINTS_TOOLTIP'for r in creator)
  quests=[r for r in result['tooltips']if r['tooltip']['class']=='UILocalTooltip']
  assert len(quests)==2 and all({'UIPersonalQuestState','UIPersonalQuest'}<=set(r['references']['target']['components'])for r in quests)
+ for local in quests:
+  assert not {'Image','RawImage','Text','TextMeshProUGUI'}.intersection(local['tooltip']['components'])
+  target=local['references']['target']
+  quest=next(r for r in result['owners']if r['source']==local['source']and r['owner']['class']=='UIPersonalQuest'and r['owner']['game_object_path_id']==target['game_object_path_id'])
+  description=quest['fields']['questDescription']
+  assert description['class']=='TextLocalizedListener'and 'TextMeshProUGUI'in description['components']
+  assert any(r['game_object_path_id']==description['game_object_path_id']for r in local['subtree'])
+  local['annotation_routing_reference']={'field':'UIPersonalQuest.questDescription','description':description}
+ assert result['shared_tooltip_roots'] and all('Image'in r['tooltip']['components']for r in result['shared_tooltip_roots'])
  result['verified_roles']={'native_skin_hints':len(skin),'all_native_creation_emitters':len(creator),'native_personal_quest_explanations':len(quests)}
  a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(result,indent=2)+'\n');print(json.dumps({'output':str(a.output),'owners':len(result['owners']),'tooltips':len(result['tooltips'])}))
 if __name__=='__main__':main()

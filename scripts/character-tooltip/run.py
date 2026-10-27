@@ -53,6 +53,7 @@ def main():
   ('lost-late-layout','TooltipOnWindow.cs','if (rec.CharacterHintOnRight && rec.Owner.HostRect != null)','if (rec.CharacterHintOnRight && rec.Owner.HostRect != null && Time.frameCount < 0)','late quest layout retains the fixed right edge'),
   ('lost-creator-identity','CharacterTooltipPlacement.cs','UICharacterCreatorClassRoster? roster = creator != null','UICharacterCreatorClassRoster? roster = creator != null && Time.frameCount < 0','native creation perks hint uses right lane'),
   ('lost-exact-scope','CharacterTooltipPlacement.cs','if (anchor == null) return false;','if (anchor == null) return false;\n        if (anchor.GetComponent<UITooltipTarget>() != null) return true;','unrelated same-name tooltip retains ordinary inside-window placement'),
+  ('lost-local-child-route','CharacterTooltipPlacement.cs','plate = description.GetComponent<Graphic>();','plate = rect.GetComponent<Graphic>();','converted quest annotation retains head capture without a ready character source'),
   ('lost-warm-cache','WorldTooltips.cs','if (!ReferenceEquals(_hoveredRect, hovered) || !ReferenceEquals(_hostWindow, owner)','if (Time.frameCount >= 0 || !ReferenceEquals(_hoveredRect, hovered) || !ReferenceEquals(_hostWindow, owner)','warm owner ticks never repeat character hierarchy classification')]
  if a.native_flat:
   variants=[('native-flat-production','','','',''),
@@ -62,6 +63,7 @@ def main():
    ('lost-native-exact-scope','CharacterTooltipPlacement.cs','if (anchor == null) return false;','if (anchor == null) return false;\n        if (anchor.GetComponent<UITooltipTarget>() != null) return true;','native ordinary hint keeps the original position'),
    ('lost-native-late','CharacterTooltipPlacement.cs','else record.Placement.TickLocal(record.Widget);','else if (Time.frameCount < 0) record.Placement.TickLocal(record.Widget);','late native quest layout retains the full fixed screen frame'),
    ('lost-native-membership','CharacterTooltipPlacement.cs','Annotations.Add(rect, source); MenuDepthSources.Register(source);','Annotations.Add(rect, source); if (Time.frameCount < 0) MenuDepthSources.Register(source);','native annotation retains head capture without a ready character source'),
+   ('lost-native-local-child','CharacterTooltipPlacement.cs','plate = description.GetComponent<Graphic>();','plate = rect.GetComponent<Graphic>();','native local quest routes its serialized original description child'),
    ('lost-native-warm','CharacterTooltipPlacement.cs','RectTransform? anchor = tooltip.m_AnchorToTarget;','RectTransform? anchor = tooltip.m_AnchorToTarget;\n            _anchor = null;','warm native ticks never repeat character hierarchy classification')]
  if a.case:
   wanted=set(a.case);assert wanted<={v[0]for v in variants};variants=[v for v in variants if v[0]in wanted]

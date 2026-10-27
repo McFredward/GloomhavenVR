@@ -158,15 +158,21 @@ public static class CharacterTooltipRunner
         var description = Rect("random name B", nativeRoot, new Vector2(460, 60), new Vector2(-330, 350));
         var descriptionTarget = Native<UITextTooltipTarget>(description.gameObject); Set(information, "descriptionTooltip", descriptionTarget);
         var quest = Rect("native quest print", infoRoot, new Vector2(522, 170), new Vector2(17, -90));
-        Native<UIPersonalQuestState>(quest.gameObject); Native<UIPersonalQuest>(quest.gameObject);
+        Native<UIPersonalQuestState>(quest.gameObject); UIPersonalQuest questPrint = Native<UIPersonalQuest>(quest.gameObject);
         var conceal = Rect("native conceal icon", quest, new Vector2(32, 32), new Vector2(240, 60));
         var concealTarget = Native<UITextTooltipTarget>(conceal.gameObject); Set(information, "personalQuestTooltip", concealTarget);
         var local = Rect("original quest explanation", quest, new Vector2(600, 130.31f), new Vector2(-15, -92));
         local.pivot = new Vector2(1, .5f); local.anchorMin = local.anchorMax = new Vector2(0, 1);
-        Image localInk = local.gameObject.AddComponent<Image>(); localInk.color = Color.yellow;
+        var background = Rect("original quest background child", local, local.sizeDelta, Vector2.zero);
+        Image localInk = background.gameObject.AddComponent<Image>(); localInk.color = Color.yellow;
         var questTextRect = Rect("original quest text input", local, new Vector2(580, 120), Vector2.zero);
-        Text questText = questTextRect.gameObject.AddComponent<Text>(); questText.text = "ORIGINAL QUEST EXPLANATION";
-        questText.font = Resources.GetBuiltinResource<Font>("Arial.ttf"); questText.fontSize = 30; questText.color = Color.white; questText.alignment = TextAnchor.MiddleCenter;
+        TextLocalizedListener questDescription = Native<TextLocalizedListener>(questTextRect.gameObject);
+        TMPro.TextMeshProUGUI questText = questTextRect.GetComponent<TMPro.TextMeshProUGUI>();
+        questText.text = "ORIGINAL QUEST EXPLANATION";
+        questText.font = TMPro.TMP_FontAsset.CreateFontAsset(Resources.GetBuiltinResource<Font>("Arial.ttf"));
+        questText.fontSize = 30; questText.color = Color.white; questText.alignment = TMPro.TextAlignmentOptions.Center;
+        Set(questPrint, "questDescription", questDescription);
+        Check(local.GetComponent<Graphic>() == null, "native local quest root has no invented Graphic");
         UILocalTooltip questTooltip = Native<UILocalTooltip>(local.gameObject); Set(questTooltip, "target", quest); Set(questTooltip, "targetOffset", new Vector2(-15, -90));
         var creatorRoot = Rect("original creation window", nativeRoot, new Vector2(700, 900), Vector2.zero);
         Native<UICharacterCreatorWindow>(creatorRoot.gameObject);
@@ -210,6 +216,9 @@ public static class CharacterTooltipRunner
             Right(host, local, "the original personal quest explanation clears the fixed right edge");
             Check((bool)Call(mod.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthSources"), "HasContent", host),
                 "converted quest annotation retains head capture without a ready character source");
+            var questReady = new List<Graphic>();
+            Call(mod.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthSources"), "CollectReadyGraphics", questReady);
+            Check(questReady.Contains(questText), "converted quest routes its serialized original description child");
             Check(local.parent == nativeRoot, "the original local quest tooltip retains the existing raise/restore lifecycle");
             Check(host.sizeDelta == fixedSize && local.pivot == originalPivot, "quest placement preserves fixed window size and native tooltip pivot");
             local.sizeDelta = new Vector2(720, 350); Canvas.ForceUpdateCanvases(); Call(localType, "TickRaises");
@@ -296,11 +305,19 @@ public static class CharacterTooltipRunner
         var titleRect = Rect("original description target", partyRect, new Vector2(450, 60), new Vector2(-200, 350));
         UITextTooltipTarget title = Native<UITextTooltipTarget>(titleRect.gameObject); Set(info, "descriptionTooltip", title);
         var questRect = Rect("original quest-state print", infoRoot, new Vector2(522, 170), new Vector2(17, -90));
-        Native<UIPersonalQuestState>(questRect.gameObject); Native<UIPersonalQuest>(questRect.gameObject);
+        Native<UIPersonalQuestState>(questRect.gameObject); UIPersonalQuest questPrint = Native<UIPersonalQuest>(questRect.gameObject);
         var concealRect = Rect("original conceal target", questRect, new Vector2(32, 32), new Vector2(240, 60));
         UITextTooltipTarget conceal = Native<UITextTooltipTarget>(concealRect.gameObject); Set(info, "personalQuestTooltip", conceal);
         var localRect = Rect("original local quest explanation", questRect, new Vector2(600, 130.31f), new Vector2(-15, -92));
-        localRect.pivot = new Vector2(1, .5f); localRect.gameObject.AddComponent<Image>().color = Color.yellow;
+        localRect.pivot = new Vector2(1, .5f);
+        var localBackground = Rect("native quest background child", localRect, localRect.sizeDelta, Vector2.zero);
+        localBackground.gameObject.AddComponent<Image>().color = Color.yellow;
+        var localTextRect = Rect("native serialized quest description", localBackground, new Vector2(560, 90.31f), Vector2.zero);
+        TextLocalizedListener localDescription = Native<TextLocalizedListener>(localTextRect.gameObject);
+        TMPro.TextMeshProUGUI localText = localTextRect.GetComponent<TMPro.TextMeshProUGUI>();
+        localText.text = "ORIGINAL NATIVE QUEST EXPLANATION";
+        Set(questPrint, "questDescription", localDescription);
+        Check(localRect.GetComponent<Graphic>() == null, "native local quest root has no invented Graphic");
         UILocalTooltip quest = Native<UILocalTooltip>(localRect.gameObject); Set(quest, "target", questRect); Set(quest, "targetOffset", new Vector2(-15, -90));
         var creatorRect = Rect("native creator window", frame, new Vector2(1300, 980), Vector2.zero);
         Native<UICharacterCreatorWindow>(creatorRect.gameObject);
@@ -384,7 +401,7 @@ public static class CharacterTooltipRunner
                 NativeRight(camera, frame, localRect, "native local quest clears the full fixed screen frame");
                 var localReady = new List<Graphic>();
                 Call(mod.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthSources"), "CollectReadyGraphics", localReady);
-                Check(localReady.Contains(localRect.GetComponent<Image>()), "native local quest retains head capture without a ready character source");
+                Check(localReady.Contains(localText), "native local quest routes its serialized original description child");
                 Check(localRect.parent == originalLocalParent && localRect.pivot == new Vector2(1, .5f),
                     "native local quest retains its original parent and pivot");
                 localRect.sizeDelta = new Vector2(720, 350); Canvas.ForceUpdateCanvases(); Call(policy, "TickNativeLocals", true);
@@ -392,6 +409,8 @@ public static class CharacterTooltipRunner
                 Check(frame.rect.size == fixedFrame, "late native quest layout cannot resize the screen frame");
                 quest.Hide(); Call(policy, "TickNativeLocals", true);
                 Check(!quest.IsShown && localRect.parent == originalLocalParent, "native local quest hide retains original lifetime and hierarchy");
+                localReady.Clear(); Call(mod.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthSources"), "CollectReadyGraphics", localReady);
+                Check(!localReady.Contains(localText), "hidden original quest description withdraws annotation membership");
             }
             // Teardown hands the exact native body placement back, while a new
             // original writer or reparent would win without being overwritten.
