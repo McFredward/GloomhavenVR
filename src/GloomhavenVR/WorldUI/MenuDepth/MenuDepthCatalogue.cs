@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using GloomhavenVR.Core;
+using GloomhavenVR.Cards;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI.MenuDepth;
@@ -138,10 +139,56 @@ internal static class MenuDepthCatalogue
     internal static Artwork? GuidArt(string guid, Sprite sprite) => EnsureLoaded()
         && Guids.TryGetValue(guid, out Artwork? art) && Matches(art, sprite) ? art : null;
 
-    private static bool Matches(Artwork art, Sprite sprite) => sprite != null
-        && Mathf.Abs(sprite.rect.width - art.logical_dimensions[0]) < .001f
-        && Mathf.Abs(sprite.rect.height - art.logical_dimensions[1]) < .001f
-        && (string.IsNullOrEmpty(sprite.name) || string.Equals(sprite.name, art.sprite_name, StringComparison.OrdinalIgnoreCase));
+    internal static Sprite? Original(Sprite? sprite) => sprite == null ? null : CardFaceMipBake.OriginalFor(sprite);
+
+    private static bool Matches(Artwork art, Sprite sprite)
+    {
+        if (sprite == null) return false;
+        Sprite? original = Original(sprite);
+        // Mip sprites are presentation copies, not new artwork. Trust only the
+        // existing instance-provenance map; a similar name/suffix proves nothing.
+        return original != null && Mathf.Abs(original.rect.width - art.logical_dimensions[0]) < .001f
+            && Mathf.Abs(original.rect.height - art.logical_dimensions[1]) < .001f
+            && (string.IsNullOrEmpty(original.name) || string.Equals(original.name, art.sprite_name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static bool TryDepthUv(Artwork art, Sprite presentation, out Vector4 uv)
+    {
+        uv = new Vector4(1f, 1f, 0f, 0f);
+        Sprite? original = Original(presentation);
+        if (original == null || !Matches(art, presentation) || original.texture == null || presentation.texture == null) return false;
+        if (original == presentation) return true;
+        Texture2D source = original.texture, displayed = presentation.texture;
+        if (source.width != art.texture_dimensions[0] || source.height != art.texture_dimensions[1]) return false;
+        // Region bakes reconstruct the logical sprite on a full, zero-origin
+        // texture. Check this first: equal source/display dimensions alone do
+        // not prove that a trimmed picture kept the whole atlas coordinate map.
+        Rect rect = presentation.rect;
+        int width = Mathf.RoundToInt(original.rect.width), height = Mathf.RoundToInt(original.rect.height);
+        try
+        {
+            Rect region = original.textureRect;
+            Vector2 offset = original.textureRectOffset;
+            if (rect.position != Vector2.zero || displayed.width != width || displayed.height != height
+                || Mathf.Abs(rect.width - width) >= .001f || Mathf.Abs(rect.height - height) >= .001f)
+            {
+                // Actual shared-atlas copies use textureRect, which can differ
+                // from rect on an atlas even without trim or packing rotation.
+                return displayed.width == source.width && displayed.height == source.height
+                    && rect == region && offset == Vector2.zero
+                    && Mathf.Abs(region.width - original.rect.width) < .5f
+                    && Mathf.Abs(region.height - original.rect.height) < .5f;
+            }
+            // These are the same integer pixel locations used by the actual
+            // CardFaceMipBake region copy, including native fractional trim data.
+            uv = new Vector4(width / (float)source.width, height / (float)source.height,
+                (Mathf.RoundToInt(region.x) - Mathf.RoundToInt(offset.x)) / (float)source.width,
+                (Mathf.RoundToInt(region.y) - Mathf.RoundToInt(offset.y)) / (float)source.height);
+            return true;
+        }
+        catch (InvalidOperationException) { return false; }
+        catch (UnityException) { return false; }
+    }
 
     internal static MenuDepthHeightfield? Load(Artwork art)
     {

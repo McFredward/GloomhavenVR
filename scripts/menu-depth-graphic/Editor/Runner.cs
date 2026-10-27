@@ -9,16 +9,18 @@ using UnityEngine;
 public static class MenuDepthGraphicRunner
 {
     [Serializable] private sealed class Case { public string name, dll, expected, method; }
-    [Serializable] private sealed class Manifest { public string result, evidence, gameManaged, harmonyRuntime; public Case[] cases; }
+    [Serializable] private sealed class Manifest { public string result, evidence, gameManaged, harmonyRuntime, nativeTrimBundle; public Case[] cases; }
     private static Manifest manifest;
     private static bool ran;
     public static void Start()
     {
+        Debug.Log("MENU DEPTH GRAPHIC FIXTURE START: executeMethod entered");
         string[] args = Environment.GetCommandLineArgs();
         manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(args[Array.IndexOf(args, "-menuDepthGraphicManifest") + 1]));
         AppDomain.CurrentDomain.AssemblyResolve += Resolve;
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         EditorApplication.update += Run;
+        File.WriteAllText(Path.Combine(manifest.evidence, "execute-method-start.txt"), "executeMethod entered; update registered.\n");
     }
     private static Assembly Resolve(object sender, ResolveEventArgs args)
     {
@@ -54,9 +56,24 @@ public static class MenuDepthGraphicRunner
         using (var writer = new StreamWriter(manifest.result))
         {
             writer.WriteLine("Unity " + Application.unityVersion + "; " + SystemInfo.graphicsDeviceName + "; " + SystemInfo.graphicsDeviceType);
+            writer.Flush(); Debug.Log("MENU DEPTH GRAPHIC FIXTURE: creating native sprite witnesses");
             Sprite sprite;
             try { sprite = MakeNativeCrop(); }
             catch (Exception error) { writer.WriteLine("FAIL fixture: " + error); EditorApplication.Exit(1); return; }
+            AssetBundle nativeBundle = null;
+            Sprite nativeTrim = null;
+            foreach (Case item in manifest.cases)
+                if (item.method == "NativeMip" && nativeBundle == null)
+                {
+                    Debug.Log("MENU DEPTH GRAPHIC FIXTURE: loading publisher trim bundle " + manifest.nativeTrimBundle);
+                    nativeBundle = AssetBundle.LoadFromFile(manifest.nativeTrimBundle);
+                    if (nativeBundle == null) throw new Exception("Actual native trim bundle failed to load.");
+                    Debug.Log("MENU DEPTH GRAPHIC FIXTURE: loading publisher trim sprites");
+                    foreach (Sprite candidate in nativeBundle.LoadAllAssets<Sprite>())
+                        if (candidate.name == "CR_DF_03_Demon") nativeTrim = candidate;
+                    if (nativeTrim == null) throw new Exception("Actual native CR_DF_03_Demon sprite is absent.");
+                    Debug.Log("MENU DEPTH GRAPHIC FIXTURE: publisher trim sprite ready");
+                }
             foreach (Case item in manifest.cases)
             {
                 Assembly assembly = null;
@@ -64,8 +81,9 @@ public static class MenuDepthGraphicRunner
                 {
                     string output = Path.Combine(manifest.evidence, item.name); Directory.CreateDirectory(output);
                     assembly = Assembly.LoadFile(item.dll);
+                    Debug.Log("MENU DEPTH GRAPHIC FIXTURE: executing " + item.name);
                     int count = (int)assembly.GetType("MenuDepthGraphicProgram").GetMethod(item.method)
-                        .Invoke(null, new object[] { output, sprite });
+                        .Invoke(null, new object[] { output, item.method == "NativeMip" ? nativeTrim : sprite });
                     if (!string.IsNullOrEmpty(item.expected)) throw new Exception("Negative control escaped: " + item.name);
                     writer.WriteLine("PASS " + item.name + ": " + count + " assertions");
                 }
@@ -94,6 +112,7 @@ public static class MenuDepthGraphicRunner
                 }
                 writer.Flush();
             }
+            if (nativeBundle != null) nativeBundle.Unload(true);
         }
         EditorApplication.Exit(pass ? 0 : 1);
     }

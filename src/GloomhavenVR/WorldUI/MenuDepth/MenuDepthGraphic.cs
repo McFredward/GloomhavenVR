@@ -21,6 +21,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
     private Sprite? _sprite;
     private MenuDepthHeightfield? _field;
     private float _depthRatio;
+    private Vector4 _depthUv = new(1f, 1f, 0f, 0f);
     private bool _configured;
     private bool _projected;
     private Vector3 _eye;
@@ -40,11 +41,14 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
         && _image.overrideSprite == _sprite && (_field == null || MenuDepthDisplay.DepthShader != null);
 
     internal void Configure(Image image, MenuDepthHeightfield? field, float depthRatio)
+        => ConfigureMapped(image, field, depthRatio, new Vector4(1f, 1f, 0f, 0f));
+
+    internal void ConfigureMapped(Image image, MenuDepthHeightfield? field, float depthRatio, Vector4 depthUv)
     {
         Sprite current = image.overrideSprite;
         if (_configured && _image == image && _sprite == current && ReferenceEquals(_field, field)
-            && _depthRatio == depthRatio) return;
-        _image = image; _sprite = current; _field = field; _depthRatio = depthRatio;
+            && _depthRatio == depthRatio && _depthUv == depthUv) return;
+        _image = image; _sprite = current; _field = field; _depthRatio = depthRatio; _depthUv = depthUv;
         _configured = field == null || current != null; // Native decorative Images may use the white quad without a sprite.
         _input.Clear(); _grid.Clear(); _triangles.Clear();
         MenuDepthSources.Register(this);
@@ -202,7 +206,8 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
                 UIVertex vertex = Lerp(Lerp(bottomLeft, bottomRight, u), Lerp(topLeft, topRight, u), v);
                 float edge = Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v));
                 float t = Mathf.Clamp01(edge / .06f); float feather = t * t * (3f - 2f * t);
-                vertex.position.z += depth * (1f - _field.Sample(vertex.uv0.x, vertex.uv0.y)) * feather;
+                vertex.position.z += depth * (1f - _field.Sample(vertex.uv0.x * _depthUv.x + _depthUv.z,
+                    vertex.uv0.y * _depthUv.y + _depthUv.w)) * feather;
                 _grid.Add(vertex);
             }
             for (int y = 0; y < rows; y++) for (int x = 0; x < columns; x++)

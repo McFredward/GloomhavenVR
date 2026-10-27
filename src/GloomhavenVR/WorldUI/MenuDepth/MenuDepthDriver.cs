@@ -26,9 +26,13 @@ internal static class MenuDepthDriver
         internal readonly Spec Spec;
         internal readonly FieldInfo? Field;
         internal readonly Image? DirectImage;
-        internal Sprite? PreviousSprite;
+        internal Sprite? PreviousOriginal;
         internal string PreviousKey = string.Empty;
         internal MenuDepthCatalogue.Artwork? Artwork;
+        internal Sprite? PendingOriginal, NotedPresentation;
+        internal string PendingKey = string.Empty, NotedKey = string.Empty, NotedState = string.Empty;
+        internal float PendingSince;
+        internal bool PendingReported;
         internal Binding(MonoBehaviour owner, Spec spec, FieldInfo field) { Owner = owner; Spec = spec; Field = field; }
         internal Binding(UIWindow window, Image frame) { Owner = window; Spec = FrameSpec; DirectImage = frame; }
     }
@@ -79,6 +83,7 @@ internal static class MenuDepthDriver
     private static float _nextCensus;
     private static int _epoch;
     private static bool _running;
+    private static int _bindingNotes, _missingNotes;
 
     internal static void Tick()
     {
@@ -177,13 +182,16 @@ internal static class MenuDepthDriver
         if (image == null || !image.isActiveAndEnabled || !image.gameObject.activeInHierarchy
             || (image.overrideSprite == null && binding.Spec.Role != Role.Layer)) return;
         MenuDepthHeightfield? field = null;
+        Vector4 depthUv = new(1f, 1f, 0f, 0f);
         if (binding.Spec.Role != Role.Layer)
         {
             Sprite? sprite = image.overrideSprite;
             if (sprite == null) return;
+            Sprite? original = MenuDepthCatalogue.Original(sprite);
+            if (original == null) return;
             string key = Key(binding, image, out string defaultField);
             MenuDepthCatalogue.Artwork? art;
-            if (binding.PreviousSprite == sprite && binding.PreviousKey == key && binding.Artwork != null) art = binding.Artwork;
+            if (binding.PreviousOriginal == original && binding.PreviousKey == key && binding.Artwork != null) art = binding.Artwork;
             else
             {
                 art = binding.Spec.Role == Role.Compendium ? MenuDepthCatalogue.GuidArt(key, sprite)
@@ -191,19 +199,30 @@ internal static class MenuDepthDriver
                     : MenuDepthCatalogue.NarrativeArt(key, sprite);
                 // An async new story key can precede the replacement sprite. Retain
                 // native artwork until that exact original colour source arrives.
-                if (binding.PreviousSprite == sprite && binding.Artwork != null
+                if (binding.PreviousOriginal == original && binding.Artwork != null
                     && binding.PreviousKey != key && (art == null || binding.Artwork.source_id != art.source_id))
                     art = binding.Artwork; // The original old sprite is still visible during its async replacement.
                 else
-                { binding.PreviousSprite = sprite; binding.PreviousKey = key; binding.Artwork = art; }
+                { binding.PreviousOriginal = original; binding.PreviousKey = key; binding.Artwork = art; }
             }
-            if (art == null) return;
+            if (art == null)
+            {
+                Missing(binding, sprite, original, key, "source identity unavailable");
+                return;
+            }
             if (binding.Spec.Role != Role.Compendium)
             {
                 if (image.type != Image.Type.Simple) return;
                 field = MenuDepthCatalogue.Load(art);
                 if (field == null) return;
+                if (!MenuDepthCatalogue.TryDepthUv(art, sprite, out depthUv))
+                {
+                    Missing(binding, sprite, original, key, "presentation UV reconstruction unavailable");
+                    return;
+                }
             }
+            binding.PendingOriginal = null; binding.PendingReported = false;
+            Note(binding, sprite, key, "bound", art.source_id, depthUv);
         }
         if (!OwnedImages.TryGetValue(image, out Owned? owned) || owned.Mesh == null)
         {
@@ -215,7 +234,36 @@ internal static class MenuDepthDriver
         owned.Epoch = _epoch;
         owned.Priority = priority;
         if (!owned.Mesh.enabled) owned.Mesh.enabled = true;
-        owned.Mesh.Configure(image, field, binding.Spec.Depth);
+        owned.Mesh.ConfigureMapped(image, field, binding.Spec.Depth, depthUv);
+    }
+
+    private static void Missing(Binding binding, Sprite presentation, Sprite original, string key, string reason)
+    {
+        Note(binding, presentation, key, reason, string.Empty, default);
+        if (binding.PendingOriginal != original || binding.PendingKey != key)
+        {
+            binding.PendingOriginal = original; binding.PendingKey = key;
+            binding.PendingSince = Time.unscaledTime; binding.PendingReported = false;
+        }
+        // A source key can legitimately arrive before its picture. Only a stable,
+        // visible unmatched original merits a bounded normal-level anomaly note.
+        if (!binding.PendingReported && key.Length != 0 && Time.unscaledTime - binding.PendingSince >= 1f)
+        {
+            binding.PendingReported = true;
+            if (++_missingNotes <= 4) VRLog.Note("WorldUI", $"MENU DEPTH IMAGE UNBOUND: {binding.Spec.TypeName}.{binding.Spec.Field}; "
+                + reason + "; original image retained; occurrence=" + _missingNotes + ".");
+        }
+    }
+
+    private static void Note(Binding binding, Sprite presentation, string key, string state, string source, Vector4 depthUv)
+    {
+        if (!VRLog.WantsDebug || _bindingNotes >= 32 || (binding.NotedPresentation == presentation
+            && binding.NotedKey == key && binding.NotedState == state)) return;
+        binding.NotedPresentation = presentation; binding.NotedKey = key; binding.NotedState = state; ++_bindingNotes;
+        Sprite? original = MenuDepthCatalogue.Original(presentation);
+        VRLog.Debug("WorldUI", $"MENU DEPTH IMAGE BINDING: {binding.Spec.TypeName}.{binding.Spec.Field}; state={state}; "
+            + $"key='{key}'; native='{(original != null ? original.name : "<missing>")}'; colour='{presentation.name}'; "
+            + $"source={source}; depthUV={depthUv}; note={_bindingNotes}/32.");
     }
 
     private static string Key(Binding binding, Image image, out string defaultField)
@@ -233,8 +281,9 @@ internal static class MenuDepthDriver
         }
         UIInfoTools tools = UIInfoTools.Instance;
         if (tools == null) return string.Empty;
-        if (image.overrideSprite == tools.defaultEventImage) { defaultField = "defaultEventImage"; return defaultField; }
-        if (image.overrideSprite == tools.defaultCityEventImage) { defaultField = "defaultCityEventImage"; return defaultField; }
+        Sprite? original = MenuDepthCatalogue.Original(image.overrideSprite);
+        if (original == MenuDepthCatalogue.Original(tools.defaultEventImage)) { defaultField = "defaultEventImage"; return defaultField; }
+        if (original == MenuDepthCatalogue.Original(tools.defaultCityEventImage)) { defaultField = "defaultCityEventImage"; return defaultField; }
         object road = EventData?.GetValue(binding.Owner)!;
         string id = road == null ? string.Empty : AccessTools.Property(road.GetType(), "NarrativeImageId")?.GetValue(road, null) as string ?? string.Empty;
         return NarrativeKey(id);
@@ -260,5 +309,6 @@ internal static class MenuDepthDriver
             { item.Value.Mesh.enabled = false; UnityEngine.Object.Destroy(item.Value.Mesh); }
         OwnedImages.Clear(); Bindings.Clear(); NextBindings.Clear(); Visited.Clear(); Windows.Clear(); PreviousWindows.Clear();
         _nextCensus = 0f; _running = false;
+        _bindingNotes = _missingNotes = 0;
     }
 }

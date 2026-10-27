@@ -10,7 +10,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
-public static class MenuDepthGraphicProgram
+public static partial class MenuDepthGraphicProgram
 {
     private static int _checks;
     private static string _output = string.Empty;

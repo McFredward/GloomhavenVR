@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from town_run_retention import cleanup_completed_run
 sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
-from project_compilers import cleanup_project_compilers
+from project_compilers import cleanup_project_compilers, cleanup_project_editors
 
 
 def execute(argv, log, timeout=240):
@@ -27,6 +27,10 @@ def execute(argv, log, timeout=240):
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
+            if '-projectPath' in argv:
+                project = Path(argv[argv.index('-projectPath') + 1])
+                editor_cleanup = cleanup_project_editors(project, '/home/claw/unity-2021.3.5/Editor/Unity', launcher_reaped=True)
+                (log.parent / 'owned-editor-cleanup.json').write_text(json.dumps(editor_cleanup, indent=2) + '\n')
 
 
 def replace_once(code, before, after):
@@ -41,12 +45,16 @@ def main():
     output = ROOT / '.planning/debug/menu-depth-graphic'; output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=output)); completion = run / 'completion.log'
     completion.write_text('Evidence: ' + str(run) + '\n'); print('Evidence: ' + str(run), flush=True)
+    (run / 'editor-environment.json').write_text(json.dumps({name: os.environ.get(name)
+        for name in ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
     status = 1
     try:
         source = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
         names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs',
                  'MenuDepthDisplay.cs', 'MenuDepthHeightfield.cs', 'MenuDepthGraphic.cs', 'MenuDepthCatalogue.cs', 'MenuDepthDriver.cs')
-        sources = {name: (source / name).read_text() for name in names}
+        source_files = {name: source / name for name in names}
+        source_files['CardFaceMipBake.cs'] = ROOT / 'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs'
+        sources = {name: path.read_text() for name, path in source_files.items()}
         fixture = ROOT / 'tests/GloomhavenVR.MenuDepthGraphicTests'
         cases = [
             ('production-corpus', '', '', '', '', 'Corpus'),
@@ -57,7 +65,7 @@ def main():
              'the complete shipped original-image manifest loads through the actual production parser', 'Corpus'),
             ('flat-relief', 'MenuDepthGraphic.cs', 'float depth = _image.rectTransform.rect.width * _depthRatio;',
              'float depth = 0f;', 'prepared depth really gives the original native Image nonzero spatial relief'),
-            ('lost-native-uv', 'MenuDepthGraphic.cs', '_field.Sample(vertex.uv0.x, vertex.uv0.y)',
+            ('lost-native-uv', 'MenuDepthGraphic.cs', '_field.Sample(vertex.uv0.x * _depthUv.x + _depthUv.z,\n                    vertex.uv0.y * _depthUv.y + _depthUv.w)',
              '_field.Sample(u, v)', 'relief samples the unchanged native sprite subrect UV in its full original texture'),
             ('lost-eye-projection', 'MenuDepthGraphic.cs', 'return MenuDepthProjection.ProjectToPlane(point, _eye);',
              'return point;', 'actual root relief renders distinct tracked eye views through the original native Image'),
@@ -78,6 +86,20 @@ def main():
              'return string.Empty;', 'actual driver follows original native first-config fallback for an unknown story identity'),
             ('unchecked-depth-hash', 'MenuDepthCatalogue.cs', 'if (actual != expected.depth_sha256)',
              'if (actual.Length == 0)', 'a length-correct CRC-correct companion with the wrong declared SHA is refused'),
+            ('production-native-mip', '', '', '', '', 'NativeMip'),
+            ('lost-mip-provenance', 'MenuDepthCatalogue.cs',
+             'sprite == null ? null : CardFaceMipBake.OriginalFor(sprite)', 'sprite',
+             'the actual trimmed native mip clone resolves its original prepared field through owned provenance', 'NativeMip'),
+            ('lost-region-depth-uv', 'MenuDepthCatalogue.cs',
+             'uv = new Vector4(width / (float)source.width, height / (float)source.height,\n                (Mathf.RoundToInt(region.x) - Mathf.RoundToInt(offset.x)) / (float)source.width,\n                (Mathf.RoundToInt(region.y) - Mathf.RoundToInt(offset.y)) / (float)source.height);',
+             'uv = new Vector4(1f, 1f, 0f, 0f);',
+             'actual atlas region mip UVs map colour pixels to the original full-texture heightfield', 'NativeMip'),
+            ('native-mip-flat-eye', 'MenuDepthGraphic.cs', 'return MenuDepthProjection.ProjectToPlane(point, _eye);',
+             'return point;', 'the actual driver-bound mip illustration renders measured eye-dependent parallax pixels', 'NativeMip'),
+            ('lost-region-uv-sampling', 'MenuDepthGraphic.cs',
+             '_field.Sample(vertex.uv0.x * _depthUv.x + _depthUv.z,\n                    vertex.uv0.y * _depthUv.y + _depthUv.w)',
+             '_field.Sample(vertex.uv0.x, vertex.uv0.y)',
+             'actual native and region-mip relief retain measured colour/depth alignment under an oblique eye', 'NativeMip'),
         ]
         if args.case:
             selected = set(args.case); assert selected <= {item[0] for item in cases}
@@ -87,14 +109,19 @@ def main():
         bundle = ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle'
         corpus = ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Story'
         corpus_data = json.loads((corpus / 'manifest.json').read_text()) if any(len(case) == 6 for case in cases) else None
+        native_bundle = ROOT / 'ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/loadouts_assets_crypt_default.bundle'
         manifest = {'evidence': str(run), 'result': str(run / 'results.txt'), 'gameManaged': str(game),
-                    'harmonyRuntime': str(harmony), 'cases': []}
+                    'harmonyRuntime': str(harmony), 'nativeTrimBundle': str(native_bundle), 'cases': []}
         project = run / 'unity'
         for directory in ('Assets/Editor', 'Packages', 'ProjectSettings'): (project / directory).mkdir(parents=True)
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
-        (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.ugui': '1.0.0'}}) + '\n')
+        (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {
+            'com.unity.ugui': '1.0.0', 'com.unity.modules.assetbundle': '1.0.0',
+            'com.unity.modules.imageconversion': '1.0.0'}}) + '\n')
         shutil.copyfile(Path(__file__).parent / 'Editor/Runner.cs', project / 'Assets/Editor/Runner.cs')
-        pins = [*(source / name for name in names), *fixture.glob('*'), Path(__file__),
+        native_reference = ROOT / 'tests/GloomhavenVR.MenuDepthMaterialTests/NativeDissolveReference.shader'
+        shutil.copyfile(native_reference, project / 'Assets/NativeDissolveReference.shader')
+        pins = [*source_files.values(), *fixture.glob('*'), Path(__file__), native_reference, native_bundle,
                 Path(__file__).parent / 'Editor/Runner.cs', ROOT / 'scripts/menu-depth-character/project_compilers.py',
                 bundle, game / 'GH.Runtime.dll', game / 'UnityEngine.UI.dll']
         if corpus_data:
@@ -122,7 +149,7 @@ def main():
                 raise RuntimeError('Compilation failure is not a control pass: ' + str(case))
             retained = run / 'assemblies' / name / (assembly + '.dll'); retained.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(case / 'bin/Release/net472' / retained.name, retained)
-            if method == 'Corpus':
+            if method in ('Corpus', 'NativeMip'):
                 staged = retained.parent / 'MenuDepth/Story'; staged.mkdir(parents=True)
                 shutil.copyfile(corpus / 'manifest.json', staged / 'manifest.json')
                 for entry in corpus_data['images']:
@@ -151,6 +178,10 @@ def main():
             raise RuntimeError('Pinned sources changed during the proof')
         return status
     finally:
+        editors = cleanup_project_editors(run / 'unity', '/home/claw/unity-2021.3.5/Editor/Unity', launcher_reaped=True)
+        (run / 'owned-editor-final-check.json').write_text(json.dumps(editors, indent=2) + '\n')
+        if editors['remaining']:
+            raise RuntimeError('Owned Editor survived pidfd teardown; generated caches remain intact.')
         compilers = cleanup_project_compilers(run / 'unity', editor_reaped=True)
         (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
         if compilers['remaining']:
