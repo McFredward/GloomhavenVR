@@ -7,7 +7,7 @@ using UnityEngine;
 
 public static class MenuDepthPerformanceRunner
 {
-    [Serializable] private sealed class Case { public string name, dll, expected; public bool baseline; }
+    [Serializable] private sealed class Case { public string name, dll, expected; public bool baseline, firstDraw, restoreAfterRender, prepareBeforeRender; }
     [Serializable] private sealed class Manifest { public string result, evidence, gameManaged, harmonyRuntime; public Case[] cases; }
     private static Manifest manifest;
     private static int index;
@@ -51,7 +51,7 @@ public static class MenuDepthPerformanceRunner
                 started = true;
                 string output = Path.Combine(manifest.evidence, item.name); Directory.CreateDirectory(output);
                 proof = Assembly.LoadFile(item.dll).GetType("MenuDepthPerformanceProof", true);
-                proof.GetMethod("Begin").Invoke(null, new object[] { output, item.baseline });
+                proof.GetMethod("Begin").Invoke(null, new object[] { output, item.baseline, item.firstDraw, item.restoreAfterRender, item.prepareBeforeRender });
                 return;
             }
             if (!(bool)proof.GetMethod("Step").Invoke(null, null)) return;

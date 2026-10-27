@@ -36,7 +36,7 @@ public static class MenuDepthPerformanceProof
     private static string _output = string.Empty;
     private static int _assertions, _rootCalls, _globalCalls, _count, _warmup, _lastFrame;
     private static int _steadyRoot, _steadyGlobal, _steadyVisits, _steadyAncestors;
-    private static bool _baseline;
+    private static bool _baseline, _firstDrawOnly, _restoreAfterRender, _prepareBeforeRender;
     private static float _started;
     private static Func<long>? _allocated;
     private static Character3DDisplayManager _manager = null!;
@@ -55,9 +55,9 @@ public static class MenuDepthPerformanceProof
     private static bool SkipGameSceneStart() => false;
     private static void CountDisplay() => _nativeDisplays++;
 
-    public static void Begin(string output, bool baseline)
+    public static void Begin(string output, bool baseline, bool firstDraw, bool restoreAfterRender, bool prepareBeforeRender)
     {
-        _output = output; _baseline = baseline; _assertions = _rootCalls = _globalCalls = _nativeDisplays = 0;
+        _output = output; _baseline = baseline; _firstDrawOnly = firstDraw; _restoreAfterRender = restoreAfterRender; _prepareBeforeRender = prepareBeforeRender; _assertions = _rootCalls = _globalCalls = _nativeDisplays = 0;
         _count = 0; _warmup = 12; _lastFrame = -1;
         _harmony = new Harmony("GloomhavenVR.MenuDepthPerf." + typeof(MenuDepthPerformanceProof).Assembly.GetName().Name);
         _harmony.Patch(AccessTools.Method(typeof(MenuDepthDriver), "Discover"), prefix: new HarmonyMethod(typeof(MenuDepthPerformanceProof), nameof(CountRoot)));
@@ -89,6 +89,7 @@ public static class MenuDepthPerformanceProof
         _colour = new Texture2D(8, 8, TextureFormat.RGBA32, false);
         _colour.SetPixels(Enumerable.Repeat(Color.white, 64).ToArray()); _colour.Apply();
         _sprite = Sprite.Create(_colour, new Rect(0, 0, 8, 8), Vector2.one * .5f);
+        if (firstDraw) { LateFirstDraw(); return; }
         BuildHierarchy(); BuildNativeManager();
         long began = Stopwatch.GetTimestamp(); MenuDepthDriver.Tick();
         File.WriteAllText(Path.Combine(output, "cold.txt"), "cold_tick_ms=" + Milliseconds(Stopwatch.GetTimestamp() - began)
@@ -103,7 +104,6 @@ public static class MenuDepthPerformanceProof
             // Timing populations must be identical to the pinned baseline, not
             // include changed visibility or leftover functional-test consumers.
             MenuDepthDriver.Shutdown(); CanvasConversion.ActivePanels.Clear(); DestroyRoots();
-            LateFirstDraw();
             BuildHierarchy(); BuildNativeManager(); MenuDepthDriver.Tick();
         }
         _started = Time.unscaledTime;
@@ -322,7 +322,7 @@ public static class MenuDepthPerformanceProof
 
     private static void LateFirstDraw()
     {
-        for (int mode = 0; mode < 2; mode++)
+        for (int mode = 0; mode < 4; mode++)
         {
             GameObject panel = Root("first draw world canvas"); Canvas canvas = panel.AddComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace;
             panel.layer = 5; panel.transform.position = new Vector3(0, 0, 2);
@@ -335,17 +335,18 @@ public static class MenuDepthPerformanceProof
             GameObject previewNode = Child(owner.transform, "late exact native consumer"); previewNode.layer = 5;
             RawImage preview = previewNode.AddComponent<RawImage>(); preview.rectTransform.sizeDelta = new Vector2(.9f, 1.4f);
             RenderTexture native = _camera.targetTexture!;
-            if (mode == 0) { preview.texture = native; _camera.targetTexture = null; }
-            GameObject headNode = Root("actual first physical head callback"); Camera head = headNode.AddComponent<Camera>(); head.enabled = false;
+            if (mode % 2 == 0) { preview.texture = native; _camera.targetTexture = null; }
+            GameObject headNode = Root("actual first physical head callback"); Camera head = headNode.AddComponent<Camera>(); head.enabled = false; head.allowHDR = mode >= 2;
             head.cullingMask = 1 << 5; head.backgroundColor = Color.black; head.clearFlags = CameraClearFlags.SolidColor;
             head.nearClipPlane = .01f; head.targetTexture = Target("first head raster");
             head.targetTexture.Release(); head.targetTexture.width = head.targetTexture.height = 256; head.targetTexture.Create();
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = head;
+            canvas.worldCamera = head; // Actual CanvasConversion.WorldCamera host contract.
             MenuDepthDriver.Tick(); // The LAST tick; neither late action below is followed by another Tick/query.
             Check(!((IEnumerable)typeof(MenuDepthSources).GetField("Sources", Static)!.GetValue(null)!).Cast<object>().Any(),
                 "the late first-draw boundary starts with an actually empty source registry");
             _camera.enabled = true;
-            if (mode == 0)
+            if (mode % 2 == 0)
             {
                 _camera.targetTexture = native;
                 _manager.Display(preview, ECharacter.Brute); // actual original cached-model native body
@@ -353,11 +354,20 @@ public static class MenuDepthPerformanceProof
             }
             else preview.texture = native;
             RenderTexture? active = RenderTexture.active; RenderTexture.active = native; GL.Clear(true, true, Color.blue); RenderTexture.active = active;
-            string sampled = string.Empty;
+            string sampled = string.Empty, postState = string.Empty;
+            Func<string> state = () => "texture=" + preview.texture.name + ";mainTexture=" + preview.mainTexture.name
+                + ";color=" + preview.color + ";uv=" + preview.uvRect + ";rendererColor=" + preview.canvasRenderer.GetColor();
+            Camera.CameraCallback post = camera => { if (ReferenceEquals(camera, head)) postState = state(); };
             Camera.CameraCallback sample = camera => { if (ReferenceEquals(camera, head)) sampled = preview.texture.name; };
-            Camera.onPreRender += sample;
-            try { Canvas.ForceUpdateCanvases(); head.Render(); }
-            finally { Camera.onPreRender -= sample; }
+            Camera.onPreRender += sample; Camera.onPostRender += post;
+            try
+            {
+                if (_prepareBeforeRender) MenuDepthSources.BeforeCapture(panel.transform, new MenuDepthEye(false, head.transform.position, head));
+                Canvas.ForceUpdateCanvases(); head.Render();
+            }
+            finally { Camera.onPreRender -= sample; Camera.onPostRender -= post; }
+            File.WriteAllText(Path.Combine(_output, "post-state-" + mode + ".txt"), "head_post=" + postState + "\nafter_render=" + state() + "\n");
+            if (_restoreAfterRender) MenuDepthSources.AfterCapture(); // named private post-render timing diagnostic only
             object? boundSource = CharacterSource(preview);
             if (boundSource != null && Field(boundSource.GetType(), "_left").GetValue(boundSource) is RenderTexture eye)
             {
@@ -365,7 +375,7 @@ public static class MenuDepthPerformanceProof
                 var eyePixels = new Texture2D(eye.width, eye.height, TextureFormat.RGBA32, false);
                 eyePixels.ReadPixels(new Rect(0, 0, eye.width, eye.height), 0, 0); eyePixels.Apply();
                 File.WriteAllBytes(Path.Combine(_output, "native-eye-" + mode + ".png"), eyePixels.EncodeToPNG());
-                File.WriteAllText(Path.Combine(_output, "first-draw-" + mode + ".txt"), "sampled_texture=" + sampled + "\nnative_eye_red_pixels=" + eyePixels.GetPixels32().Count(c => c.r > 150 && c.g < 60 && c.b < 60) + "\n");
+                File.WriteAllText(Path.Combine(_output, "first-draw-" + mode + ".txt"), "head_HDR=" + head.allowHDR + "\nsampled_texture=" + sampled + "\nnative_eye_red_pixels=" + eyePixels.GetPixels32().Count(c => c.r > 150 && c.g < 60 && c.b < 60) + "\n");
                 Object.DestroyImmediate(eyePixels); RenderTexture.active = previous;
             }
             Check(stamp.Draws == 1, "the first actual head draw flushes native Display or texture arrivals after the last Tick from an empty registry");
@@ -382,6 +392,7 @@ public static class MenuDepthPerformanceProof
 
     public static bool Step()
     {
+        if (_firstDrawOnly) return true;
         if (Time.frameCount == _lastFrame) return false; _lastFrame = Time.frameCount;
         if (_warmup > 0)
         {
@@ -414,6 +425,7 @@ public static class MenuDepthPerformanceProof
     private static double Percentile(double[] sorted, double probability) => sorted[(int)Math.Floor((sorted.Length - 1) * probability)];
     public static int Finish()
     {
+        if (_firstDrawOnly) return _assertions;
         var times = Samples.Take(_count).OrderBy(value => value).ToArray();
         var report = new Statistics
         {
