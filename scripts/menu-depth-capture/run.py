@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Render actual menu depth code, shader, UI and ownership under Unity2021.3.5f1."""
 from pathlib import Path
+import argparse
 import hashlib
 import json
 import os
@@ -42,6 +43,9 @@ def replace(source, before, after):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--case', action='append')
+    args = parser.parse_args()
     output = ROOT / '.planning/debug/menu-depth-capture'; output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=output)); completion = run / 'completion.log'
     completion.write_text('evidence: ' + str(run) + '\n'); print('Evidence: ' + str(run), flush=True)
@@ -62,6 +66,7 @@ def main():
             'internal static int TakeLayerProof()=>AcquireLayer(); internal static void ReturnLayerProof(int layer)=>ReleaseLayer(layer);\n'
             + member(isolation, '    private static int AcquireLayer()') + member(isolation, '    private static void ReleaseLayer(int layer)') + '}\n')
         originals['Routing724.cs'] = (Path(__file__).parent / 'Routing724.cs').read_text()
+        originals['Workload725.cs'] = (Path(__file__).parent / 'Workload725.cs').read_text()
         legacy_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs'
         legacy = legacy_path.read_text()
         copied = 'using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n'
@@ -70,7 +75,8 @@ def main():
             start = legacy.index(signature)
             if '{' in legacy[start:legacy.index(';', start)]: copied += member(legacy, signature)
             else: copied += legacy[start:legacy.index(';', start) + 1] + '\n'
-        for signature in ('    private static void SyncProjection(', '    private static void SyncDisplayPose('): copied += member(legacy, signature)
+        for signature in ('    private static void SyncProjection(', '    private static void SyncDisplayPose(',
+                          '    private static void SyncVisibility('): copied += member(legacy, signature)
         for signature in ('    private static bool SameComponents(Vector2', '    private static bool SameComponents(Vector3',
                           '    private static bool SameComponents(Quaternion'):
             start = legacy.index(signature); copied += legacy[start:legacy.index(';', start) + 1] + '\n'
@@ -78,6 +84,7 @@ def main():
         core_path = ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs'
         limits = re.findall(r'    private const long (?:MaxPanelVramBytes|MaxTotalVramBytes) = [^;]+;', core_path.read_text())
         assert len(limits) == 2
+        limits += re.findall(r'    private const int CaptureIntervalFrames = [^;]+;', core_path.read_text())
         originals['ActualLimits.cs'] = 'namespace GloomhavenVR.WorldUI;\ninternal static partial class PanelSupersample\n{\n' + '\n'.join(limits) + '\n}\n'
         # XR observations are explicit fixture inputs, not fake rendered output.
         production = dict(originals)
@@ -89,6 +96,14 @@ def main():
             'head.GetStereoViewMatrix(Camera.StereoscopicEye.Right).inverse.MultiplyPoint3x4(Vector3.zero)', 'global::MenuDepthFixture.Right')
         cases = [
             ('production', '', '', '', ''),
+            ('redundant-mono-725', 'LegacyHelpers.cs', 'visible && due && e.MenuDepthDisplay == null',
+             'visible && due', 'a successful spatial window has exactly two UI camera draws per tick and no automatic third draw'),
+            ('hidden-stereo-725', 'PanelDepth.cs', '!e.DisplayImage.isActiveAndEnabled',
+             '!e.DisplayImage.enabled', 'a hidden physical display performs no UI or native-content capture'),
+            ('no-empty-mono-725', 'PanelDepth.cs', 'if (!MenuDepthSources.HasContent(e.Panel.HostRect))\n            {\n                bool skippedMono = e.MenuDepthDisplay != null && !e.Cam.enabled;',
+             'if (!MenuDepthSources.HasContent(e.Panel.HostRect))\n            {\n                bool skippedMono = false;', 'leaving spatial content refills a suppressed automatic mono capture immediately'),
+            ('sample-ceiling-725', 'MenuDepthProjection.cs', 'Mathf.Min(final.x, intermediate.x), Mathf.Min(final.y, intermediate.y)',
+             'final.x, final.y', 'source sampling demand stops at the actual intermediate UI raster'),
             ('stale-private-exclusion', 'LayerReservation724.cs',
              '_poolMask |= 1 << layer;\n        MenuDepth.MenuDepthSources.ExcludedDirectLayers = _poolMask;',
              '_poolMask |= 1 << layer;', 'the second actual private-layer reservation updates direct-capture exclusion ownership immediately'),
@@ -135,6 +150,9 @@ def main():
              'if (target.width < 0)',
              'closed native owner cannot submit another eye draw after its source lease ends'),
         ]
+        if args.case:
+            wanted = set(args.case); assert wanted <= {case[0] for case in cases}
+            cases = [case for case in cases if case[0] in wanted]
         manifest = {'evidence': str(run), 'result': str(run / 'results.txt'), 'cases': []}
         env = dict(os.environ, DOTNET_ROOT='/home/claw/.dotnet', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0')
         for name, filename, before, after, expected in cases:
@@ -142,8 +160,8 @@ def main():
             for filename_actual, code in production.items():
                 if filename_actual == filename: code = replace(code, before, after)
                 if name == 'mixed-scope-order' and filename_actual == filename:
-                    code = replace(code, 'Prepared[i].BeforeCapture(eye);\n            }\n        }\n        catch (Exception error)',
-                        'Prepared[i].BeforeCapture(eye);\n            }\n            BeforeHeadCapture?.Invoke(camera);\n        }\n        catch (Exception error)')
+                    code = replace(code, 'Prepared[i].BeforeCapture(SampleEye(Prepared[i], eye));\n            }\n        }\n        catch (Exception error)',
+                        'Prepared[i].BeforeCapture(SampleEye(Prepared[i], eye));\n            }\n            BeforeHeadCapture?.Invoke(camera);\n        }\n        catch (Exception error)')
                 (bound / filename_actual).write_text(code)
             bound_fixture = case / 'fixture'; bound_fixture.mkdir()
             for path in fixture.glob('*.cs'):
@@ -152,7 +170,7 @@ def main():
                     code = code.replace('internal static readonly List<string> Messages',
                         'internal static bool WantsDebug => true; internal static void Debug(string scope, string message) => Messages.Add(message);\n        internal static readonly List<string> Messages')
                 if path.name == 'Program.cs':
-                    code = code.replace('        Projection();', '        _checks += Routing724.Run(output);\n        Projection();')
+                    code = code.replace('        Projection();', '        _checks += Routing724.Run(output);\n        Workload725(output);\n        Projection();')
                     code = code.replace('new GameObject("source scope", typeof(RectTransform))', 'new GameObject("source scope", typeof(RectTransform), typeof(Canvas))')
                 (bound_fixture / path.name).write_text(code)
             csproj = case / 'MenuDepthCapture.csproj'; shutil.copyfile(fixture / csproj.name, csproj)
@@ -179,7 +197,8 @@ def main():
         (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.ugui': '1.0.0',
             'com.unity.modules.assetbundle': '1.0.0', 'com.unity.modules.ui': '1.0.0'}}) + '\n')
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-        pins = [*(source / name for name in names), legacy_path, core_path, isolation_path, Path(__file__).parent / 'Routing724.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
+        pins = [*(source / name for name in names), legacy_path, core_path, isolation_path, Path(__file__).parent / 'Routing724.cs',
+                Path(__file__).parent / 'Workload725.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
                 *fixture.glob('*'), Path(__file__), Path(__file__).parent / 'Editor/MenuDepthRunner.cs',
                 ROOT / 'scripts/menu-depth-character/project_compilers.py',
                 ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle']

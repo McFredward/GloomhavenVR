@@ -21,12 +21,24 @@ internal static partial class PanelSupersample
             if (e.MenuDepthFrame == Time.frameCount) continue;
             e.MenuDepthFrame = Time.frameCount;
             if (e.Panel.HostRect == null || e.Cam == null || e.Rt == null || e.DisplayImage == null
-                || !e.DisplayImage.enabled || !MenuDepthSources.HasContent(e.Panel.HostRect))
+                || !e.DisplayImage.isActiveAndEnabled)
             { ReleaseMenuDepth(e); continue; }
+            if (!MenuDepthSources.HasContent(e.Panel.HostRect))
+            {
+                bool skippedMono = e.MenuDepthDisplay != null && !e.Cam.enabled;
+                ReleaseMenuDepth(e);
+                if (skippedMono) RestoreMenuDepthMono(e);
+                continue;
+            }
             try
             {
                 if (!MenuDepthDisplay.TryGetEyePositions(head, out Vector3 left, out Vector3 right))
-                { ReleaseMenuDepth(e); continue; }
+                {
+                    bool skippedMono = e.MenuDepthDisplay != null && !e.Cam.enabled;
+                    ReleaseMenuDepth(e);
+                    if (skippedMono) RestoreMenuDepthMono(e);
+                    continue;
+                }
                 if (e.MenuDepthDisplay != null && !e.MenuDepthDisplay.Matches(e.Rt, DisplayTexture(e)))
                     ReleaseMenuDepth(e);
                 if (e.MenuDepthDisplay == null)
@@ -59,15 +71,21 @@ internal static partial class PanelSupersample
                     VRLog.Warn(Scope, $"MENU DEPTH WINDOW FALLBACK: window='{e.Window}', error={error.GetType().Name}: {error.Message}; count={count}; original input and continuation remain native.");
                 // The left pair may already have been borrowed before a right-eye
                 // failure. Refill it from the restored original mono camera now.
-                if (e.Cam != null && e.Rt != null && e.Rt.IsCreated() && Entries.Contains(e))
-                {
-                    try { SyncProjection(e); Canvas.ForceUpdateCanvases(); e.Cam.Render(); }
-                    catch (Exception fallback)
-                    {
-                        if (count <= 2) VRLog.Warn(Scope, "MENU DEPTH MONO RESTORE: " + fallback.GetType().Name);
-                    }
-                }
+                RestoreMenuDepthMono(e, count);
             }
+        }
+    }
+
+    private static void RestoreMenuDepthMono(Entry e, int previousFailure = 0)
+    {
+        if (e.Cam == null || e.Rt == null || !e.Rt.IsCreated() || !Entries.Contains(e)
+            || e.DisplayImage == null || !e.DisplayImage.isActiveAndEnabled) return;
+        try { SyncProjection(e); Canvas.ForceUpdateCanvases(); e.Cam.Render(); }
+        catch (Exception fallback)
+        {
+            int count = previousFailure != 0 ? previousFailure : ++e.MenuDepthFailures;
+            if (count <= 2 || (count & (count - 1)) == 0)
+                VRLog.Warn(Scope, "MENU DEPTH MONO RESTORE: " + fallback.GetType().Name + "; count=" + count);
         }
     }
 

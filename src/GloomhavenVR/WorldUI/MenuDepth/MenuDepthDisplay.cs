@@ -178,7 +178,7 @@ internal sealed class MenuDepthDisplay : IDisposable
         capture.farClipPlane = Mathf.Max(capture.farClipPlane, planeDistance + relief);
         capture.targetTexture = target;
         MenuDepthSources.BeforeCapture(plane,
-            new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, projectToGraphicPlane: true));
+            new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, projectToGraphicPlane: true), capture);
         try
         {
             if (_disposeRequested || !target.IsCreated())

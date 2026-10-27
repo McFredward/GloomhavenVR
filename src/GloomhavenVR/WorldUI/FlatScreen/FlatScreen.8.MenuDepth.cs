@@ -15,6 +15,7 @@ internal sealed partial class FlatScreen
     private Camera? _menuDepthBorrowedCamera;
     private Predicate<Graphic>? _menuDepthApplies;
     private Func<Graphic, MenuDepthEye>? _menuDepthMapper;
+    private Func<Graphic, Vector2>? _menuDepthPixels;
     private MenuDepthEye _menuDepthEye;
     private bool _menuDepthHooked;
     private int _menuDepthFrame = -1, _menuDepthFailures;
@@ -27,6 +28,7 @@ internal sealed partial class FlatScreen
         {
             _menuDepthApplies ??= MenuDepthApplies;
             _menuDepthMapper ??= MapMenuDepthEye;
+            _menuDepthPixels ??= MenuDepthPixels;
             MenuDepthSources.BeforeHeadCapture += CaptureMenuDepthScreen;
             Camera.onPreRender += BeforeMenuDepthHead;
             Camera.onPostRender += AfterMenuDepthHead;
@@ -136,10 +138,10 @@ internal sealed partial class FlatScreen
                 _menuDepthBorrowedCamera = source;
                 try
                 {
-                    MenuDepthSources.BeforeCaptureWhere(eye, _menuDepthApplies!, _menuDepthMapper!);
+                    MenuDepthSources.BeforeCaptureWhere(eye, _menuDepthApplies!, _menuDepthMapper!, _menuDepthPixels!);
                     source.targetTexture = target;
                     if (VRLayers.ModLayerMask != VRLayers.GameUiLayerMask) source.cullingMask &= ~VRLayers.ModLayerMask;
-                    Canvas.ForceUpdateCanvases();
+                    if (MenuDepthSources.HasPreparedSources) Canvas.ForceUpdateCanvases();
                     source.Render();
                 }
                 finally
@@ -154,6 +156,11 @@ internal sealed partial class FlatScreen
     }
 
     private bool MenuDepthApplies(Graphic graphic) => NativeUiCamera(graphic) == _menuDepthBorrowedCamera;
+
+    private Vector2 MenuDepthPixels(Graphic graphic)
+        => _quad != null && _menuDepthBorrowedCamera != null
+            ? MenuDepthScreenProjection.PixelFootprint(_quad.transform, _menuDepthBorrowedCamera,
+                graphic.rectTransform, _menuDepthEye) : Vector2.zero;
 
     private MenuDepthEye MapMenuDepthEye(Graphic graphic)
     {

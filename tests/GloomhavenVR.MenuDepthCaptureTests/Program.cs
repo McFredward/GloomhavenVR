@@ -8,7 +8,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
-public static class MenuDepthProgram
+public static partial class MenuDepthProgram
 {
     private static int _checks;
     private static string _output = string.Empty;

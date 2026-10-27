@@ -5,6 +5,27 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// <summary>Map a real eye through a desktop window into its original screen-space camera's units.</summary>
 internal static class MenuDepthScreenProjection
 {
+    /// <summary>Sample physical glass corners before mapping an eye into native UI units.</summary>
+    internal static Vector2 PixelFootprint(Transform screen, Camera original, RectTransform graphic, MenuDepthEye eye)
+    {
+        Rect r = graphic.rect;
+        Vector3 bl = graphic.TransformPoint(new Vector3(r.xMin, r.yMin));
+        Vector3 tl = graphic.TransformPoint(new Vector3(r.xMin, r.yMax));
+        Vector3 tr = graphic.TransformPoint(new Vector3(r.xMax, r.yMax));
+        Vector3 br = graphic.TransformPoint(new Vector3(r.xMax, r.yMin));
+        Vector2 raster = MenuDepthProjection.RasterPixels(original, bl, tl, tr, br);
+        Vector2 final = MenuDepthProjection.HeadPixels(eye, OnGlass(screen, original, bl), OnGlass(screen, original, tl),
+            OnGlass(screen, original, tr), OnGlass(screen, original, br));
+        return MenuDepthProjection.LimitPixels(final, raster);
+    }
+
+    private static Vector3 OnGlass(Transform screen, Camera original, Vector3 point)
+    {
+        Vector3 uv = original.WorldToViewportPoint(point); Rect viewport = original.rect;
+        return screen.TransformPoint(new Vector3(viewport.x + uv.x * viewport.width - .5f,
+            viewport.y + uv.y * viewport.height - .5f));
+    }
+
     internal static bool TryMap(Transform screen, Camera original, RectTransform graphic,
         Vector3 physicalEye, out Vector3 nativeEye)
     {

@@ -1778,8 +1778,11 @@ internal static partial class PanelSupersample
         bool due = Time.frameCount >= e.NextCaptureFrame;
         if (visible && due)
             e.NextCaptureFrame = Time.frameCount + CaptureIntervalFrames;
-        if (e.Cam != null && e.Cam.enabled != (visible && due))
-            e.Cam.enabled = visible && due;
+        // A successful stereo display captures this camera explicitly for both
+        // eyes at head pre-cull. Its automatic mono draw would be a third capture.
+        bool automatic = visible && due && e.MenuDepthDisplay == null;
+        if (e.Cam != null && e.Cam.enabled != automatic)
+            e.Cam.enabled = automatic;
         if (e.DisplayGo != null && e.DisplayGo.activeSelf != visible)
             e.DisplayGo.SetActive(visible);
         // THE PATH COUNTER (ModBuild 197). A frame in which the quad IS shown and no capture is

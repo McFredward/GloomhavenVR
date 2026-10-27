@@ -1,11 +1,78 @@
 using System;
 using UnityEngine;
+using UnityEngine.XR;
 
 namespace GloomhavenVR.WorldUI.MenuDepth;
 
 /// <summary>Parallel off-axis views through the actual window rectangle; no toe-in or gaze movement.</summary>
 internal static class MenuDepthProjection
 {
+    /// <summary>Physical head pixels, limited by an optional intermediate UI raster.</summary>
+    internal static Vector2 PixelFootprint(RectTransform graphic, MenuDepthEye eye, Camera? raster = null)
+    {
+        Rect r = graphic.rect;
+        Vector3 bl = graphic.TransformPoint(new Vector3(r.xMin, r.yMin));
+        Vector3 tl = graphic.TransformPoint(new Vector3(r.xMin, r.yMax));
+        Vector3 tr = graphic.TransformPoint(new Vector3(r.xMax, r.yMax));
+        Vector3 br = graphic.TransformPoint(new Vector3(r.xMax, r.yMin));
+        Vector2 pixels = HeadPixels(eye, bl, tl, tr, br);
+        return raster == null ? pixels : LimitPixels(pixels, RasterPixels(raster, bl, tl, tr, br));
+    }
+
+    internal static Vector2 HeadPixels(MenuDepthEye eye, Vector3 bl, Vector3 tl, Vector3 tr, Vector3 br)
+    {
+        Camera head = eye.HeadCamera;
+        if (head == null) return Vector2.zero;
+        Camera.StereoscopicEye side = eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left;
+        Matrix4x4 view = head.stereoEnabled ? head.GetStereoViewMatrix(side)
+            : Matrix4x4.Scale(new Vector3(1f, 1f, -1f))
+                * Matrix4x4.TRS(eye.WorldPosition, head.transform.rotation, Vector3.one).inverse;
+        Matrix4x4 projection = head.stereoEnabled ? head.GetStereoProjectionMatrix(side) : head.projectionMatrix;
+        float width, height;
+        if (head.targetTexture != null)
+        { width = head.targetTexture.width * head.rect.width; height = head.targetTexture.height * head.rect.height; }
+        else if (head.stereoEnabled && XRSettings.enabled)
+        {
+            float scale = Mathf.Clamp(XRSettings.renderViewportScale, .01f, 1f);
+            width = XRSettings.eyeTextureWidth * scale; height = XRSettings.eyeTextureHeight * scale;
+        }
+        else { width = head.scaledPixelWidth; height = head.scaledPixelHeight; }
+        return ProjectPixels(projection * view, width, height, bl, tl, tr, br);
+    }
+
+    internal static Vector2 RasterPixels(Camera raster, Vector3 bl, Vector3 tl, Vector3 tr, Vector3 br)
+    {
+        RenderTexture target = raster.targetTexture;
+        if (target == null) return Vector2.zero;
+        return ProjectPixels(raster.projectionMatrix * raster.worldToCameraMatrix,
+            target.width * raster.rect.width, target.height * raster.rect.height, bl, tl, tr, br);
+    }
+
+    internal static Vector2 LimitPixels(Vector2 final, Vector2 intermediate)
+        => final.x > 0f && final.y > 0f && intermediate.x > 0f && intermediate.y > 0f
+            ? new Vector2(Mathf.Min(final.x, intermediate.x), Mathf.Min(final.y, intermediate.y)) : Vector2.zero;
+
+    private static Vector2 ProjectPixels(Matrix4x4 matrix, float width, float height,
+        Vector3 bl, Vector3 tl, Vector3 tr, Vector3 br)
+    {
+        if (width <= 0f || height <= 0f) return Vector2.zero;
+        if (!ProjectPixel(matrix, width, height, bl, out Vector2 p0)
+            || !ProjectPixel(matrix, width, height, tl, out Vector2 p1)
+            || !ProjectPixel(matrix, width, height, tr, out Vector2 p2)
+            || !ProjectPixel(matrix, width, height, br, out Vector2 p3)) return Vector2.zero;
+        return new Vector2(Mathf.Max(Vector2.Distance(p0, p3), Vector2.Distance(p1, p2)),
+            Mathf.Max(Vector2.Distance(p0, p1), Vector2.Distance(p3, p2)));
+    }
+
+    private static bool ProjectPixel(Matrix4x4 matrix, float width, float height, Vector3 point, out Vector2 pixel)
+    {
+        Vector4 clip = matrix * new Vector4(point.x, point.y, point.z, 1f);
+        pixel = Vector2.zero;
+        if (!Finite(point) || clip.w <= 1e-5f) return false;
+        pixel = new Vector2(clip.x / clip.w * width * .5f, clip.y / clip.w * height * .5f);
+        return !float.IsNaN(pixel.x) && !float.IsInfinity(pixel.x) && !float.IsNaN(pixel.y) && !float.IsInfinity(pixel.y);
+    }
+
     /// <summary>
     /// Intersect the eye-to-depth-vertex ray with the original graphic's z=0 plane.
     /// Keep z for depth testing; an unchanged orthographic UI camera supplies exact

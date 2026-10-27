@@ -25,6 +25,7 @@ internal static class MenuDepthSources
     private static bool _maskScoped;
     internal static int ExcludedDirectLayers { get; set; }
     internal static event Action<Camera>? BeforeHeadCapture;
+    internal static bool HasPreparedSources => _startedCount != 0;
 
     internal static void Register(IMenuDepthSource source)
     {
@@ -61,7 +62,7 @@ internal static class MenuDepthSources
 
     private static bool Visible(Graphic graphic) => graphic != null && graphic.isActiveAndEnabled
         && graphic.gameObject.activeInHierarchy && graphic.canvas != null && graphic.canvas.isActiveAndEnabled
-        && graphic.color.a > 0f && graphic.canvasRenderer.GetInheritedAlpha() > 0f;
+        && graphic.color.a > 0f && !graphic.canvasRenderer.cull && graphic.canvasRenderer.GetInheritedAlpha() > 0f;
 
     private static bool Applies(IMenuDepthSource source, Transform root) => Visible(source.Graphic)
         && source.Graphic.transform.IsChildOf(root) && source.IsReady;
@@ -79,7 +80,7 @@ internal static class MenuDepthSources
 
     /// <summary>Screen-space UI uses the physical window-to-original-graphic eye mapper.</summary>
     internal static void BeforeCaptureWhere(MenuDepthEye eye, Predicate<Graphic> applies,
-        Func<Graphic, MenuDepthEye> mapper)
+        Func<Graphic, MenuDepthEye> mapper, Func<Graphic, Vector2>? pixels = null)
     {
         if (_capturing) throw new InvalidOperationException("Nested menu-depth preparation is not owned by this capture.");
         _capturing = true; _startedCount = 0; Prepared.Clear();
@@ -95,14 +96,18 @@ internal static class MenuDepthSources
             for (int i = 0; i < Prepared.Count; i++)
             {
                 _startedCount = i + 1;
-                Prepared[i].BeforeCapture(mapper(Prepared[i].Graphic));
+                IMenuDepthSource source = Prepared[i];
+                MenuDepthEye mapped = mapper(source.Graphic);
+                if (source is IMenuDepthSampledSource && pixels != null)
+                    mapped = WithPixels(mapped, pixels(source.Graphic));
+                source.BeforeCapture(mapped);
             }
         }
         catch { AfterCapture(); throw; }
     }
 
     /// <summary>Call before the private capture; a failing source is also restored.</summary>
-    internal static void BeforeCapture(Transform root, MenuDepthEye eye)
+    internal static void BeforeCapture(Transform root, MenuDepthEye eye, Camera? raster = null)
     {
         if (_capturing) throw new InvalidOperationException("Nested menu-depth preparation is not owned by this capture.");
         _capturing = true;
@@ -118,7 +123,7 @@ internal static class MenuDepthSources
             for (int i = 0; i < Prepared.Count; i++)
             {
                 _startedCount = i + 1;
-                Prepared[i].BeforeCapture(eye);
+                Prepared[i].BeforeCapture(SampleEye(Prepared[i], eye, raster));
             }
         }
         catch
@@ -127,6 +132,14 @@ internal static class MenuDepthSources
             throw;
         }
     }
+
+    private static MenuDepthEye WithPixels(MenuDepthEye eye, Vector2 pixels)
+        => new(eye.Right, eye.WorldPosition, eye.HeadCamera, eye.ProjectToGraphicPlane, pixels);
+
+    private static MenuDepthEye SampleEye(IMenuDepthSource source, MenuDepthEye eye, Camera? raster = null)
+        => source is IMenuDepthSampledSource && eye.PixelFootprint == Vector2.zero && eye.HeadCamera != null
+            && eye.HeadCamera == VRRigDriver.HeadCamera
+            ? WithPixels(eye, MenuDepthProjection.PixelFootprint(source.Graphic.rectTransform, eye, raster)) : eye;
 
     /// <summary>Restore every prepared source, including partial preparation, exactly once.</summary>
     internal static void AfterCapture()
@@ -224,7 +237,7 @@ internal static class MenuDepthSources
             {
                 _startedCount = i + 1;
                 sourceInProgress = Prepared[i];
-                Prepared[i].BeforeCapture(eye);
+                Prepared[i].BeforeCapture(SampleEye(Prepared[i], eye));
             }
         }
         catch (Exception error)

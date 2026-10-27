@@ -1,0 +1,127 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using GloomhavenVR.WorldUI;
+using GloomhavenVR.WorldUI.MenuDepth;
+using UnityEngine;
+using UnityEngine.UI;
+using Object = UnityEngine.Object;
+
+public static partial class MenuDepthProgram
+{
+    // The editor supplies tick boundaries; the production visibility policy,
+    // coordinator, native Camera.Render callbacks and final glass draw all run.
+    private static void Workload725(string output)
+    {
+        using (var scene = new Scene())
+        {
+            scene.Entry.Panel.HostCanvas = scene.Panel.GetComponent<Canvas>();
+            scene.Entry.Panel.HostGo = scene.Panel.gameObject;
+            scene.Panel.SetPositionAndRotation(new Vector3(.3f, .1f, 3), Quaternion.Euler(0, 19, 0));
+            scene.Panel.localScale *= 1.2f;
+            scene.Head.orthographic = false; scene.Head.fieldOfView = 63; scene.Head.transform.rotation = scene.Panel.rotation;
+            var raw = new GameObject("725 sampled white aperture", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage)).GetComponent<RawImage>();
+            raw.gameObject.layer = 8; raw.transform.SetParent(scene.Panel, false);
+            raw.rectTransform.sizeDelta = new Vector2(130, 70); raw.texture = Texture2D.whiteTexture;
+            var sampled = new Sampled725(raw); MenuDepthSources.Register(sampled);
+            int draws = 0;
+            Camera.CameraCallback count = camera => { if (camera == scene.Entry.Cam) draws++; };
+            Camera.onPreCull += count;
+            try
+            {
+                Canvas.ForceUpdateCanvases(); scene.Capture();
+                PanelSupersample.Visibility(scene.Entry);
+                Check(!scene.Entry.Cam.enabled, "a successful spatial window hands automatic mono capture ownership to the eye pair");
+                float[] distances = { 4f, 2f, 1f, .5f };
+                var watch = Stopwatch.StartNew();
+                int startDraws = draws, startSources = sampled.Begins;
+                for (int tick = 0; tick < 60; tick++)
+                {
+                    float distance = distances[tick % 4];
+                    Vector3 center = scene.Panel.position - scene.Panel.forward * distance;
+                    MenuDepthFixture.Left = center - scene.Panel.right * .032f;
+                    MenuDepthFixture.Right = center + scene.Panel.right * .032f;
+                    scene.Head.transform.position = MenuDepthFixture.Left;
+                    PanelSupersample.Visibility(scene.Entry);
+                    if (scene.Entry.Cam.enabled) scene.Entry.Cam.Render(); // actual automatic camera eligibility
+                    int prior = draws; scene.Capture();
+                    Check(draws - prior == 2 && draws - startDraws == (tick + 1) * 2,
+                        "a successful spatial window has exactly two UI camera draws per tick and no automatic third draw");
+                    int both = draws; PanelSupersample.CaptureAgain(scene.Head);
+                    Check(draws == both, "a second head coordinator callback in the same frame cannot render the eye pair again");
+                    Check(sampled.Begins - startSources == (tick + 1) * 2 && sampled.Ends == sampled.Begins,
+                        "a moving window prepares one sampled source exactly once for each eye and restores every lease");
+                    Check(sampled.Last.x <= 130.01f && sampled.Last.y <= 70.01f,
+                        "source sampling demand stops at the actual intermediate UI raster");
+                    if (tick < 4)
+                    {
+                        watch.Stop(); // Pixel readback/evidence IO is not capture-loop timing.
+                        using (TextureOwner image = scene.Eye(false, "725-aperture-" + tick))
+                        {
+                            Vector3[] corners = new Vector3[4]; raw.rectTransform.GetWorldCorners(corners);
+                            Vector3 a = scene.Head.WorldToViewportPoint(corners[0]), b = scene.Head.WorldToViewportPoint(corners[2]);
+                            float width = Math.Abs(b.x - a.x) * image.Image.width;
+                            float height = Math.Abs(b.y - a.y) * image.Image.height;
+                            Check(Math.Abs(sampled.Left.x - Math.Min(width, 130)) < .1f
+                                && Math.Abs(sampled.Left.y - Math.Min(height, 70)) < .1f,
+                                "sampled demand agrees with independent physical head pixels and the native UI ceiling at near mid and far poses");
+                            int minimum = image.Image.width, maximum = -1;
+                            int xmin = Math.Max(0, (int)(Math.Min(a.x, b.x) * image.Image.width) - 2);
+                            int xmax = Math.Min(image.Image.width - 1, (int)(Math.Max(a.x, b.x) * image.Image.width) + 2);
+                            int y = (int)((a.y + b.y) * .5f * image.Image.height);
+                            for (int x = xmin; x <= xmax; x++)
+                            {
+                                Color pixel = image.Image.GetPixel(x, y);
+                                if (pixel.r < .94f || pixel.g < .94f || pixel.b < .94f) continue;
+                                minimum = Math.Min(minimum, x); maximum = Math.Max(maximum, x);
+                            }
+                            Check(maximum >= minimum && Math.Abs(maximum - minimum + 1 - width) < 2.5f,
+                                "the final head raster actually displays the physical sampled aperture at its predicted pixel width");
+                        }
+                        watch.Start();
+                    }
+                }
+                watch.Stop();
+                File.WriteAllText(Path.Combine(output, "725-capture-workload.txt"), "60 explicit moving ticks; actualUIrenders="
+                    + (draws - startDraws) + "; sampledPrepares=" + (sampled.Begins - startSources) + "; elapsedMs=" + watch.Elapsed.TotalMilliseconds + "\n");
+
+                scene.Entry.Panel.RenderHidden = true; PanelSupersample.Visibility(scene.Entry);
+                int hiddenDraws = draws, hiddenSources = sampled.Begins; scene.Capture();
+                Check(draws == hiddenDraws && sampled.Begins == hiddenSources && scene.Entry.MenuDepthDisplay == null,
+                    "a hidden physical display performs no UI or native-content capture");
+                scene.Entry.Panel.RenderHidden = false; PanelSupersample.Visibility(scene.Entry);
+                Check(scene.Entry.Cam.enabled, "a reopened native window restores first-render mono eligibility before its fresh eye pair");
+                scene.Capture(); PanelSupersample.Visibility(scene.Entry);
+                Check(!scene.Entry.Cam.enabled && scene.Entry.MenuDepthDisplay != null, "reopening a spatial window recovers stereo ownership without a stale target");
+                sampled.Ready = false; scene.Source.Ready = false;
+                scene.Image.color = Color.blue;
+                int empty = draws; scene.Capture();
+                Check(draws == empty + 1 && scene.Entry.MenuDepthDisplay == null,
+                    "leaving spatial content refills a suppressed automatic mono capture immediately");
+                using (TextureOwner native = new TextureOwner(Read(scene.Entry.Rt, "725-fresh-mono-fallback")))
+                    Check(native.Image.GetPixel(225, 180).b > .7f && native.Image.GetPixel(225, 180).r < .1f,
+                        "the mono fallback actually contains newly changed native artwork instead of the previous spatial eye");
+                PanelSupersample.Visibility(scene.Entry);
+                Check(scene.Entry.Cam.enabled, "an ordinary window regains its original automatic mono capture policy");
+                sampled.Ready = true; scene.Source.Ready = true; scene.Capture(); PanelSupersample.Visibility(scene.Entry);
+                scene.Source.ThrowRight = true; int failed = draws; scene.Capture();
+                Check(draws == failed + 2 && scene.Entry.MenuDepthDisplay == null && sampled.Ends == sampled.Begins,
+                    "a right preparation failure draws the completed left and fresh mono fallback while restoring all begun leases");
+            }
+            finally { Camera.onPreCull -= count; MenuDepthSources.Unregister(sampled); }
+        }
+    }
+
+    private sealed class Sampled725 : IMenuDepthSampledSource
+    {
+        public Graphic Graphic { get; }
+        public bool IsReady => Ready;
+        internal bool Ready = true;
+        internal int Begins, Ends;
+        internal Vector2 Last, Left;
+        internal Sampled725(Graphic graphic) => Graphic = graphic;
+        public void BeforeCapture(MenuDepthEye eye) { Begins++; Last = eye.PixelFootprint; if (!eye.Right) Left = Last; }
+        public void AfterCapture() => Ends++;
+    }
+}

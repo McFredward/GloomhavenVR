@@ -25,7 +25,13 @@ namespace GloomhavenVR.Rig
 }
 namespace GloomhavenVR.WorldUI
 {
-    internal sealed class ConvertedPanel { internal RectTransform HostRect = null!; }
+    internal sealed class ConvertedPanel
+    {
+        internal RectTransform HostRect = null!;
+        internal Canvas HostCanvas = null!;
+        internal GameObject HostGo = null!;
+        internal bool RenderHidden = false, OwnerRenderHidden = false;
+    }
     internal static partial class PanelSupersample
     {
         internal sealed class Entry
@@ -42,6 +48,8 @@ namespace GloomhavenVR.WorldUI
             internal MenuDepth.MenuDepthDisplay? MenuDepthDisplay;
             internal long MenuDepthBytes;
             internal int MenuDepthFrame = -1, MenuDepthFailures;
+            internal int NextCaptureFrame, CameraOffWhileVisible, RawQuadFrames;
+            internal bool MipFallback = false;
         }
         private const string Scope = "WorldUI";
         private static readonly List<Entry> Entries = new();
@@ -64,6 +72,10 @@ namespace GloomhavenVR.WorldUI
             CaptureMenuDepth(head);
         }
         internal static void Synchronize(Entry entry) => SyncProjection(entry);
+        // Explicit editor tick boundary; native frame scheduling is not emulated
+        // by a replacement renderer. Actual enabled cameras execute Camera.Render.
+        internal static void Visibility(Entry entry) { entry.NextCaptureFrame = Time.frameCount; SyncVisibility(entry); }
+        internal static void CaptureAgain(Camera head) => CaptureMenuDepth(head);
         internal static void Clear()
         {
             foreach (Entry entry in Entries) ReleaseMenuDepth(entry);
