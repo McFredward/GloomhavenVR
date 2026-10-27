@@ -15,7 +15,7 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// targets under a strict finally-restored lease. Its Update/animation is never
 /// advanced here, and its native target remains the normal game's mono output.
 /// </summary>
-internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDisposable
+internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IDisposable
 {
     private const long MaxPoolBytes = 96L * 1024 * 1024;
     private static readonly int[] ResolutionTiers = { 256, 512, 768, 1024, 1536, 2048 };
@@ -36,6 +36,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDispo
     private int _width, _height;
     private long _pairBytes;
     private float _lastCapture, _lowerSince = -1f;
+    private int _directBatchFrame = -1;
 
     internal MenuDepthCharacterSource(RawImage image, Camera camera,
         Character3DDisplayManager manager, Transform holder, Func<Character3DDisplayManager, bool> readHidden)
@@ -57,7 +58,27 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDispo
         && (ReadOriginal == null || ReadOriginal(_manager) != null)
         && !_readHidden(_manager);
 
-    public void BeforeCapture(MenuDepthEye eye)
+    public void PrimeDirectCapture(MenuDepthEye samplingEye)
+    {
+        AfterCapture();
+        if (!IsReady || _rendering) throw new InvalidOperationException("Original character preview cannot prime its UI batch.");
+        if (!_calibration.TryGet(ReadOriginal?.Invoke(_manager) ?? _holder, out Bounds bounds)
+            || !MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
+                _image.uvRect, samplingEye.WorldPosition, bounds, out _))
+            throw new InvalidOperationException("Original character preview has no valid direct batch envelope.");
+        if (_directBatchFrame != Time.frameCount)
+        {
+            SelectResolution(samplingEye.PixelFootprint);
+            _directBatchFrame = Time.frameCount;
+        }
+        Borrow(EnsureTarget(false), _image.texture);
+    }
+
+    public void BeforeDirectCapture(MenuDepthEye eye) => Capture(eye, direct: true);
+
+    public void BeforeCapture(MenuDepthEye eye) => Capture(eye, direct: false);
+
+    private void Capture(MenuDepthEye eye, bool direct)
     {
         AfterCapture();
         if (!IsReady || _rendering) throw new InvalidOperationException("Original character preview is not ready for this capture.");
@@ -66,8 +87,11 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDispo
         if (!MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform,
             _image.uvRect, eye.WorldPosition, modelBounds, out MenuDepthCharacterProjection.View view))
             throw new InvalidOperationException("Original character preview has no valid front-facing portal.");
-        SelectResolution(eye.PixelFootprint);
-        RenderTexture target = EnsureTarget(eye.Right);
+        // A native Canvas batch has already retained this frame's left texture
+        // identity. Refresh that same surface for either direct eye; only an early
+        // batch boundary may resize it. No third surface or late sampler swap.
+        if (_directBatchFrame != Time.frameCount) SelectResolution(eye.PixelFootprint);
+        RenderTexture target = EnsureTarget(!direct && eye.Right);
         _lastCapture = Time.unscaledTime;
         Texture original = _image.texture;
         RenderOriginal(target, view);
@@ -75,6 +99,11 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthSampledSource, IDispo
         // that new original with an eye of the retired character.
         if (!BindingAlive || !ReferenceEquals(_image.texture, original))
             throw new InvalidOperationException("Original character preview changed during its render.");
+        Borrow(target, original);
+    }
+
+    private void Borrow(RenderTexture target, Texture original)
+    {
         _restoreTexture = original;
         _borrowed = target;
         _image.texture = target;

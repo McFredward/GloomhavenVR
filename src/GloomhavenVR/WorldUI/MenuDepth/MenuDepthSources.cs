@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Rig;
@@ -26,6 +27,11 @@ internal static class MenuDepthSources
     private static Action? _discoveryPump;
     private static bool _pumping;
     private static int _pumpFailures;
+    private static readonly List<IMenuDepthDirectSource> DirectPrimes = new(8);
+    private static readonly List<IMenuDepthDirectSource> PrimeCandidates = new(8);
+    private static bool _primingDirect, _cleaningDirect;
+    private static int _directPrimeFrame = -1, _primeFailures;
+    private static MenuDepthDirectCleanup? _directCleanup;
     internal static int ExcludedDirectLayers { get; set; }
     internal static event Action<Camera>? BeforeHeadCapture;
     internal static bool HasPreparedSources => _startedCount != 0;
@@ -67,12 +73,15 @@ internal static class MenuDepthSources
             _hooked = true;
             Camera.onPreCull += BeforeDirectCamera;
             Camera.onPostRender += AfterDirectCamera;
+            Canvas.preWillRenderCanvases += PrimeDirectSources;
         }
     }
 
     internal static void Unregister(IMenuDepthSource source)
     {
         Sources.Remove(source);
+        if (source is IMenuDepthDirectSource direct && DirectPrimes.Remove(direct))
+            try { direct.AfterCapture(); } catch { }
         if (Sources.Count == 0 && _directCamera != null)
         {
             _directCamera = null;
@@ -219,10 +228,90 @@ internal static class MenuDepthSources
 
     private static void UnhookIfIdle()
     {
-        if (!_hooked || Sources.Count != 0 || _capturing || _pumping || _discoveryPump != null) return;
+        if (!_hooked || Sources.Count != 0 || _capturing || _pumping || _primingDirect || _cleaningDirect || _discoveryPump != null) return;
         Camera.onPreCull -= BeforeDirectCamera;
         Camera.onPostRender -= AfterDirectCamera;
+        Canvas.preWillRenderCanvases -= PrimeDirectSources;
         _hooked = false;
+        CompleteDirectFrame();
+        if (_directCleanup != null)
+        {
+            GameObject owner = _directCleanup.gameObject; _directCleanup = null;
+            UnityEngine.Object.Destroy(owner);
+        }
+    }
+
+    private static bool DirectlyVisible(IMenuDepthSource source, Camera camera)
+        => Visible(source.Graphic) && source.Graphic.canvas.rootCanvas.renderMode == RenderMode.WorldSpace
+            && source.IsReady && (ExcludedDirectLayers & (1 << source.Graphic.gameObject.layer)) == 0
+            && (camera.cullingMask & (1 << source.Graphic.gameObject.layer)) != 0;
+
+    // uGUI snapshots a world's texture before Camera.onPreCull. Loan the stable
+    // source-left identity while native Canvas batches are built, without a model
+    // render. Each actual head eye refreshes its pixels later, using its own view.
+    private static void PrimeDirectSources()
+    {
+        Camera? head = VRRigDriver.HeadCamera;
+        if (_capturing || _primingDirect || head == null || !head.isActiveAndEnabled) return;
+        _primingDirect = true;
+        try
+        {
+            FlushPendingContent();
+            PrimeCandidates.Clear();
+            for (int i = 0; i < Sources.Count; i++)
+                if (Sources[i] is IMenuDepthDirectSource direct && DirectlyVisible(direct, head)) PrimeCandidates.Add(direct);
+            for (int i = DirectPrimes.Count - 1; i >= 0; i--)
+                if (!PrimeCandidates.Contains(DirectPrimes[i]))
+                { IMenuDepthDirectSource retired = DirectPrimes[i]; DirectPrimes.RemoveAt(i); retired.AfterCapture(); }
+            Vector3 left = head.transform.position, right = left;
+            MenuDepthDisplay.TryGetEyePositions(head, out Vector3 observedLeft, out Vector3 observedRight);
+            if (MenuDepthProjection.Finite(observedLeft) && MenuDepthProjection.Finite(observedRight) && observedLeft != observedRight)
+            { left = observedLeft; right = observedRight; }
+            for (int i = 0; i < PrimeCandidates.Count; i++)
+            {
+                IMenuDepthDirectSource source = PrimeCandidates[i];
+                MenuDepthEye l = SampleEye(source, new MenuDepthEye(false, left, head));
+                MenuDepthEye r = SampleEye(source, new MenuDepthEye(true, right, head));
+                try
+                {
+                    source.PrimeDirectCapture(WithPixels(l, Vector2.Max(l.PixelFootprint, r.PixelFootprint)));
+                    if (!Sources.Contains(source)) { source.AfterCapture(); continue; }
+                    if (!DirectPrimes.Contains(source)) DirectPrimes.Add(source);
+                    _directPrimeFrame = Time.frameCount;
+                    if (_directCleanup == null)
+                    {
+                        var owner = new GameObject("GloomhavenVR.MenuDepth.DirectCleanup") { hideFlags = HideFlags.HideAndDontSave };
+                        UnityEngine.Object.DontDestroyOnLoad(owner);
+                        _directCleanup = owner.AddComponent<MenuDepthDirectCleanup>();
+                    }
+                }
+                catch (Exception error)
+                {
+                    source.AfterCapture();
+                    int count = ++_primeFailures;
+                    if (count <= 4 || (count & (count - 1)) == 0)
+                        VRLog.Warn("WorldUI", "MENU DEPTH DIRECT BATCH: " + error.GetType().Name + ": " + error.Message + "; count=" + count);
+                }
+            }
+        }
+        finally { PrimeCandidates.Clear(); _primingDirect = false; UnhookIfIdle(); }
+    }
+
+    internal static void CompleteDirectFrame(bool onlyIfStale = false)
+    {
+        if (_cleaningDirect || (onlyIfStale && _directPrimeFrame == Time.frameCount)) return;
+        _cleaningDirect = true;
+        try
+        {
+            if (_directCamera != null) { _directCamera = null; AfterCapture(); }
+            while (DirectPrimes.Count > 0)
+            {
+                IMenuDepthDirectSource source = DirectPrimes[DirectPrimes.Count - 1]; DirectPrimes.RemoveAt(DirectPrimes.Count - 1);
+                try { source.AfterCapture(); } catch { }
+            }
+            _directPrimeFrame = -1;
+        }
+        finally { _cleaningDirect = false; UnhookIfIdle(); }
     }
 
     // Supersampling can be switched off independently. Those original world-space
@@ -254,10 +343,7 @@ internal static class MenuDepthSources
                 // and need its per-Graphic mapped eye, even if the head's transient
                 // culling mask still contains the native UI layer. Pooled alpha-zero
                 // consumers likewise must not borrow a shared model camera.
-                if (Visible(source.Graphic) && source.Graphic.canvas.rootCanvas.renderMode == RenderMode.WorldSpace
-                    && source.IsReady
-                    && (ExcludedDirectLayers & (1 << source.Graphic.gameObject.layer)) == 0
-                    && (camera.cullingMask & (1 << source.Graphic.gameObject.layer)) != 0)
+                if (DirectlyVisible(source, camera))
                     Prepared.Add(source);
             }
             if (Prepared.Count == 0) { AfterCapture(); return; }
@@ -274,7 +360,9 @@ internal static class MenuDepthSources
             {
                 _startedCount = i + 1;
                 sourceInProgress = Prepared[i];
-                Prepared[i].BeforeCapture(SampleEye(Prepared[i], eye));
+                MenuDepthEye sampled = SampleEye(Prepared[i], eye);
+                if (Prepared[i] is IMenuDepthDirectSource direct && DirectPrimes.Contains(direct)) direct.BeforeDirectCapture(sampled);
+                else Prepared[i].BeforeCapture(sampled);
             }
         }
         catch (Exception error)
@@ -301,4 +389,18 @@ internal static class MenuDepthSources
         _directCamera = null;
         AfterCapture();
     }
+}
+
+// No per-eye global Canvas rebuild. The loop only restores an orphaned early
+// texture loan when a head draw/post callback was skipped or the application hid.
+[DefaultExecutionOrder(-32000)]
+internal sealed class MenuDepthDirectCleanup : MonoBehaviour
+{
+    private static readonly WaitForEndOfFrame End = new();
+    private IEnumerator Start()
+    {
+        while (true) { yield return End; MenuDepthSources.CompleteDirectFrame(); }
+    }
+    private void Update() => MenuDepthSources.CompleteDirectFrame(onlyIfStale: true);
+    private void OnDisable() => MenuDepthSources.CompleteDirectFrame();
 }
