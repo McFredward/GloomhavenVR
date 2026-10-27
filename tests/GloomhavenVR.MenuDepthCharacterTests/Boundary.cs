@@ -10,10 +10,19 @@ public sealed class Character3DDisplayManager : MonoBehaviour
 {
     private Transform character3DHolder = null!;
     private bool isHidden;
+    private NativeCharacter character3D = null!;
+    private sealed class NativeCharacter
+    {
+        private readonly List<NativeModel> models;
+        internal NativeCharacter(Transform[] roots) { models = new List<NativeModel>(); foreach (Transform root in roots) models.Add(new NativeModel { CharacterManager = root }); }
+    }
+    private sealed class NativeModel { public Component CharacterManager { get; set; } = null!; }
     public Transform Holder => character3DHolder;
+    public object Original => character3D;
     public bool Hidden { set => isHidden = value; get => isHidden; }
     public int DisplayCalls;
-    public void Bind(Transform holder) => character3DHolder = holder;
+    public void Bind(Transform holder) { character3DHolder = holder; character3D = new NativeCharacter(new[] { holder }); }
+    public void ReplaceOriginal(params Transform[] roots) => character3D = new NativeCharacter(roots);
     [MethodImpl(MethodImplOptions.NoInlining)]
     public void Display(Component request, ECharacter character, string skin = "", string playAnimation = "")
     { DisplayCalls++; gameObject.SetActive(true); isHidden = false; }
@@ -23,6 +32,27 @@ namespace ScenarioRuleLibrary { public enum ECharacter { Brute } }
 
 // This lane supplies explicit private-capture eyes; no direct XR camera draws.
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera { get; set; } } }
+
+// This lane owns live character rendering. General decorative-owner discovery
+// is exercised by the real Driver/performance lane; its unused observer compile
+// ports deliberately do not supply any replacement discovery/capture behavior.
+namespace GloomhavenVR.WorldUI.MenuDepth
+{
+    internal static class MenuDepthDriver
+    {
+        internal static IEnumerable<System.Reflection.MethodBase> NativeOwnerLifecycles()
+            => System.Array.Empty<System.Reflection.MethodBase>();
+        internal static void ObserveGraphic(UnityEngine.UI.Graphic graphic, bool moved) { }
+        internal static void ForgetGraphic(UnityEngine.UI.Graphic graphic) { }
+        internal static void ObserveOwner(MonoBehaviour owner) { }
+    }
+}
+// Unused general-window observer type port. No UIWindow lifecycle is patched or
+// exercised in this character-only lane; native owner coverage lives separately.
+namespace UnityEngine.UI
+{
+    public sealed class UIWindow : MonoBehaviour { private void OnEnable() { } }
+}
 
 namespace GloomhavenVR.Core
 {

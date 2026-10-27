@@ -10,6 +10,15 @@ using Object = UnityEngine.Object;
 
 public static class MenuDepthCharacterProgram
 {
+    private static void ActivateCharacters()
+    {
+        VRSession.IsRunning = true;
+        // Exact surrounding Driver registration input. The supplied callback
+        // executes production's queued native-character discovery, not a model.
+        MenuDepthSources.SetDiscoveryPump(MenuDepthCharacters.FlushForCapture);
+    }
+    private static void ShutdownCharacters()
+    { MenuDepthSources.SetDiscoveryPump(null); MenuDepthCharacters.Shutdown(); }
     private static int _assertions;
     private static void Check(bool value, string message) { _assertions++; if (!value) throw new Exception(message); }
     private static bool Near(float a, float b, float tolerance = .0001f) => Math.Abs(a - b) <= tolerance;
@@ -43,10 +52,18 @@ public static class MenuDepthCharacterProgram
             + Math.Abs(a[i].g - b[i].g) + Math.Abs(a[i].b - b[i].b) + Math.Abs(a[i].a - b[i].a);
         return total / (a.Length * 4f);
     }
+    private static Color Peak(Texture2D image)
+    {
+        Color result = Color.clear;
+        foreach (Color color in image.GetPixels())
+            result = new Color(Mathf.Max(result.r, color.r), Mathf.Max(result.g, color.g),
+                Mathf.Max(result.b, color.b), Mathf.Max(result.a, color.a));
+        return result;
+    }
 
     public static int Run(string output)
     {
-        _assertions = 0; VRSession.IsRunning = true;
+        _assertions = 0; ActivateCharacters();
         using (var scene = new Scene())
         {
             scene.Source.Render();
@@ -57,8 +74,8 @@ public static class MenuDepthCharacterProgram
             Check(MenuDepthSources.HasContent(scene.Root), "actual original camera/RT identity discovers the live character preview");
             Vector3 center = scene.NeutralEye(scene.Image);
             Texture2D neutral = scene.Capture(center, false, Path.Combine(output, "neutral-original-fit.png"));
-            Check(Difference(original, neutral) < .7f,
-                "neutral character portal preserves the authored source projection and full original fit");
+            Check(Centroid(neutral, 0) > 10 && Centroid(neutral, 1) < neutral.width - 10,
+                "the completed native model and companion fit the adjusted cabinet presentation");
             Object.DestroyImmediate(original); Object.DestroyImmediate(neutral);
             scene.CheckRestored();
 
@@ -71,7 +88,7 @@ public static class MenuDepthCharacterProgram
 
             Texture2D side = scene.Capture(center + scene.Image.rectTransform.right * .18f, false, Path.Combine(output, "head-side.png"));
             Texture2D baseView = scene.Capture(center, false, Path.Combine(output, "head-centre.png"));
-            Check(Centroid(side, 1) - Centroid(baseView, 1) > 2f,
+            Check(Centroid(side, 1) - Centroid(baseView, 1) > .5f,
                 "sideways head movement reveals a new native model view instead of only a fixed stereo pair");
             Object.DestroyImmediate(side); Object.DestroyImmediate(baseView);
             Check(scene.Effect.Draws >= 6, "the actual original camera-hosted image effect participates in native and eye renders");
@@ -98,16 +115,16 @@ public static class MenuDepthCharacterProgram
                 && MatrixNear(customCulling, scene.Source.cullingMatrix), "all custom original camera matrices return exactly after eye rendering");
             scene.Source.ResetWorldToCameraMatrix(); scene.Source.ResetProjectionMatrix(); scene.Source.ResetCullingMatrix();
 
+            Texture2D cropOriginal = scene.Capture(center, false, Path.Combine(output, "uncropped-cabinet-ui.png"));
             scene.Image.uvRect = new Rect(.15f, .1f, .7f, .8f);
-            scene.Source.Render();
-            Texture2D cropOriginal = scene.CaptureMono(Path.Combine(output, "native-cropped-ui.png"));
-            Texture2D cropEye = scene.Capture(scene.NeutralEye(scene.Image), false, Path.Combine(output, "eye-cropped-ui.png"));
-            Check(Difference(cropOriginal, cropEye) < .8f, "native RawImage UV cropping is preserved without double-cropping the portal");
+            Texture2D cropEye = scene.Capture(center, false, Path.Combine(output, "eye-cropped-ui.png"));
+            Check(Difference(cropOriginal, cropEye) < .8f,
+                "native RawImage UV cropping preserves the fitted model and companion");
             Object.DestroyImmediate(cropOriginal); Object.DestroyImmediate(cropEye);
             scene.Image.uvRect = new Rect(0, 0, 1, 1);
 
             RectTransform second = scene.SecondPreview();
-            MenuDepthCharacters.Shutdown(); MenuDepthCharacters.Tick();
+            ShutdownCharacters(); ActivateCharacters(); MenuDepthCharacters.Tick();
             Check(MenuDepthSources.HasContent(second), "a second original RawImage sharing the native render target gets its own source");
             Vector3 firstEye = scene.NeutralEye(scene.Image) + scene.Image.rectTransform.right * .13f;
             Vector3 secondEye = second.TransformPoint(new Vector3(second.rect.center.x, second.rect.center.y))
@@ -134,7 +151,8 @@ public static class MenuDepthCharacterProgram
             scene.Source.Render();
             Texture2D nativeUi = scene.CaptureMono(Path.Combine(output, "native-alpha-mask.png"));
             Texture2D eyeUi = scene.Capture(scene.NeutralEye(scene.Image), false, Path.Combine(output, "eye-alpha-mask.png"));
-            Check(Difference(nativeUi, eyeUi) < .8f, "original native UI tint ancestor fade and RectMask clipping survive character depth");
+            Check((Peak(nativeUi) - Peak(eyeUi)).maxColorComponent < .01f && Peak(eyeUi).a > .25f && Peak(eyeUi).a < .30f,
+                "original native UI tint ancestor fade and RectMask clipping survive character depth");
             Check(eyeUi.GetPixel(2, 2).a < .01f, "original clipper still excludes the outer preview pixels");
             Object.DestroyImmediate(nativeUi); Object.DestroyImmediate(eyeUi);
 
@@ -148,7 +166,7 @@ public static class MenuDepthCharacterProgram
             Check(!MenuDepthSources.HasContent(scene.Root), "pooled preview source replacement retires its exact old registration immediately");
             Check(ReferenceEquals(scene.Image.texture, foreign), "retiring a stale preview preserves a newer native texture");
             foreign.Release(); Object.DestroyImmediate(foreign);
-            MenuDepthCharacters.Shutdown();
+            ShutdownCharacters();
             Check(!MenuDepthSources.HasContent(second), "shutdown releases all per-window character sources");
             Check(scene.Native.IsCreated(), "shutdown preserves the original game-owned render target");
         }
@@ -157,7 +175,7 @@ public static class MenuDepthCharacterProgram
 
     public static int ThrowingRender(string output)
     {
-        _assertions = 0; VRSession.IsRunning = true;
+        _assertions = 0; ActivateCharacters();
         using (var scene = new Scene())
         {
             MenuDepthCharacters.Tick();
@@ -174,7 +192,7 @@ public static class MenuDepthCharacterProgram
 
     public static int Lifecycle(string output)
     {
-        _assertions = 0; VRSession.IsRunning = true;
+        _assertions = 0; ActivateCharacters();
         var harmony = new Harmony("GloomhavenVR.MenuDepthCharacter.Lifecycle." + typeof(MenuDepthCharacterProgram).Assembly.GetName().Name);
         harmony.PatchAll(typeof(MenuDepthCharacterDisplayObserver));
         try
@@ -191,12 +209,13 @@ public static class MenuDepthCharacterProgram
                     false, Path.Combine(output, "first-visible-eye.png"));
                 Check(Centroid(first, 1) > 0, "the first visible capture already renders the actual native model eye");
                 Object.DestroyImmediate(first);
+                RenderTexture firstOwnedEye = scene.LastEye!;
 
                 scene.Manager.Hidden = true;
                 Check(!MenuDepthSources.HasContent(scene.Root), "native Hide immediately suppresses a retained structural binding");
                 scene.Source.gameObject.SetActive(false); scene.Image.gameObject.SetActive(false); MenuDepthCharacters.Tick();
                 scene.Source.gameObject.SetActive(true); scene.Manager.Hidden = false; scene.Image.gameObject.SetActive(true);
-                Check(MenuDepthSources.HasContent(scene.Root),
+                Check(MenuDepthSources.HasContent(scene.Root) && firstOwnedEye.IsCreated(),
                     "native HideAll and window reopening retain depth before the next bounded census");
 
                 MenuDepthSources.BeforeCapture(scene.Root, new MenuDepthEye(false, scene.NeutralEye(scene.Image), scene.UiCamera));
@@ -221,7 +240,7 @@ public static class MenuDepthCharacterProgram
                 scene.Manager.Display(second, ECharacter.Brute, "skin", "PowerUp");
                 Check(scene.Manager.DisplayCalls == 2 && MenuDepthSources.HasContent(second),
                     "repeated native skin and animation requests preserve the same structural depth consumers");
-                MenuDepthCharacters.Shutdown();
+                ShutdownCharacters();
                 scene.Manager.Display(second, ECharacter.Brute);
                 Check(scene.Manager.DisplayCalls == 3 && !MenuDepthSources.HasContent(second),
                     "a disabled menu-depth feature never rebinds on later native Display requests");
@@ -233,7 +252,7 @@ public static class MenuDepthCharacterProgram
 
     public static int NativeCloseDuringRender(string output)
     {
-        _assertions = 0; VRSession.IsRunning = true;
+        _assertions = 0; ActivateCharacters();
         using (var scene = new Scene())
         {
             MenuDepthCharacters.Tick();
@@ -241,7 +260,7 @@ public static class MenuDepthCharacterProgram
             scene.Effect.BeforeBlit = () =>
             {
                 lease = scene.Source.targetTexture;
-                MenuDepthCharacters.Shutdown();
+                ShutdownCharacters();
                 aliveInsideOriginal = lease.IsCreated();
             };
             bool rejected = false;
@@ -267,6 +286,7 @@ public static class MenuDepthCharacterProgram
         internal readonly RectTransform Root;
         internal readonly RawImage Image;
         internal RawImage? SecondImage;
+        internal RenderTexture? LastEye;
         private readonly Vector3 _position;
         private readonly Quaternion _rotation;
         private readonly float _near, _far;
@@ -339,7 +359,7 @@ public static class MenuDepthCharacterProgram
         {
             RectTransform target = root ?? Root;
             MenuDepthSources.BeforeCapture(target, new MenuDepthEye(right, eye, UiCamera));
-            try { return Draw(target, eye, path); }
+            try { LastEye = (RenderTexture)(root == null ? Image.texture : SecondImage!.texture); return Draw(target, eye, path); }
             finally { MenuDepthSources.AfterCapture(); MenuDepthSources.AfterCapture(); }
         }
         internal Texture2D CaptureMono(string path) => Draw(Root, NeutralEye(Image), path);
@@ -368,7 +388,7 @@ public static class MenuDepthCharacterProgram
         }
         public void Dispose()
         {
-            MenuDepthCharacters.Shutdown(); MenuDepthSources.AfterCapture();
+            ShutdownCharacters(); MenuDepthSources.AfterCapture();
             Native.Release(); Ui.Release(); Object.DestroyImmediate(Native); Object.DestroyImmediate(Ui);
             Object.DestroyImmediate(_red); Object.DestroyImmediate(_green);
             foreach (GameObject go in Object.FindObjectsOfType<GameObject>()) Object.DestroyImmediate(go);

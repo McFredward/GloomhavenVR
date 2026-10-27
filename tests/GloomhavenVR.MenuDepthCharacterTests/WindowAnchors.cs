@@ -14,12 +14,27 @@ public static class MenuDepthCharacterWindowProof
 {
     private static int _checks;
     private static void Check(bool value, string message) { _checks++; if (!value) throw new Exception(message); }
-    private const float Pane = 2.56f * .85f;
-    private static readonly float NativeSize = 2 * Pane * Mathf.Tan(15 * Mathf.Deg2Rad);
+    private static readonly Bounds Envelope = AuthoredEnvelope();
     // Keep every complete marker patch inside the authored crop for all poses;
     // a clipped patch's centroid is not its projected geometric centre.
     private static readonly Vector3[] Points = { new Vector3(.1f, -.25f, 2.56f), new Vector3(.05f, .25f, 2.56f), new Vector3(.3f, .1f, 3f) };
     private static readonly Vector3 EyeProbe = new Vector3(-.35f, .15f, 2.75f);
+
+    private static Bounds AuthoredEnvelope()
+    {
+        // Independent authored vertices, not production Renderer.bounds/View.
+        Bounds bounds = new Bounds(new Vector3(.1f, -.25f, 2.56f), new Vector3(.08f, .08f, 0));
+        foreach (Vector3 point in new[] { new Vector3(.05f, .25f, 2.56f), new Vector3(.3f, .1f, 3f) })
+        { bounds.Encapsulate(point - new Vector3(.04f, .04f, 0)); bounds.Encapsulate(point + new Vector3(.04f, .04f, 0)); }
+        bounds.Encapsulate(new Vector3(-.4f, .1f, 2.75f)); bounds.Encapsulate(new Vector3(-.3f, .2f, 2.75f));
+        Matrix4x4 holder = Matrix4x4.TRS(new Vector3(.4f, -.45f, 2.56f), Quaternion.Euler(0, 164, 0), Vector3.one);
+        // The real legacy translation curve supplies y and binds the unsupplied
+        // x/z channels to zero. The retained authored-mesh audit confirms this
+        // original animation pose independently of Source calibration.
+        for (int i = 0; i < 8; i++) bounds.Encapsulate(holder.MultiplyPoint3x4(new Vector3((i & 1) == 0 ? -.0175f : .0175f,
+            .25f + ((i & 2) == 0 ? -.05f : .05f), (i & 4) == 0 ? -.0175f : .0175f)));
+        return bounds;
+    }
 
     private static Texture2D Read(RenderTexture target, string file)
     {
@@ -50,11 +65,16 @@ public static class MenuDepthCharacterWindowProof
     private static int RunCabinet(string output, bool ignoredViewports)
     {
         _checks = 0; VRSession.IsRunning = true;
+        MenuDepthSources.SetDiscoveryPump(MenuDepthCharacters.FlushForCapture);
         using (var scene = new Scene(output, ignoredViewports))
         {
             var motions = new[] { Vector3.zero, new Vector3(.22f, 0, 0), new Vector3(0, .13f, 0), new Vector3(0, 0, .32f), new Vector3(-.16f, -.08f, -.2f) };
             foreach (Consumer consumer in scene.Consumers)
             {
+                // The pool is deliberately bounded. Exercise each opening after
+                // a real feature teardown/rebind, retaining simultaneous native
+                // RT consumers but releasing the previous opening's unused pair.
+                scene.BeginConsumer();
                 Vector3[] fixedLocal = new Vector3[Points.Length];
                 for (int i = 0; i < Points.Length; i++) fixedLocal[i] = consumer.SceneToPhysical(Points[i]);
                 for (int motion = 0; motion < motions.Length; motion++)
@@ -78,9 +98,9 @@ public static class MenuDepthCharacterWindowProof
                         Color eyeUniform = pixels.GetPixel((int)(probe.x * pixels.width), (int)(probe.y * pixels.height));
                         Vector3 expectedEye = consumer.NativeEye(eyes[eye]);
                         scene.Log("shader-eye," + consumer.Name + "," + motion + "," + eye + "," + eyeUniform + ",expected-eye," + expectedEye);
-                        Check(Mathf.Abs(eyeUniform.r - (expectedEye.x * .1f + .5f)) < .012f
-                            && Mathf.Abs(eyeUniform.g - (expectedEye.y * .1f + .5f)) < .012f
-                            && Mathf.Abs(eyeUniform.b - (expectedEye.z * .1f + .5f)) < .012f,
+                        Check(Mathf.Abs(eyeUniform.r - (expectedEye.x * .02f + .5f)) < .012f
+                            && Mathf.Abs(eyeUniform.g - (expectedEye.y * .02f + .5f)) < .012f
+                            && Mathf.Abs(eyeUniform.b - (expectedEye.z * .02f + .5f)) < .012f,
                             "actual GPU world-space camera uniform follows the borrowed eye while the native scene stays fixed");
                         Object.DestroyImmediate(pixels);
                         Check(scene.InvariantDuringRender, "native camera holder lights and models stay fixed during original render callbacks");
@@ -111,11 +131,11 @@ public static class MenuDepthCharacterWindowProof
         internal readonly Camera UiCamera;
         internal readonly bool Desktop;
         internal readonly float Width, Height;
-        private readonly Rect _nativeViewport, _uiViewport;
+        private readonly Rect _uiViewport;
         internal Consumer(string name, RectTransform root, RawImage image, Transform frame, Camera camera, bool desktop, Rect nativeViewport)
         {
             Name = name; Root = root; Image = image; Frame = frame; UiCamera = camera; Desktop = desktop;
-            _nativeViewport = nativeViewport; _uiViewport = desktop ? camera.rect : new Rect(0, 0, 1, 1);
+            _uiViewport = desktop ? camera.rect : new Rect(0, 0, 1, 1);
             Width = desktop ? frame.TransformVector(Vector3.right).magnitude : root.rect.width * root.TransformVector(Vector3.right).magnitude;
             Height = desktop ? frame.TransformVector(Vector3.up).magnitude : root.rect.height * root.TransformVector(Vector3.up).magnitude;
         }
@@ -123,17 +143,42 @@ public static class MenuDepthCharacterWindowProof
         {
             get
             {
-                float x = NativeSize * Image.uvRect.width / _nativeViewport.width / (Width * _uiViewport.width);
-                float y = NativeSize * Image.uvRect.height / _nativeViewport.height / (Height * _uiViewport.height);
-                return new Vector3(x, y, Mathf.Sqrt(x * y));
+                float w = Desktop ? Image.rectTransform.rect.width * Image.rectTransform.TransformVector(Vector3.right).magnitude : Width;
+                float h = Desktop ? Image.rectTransform.rect.height * Image.rectTransform.TransformVector(Vector3.up).magnitude : Height;
+                float n = Mathf.Max(Envelope.size.x / (w * .82f), Envelope.size.y / (h * .75f));
+                // The original UI frustum and the actual Graphic rectangle are
+                // independent: Canvas pixel rounding/camera viewport can make
+                // the latter slightly different from the full native frustum.
+                float x = Desktop ? (2 * UiCamera.orthographicSize * UiCamera.aspect) / (Width * _uiViewport.width) : 1f;
+                float y = Desktop ? (2 * UiCamera.orthographicSize) / (Height * _uiViewport.height) : 1f;
+                return new Vector3(n * x, n * y, Mathf.Max(n, Envelope.size.z / (Mathf.Min(w, h) * .14f)) * Mathf.Sqrt(x * y));
             }
         }
-        private Vector3 Offset => new Vector3((_uiViewport.center.x - .5f) * Width, (_uiViewport.center.y - .5f) * Height, 0);
-        private Vector3 CropCenter => new Vector3(((Image.uvRect.center.x - _nativeViewport.x) / _nativeViewport.width - .5f) * NativeSize,
-            ((Image.uvRect.center.y - _nativeViewport.y) / _nativeViewport.height - .5f) * NativeSize, Pane);
+        private Vector3 Offset
+        {
+            get
+            {
+                if (!Desktop) return Vector3.zero;
+                Vector3 center = UiCamera.WorldToViewportPoint(Image.rectTransform.TransformPoint(Image.rectTransform.rect.center));
+                return new Vector3((_uiViewport.x + center.x * _uiViewport.width - .5f) * Width,
+                    (_uiViewport.y + center.y * _uiViewport.height - .5f) * Height, 0);
+            }
+        }
+        private Vector3 CropCenter
+        {
+            get
+            {
+                float w = Desktop ? Image.rectTransform.rect.width * Image.rectTransform.TransformVector(Vector3.right).magnitude : Width;
+                float h = Desktop ? Image.rectTransform.rect.height * Image.rectTransform.TransformVector(Vector3.up).magnitude : Height;
+                float n = Mathf.Max(Envelope.size.x / (w * .82f), Envelope.size.y / (h * .75f));
+                float z = Mathf.Max(n, Envelope.size.z / (Mathf.Min(w, h) * .14f));
+                float outFront = Mathf.Min(Mathf.Min(w, h) * .035f, Envelope.size.z / z * .30f);
+                return new Vector3(Envelope.center.x, Envelope.center.y, Envelope.min.z + outFront * z);
+            }
+        }
         internal Vector3 SceneToPhysical(Vector3 scene) { Vector3 delta = scene - CropCenter, scale = Scale; return Offset + new Vector3(delta.x / scale.x, delta.y / scale.y, delta.z / scale.z); }
         internal Vector3 NativeEye(Vector3 physicalEye) => CropCenter + Vector3.Scale(physicalEye - Offset, Scale);
-        internal Vector3 Neutral => SceneToPhysical(Vector3.zero);
+        internal Vector3 Neutral => new Vector3(Offset.x, Offset.y, -1.6f);
         internal Vector3 World(Vector3 local) => Frame.position + Frame.right * local.x + Frame.up * local.y + Frame.forward * local.z;
         internal Vector2 Project(Vector3 eye, Vector3 fixedPoint)
         {
@@ -170,15 +215,17 @@ public static class MenuDepthCharacterWindowProof
         private Vector3 _sampledBody;
         private float _sampledTime;
         private readonly bool _ignoredViewports;
+        private string _captureLabel = "setup";
 
         internal Scene(string output, bool ignoredViewports)
         {
             _ignoredViewports = ignoredViewports;
             _output = output; _log = new StreamWriter(Path.Combine(output, "independent-landmarks.csv"));
-            // Four times the earlier raster resolution is needed for metric
-            // reconstruction: a subpixel stereo disparity at shallow depth can
-            // otherwise exceed45mm despite an accurate subpixel image projection.
-            Native = new RenderTexture(3072, 3072, 24); Native.Create(); Ui = new RenderTexture(3072, 2304, 24); Ui.Create();
+            // Match the bounded2048 eye sampling to this intermediate UI witness.
+            // Its old3072 raster exceeded that new source budget and magnified
+            // LDR viewport rounding. Final physical close-up fidelity is covered
+            // by the separate independent perspective-head frequency proof.
+            Native = new RenderTexture(3072, 3072, 24); Native.Create(); Ui = new RenderTexture(2048, 1536, 24); Ui.Create();
             Source = new GameObject("native GUI3D camera with real child scene").AddComponent<Camera>();
             Source.stereoTargetEye = StereoTargetEyeMask.None; Source.backgroundColor = Color.clear; Source.clearFlags = CameraClearFlags.SolidColor;
             Source.fieldOfView = 30; Source.aspect = 1; Source.nearClipPlane = .1f; Source.farClipPlane = 10;
@@ -213,6 +260,9 @@ public static class MenuDepthCharacterWindowProof
             Effect = Source.gameObject.AddComponent<CharacterNativeImageEffect>();
             Effect.BeforeBlit = () =>
             {
+                if (_captureLabel.StartsWith("native-screen", StringComparison.Ordinal))
+                    Log("actual-native-eye," + _captureLabel + "," + Source.worldToCameraMatrix.inverse.MultiplyPoint3x4(Vector3.zero)
+                        + ",projection," + Source.projectionMatrix + ",target," + Source.targetTexture.width + ",nativeViewport," + Source.pixelRect);
                 InvariantDuringRender &= Source.transform.position == Vector3.zero && Source.transform.rotation == Quaternion.identity
                     && Holder.position == _holderPosition && Light.position == lightPosition;
                 InvariantDuringRender &= Vector3.Distance(_animatedBody.position, _sampledBody) < .00001f;
@@ -222,6 +272,12 @@ public static class MenuDepthCharacterWindowProof
             AddConsumer("rotated-scaled-cropped", false, new Vector3(1, .4f, 2), 31, 1.3f, new Rect(.1f, .15f, .75f, .7f));
             AddConsumer("native-screen-cropped", true, new Vector3(-.7f, .3f, 1.3f), -23, .85f, new Rect(.1f, .15f, .75f, .7f));
             Canvas.ForceUpdateCanvases(); MenuDepthCharacters.Tick();
+            foreach (MeshRenderer renderer in Holder.GetComponentsInChildren<MeshRenderer>())
+            {
+                MeshFilter filter = renderer.GetComponent<MeshFilter>();
+                Log("authored-mesh," + renderer.name + "," + filter.sharedMesh.bounds + "," + renderer.localToWorldMatrix);
+            }
+            Log("independent-authored-envelope," + Envelope);
         }
         private void AddConsumer(string name, bool desktop, Vector3 position, float yaw, float size, Rect crop)
         {
@@ -252,11 +308,19 @@ public static class MenuDepthCharacterWindowProof
         }
         internal Texture2D Capture(Consumer consumer, Vector3 localEye, bool right, int motion)
         {
+            _captureLabel = consumer.Name + "," + motion + "," + right;
             Vector3 worldEye = consumer.World(localEye), nativeEye = worldEye;
             if (consumer.Desktop)
                 Check(MenuDepthScreenProjection.TryMap(consumer.Frame, consumer.UiCamera, consumer.Image.rectTransform, worldEye, out nativeEye),
                     "actual native desktop mapper admits the physical eye for its original cropped preview");
-            MenuDepthSources.BeforeCapture(consumer.Root, new MenuDepthEye(right, nativeEye, consumer.UiCamera));
+            if (consumer.Desktop)
+                Log("original-native-input," + _captureLabel + ",eye," + nativeEye + ",expected-eye," + consumer.NativeEye(localEye)
+                    + ",rect," + consumer.Image.rectTransform.rect + ",matrix," + consumer.Image.rectTransform.localToWorldMatrix
+                    + ",ui-projection," + consumer.UiCamera.projectionMatrix + ",pixelRect," + consumer.UiCamera.pixelRect);
+            // This fixture supplies mapped XR eyes and uses a UI capture camera,
+            // not a physical head camera. Supply its explicit effective sample
+            // boundary instead of projecting native units as physical head pixels.
+            MenuDepthSources.BeforeCapture(consumer.Root, new MenuDepthEye(right, nativeEye, consumer.UiCamera, false, new Vector2(2048, 2048)));
             try
             {
                 if (!consumer.Desktop)
@@ -265,12 +329,22 @@ public static class MenuDepthCharacterWindowProof
                     consumer.UiCamera.worldToCameraMatrix = view; consumer.UiCamera.projectionMatrix = projection;
                     consumer.UiCamera.cullingMatrix = projection * view;
                 }
+                // Each original camera clears only its own viewport. This
+                // shared fixture output must not retain a previous window's
+                // tall marker tails outside the next camera's partial rect.
+                RenderTexture previous = RenderTexture.active; RenderTexture.active = Ui;
+                GL.Clear(true, true, Color.clear); RenderTexture.active = previous;
                 Canvas.ForceUpdateCanvases(); consumer.UiCamera.Render();
                 return Read(Ui, Path.Combine(_output, consumer.Name + "-" + motion + "-" + (right ? "right" : "left") + ".png"));
             }
             finally { MenuDepthSources.AfterCapture(); }
         }
         internal void Log(string text) { _log.WriteLine(text); _log.Flush(); }
+        internal void BeginConsumer()
+        {
+            MenuDepthSources.SetDiscoveryPump(null); MenuDepthCharacters.Shutdown(); SampleNativeAnimation(0);
+            MenuDepthSources.SetDiscoveryPump(MenuDepthCharacters.FlushForCapture); MenuDepthCharacters.Tick();
+        }
         internal void SampleNativeAnimation(float time)
         {
             _animation["NativeIdle"].time = time; _animation.Sample(); _sampledTime = _animation["NativeIdle"].time;
@@ -288,7 +362,7 @@ public static class MenuDepthCharacterWindowProof
         }
         public void Dispose()
         {
-            MenuDepthSources.AfterCapture(); MenuDepthCharacters.Shutdown(); _log.Dispose();
+            MenuDepthSources.AfterCapture(); MenuDepthSources.SetDiscoveryPump(null); MenuDepthCharacters.Shutdown(); _log.Dispose();
             foreach (Material material in _materials) Object.DestroyImmediate(material);
             Object.DestroyImmediate(_clip);
             Native.Release(); Ui.Release(); Object.DestroyImmediate(Native); Object.DestroyImmediate(Ui);

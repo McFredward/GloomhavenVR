@@ -47,6 +47,8 @@ def main():
     mode.add_argument('--play-mode', dest='editor_mode', action='store_false', help='Default: original Playmode callback execution.')
     parser.add_argument('--api-root', type=Path, default=ROOT,
         help='Read the unchanged shared capture contract from the integration checkout while testing private character sources.')
+    parser.add_argument('--discovery-root', type=Path, default=ROOT,
+        help='Read frozen character discovery/observer production from a parallel integration checkout.')
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     args = parser.parse_args()
     output = ROOT / '.planning/debug/menu-depth-character'; output.mkdir(parents=True, exist_ok=True)
@@ -60,21 +62,55 @@ def main():
              'MenuDepthCharacters.cs', 'MenuDepthCharacterSource.cs', 'MenuDepthCharacterProjection.cs',
              'MenuDepthCharacterDisplayObserver.cs')
     api_names = ('IMenuDepthSource.cs', 'MenuDepthEye.cs', 'MenuDepthSources.cs', 'MenuDepthProjection.cs', 'MenuDepthScreenProjection.cs')
-    inputs = {name: (args.api_root / 'src/GloomhavenVR/WorldUI/MenuDepth' / name)
-              if name in api_names else code_root / name for name in names}
+    discovery_names = ('MenuDepthCharacters.cs', 'MenuDepthCharacterDisplayObserver.cs')
+    inputs = {name: (args.api_root / 'src/GloomhavenVR/WorldUI/MenuDepth' / name) if name in api_names
+              else (args.discovery_root / 'src/GloomhavenVR/WorldUI/MenuDepth' / name) if name in discovery_names
+              else code_root / name for name in names}
     sources = {name: path.read_text() for name, path in inputs.items()}
     fixture = ROOT / 'tests/GloomhavenVR.MenuDepthCharacterTests'
     pins = {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in [*inputs.values(), *fixture.glob('*'), Path(__file__),
                          ROOT / 'scripts/menu-depth-character/Editor/Runner.cs', Path(__file__).with_name('project_compilers.py')] if path.is_file()}
     variants = [
+        ('presentation725', '', '', '', 'Presentation', ''),
+        ('presentation725-native-ldr-effect', '', '', '', 'NativeLdrEffect', ''),
+        ('fixed-native-samples725', 'MenuDepthCharacterSource.cs',
+         'SelectResolution(eye.PixelFootprint);', 'SelectResolution(Vector2.zero);', 'Presentation',
+         'near mid and far actual head rasters preserve the independently authored spatial frequency'),
+        ('old-deep-framing725', 'MenuDepthCharacterProjection.cs',
+         'float planeDistance = model.min.z + protrusion * scaleZ;',
+         'float planeDistance = .85f * Vector3.Dot(holder.position - originalPosition, forward);', 'Presentation',
+         'actual rendered landmarks occupy the independently specified shallow centered cabinet'),
+        ('camera-child-move725', 'MenuDepthCharacterSource.cs',
+         '            _camera.orthographic = false;',
+         '            _camera.transform.SetPositionAndRotation(view.Position, view.Rotation);\n            _camera.orthographic = false;', 'Presentation',
+         'actual rendered landmarks occupy the independently specified shallow centered cabinet'),
+        ('animated-equipment-fit725', 'MenuDepthCharacterSource.cs',
+         '            foreach (Renderer renderer in renderers)\n            {\n                if (!renderer.enabled',
+         '            bones.Clear();\n            foreach (Renderer renderer in renderers)\n            {\n                if (!renderer.enabled', 'Presentation',
+         'actual rendered landmarks occupy the independently specified shallow centered cabinet'),
+        ('completed-model-membership725', 'MenuDepthCharacterSource.cs',
+         '_calibration.TryGet(ReadOriginal?.Invoke(_manager) ?? _holder,',
+         '_calibration.TryGet(_holder,', 'Presentation',
+         'native near-pane landmark remains visible in the final actual head raster'),
+        ('inactive-wardrobe-fit725', 'MenuDepthCharacterSource.cs',
+         'if (!renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;',
+         '/* injected: dormant wardrobe geometry contaminates active-model envelope */', 'Presentation',
+         'native near-pane landmark remains visible in the final actual head raster'),
+        ('unbounded-eye-pool725', 'MenuDepthCharacterSource.cs',
+         'MaxPoolBytes = 96L', 'MaxPoolBytes = 192L', 'Presentation',
+         'simultaneous actual eye pairs stay inside the shared96MiB budget'),
+        ('allocation-hysteresis-lost725', 'MenuDepthCharacterSource.cs',
+         'if (current > 0 && wanted <= current * 1.12f) return;',
+         '/* injected: tier boundary jitter reallocates immediately */', 'Presentation',
+         'head-footprint jitter reuses the current owned eye allocation'),
         ('production', '', '', '', 'Run', ''),
         ('glass-cabinet', '', '', '', 'GlassCabinet', ''),
         ('native-ldr-viewports', '', '', '', 'TargetViewport', ''),
         ('camera-child-head-follow', 'MenuDepthCharacterSource.cs',
          '            _camera.orthographic = false;',
          '            _camera.transform.SetPositionAndRotation(view.Position, view.Rotation);\n            _camera.orthographic = false;', 'GlassCabinet',
-         'actual eye raster projects fixed cabinet landmarks from independently authored window-relative 3D'),
+         'native scene landmark remains visible in the actual eye raster'),
         ('native-ldr-viewport-ignored', 'MenuDepthCharacterProjection.cs',
          'Rect viewport = source.rect;',
          'Rect viewport = new Rect(0f, 0f, 1f, 1f);', 'TargetViewport',
@@ -91,7 +127,7 @@ def main():
          'moved rotated windows derive the same local view independently of their different world poses'),
         ('lost-native-crop', 'MenuDepthCharacterProjection.cs', 'Rect rect = rectangle.rect;',
          'uv = new Rect(0, 0, 1, 1); Rect rect = rectangle.rect;', 'Run',
-         'native RawImage UV cropping is preserved without double-cropping the portal'),
+         'native RawImage UV cropping preserves the fitted model and companion'),
         ('texture-restore-lost', 'MenuDepthCharacterSource.cs', '            _image.texture = _restoreTexture;',
          '            /* injected: original UI keeps the borrowed eye texture */', 'Run',
          'original RawImage texture is restored after private UI capture'),
@@ -120,8 +156,8 @@ def main():
         ('released-eye-reused', 'MenuDepthCharacterSource.cs', '!target.IsCreated() || target.width', 'target.width', 'Lifecycle',
          'a released owned eye resource is replaced before the next native eye capture'),
         ('first-display-discovery-lost', 'MenuDepthCharacters.cs',
-         'DisplayRequests[key] = target;\n        RetireStale();\n        Discover();',
-         'DisplayRequests[key] = target;\n        RetireStale(); /* injected: new request misses pre-render discovery */', 'Lifecycle',
+         'PendingRequests.Add(key);',
+         '/* injected: native Display does not queue its new request subtree */', 'Lifecycle',
          'the actual native Display postfix binds a new window before its first visible render'),
         ('render-disposal-not-deferred', 'MenuDepthCharacterSource.cs',
          'if (!_rendering) ReleaseTargets();', 'ReleaseTargets();', 'NativeCloseDuringRender',
@@ -153,7 +189,7 @@ def main():
         (fixture / 'Boundary.cs').write_text(boundary)
         (run / 'source-pins.json').write_text(json.dumps({'sha256': pins,
             'boundaries': 'Native model/content/manager state and supplied XR eye positions; original Unity camera/image-effect/UI raster and production discovery/projection/leases run.',
-            'fixture_ports': 'Exact copied native state boundary with diagnostic logger members and native Beautify ExecuteInEditMode annotation on the supplied pass-through image effect. Camera.Render/callbacks/GPU remain actual Unity.',
+            'fixture_ports': 'Exact copied native state boundary with diagnostic logger members, native Beautify ExecuteInEditMode annotation on the supplied pass-through effect, and unused general-decorative Driver observer ports. Character activation supplies the real surrounding Driver registration SetDiscoveryPump(Characters.FlushForCapture); queued discovery/camera/callbacks/GPU remain production/actual Unity.',
             'execution': 'EditorApplication.update' if args.editor_mode else 'Playmode',
             'limits': 'No actual game prefab, Beautify parity, provider, multiplayer transport or headset/comfort claim.'}, indent=2) + '\n')
         assemblies = run / 'assemblies'; assemblies.mkdir()

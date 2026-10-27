@@ -42,7 +42,8 @@ public static class MenuDepthCharacterRunner
                 try
                 {
                     string output = Path.Combine(manifest.evidence, item.name); Directory.CreateDirectory(output);
-                    string type = item.method == "GlassCabinet" || item.method == "TargetViewport" ? "MenuDepthCharacterWindowProof" : "MenuDepthCharacterProgram";
+                    string type = item.method == "Presentation" || item.method == "NativeLdrEffect" ? "MenuDepthCharacterPresentation725"
+                        : item.method == "GlassCabinet" || item.method == "TargetViewport" ? "MenuDepthCharacterWindowProof" : "MenuDepthCharacterProgram";
                     int count = (int)Assembly.LoadFile(item.dll).GetType(type)
                         .GetMethod(item.method).Invoke(null, new object[] { output });
                     if (!string.IsNullOrEmpty(item.expected)) throw new Exception("Negative control escaped: " + item.name);
