@@ -23,13 +23,45 @@ internal static class MenuDepthSources
     private static Vector4 _previousWorldEye;
     private static float _previousProjectMask;
     private static bool _maskScoped;
+    private static Action? _discoveryPump;
+    private static bool _pumping;
+    private static int _pumpFailures;
     internal static int ExcludedDirectLayers { get; set; }
     internal static event Action<Camera>? BeforeHeadCapture;
     internal static bool HasPreparedSources => _startedCount != 0;
 
+    /// <summary>One active driver's pending identity/readiness work; never a capture-time scene census.</summary>
+    internal static void SetDiscoveryPump(Action? pump)
+    {
+        _discoveryPump = pump;
+        if (pump != null) EnsureHook(); else UnhookIfIdle();
+    }
+
+    private static void FlushPendingContent()
+    {
+        if (_capturing || _pumping || _discoveryPump == null) return;
+        _pumping = true;
+        try { _discoveryPump(); }
+        catch (Exception error)
+        {
+            int count = ++_pumpFailures;
+            if (count <= 4 || (count & (count - 1)) == 0)
+            {
+                VRLog.Warn("WorldUI", "MENU DEPTH CONTENT REFRESH: " + error.GetType().Name + ": " + error.Message + "; count=" + count);
+                if (VRLog.WantsDebug) VRLog.Debug("WorldUI", "MENU DEPTH CONTENT REFRESH DETAIL: " + error);
+            }
+        }
+        finally { _pumping = false; UnhookIfIdle(); }
+    }
+
     internal static void Register(IMenuDepthSource source)
     {
         if (!Sources.Contains(source)) Sources.Add(source);
+        EnsureHook();
+    }
+
+    private static void EnsureHook()
+    {
         if (!_hooked)
         {
             _hooked = true;
@@ -51,6 +83,7 @@ internal static class MenuDepthSources
 
     internal static bool HasContent(Transform root)
     {
+        FlushPendingContent();
         for (int i = Sources.Count - 1; i >= 0; i--)
         {
             IMenuDepthSource source = Sources[i];
@@ -69,6 +102,7 @@ internal static class MenuDepthSources
 
     internal static void CollectReadyGraphics(List<Graphic> destination)
     {
+        FlushPendingContent();
         destination.Clear();
         for (int i = 0; i < Sources.Count; i++)
         {
@@ -83,6 +117,7 @@ internal static class MenuDepthSources
         Func<Graphic, MenuDepthEye> mapper, Func<Graphic, Vector2>? pixels = null)
     {
         if (_capturing) throw new InvalidOperationException("Nested menu-depth preparation is not owned by this capture.");
+        FlushPendingContent();
         _capturing = true; _startedCount = 0; Prepared.Clear();
         try
         {
@@ -110,6 +145,7 @@ internal static class MenuDepthSources
     internal static void BeforeCapture(Transform root, MenuDepthEye eye, Camera? raster = null)
     {
         if (_capturing) throw new InvalidOperationException("Nested menu-depth preparation is not owned by this capture.");
+        FlushPendingContent();
         _capturing = true;
         _startedCount = 0;
         Prepared.Clear();
@@ -183,7 +219,7 @@ internal static class MenuDepthSources
 
     private static void UnhookIfIdle()
     {
-        if (!_hooked || Sources.Count != 0 || _capturing) return;
+        if (!_hooked || Sources.Count != 0 || _capturing || _pumping || _discoveryPump != null) return;
         Camera.onPreCull -= BeforeDirectCamera;
         Camera.onPostRender -= AfterDirectCamera;
         _hooked = false;
@@ -204,6 +240,7 @@ internal static class MenuDepthSources
         IMenuDepthSource? sourceInProgress = null;
         try
         {
+            FlushPendingContent();
             // Run all offscreen coordinators before any direct source lease is
             // held across this head draw. Subscriber order must not change it.
             BeforeHeadCapture?.Invoke(camera);

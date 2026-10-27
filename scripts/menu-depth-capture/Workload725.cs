@@ -32,7 +32,6 @@ public static partial class MenuDepthProgram
             {
                 Canvas.ForceUpdateCanvases(); scene.Capture();
                 PanelSupersample.Visibility(scene.Entry);
-                Check(!scene.Entry.Cam.enabled, "a successful spatial window hands automatic mono capture ownership to the eye pair");
                 float[] distances = { 4f, 2f, 1f, .5f };
                 var watch = Stopwatch.StartNew();
                 int startDraws = draws, startSources = sampled.Begins;
@@ -82,6 +81,7 @@ public static partial class MenuDepthProgram
                         watch.Start();
                     }
                 }
+                Check(!scene.Entry.Cam.enabled, "a successful spatial window hands automatic mono capture ownership to the eye pair");
                 watch.Stop();
                 File.WriteAllText(Path.Combine(output, "725-capture-workload.txt"), "60 explicit moving ticks; actualUIrenders="
                     + (draws - startDraws) + "; sampledPrepares=" + (sampled.Begins - startSources) + "; elapsedMs=" + watch.Elapsed.TotalMilliseconds + "\n");
@@ -121,6 +121,57 @@ public static partial class MenuDepthProgram
             finally { Camera.onPreCull -= count; MenuDepthSources.Unregister(sampled); }
         }
         Sampling725(output);
+        Discovery725();
+    }
+
+    private static void Discovery725()
+    {
+        var head = new GameObject("725 first empty head").AddComponent<Camera>(); head.enabled = false;
+        head.orthographic = true; head.orthographicSize = 1; head.transform.position = new Vector3(0, 0, -2); head.cullingMask = 1 << 8;
+        var target = new RenderTexture(32, 32, 24); target.Create(); head.targetTexture = target;
+        var root = new GameObject("725 late source", typeof(RectTransform), typeof(Canvas)); root.layer = 8;
+        root.GetComponent<Canvas>().renderMode = RenderMode.WorldSpace;
+        var image = new GameObject("late native Graphic", typeof(RectTransform)).AddComponent<Image>(); image.transform.SetParent(root.transform, false);
+        image.gameObject.layer = 8; image.rectTransform.sizeDelta = Vector2.one;
+        var source = new Sampled725(image); bool pending = true; int pumps = 0;
+        int previousExcluded = MenuDepthSources.ExcludedDirectLayers; MenuDepthSources.ExcludedDirectLayers = 0;
+        Camera? previous = GloomhavenVR.Rig.VRRigDriver.HeadCamera; GloomhavenVR.Rig.VRRigDriver.HeadCamera = head;
+        Action pump = () =>
+        {
+            pumps++;
+            if (!pending) return;
+            pending = false;
+            MenuDepthSources.HasContent(root.transform); // intentional recursive query must not recursively pump
+            MenuDepthSources.Register(source);
+        };
+        try
+        {
+            Canvas.ForceUpdateCanvases(); MenuDepthSources.SetDiscoveryPump(pump); head.Render();
+            Check(source.Begins == 1 && source.Ends == 1 && pumps == 1,
+                "an initially empty registry flushes late native readiness before its first actual head draw without recursive pumping");
+            MenuDepthSources.Unregister(source); pending = true;
+            Check(MenuDepthSources.HasContent(root.transform), "a late content query flushes ready native identities before returning an empty answer");
+            MenuDepthSources.Unregister(source); pending = true;
+            var graphics = new System.Collections.Generic.List<Graphic>(); MenuDepthSources.CollectReadyGraphics(graphics);
+            Check(graphics.Count == 1 && graphics[0] == image, "native screen collection includes a ready source arriving after the last driver tick");
+            MenuDepthSources.Unregister(source); pending = true;
+            var eye = new MenuDepthEye(false, head.transform.position, head);
+            MenuDepthSources.BeforeCaptureWhere(eye, graphic => graphic == image, graphic => eye);
+            MenuDepthSources.AfterCapture();
+            Check(source.Begins == 2 && source.Ends == 2, "native camera selection flushes pending readiness before borrowing its first source");
+            int leasedPumps = pumps;
+            MenuDepthSources.BeforeCapture(root.transform, eye);
+            MenuDepthSources.HasContent(root.transform);
+            Check(pumps == leasedPumps + 1, "an already borrowed source scope cannot recursively run discovery work");
+            MenuDepthSources.AfterCapture();
+        }
+        finally
+        {
+            MenuDepthSources.AfterCapture(); MenuDepthSources.Unregister(source); MenuDepthSources.SetDiscoveryPump(null);
+            MenuDepthSources.ExcludedDirectLayers = previousExcluded;
+            GloomhavenVR.Rig.VRRigDriver.HeadCamera = previous; Object.DestroyImmediate(root); head.targetTexture = null;
+            target.Release(); Object.DestroyImmediate(target); Object.DestroyImmediate(head.gameObject);
+        }
     }
 
     private static void Sampling725(string output)
@@ -155,14 +206,29 @@ public static partial class MenuDepthProgram
             }
             MethodInfo? allocated = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", BindingFlags.Public | BindingFlags.Static);
             var counter = allocated != null ? (Func<long>)Delegate.CreateDelegate(typeof(Func<long>), allocated) : null;
+            long calibrationBefore = counter?.Invoke() ?? -1;
+            var calibration = new byte[16 * 1024]; calibration[0] = 1;
+            long calibrationAfter = counter?.Invoke() ?? -1; GC.KeepAlive(calibration);
+            long calibrationDelta = calibrationAfter - calibrationBefore;
+            if (calibrationBefore < 0 || calibrationAfter < 0 || calibrationDelta < calibration.Length) counter = null;
             Vector3 p0 = new(-.5f, -.5f, 1), p1 = new(-.5f, .5f, 1), p2 = new(.5f, .5f, 1), p3 = new(.5f, -.5f, 1);
             var eye = new MenuDepthEye(false, Vector3.zero, head);
+            Check(MenuDepthProjection.HeadPixels(eye, -p0, -p1, -p2, -p3) == Vector2.zero,
+                "an aperture entirely behind the viewer never requests a maximum sampled target");
+            Check(MenuDepthProjection.HeadPixels(eye, new Vector3(float.NaN, 0, 1), p1, p2, p3) == Vector2.zero
+                && MenuDepthProjection.LimitPixels(new Vector2(-1, -1), Vector2.one) == Vector2.zero,
+                "invalid or negative aperture demand remains unknown-safe instead of requesting resources");
+            Matrix4x4 original = head.projectionMatrix; head.projectionMatrix = Matrix4x4.zero;
+            Check(MenuDepthProjection.HeadPixels(eye, p0, p1, p2, p3) == Vector2.zero,
+                "a degenerate head projection cannot manufacture a full-raster demand");
+            head.projectionMatrix = original;
             for (int i = 0; i < 64; i++) MenuDepthProjection.HeadPixels(eye, p0, p1, p2, p3);
             var watch = new Stopwatch(); long before = counter?.Invoke() ?? 0; float checksum = 0;
             watch.Start(); for (int i = 0; i < 10000; i++) checksum += MenuDepthProjection.HeadPixels(eye, p0, p1, p2, p3).x; watch.Stop();
             long bytes = counter != null ? counter() - before : -1;
             File.WriteAllText(Path.Combine(output, "725-sampling-cost.txt"), "10000 sampled aperture projections; elapsedMs="
-                + watch.Elapsed.TotalMilliseconds + "; threadAllocatedBytes=" + bytes + "; checksum=" + checksum + "\n");
+                + watch.Elapsed.TotalMilliseconds + "; threadAllocatedBytes=" + (bytes >= 0 ? bytes.ToString() : "unavailable")
+                + "; counterCalibration16KiBDelta=" + calibrationDelta + "; checksum=" + checksum + "\n");
         }
         finally
         {

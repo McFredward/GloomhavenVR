@@ -55,7 +55,11 @@ internal static class MenuDepthProjection
     private static Vector2 ProjectPixels(Matrix4x4 matrix, float width, float height,
         Vector3 bl, Vector3 tl, Vector3 tr, Vector3 br)
     {
-        if (width <= 0f || height <= 0f) return Vector2.zero;
+        if (width <= 0f || height <= 0f || float.IsNaN(width) || float.IsInfinity(width)
+            || float.IsNaN(height) || float.IsInfinity(height) || !Finite(bl) || !Finite(tl) || !Finite(tr) || !Finite(br))
+            return Vector2.zero;
+        for (int i = 0; i < 16; i++)
+            if (float.IsNaN(matrix[i]) || float.IsInfinity(matrix[i])) return Vector2.zero;
         int front = Front(matrix, bl) + Front(matrix, tl) + Front(matrix, tr) + Front(matrix, br);
         if (front == 0) return Vector2.zero;
         // A visible near-clipped aperture has no finite full-rectangle extent.
