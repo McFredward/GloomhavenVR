@@ -1,3 +1,26 @@
+**Optional character preview depth, Build727, 2026-10-27.**
+
+The maintainer requests a switch for live character depth, enabled by default on
+every system. [WorldUI] CharacterPreviewDepth binds one shared true default with
+no hardware/profile override. Both screen/depth options doors expose EN/DE names
+and help. Off retires only character source registrations and private eye targets
+before the next capture; on discovers already open original previews without
+native Display calls. Original flat live colour, animation, story/video depth
+and shared window geometry remain native. Saved user choices persist.
+
+Focused integration passes8 local suites, all16 source checks, all306431 golden
+assertions and docs-i18n. Character1519+33 controls includes19 real GPU lifecycle
+assertions and two causal controls for disabled startup, live retirement and
+re-enable. Desktop255+11, Performance866+10, options/help/profile/capture checks
+pass. Strict real and metadata builds, compiled scope and cleanup receipts are
+under ignored debug/menu727. Unchanged726 evidence is inherited; no complete
+250-suite invocation or headset result is claimed.
+
+The user's latest explicit delivery ruling supersedes local archive requests:
+the Windows installation script already builds the ZIP. Commit/push dev source;
+no local ZIP is built or delivered for727. AGENTS.md records this instruction.
+See MENU727-CHARACTER-DEPTH-PREFERENCE.md for runtime and verification boundaries.
+
 **Common character framing and encounter audio, Build726, 2026-10-27.**
 
 The maintainer accepts725 and requests one character alignment/scale, real rear
