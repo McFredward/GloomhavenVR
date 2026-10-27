@@ -3,7 +3,7 @@
 The maintainer accepts725 and requests one character alignment/scale, real rear
 views through the physical windows, and a repair for overlapping travel audio
 after encounters. Character framing now uses the original main actor's ground
-origin and one2.4-native-unit span with uniform XYZ scale. Smaller bodies remain
+origin and one 2.4-native-unit span with uniform XYZ scale. Smaller bodies remain
 smaller; equipment/companions cannot shift or resize the main actor. Original
 poses, animation and child scales remain native. Rear eyes use reflected off-axis
 matrices with finally-restored culling; desktop mapping admits both half-spaces.
