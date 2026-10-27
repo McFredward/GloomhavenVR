@@ -3157,6 +3157,17 @@
         "local"
       ],
       "weight": 60
+    },
+    {
+      "id": "menu-depth-rotation",
+      "command": [
+        "python3",
+        "scripts/menu-depth-rotation/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
     }
   ]
 }
