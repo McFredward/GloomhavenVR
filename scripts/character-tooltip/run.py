@@ -97,6 +97,10 @@ def main():
   if (run/'results.txt').exists():print((run/'results.txt').read_text(),end='')
   if status:raise RuntimeError('Original character tooltip proof failed: '+str(run))
  finally:
+  driver=project/'Library/ScriptAssemblies/Assembly-CSharp-Editor.dll'
+  if driver.is_file():
+   target=run/'assemblies/Assembly-CSharp-Editor.dll';target.parent.mkdir(exist_ok=True);shutil.copy2(driver,target)
+   (run/'executed-driver-sha256.json').write_text(json.dumps({'Assembly-CSharp-Editor.dll':sha(target)},indent=2)+'\n')
   editors=cleanup_project_editors(project,Path('/home/claw/unity-2021.3.5/Editor/Unity'),launcher_reaped=True);(run/'editor-cleanup.json').write_text(json.dumps(editors,indent=2)+'\n')
   if editors['remaining']:raise RuntimeError('Owned editor remains; preserve all caches.')
   compilers=cleanup_project_compilers(project,editor_reaped=True);(run/'compiler-cleanup.json').write_text(json.dumps(compilers,indent=2)+'\n')
