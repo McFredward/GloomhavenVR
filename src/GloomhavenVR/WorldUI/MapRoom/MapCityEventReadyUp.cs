@@ -31,35 +31,90 @@ internal static class MapCityEventReadyUp
     private static bool _reconciling;
     // NetworkPlayer inherits Bolt's EntityBehaviour<T>, intentionally not a mod build
     // reference. Read its existing public state interface only at proposal edges.
-    private static readonly PropertyInfo? NativeState = AccessTools.Property(typeof(NetworkPlayer), "state");
-    private static readonly PropertyInfo? NativeActionCounter = NativeState?.PropertyType.GetProperty("LatestProcessedActionID");
+    private static readonly PropertyInfo? NativeState = ReadNativeStateProperty();
+    private static readonly PropertyInfo? NativeActionCounter = ReadNativeActionProperty();
 
     /// <summary>Only the public preflight currently occupying this original singleton.</summary>
-    internal static bool Active => MapRoomDriver.Active && MatchesNativeProposal();
-    internal static UIWindow? Window => Active ? _toggle!.GetComponent<UIWindow>() : null;
+    internal static bool Active
+    {
+        get
+        {
+            try { return MapRoomDriver.Active && MatchesNativeProposal(); }
+            catch (Exception ex) { ReportFailure("active proposal", ex); return false; }
+        }
+    }
+    internal static UIWindow? Window
+    {
+        get
+        {
+            try { return Active ? _toggle!.GetComponent<UIWindow>() : null; }
+            catch (Exception ex) { ReportFailure("native window", ex); return null; }
+        }
+    }
     internal static uint ContentKey => Active ? _contentKey : 0;
 
     internal static void Install()
     {
-        if (_installed || VRSession.Harmony == null)
-            return;
-        VRSession.Harmony.PatchAll(typeof(CityProposalSeams));
-        _installed = true;
+        try
+        {
+            if (_installed || VRSession.Harmony == null)
+                return;
+            VRSession.Harmony.PatchAll(typeof(CityProposalSeams));
+            _installed = true;
+        }
+        catch (Exception ex) { ReportFailure("patch installation", ex); }
+    }
+
+    private static UIReadyToggle? ForgetModLease()
+    {
+        // Pure CLR field changes only. An error handler must never recursively enter native
+        // visibility/game callbacks while trying to revoke a failed presentation lease.
+        UIReadyToggle? old = _toggle;
+        _controller = null;
+        _toggle = null;
+        _contentKey = 0;
+        _refreshPermission = false;
+        _roomWasActive = false;
+        return old;
     }
 
     internal static void Reset()
     {
         // Drop the lease before any native visibility recomputation. Never hide a new quest,
         // loadout, retirement or reward that has already reused this same UIWindow instance.
-        UIReadyToggle? old = _toggle;
-        bool city = old != null && old.readyUpToggleState == EReadyUpToggleStates.CityEvents;
-        _controller = null;
-        _toggle = null;
-        _contentKey = 0;
-        _refreshPermission = false;
-        _roomWasActive = false;
-        if (city)
-            old!.UpdateVisiblity();
+        UIReadyToggle? old = ForgetModLease();
+        try
+        {
+            if (old != null && old.readyUpToggleState == EReadyUpToggleStates.CityEvents)
+                old.UpdateVisiblity();
+        }
+        catch (Exception ex) { ReportFailure("reset visibility", ex); }
+    }
+
+    private static void ReportFailure(string seam, Exception error)
+    {
+        if (_warned)
+            return;
+        _warned = true; // Bound retries even if the diagnostic logger itself fails.
+        try
+        {
+            VRLog.Warn("MapRoom", "MAP CITY READY presentation failed — "
+                + $"{seam}: {error.GetType().Name}: {error.Message}. Native readiness retained; "
+                + "one report per process.");
+        }
+        catch (Exception) { }
+    }
+
+    private static PropertyInfo? ReadNativeStateProperty()
+    {
+        try { return AccessTools.Property(typeof(NetworkPlayer), "state"); }
+        catch (Exception ex) { ReportFailure("native state metadata", ex); return null; }
+    }
+
+    private static PropertyInfo? ReadNativeActionProperty()
+    {
+        try { return NativeState?.PropertyType.GetProperty("LatestProcessedActionID"); }
+        catch (Exception ex) { ReportFailure("native action metadata", ex); return null; }
     }
 
     /// <summary>Tick outside the map-room-active branch too, so observation retires on exit.</summary>
@@ -67,43 +122,46 @@ internal static class MapCityEventReadyUp
     {
         if (_contentKey == 0 || _reconciling)
             return;
-        if (!MatchesNativeProposal())
-        {
-            Reset();
-            return;
-        }
-        bool roomActive = MapRoomDriver.Active;
-        if (!roomActive)
-        {
-            if (_roomWasActive)
-                _toggle!.UpdateVisiblity();
-            _roomWasActive = false;
-            return;
-        }
-        _roomWasActive = true;
         _reconciling = true;
         try
         {
+            if (!MatchesNativeProposal())
+            {
+                Reset();
+                return;
+            }
+            bool roomActive = MapRoomDriver.Active;
+            if (!roomActive)
+            {
+                if (_roomWasActive)
+                    _toggle!.UpdateVisiblity();
+                _roomWasActive = false;
+                return;
+            }
+            _roomWasActive = true;
+            UIReadyToggle current = _toggle!;
+            uint key = _contentKey;
             // ToggleReadyUpUI is a native presentation request, not OnSelectedCityEvent:
             // the latter calls ReadyUp(true). A client's local unready hides its preview,
             // but does not withdraw the host's offer. Keep that original offer observable.
             if (!_toggle!._requestVisible)
                 _controller!.ToggleReadyUpUI(true, EReadyUpToggleStates.CityEvents);
+            if (_contentKey != key || !ReferenceEquals(_toggle, current))
+                return; // Native show callbacks may legitimately retire or replace the offer.
             if (_refreshPermission && Singleton<MapChoreographer>.IsInitialized)
             {
-                _refreshPermission = false;
                 Singleton<MapChoreographer>.Instance.DeterminePlayerToggleInteractability();
+                if (_contentKey != key || !ReferenceEquals(_toggle, current))
+                    return; // Native host permission loss can cancel the original city offer.
+                _refreshPermission = false;
             }
-            _toggle.UpdateVisiblity();
+            current.UpdateVisiblity();
         }
         catch (Exception ex)
         {
-            if (!_warned)
-            {
-                _warned = true;
-                VRLog.Warn("MapRoom", "MAP CITY READY presentation failed — "
-                    + $"{ex.GetType().Name}: {ex.Message}. Native readiness remains authoritative.");
-            }
+            // A failed read is unknown, not a measured cancellation. Retain the exact lease
+            // for a safe retry; importantly, input still knows which observer it must protect.
+            ReportFailure("presentation tick", ex);
         }
         finally
         {
@@ -129,6 +187,12 @@ internal static class MapCityEventReadyUp
 
     private static void Capture(int actionId)
     {
+        try { CaptureCore(actionId); }
+        catch (Exception ex) { ReportFailure("native proposal capture", ex); }
+    }
+
+    private static void CaptureCore(int actionId)
+    {
         if (actionId <= 0 || !FFSNetwork.IsOnline
             || !Singleton<UIMapMultiplayerController>.IsInitialized
             || !Singleton<UIReadyToggle>.IsInitialized)
@@ -153,20 +217,22 @@ internal static class MapCityEventReadyUp
     // native visibility blockers/all-ready and the actual toggle.interactable bit. The paired
     // InputToggle prefix also protects the native gamepad path, which otherwise checks only
     // IsVisible rather than _interactable. It never changes consent or native permission.
-    private static bool IsCityObserver(UIReadyToggle toggle) => Active && ReferenceEquals(_toggle, toggle);
+    private static bool IsCityObserver(UIReadyToggle toggle) => _contentKey != 0
+        && ReferenceEquals(_toggle, toggle) && MapRoomDriver.Active && MatchesNativeProposal();
 
     private static int NativeActionId()
     {
-        if (ReferenceEquals(PlayerRegistry.MyPlayer, null) || NativeState == null || NativeActionCounter == null)
-            return -1;
         try
         {
+            if (ReferenceEquals(PlayerRegistry.MyPlayer, null) || NativeState == null || NativeActionCounter == null)
+                return -1;
             object? state = NativeState.GetValue(PlayerRegistry.MyPlayer);
             return state != null && NativeActionCounter.GetValue(state) is int id ? id : -1;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Unknown native provenance must not accidentally reuse a stale shared opening.
+            ReportFailure("native action counter", ex);
             return -1;
         }
     }
@@ -176,50 +242,66 @@ internal static class MapCityEventReadyUp
     {
         [HarmonyPrefix]
         [HarmonyPatch(typeof(UIMapMultiplayerController), nameof(UIMapMultiplayerController.ConfirmCityEvent))]
-        private static void BeforeHostProposal(out int __state) =>
-            __state = FFSNetwork.IsOnline && FFSNetwork.IsHost ? NativeActionId() : -1;
+        private static void BeforeHostProposal(out int __state)
+        {
+            __state = -1;
+            try
+            {
+                if (FFSNetwork.IsOnline && FFSNetwork.IsHost)
+                    __state = NativeActionId();
+            }
+            catch (Exception ex) { ReportFailure("host proposal prefix", ex); }
+        }
 
         [HarmonyPostfix]
         [HarmonyPatch(typeof(UIMapMultiplayerController), nameof(UIMapMultiplayerController.ConfirmCityEvent))]
         private static void AfterHostProposal(int __state)
         {
-            // ConfirmCityEvent constructs exactly SelectCityEvent before ReadyUpPlayer's
-            // caller constructs its following action. Refuse an ambiguous action sequence.
-            if (!FFSNetwork.IsOnline || !FFSNetwork.IsHost
-                || !Singleton<UIMapMultiplayerController>.IsInitialized
-                || !Singleton<UIReadyToggle>.IsInitialized)
-                return;
-            UIMapMultiplayerController controller = Singleton<UIMapMultiplayerController>.Instance;
-            UIReadyToggle toggle = Singleton<UIReadyToggle>.Instance;
-            var map = AdventureState.MapState;
-            if (controller == null || toggle == null || map == null
-                || controller.m_State != EReadyUpToggleStates.CityEvents
-                || toggle.readyUpToggleState != EReadyUpToggleStates.CityEvents
-                || (map.CurrentMapPhaseType != EMapPhaseType.InHQ
-                    && map.CurrentMapPhaseType != EMapPhaseType.AtLinkedScenario))
-                return;
-            int current = NativeActionId();
-            if (__state >= 0 && current == __state + 1)
+            try
             {
-                Capture(current);
-                return;
+                // ConfirmCityEvent constructs exactly SelectCityEvent before ReadyUpPlayer's
+                // caller constructs its following action. Refuse an ambiguous action sequence.
+                if (!FFSNetwork.IsOnline || !FFSNetwork.IsHost
+                    || !Singleton<UIMapMultiplayerController>.IsInitialized
+                    || !Singleton<UIReadyToggle>.IsInitialized)
+                    return;
+                UIMapMultiplayerController controller = Singleton<UIMapMultiplayerController>.Instance;
+                UIReadyToggle toggle = Singleton<UIReadyToggle>.Instance;
+                var map = AdventureState.MapState;
+                if (controller == null || toggle == null || map == null
+                    || controller.m_State != EReadyUpToggleStates.CityEvents
+                    || toggle.readyUpToggleState != EReadyUpToggleStates.CityEvents
+                    || (map.CurrentMapPhaseType != EMapPhaseType.InHQ
+                        && map.CurrentMapPhaseType != EMapPhaseType.AtLinkedScenario))
+                    return;
+                int current = NativeActionId();
+                if (__state >= 0 && current == __state + 1)
+                {
+                    Capture(current);
+                    return;
+                }
+                if (_actionWarned)
+                    return;
+                _actionWarned = true;
+                try { VRLog.Warn("MapRoom", "MAP CITY READY host occurrence unavailable — "
+                    + $"native action counter before={__state}, after={current}. Native city proposal retained; "
+                    + "shared placement cannot use ambiguous provenance. One report per process."); }
+                catch (Exception) { }
             }
-            if (_actionWarned)
-                return;
-            _actionWarned = true;
-            try { VRLog.Warn("MapRoom", "MAP CITY READY host occurrence unavailable — "
-                + $"native action counter before={__state}, after={current}. Native city proposal retained; "
-                + "shared placement cannot use ambiguous provenance. One report per process."); }
-            catch (Exception) { }
+            catch (Exception ex) { ReportFailure("host proposal postfix", ex); }
         }
 
         [HarmonyPostfix]
         [HarmonyPatch(typeof(MapChoreographer), nameof(MapChoreographer.ProxySelectedCityEvent))]
         private static void AfterClientProposal(GameAction action)
         {
-            if (FFSNetwork.IsClient && action != null
-                && action.ActionTypeID == (int)GameActionType.SelectCityEvent)
-                Capture(action.ActionID);
+            try
+            {
+                if (FFSNetwork.IsClient && action != null
+                    && action.ActionTypeID == (int)GameActionType.SelectCityEvent)
+                    Capture(action.ActionID);
+            }
+            catch (Exception ex) { ReportFailure("client proposal postfix", ex); }
         }
 
         [HarmonyPrefix]
@@ -247,12 +329,7 @@ internal static class MapCityEventReadyUp
             {
                 // Missing native phase evidence cannot authorize a change to the caller's
                 // option, nor may a diagnostic abort the original native initialization.
-                if (_warned)
-                    return;
-                _warned = true;
-                try { VRLog.Warn("MapRoom", "MAP CITY READY departure probe failed — "
-                    + $"{ex.GetType().Name}: {ex.Message}. Native initialization retained."); }
-                catch (Exception) { }
+                ReportFailure("MAP CITY READY departure probe failed", ex);
             }
         }
 
@@ -280,22 +357,57 @@ internal static class MapCityEventReadyUp
         [HarmonyPatch(typeof(UIMapMultiplayerController), "CancelPreviewCityEvent")]
         private static void BeforeCancelPreview()
         {
-            if (FFSNetwork.IsHost)
-                Reset();
+            try
+            {
+                if (FFSNetwork.IsHost)
+                    Reset();
+            }
+            catch (Exception ex)
+            {
+                // A failed host/client probe must not resurrect a natively cancelled offer.
+                ForgetModLease();
+                ReportFailure("native cancel preview", ex);
+            }
         }
 
         [HarmonyPostfix]
         [HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.ShouldBeVisible), MethodType.Getter)]
         private static void ObserveDisabledCityOffer(UIReadyToggle __instance, ref bool __result)
         {
-            if (!__result && IsCityObserver(__instance))
-                __result = __instance._requestVisible && !__instance._allPlayersReady
-                    && __instance._visibilityRequests.Count == 0;
+            try
+            {
+                if (!__result && IsCityObserver(__instance))
+                    __result = __instance._requestVisible && !__instance._allPlayersReady
+                        && __instance._visibilityRequests.Count == 0;
+            }
+            catch (Exception ex)
+            {
+                // Keep the result the original native getter already established. An
+                // unavailable observation is not permission to force visibility either way.
+                ReportFailure("observer visibility", ex);
+            }
         }
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(UIReadyToggle), "InputToggle")]
-        private static bool PreserveNativeInputPermission(UIReadyToggle __instance) =>
-            !IsCityObserver(__instance) || (__instance.IsInteractable && __instance.ShouldBeVisible);
+        private static bool PreserveNativeInputPermission(UIReadyToggle __instance)
+        {
+            bool leased = _contentKey != 0 && ReferenceEquals(_toggle, __instance);
+            if (!leased)
+                return true;
+            try
+            {
+                if (__instance.readyUpToggleState != EReadyUpToggleStates.CityEvents || !MapRoomDriver.Active)
+                    return true;
+                return MatchesNativeProposal() && __instance.IsInteractable && __instance.ShouldBeVisible;
+            }
+            catch (Exception ex)
+            {
+                // Do not convert failed exact-city identity evidence into "not ours" and
+                // admit the original gamepad path, which has no interactability check.
+                ReportFailure("observer input permission", ex);
+                return false;
+            }
+        }
     }
 }

@@ -26,14 +26,20 @@ try:
  text=production.read_text()
  mutations=[
  ('automatic-consent','_controller!.ToggleReadyUpUI(true, EReadyUpToggleStates.CityEvents);','_controller!.ToggleReadyUpUI(true, EReadyUpToggleStates.CityEvents);\n            _controller!.OnSelectedCityEvent();','presentation must never consent automatically'),
- ('disabled-input','!IsCityObserver(__instance) || (__instance.IsInteractable && __instance.ShouldBeVisible)','true','disabled observer cannot vote through gamepad or VR input'),
+ ('disabled-input','return MatchesNativeProposal() && __instance.IsInteractable && __instance.ShouldBeVisible;','return true;','disabled observer cannot vote through gamepad or VR input'),
  ('native-blocker','&& __instance._visibilityRequests.Count == 0','&& true','native visibility blocker outranks shared observation'),
- ('local-withdrawal','if (FFSNetwork.IsHost)\n                Reset();','if (FFSNetwork.IsOnline)\n                Reset();','client unready must not withdraw host proposal'),
+ ('local-withdrawal','if (FFSNetwork.IsHost)\n                    Reset();','if (FFSNetwork.IsOnline)\n                    Reset();','client unready must not withdraw host proposal'),
  ('action-identity','hash = SharedMapRunIdentity.Add(hash, actionId.ToString(CultureInfo.InvariantCulture));','hash = SharedMapRunIdentity.Add(hash, "constant");','new city occurrence cannot reuse old pose key'),
  ('singleton-replacement','|| !ReferenceEquals(_toggle, Singleton<UIReadyToggle>.Instance)','|| false','replacement native ready singleton cannot inherit old city lease'),
  ('all-ready','|| _toggle._allPlayersReady','|| false','native all-ready gate suppresses observation immediately'),
  ('native-cancel-seam','private static void BeforeHostCancellation() => Reset();','private static void BeforeHostCancellation() { }','exact native retirement seam clears city lease: BeforeHostCancellation'),
- ('native-target-registration','[HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Initialize))]','[HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Initialize))]\n        [HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Reset))]','native retirement has one exact Harmony target: BeforeReadyInitialize')]
+ ('native-target-registration','[HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Initialize))]','[HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Initialize))]\n        [HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Reset))]','native retirement has one exact Harmony target: BeforeReadyInitialize'),
+ ('unsafe-host-postfix','catch (Exception ex) { ReportFailure("host proposal postfix", ex); }','catch (Exception ex) { GC.KeepAlive(ex); throw; }','native host proposal postfix continues after failed native evidence: map-state'),
+ ('unsafe-observer-getter','ReportFailure("observer visibility", ex);','ReportFailure("observer visibility", ex); throw;','native visibility getter survives failed city observation'),
+ ('failed-input-open','ReportFailure("observer input permission", ex);\n                return false;','ReportFailure("observer input permission", ex);\n                return true;','failed exact-city observer permission must deny input'),
+ ('unsafe-reset','catch (Exception ex) { ReportFailure("reset visibility", ex); }','catch (Exception ex) { GC.KeepAlive(ex); throw; }','native retirement continues after failed visibility recompute: BeforeReadyReset'),
+ ('lost-permission-retry','Singleton<MapChoreographer>.Instance.DeterminePlayerToggleInteractability();\n                if (_contentKey != key || !ReferenceEquals(_toggle, current))\n                    return; // Native host permission loss can cancel the original city offer.\n                _refreshPermission = false;','_refreshPermission = false;\n                Singleton<MapChoreographer>.Instance.DeterminePlayerToggleInteractability();\n                if (_contentKey != key || !ReferenceEquals(_toggle, current))\n                    return; // Native host permission loss can cancel the original city offer.','failed city presentation retries without replaying native consent'),
+ ('unsafe-diagnostic-logger','catch (Exception) { }\n    }\n\n    private static PropertyInfo? ReadNativeStateProperty()','catch (Exception) { throw; }\n    }\n\n    private static PropertyInfo? ReadNativeStateProperty()','failed city diagnostic logger cannot escape native getter')]
  for name,needle,replacement,expected in mutations:
   if text.count(needle)!=1:raise RuntimeError('Mutation target is not exact: '+name)
   production.write_text(text.replace(needle,replacement));shutil.copy2(production,run/(name+'.cs'))

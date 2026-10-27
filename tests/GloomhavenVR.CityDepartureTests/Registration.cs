@@ -52,6 +52,38 @@ internal static class Registration
             controller.ClearHostSelectedCityEvent();Check(!MapCityEventReadyUp.Active&&!ready.IsVisible,"actual host-withdrawal hook retires observer");
             map.ProxySelectedCityEvent(new GameAction{ActionID=18,ActionTypeID=(int)GameActionType.SelectCityEvent});
             new UIEventPanel().StartEvent();Check(!MapCityEventReadyUp.Active,"actual full event StartEvent retires preflight identity");
+
+            NativeProbeFaults.Arm("city.run");int nativeFlow=0;
+            map.ProxySelectedCityEvent(new GameAction{ActionID=19,ActionTypeID=(int)GameActionType.SelectCityEvent});nativeFlow++;
+            Check(nativeFlow==1&&NativeProbeFaults.Triggered==1&&!MapCityEventReadyUp.Active,"actual network callback survives failed city run provenance");
+            NativeProbeFaults.Arm("city.info-log");
+            map.ProxySelectedCityEvent(new GameAction{ActionID=20,ActionTypeID=(int)GameActionType.SelectCityEvent});
+            Check(NativeProbeFaults.Triggered==1&&MapCityEventReadyUp.Active,"actual network callback retains valid capture despite logging failure");
+            ready.ToggleVisibility(true);NativeProbeFaults.Arm("visible");ready.Reset();
+            Check(NativeProbeFaults.Triggered==1&&!MapCityEventReadyUp.Active&&!ready.IsVisible,"actual Reset body survives failed mod visibility recompute");
+
+            NativeProbeFaults.Arm("phase");ready.Initialize(readyUpToggleState:EReadyUpToggleStates.CityEvents);
+            Check(NativeProbeFaults.Triggered==1&&!ready.DepartureValidationOption&&ready.readyUpToggleState==EReadyUpToggleStates.CityEvents,
+                "actual native Initialize continues with original option after failed phase probe");
+            map.ProxySelectedCityEvent(new GameAction{ActionID=21,ActionTypeID=(int)GameActionType.SelectCityEvent});ready.ToggleVisibility(true);
+            NativeProbeFaults.Arm("city.phase");bool observed=ready.ShouldBeVisible;
+            Check(NativeProbeFaults.Triggered==1&&!observed,"actual observer postfix preserves native result after failed phase probe");
+            Check(ready.ShouldBeVisible,"actual observer getter retries its retained native occurrence");
+            NativeProbeFaults.Arm("interactable");
+            typeof(UIReadyToggle).GetMethod("InputToggle",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(ready,new object[]{true});
+            Check(NativeProbeFaults.Triggered==1&&!ready.ToggledOn&&Synchronizer.Actions.Count==0,"actual input prefix denies uncertain exact-city native permission");
+            typeof(MapCityEventReadyUp).GetField("_warned",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,false);
+            NativeProbeFaults.Arm("city.phase");NativeProbeFaults.AlsoArm("log.failure");observed=ready.ShouldBeVisible;
+            Check(NativeProbeFaults.Triggered==2&&!observed,"actual getter survives both native probe and diagnostic failure");
+
+            FFSNetwork.IsClient=false;ready.Initialize(readyUpToggleState:EReadyUpToggleStates.CityEvents);
+            int previous=PlayerRegistry.MyPlayer.state.LatestProcessedActionID;NativeProbeFaults.Arm("local-player");controller.ConfirmCityEvent();
+            Check(NativeProbeFaults.Triggered==1&&PlayerRegistry.MyPlayer.state.LatestProcessedActionID==previous+1,
+                "actual native host action continues after missing local-player counter probe");
+            NativeProbeFaults.Reset();controller.ConfirmCityEvent();ready.ToggleVisibility(true);
+            NativeProbeFaults.Arm("network.client");
+            typeof(UIMapMultiplayerController).GetMethod("CancelPreviewCityEvent",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(controller,new object[0]);
+            Check(NativeProbeFaults.Triggered==1&&!MapCityEventReadyUp.Active&&!ready.IsVisible,"actual native cancel survives failed host-role probe without resurrection");
             System.Console.WriteLine($"City actual HarmonyX: {_assertions} assertions passed; 11 original targets under Unity Mono.");return 0;
         }
         catch(Exception ex){System.Console.Error.WriteLine(ex);return 1;}

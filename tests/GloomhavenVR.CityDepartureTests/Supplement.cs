@@ -27,7 +27,7 @@ internal sealed class UIEventPanel { [System.Runtime.CompilerServices.MethodImpl
 namespace FFSNet
 {
     internal sealed partial class GameAction { public int ActionID; }
-    internal sealed class NativePlayerState { public int LatestProcessedActionID {get;set;} }
+    internal sealed class NativePlayerState {private int _id;public int LatestProcessedActionID {get{NativeProbeFaults.Read("city.counter");return _id;}set=>_id=value;} }
     internal sealed partial class NetworkPlayer { public NativePlayerState state {get;}=new(); }
 }
 #if !REAL_HARMONY
@@ -41,14 +41,14 @@ namespace HarmonyLib
 namespace GloomhavenVR.Core
 {
     internal static partial class VRLog
-    { internal static void Info(string scope,string text) { } internal static void Warn(string scope,string text)=>Alert(scope,text); }
+    { internal static void Info(string scope,string text)=>NativeProbeFaults.Read("city.info-log");internal static void Warn(string scope,string text)=>Alert(scope,text); }
 }
 namespace GloomhavenVR.Net
-{ internal static class SharedMapRunIdentity { internal static uint Key=>8193;internal static uint Add(uint hash,string value)=>hash+1; } }
+{ internal static class SharedMapRunIdentity { internal static uint Key {get{NativeProbeFaults.Read("city.run");return 8193;}}internal static uint Add(uint hash,string value)=>hash+1; } }
 namespace MapRuleLibrary.PhaseManager { internal enum EMapPhaseType { InHQ,AtLinkedScenario } }
 namespace MapRuleLibrary.Adventure
 {
-    internal sealed class CityMapState { internal MapRuleLibrary.PhaseManager.EMapPhaseType CurrentMapPhaseType; }
+    internal sealed class CityMapState {private MapRuleLibrary.PhaseManager.EMapPhaseType _phase;internal MapRuleLibrary.PhaseManager.EMapPhaseType CurrentMapPhaseType {get{NativeProbeFaults.Read("city.phase");return _phase;}set=>_phase=value;} }
     internal static class AdventureState { internal static CityMapState MapState=new(); }
 }
 namespace GloomhavenVR.WorldUI.MapRoom { internal static class MapRoomDriver {internal static bool Active=true;} }

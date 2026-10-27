@@ -6,7 +6,7 @@ using GloomhavenVR.WorldUI.MapRoom;
 using MapRuleLibrary.Adventure;
 using MapRuleLibrary.PhaseManager;
 
-internal static class Program
+internal static partial class Program
 {
     private static int _assertions;
     private static void Check(bool condition,string name)
@@ -16,11 +16,13 @@ internal static class Program
     private static MapChoreographer Map=>Singleton<MapChoreographer>.Instance;
     private static void Fresh(bool host=true,bool participant=true)
     {
+        Faults.Reset();
         MapCityEventReadyUp.Reset();FFSNetwork.IsOnline=true;FFSNetwork.IsHost=host;MapRoomDriver.Active=true;
         Singleton<UIMapMultiplayerController>.Instance=new();Singleton<UIReadyToggle>.Instance=new();
         Singleton<MapChoreographer>.Instance=new(){Participant=participant};PlayerRegistry.MyPlayer=new();
         AdventureState.MapState=new(){CurrentMapPhaseType=EMapPhaseType.InHQ};SharedMapRunIdentity.Key=8193;
         Ready.readyUpToggleState=Controller.m_State=EReadyUpToggleStates.CityEvents;
+        ActionProcessor.CurrentPhase=ActionPhaseType.MapHQ;
     }
     private static void ClientOffer(int id=17)
     { Hooks.Invoke("AfterClientProposal",new GameAction{ActionID=id,ActionTypeID=(int)GameActionType.SelectCityEvent}); }
@@ -121,6 +123,7 @@ internal static class Program
             Check(!MapCityEventReadyUp.Active&&!Ready.Window.IsOpen,"native all-ready gate suppresses observation immediately");
             MapCityEventReadyUp.Install();MapCityEventReadyUp.Install();Check(VRSession.Harmony!.Installed==1,"installation is idempotent");
             Check(VRLog.Warnings.Count==1,"all other native transitions reconcile without exception");
+            FaultProof();
             Console.WriteLine($"City readiness: {_assertions} assertions passed.");return 0;
         }
         catch(Exception ex){Console.Error.WriteLine(ex);return 1;}
