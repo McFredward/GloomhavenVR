@@ -141,14 +141,16 @@ public static partial class MenuDepthDesktopProgram
                     {
                         Check(sizes.Count == priorSizes + 2 && sampled.Left.x > 0 && sampled.Left.y > 0,
                             "the calibrated original renders both sampled eye targets from a mapped physical pixel demand");
-                        // The RT width also follows the conservative body crop. A
-                        // wider crop is not evidence that physical pixel demand rose.
+                        // Head captures keep one fixed final pixel grid. Physical
+                        // demand still maps through the native UI camera, but no
+                        // head translation may alter the admitted raster size.
                         var sources = (IEnumerable<MenuDepthCharacterSource>)typeof(MenuDepthCharacters)
                             .GetField("Sources", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
                         int samplingEdge = sources.Single(source => ReferenceEquals(source.Graphic, raw)).SamplingEdge;
                         if (i == 0) { farSize = sizes[priorSizes]; farSamplingEdge = samplingEdge; }
-                        if (i == 4) Check(farSize < sizes[priorSizes] && farSamplingEdge < samplingEdge && samplingEdge <= 2048,
-                            "the real original character eye targets grow from far to near displayed pixels within their bounded tier");
+                        if (i == 4) Check(farSize == sizes[priorSizes] && farSamplingEdge == samplingEdge
+                            && farSize == scene.HeadTarget.width && samplingEdge == Math.Max(scene.HeadTarget.width, scene.HeadTarget.height),
+                            "the real original character eye targets retain full fixed head detail from far to near");
                         File.AppendAllText(Path.Combine(output, "725-native-screen-samples.csv"), i + "," + sampled.Left.x + ","
                             + sampled.Left.y + "," + sizes[priorSizes] + "," + sizes[priorSizes + 1] + "," + samplingEdge + "\n");
                     }

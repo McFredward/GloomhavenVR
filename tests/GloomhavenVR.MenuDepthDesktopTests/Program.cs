@@ -36,11 +36,69 @@ public static partial class MenuDepthDesktopProgram
         Check(total > 12, "actual native UI graphic is visible in the captured stack"); return moment / total;
     }
 
+    private static Vector2 NativePixelInHead730(Scene scene, Vector2 pixel, bool right)
+    {
+        // Independently project the original full native raster's physical glass
+        // point. Head captures deliberately have a different grid from scene.Ui.
+        Vector3 world = scene.Screen.TransformPoint(new Vector3(
+            (pixel.x + .5f) / scene.Ui.width - .5f, (pixel.y + .5f) / scene.Ui.height - .5f));
+        Matrix4x4 view = scene.Head.GetStereoViewMatrix(right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left);
+        Vector4 clip = scene.Head.projectionMatrix * view * new Vector4(world.x, world.y, world.z, 1);
+        return new Vector2((clip.x / clip.w * .5f + .5f) * scene.HeadTarget.width - .5f,
+            (clip.y / clip.w * .5f + .5f) * scene.HeadTarget.height - .5f);
+    }
+
+    private static Color NativePixel730(Texture2D image, Scene scene, int x, int y, bool right)
+    {
+        Vector2 pixel = NativePixelInHead730(scene, new Vector2(x, y), right);
+        return image.GetPixel(Mathf.RoundToInt(pixel.x), Mathf.RoundToInt(pixel.y));
+    }
+
+    private static RenderTexture LeftHead730(Scene scene) => (RenderTexture)typeof(FlatScreen)
+        .GetField("_menuDepthCarrierLeft", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+        .GetValue(scene.Flat)!;
+
+    private static Texture2D ReferenceText730(Scene scene, bool right, string path)
+    {
+        var owner = new GameObject("independent original planar text", typeof(RectTransform), typeof(Canvas));
+        owner.layer = 26;
+        var rect = (RectTransform)owner.transform;
+        rect.sizeDelta = new Vector2(scene.Ui.width, scene.Ui.height);
+        rect.SetPositionAndRotation(scene.Screen.position, scene.Screen.rotation);
+        rect.localScale = new Vector3(scene.Screen.lossyScale.x / scene.Ui.width,
+            scene.Screen.lossyScale.y / scene.Ui.height, 1f);
+        owner.GetComponent<Canvas>().renderMode = RenderMode.WorldSpace;
+        GameObject label = Object.Instantiate(scene.PlanarText.gameObject, rect, false);
+        label.layer = 26;
+        int mask = scene.Head.cullingMask;
+        VRRigDriver.HeadCamera = null;
+        try
+        {
+            scene.Head.cullingMask = 1 << 26;
+            Canvas.ForceUpdateCanvases(); scene.Render(right);
+            return Read(scene.HeadTarget, path);
+        }
+        finally
+        {
+            scene.Head.cullingMask = mask; VRRigDriver.HeadCamera = scene.Head;
+            Object.DestroyImmediate(owner);
+        }
+    }
+
     public static IEnumerator Run(string output, Action<int> complete)
     {
         _count = 0; VRSession.IsRunning = true; DesktopEyeInput.Available = true;
         using (var scene = new Scene())
         {
+            scene.Head.orthographic = false;
+            // At the original two-metre view, the320x240 native pane occupies
+            // 640x480 pixels of a1280x960 final head. Fractional stereo offsets
+            // still exercise real rasterization; no UI projection is mocked.
+            scene.Head.fieldOfView = 2f * Mathf.Atan(.45f) * Mathf.Rad2Deg;
+            scene.HeadTarget.Release(); scene.HeadTarget.width = 1280; scene.HeadTarget.height = 960; scene.HeadTarget.Create();
+            // Give the second-camera witness a resolvable displacement on the
+            // final grid, separately from the whole planar stereo disparity.
+            scene.ConfigureOverlayDepth730(.45f);
             scene.Flat.Begin();
             Canvas.ForceUpdateCanvases();
             Check(scene.Flat.Captured == 2, "actual original capture census adopts both screen-space UI cameras while excluding the foreign preview target");
@@ -48,7 +106,7 @@ public static partial class MenuDepthDesktopProgram
                 "actual captured native UI cameras route to the owned glass target");
             scene.OriginalA.Render(); scene.OriginalB.Render();
             Texture2D mono = Read(scene.Ui, Path.Combine(output, "original-native-mono.png"));
-            float monoBlue = X(mono, 2), monoRed = X(mono, 0);
+            X(mono, 2); float monoRed = X(mono, 0);
             Color nativeFade = mono.GetPixel(115, 110); Object.DestroyImmediate(mono);
             Camera.CameraCallback diagnostic=c=>
             {
@@ -64,22 +122,31 @@ public static partial class MenuDepthDesktopProgram
             scene.Eyes(Vector3.zero); scene.Render(false);
             Camera.onPreRender-=diagnostic;
             Check(scene.Flat.Right != null && scene.Flat.Right.IsCreated(), "native screen-space menu receives two prepared glass captures before the first actual head draw");
-            Texture2D left = Read(scene.Ui, Path.Combine(output, "native-ui-left.png"));
+            Texture2D left = Read(LeftHead730(scene), Path.Combine(output, "native-ui-left.png"));
             Texture2D right = Read(scene.Flat.Right!, Path.Combine(output, "native-ui-right.png"));
-            Check(left.GetPixel(220, 105).g > .8f && right.GetPixel(220, 105).g > .8f,
+            Check(NativePixel730(left, scene, 220, 105, false).g > .8f && NativePixel730(right, scene, 220, 105, true).g > .8f,
                 "both original native UI cameras populate the borrowed eye target without ordinary-route overwrite");
-            Check(X(right, 0) - X(left, 0) > .15f,
+            float planeRedDisparity = NativePixelInHead730(scene, new Vector2(monoRed, 120), true).x
+                - NativePixelInHead730(scene, new Vector2(monoRed, 120), false).x;
+            Check(Math.Abs(X(right, 0) - X(left, 0) - planeRedDisparity) > .15f,
                 "original orthographic UI stack carries physical-eye-dependent graphic relief");
-            Check(Math.Abs(X(left, 2) - monoBlue) < .12f && Math.Abs(X(right, 2) - monoBlue) < .12f,
+            Texture2D referenceLeft = ReferenceText730(scene, false, Path.Combine(output, "independent-planar-text-left.png"));
+            Texture2D referenceRight = ReferenceText730(scene, true, Path.Combine(output, "independent-planar-text-right.png"));
+            Check(Math.Abs(X(left, 2) - X(referenceLeft, 2)) < .12f
+                && Math.Abs(X(right, 2) - X(referenceRight, 2)) < .12f,
                 "native planar text and controls keep their original sampling in both eye captures");
-            Check(Math.Abs(X(left, 1) - X(right, 1)) > .1f,
+            Object.DestroyImmediate(referenceLeft); Object.DestroyImmediate(referenceRight);
+            float planeGreenDisparity = NativePixelInHead730(scene, new Vector2(220, 105), true).x
+                - NativePixelInHead730(scene, new Vector2(220, 105), false).x;
+            Check(Math.Abs(X(right, 1) - X(left, 1) - planeGreenDisparity) > .15f,
                 "the second original UI camera receives its own graphic-plane eye mapping");
-            Check(Math.Abs(left.GetPixel(115, 110).r - nativeFade.r) < .01f
-                && Math.Abs(right.GetPixel(115, 110).a - nativeFade.a) < .01f,
+            Check(Math.Abs(NativePixel730(left, scene, 115, 110, false).r - nativeFade.r) < .01f
+                && Math.Abs(NativePixel730(right, scene, 115, 110, true).a - nativeFade.a) < .01f,
                 "native ancestor fade and original graphic alpha retain their sampled appearance");
-            Color masked = right.GetPixel(60, 40), excluded = right.GetPixel(32, 40);
+            Color masked = NativePixel730(right, scene, 60, 40, true), excluded = NativePixel730(right, scene, 32, 40, true);
             Check(masked.r > .8f && masked.b > .8f && excluded.r < .05f && excluded.b < .05f,
                 "original native RectMask2D still clips its graphic in the eye-specific UI stack");
+            scene.Render(false);
             Texture2D headLeft = Read(scene.HeadTarget, Path.Combine(output, "head-left.png"));
             scene.Render(true);
             Texture2D headRight = Read(scene.HeadTarget, Path.Combine(output, "head-right.png"));
@@ -93,11 +160,11 @@ public static partial class MenuDepthDesktopProgram
 
             int frame = Time.frameCount; while (Time.frameCount == frame) yield return null;
             scene.Eyes(new Vector3(.25f, .08f, 0)); scene.Render(false);
-            Texture2D side = Read(scene.Ui, Path.Combine(output, "head-side-ui.png"));
+            Texture2D side = Read(LeftHead730(scene), Path.Combine(output, "head-side-ui.png"));
             float sideRed = X(side, 0); Object.DestroyImmediate(side);
             frame = Time.frameCount; while (Time.frameCount == frame) yield return null;
             scene.Eyes(Vector3.zero); scene.Render(false);
-            Texture2D centre = Read(scene.Ui, Path.Combine(output, "head-centre-ui.png"));
+            Texture2D centre = Read(LeftHead730(scene), Path.Combine(output, "head-centre-ui.png"));
             Check(Math.Abs(sideRed - X(centre, 0)) > .8f,
                 "head translation updates native-screen graphic perspective on a later actual frame");
             Object.DestroyImmediate(centre);
@@ -105,7 +172,7 @@ public static partial class MenuDepthDesktopProgram
             frame = Time.frameCount; while (Time.frameCount == frame) yield return null;
             scene.Screen.rotation = Quaternion.Euler(0, 27, 0); scene.Screen.position = new Vector3(.3f, .15f, 2.2f);
             scene.Eyes(new Vector3(.15f, 0, 0)); scene.Render(false);
-            Texture2D moved = Read(scene.Ui, Path.Combine(output, "moved-rotated-window.png"));
+            Texture2D moved = Read(LeftHead730(scene), Path.Combine(output, "moved-rotated-window.png"));
             Check(X(moved, 0) > 0, "moved and rotated physical window maps original screen-space art to a valid native eye");
             Object.DestroyImmediate(moved); scene.CheckOriginalState();
 
@@ -142,8 +209,10 @@ public static partial class MenuDepthDesktopProgram
         internal readonly Material Glass;
         internal readonly FlatScreen Flat;
         internal readonly Button Button;
+        internal readonly Text PlanarText;
         internal Graphic SpatialGraphic => _red;
         internal int Clicks;
+        internal void ConfigureOverlayDepth730(float depth) => _greenDepth.Configure(_green, null, depth);
         private readonly RectTransform _canvasA, _canvasB;
         private readonly Image _red, _green;
         private readonly MenuDepthGraphic _redDepth, _greenDepth;
@@ -181,6 +250,7 @@ public static partial class MenuDepthDesktopProgram
             var label = new GameObject("actual original planar text", typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
             label.layer = 6; label.transform.SetParent(_canvasB, false);
             var text = label.GetComponent<Text>(); text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            PlanarText = text;
             text.text = "NATIVE"; text.color = Color.blue; text.fontSize = 15; text.alignment = TextAnchor.MiddleCenter;
             text.rectTransform.sizeDelta = new Vector2(100, 25); text.rectTransform.anchoredPosition = new Vector2(0, 78);
             var button = Image(_canvasA, 5, new Vector2(0, -85), new Vector2(65, 15), new Color(.2f, .2f, .2f));
@@ -250,7 +320,18 @@ public static partial class MenuDepthDesktopProgram
                     if (item.GetComponent<Text>() is Text label) label.fontSize *= factor;
                 }
         }
-        internal void Render(bool right) { DesktopEyeInput.Right = right; Head.Render(); }
+        internal void Render(bool right)
+        {
+            DesktopEyeInput.Right = right;
+            // The editor exposes no active XR eye. Render the actual final head
+            // from the same explicit eye observation passed to the coordinator.
+            Matrix4x4 view = Head.GetStereoViewMatrix(right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left);
+            Matrix4x4 inverse = view.inverse;
+            Head.transform.SetPositionAndRotation(inverse.MultiplyPoint3x4(Vector3.zero),
+                Quaternion.LookRotation(inverse.MultiplyVector(Vector3.back), inverse.MultiplyVector(Vector3.up)));
+            Head.worldToCameraMatrix = view;
+            Head.Render();
+        }
         internal void CheckOriginalState()
         {
             Check(OriginalA.targetTexture == Ui && OriginalB.targetTexture == Ui, "each borrowed original UI camera restores its captured target after both eyes");
