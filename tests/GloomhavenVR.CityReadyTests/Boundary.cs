@@ -24,9 +24,9 @@ internal sealed class UIReadyToggle
     internal T GetComponent<T>() where T:class=> (Window as T)!;
     internal void UpdateVisiblity() { bool show=ShouldBeVisible;if(show!=Window.IsOpen) { Window.IsOpen=show;if(show)ShowCount++;else HideCount++; } }
     internal void Initialize(EReadyUpToggleStates state)
-    { Hooks.Invoke("BeforeNativeRetirement");readyUpToggleState=state;IsInteractable=ToggleInteractable=false;_allPlayersReady=false;UpdateVisiblity(); }
+    { Hooks.Invoke("BeforeReadyInitialize");readyUpToggleState=state;IsInteractable=ToggleInteractable=false;_allPlayersReady=false;UpdateVisiblity(); }
     internal void Reset()
-    { Hooks.Invoke("BeforeNativeRetirement");_requestVisible=false;IsInteractable=ToggleInteractable=false;UpdateVisiblity(); }
+    { Hooks.Invoke("BeforeReadyReset");_requestVisible=false;IsInteractable=ToggleInteractable=false;UpdateVisiblity(); }
     internal bool InputToggle()
     { bool accepted=(bool)Hooks.Invoke("PreserveNativeInputPermission",this)!;if(accepted)InputVotes++;return accepted; }
 }
@@ -69,7 +69,7 @@ namespace MapRuleLibrary.Adventure
 namespace HarmonyLib
 {
     [AttributeUsage(AttributeTargets.Class|AttributeTargets.Method,AllowMultiple=true)]internal sealed class HarmonyPatch:Attribute
-    { public HarmonyPatch(){} public HarmonyPatch(Type type,string name){}public HarmonyPatch(Type type,string name,MethodType method){} }
+    { internal readonly Type? Target;internal readonly string? Name;public HarmonyPatch(){} public HarmonyPatch(Type type,string name){Target=type;Name=name;}public HarmonyPatch(Type type,string name,MethodType method){Target=type;Name=name;} }
     internal sealed class HarmonyPostfix:Attribute { }
     internal sealed class HarmonyPrefix:Attribute { }
     internal enum MethodType { Getter }
@@ -91,4 +91,9 @@ internal static class Hooks
 {
     private static readonly Type Seam=typeof(MapCityEventReadyUp).GetNestedType("CityProposalSeams",BindingFlags.NonPublic)!;
     internal static object? Invoke(string method,params object?[] args)=>Seam.GetMethod(method,BindingFlags.NonPublic|BindingFlags.Static)!.Invoke(null,args);
+    internal static bool HasExactlyOneTarget(string method,Type target,string name)
+    {
+        object[] attributes=Seam.GetMethod(method,BindingFlags.NonPublic|BindingFlags.Static)!.GetCustomAttributes(typeof(HarmonyLib.HarmonyPatch),false);
+        return attributes.Length==1&&attributes[0] is HarmonyLib.HarmonyPatch patch&&patch.Target==target&&patch.Name==name;
+    }
 }

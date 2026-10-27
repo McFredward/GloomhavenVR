@@ -33,6 +33,14 @@ internal static class Program
     {
         try
         {
+            foreach(var target in new[]{
+                ("BeforeReadyInitialize",typeof(UIReadyToggle),"Initialize"),
+                ("BeforeReadyReset",typeof(UIReadyToggle),"Reset"),
+                ("BeforeControllerReset",typeof(UIMapMultiplayerController),"ResetUI"),
+                ("BeforeHostWithdrawal",typeof(UIMapMultiplayerController),"ClearHostSelectedCityEvent"),
+                ("BeforeHostCancellation",typeof(UIMapMultiplayerController),"ProxyHostCancelledCityEvent"),
+                ("BeforeEventCard",typeof(UIEventPanel),"StartEvent")})
+                Check(Hooks.HasExactlyOneTarget(target.Item1,target.Item2,target.Item3),"native retirement has one exact Harmony target: "+target.Item1);
             Fresh();HostOffer();uint hostKey=MapCityEventReadyUp.ContentKey;
             Check(hostKey!=0,"host native proposal produces a shared occurrence");
             MapCityEventReadyUp.Tick();Check(Ready.Window.IsOpen,"host proposal visible");
@@ -68,15 +76,20 @@ internal static class Program
             Check(!Ready.Window.IsOpen,"native local unready initially hides preview");MapCityEventReadyUp.Tick();
             Check(Ready.Window.IsOpen&&MapCityEventReadyUp.Active,"client unready must not withdraw host proposal");
             Check(Ready.InputVotes==0&&Ready.AutomaticVotes==0,"reveal after unready never casts another vote");
-            Hooks.Invoke("BeforeNativeRetirement");Controller.ToggleReadyUpUI(false,EReadyUpToggleStates.CityEvents);MapCityEventReadyUp.Tick();
+            Hooks.Invoke("BeforeHostWithdrawal");Controller.ToggleReadyUpUI(false,EReadyUpToggleStates.CityEvents);MapCityEventReadyUp.Tick();
             Check(!Ready.Window.IsOpen&&!MapCityEventReadyUp.Active,"host withdrawal cannot resurrect on next tick");
 
             Fresh();HostOffer();MapCityEventReadyUp.Tick();Hooks.Invoke("BeforeCancelPreview");Controller.ToggleReadyUpUI(false,EReadyUpToggleStates.CityEvents);MapCityEventReadyUp.Tick();
             Check(!MapCityEventReadyUp.Active&&!Ready.Window.IsOpen,"host cancel retires shared offer");
             Fresh(false);ClientOffer();MapCityEventReadyUp.Tick();Ready.Reset();MapCityEventReadyUp.Tick();
             Check(!MapCityEventReadyUp.Active&&!Ready.Window.IsOpen,"native all-ready reset retires preflight before full event");
-            Fresh(false);ClientOffer();Hooks.Invoke("BeforeNativeRetirement");
+            Fresh(false);ClientOffer();Hooks.Invoke("BeforeEventCard");
             Check(!MapCityEventReadyUp.Active,"full UIEventPanel entry cannot retain preflight identity");
+            foreach(string retirement in new[]{"BeforeControllerReset","BeforeHostCancellation"})
+            {
+                Fresh(false);ClientOffer();MapCityEventReadyUp.Tick();Hooks.Invoke(retirement);MapCityEventReadyUp.Tick();
+                Check(!MapCityEventReadyUp.Active,"exact native retirement seam clears city lease: "+retirement);
+            }
 
             foreach(EReadyUpToggleStates state in new[]{EReadyUpToggleStates.Quests,EReadyUpToggleStates.NotSet,EReadyUpToggleStates.Reward,EReadyUpToggleStates.Retirement,EReadyUpToggleStates.TownRecords})
             {

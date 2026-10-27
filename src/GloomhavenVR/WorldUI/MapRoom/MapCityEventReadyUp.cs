@@ -199,12 +199,27 @@ internal static class MapCityEventReadyUp
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Initialize))]
+        private static void BeforeReadyInitialize() => Reset();
+
+        [HarmonyPrefix]
         [HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Reset))]
+        private static void BeforeReadyReset() => Reset();
+
+        [HarmonyPrefix]
         [HarmonyPatch(typeof(UIMapMultiplayerController), nameof(UIMapMultiplayerController.ResetUI))]
+        private static void BeforeControllerReset() => Reset();
+
+        [HarmonyPrefix]
         [HarmonyPatch(typeof(UIMapMultiplayerController), nameof(UIMapMultiplayerController.ClearHostSelectedCityEvent))]
+        private static void BeforeHostWithdrawal() => Reset();
+
+        [HarmonyPrefix]
         [HarmonyPatch(typeof(UIMapMultiplayerController), "ProxyHostCancelledCityEvent")]
+        private static void BeforeHostCancellation() => Reset();
+
+        [HarmonyPrefix]
         [HarmonyPatch(typeof(UIEventPanel), nameof(UIEventPanel.StartEvent))]
-        private static void BeforeNativeRetirement() => Reset();
+        private static void BeforeEventCard() => Reset();
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(UIMapMultiplayerController), "CancelPreviewCityEvent")]

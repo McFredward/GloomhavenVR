@@ -31,7 +31,9 @@ try:
  ('local-withdrawal','if (FFSNetwork.IsHost)\n                Reset();','if (FFSNetwork.IsOnline)\n                Reset();','client unready must not withdraw host proposal'),
  ('action-identity','hash = SharedMapRunIdentity.Add(hash, actionId.ToString(CultureInfo.InvariantCulture));','hash = SharedMapRunIdentity.Add(hash, "constant");','new city occurrence cannot reuse old pose key'),
  ('singleton-replacement','|| !ReferenceEquals(_toggle, Singleton<UIReadyToggle>.Instance)','|| false','replacement native ready singleton cannot inherit old city lease'),
- ('all-ready','|| _toggle._allPlayersReady','|| false','native all-ready gate suppresses observation immediately')]
+ ('all-ready','|| _toggle._allPlayersReady','|| false','native all-ready gate suppresses observation immediately'),
+ ('native-cancel-seam','private static void BeforeHostCancellation() => Reset();','private static void BeforeHostCancellation() { }','exact native retirement seam clears city lease: BeforeHostCancellation'),
+ ('native-target-registration','[HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Initialize))]','[HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Initialize))]\n        [HarmonyPatch(typeof(UIReadyToggle), nameof(UIReadyToggle.Reset))]','native retirement has one exact Harmony target: BeforeReadyInitialize')]
  for name,needle,replacement,expected in mutations:
   if text.count(needle)!=1:raise RuntimeError('Mutation target is not exact: '+name)
   production.write_text(text.replace(needle,replacement));shutil.copy2(production,run/(name+'.cs'))
