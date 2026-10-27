@@ -201,7 +201,7 @@ public static partial class MenuDepthGraphicProgram
     {
         string folder = Path.Combine(Path.GetDirectoryName(typeof(MenuDepthGraphicProgram).Assembly.Location)!, "MenuDepth", "Story");
         Directory.CreateDirectory(folder);
-        Texture2D secondTexture = new(128, 128, TextureFormat.RGBA32, false);
+        Texture2D secondTexture = new(128, 128, TextureFormat.RGBA32, false) { name = "second-story-texture" };
         secondTexture.SetPixels(Enumerable.Repeat(Color.cyan, 128 * 128).ToArray()); secondTexture.Apply();
         Sprite second = Sprite.Create(secondTexture, new Rect(0, 0, 128, 128), new Vector2(.5f, .5f)); second.name = "second-story";
         byte[] secondDepth = DepthBytes(4, 4, 128, 128, true);
@@ -230,6 +230,14 @@ public static partial class MenuDepthGraphicProgram
         Check(MenuDepthCatalogue.DefaultArt("defaultEventImage", first)?.source_id == a
             && MenuDepthCatalogue.GuidArt("typed-native-guid", second)?.source_id == b,
             "native default-event and compendium GUID mappings select their qualified original sprite");
+        Sprite bakedFirst = GloomhavenVR.Cards.CardFaceMipBake.ReplacementFor(first)!;
+        Sprite bakedSecond = GloomhavenVR.Cards.CardFaceMipBake.ReplacementFor(second)!;
+        Check(bakedFirst != null && bakedFirst.texture.width == first.texture.width && bakedFirst.rect == first.textureRect
+            && MenuDepthCatalogue.DefaultArt("defaultEventImage", bakedFirst)?.source_id == a
+            && MenuDepthCatalogue.TryDepthUv(artA, bakedFirst, out Vector4 atlasUv) && atlasUv == new Vector4(1, 1, 0, 0),
+            "default-event lookup retains actual whole-atlas mip provenance and unchanged native atlas UVs");
+        Check(bakedSecond != null && MenuDepthCatalogue.GuidArt("typed-native-guid", bakedSecond)?.source_id == b,
+            "compendium GUID lookup qualifies the actual native mip clone without a sprite-name suffix heuristic");
         MenuDepthHeightfield fieldA = MenuDepthCatalogue.Load(MenuDepthCatalogue.NarrativeArt("story-first", first)!)!;
         MenuDepthHeightfield fieldB = MenuDepthCatalogue.Load(MenuDepthCatalogue.NarrativeArt("story-second", second)!)!;
         Check(fieldA != null && fieldB != null && !Near(fieldA.Sample(.5f, .5f), fieldB.Sample(.5f, .5f)),

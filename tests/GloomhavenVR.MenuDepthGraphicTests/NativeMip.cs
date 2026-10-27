@@ -86,10 +86,10 @@ public static partial class MenuDepthGraphicProgram
                     using (var left = scene.Capture(new Vector3(-.35f, .02f, 0), "native-mip-left"))
                     using (var right = scene.Capture(new Vector3(.35f, .02f, 0), "native-mip-right"))
                         pixels = Difference(left.Image, right.Image, new RectInt(60, 35, 200, 110));
-                    Check(pixels > 40, "the actual driver-bound mip illustration renders measured eye-dependent parallax pixels");
                     File.WriteAllText(Path.Combine(output, "native-mip-measurements.json"), "{\"parallax_pixels\":" + pixels
                         + ",\"minimum_depth\":" + vertices.Min(v => v.position.z).ToString(System.Globalization.CultureInfo.InvariantCulture)
                         + ",\"maximum_depth\":" + vertices.Max(v => v.position.z).ToString(System.Globalization.CultureInfo.InvariantCulture) + "}\n");
+                    Check(pixels > 40, "the actual driver-bound mip illustration renders measured eye-dependent parallax pixels");
                     using (var revealed = scene.Capture(Vector3.zero, "native-mip-revealed"))
                     {
                         material.SetFloat("_Cutoff", .8f); // No SetMaterialDirty: native tween changes this original instance.
@@ -167,8 +167,13 @@ public static partial class MenuDepthGraphicProgram
             mipScene.Panel.gameObject.SetActive(false); nativeScene.Panel.gameObject.SetActive(true);
             using (mipPixels)
             using (var nativePixels = nativeScene.Capture(new Vector3(-.3f, .03f, 0), "atlas-original-relief"))
-                Check(Difference(mipPixels.Image, nativePixels.Image, new RectInt(80, 50, 160, 80)) < 20,
+            {
+                int mismatch = Difference(mipPixels.Image, nativePixels.Image, new RectInt(80, 50, 160, 80));
+                File.WriteAllText(Path.Combine(_output, "atlas-uv-measurements.json"), "{\"original_vs_mip_mismatched_pixels\":"
+                    + mismatch + ",\"roi_pixels\":12800,\"maximum_accepted_mismatches\":19}\n");
+                Check(mismatch < 20,
                     "actual native and region-mip relief retain measured colour/depth alignment under an oblique eye");
+            }
         }
         Object.DestroyImmediate(original); Object.DestroyImmediate(texture);
     }

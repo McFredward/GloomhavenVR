@@ -34,7 +34,7 @@ public static class MenuDepthGraphicRunner
     }
     private static Sprite MakeNativeCrop()
     {
-        var texture = new Texture2D(128, 128, TextureFormat.RGBA32, false);
+        var texture = new Texture2D(128, 128, TextureFormat.RGBA32, false) { name = "original-native-subrect-texture" };
         var pixels = new Color32[128 * 128];
         for (int y = 24; y < 104; y++) for (int x = 16; x < 88; x++)
             pixels[y * 128 + x] = x % 12 <= 1 || y % 12 <= 1
