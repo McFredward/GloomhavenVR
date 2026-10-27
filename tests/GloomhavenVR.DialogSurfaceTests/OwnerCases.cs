@@ -132,8 +132,20 @@ internal static class OwnerCases
         (surface,manager,source,panel,home)=Setup();
         manager.CurrentBox.gameObject.scene=2;
         Record(manager,source); manager.Show(); surface.Tick();
-        Check(!ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window) && CanvasConversion.Converts==2,
-            "persistent dialogs must retain standalone fallback across incompatible scene lifetimes");
+        // Build728 user request: level-up confirmation belongs in the same physical
+        // window. Keep its original persistent scene via an owner-aligned capture.
+        Check(ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window) && CanvasConversion.Converts==2,
+            "persistent level-up dialog uses a safe owner-aligned capture instead of standalone placement");
+        Check(manager.CurrentBox.gameObject.scene==2
+            && !manager.CurrentBox.transform.IsChildOf(source.transform),
+            "persistent level-up dialog never inherits the scene-owned producer lifetime");
+        Check(CanvasConversion.Last!.HostRect.position.z==source.transform.position.z-32
+            && CanvasConversion.Last.HostRect.localScale.x==source.transform.lossyScale.x,
+            "persistent member copies only accepted owner world geometry");
+        source.gameObject.activeSelf=false;surface.Tick();
+        Check(!ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window)&&manager.CurrentBox.IsOpen
+            &&manager.CurrentBox.gameObject.scene==2,
+            "lost level-up owner restores persistent presentation without native cancellation");
         surface.Shutdown();
 
         (surface,manager,source,panel,home)=Setup();

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <OwnerSource Condition="'$(OwnerSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.cs</OwnerSource>
     <OriginSource Condition="'$(OriginSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/ConfirmationOnOwner.Origins.cs</OriginSource>
     <LayerSource Condition="'$(LayerSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/MovedSubtreeLayers.cs</LayerSource>

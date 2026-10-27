@@ -109,7 +109,11 @@ namespace UnityEngine
         private Transform? _parent;
         private readonly List<Transform> _children = new();
         internal Transform? parent => _parent;
-        internal Vector3 position => localPosition;
+        internal Vector3 position { get => localPosition; set => localPosition=value; }
+        internal Quaternion rotation { get => localRotation; set => localRotation=value; }
+        internal Vector3 lossyScale => localScale;
+        internal Vector3 TransformPoint(Vector3 point) => point + localPosition;
+        internal void SetPositionAndRotation(Vector3 point,Quaternion facing) { position=point;rotation=facing; }
         internal Vector3 forward => new(0,0,1);
         internal Vector3 localPosition;
         internal Vector3 localScale = Vector3.one;
@@ -182,6 +186,7 @@ namespace GloomhavenVR.WorldUI
         internal bool IsAlive = true;
         internal RectTransform Target = new();
         internal GameObject HostGo = new("host");
+        internal RectTransform HostRect => (RectTransform)HostGo.transform;
         internal Transform? Home;
         internal readonly GraphicRaycaster HostRaycaster = new();
     }
@@ -193,12 +198,14 @@ namespace GloomhavenVR.WorldUI
         internal static bool ReturnNull, ThrowConvert, ThrowPlace, ThrowRelease;
         internal static ConvertedPanel? Last;
         internal static Camera? WorldCamera = new();
-        internal static ConvertedPanel? Convert(RectTransform? root, string name, int pokeTuning)
+        internal static ConvertedPanel? Convert(RectTransform? root, string name, int pokeTuning, bool? fitContent=null, bool flattenWindow=false)
         {
             ++Converts;
             if (ThrowConvert) throw new InvalidOperationException("convert");
             if (ReturnNull) return null;
-            Last = new ConvertedPanel { Target = root!, Home = root!.parent }; ActivePanels.Add(Last); return Last;
+            Last = new ConvertedPanel { Target = root!, Home = root!.parent };
+            Last.HostGo.scene=root!.gameObject.scene;root.SetParent(Last.HostRect,false);
+            ActivePanels.Add(Last); return Last;
         }
         internal static void Release(ConvertedPanel panel)
         {
