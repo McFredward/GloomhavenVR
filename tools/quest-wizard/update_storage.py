@@ -18,11 +18,53 @@ from state import Cancelled, WizardError, atomic_json
 FAST_AREAS = ("updates/code-projects", "updates/source-inputs", "updates/game-inputs",
               "cache/quest-figure-meshes", "cache/quest-native-audio", "cache/quest-movies",
               "cache/environment-meshes", "cache/environment-native", "cache/environment-geometry",
-              "cache/update-art-delivery", "cache/update-seeds", "cache/device-update-seeds")
+              "cache/update-art-delivery", "cache/update-seeds", "cache/device-update-seeds",
+              "cache/menu-depth-resources", "cache/menu-depth-content", "cache/retained-mod-content")
+MENU_CACHE_AREAS = ("menu-depth-resources", "menu-depth-content", "retained-mod-content")
 
 
 def _overlaps(path, other):
     return path == other or path in other.parents or other in path.parents
+
+
+def _fast_references(helper, root, build, value, result, *, cancel=None):
+    """Observe explicit producer dependencies; absence keeps all new families.
+
+    These paths only protect data. They never prove cache ownership or authorize
+    deletion. A pending run without a closed dependency roster remains resumable.
+    """
+    found = False
+    malformed = False
+    def visit(item):
+        nonlocal found, malformed
+        helper._check_cancel(cancel)
+        if isinstance(item, dict):
+            if "fastUpdateInputs" in item:
+                values = item["fastUpdateInputs"]
+                if not isinstance(values, list) or len(values) > helper.MAX_IDENTITIES or not all(isinstance(path, str) for path in values):
+                    malformed = True
+                else:
+                    found = True
+                    references = helper._references(root, build, values, cancel=cancel)
+                    for path in references:
+                        matched = False
+                        for area in MENU_CACHE_AREAS:
+                            parent = build / "cache" / area
+                            if path == parent:
+                                result.add(parent); matched = True
+                            elif parent in path.parents:
+                                relative = path.relative_to(parent)
+                                if helper._key(relative.parts[0]):
+                                    result.add(parent / relative.parts[0]); matched = True
+                        if not matched: malformed = True
+                    if len(references) != len(set(values)):
+                        malformed = True
+            for member in item.values(): visit(member)
+        elif isinstance(item, list):
+            for member in item: visit(member)
+    visit(value)
+    if not found or malformed:
+        result.update(build / "cache" / area for area in MENU_CACHE_AREAS)
 
 
 def protected_paths(helper, root, build, proofs, *, cancel=None):
@@ -31,6 +73,7 @@ def protected_paths(helper, root, build, proofs, *, cancel=None):
     helper._completed_build(build, proofs)
     latest = helper._read(build / "latest-build.json", proofs)
     result.add(build / latest["apk"])
+    _fast_references(helper, root, build, latest, result, cancel=cancel)
     # Keep the original external content bank. A baseApk is an obsolete signed
     # predecessor, not a dependency once the successor has been published.
     def visit(value):
@@ -55,6 +98,7 @@ def protected_paths(helper, root, build, proofs, *, cancel=None):
             if count > helper.MAX_IDENTITIES: raise helper._error("cleanup_receipt", "Too many retained runs.")
             value = helper._session(folder, proofs)
             if value.get("status") == "complete": continue
+            _fast_references(helper, root, build, value, result, cancel=cancel)
             choices = value["choices"]
             selected = choices.get("baseApk")
             if isinstance(selected, str):
@@ -67,6 +111,90 @@ def protected_paths(helper, root, build, proofs, *, cancel=None):
                         [details[name] for name in ("apk", "bank", "sourcePackage", "baseApk")
                          if isinstance(details.get(name), str)], cancel=cancel))
     return result
+
+
+def cache_candidates(helper, root, build, proofs, *, cancel=None):
+    """Prune finite superseded payloads while preserving all ownership evidence.
+
+    Current/pending keys come from their explicit publisher rosters. Legacy or
+    unfinished dependency metadata protects the whole family. No age heuristic,
+    payload hash or recursive cache-directory deletion establishes ownership.
+    """
+    protected = {build / "cache" / area for area in MENU_CACHE_AREAS}
+    if not any(path.is_dir() for path in protected): return [], protected, []
+    try:
+        protected = protected_paths(helper, root, build, proofs, cancel=cancel)
+    except Cancelled: raise
+    except (WizardError, OSError, ValueError, KeyError, TypeError):
+        return [], protected, [{"path": "build/cache", "reason": "unproven_menu_dependencies"}]
+    targets, skipped = [], []
+    for area in MENU_CACHE_AREAS:
+        for folder in helper._children(build / "cache" / area, cancel=cancel):
+            if any(_overlaps(folder, path) for path in protected): continue
+            try:
+                if not helper._key(folder.name): continue
+                if area == "menu-depth-resources":
+                    owner = helper._read(folder / "menu-depth-android.provenance.json", proofs, cancel=cancel)
+                    recipe = owner.get("recipe")
+                    row = owner.get("bundle")
+                    if (owner.get("schema") != 1 or owner.get("producerKey") != folder.name
+                            or not isinstance(recipe, dict) or helper.value_hash(recipe) != folder.name
+                            or recipe.get("scope") != "quest-menu-depth-native-card-v1"
+                            or recipe.get("target") != "Android" or recipe.get("graphicsApi") != "Vulkan"
+                            or not isinstance(row, dict) or row.get("path") != "menu-depth-android.bundle"):
+                        raise ValueError("unproven native menu resource owner")
+                else:
+                    stage = "menu-depth-content" if area == "menu-depth-content" else "retained-mod-content"
+                    receipt = helper._read(build / "receipts" / stage / (folder.name + ".json"), proofs, cancel=cancel)
+                    if receipt.get("schema") != 1 or receipt.get("stage") != stage or receipt.get("key") != folder.name:
+                        raise ValueError("unproven mod archive stage")
+                    outputs = helper._rows(receipt.get("outputs"))
+                    archive_name = (folder / "quest-mod-content.zip").relative_to(build).as_posix()
+                    row = outputs.get(archive_name)
+                    if row is None: raise ValueError("missing exact mod archive output")
+                    if area == "retained-mod-content":
+                        owner_path = folder / "owner.json"
+                        owner = helper._read(owner_path, proofs, cancel=cancel)
+                        expected = {"path": "quest-mod-content.zip", "size": row["size"], "sha256": folder.name}
+                        if (owner != {"schema": 1, "scope": "quest-retained-mod-content-v1",
+                                "archiveSha256": folder.name, "files": [expected]}
+                                or row["sha256"] != folder.name):
+                            raise ValueError("unproven retained mod archive identity")
+                        metadata = [owner_path]
+                    else:
+                        manifest_path = folder / "quest-mod-content.json"
+                        manifest = helper._read(manifest_path, proofs, cancel=cancel)
+                        bundles_path = folder / "quest-mod-bundles.json"
+                        bundles = helper._read(bundles_path, proofs, cancel=cancel)
+                        details = receipt.get("details", {})
+                        if (details.get("scope") != "quest-loose-menu-story-v1"
+                                or manifest.get("schema") != 1 or manifest.get("archive") != "quest-mod-content.zip"
+                                or manifest.get("archiveSha256") != row["sha256"]
+                                or not helper._key(manifest.get("inputKey"))
+                                or details.get("inputKey") != manifest["inputKey"]
+                                or not isinstance(bundles.get("menuDepthStory"), dict)
+                                or bundles["menuDepthStory"].get("contentKey") != details.get("storyKey")):
+                            raise ValueError("unproven loose Story output identity")
+                        metadata = [manifest_path, bundles_path]
+                    expected_names = {archive_name, *(path.relative_to(build).as_posix() for path in metadata)}
+                    if set(outputs) != expected_names:
+                        raise ValueError("surplus mod archive stage outputs")
+                    for path in metadata:
+                        record = outputs[path.relative_to(build).as_posix()]
+                        if record["sha256"] != proofs[str(path)]["sha256"] or record["size"] != helper._stamp(path)[3]:
+                            raise ValueError("changed mod archive ownership metadata")
+                    row = {**row, "path": "quest-mod-content.zip"}
+                records = helper._rows([row])
+                payload = folder / row["path"]
+                stamp = helper._stamp(payload)
+                if (not stat.S_ISREG(stamp[2]) or stamp[3] <= 0
+                        or stamp[3] != records[row["path"]]["size"]):
+                    raise ValueError("changed owned menu payload metadata")
+                targets.append(payload)
+            except Cancelled: raise
+            except (WizardError, OSError, ValueError, KeyError, TypeError, AttributeError):
+                skipped.append({"path": folder.relative_to(root).as_posix(), "reason": "unproven_menu_cache"})
+    return targets, protected, skipped
 
 
 def candidates(helper, root, build, proofs, *, keep_paths=(), cancel=None):
@@ -188,6 +316,10 @@ def maintain(state_root, *, progress=None, cancel=None, keep_paths=(), run_lock_
         guard = helper._helper().output_lock(build) if run_lock_held else helper._guard(root, build)
         with guard:
             targets, _, skipped = candidates(helper, root, build, proofs, keep_paths=keep_paths, cancel=cancel)
+            caches, _, cache_skipped = cache_candidates(helper, root, build, proofs, cancel=cancel)
+            caches = [path for path in caches if not any(_overlaps(path, kept) for kept in
+                      helper._references(root, build, keep_paths, cancel=cancel))]
+            targets.extend(caches); skipped.extend(cache_skipped)
             result["skipped"] = skipped
             # One metadata pass under the kernel locks, not one pass per old
             # result. Actual leaf deletion retains its own native witness.

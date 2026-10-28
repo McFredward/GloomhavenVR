@@ -1074,6 +1074,16 @@ def plan(state_root, mode="duplicates", progress=None, *, cancel=None):
                                       "Die Zwischendaten behalten, bis APK und Inhaltspaket erfolgreich erstellt wurden.") from error
                 targets = [build / name for name in ("cache", "projects", "inputs") if (build / name).is_dir()]
             else: targets = _duplicates(build, proofs, cancel=cancel)
+            if mode in ("safe", "update-history"):
+                from update_storage import MENU_CACHE_AREAS, cache_candidates
+                cache_targets, cache_protected, cache_skipped = cache_candidates(
+                    sys.modules.get(__name__) or SimpleNamespace(**globals()), root, build, proofs, cancel=cancel)
+                # The older safe-cleanup module protects entire FAST_AREAS.
+                # Refine only these new families with their exact live rosters;
+                # unknown/pending owners still return those complete roots.
+                protected.difference_update(build / "cache" / area for area in MENU_CACHE_AREAS)
+                protected.update(cache_protected)
+                targets.extend(cache_targets); skipped.extend(cache_skipped)
         paths = []; private = []
         retained_projects = set(); retained_sources = set()
         tracker = _ScanProgress(progress, "cleanup-scan", cancel, root=root)

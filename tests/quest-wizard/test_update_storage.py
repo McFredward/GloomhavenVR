@@ -221,5 +221,143 @@ class UpdateStorageTests(unittest.TestCase):
         self.assertTrue(old.is_file() and current.is_file())
         self.assertEqual(result["warnings"][0]["code"], "update_history_retained")
 
+    def menu_cache(self, area, generation):
+        raw = ('closed reusable menu payload ' + str(generation)).encode()
+        key = hashlib.sha256(raw).hexdigest()
+        filename = 'menu-depth-android.bundle' if area == 'menu-depth-resources' else 'quest-mod-content.zip'
+        recipe = {'scope': 'quest-menu-depth-native-card-v1', 'target': 'Android', 'graphicsApi': 'Vulkan', 'generation': generation}
+        if area == 'menu-depth-resources': key = state.value_hash(recipe)
+        folder = self.build / 'cache' / area / key
+        row = self.file('cache/' + area + '/' + key + '/' + filename, raw)
+        if area == 'menu-depth-resources':
+            state.atomic_json(folder / 'menu-depth-android.provenance.json', {'schema': 1,
+                'producerKey': key, 'recipe': recipe, 'bundle': {**row, 'path': filename}})
+        else:
+            if area == 'retained-mod-content':
+                metadata = {'owner.json': {'schema': 1, 'scope': 'quest-retained-mod-content-v1',
+                    'archiveSha256': key, 'files': [{**row, 'path': filename}]}}
+                details = {'scope': 'quest-retained-mod-content-v1'}
+            else:
+                metadata = {'quest-mod-content.json': {'schema': 1, 'inputKey': 'a' * 64,
+                    'archive': filename, 'archiveSha256': row['sha256']},
+                    'quest-mod-bundles.json': {'menuDepthStory': {'contentKey': 'b' * 64}}}
+                details = {'scope': 'quest-loose-menu-story-v1', 'inputKey': 'a' * 64, 'storyKey': 'b' * 64}
+            outputs = [row]
+            for name, value in metadata.items():
+                state.atomic_json(folder / name, value)
+                payload = (folder / name).read_bytes()
+                outputs.append({'path': (folder / name).relative_to(self.build).as_posix(),
+                    'size': len(payload), 'sha256': hashlib.sha256(payload).hexdigest()})
+            stage = area
+            state.atomic_json(self.build / 'receipts' / stage / (key + '.json'),
+                {'schema': 1, 'stage': stage, 'key': key, 'outputs': outputs, 'details': details})
+        return folder / filename
+
+    def latest_fast_inputs(self, paths):
+        latest = json.loads((self.build / 'latest-build.json').read_text())
+        latest['details']['fastUpdateInputs'] = [path.parent.relative_to(self.build).as_posix() for path in paths]
+        receipt = json.loads((self.build / latest['receipt']).read_text())
+        receipt['details'] = latest['details']
+        state.atomic_json(self.build / latest['receipt'], receipt)
+        state.atomic_json(self.build / 'latest-build.json', latest)
+
+    def test_menu_cache_families_are_reusable_inputs_and_run_retirement_keeps_them(self):
+        self.update(1, latest=True)
+        payloads = [self.menu_cache(area, 1) for area in update_storage.MENU_CACHE_AREAS]
+        inventory = cleanup.inventory(self.root)
+        self.assertGreaterEqual(inventory['fastUpdateBytes'], sum(path.stat().st_size for path in payloads))
+        for path in payloads:
+            impact = update_storage.impact(self.root, [path.parent], mode='session')
+            self.assertEqual(impact['fastUpdateImpact']['status'], 'slower')
+        run = self.store.create({'mode': 'update-mod'})
+        run['status'] = 'complete'; self.store.save(run)
+        cleanup.execute(self.root, cleanup.plan_session(self.root, run['session']))
+        self.assertTrue(all(path.is_file() for path in payloads))
+
+    def test_superseded_menu_payloads_prune_metadata_only_and_current_pending_evidence_survive(self):
+        current_apk, _ = self.update(1, latest=True)
+        old = [self.menu_cache(area, 1) for area in update_storage.MENU_CACHE_AREAS]
+        current = [self.menu_cache(area, 2) for area in update_storage.MENU_CACHE_AREAS]
+        pending = [self.menu_cache(area, 3) for area in update_storage.MENU_CACHE_AREAS]
+        self.latest_fast_inputs(current)
+        run = self.store.create({'mode': 'update-mod'})
+        run['status'] = 'blocked'
+        next(row for row in run['stages'] if row['id'] == 'inspect')['details'] = {
+            'fastUpdateInputs': [path.parent.relative_to(self.build).as_posix() for path in pending]}
+        self.store.save(run)
+        evidence = old[0].parent / 'retained-evidence.log'; evidence.write_text('source and render audit')
+        original = Path.read_bytes
+        def metadata_only(path):
+            if path.suffix in ('.apk', '.zip', '.bundle'): raise AssertionError('cleanup reads metadata only')
+            return original(path)
+        with mock.patch.object(Path, 'read_bytes', metadata_only):
+            result = update_storage.maintain(self.root)
+        self.assertEqual(result['prunedFiles'], 3)
+        self.assertTrue(all(not path.exists() for path in old))
+        self.assertTrue(all(path.is_file() for path in current + pending))
+        self.assertTrue(current_apk.is_file() and evidence.is_file())
+        self.assertTrue((old[0].parent / 'menu-depth-android.provenance.json').is_file())
+        self.assertTrue((old[1].parent / 'quest-mod-content.json').is_file())
+        self.assertTrue((old[2].parent / 'owner.json').is_file())
+
+    def test_safe_and_history_previews_remove_only_explicitly_superseded_menu_payloads(self):
+        for mode in ('safe', 'update-history'):
+            with self.subTest(mode=mode):
+                self.update(1, latest=True)
+                old = [self.menu_cache(area, 1) for area in update_storage.MENU_CACHE_AREAS]
+                current = [self.menu_cache(area, 2) for area in update_storage.MENU_CACHE_AREAS]
+                self.latest_fast_inputs(current)
+                preview = cleanup.plan(self.root, mode)
+                self.assertEqual({row['path'] for row in preview['paths']},
+                                 {path.relative_to(self.root).as_posix() for path in old})
+                cleanup.execute(self.root, preview)
+                self.assertTrue(all(path.is_file() for path in current))
+                self.assertTrue(all(not path.exists() for path in old))
+
+    def test_unknown_pending_dependencies_and_legacy_latest_metadata_keep_all_menu_caches(self):
+        self.update(1, latest=True)
+        old = [self.menu_cache(area, 1) for area in update_storage.MENU_CACHE_AREAS]
+        current = [self.menu_cache(area, 2) for area in update_storage.MENU_CACHE_AREAS]
+        self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
+        self.latest_fast_inputs(current)
+        self.store.create({'mode': 'update-mod'})
+        self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
+        self.assertTrue(all(path.is_file() for path in old + current))
+
+    def test_menu_cache_owners_pins_and_payload_changes_cannot_authorize_guessed_deletion(self):
+        self.update(1, latest=True)
+        payloads = [self.menu_cache(area, 1) for area in update_storage.MENU_CACHE_AREAS]
+        self.latest_fast_inputs([])
+        (payloads[0].parent / '.keep').write_text('')
+        payloads[1].write_bytes(b'changed payload size')
+        owner = payloads[2].parent / 'owner.json'
+        value = json.loads(owner.read_text()); value['archiveSha256'] = 'f' * 64
+        state.atomic_json(owner, value)
+        unknown = self.file('cache/retained-mod-content/' + 'd' * 64 + '/quest-mod-content.zip', b'unproven')
+        self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
+        self.assertTrue(all(path.is_file() for path in payloads))
+        self.assertTrue((self.build / unknown['path']).is_file())
+
+    def test_current_menu_dependency_change_invalidates_retained_cleanup_preview(self):
+        self.update(1, latest=True)
+        old = [self.menu_cache(area, 1) for area in update_storage.MENU_CACHE_AREAS]
+        current = [self.menu_cache(area, 2) for area in update_storage.MENU_CACHE_AREAS]
+        self.latest_fast_inputs(current)
+        preview = cleanup.plan(self.root, 'update-history')
+        self.latest_fast_inputs(old)
+        with self.assertRaises(state.WizardError): cleanup.execute(self.root, preview)
+        self.assertTrue(all(path.is_file() for path in old + current))
+
+    def test_missing_or_corrupt_dependency_publishers_keep_menu_cache_and_other_safe_cleanup_available(self):
+        payloads = [self.menu_cache(area, 1) for area in update_storage.MENU_CACHE_AREAS]
+        self.assertFalse(cleanup.plan(self.root, 'safe')['eligible'])
+        self.assertTrue(all(path.is_file() for path in payloads))
+        self.update(1, latest=True)
+        self.latest_fast_inputs([])
+        run = self.store.create({'mode': 'update-mod'})
+        (self.root / 'sessions' / run['session'] / 'state.json').write_text('interrupted metadata write')
+        self.assertFalse(cleanup.plan(self.root, 'safe')['eligible'])
+        self.assertTrue(all(path.is_file() for path in payloads))
+
 
 if __name__ == "__main__": unittest.main()
