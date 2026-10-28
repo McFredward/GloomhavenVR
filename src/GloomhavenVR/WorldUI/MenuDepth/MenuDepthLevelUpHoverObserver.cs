@@ -12,8 +12,9 @@ internal static class MenuDepthLevelUpHoverObserver
     private static int _failures;
 
     [HarmonyPostfix]
-    private static void AfterPlace(UILevelUpCardHolder __instance)
+    private static void AfterPlace(UILevelUpCardHolder __instance, bool immediately)
     {
+        if (!immediately) return; // Keep the original won-card reveal/fade path intact.
         try { AlignOriginal(__instance); }
         catch (Exception exception)
         {
