@@ -94,7 +94,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class ConvertedPanel
     {
         internal RectTransform Target=null!,HostRect=null!;internal GameObject HostGo=null!;internal Canvas HostCanvas=null!;
-        internal GraphicRaycaster HostRaycaster=null!;internal bool Alive=true;internal bool IsAlive=>Alive&&Target!=null;
+        internal GraphicRaycaster HostRaycaster=null!;internal bool IsAlive=>Target!=null;
         internal bool ModLayerEnabled=false,RevealPending=false,RenderHidden=false,OwnerRenderHidden=false;
         internal int DrawSortingOrder=>HostCanvas.sortingOrder;internal Transform HostTransform=>HostRect;
         internal Transform? Home;internal int Index;internal Vector2 Min,Max,Pivot,Size,Position;internal Vector3 Scale;internal Quaternion Rotation;
@@ -102,7 +102,7 @@ namespace GloomhavenVR.WorldUI
     internal static class CanvasConversion
     {
         internal static readonly List<ConvertedPanel> ActivePanels=new();internal static Camera? WorldCamera;
-        internal static int Converts=0,PoseAuthors=0;
+        internal static int Converts=0,PoseAuthors=0,Releases=0;
         internal static ConvertedPanel? Convert(RectTransform? target,string name,bool pokeable=true,
             Hands.Interact.PokeSurfaceTuning? pokeTuning=null,bool? fitContent=null,bool flattenWindow=false,bool useModLayer=false)
         {
@@ -123,10 +123,10 @@ namespace GloomhavenVR.WorldUI
         }
         internal static void Release(ConvertedPanel? panel)
         {
-            if(panel==null||!panel.IsAlive)return;
+            if(panel==null)return;Releases++;
             panel.Target.SetParent(panel.Home,false);panel.Target.anchorMin=panel.Min;panel.Target.anchorMax=panel.Max;panel.Target.pivot=panel.Pivot;
             panel.Target.sizeDelta=panel.Size;panel.Target.anchoredPosition=panel.Position;panel.Target.localScale=panel.Scale;panel.Target.localRotation=panel.Rotation;
-            panel.Alive=false;ActivePanels.Remove(panel);UnityEngine.Object.Destroy(panel.HostGo);
+            ActivePanels.Remove(panel);if(!panel.Target.IsChildOf(panel.HostRect))UnityEngine.Object.Destroy(panel.HostGo);
         }
         internal static void TransferSeatedSubtree(RectTransform rect,ConvertedPanel? destination) { }
         internal static void PlaceHost(ConvertedPanel panel,Vector3 position,Quaternion rotation,float scale)

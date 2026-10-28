@@ -29,6 +29,8 @@ FILES = {
     'ConfirmationOnOwner.Origins.cs': 'Composites/ConfirmationOnOwner.Origins.cs',
     'AnnouncementContinue.cs': 'Modal/AnnouncementContinue.cs',
     'AnnouncementContinueView.cs': 'Modal/AnnouncementContinueView.cs',
+    'DialogSurface.cs': 'Surfaces/DialogSurface.cs',
+    'PanelGraphicMaterial.cs': 'Sharpness/PanelGraphicMaterial.cs',
 }
 
 
@@ -58,6 +60,24 @@ def main():
     conversion = (modal / 'ModalFallback.8.Convert.cs').read_text()
     admit = conversion[conversion.index('private static bool TryConvertWindow('):conversion.index('        string name = window.name;', conversion.index('private static bool TryConvertWindow('))]
     originals['NativeAdmission.cs'] = 'using UnityEngine.UI; namespace GloomhavenVR.WorldUI { internal static partial class ModalFallback {\n' + method(screen, 'private static bool FloatWantedFor(') + '\n' + admit + 'AdmissionAttempts++; return false; } }}\n'
+    supersample_core = (root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs').read_text()
+    supersample_capture = (root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs').read_text()
+    kernels = [method(supersample_core, 'private static bool Eligible(')]
+    for signature in ('private static bool BuildCamera(', 'private static void ApplyCaptureClear(',
+                      'private static bool BuildDisplay(', 'private static void SyncProjection(',
+                      'private static void SyncDisplayPose(', 'private static void ResolveAndMip(',
+                      'private static void NeutraliseGrabPassBlur(', 'private static float AskedMipLodOffset(',
+                      'private static float ApplyMipLodOffset(', 'private static void BindDisplayTarget('):
+        kernels.append(method(supersample_capture, signature))
+    for name in ('MinAuthoredPx', 'MipLodOffsetMin', 'MipLodOffsetMax', 'MipLodOffsetEpsilon'):
+        declaration = re.findall(r'private const float ' + name + r'\s*=\s*[^;]+;', supersample_core + supersample_capture)
+        if len(declaration) != 1: raise RuntimeError('Supersample constant binding drift: ' + name)
+        kernels.append(declaration[0])
+    for value_type in ('Vector3', 'Quaternion'):
+        start = supersample_capture.index('private static bool SameComponents(' + value_type)
+        kernels.append(supersample_capture[start:supersample_capture.index(';', start) + 1])
+    originals['SupersampleKernel.cs'] = ('using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;namespace GloomhavenVR.WorldUI {'
+        'internal static partial class PanelSupersample {\n' + '\n'.join(kernels) + '\n}}\n')
     cases = [('production', {}, '')]
     changes = [
         ('unsafe-active-clone', 'AnnouncementContinueView.cs', 'staging.SetActive(false);', '/* active staging regression */', 'native input controller clones never enable'),
@@ -74,6 +94,10 @@ def main():
         ('generic-float-readmission', 'NativeAdmission.cs', 'window == null || ConfirmationOnOwner.IsOwned(window)', 'window == null', 'owned confirmation cannot be readmitted as a generic floating window'),
         ('direct-convert-readmission', 'NativeAdmission.cs', 'if (ConfirmationOnOwner.IsOwned(window)) return true;', '/* semantic admission guard omitted */', 'direct generic conversion acknowledges existing embedded presentation'),
         ('owner-resize-ignored', 'ConfirmationOnOwner.cs', 'host.localScale = seat.Mount.lossyScale;', '/* accepted owner scale omitted */', 'persistent overlay copies only accepted owner world matrix'),
+        ('persistent-capture-bypassed', 'ConfirmationOnOwner.cs', 'useModLayer: true', 'useModLayer: false', 'owned confirmation keeps final pixels independent of its native full-frame GrabPass'),
+        ('standalone-capture-bypassed', 'DialogSurface.cs', 'useModLayer: true', 'useModLayer: false', 'standalone confirmation keeps final pixels independent of its native full-frame GrabPass'),
+        ('confirmation-blur-allowed', 'SupersampleKernel.cs', 'if (PanelGraphicMaterial.NeutraliseGrabPass(t.GetComponent<Graphic>()))', 'if (PanelGraphicMaterial.NeutraliseGrabPass(null))', 'owned confirmation keeps final pixels independent of its native full-frame GrabPass'),
+        ('persistent-lease-not-retired', 'ConfirmationOnOwner.cs', 'if (PanelAlive(seat.PersistentMember)) return false;', 'if (seat.PersistentMember.IsAlive) return false;', 'native close restores exact persistent dialog home while owner remains open'),
     ]
     for name, file, before, after, expected in changes:
         if originals[file].count(before) != 1:
@@ -98,7 +122,7 @@ def main():
         if result.returncode: raise RuntimeError('Native export failed: ' + str(run / 'native-export.log'))
         manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'cases': []}
         hashes = {}
-        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', Path(__file__), *fixture.rglob('*.cs'), *fixture.glob('*.py'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
+        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', Path(__file__), *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
             hashes[str(file)] = hashlib.sha256(file.read_bytes()).hexdigest()
         (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'coverage': 'partial' if args.case else 'production-and-controls', 'limits': __doc__}, indent=2) + '\n')
         env = os.environ.copy(); env.update(UseSharedCompilation='false', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0')
@@ -120,6 +144,7 @@ def main():
             manifest['cases'].append({'name': name, 'dll': str(dll), 'sha256': hashlib.sha256(dll.read_bytes()).hexdigest(), 'expected': expected})
         for path in ('Assets/Editor', 'Assets/Plugins', 'Assets/Resources/OriginalShaders', 'Packages', 'ProjectSettings'): (project / path).mkdir(parents=True)
         shutil.copyfile(fixture / 'Editor/LevelUpRunner.cs', project / 'Assets/Editor/LevelUpRunner.cs')
+        for shader in fixture.glob('*.shader'): shutil.copyfile(shader, project / 'Assets/Resources' / shader.name)
         for name in ('Unity.TextMeshPro.dll', 'UnityEngine.UI.dll'): shutil.copyfile(managed / name, project / 'Assets/Plugins' / name)
         shaders = root / 'unity/GloomhavenVR.Assets/Assets/Bundle/HealthBars'
         source = (shaders / 'ActorBarSDF.shader').read_text().replace('Shader "GloomhavenVR/ActorBarSDF"', 'Shader "TextMeshPro/Distance Field"', 1)

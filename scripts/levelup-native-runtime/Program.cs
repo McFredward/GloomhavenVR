@@ -13,7 +13,7 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using Object=UnityEngine.Object;
 
-public static class LevelUpNativeProgram
+public static partial class LevelUpNativeProgram
 {
     private static int _checks,_controllerEnables,_translations,_nativeButtonChecks;
     private static bool _allowNativeButton;
@@ -73,7 +73,7 @@ public static class LevelUpNativeProgram
         Canvas.ForceUpdateCanvases();camera.Render();RenderTexture previous=RenderTexture.active;RenderTexture.active=camera.targetTexture;
         var result=new Texture2D(camera.targetTexture.width,camera.targetTexture.height,TextureFormat.RGBA32,false);
         result.ReadPixels(new Rect(0,0,result.width,result.height),0,0);result.Apply();RenderTexture.active=previous;
-        File.WriteAllBytes(filename,result.EncodeToPNG());return result;
+        if(!string.IsNullOrEmpty(filename))File.WriteAllBytes(filename,result.EncodeToPNG());return result;
     }
     private static int BrightPixels(Texture2D image)
     {int count=0;foreach(Color32 p in image.GetPixels32())if(p.r>60&&p.g>60&&p.b>60&&Math.Abs(p.r-p.g)<5&&Math.Abs(p.g-p.b)<5)count++;return count;}
@@ -91,7 +91,7 @@ public static class LevelUpNativeProgram
     {
         _checks=_controllerEnables=_translations=_nativeButtonChecks=0;_language="Continue";_allowNativeButton=false;
         WorldUIConfig.ConversionActive=true;FlatScreen.ManualScreenActive=false;FFSNetwork.IsOnline=false;
-        UIConfirmationBoxManager.MainMenuInstance=null;CanvasConversion.Converts=CanvasConversion.PoseAuthors=0;NativeFont();
+        UIConfirmationBoxManager.MainMenuInstance=null;CanvasConversion.Converts=CanvasConversion.PoseAuthors=CanvasConversion.Releases=0;NativeFont();
         var harmony=_harmony=new Harmony("GloomhavenVR.LevelUpNative."+typeof(LevelUpNativeProgram).Assembly.GetName().Name);
         Assembly game=typeof(native::ExtendedButton).Assembly;
         harmony.Patch(AccessTools.Method(game.GetType("GLOOM.LocalizationManager"),"GetTranslation"),prefix:new HarmonyMethod(Method(nameof(Translate))));
@@ -263,8 +263,12 @@ public static class LevelUpNativeProgram
         Check(!ModalFallback.WantsFloat(boxWindow),"owned confirmation cannot be readmitted as a generic floating window");
         Check(ModalFallback.DirectAdmission(boxWindow)&&ModalFallback.AdmissionAttempts==0,
             "direct generic conversion acknowledges existing embedded presentation without new capture or flat-screen failure");
+        int releasedBeforeClose=CanvasConversion.Releases;
+        var closedMember=CanvasConversion.ActivePanels.Find(p=>ReferenceEquals(p.Target,boxRect))!;
         box.IsOpen=boxWindow.IsOpen=boxWindow.IsVisible=false;ConfirmationOnOwner.Tick();
         Check(!ConfirmationOnOwner.IsOwned(boxWindow)&&boxRect.parent==home,"native close restores exact persistent dialog home while owner remains open");
+        for(int i=0;i<50;i++)ConfirmationOnOwner.Tick();
+        Check(CanvasConversion.Releases==releasedBeforeClose+1&&closedMember.IsAlive,"closed persistent confirmation retires once while its original native target survives");
         box.IsOpen=boxWindow.IsOpen=boxWindow.IsVisible=true;Record(manager,owner);ConfirmationOnOwner.Tick();
         Check(ConfirmationOnOwner.IsOwned(boxWindow)&&CanvasConversion.Converts==2&&box.gameObject.scene.name=="DontDestroyOnLoad",
             "native pooled reopen reuses original dialog inside the same level-up with persistent lifetime");
@@ -280,6 +284,8 @@ public static class LevelUpNativeProgram
         }
         int before=CanvasConversion.Converts;for(int i=0;i<20;i++)ConfirmationOnOwner.Tick();
         Check(CanvasConversion.Converts==before&&CanvasConversion.PoseAuthors==0,"persistent membership never creates repeated captures or an independent pose author");
+        var presentation=ConfirmationPresentation738(camera,root,owner,manager,box,boxWindow,boxRect,output);
+        while(presentation.MoveNext())yield return presentation.Current;
         var unload=SceneManager.UnloadSceneAsync(scene);while(!unload.isDone)yield return null;
         ConfirmationOnOwner.Tick();
         Check(box!=null&&box.gameObject.scene.name=="DontDestroyOnLoad"&&box.IsOpen&&boxRect.parent==home,
