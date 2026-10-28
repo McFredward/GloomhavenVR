@@ -159,7 +159,7 @@ internal static partial class ConfirmationOnOwner
                 // SimpleGrabPassBlur must take the same isolated capture and
                 // scoped blur remedy as ordinary windows. The default native
                 // UI layer bypassed that path in both this and the old float.
-                // Build739 hardware still refused that capture at its session
+                // Build738 hardware refused that capture at its session
                 // budget, leaving the full-frame Black_Backdrop and depth-writing
                 // GrabPass blur directly in the eyes. Hide those original full-cover
                 // graphics before reveal, independently of capture admission. The
