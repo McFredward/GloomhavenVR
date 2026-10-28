@@ -151,7 +151,7 @@ public static partial class MenuDepthDesktopProgram
                 cardRect=(RectTransform)card.transform;cardRect.sizeDelta=new Vector2(500,650);cardRect.anchoredPosition=raw.rectTransform.anchoredPosition;
                 var print=card.GetComponent<Image>();print.color=Color.blue;cardMaterial=new Material(Shader.Find("GUI/AbilityCard_Shd"));print.material=cardMaterial;
                 cardPlane=card.AddComponent<MenuDepthCardPlane>();cardPlane.Configure(card.GetComponent<ItemCardUI>(),cardRect,new Graphic[]{print},null);
-                cardDepth=-cardRect.rect.width*.065f*cardRect.TransformVector(Vector3.right).magnitude/cardRect.TransformVector(Vector3.forward).magnitude;
+                cardDepth=-cardRect.rect.width*.104f*cardRect.TransformVector(Vector3.right).magnitude/cardRect.TransformVector(Vector3.forward).magnitude;
                 // Isolate the real figure/card depth relationship. Whole-window
                 // UI order, sampling and ink have their separate52-frame oracle.
                 foreach(var other in scene.RootA.GetComponentsInChildren<Graphic>(true))

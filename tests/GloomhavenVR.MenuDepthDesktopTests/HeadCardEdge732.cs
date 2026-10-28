@@ -48,7 +48,7 @@ public static partial class MenuDepthDesktopProgram
             rect.anchoredPosition=new Vector2(scene.RootA.rect.xMax-rect.rect.width*.5f,0);
             hiddenRect.anchoredPosition=new Vector2(scene.RootA.rect.xMax+2,0);Canvas.ForceUpdateCanvases();
             Check(MenuDepthScreenProjection.TryMap(scene.Screen,scene.OriginalA,scene.RootA,Vector3.zero,out _,out Matrix4x4 mapping),"native card has an independent original root camera mapping");
-            float depth=-rect.rect.width*.065f*rect.TransformVector(Vector3.right).magnitude/rect.TransformVector(Vector3.forward).magnitude;
+            float depth=-rect.rect.width*.104f*rect.TransformVector(Vector3.right).magnitude/rect.TransformVector(Vector3.forward).magnitude;
             Matrix4x4 expected=mapping*rect.localToWorldMatrix*Matrix4x4.Translate(new Vector3(0,0,depth));
             var reference=new GameObject("independent original raised item print",typeof(RectTransform),typeof(Canvas),typeof(CanvasRenderer),typeof(Image));reference.layer=26;
             var referenceRect=(RectTransform)reference.transform;reference.GetComponent<Canvas>().renderMode=RenderMode.WorldSpace;
