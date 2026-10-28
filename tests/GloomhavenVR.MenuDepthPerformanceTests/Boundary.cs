@@ -32,7 +32,8 @@ namespace GloomhavenVR.WorldUI
         internal sealed class Setting { internal bool Value = true; }
         internal static readonly Setting CharacterPreviewDepth = new();
     }
-    internal sealed class ConvertedPanel { internal Transform Target = null!; }
+    internal sealed class ConvertedPanel { internal Transform Target = null!; internal bool IsAlive = true; }
+    internal static class FlatScreen { internal static bool ManualScreenActive; }
     internal static class CanvasConversion { internal static readonly List<ConvertedPanel> ActivePanels = new(); }
 }
 namespace GloomhavenVR.Cards
