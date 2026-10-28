@@ -22,7 +22,7 @@ before ordinary discovery:
   including native field identity/type, field lookup flags, Android comparison,
   null/type guards and catch behavior. Prove the Android branch, then remove
   only statically unreachable desktop instructions. The actual `FieldInfo`
-  closures remain byte-for-byte unchanged; no field reader stub, actor write or
+  closures retain identical qualified IL; no field reader stub, actor write or
   generic dynamic-code whitelist is introduced. Original PC source is retained.
 - Qualify the exact upstream DLL-relative story getter. Only the privately
   converted Quest mod reads `EnvironmentBundleDirectory/MenuDepth/Story`.
@@ -43,6 +43,15 @@ single bank, while Full Campaign may append one bounded story manifest followed
 by1–4096 strictly sorted, unique lowercase32-hex `.gmd` paths in the exact story
 namespace. Existing general content validation still supplies hash, duplicate
 and safe-path checks. No renderer, game state or bank loading order changes.
+
+The progress UI has a separate consumer correction in `8f52f6bf8`: both Startup
+and current Game can report five preparation contracts, with different actual
+children. The denominator therefore cannot prove `startup-compute` belongs to
+Game. The UI recognizes `menu-story-content` and displays only checkpoints
+observed in the current attempt for that ambiguous scope. Actual source ordinals,
+completed/remaining counts and the monotonic stage percentage remain intact;
+the unchanged four-checkpoint legacy plan remains explicitly known. Builder
+production and its frozen orchestration AST are untouched.
 
 ## Focused evidence
 
@@ -67,6 +76,11 @@ integrator owns the complete final union gate; these are focused results:
   all23 existing causal mutations are rejected. The real compiled Bootstrap
   admission method now exercises both legacy banks and valid numeric story
   content, plus17 new positive/negative suffix assertions.
+- All94 tests in the affected graphics, whole-stage and bounded-event progress
+  consumer files pass in5.17seconds. Gameplay/Startup five-step plans, late
+  observations and retry ownership are exercised. A causal control restores
+  the exact old denominator-only rule and the actual Store/UI fixture rejects
+  its invented work. Its common completion cleanup records no remaining cache.
 
 Initial development failures (a compiler local-name collision and a type-token
 inspection null) remain in the evidence; both are repaired before the final
