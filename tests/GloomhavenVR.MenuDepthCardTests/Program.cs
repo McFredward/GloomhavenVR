@@ -27,19 +27,30 @@ public static partial class MenuDepthCardProgram
     public static IEnumerator RunNativeUiFreeze(string output) => RunCore(output, true);
     public static IEnumerator RunNativeHover(string output) => RunCore(output, false, true);
     public static IEnumerator RunHeadText736(string output) => RunCore(output, false, headTextOnly: true);
+    public static IEnumerator RunLevelUpHover738(string output) => RunCore(output, false, levelUpHoverOnly: true);
 
-    private static IEnumerator RunCore(string output, bool nativeFreezeOnly, bool nativeHoverOnly = false, bool headTextOnly = false)
+    private static IEnumerator RunCore(string output, bool nativeFreezeOnly, bool nativeHoverOnly = false, bool headTextOnly = false, bool levelUpHoverOnly = false)
     {
         _checks = 0; _output = output; VRSession.IsRunning = true;
         var native = new Harmony("MenuDepthCards.NativePorts." + typeof(MenuDepthCardProgram).Assembly.GetName().Name);
         var observer = new Harmony(native.Id + ".observer");
         native.CreateClassProcessor(typeof(NativePorts)).Patch();
         if (nativeHoverOnly) native.CreateClassProcessor(typeof(NativeHoverPorts)).Patch();
+        if (levelUpHoverOnly) native.CreateClassProcessor(typeof(LevelUpHoverPorts738)).Patch();
         observer.CreateClassProcessor(typeof(MenuDepthLifecycleObserver)).Patch();
+        observer.CreateClassProcessor(typeof(MenuDepthLevelUpHoverObserver)).Patch();
         if (headTextOnly) observer.CreateClassProcessor(typeof(HeadMeshObserver736)).Patch();
         try
         {
-            if (headTextOnly)
+            if (levelUpHoverOnly)
+            {
+                using (var scene = new Scene(1, headRaster: true))
+                {
+                    IEnumerator proof = scene.ProveLevelUpHover738();
+                    while (proof.MoveNext()) yield return proof.Current;
+                }
+            }
+            else if (headTextOnly)
             {
                 using (var scene = new Scene(1, headRaster: true))
                 {

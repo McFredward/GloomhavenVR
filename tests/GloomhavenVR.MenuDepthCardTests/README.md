@@ -103,3 +103,24 @@ records `SystemInfo.usesReversedZBuffer`. The original D3D11-only native-card
 programs cannot execute in this Linux fixture; two explicitly declared shared
 shader stand-ins from the desktop suite exercise dispatch and depth state.
 They are input-pinned and do not certify native D3D11 effects or headset pixels.
+# Build738 immediate level-up hover
+
+The level-up highlighter uses `UILevelUpCardHolder.PlaceNewCard(immediately:true)`
+and its native pool; it does not use the loadout row's `ChangeFullCardPosition`
+route. The new case executes original `HighlightCard`, `PlaceNewCard`, `Hide`,
+`SpawnCard` and `RecycleCard`, repeatedly swapping two actual pool identities
+before the first automatic head draw. First-eye rasters must exactly match an
+independently aligned window-plane reference, without waiting for the generic
+flatten walk. Both eyes, two window yaws, manual/flat/VR-off/retired/foreign scopes,
+native shown callbacks and the unchanged non-immediate reveal are covered.
+
+Campaign Init/Show/art decoration and pool-return gameplay cleanup are explicit
+fixture ports. A private GH.Runtime copy replaces exactly four calls to the game's
+custom `LayoutRebuilder.Enable(bool)` with bool-consuming `Pop` instructions because
+Editor uGUI lacks that API. All native method instruction streams are compared;
+only the four setters in `SpawnCard`/`RecycleCard` may differ. Editor layout remains
+enabled, so this does not establish original game-uGUI gate timing. Native pose,
+parenting, pool selection, activation, callback and head/UI render operations run.
+The original game files remain read-only. Actual native game art/D3D11 and headset
+appearance still require hardware acceptance.
+

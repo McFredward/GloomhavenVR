@@ -9,7 +9,7 @@ using UnityEngine;
 public static class MenuDepthCardRunner
 {
     [Serializable] private sealed class Case { public string name, dll, expected, method; }
-    [Serializable] private sealed class Manifest { public string result, evidence, gameManaged, harmonyRuntime; public Case[] cases; }
+    [Serializable] private sealed class Manifest { public string result, evidence, gameManaged, harmonyRuntime, nativeRuntime; public Case[] cases; }
     private static Manifest manifest;
     private static bool ran, passed = true;
     private static StreamWriter writer;
@@ -30,8 +30,9 @@ public static class MenuDepthCardRunner
     private static Assembly Resolve(object sender, ResolveEventArgs args)
     {
         string name = new AssemblyName(args.Name).Name + ".dll";
-        foreach (string root in new[] { manifest.gameManaged, manifest.harmonyRuntime })
+        foreach (string root in new[] { manifest.nativeRuntime, manifest.gameManaged, manifest.harmonyRuntime })
         {
+            if (string.IsNullOrEmpty(root)) continue;
             string path = Path.Combine(root, name); if (File.Exists(path)) return Assembly.LoadFrom(path);
         }
         return null;
