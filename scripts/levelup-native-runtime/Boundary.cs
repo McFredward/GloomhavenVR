@@ -44,7 +44,8 @@ internal sealed class UICampaignRewardWindow:MonoBehaviour { internal ExtendedBu
 internal sealed class CampaignRewardsManager { internal UICampaignRewardWindow rewardsWindow=null!; }
 internal sealed class UIConfirmationBoxManager
 {
-    internal static UIConfirmationBoxManager? MainMenuInstance;internal ConfirmationBox? CurrentBox;
+    internal static UIConfirmationBoxManager? MainMenuInstance;internal ConfirmationBox CurrentBox=null!;
+    internal Action? BoxWindowShown=null,BoxWindowHidden=null;
     private void ShowGenericConfirmation() { } private void ShowGenericWarningConfirmation() { }
     private void ShowGenericCancelConfirmation() { } private void ShowGenericSpendConfirmation() { }
     private void ShowCancelActiveAbility() { }
@@ -72,13 +73,30 @@ namespace GloomhavenVR.Core.Events {internal static class VRModeStateMachine {in
 namespace GloomhavenVR.Hands.Interact {internal sealed class PokeSurfaceTuning {internal static readonly PokeSurfaceTuning SmallDialog=new();} }
 namespace GloomhavenVR.WorldUI
 {
-    internal static class WorldUIConfig {internal static bool ConversionActive=true;}
+    internal sealed class FixtureSetting<T> {internal T Value;internal FixtureSetting(T value){Value=value;}}
+    internal static class WorldUIConfig
+    {
+        internal static bool ConversionActive=true;
+        internal static FixtureSetting<bool> Dialogs=new(true),NeutraliseGrabPassBlur=new(true);
+        internal static FixtureSetting<float> PanelMipLodOffset=new(0f);
+    }
+    internal static class Defaults {internal const float PanelMipLodOffset=0f;}
+    internal static class PanelLayout {internal const float WorldScale=1f;}
+    internal static class HeadFacing
+    {
+        internal readonly struct Facing {internal readonly Quaternion Rotation;internal Facing(Quaternion rotation){Rotation=rotation;}}
+        internal static Facing YawOnly(Transform head)=>new(Quaternion.Euler(0f,head.eulerAngles.y,0f));
+        internal static void LogPlaced(string name,Facing facing,Vector3 position,string reason) { }
+    }
+    internal static class VRLayers {internal static void Apply(GameObject go)=>go.layer=26;}
     internal static class FlatScreen {internal static bool ManualScreenActive;}
     internal static class ChromeParkTuning {internal const float ChromeGapPx=12f,OffsetEpsilonPx=.25f;}
     internal sealed class ConvertedPanel
     {
         internal RectTransform Target=null!,HostRect=null!;internal GameObject HostGo=null!;internal Canvas HostCanvas=null!;
         internal GraphicRaycaster HostRaycaster=null!;internal bool Alive=true;internal bool IsAlive=>Alive&&Target!=null;
+        internal bool ModLayerEnabled=false,RevealPending=false,RenderHidden=false,OwnerRenderHidden=false;
+        internal int DrawSortingOrder=>HostCanvas.sortingOrder;internal Transform HostTransform=>HostRect;
         internal Transform? Home;internal int Index;internal Vector2 Min,Max,Pivot,Size,Position;internal Vector3 Scale;internal Quaternion Rotation;
     }
     internal static class CanvasConversion
@@ -86,11 +104,11 @@ namespace GloomhavenVR.WorldUI
         internal static readonly List<ConvertedPanel> ActivePanels=new();internal static Camera? WorldCamera;
         internal static int Converts=0,PoseAuthors=0;
         internal static ConvertedPanel? Convert(RectTransform? target,string name,bool pokeable=true,
-            Hands.Interact.PokeSurfaceTuning? pokeTuning=null,bool? fitContent=null,bool flattenWindow=false)
+            Hands.Interact.PokeSurfaceTuning? pokeTuning=null,bool? fitContent=null,bool flattenWindow=false,bool useModLayer=false)
         {
             if(target==null)return null;
             var panel=new ConvertedPanel {Target=target,Home=target.parent,Index=target.GetSiblingIndex(),Min=target.anchorMin,Max=target.anchorMax,
-                Pivot=target.pivot,Size=target.sizeDelta,Position=target.anchoredPosition,Scale=target.localScale,Rotation=target.localRotation};
+                Pivot=target.pivot,Size=target.sizeDelta,Position=target.anchoredPosition,Scale=target.localScale,Rotation=target.localRotation,ModLayerEnabled=useModLayer};
             panel.HostGo=new GameObject("capture-only:"+name,typeof(RectTransform),typeof(Canvas),typeof(GraphicRaycaster));
             panel.HostRect=(RectTransform)panel.HostGo.transform;panel.HostRect.sizeDelta=target.rect.size;
             panel.HostCanvas=panel.HostGo.GetComponent<Canvas>();panel.HostRaycaster=panel.HostGo.GetComponent<GraphicRaycaster>();
@@ -111,6 +129,10 @@ namespace GloomhavenVR.WorldUI
             panel.Alive=false;ActivePanels.Remove(panel);UnityEngine.Object.Destroy(panel.HostGo);
         }
         internal static void TransferSeatedSubtree(RectTransform rect,ConvertedPanel? destination) { }
+        internal static void PlaceHost(ConvertedPanel panel,Vector3 position,Quaternion rotation,float scale)
+        {panel.HostRect.SetPositionAndRotation(position,rotation);panel.HostRect.localScale=Vector3.one*scale;PoseAuthors++;}
+        internal static void RegisterOrderFollower(ConvertedPanel panel,Canvas follower,int offset)
+        {follower.sortingOrder=panel.DrawSortingOrder+offset;}
     }
     internal static partial class ModalFallback
     {

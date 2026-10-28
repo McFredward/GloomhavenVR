@@ -146,8 +146,11 @@ internal sealed class DialogSurface
             return;
 
         // P5 (A.10): small close-range dialog — tighter hover halo / shallower press.
+        // Build738: the original generic box carries a full-frame GrabPass blur.
+        // The default native layer left it directly in both eye passes, outside
+        // ordinary isolated capture/filtering and its existing scoped blur remedy.
         _panel = CanvasConversion.Convert(box.transform as RectTransform, Name,
-            pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog);
+            pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog, useModLayer: true);
         if (_panel == null)
             return;
 

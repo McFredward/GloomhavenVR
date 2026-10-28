@@ -184,6 +184,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class ConvertedPanel
     {
         internal bool IsAlive = true;
+        internal bool ModLayerEnabled;
         internal RectTransform Target = new();
         internal GameObject HostGo = new("host");
         internal RectTransform HostRect => (RectTransform)HostGo.transform;
@@ -198,12 +199,12 @@ namespace GloomhavenVR.WorldUI
         internal static bool ReturnNull, ThrowConvert, ThrowPlace, ThrowRelease;
         internal static ConvertedPanel? Last;
         internal static Camera? WorldCamera = new();
-        internal static ConvertedPanel? Convert(RectTransform? root, string name, int pokeTuning, bool? fitContent=null, bool flattenWindow=false)
+        internal static ConvertedPanel? Convert(RectTransform? root, string name, int pokeTuning, bool? fitContent=null, bool flattenWindow=false, bool useModLayer=false)
         {
             ++Converts;
             if (ThrowConvert) throw new InvalidOperationException("convert");
             if (ReturnNull) return null;
-            Last = new ConvertedPanel { Target = root!, Home = root!.parent };
+            Last = new ConvertedPanel { Target = root!, Home = root!.parent, ModLayerEnabled=useModLayer };
             Last.HostGo.scene=root!.gameObject.scene;root.SetParent(Last.HostRect,false);
             ActivePanels.Add(Last); return Last;
         }

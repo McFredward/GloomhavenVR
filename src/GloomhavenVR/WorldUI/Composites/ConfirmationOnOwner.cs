@@ -155,9 +155,13 @@ internal static partial class ConfirmationOnOwner
                 // Convert preserves the original's DontDestroyOnLoad scene before
                 // reparenting. This is a backing capture only: no grab bar, materialize,
                 // HMD placement or shared-window pose is created or requested.
+                // Build738: the generic confirmation's original full-frame
+                // SimpleGrabPassBlur must take the same isolated capture and
+                // scoped blur remedy as ordinary windows. The default native
+                // UI layer bypassed that path in both this and the old float.
                 seat.PersistentMember = CanvasConversion.Convert(rect, "LevelUpConfirmationMember",
                     pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog, fitContent: false,
-                    flattenWindow: true);
+                    flattenWindow: true, useModLayer: true);
                 if (seat.PersistentMember == null) { Release(box); return false; }
             }
             else rect.SetParent(mount, worldPositionStays: false);
