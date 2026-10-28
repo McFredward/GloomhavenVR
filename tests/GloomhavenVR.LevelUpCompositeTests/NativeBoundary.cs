@@ -293,7 +293,7 @@ namespace GloomhavenVR.WorldUI
 }
 
 // Authored text ink is an explicit input to this non-rendering hierarchy fixture.
-namespace UnityEngine { public struct Bounds { public Vector3 min, max; } }
+namespace UnityEngine { public struct Bounds { public Vector3 min, max; public Vector3 size => max - min; } }
 namespace TMPro
 {
     public static class TMPro_EventManager

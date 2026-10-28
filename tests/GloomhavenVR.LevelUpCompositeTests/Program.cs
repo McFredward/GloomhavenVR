@@ -113,6 +113,14 @@ internal static class Program
         foreach((float scale,float yaw) in new[]{(1f,0f),(.04f,53f),(198.12f,-79f)})
         {
             var f=new Fixture(scale,yaw);f.Tick();
+            var whitespace=Rect("Native whitespace label after card reveal",f.Preview,100,50).gameObject.AddComponent<TMPro.TMP_Text>();
+            whitespace.textBounds=new UnityEngine.Bounds {min=new Vector3(2147483648f,2147483648f,0),max=new Vector3(-2147483648f,-2147483648f,0)};
+            f.Tick();
+            Check(Math.Abs(f.Inventory.parent!.localPosition.x)<5000&&Math.Abs(f.Owned.parent!.localPosition.x)<5000,
+                "glyphless TMP sentinel bounds cannot eject either native card list");
+            var corrupt=Rect("Not-yet-generated native ink",f.Preview,100,50).gameObject.AddComponent<TMPro.TMP_Text>();
+            corrupt.textBounds=new UnityEngine.Bounds {min=new Vector3(float.NaN,0,0),max=new Vector3(float.PositiveInfinity,50,0)};
+            f.Tick();
             Check(f.Inventory.IsChildOf(f.Level),"sibling inventory becomes part of actual native level-up owner");
             Check(!ReferenceEquals(f.Inventory.parent,f.Level),"separate mount preserves native inventory slide");
             Check(ModalFallback.ReleaseRequests==1,"standalone float retires before native home capture");

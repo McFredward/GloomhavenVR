@@ -59,6 +59,7 @@ try:
   ('overlap','_previewRight + (leveling ? PreviewGapPx : ChromeParkTuning.ChromeGapPx) + _rect.rect.width * .5f','0f','full preview right edge remains readable beside inventory'),
   ('pooled-text-birth','TMPro_EventManager.TEXT_CHANGED_EVENT.Add(PreviewTextChanged);','/* new native text observation omitted */','same pooled root captures later native TMP births after warmup'),
   ('text-ink','Bounds ink = text.textBounds;','Bounds ink = default;','native overflow text ink stays complete between the original lists'),
+  ('glyphless-ink','if (!HasRenderedInk(ink)) continue;','/* glyphless TMP sentinels admitted */','glyphless TMP sentinel bounds cannot eject either native card list'),
   ('restore','_rect.SetParent(_home, false);','_rect.SetParent(_rect.parent, false);','original parent restored'),
   ('owner-change','if (!ReferenceEquals(inventory, _inventory) || !ReferenceEquals(owner, _owner)\n            || (_mount != null && !ReferenceEquals(_mount.parent, mountParent)))','if (!ReferenceEquals(inventory, _inventory))','reset browse rebinds same inventory to current party owner'),
   ('native-hide','Layers.Restore();','Layers.Restore(); _inventory!.GetComponent<UIWindow>()!.Hide();','native show/hide callbacks untouched'),

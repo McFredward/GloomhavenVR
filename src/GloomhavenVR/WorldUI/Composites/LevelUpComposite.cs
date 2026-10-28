@@ -50,6 +50,20 @@ internal static class LevelUpComposite
     private static void Include(float x)
     { _previewRight = Mathf.Max(_previewRight, x); _previewLeft = Mathf.Min(_previewLeft, x); }
 
+    private static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
+
+    private static bool HasRenderedInk(Bounds ink)
+    {
+        // TMP_Text.GetTextBounds starts at +/-2147483647 and only visits visible
+        // characters. Active empty/whitespace labels therefore have NEGATIVE size,
+        // not an empty zero rectangle. Build736 retained those sentinel edges in
+        // this opening's growing envelope and parked both card lists billions of
+        // pixels away after the reveal. Keep every valid overflow glyph; an absent
+        // glyph must contribute no ink and must never poison later native choices.
+        return ink.size.x > 0f && ink.size.y > 0f
+            && Finite(ink.min.x) && Finite(ink.min.y) && Finite(ink.max.x) && Finite(ink.max.y);
+    }
+
     private static void PreviewTextChanged(Object changed)
     {
         // Native CreateLayout and localization can replace glyph objects under the
@@ -251,8 +265,9 @@ internal static class LevelUpComposite
             {
                 TMP_Text text = PreviewText[i];
                 if (text == null || !text.gameObject.activeInHierarchy || !text.enabled) continue;
-                Include(text.rectTransform, ownerRect);
                 Bounds ink = text.textBounds;
+                if (!HasRenderedInk(ink)) continue;
+                Include(text.rectTransform, ownerRect);
                 Include(ownerRect.InverseTransformPoint(text.transform.TransformPoint(ink.min)).x);
                 Include(ownerRect.InverseTransformPoint(text.transform.TransformPoint(ink.max)).x);
             }
