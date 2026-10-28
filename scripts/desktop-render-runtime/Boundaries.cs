@@ -65,6 +65,7 @@ namespace GloomhavenVR.WorldUI
         // Quest startup-spinner observation is outside this desktop ownership
         // fixture; the notification never changes native camera capture here.
         private void ObserveQuestMenuProducer(Camera camera) { }
+        private void ReleaseQuestMenuReceipt() { }
         // Explicit construction boundaries: tests execute real native capture and
         // clear policy, and separately observe its calls into the stereo owner.
         private int _fixtureCaptureScans;
@@ -129,6 +130,7 @@ namespace GloomhavenVR.WorldUI
     }
     internal static class NativeMovieCameraPlane
     {
+        internal static void RefreshQuestMovie() { }
         // Capture invokes these unconditionally; this fixture owns no movie lease.
         // Fail rather than silently simulate movie rendering if that scope changes.
         internal static void RestoreAll() { }
