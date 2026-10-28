@@ -427,6 +427,17 @@ OBSERVATION_EDITOR_OVERLAY = {**OBSERVATION_PARALLEL_PREVIOUS, **{'tools/quest-b
 OBSERVATION_RUNTIME_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
 OBSERVATION_EDITOR_OVERLAY = {**OBSERVATION_RUNTIME_PREVIOUS, **{'tools/quest-builder/preparation_metadata.py': {'path': 'tools/quest-builder/preparation_metadata.py', 'size': 14014, 'sha256': '87a3225881104ac9e567af8c82a150047ce5c7935d850730ae41710cb898c0ec'}, 'tools/quest-builder/runtime_overlay.py': {'path': 'tools/quest-builder/runtime_overlay.py', 'size': 7359, 'sha256': '8c7a6979b0a209b843ee388b5d5791d09595dd9ea0d83003404f699f191dabbe'}}}
 
+# The complete preceding profile remains valid. This exact reader adds only
+# an optional late-tail refresh with durable undo; its default original-asset
+# behavior is unchanged. Never normalize an unknown/mixed helper body.
+OBSERVATION_MENU_STORY_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
+OBSERVATION_EDITOR_OVERLAY = {
+    **OBSERVATION_MENU_STORY_PREVIOUS,
+    "tools/quest-builder/prepare_resume.py": {
+        "path": "tools/quest-builder/prepare_resume.py", "size": 84692,
+        "sha256": "b0a71bcf03909dbb9d8a5b7eecde3fe6cafc9393dd1af0765f20bceb132ee912"},
+}
+
 ORCHESTRATION_FILES = set(LEGACY_MERGE_FILES) | {OBSERVER_FILE}
 # native_stage runs only on the fresh derived project, after all raw export
 # checkpoints. Its deferred duplicate audit cannot alter an original export.
@@ -486,7 +497,7 @@ def preparation_source_rows(rows):
     # to the legacy normalized-profile matcher below.
     raw = {}
     for row in rows: raw.setdefault(row["path"], []).append(row)
-    shipped_profile = next((profile for profile in (OBSERVATION_RUNTIME_PREVIOUS, OBSERVATION_EDITOR_OVERLAY)
+    shipped_profile = next((profile for profile in (OBSERVATION_RUNTIME_PREVIOUS, OBSERVATION_MENU_STORY_PREVIOUS, OBSERVATION_EDITOR_OVERLAY)
                             if all(raw.get(name) == [fixed] for name, fixed in profile.items())), None)
     rows = _native_byte_rows(rows)
     rows = [PARALLEL_OBSERVATION_ROWS[row['path']][1]
@@ -507,6 +518,7 @@ def preparation_source_rows(rows):
                                            OBSERVATION_COST_PREVIOUS,
                                            OBSERVATION_PARALLEL_PREVIOUS,
                                            OBSERVATION_RUNTIME_PREVIOUS,
+                                           OBSERVATION_MENU_STORY_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:

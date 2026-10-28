@@ -23,9 +23,11 @@ BUILDER = "tools/quest-builder/builder.py"
 IDENTITY = "tools/quest-builder/preparation_identity.py"
 RECIPE_IDENTITY = "tools/quest-builder/recovery_resume.py"
 METADATA_IDENTITY = "tools/quest-builder/preparation_metadata.py"
-DELIVERY_PREFIXES = ("tools/quest-wizard/", "tools/quest-wizard-ui/", "tools/quest-installer/")
+DELIVERY_PREFIXES = ("tools/quest-wizard/", "tools/quest-wizard-ui/", "tools/quest-installer/",
+                     "tools/quest-menu-depth/")
 # Published only after retained preparation, with its own seed receipt.
-DELIVERY_ONLY = {"tools/quest-builder/update_seed.py"}
+DELIVERY_ONLY = {"tools/quest-builder/update_seed.py", "tools/quest-builder/menu_depth_resources.py",
+                 "tools/quest-builder/menu_depth_content.py", "tools/quest-builder/menu_depth_update.py"}
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 # The completed preparation journal lists original output contracts, rather than
 # only a small control manifest. Capture134446 reports 25,864,174 journal bytes
@@ -180,6 +182,36 @@ BUILDER_COMMAND_OUTCOME_AST = {
         "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1",
     "52fd295515adbf2791e763cc72c27e9044e835266992badde826fbbf3dbd220f":
         "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f",
+}
+
+# Build735's complete reviewed Builder adds eager helper capture and Android
+# resources in weave(), after original preparation. Its only prepare() change
+# appends the independently transactional Story owner after final-settings.
+# package_mod_content and all four art-recipe functions remain AST-identical.
+# Bind the entire normalized full/prefix trees: unknown earlier consumers,
+# producer arguments, globals or altered tail placement cannot use this alias.
+BUILDER_MENU_DEPTH_AST = {
+    False: ("8d11392d6b8c6aed7481a8c43ce67c85c28cdeb0edad471dc8fc18500876ec75",
+            "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"),
+    True: ("2bb27cff4a8918c721396176794e809c27b7142fc5485f831b8d8d39e170b3a3",
+           "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
+}
+
+# Exact delivery-only readers, not generated original assets. The native JSON
+# reader opens two retained Resources contracts; the installation validator
+# accepts the finite Story roster. Every unknown byte row remains consumed.
+# The integrator adds the final independently reviewed update-driver row here.
+MENU_DEPTH_DELIVERY_ROWS = {
+    "tools/quest-builder/apk_update.py": (
+        {"path": "tools/quest-builder/apk_update.py", "size": 96830,
+         "sha256": "8c20543c72b7ea06dea01cf1f58f9fea6a71ef402f9c787e754a130924df0c5b"},
+        {"path": "tools/quest-builder/apk_update.py", "size": 89389,
+         "sha256": "9e10b60c215885f11911d7b98dadb8f2c0105e1d35cc92ef34da43ac7e8ebc06"}),
+    "tools/quest-builder/installation_manifest.py": (
+        {"path": "tools/quest-builder/installation_manifest.py", "size": 9378,
+         "sha256": "b9225b9d5662b8cfc1cce46daa4c72fc46a120e38c8ef96a8e7d8760365f253c"},
+        {"path": "tools/quest-builder/installation_manifest.py", "size": 6718,
+         "sha256": "5834182392fbe03897b0c04a34995d9e065f779c4cc0201cda499c862124721d"}),
 }
 
 def _memory_row(row):
@@ -658,7 +690,9 @@ def builder_producer_digest(raw, *, original_prefix=False):
     if result == observed: result = preceding
     observed, preceding = BUILDER_PROGRESS_AST[bool(original_prefix)]
     if result == observed: result = preceding
-    return BUILDER_COMMAND_OUTCOME_AST.get(result, result)
+    result = BUILDER_COMMAND_OUTCOME_AST.get(result, result)
+    observed, preceding = BUILDER_MENU_DEPTH_AST[bool(original_prefix)]
+    return preceding if result == observed else result
 
 
 def _builder_bytes(root, records):
@@ -724,6 +758,9 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     # produced retained bytes; require the complete reviewed Builder AST.
     builder = builder_producer_digest(_builder_bytes(source, records), original_prefix=original_prefix and not completed)
     rows = _reviewed_startup_rows(recovery.preparation_source_rows(inputs["mod"]["files"]))
+    rows = [MENU_DEPTH_DELIVERY_ROWS[row["path"]][1]
+            if row["path"] in MENU_DEPTH_DELIVERY_ROWS and row == MENU_DEPTH_DELIVERY_ROWS[row["path"]][0]
+            else row for row in rows]
     if inputs.get("proceduralBackend") == "proton-arm64ec-fex":
         rows = [PROTON_DOWNLOAD_PREVIOUS if row == PROTON_DOWNLOAD_FIXED else row for row in rows]
     if completed:
