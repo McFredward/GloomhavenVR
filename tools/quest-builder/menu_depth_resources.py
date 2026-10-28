@@ -42,7 +42,13 @@ EDITOR = "tools/quest-menu-depth/Editor/MenuDepthResourceBuilder.cs"
 HELPERS = ("tools/quest-builder/menu_depth_resources.py", "tools/quest-builder/full_shaders.py",
     "tools/quest-builder/campaign_native_shaders.py", "tools/quest-shaders/converters.py",
     "tools/quest-shaders/produce.py", "tools/quest-shaders/manifest.py", "tools/quest-shaders/integer_bits.py",
-    "tools/quest-shaders/load_bounds.py", "tools/quest-shaders/instance_nan.py")
+    "tools/quest-shaders/load_bounds.py", "tools/quest-shaders/instance_nan.py",
+    "tools/quest-builder/storage.py", "tools/quest-builder/progress.py", "tools/quest-builder/dependencies.py",
+    "tools/quest-builder/requirements.txt", "tools/quest-builder/requirements-bootstrap.txt",
+    "tools/quest-builder/requirements-source.txt", "tools/quest-network/requirements.txt",
+    "prebuilt/quest-converters-win64-v1.zip")
+SHADER_SOURCE_SUFFIXES = {".py", ".cs", ".c", ".cpp", ".h", ".json", ".md", ".txt", ".shader", ".cginc", ".lock"}
+GENERATED_PARTS = {"bin", "obj", "Library", "Temp", "Logs", "__pycache__", ".git"}
 MAX_BANK = 16 * 1024 * 1024
 MAX_RESOURCE = 64 * 1024 * 1024
 
@@ -58,8 +64,19 @@ def _record(source, name):
 
 def plan(source, source_files=None):
     """Stable consumed-input identity, independent of build number/game scenes."""
-    names = [*(RENDERING + name for name in SHADERS), RENDERING + "Unity-LICENSE.txt",
-        RENDERING + "NativeCard.provenance.json", EDITOR, *HELPERS]
+    # Bind the conservative authored shader-tool closure, including converter
+    # locks/vendor source and the public checked Windows converter archive.
+    # Generated caches never enter this set; a newly delivered source module
+    # cannot silently change an eligible retained bank's transitive producer.
+    def shader_source(name):
+        path = Path(name)
+        return (name.startswith("tools/quest-shaders/") and path.suffix.lower() in SHADER_SOURCE_SUFFIXES
+            and not set(path.parts) & GENERATED_PARTS)
+    shader_names = ({row["path"] for row in source_files if shader_source(row["path"])} if source_files is not None else
+        {path.relative_to(source).as_posix() for path in (Path(source) / "tools/quest-shaders").rglob("*")
+            if path.is_file() and shader_source(path.relative_to(source).as_posix())})
+    names = sorted({*(RENDERING + name for name in SHADERS), RENDERING + "Unity-LICENSE.txt",
+        RENDERING + "NativeCard.provenance.json", EDITOR, *HELPERS, *shader_names})
     if source_files is None:
         records = sorted((_record(source, name) for name in names), key=lambda row: row["path"])
     else:

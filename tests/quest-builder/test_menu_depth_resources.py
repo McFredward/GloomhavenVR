@@ -79,7 +79,7 @@ class MenuDepthResources(unittest.TestCase):
         # are supplied only after the containing Builder qualifies source bytes.
         self.assertEqual(resources.plan(self.root / "absent-snapshot", initial["sources"]), initial)
         with self.assertRaises(resources.BuildError):
-            resources.plan(self.root / "absent-snapshot", initial["sources"][:-1])
+            resources.plan(self.root / "absent-snapshot", [row for row in initial["sources"] if row["path"] != resources.EDITOR])
 
     def test_recipe_rejects_original_native_pin_drift(self):
         source = self.recipe_source()
@@ -88,6 +88,20 @@ class MenuDepthResources(unittest.TestCase):
         path.write_text(json.dumps(value))
         with self.assertRaises(resources.BuildError):
             resources.plan(source)
+
+    def test_transitive_shader_source_and_converter_lock_changes_invalidate_cache(self):
+        source = self.recipe_source()
+        initial = resources.plan(source)
+        for name in ("tools/quest-shaders/stereo_repair.py", "tools/quest-shaders/vendor/smol-v/source-pin.json",
+                "tools/quest-builder/requirements.txt", "prebuilt/quest-converters-win64-v1.zip"):
+            path = source / name
+            previous = path.read_bytes()
+            path.write_bytes(previous + b"\nchanged transitive compiler input")
+            self.assertNotEqual(resources.plan(source)["producerKey"], initial["producerKey"], name)
+            path.write_bytes(previous)
+        generated = source / "tools/quest-shaders/__pycache__/generated.py"
+        generated.parent.mkdir(); generated.write_text("cache-only")
+        self.assertEqual(resources.plan(source), initial)
 
     def test_installed_only_recovers_exact_bank_without_pc_or_unity(self):
         expected = resources.plan(ROOT)
