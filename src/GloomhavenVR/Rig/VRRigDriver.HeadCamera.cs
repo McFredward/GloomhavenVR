@@ -419,14 +419,7 @@ internal sealed partial class VRRigDriver
         _camera.depth = anchor.depth + 1f;
         _camera.nearClipPlane = Mathf.Clamp(BaseNearMeters * rigScale, MinNearClip, MaxNearClip);
         _camera.farClipPlane = _baseFarClip;
-        // The Menu2D head presents an SDR screen and mod hands to the SDR XR eye.
-        // It has no native post-processing stack. Inheriting Intro's HDR permission
-        // also retained it across MainMenu anchor replacement, unlike the LDR map
-        // head. Keep that unnecessary intermediate-format permission out of this
-        // owned compositor; native capture/decoder HDR and world-head policy stay
-        // with their original owners. The734 log's22fps menu motivates this scope,
-        // but only hardware can establish its GPU/pacing effect.
-        _camera.allowHDR = !modLayerOnly && anchor.allowHDR;
+        _camera.allowHDR = anchor.allowHDR;
         // ALWAYS allow MSAA on the head camera (aliasing fix #5b/#6): the game's cameras may
         // ship allowMSAA=false and copying that would silently veto the [RenderQuality]
         // MsaaLevel eye-texture MSAA. allowMSAA is only a permission — actual sampling is
