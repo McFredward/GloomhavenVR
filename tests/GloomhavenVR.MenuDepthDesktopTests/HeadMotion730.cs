@@ -78,7 +78,14 @@ public static partial class MenuDepthDesktopProgram
         => HeadMotionCore730(output, complete, 640, 480, false, true);
     public static IEnumerator HeadFigureCard732(string output,Action<int> complete)
         => HeadMotionCore730(output,complete,640,480,false,false,true);
-    private static IEnumerator HeadMotionCore730(string output,Action<int> complete,int width,int height,bool hardwareRaster,bool annotations=false,bool cards=false)
+    public static IEnumerator HeadPitch736(string output,Action<int> complete)
+        => HeadMotionCore730(output,complete,640,480,false,false,false,true);
+    public static IEnumerator HeadPitchRt736(string output,Action<int> complete)
+    {
+        HeadPitchBackend736.TopOrigin=true;
+        return HeadMotionCore730(output,complete,640,480,false,false,false,true);
+    }
+    private static IEnumerator HeadMotionCore730(string output,Action<int> complete,int width,int height,bool hardwareRaster,bool annotations=false,bool cards=false,bool pitch=false)
     {
         _count=0;DesktopEyeInput.Available=true;
         for(int route=0;route<(annotations?4:2);route++)
@@ -88,6 +95,9 @@ public static partial class MenuDepthDesktopProgram
             scene.HideSpatial730();scene.NativePixels725(4);
             scene.Head.orthographic=false;scene.Head.fieldOfView=70;scene.Head.nearClipPlane=.01f;
             scene.HeadTarget.Release();scene.HeadTarget.width=width;scene.HeadTarget.height=height;scene.HeadTarget.Create();
+            if(pitch)File.WriteAllText(Path.Combine(output,"native-gpu-conventions-"+path+".txt"),"api="+SystemInfo.graphicsDeviceType
+                +";uvTop="+SystemInfo.graphicsUVStartsAtTop+";reversedZ="+SystemInfo.usesReversedZBuffer+"\nCPU="+scene.Head.projectionMatrix
+                +"\nRTGPU="+GL.GetGPUProjectionMatrix(scene.Head.projectionMatrix,true));
             scene.ModelCamera.allowHDR=scene.ModelCamera.allowMSAA=false;
             scene.ModelCamera.gameObject.AddComponent<MenuDepthAnchorsImageEffect724>();
             scene.OriginalA.allowHDR=scene.OriginalB.allowHDR=false;scene.OriginalA.allowMSAA=scene.OriginalB.allowMSAA=false;
@@ -99,8 +109,12 @@ public static partial class MenuDepthDesktopProgram
             var body=GameObject.CreatePrimitive(PrimitiveType.Cube);body.layer=8;body.transform.SetParent(ground.transform,false);
             body.transform.localPosition=new Vector3(0,.9f,-.12f);body.transform.localScale=new Vector3(.65f,1.8f,.65f);
             var texture=new Texture2D(128,128,TextureFormat.RGBA32,false);texture.filterMode=FilterMode.Point;
+            // The stationary-pitch model is only about21 pixels wide. Retain
+            // at least two pixels per checker cell across backends; the original
+            //52-frame point-sampled detail oracle keeps its exact input below.
+            if(pitch)texture.filterMode=FilterMode.Bilinear;
             for(int y=0;y<128;y++)for(int x=0;x<128;x++)
-            {float v=((x/8+y/8)&1)==0?1f:.22f;texture.SetPixel(x,y,new Color(v,v,v,1));}texture.Apply();
+            {int cell=pitch?16:8;float v=((x/cell+y/cell)&1)==0?1f:.22f;texture.SetPixel(x,y,new Color(v,v,v,1));}texture.Apply();
             var material=new Material(Shader.Find("Unlit/Texture"));material.mainTexture=texture;material.color=Color.white;
             // Cyan separates the model's independent high-frequency signal from white UI ink.
             var bodyMaterial=new Material(Shader.Find("Unlit/Transparent"));bodyMaterial.mainTexture=texture;bodyMaterial.color=Color.cyan;
@@ -217,7 +231,7 @@ public static partial class MenuDepthDesktopProgram
             using(var csv=new StreamWriter(Path.Combine(output,"head-motion-"+path+".csv")))
             {
                 csv.WriteLine("frame,eye,uiCorrelation,modelCorrelation,uiContrast,modelContrast");
-                for(int step=0;step<(hardwareRaster||annotations||cards?4:52);step++)
+                for(int step=0;step<(pitch?7:hardwareRaster||annotations||cards?4:52);step++)
                 {
                     int frame=hardwareRaster||annotations||cards?new[]{0,13,40,51}[step]:step;
                     int before=Time.frameCount;while(Time.frameCount==before)yield return null;
@@ -229,7 +243,8 @@ public static partial class MenuDepthDesktopProgram
                     else if(frame==40)position=new Vector3(.8f,.12f,2f); // exact glass-plane crossing
                     else if(frame<48){float t=(frame-41)/6f;position=Vector3.Lerp(new Vector3(.25f,.1f,3.1f),new Vector3(-.3f,-.12f,.4f),t);}
                     else position=Vector3.zero;
-                    Quaternion rotation=Quaternion.LookRotation(scene.Screen.position-position,Vector3.up);
+                    if(pitch)position=Vector3.zero;
+                    Quaternion rotation=pitch?Quaternion.Euler(-18+step*6,0,0):Quaternion.LookRotation(scene.Screen.position-position,Vector3.up);
                     Vector3 left=position-rotation*Vector3.right*.032f,right=position+rotation*Vector3.right*.032f;
                     if(frame==40) left=scene.Screen.TransformPoint(new Vector3(.2f,.03f,0)); // actual eye exactly coplanar, not merely head centre
                     if(frame==40&&path==0)

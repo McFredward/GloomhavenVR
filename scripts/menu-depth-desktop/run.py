@@ -45,6 +45,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--case', action='append')
+    parser.add_argument('--graphics-api',choices=('glcore','vulkan'),default='glcore')
     args = parser.parse_args()
     if not os.environ.get('ADB_SERVER_SOCKET'): parser.error('Use the task-private ADB server.')
     def terminated(signum, frame): raise SystemExit(128 + signum)
@@ -93,6 +94,7 @@ internal static class MenuDepthCharacterRotation
     sources['MenuDepthDisplay.cs'] = replace_once(sources['MenuDepthDisplay.cs'],
         'head == null || !head.stereoEnabled', 'head == null || !global::DesktopEyeInput.Available')
     sources['MenuDepthDisplay.cs'] = sources['MenuDepthDisplay.cs'].replace('camera.stereoActiveEye', 'global::DesktopEyeInput.Read(camera)')
+    sources['MenuDepthDisplay.cs'] = sources['MenuDepthDisplay.cs'].replace('SystemInfo.graphicsUVStartsAtTop', 'global::HeadPitchBackend736.TopOrigin')
     # Supply the actual stored XR views even when the editor has no provider.
     # Projection remains the explicitly configured real mono lens for both eyes.
     sources['MenuDepthEye.cs'] = replace_once(sources['MenuDepthEye.cs'],
@@ -107,6 +109,16 @@ internal static class MenuDepthCharacterRotation
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), *fixtures.glob('*.shader'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
+        ('head-preflight736', '', '', '', ''),
+        ('head-preflight-lost736', 'DesktopCapture.cs', '            ValidateMenuDepthMappings(left, right);',
+         '            /* native UI root preflight omitted */',
+         'an unmapped native UI stack cannot admit head targets or prepare a partial spatial frame'),
+        ('head-pitch736', '', '', '', ''),
+        ('head-pitch-rt-y736', '', '', '', ''),
+        ('head-pitch-rt-y-lost736', 'MenuDepthDisplay.cs',
+         'if (global::HeadPitchBackend736.TopOrigin) gpu.SetRow(1, -gpu.GetRow(1));',
+         '/* sampled UV still uses the inverted native GPU row */',
+         'actual final head retains original window and figure ink for both eyes'),
         ('head-motion730', '', '', '', ''),
         ('head-raster4040', '', '', '', ''),
         ('head-resources730', '', '', '', ''),
@@ -257,6 +269,9 @@ internal static class MenuDepthCharacterRotation
         for name, filename, before, after, expected in variants:
             case = run / name; production = case / 'production'; production.mkdir(parents=True)
             for source_name, code in sources.items():
+                if source_name=='MenuDepthDisplay.cs' and name.startswith('head-pitch-rt-y') and args.graphics_api=='glcore':
+                    code=replace_once(code,'GL.GetGPUProjectionMatrix(projection, true)',
+                        'global::HeadPitchBackend736.TopOriginGpuProjection(projection, true)')
                 if source_name == filename:
                     if name == 'outer-frozen-basis-lost728':
                         # Both native raster scopes must lose the same layout
@@ -286,7 +301,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else
@@ -294,7 +309,7 @@ internal static class MenuDepthCharacterRotation
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         (run / 'command-environment.json').write_text(json.dumps({name: os.environ.get(name) for name in
             ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
-        status = execute(['xvfb-run', '-a', '/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-glcore',
+        status = execute(['xvfb-run', '-a', '/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-'+args.graphics_api,
             '-projectPath', str(project), '-executeMethod', 'MenuDepthDesktopRunner.Start', '-menuDepthDesktopManifest', str(run / 'manifest.json'),
             '-logFile', str(run / 'unity.log')], run / 'launch.log', 420)
         stable = all(hashlib.sha256(Path(pin['path']).read_bytes()).hexdigest() == pin['sha256'] for pin in pins)

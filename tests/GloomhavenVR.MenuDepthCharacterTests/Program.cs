@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Reflection;
 using System.IO;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI.MenuDepth;
@@ -337,6 +339,47 @@ public static class MenuDepthCharacterProgram
                 "native-close teardown preserves the original game target and retires depth readiness");
         }
         return _assertions;
+    }
+
+    public static IEnumerator DestroyedSurface736(string output)
+    {
+        _assertions=0;ActivateCharacters();
+        for(int mode=0;mode<4;mode++)
+        using(var scene=new Scene())
+        {
+            MenuDepthCharacters.Tick();
+            var members=(IList)typeof(MenuDepthCharacters).GetField("Sources",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+            MenuDepthCharacterSource source=null!;
+            foreach(MenuDepthCharacterSource item in members)if(ReferenceEquals(item.Graphic,scene.Image))source=item;
+            Check(source!=null,"the actual native preview owns its discovered source before destruction");
+            var surface=scene.Image.GetComponent<MenuDepthCharacterSurface>();
+            if(mode>=2)
+            {
+                using(MenuDepthHeadRaster.Begin(new Vector2Int(256,192)))
+                {
+                    Object.DestroyImmediate(scene.Capture(scene.NeutralEye(scene.Image),false,Path.Combine(output,"active-head-"+mode+".png")));
+                }
+            }
+            else Object.DestroyImmediate(scene.Capture(scene.NeutralEye(scene.Image),false,Path.Combine(output,"active-native-"+mode+".png")));
+            var left=(RenderTexture)typeof(MenuDepthCharacterSource).GetField("_left",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(source)!;
+            var material=(Material)typeof(MenuDepthCharacterSurface).GetField("_material",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(surface)!;
+            Check(left!=null&&left.IsCreated()&&material!=null,"active original rendering creates the owned eye and character surface material");
+            Object.Destroy(mode%2==0?(Object)scene.Image.gameObject:surface);
+            yield return null;
+            Check(surface==null&&!source!.BindingAlive,"actual Unity destruction invalidates the captured native preview binding");
+            bool safe=true;MenuDepthSources.Unregister(source!);
+            try{source!.Dispose();source.Dispose();}catch(Exception error){safe=false;File.WriteAllText(Path.Combine(output,"retire-error-"+mode+".txt"),error.ToString());}
+            Check(safe,"destroyed native preview effects retire without accessing their destroyed Unity component");
+            Check(!left!.IsCreated(),"destroyed native previews release their actual owned eye targets");
+            Check((long)typeof(MenuDepthCharacterSource).GetField("_pairBytes",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(source!)! == 0,
+                "destroyed native previews release their exact pool reservation");
+            var calibrations=(IDictionary)typeof(MenuDepthCharacterSource).GetField("Calibrations",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+            Check(!calibrations.Contains(scene.Manager),"destroyed native previews release their final calibration reference exactly once");
+            Check(scene.Native.IsCreated()&&ReferenceEquals(scene.Source.targetTexture,scene.Native),"retiring destroyed preview effects preserves the original native camera target");
+            yield return null;
+            Check(material==null,"retiring a destroyed preview effect releases its owned material too");
+        }
+        yield return _assertions;
     }
 
     private sealed class Scene : IDisposable
