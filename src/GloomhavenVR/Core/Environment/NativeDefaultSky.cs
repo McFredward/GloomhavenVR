@@ -133,11 +133,6 @@ internal static class NativeDefaultSky
         if (_failed) return false;
         try
         {
-            // isSupported can succeed through a different builtin fallback.
-            // This bank contains the audited original D3D11 programs; silently
-            // showing VertexLit/Diffuse on another API changes the chosen sky.
-            if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Direct3D11)
-                throw new PlatformNotSupportedException("original AMP_SkyShader bank contains Direct3D11 programs only");
             using Stream? resource = typeof(NativeDefaultSky).Assembly.GetManifestResourceStream(Resource);
             if (resource == null) throw new FileNotFoundException("missing native default sky bank", Resource);
             using var bytes = new MemoryStream();
