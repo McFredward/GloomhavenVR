@@ -1,3 +1,44 @@
+**Shadowless previews, stronger card relief and native level-up selection, Build737, 2026-10-28.**
+
+The maintainer confirms Build736 resolves the previous pitched-window, text-flicker
+and main-menu hand-trailing reports. Fresh local736 logs now show native level-up
+controls near +/-2147483648, matching original TMP's inverted glyphless ink bounds.
+Admit only positive finite XY ink into the retained preview envelope; preserve
+real overflowing glyphs, text/card rectangles and native selection callbacks. The
+original right-side candidate and comparison lists remain visible and reachable.
+
+The original flat game also exposes its same locked inventory through the Further
+Ability Cards toggle outside an active level-up. Preserve browsing/hover there,
+with native acquisition/reset/actor permissions; add no private upgrade callback.
+Pure composite 294 assertions plus 8 enrollment/11 controls and actual native
+TMP/uGUI/button/raycast/raster 49/14 pass. Session/actor inputs remain explicit
+fixture ports, not a real native card-grant or headset proof.
+
+Remove dynamic shadows only while rendering private window figures. Retain
+original lit materials, lights and geometry; restore exact renderer/light state
+in finally, including errors, pooled births, detached companions and invisible
+ShadowsOnly proxies. Focused GL 1276/5 passes on 33 stable inputs; nested scenario
+pixels are identical. Raise all original card classes by 60 percent: mini .056,
+Full/Item .104 of physical width. Full card coverage retains 2696/20, all previous
+tolerances and glyph-loss checks. Independent desktop reference planes use the
+new depths; input, layout, rotation, HDR/MSAA and sampling quality stay native.
+
+Production is frozen at 5042b474e: three existing menu behavior types plus the
+stamp. Compiled review confirms three behavior types, nine ModBuild-only consumers
+and no added/removed types. Strict Debug/Release and metadata Release pass 0W0E;
+all 16 source gates pass in 20.9 seconds. Bundles/docs pass, and exact config/patch/
+log-token surfaces remain unchanged. The cadence-driven complete checkpoint now
+passes all 264 local suites in 3198.405 seconds and all 306431 actual goldens,
+with 2747 stable source/fixture pins. This is a fresh complete local pass, not an
+inherited aggregate. Historical failed attempts remain preserved and qualified.
+
+All owned processes are reaped, generated project/bytecode caches cleaned, three
+clean worker worktrees archived/hash-verified/retired, and only task-private ADB
+servers stopped. Source delivery is origin/dev; the Windows installer builds its
+archive. See MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md and ignored
+menu737/validation-final.json. Actual native D3D11/game-art/headset appearance
+still needs maintainer acceptance for these new changes.
+
 **Character-window pitch, native text and main-menu hand investigation, Build736, 2026-10-28.**
 
 Fresh local734/c0f636c55 logs confirm Windows D3D11/RTX4090, SteamVR/OpenXR,
