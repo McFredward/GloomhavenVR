@@ -7,7 +7,6 @@ matching embedded resources in the installed APK. Nothing converts game scenes.
 """
 from __future__ import annotations
 
-import copy
 import hashlib
 import importlib.util
 import json
@@ -19,6 +18,7 @@ import struct
 import sys
 import zipfile
 
+import storage as _storage
 from storage import BuildError, _ordinary_owned, digest, record_file, value_hash, write_json
 
 BUNDLE_RESOURCE = "GloomhavenVR.MenuDepth.Rendering.bundle"
@@ -60,13 +60,21 @@ def plan(source, source_files=None):
     """Stable consumed-input identity, independent of build number/game scenes."""
     names = [*(RENDERING + name for name in SHADERS), RENDERING + "Unity-LICENSE.txt",
         RENDERING + "NativeCard.provenance.json", EDITOR, *HELPERS]
-    records = sorted((_record(source, name) for name in names), key=lambda row: row["path"])
-    if source_files is not None:
+    if source_files is None:
+        records = sorted((_record(source, name) for name in names), key=lambda row: row["path"])
+    else:
         known = {row["path"]: row for row in source_files}
-        _require(all(known.get(row["path"]) == row for row in records), "producer source is absent or changed")
-    native = json.loads((Path(source) / RENDERING / "NativeCard.provenance.json").read_text())
-    _require((native.get("source_bundle_sha256"), native.get("source_shader_path_id"), native.get("source_shader_sha256"))
-        == (NATIVE_BUNDLE_SHA, NATIVE_ID, NATIVE_SHA), "native provenance pins changed; audit the new original first")
+        records = [known.get(name) for name in sorted(names)]
+        _require(all(isinstance(row, dict) and type(row.get("size")) is int and row["size"] > 0
+            and re.fullmatch(r"[0-9a-f]{64}", row.get("sha256", "")) for row in records),
+            "producer source is absent or changed")
+        # The caller has already qualified this immutable source roster. Planning
+        # a compiler-only snapshot must not force unrelated source restoration.
+    native_path = Path(source) / RENDERING / "NativeCard.provenance.json"
+    if source_files is None or native_path.is_file():
+        native = json.loads(_ordinary_owned(native_path).read_text())
+        _require((native.get("source_bundle_sha256"), native.get("source_shader_path_id"), native.get("source_shader_sha256"))
+            == (NATIVE_BUNDLE_SHA, NATIVE_ID, NATIVE_SHA), "native provenance pins changed; audit the new original first")
     recipe = {"schema": 1, "scope": "quest-menu-depth-native-card-v1", "target": "Android",
         "unityVersion": "2021.3.5f1", "graphicsApi": "Vulkan", "colorSpace": "Linear",
         "stereoRenderingPath": "MultiPass", "typeTrees": True, "nativeBundleSha256": NATIVE_BUNDLE_SHA,
@@ -76,7 +84,12 @@ def plan(source, source_files=None):
 
 def _load(source, relative, extra=None):
     previous = list(sys.path)
+    previous_storage = sys.modules.get("storage")
     try:
+        # Installer/API loaders remove temporary aliases after capturing us. A
+        # later native audit must use this exact selected storage/BuildError ABI,
+        # without depending on or permanently replacing an application's module.
+        sys.modules["storage"] = _storage
         if extra:
             sys.path.insert(0, str(Path(source) / extra))
         spec = importlib.util.spec_from_file_location("quest_menu_depth_" + Path(relative).stem, Path(source) / relative)
@@ -85,6 +98,10 @@ def _load(source, relative, extra=None):
         return module
     finally:
         sys.path[:] = previous
+        if previous_storage is None:
+            sys.modules.pop("storage", None)
+        else:
+            sys.modules["storage"] = previous_storage
 
 
 def resource_records(raw):
@@ -271,7 +288,7 @@ def _stage_native(source, game, folder, native_cache):
         "compilerManifest": restored}
 
 
-def produce(builder, source, output, *, game=None, editor=None, base_apk=None, native_cache=None):
+def produce(builder, source, output, *, game=None, editor=None, base_apk=None, native_cache=None, source_files=None):
     """Return private bundle/provenance Paths, reusing before requiring PC inputs.
 
     The caller passes both paths to MSBuild as GloomhavenVRMenuDepthBundle and
@@ -279,7 +296,7 @@ def produce(builder, source, output, *, game=None, editor=None, base_apk=None, n
     The containing Builder operation owns subprocess cleanup and workspace access.
     """
     source, output = Path(source), Path(output)
-    expected = plan(source)
+    expected = plan(source, source_files)
     folder = _ordinary_owned(output / "cache/menu-depth-resources" / expected["producerKey"])
     retained = _validate(folder, expected, source)
     if retained:
@@ -290,6 +307,7 @@ def produce(builder, source, output, *, game=None, editor=None, base_apk=None, n
             return retained
     _require(game is not None and editor is not None,
         "this shader recipe is absent from the installed APK/cache; select the owned PC game once to generate its tiny Android bank")
+    _require(plan(source) == expected, "producer snapshot bytes differ from their qualified source roster")
     folder.mkdir(parents=True, exist_ok=True)
     overlay, native_proof = _stage_native(source, game, folder, native_cache)
     project = folder / "unity"
@@ -350,4 +368,18 @@ def write_story(archive, source, records):
     _require(records == story_records(source), "story inputs changed before publication")
     _require(not set(archive.namelist()) & {row["path"] for row in records}, "duplicate story archive entries")
     for row in records:
-        archive.write(Path(source) / STORY / Path(row["path"]).name, row["path"])
+        path = _ordinary_owned(Path(source) / STORY / Path(row["path"]).name)
+        before = path.stat()
+        entry = zipfile.ZipInfo(row["path"], (2020, 1, 1, 0, 0, 0))
+        entry.file_size = row["size"]
+        entry.compress_type = zipfile.ZIP_DEFLATED
+        transferred, sha = 0, hashlib.sha256()
+        with path.open("rb") as input_stream, archive.open(entry, "w", force_zip64=True) as output_stream:
+            for block in iter(lambda: input_stream.read(1024 * 1024), b""):
+                transferred += len(block)
+                _require(transferred <= row["size"], "story source grew during archive transfer")
+                sha.update(block)
+                output_stream.write(block)
+        stamp = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        _require(transferred == row["size"] and sha.hexdigest() == row["sha256"] and stamp(before) == stamp(path.stat()),
+            "story bytes changed during archive transfer")

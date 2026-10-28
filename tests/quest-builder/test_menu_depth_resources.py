@@ -59,6 +59,13 @@ class MenuDepthResources(unittest.TestCase):
             with self.subTest(raw=bytes(raw[:16])), self.assertRaises(resources.BuildError):
                 resources.resource_records(raw)
 
+    def test_late_native_audit_uses_the_captured_storage_abi(self):
+        with patch.dict(sys.modules):
+            sys.modules.pop("storage", None)
+            auditor = resources._load(ROOT, "tools/quest-builder/campaign_native_shaders.py")
+            self.assertTrue(issubclass(auditor.ClosureError, resources.BuildError))
+            self.assertNotIn("storage", sys.modules)
+
     def test_producer_identity_excludes_unrelated_code_and_story(self):
         source = self.recipe_source()
         initial = resources.plan(source)
@@ -68,8 +75,11 @@ class MenuDepthResources(unittest.TestCase):
         shader = source / resources.RENDERING / resources.SHADERS[0]
         shader.write_text(shader.read_text() + "\n// changed compiler input\n")
         self.assertNotEqual(resources.plan(source)["producerKey"], initial["producerKey"])
+        # Immutable input rows remain usable in a compiler-only snapshot. They
+        # are supplied only after the containing Builder qualifies source bytes.
+        self.assertEqual(resources.plan(self.root / "absent-snapshot", initial["sources"]), initial)
         with self.assertRaises(resources.BuildError):
-            resources.plan(source, initial["sources"])
+            resources.plan(self.root / "absent-snapshot", initial["sources"][:-1])
 
     def test_recipe_rejects_original_native_pin_drift(self):
         source = self.recipe_source()
@@ -148,3 +158,16 @@ class MenuDepthResources(unittest.TestCase):
         manifest.write_text(json.dumps(value))
         with self.assertRaises(resources.BuildError):
             resources.story_records(source)
+
+    def test_story_rejects_changed_bytes_during_actual_transfer(self):
+        source = self.story_source()
+        rows = resources.story_records(source)
+        original = zipfile.ZipFile.open
+        def mutate(archive, name, *args, **kwargs):
+            if isinstance(name, zipfile.ZipInfo) and name.filename.endswith(".gmd"):
+                path = source / resources.STORY / Path(name.filename).name
+                path.write_bytes(b"changed after qualification")
+            return original(archive, name, *args, **kwargs)
+        with zipfile.ZipFile(io.BytesIO(), "w") as archive, patch.object(zipfile.ZipFile, "open", mutate):
+            with self.assertRaisesRegex(resources.BuildError, "archive transfer"):
+                resources.write_story(archive, source, rows)
