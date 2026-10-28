@@ -46,6 +46,12 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.WorldUI.MapRoom
 {
     using UnityEngine.UI;
+    // Public city readiness is absent from these native service-close cases.
+    // Its actual voting/window lifetime is exercised by the city-ready suites.
+    internal static class MapCityEventReadyUp
+    {
+        internal static UIWindow? Window => null;
+    }
     // These native service windows are not quest-confirmation windows. The dedicated
     // map-quest-selection runtime suite executes the actual shared-quest close handler.
     internal static class MapLocationInteractor
