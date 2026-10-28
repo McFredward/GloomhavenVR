@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-28: Quest dev734 integration is in progress; shared dev734 behavior and its own evidence remain preserved. See STATE.md for final qualification status.
+Updated 2026-10-28: Quest Build735 is qualified on finalized dev734 plus shared fixture fix c0f636c55. See STATE.md and QUEST-DEV734-INTEGRATION.md for aggregate checks, preserved upstream evidence and pending hardware acceptance.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current

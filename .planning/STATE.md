@@ -1,13 +1,20 @@
-**Quest dev734 rebase, Build735, 2026-10-28 — integration in progress.**
+**Quest dev734 rebase, Build735, 2026-10-28 — qualified source integration.**
 
-Requested dev fdbd372e3 was explicitly released after both concurrent integrators
-finished. Rebase the exact published Quest delta from595791b78, preserve public
-history through an ancestry-only merge and a normal fast-forward feature push.
-Retain shared734 behavior, Quest installed-source updates and independently
-compatible original conversion/media. Test class C: run the complete local gate
-once on the final integrated candidate plus affected Android/AOT/Builder checks.
-No local ZIP/APK or headset acceptance is implied. See forthcoming
-QUEST-DEV734-INTEGRATION.md and lane reviews for final results and limitations.
+Both concurrent dev integrators explicitly finished before the rebase. The final
+upstream is c0f636c55 (finalized fdbd372e3 plus a separately tested shared town-close
+fixture boundary). Quest retains the 1.2.2/734 shared production source, with
+Android menu shader/AOT/loose Story integration and original conversion/media
+reuse. The actual B717 source comparison selects compact code + supplied Story;
+Campaign, authored art, figure/audio/movie producers remain unchanged.
+
+Class C validation recorded all 292 local suites once: 276 passed, 16 fixture or
+invocation-environment failures. All 16 affected complete suites passed bounded
+reruns; the failed complete invocation remains failed. Source 16/16, golden
+306,431 assertions, strict Debug/Release 0W0E, bundle/public-surface checks and the
+classified private compiled comparison complete aggregate qualification. No new
+full APK/archive or Quest headset acceptance is claimed. Public feature history
+is retained through an ancestry-only merge and normal fast-forward push.
+See QUEST-DEV734-INTEGRATION.md and the input-bound ignored evidence for details.
 
 **Character-window motion clarity, readable hints and laser rotation, Build734, 2026-10-28.**
 
