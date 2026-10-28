@@ -16,6 +16,9 @@ import zipfile
 ARCHIVE_MEMBER = "assets/quest-mod-content.zip"
 ARCHIVE_NAME = "quest-mod-content.zip"
 SCOPE = "quest-retained-mod-content-v1"
+# Match the signed installation consumer; the APK reader's general member bound
+# may be stricter. Neither compressed input nor declared output bypasses a cap.
+MAX_MOD_ARCHIVE_BYTES = 4 * 1024 * 1024 * 1024
 
 
 def _stamp(path):
@@ -46,7 +49,7 @@ def delivery(builder, source, inputs, output, base_apk, base, replacements=None)
         with zipfile.ZipFile(base_apk) as apk:
             entries = builder.apk_updates._entries(apk)
             info = entries.get(ARCHIVE_MEMBER)
-            if info is None or info.is_dir() or info.file_size <= 0:
+            if info is None or info.is_dir() or not 22 <= info.file_size <= MAX_MOD_ARCHIVE_BYTES:
                 raise builder.BuildError("Base APK lacks its bounded retained mod archive.")
             size = info.file_size
         if _stamp(base_apk) != before:
@@ -67,7 +70,8 @@ def delivery(builder, source, inputs, output, base_apk, base, replacements=None)
                         count += len(chunk)
                         if count > size: raise builder.BuildError("Retained mod archive exceeded its native APK extent.")
                         observed.update(chunk)
-                        target.write(chunk)
+                        if target.write(chunk) != len(chunk):
+                            raise builder.BuildError("Retained mod archive destination did not accept its complete input chunk.")
                     target.flush()
                     os.fsync(target.fileno())
                 if count != size or observed.hexdigest() != sha:

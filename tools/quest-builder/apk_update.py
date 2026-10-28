@@ -20,6 +20,7 @@ from xml.sax.saxutils import escape
 
 from storage import BuildError, digest, value_hash, write_json, _ordinary_owned
 from profile import validate_identity, ProfileError
+from script_order import _Reader as _ResourceReader
 
 CAPSULE = "assets/Quest/update-capsule.json"
 UPDATE = "assets/Quest/update-manifest.json"
@@ -672,10 +673,9 @@ def profile_update(base, profile):
 def _resource_json_file(raw):
     """Qualify the pinned player object table before UnityPy follows any object."""
     import UnityPy
-    from script_order import _Reader
     if not 48 <= len(raw) <= MAX_MEMBER:
         raise BuildError("Quest JSON resource serialized file exceeds its bound.")
-    header = _Reader(raw, endian=">")
+    header = _ResourceReader(raw, endian=">")
     header.take(8)
     version = header.number("I")
     header.take(4)
@@ -687,7 +687,7 @@ def _resource_json_file(raw):
     if (file_size != len(raw) or not 0 < metadata_size <= _MAX_RESOURCE_METADATA
             or not 48 < 48 + metadata_size <= data_offset <= file_size):
         raise BuildError("Quest JSON resource serialized header extents are invalid.")
-    reader = _Reader(raw, 48, 48 + metadata_size, "<" if little == 0 else ">")
+    reader = _ResourceReader(raw, 48, 48 + metadata_size, "<" if little == 0 else ">")
     unity = bytearray()
     while len(unity) <= 64:
         byte = reader.take(1)
