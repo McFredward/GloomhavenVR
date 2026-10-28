@@ -79,6 +79,8 @@ internal enum SkyStyle
 /// bundle art): "Ich WILL garnicht das die Umgebung im Menu rendert - sondern nur im Szenario so
 /// wie es die Default originale Umgebung auch macht. Leg daher mit der Umsetzung los von den
 /// zwei neuen Umgebungen. Lösche die alten assets und räum da wieder auf."
+/// That scope ruling is superseded by the maintainer on 2026-10-28: the selected environment
+/// must also surround the main menu and the 3D map, including the original Default sky.
 ///
 /// THE ANCHOR RULING (user, ModBuild 132 hardware round, verbatim — it decides EVERYTHING
 /// below about where the room lives): "Es ist wieder passiert, dass ich durch zoomen und
@@ -161,12 +163,11 @@ internal enum SkyStyle
 /// below), and none of that is touched from here. Its settled state is documented on hardware by
 /// the one-shot <c>SKY IDLE</c> log line.
 ///
-/// SCENARIO-ONLY SCOPE (second ruling): everything below happens exclusively while an
-/// actual scenario board exists (<see cref="Events.VRModeStateMachine.ScenarioBoardExists"/> —
-/// the Choreographer-alive signal the rig/WorldUI/mode machine already read; deliberately not
-/// the save-state phase, which flips during loading/travel before any board exists). In the
-/// menu and on the world map: nothing, ever — the game's default look. A non-Default choice in
-/// a scenario:
+/// SCOPE (2026-10-28 ruling): the chosen surroundings apply to the main menu, the 3D map and
+/// scenarios. A menu has no native board: its room is placed once at the tracking floor,
+/// using a fixed perceived footprint. Map/scenario rooms retain their original subject
+/// measurement and proportions. An actual rig replacement creates a new room; ordinary
+/// motion and same-rig recenter never re-seat an occupied room. A non-Default choice:
 ///
 ///  1. HIDES the game's sky sphere (<c>GH_SkySphere</c>) via <c>renderer.enabled = false</c>.
 ///     That is safe for PURE hiding — <see cref="SkyBackdrop"/>'s class doc documents the trap
@@ -546,6 +547,10 @@ internal static class SkyAlternative
     private const float MinPlausibleBoardMeters = 0.2f;
     private const float MaxPlausibleBoardMeters = 20f;
 
+    /// <summary>The menu has no board to measure. Its room uses a fixed perceived footprint,
+    /// matching the scale of a normal map table while keeping the existing room proportions.</summary>
+    private const float MenuSubjectWidthMeters = 1.2f;
+
     /// <summary>Fallback authored room extent in meters when a prefab carries no room geometry
     /// at all (an older bundle predating 'RoomGeo'). The floor-bound FX are still authored in
     /// real meters around the origin, so scaling them as if the room were this wide keeps fog
@@ -601,6 +606,7 @@ internal static class SkyAlternative
     private static GameObject? _skyGo;
     private static GameObject? _roomGo;
     private static SkyStyle _appliedStyle = SkyStyle.Default;
+    private static Transform? _environmentRig;
 
     /// <summary>The <see cref="VRRigDriver.RigPoseVersion"/> the current SKY placement was
     /// computed for — a mismatch means the player was (re)built/recentered/ring-seated and the
@@ -694,39 +700,13 @@ internal static class SkyAlternative
             return;
         _bound = true;
         Style = file.Bind("Sky", "Style", FrameDefaults.Active ? (SkyStyle)FrameDefaults.SkyStyleCode : Defaults.SkyStyle,
-            "Which surroundings you play in (user rulings 2026-08-12/13: the environment " +
-            "renders ONLY inside a scenario, like the game's own default surroundings — " +
-            "never in the menu; it is built from the mod's OWN bundle content, styled to " +
-            "match the game's painterly look). FOUR choices. Default = the game's own " +
-            "animated sky, exactly as before. Cellar = a candle-lit stone cellar. " +
-            "SwampNight = a moonlit swamp clearing under a star dome with shooting stars, " +
-            "ground fog and fireflies. OffBlack = NO surroundings at all: the game's sky " +
-            "sphere is hidden and nothing is put in its place, so everything around the " +
-            "table is plain black. OffBlack loads nothing from the mod's bundle, spawns no " +
-            "object, runs no effect and does not widen the view distance — and it is NOT " +
-            "mixed reality: MR stays its own separate setting with its own chroma key. " +
-            "Cellar and SwampNight in a scenario hide the game's sky sphere and " +
-            "build the environment as a FIXED PLACE AROUND THE BOARD, with the board as a " +
-            "SMALL GAME BOARD FLOATING IN THE MIDDLE OF A MUCH LARGER PLACE — like a " +
-            "tabletop with figures standing in a room, never anything close to the size of " +
-            "the surroundings. The open area you stand in — the forest clearing, the cellar " +
-            "interior — is several times as wide as the board, so everything the " +
-            "environment is made of, trees and walls included, stays well outside the play " +
-            "field; and the board hovers a board-proportional height above the ground " +
-            "instead of being planted in it. THE BOARD NEVER MOVES INSIDE THE ROOM. Zooming " +
-            "scales the whole scene — board and room together, keeping their proportion, so " +
-            "far out the place reads as a model in front of you and zoomed in you stand " +
-            "inside it, and the board floats exactly the same way at every zoom. The board " +
-            "can no longer end up under the floor. Stick flight, turning, the world-grab " +
-            "drag and physical walking all move you through the place; none of them ever " +
-            "re-places it. Only the sky itself is re-placed around you, and only by the " +
-            "recenter chord (B+Y) or a rig rebuild — re-selecting a style rebuilds " +
-            "everything. It can never catch the laser (no colliders, mod layer only). " +
-            "Applies live from the VR menu, takes effect when a scenario is running. MIXED " +
-            "REALITY ALWAYS WINS: while MR is on, every sky and environment is off so the " +
-            "chroma key can show your room; the choice re-applies when MR turns off. Values " +
-            "from the old panorama builds (Night/Sunset) no longer exist and fall back to " +
-            "Default. Local presentation only, never synced to peers.");
+            "Surroundings shown in the main menu, 3D map and scenarios. Default uses the game's " +
+            "original animated sky. Cellar is a candle-lit stone room; SwampNight is a moonlit " +
+            "forest with stars, ground fog and fireflies. OffBlack shows no surroundings and " +
+            "does not enable mixed reality. Rooms stay fixed while you move through them; " +
+            "the board keeps its position inside the room when you zoom. Changes apply live. " +
+            "Mixed reality hides every environment and restores your choice when switched off. " +
+            "Local presentation only; other players choose their own surroundings.");
     }
 
     /// <summary>
@@ -836,25 +816,10 @@ internal static class SkyAlternative
             return false;
         }
 
-        // ROOM SCOPE (class doc, second ruling): outside a room of the mod's own the feature stands
-        // down entirely — the menu keeps the game's default look, exactly like the original
-        // surroundings. Leaving/ending a scenario deactivates on the next tick. OffBlack keeps that
-        // scope too: he asked for an environment choice, and "no environment" must behave like the
-        // other environments — the flat menu stays untouched.
-        //
-        // AND SINCE ModBuild 177 A ROOM IS NOT ONLY A SCENARIO. The 3D map room stands the player
-        // at a table too, and the user's ruling on it is verbatim: "Die Tisch soll in die gewählte
-        // Umgebung gebracht werden und die Bewegung und alles andere soll sich exakt genau so
-        // verhalten wie in einem Szenario, da soll es keinen Unterschied geben." A table in an
-        // empty void was the whole complaint. TableInFrontOfPlayer is the same predicate the three
-        // locomotion guards ask, which is what makes "no difference" one decision rather than five
-        // — and it is still FALSE in the main menu and on the flat 2D map, so nothing there moves.
-        // The room, the env sound and the haunt figures below all follow from this one line.
-        if (!Events.VRModeStateMachine.TableInFrontOfPlayer)
-        {
-            Deactivate();
-            return false;
-        }
+        // Build740: the maintainer explicitly extends the selected environment to menus.
+        // TableInFrontOfPlayer still owns gameplay/Haunt permission, but cannot gate the
+        // surroundings any more. Bundled rooms below require the live rig; OffBlack only
+        // hides any native sky, including during an ordinary menu-camera handoff.
 
         // OFF (BLACK) — the whole style, in full (class doc OFF (BLACK)). It is step 1 of the
         // pipeline and nothing else: hide the game's sky sphere and stop. No prefab is asked for,
@@ -1196,6 +1161,13 @@ internal static class SkyAlternative
     /// </summary>
     private static void EnsureEnvironment(SkyStyle style, Transform anchor)
     {
+        // A menu, map and scenario can use the same selected style while their actual rigs
+        // are replaced in one Update (no intermediate Tick sees a missing rig). The old room
+        // must not survive at the previous rig's metre scale and floor. Identity changes
+        // retire that presentation; RigPoseVersion/recenter and free motion do not.
+        if ((_skyGo != null || _roomGo != null) && !ReferenceEquals(_environmentRig, anchor))
+            DespawnEnvironment();
+
         if (_skyGo != null && _roomGo != null && _appliedStyle == style)
         {
             // SKY steady state (class doc RE-SEAT RULE): RigPoseVersion bumps only on rig
@@ -1236,6 +1208,7 @@ internal static class SkyAlternative
         GameObject prefab = Prefabs[(int)style]!;
         _skyGo = new GameObject("GloomhavenVR.SkyAlternative.Sky." + style);
         _roomGo = new GameObject("GloomhavenVR.SkyAlternative.Room." + style);
+        _environmentRig = anchor;
         Object.DontDestroyOnLoad(_skyGo);
         Object.DontDestroyOnLoad(_roomGo);
         // The room root starts at IDENTITY on purpose: the authored extent is measured off it
@@ -1715,6 +1688,11 @@ internal static class SkyAlternative
     private static bool TryMeasureBoardYaw(out Quaternion yaw)
     {
         yaw = Quaternion.identity;
+        if (TryMeasureMenuSubject(out _, out _, out _, out Quaternion menuYaw))
+        {
+            yaw = menuYaw;
+            return true;
+        }
         if (TryMeasureMapSubject(out _, out _, out _, out Quaternion mapYaw))
         {
             yaw = mapYaw;
@@ -1803,6 +1781,39 @@ internal static class SkyAlternative
     }
 
     /// <summary>
+    /// A menu's one placement subject: a fixed metre-scale footprint on the live tracking
+    /// floor. Its synthetic underside cancels the existing proportional float gap, placing
+    /// the room floor exactly on that floor. This is used only without a native table;
+    /// scenario/map geometry and gameplay permission remain authoritative for their modes.
+    /// The caller stops measuring as soon as the room stands, so head movement cannot drag it.
+    /// </summary>
+    private static bool TryMeasureMenuSubject(out Vector3 center, out float undersideY,
+                                              out float extent, out Quaternion yaw)
+    {
+        center = Vector3.zero;
+        undersideY = extent = 0f;
+        yaw = Quaternion.identity;
+        Transform? rig = VRRigDriver.RigRoot;
+        Camera? head = VRRigDriver.HeadCamera;
+        if (Events.VRModeStateMachine.TableInFrontOfPlayer || rig == null || head == null)
+            return false;
+
+        float scale = rig.lossyScale.x;
+        if (!(scale > 0f) || float.IsNaN(scale) || float.IsInfinity(scale))
+            return false;
+        Vector3 local = head.transform.localPosition;
+        Vector3 floor = rig.TransformPoint(new Vector3(local.x, 0f, local.z));
+        if (float.IsNaN(floor.x) || float.IsNaN(floor.y) || float.IsNaN(floor.z)
+            || float.IsInfinity(floor.x) || float.IsInfinity(floor.y) || float.IsInfinity(floor.z))
+            return false;
+        extent = MenuSubjectWidthMeters * scale;
+        undersideY = floor.y + FloatGapToBoardRatio * extent;
+        center = new Vector3(floor.x, undersideY, floor.z);
+        yaw = VRRigDriver.YawOnly(rig.rotation);
+        return true;
+    }
+
+    /// <summary>
     /// The board's world-space measurement (class doc MEASURING THE BOARD). Source: the live
     /// hex tiles in <c>ObjectCacheService</c> — the set the game's own camera and the mod's
     /// spawn-ring seat solver both use. Horizontal extent from the tiles' world positions
@@ -1823,6 +1834,12 @@ internal static class SkyAlternative
         extent = 0f;
         boardYaw = Quaternion.identity;
         tileCount = 0;
+
+        if (TryMeasureMenuSubject(out center, out undersideY, out extent, out boardYaw))
+        {
+            _measuredSubject = "the menu tracking floor and fixed perceived footprint";
+            return true;
+        }
 
         // THE MAP ROOM'S SUBJECT COMES FIRST — and the branch is unambiguous rather than merely
         // ordered: the two subjects can never coexist. The map room is reached only through a live
@@ -2932,6 +2949,7 @@ internal static class SkyAlternative
             _roomGo = null;
         }
         _appliedStyle = SkyStyle.Default;
+        _environmentRig = null;
         _placedPoseVersion = int.MinValue; // a fresh activation always places fresh
         _nextHealLogTime = 0f;
         ResetRoomState();
