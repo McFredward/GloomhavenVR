@@ -96,6 +96,22 @@ assert [n['name'] for n in confirmation['children']]==['Blur','Box']
 root_image=next(c for c in confirmation['components'] if c['kind']=='Image');assert json.loads(root_image['json'])['m_Color']['a']>.79
 assert next(c for c in confirmation['children'][0]['components'] if c['kind']=='Image')['shader']=='Custom/SimpleGrabPassBlur'
 (out/'native-confirmation-tree.json').write_text(json.dumps(confirmation,indent=2)+'\n')
+import xml.etree.ElementTree as ET
+def xml_node(value):
+ element=ET.Element('node',{'name':value['name'],'active':str(int(value['active']))})
+ for record in value['components']:
+  attrs={k:str(v) for k,v in record.items() if k in ('kind','json','sprite','shader','font','ppu')}
+  for k in ('border','pivot'):
+   if k in record:attrs[k]=','.join(map(str,record[k]))
+  if record['kind']=='RectTransform':
+   d=json.loads(record['json'])
+   for k in ('m_LocalPosition','m_LocalRotation','m_LocalScale','m_AnchorMin','m_AnchorMax','m_AnchoredPosition','m_SizeDelta','m_Pivot'):
+    attrs[k]=','.join(str(d[k][axis]) for axis in ('xyzw' if k=='m_LocalRotation' else 'xyz' if k in ('m_LocalPosition','m_LocalScale') else 'xy'))
+  ET.SubElement(element,'component',attrs)
+ for child in value.get('children',[]):element.append(xml_node(child))
+ return element
+ET.ElementTree(xml_node(confirmation)).write(out/'native-confirmation-tree.xml',encoding='unicode',xml_declaration=True)
+
 (out/'native-confirmation-provenance.json').write_text(json.dumps({'scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level1').read_bytes()).hexdigest(),
  'presentation':'Original rect/layout/image/TMP declarations; original sprites and font data. Native game controllers are not installed. Localized question is an explicit input.',
  'nativeDefaultGraphicShader':'Original Box and full-screen root use built-in UI/Default; actual editor stock shader executes. Native Blur shader uses declared GL GrabPass stand-in.'},indent=2)+'\n')

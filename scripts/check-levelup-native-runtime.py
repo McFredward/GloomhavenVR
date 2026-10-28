@@ -78,6 +78,9 @@ def main():
         kernels.append(supersample_capture[start:supersample_capture.index(';', start) + 1])
     originals['SupersampleKernel.cs'] = ('using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;namespace GloomhavenVR.WorldUI {'
         'internal static partial class PanelSupersample {\n' + '\n'.join(kernels) + '\n}}\n')
+    converter_core=(root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.1.Core.cs').read_text()
+    centering=converter_core[converter_core.index('        target.SetParent(hostRect, worldPositionStays: false);'):converter_core.index('        AdoptNestedCanvases(panel);')]
+    originals['NativeTargetFrame739.cs']='using UnityEngine;namespace GloomhavenVR.WorldUI {internal static partial class CanvasConversion {internal static void NormalizeTarget739(RectTransform target,RectTransform hostRect,Vector2 size){'+centering+'}}}'
     adopt = (root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.2.Adopt.cs').read_text()
     lifecycle = (root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.4.Lifecycle.cs').read_text()
     background = [method(adopt, 'private static void HideFullScreenBackground(')]

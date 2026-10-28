@@ -3,6 +3,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
+using System.Xml;
 using GloomhavenVR.WorldUI;
 using GloomhavenVR.WorldUI.Surfaces;
 using TMPro;
@@ -12,12 +14,6 @@ using Object=UnityEngine.Object;
 
 public static partial class LevelUpNativeProgram
 {
-    [Serializable] private sealed class NativeNode739
-    {public string name="";public bool active=true;public NativeComponent739[] components=Array.Empty<NativeComponent739>();public NativeNode739[] children=Array.Empty<NativeNode739>();}
-    [Serializable] private sealed class NativeComponent739
-    {public string kind="",json="",sprite="",shader="",font="";public float[] border=Array.Empty<float>(),pivot=Array.Empty<float>();public float ppu=100;}
-    [Serializable] private sealed class NativeRect739
-    {public Vector3 m_LocalPosition=default,m_LocalScale=Vector3.one;public Quaternion m_LocalRotation=Quaternion.identity;public Vector2 m_AnchorMin=default,m_AnchorMax=default,m_AnchoredPosition=default,m_SizeDelta=default,m_Pivot=default;}
     private static TMP_FontAsset Font739(string prefix)
     {
         var font=ScriptableObject.CreateInstance<TMP_FontAsset>();JsonUtility.FromJsonOverwrite(File.ReadAllText(Path.Combine(_inputs,prefix+".json")),font);
@@ -29,46 +25,52 @@ public static partial class LevelUpNativeProgram
         foreach(var item in saved.colors)material.SetColor(item.name,item.value);
         font.material=material;font.ReadFontAssetDefinition();return font;
     }
-    private static RectTransform ImportNode739(NativeNode739 node,Transform parent,Dictionary<string,TMP_FontAsset> fonts)
+    private static float[] Values739(XmlElement item,string key)
+        =>Array.ConvertAll(item.GetAttribute(key).Split(','),s=>float.Parse(s,CultureInfo.InvariantCulture));
+    private static Vector2 Pair739(XmlElement item,string key){float[] p=Values739(item,key);return new Vector2(p[0],p[1]);}
+    private static Vector3 Triple739(XmlElement item,string key){float[] p=Values739(item,key);return new Vector3(p[0],p[1],p[2]);}
+    private static RectTransform ImportNode739(XmlElement node,Transform parent,Dictionary<string,TMP_FontAsset> fonts)
     {
-        var rect=Rect(node.name,parent,0,0);rect.gameObject.SetActive(false);
-        foreach(var part in node.components)
+        string name=node.GetAttribute("name");var rect=Rect(name,parent,0,0);rect.gameObject.SetActive(false);
+        foreach(XmlElement part in node.SelectNodes("component"))
         {
-            if(part.kind=="RectTransform")
+            string kind=part.GetAttribute("kind"),json=part.GetAttribute("json");
+            if(kind=="RectTransform")
             {
-                var data=JsonUtility.FromJson<NativeRect739>(part.json);rect.anchorMin=data.m_AnchorMin;rect.anchorMax=data.m_AnchorMax;
-                rect.pivot=data.m_Pivot;rect.sizeDelta=data.m_SizeDelta;rect.anchoredPosition=data.m_AnchoredPosition;
-                rect.localPosition=new Vector3(rect.localPosition.x,rect.localPosition.y,data.m_LocalPosition.z);
-                rect.localRotation=data.m_LocalRotation;rect.localScale=data.m_LocalScale;
+                rect.anchorMin=Pair739(part,"m_AnchorMin");rect.anchorMax=Pair739(part,"m_AnchorMax");
+                rect.pivot=Pair739(part,"m_Pivot");rect.sizeDelta=Pair739(part,"m_SizeDelta");rect.anchoredPosition=Pair739(part,"m_AnchoredPosition");
+                rect.localPosition=new Vector3(rect.localPosition.x,rect.localPosition.y,Triple739(part,"m_LocalPosition").z);
+                float[] q=Values739(part,"m_LocalRotation");rect.localRotation=new Quaternion(q[0],q[1],q[2],q[3]);rect.localScale=Triple739(part,"m_LocalScale");
             }
-            else if(part.kind=="Image")
+            else if(kind=="Image")
             {
-                var image=rect.gameObject.AddComponent<Image>();JsonUtility.FromJsonOverwrite(part.json,image);
-                if(part.sprite.Length>0)
+                var image=rect.gameObject.AddComponent<Image>();JsonUtility.FromJsonOverwrite(json,image);
+                if(part.HasAttribute("sprite"))
                 {
-                    var texture=LoadTexture(part.sprite);image.sprite=Sprite.Create(texture,new Rect(0,0,texture.width,texture.height),
-                        new Vector2(part.pivot[0],part.pivot[1]),part.ppu,0,SpriteMeshType.FullRect,
-                        new Vector4(part.border[0],part.border[1],part.border[2],part.border[3]));
+                    var texture=LoadTexture(part.GetAttribute("sprite"));float[] pivot=Values739(part,"pivot"),border=Values739(part,"border");
+                    image.sprite=Sprite.Create(texture,new Rect(0,0,texture.width,texture.height),new Vector2(pivot[0],pivot[1]),
+                        float.Parse(part.GetAttribute("ppu"),CultureInfo.InvariantCulture),0,SpriteMeshType.FullRect,new Vector4(border[0],border[1],border[2],border[3]));
                 }
-                if(part.shader=="Custom/SimpleGrabPassBlur")image.material=new Material(Resources.Load<Shader>("ConfirmationGrab738"));
-                else Check(part.shader=="UI/Default","native confirmation foreground retains the original stock UI material family");
+                string shader=part.GetAttribute("shader");
+                if(shader=="Custom/SimpleGrabPassBlur")image.material=new Material(Resources.Load<Shader>("ConfirmationGrab738"));
+                else Check(shader=="UI/Default","native confirmation foreground retains the original stock UI material family");
             }
-            else if(part.kind=="TextMeshProUGUI")
+            else if(kind=="TextMeshProUGUI")
             {
-                var text=rect.gameObject.AddComponent<TextMeshProUGUI>();JsonUtility.FromJsonOverwrite(part.json,text);
-                if(!fonts.TryGetValue(part.font,out TMP_FontAsset font)){font=Font739(part.font);fonts.Add(part.font,font);}
+                var text=rect.gameObject.AddComponent<TextMeshProUGUI>();JsonUtility.FromJsonOverwrite(json,text);
+                string prefix=part.GetAttribute("font");if(!fonts.TryGetValue(prefix,out TMP_FontAsset font)){font=Font739(prefix);fonts.Add(prefix,font);}
                 text.font=font;text.fontSharedMaterial=font.material;
             }
             else
             {
-                Type? type=part.kind=="VerticalLayoutGroup"?typeof(VerticalLayoutGroup):part.kind=="HorizontalLayoutGroup"?typeof(HorizontalLayoutGroup)
-                    :part.kind=="ContentSizeFitter"?typeof(ContentSizeFitter):part.kind=="LayoutElement"?typeof(LayoutElement):null;
-                if(type!=null)JsonUtility.FromJsonOverwrite(part.json,rect.gameObject.AddComponent(type));
+                Type? type=kind=="VerticalLayoutGroup"?typeof(VerticalLayoutGroup):kind=="HorizontalLayoutGroup"?typeof(HorizontalLayoutGroup)
+                    :kind=="ContentSizeFitter"?typeof(ContentSizeFitter):kind=="LayoutElement"?typeof(LayoutElement):null;
+                if(type!=null)JsonUtility.FromJsonOverwrite(json,rect.gameObject.AddComponent(type));
             }
         }
-        rect.name=node.name;
-        foreach(var child in node.children)ImportNode739(child,rect,fonts);
-        rect.gameObject.SetActive(node.active);return rect;
+        rect.name=name;
+        foreach(XmlElement child in node.SelectNodes("node"))ImportNode739(child,rect,fonts);
+        rect.gameObject.SetActive(node.GetAttribute("active")=="1");return rect;
     }
     private static int ExteriorDifference739(Texture2D actual,Texture2D reference,Camera head,RectTransform small)
     {
@@ -87,10 +89,12 @@ public static partial class LevelUpNativeProgram
         bool ortho=head.orthographic;float near=head.nearClipPlane,far=head.farClipPlane,fov=head.fieldOfView;int mask=head.cullingMask;
         UIConfirmationBoxManager? previousManager=Singleton<UIConfirmationBoxManager>.Instance;
         float previousScale=PanelLayout.WorldScale;PanelLayout.WorldScale=198.12f;
-        var ownerPanel=CanvasConversion.ActivePanels.Find(p=>ReferenceEquals(p.Target,ownerRoot))!;int oldBase=ownerPanel.BaseSortingOrder;ownerPanel.BaseSortingOrder=1000;
+        var ownerPanel=CanvasConversion.ActivePanels.Find(p=>ReferenceEquals(p.Target,ownerRoot))!;bool ownerCanvasEnabled=ownerPanel.HostCanvas.enabled;int oldBase=ownerPanel.BaseSortingOrder;ownerPanel.BaseSortingOrder=1000;
         var ownerInk=Image(ownerRoot,"original owner photograph overlap",1920,1080,new Color(.42f,.11f,.07f,1));ownerInk.transform.SetAsFirstSibling();
         var home=Rect("native confirmation import home",null,1920,1080);Object.DontDestroyOnLoad(home.gameObject);
-        var imported=ImportNode739(JsonUtility.FromJson<NativeNode739>(File.ReadAllText(Path.Combine(_inputs,"native-confirmation-tree.json"))),home,new Dictionary<string,TMP_FontAsset>());
+        var document=new XmlDocument();document.Load(Path.Combine(_inputs,"native-confirmation-tree.xml"));
+        var imported=ImportNode739(document.DocumentElement!,home,new Dictionary<string,TMP_FontAsset>());
+        var hierarchy=new List<string>();foreach(Transform t in imported.GetComponentsInChildren<Transform>(true))hierarchy.Add(t.name+" parent="+(t.parent==null?"null":t.parent.name)+" components="+string.Join(",",Array.ConvertAll(t.GetComponents<Component>(),c=>c.GetType().Name)));File.WriteAllLines(Path.Combine(output,"native-confirmation-import739.txt"),hierarchy);
         var small=(RectTransform)imported.Find("Box");var backdrop=imported.GetComponent<Image>();var blur=imported.Find("Blur").GetComponent<Image>();
         // Original ResetConfirmationBox toggles these modes. The translated
         // question is an explicit content input; original layout/graphics execute.
@@ -108,7 +112,7 @@ public static partial class LevelUpNativeProgram
         {
             foreach(string route in new[]{"owned","standalone"})
             {
-                box.IsOpen=window.IsOpen=window.IsVisible=true;DialogSurface? surface=null;
+                box.IsOpen=window.IsOpen=window.IsVisible=true;DialogSurface? surface=null;ownerPanel.HostCanvas.enabled=route=="owned"&&ownerCanvasEnabled;
                 if(route=="owned"){Record(manager,owner);ConfirmationOnOwner.Tick();}
                 else {var scope=ConfirmationOnOwner.CurrentScope;ConfirmationOnOwner.CurrentScope=null;ConfirmationOnOwner.Record(manager);ConfirmationOnOwner.CurrentScope=scope;surface=new DialogSurface();surface.Tick();}
                 var panel=CanvasConversion.ActivePanels.Find(p=>ReferenceEquals(p.Target,imported))!;
@@ -117,6 +121,12 @@ public static partial class LevelUpNativeProgram
                 // Captures are deliberately absent: fresh738 logs report negative
                 // remaining session capacity and this exact direct rendering route.
                 Check(small.rect.width>300&&small.rect.height>60&&small.rect.height<1080,"original native layout resolves a small dialog rather than the full-screen frame");
+                bool ownerVisible=ownerPanel.HostCanvas.enabled;ownerPanel.HostCanvas.enabled=false;
+                head.transform.position=small.position-panel.HostRect.forward*120;head.transform.rotation=Quaternion.LookRotation(small.position-head.transform.position,panel.HostRect.up);
+                Texture2D nativeOnly=Capture(head,Path.Combine(output,route+"-direct-native-only739.png"));
+                Check(BrightPixels(nativeOnly)>30,"native confirmation alone retains visible original glyphs without owner content");
+                Object.DestroyImmediate(nativeOnly);ownerPanel.HostCanvas.enabled=ownerVisible;
+
                 for(int frame=0;frame<10;frame++)
                 {
                     CanvasConversion.SweepBackgrounds739(panel);
@@ -157,7 +167,7 @@ public static partial class LevelUpNativeProgram
             box.IsOpen=window.IsOpen=window.IsVisible=false;ConfirmationOnOwner.Tick();Singleton<UIConfirmationBoxManager>.Instance=previousManager;
             ownerRoot.SetPositionAndRotation(rootPosition,rootRotation);ownerRoot.localScale=rootScale;
             head.transform.SetPositionAndRotation(cameraPosition,cameraRotation);head.orthographic=ortho;head.nearClipPlane=near;head.farClipPlane=far;head.fieldOfView=fov;head.cullingMask=mask;head.backgroundColor=clear;
-            Object.DestroyImmediate(ownerInk.gameObject);ownerPanel.BaseSortingOrder=oldBase;PanelLayout.WorldScale=previousScale;CanvasConversion.ResetOrder739();
+            Object.DestroyImmediate(ownerInk.gameObject);ownerPanel.HostCanvas.enabled=ownerCanvasEnabled;ownerPanel.BaseSortingOrder=oldBase;PanelLayout.WorldScale=previousScale;CanvasConversion.ResetOrder739();
             Object.DestroyImmediate(home.gameObject);
             File.WriteAllText(Path.Combine(output,"native-confirmation-direct739-limits.txt"),"Read-only native full RectTransform/layout/image/TMP declarations, sprites, font data and direct final head pixels execute. Production full-screen-background kernel and local caller flag execute. Production distance ladder, hysteresis, follower and ordinary owner overlap execute; unrelated furniture/diagnostic calls are no-op ports. Converted host allocation/adoption is an explicit port; zero capture scheduling/resources models the observed capture-refused path. Native controllers/session callbacks, spatial character owner depth compositor and original D3D11 GrabPass fragment program are not executed. Stock editor UI shader renders native ordinary graphics; native blur uses the declared GL witness.");
         }

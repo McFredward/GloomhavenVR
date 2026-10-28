@@ -94,3 +94,46 @@ executed fixture/editor assemblies, Harmony runtime, logs, images and per-case
 results. After the exact editor launcher and escaped project editor/compiler
 processes are reaped, `cleanup_completed_run` removes only regenerable caches.
 Development failures remain evidence and are not promoted to successful runs.
+
+Build739 covers the hardware path missing from the earlier isolated capture test.
+The fresh Build738 log refuses this confirmation's render targets because the
+remaining session capacity is already negative. Capture admission cannot be the
+only remedy: the original root `Black_Backdrop` and its full-stretch `Blur` must
+be removed before allocation, while the small original `Box` remains intact.
+
+The read-only exporter now records the entire native generic confirmation tree
+from `level1`, including original RectTransforms, layout groups/fitters, image and
+TMP declarations, sprite borders/pivots, font atlases/material properties and
+object hashes. An XML structural manifest transports this tree without relying
+on Unity's registration of recursive fixture-only JSON types. Its embedded
+framework-component property payloads retain their original JSON declarations.
+Only presentation components are installed; native controllers, localization
+and session transitions are explicit inputs. The original ordinary image shader
+family is audited as stock `UI/Default`; the actual editor stock shader executes.
+The existing declared GL GrabPass witness remains the native blur fragment port.
+
+Both real local consumer flags feed the exact production background-hiding body,
+constants and release restoration loop. The exact converter target normalization
+fragment preserves the measured frame when native stretched anchors collapse.
+The exact distance ladder, nearest-rect distance, hysteresis, follower application
+and shown-pose stamp execute; unrelated furniture/diagnostic steps are no-op ports.
+The owned case uses the actual hardware scale (.08275 world units per authored
+pixel), world metric (198.12), original 32-pixel forward seat, and a visible owner
+layer. Its resulting 2.648-unit gap is inside the original 3.9624-unit tie margin.
+The independent reference draws the small dialog after its owner. The unowned
+case excludes owner content rather than inventing an owner-overlap requirement.
+
+With no capture resources or capture calls at all, each route renders forty
+consecutive final head photographs: ten poses, two eye inputs, front and rear.
+Compare every RGB pixel and separately count changes outside the projected native
+small box. A separate native-only photograph must retain visible glyphs, so owner
+text cannot make a blank dialog pass. Original large graphics restore on close;
+all prior close/reopen/DDOL/permission/capture cases and controls remain. New
+omission controls retain either full-frame backdrop or the member's owner tier.
+
+The converter's host allocation/adoption and outer capture scheduler remain
+explicit ports. Zero capture resources represents the logged refusal route; it
+does not execute the general target allocator or an actual capacity refusal.
+The owner overlap is a real ordinary Unity canvas, not the complete spatial
+character-window head compositor. These native geometry and GL pixels do not
+certify original D3D11 fragment programs, the real HMD image or frame pacing.

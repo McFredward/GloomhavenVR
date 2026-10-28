@@ -124,7 +124,7 @@ namespace GloomhavenVR.WorldUI
             // This service port is not a reimplementation of the new owner selection/pose logic.
             if(target.gameObject.scene.name=="DontDestroyOnLoad")UnityEngine.Object.DontDestroyOnLoad(panel.HostGo);
             else SceneManager.MoveGameObjectToScene(panel.HostGo,target.gameObject.scene);
-            target.SetParent(panel.HostRect,false);target.anchorMin=target.anchorMax=target.pivot=new Vector2(.5f,.5f);target.anchoredPosition=Vector2.zero;
+            NormalizeTarget739(target,panel.HostRect,panel.HostRect.rect.size);
             panel.HostCanvas.renderMode=RenderMode.WorldSpace;panel.HostCanvas.worldCamera=WorldCamera;
             panel.HostCanvas.sortingOrder=10;panel.HostRect.localScale=Vector3.one*.001f;panel.HostGo.layer=target.gameObject.layer;
             if(transparentBackground){panel.HideBackground=true;HideFullScreenBackground(panel,true);}
