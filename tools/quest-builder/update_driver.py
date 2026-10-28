@@ -267,6 +267,7 @@ def inspect(builder, args, repo, output, data=None):
         figure_banks_changed = requirements["figureBanksChanged"]
         audio_banks_changed = requirements.get("audioBanksChanged", False)
         movie_banks_changed = requirements.get("movieBanksChanged", False)
+        menu_story_changed = requirements.get("menuStoryChanged", False)
         requires_unity = requirements.get("requiresUnity", bool(reasons or code_changed or art_changed
             or native_helper_changed or figure_banks_changed or audio_banks_changed or movie_banks_changed))
         if installed_game and (reasons or art_changed or figure_banks_changed or audio_banks_changed or movie_banks_changed):
@@ -274,6 +275,7 @@ def inspect(builder, args, repo, output, data=None):
     else:
         reasons = []
         code_changed = art_changed = native_helper_changed = figure_banks_changed = audio_banks_changed = movie_banks_changed = False
+        menu_story_changed = False
         requires_unity = False
     if installed_game and mode == "update-mod": retained_card_art(builder, base_apk, inputs)
     # Owned game and DLC qualification above must precede any local key creation.
@@ -297,6 +299,7 @@ def inspect(builder, args, repo, output, data=None):
             "figureBanksChanged": figure_banks_changed,
             "audioBanksChanged": audio_banks_changed,
             "movieBanksChanged": movie_banks_changed,
+            "menuStoryChanged": menu_story_changed,
             "nativeCompilerRecipe": _native_resume().compiler_recipe(builder, __file__),
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
                 ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py", "proton_helper_update.py", "quest_card_alpha.py", "quest_card_pixels.py", "figure_banks.py", "audio_banks.py")}}
@@ -304,7 +307,8 @@ def inspect(builder, args, repo, output, data=None):
         plan["installedGame"] = True
         if data is not None: plan["compilerGameRoot"] = str(data)
     plan["seedRequired"] = not installed_game and not _seed(builder).inspect_seed(base_apk, base).get("available")
-    for name in ("movie_banks.py", "movie_render.py", "requirements-movies.txt"):
+    for name in ("movie_banks.py", "movie_render.py", "requirements-movies.txt", "menu_depth_resources.py",
+                 "menu_depth_content.py", "menu_depth_update.py", "installation_manifest.py"):
         path = Path(repo) / "tools/quest-builder" / name
         if path.is_file(): plan["updateRecipe"][name] = builder.digest(path)
     plan["updateRecipe"]["update_seed.py"] = builder.digest(Path(__file__).with_name("update_seed.py"))
@@ -600,6 +604,21 @@ def _separate_movie(name):
     return name.startswith("src/GloomhavenVR/Assets/Movies/") and name.endswith((".mov", ".provenance.json"))
 
 
+def _separate_menu_story(name):
+    return name.startswith("src/GloomhavenVR/Assets/MenuDepth/Story/") and (
+        name.endswith(".gmd") or name == "src/GloomhavenVR/Assets/MenuDepth/Story/manifest.json")
+
+
+def _menu_story_rows(files):
+    prefix = "src/GloomhavenVR/Assets/MenuDepth/Story/"
+    return sorted(({**row, "path": "StreamingAssets/MenuDepth/Story/" + row["path"][len(prefix):]}
+                   for row in files if _separate_menu_story(row["path"])), key=lambda row: row["path"])
+
+
+def _has_menu_depth(files):
+    return any(row.get("path") == "src/GloomhavenVR/WorldUI/MenuDepth/MenuDepthDisplay.cs" for row in files)
+
+
 def _code_rows(files, *, normalizer=None):
     """Conservatively retain every consumed runtime/compiler source identity.
 
@@ -609,17 +628,18 @@ def _code_rows(files, *, normalizer=None):
     the no-compiler path. Compiler-driver edits remain inputs even when they
     only improve reporting, rather than guessing whether new code is equivalent.
     """
-    prefixes = ("src/", "tools/QuestWeaver/", "libs/RefAsm/")
+    prefixes = ("src/", "tools/QuestWeaver/", "tools/quest-menu-depth/", "libs/RefAsm/")
     # Pixel extraction is a post-compiler data delivery. Its complete source is
     # still bound by updateRecipe and its own cache recipe, never an IL2CPP input.
     producers = {"tools/quest-builder/apk_update.py", "tools/quest-builder/update_driver.py", "tools/quest-builder/quest_card_alpha.py",
+                 "tools/quest-builder/menu_depth_resources.py",
                  "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs"}
     def selected(name):
         # Every release records its commit and complete host-file inventory.
         # This metadata is qualified by source_inventory but consumed by no
         # runtime compiler; a new Wizard archive must not rebuild native code.
         if name == "quest-builder-release.json": return False
-        if _separate_movie(name): return False
+        if _separate_movie(name) or _separate_menu_story(name): return False
         if name.startswith(prefixes) or name in producers: return True
         if name.startswith("unity/GloomhavenVR.Quest/Assets/Quest/Runtime/"): return True
         return "/" not in name and name.endswith((".props", ".targets", ".config", ".json"))
@@ -628,9 +648,10 @@ def _code_rows(files, *, normalizer=None):
     # or IL2CPP input. Its external finite byte profile avoids self-hash pins.
     # Every unknown driver body remains qualified by the ordinary source rows.
     if normalizer is not None:
-        installed_aliases = getattr(normalizer, "INSTALLED_UPDATE_DELIVERY_ROWS", {})
-        rows = [installed_aliases[row["path"]][1] if row["path"] in installed_aliases
-                and row == installed_aliases[row["path"]][0] else row for row in rows]
+        for name in ("MENU_DEPTH_DELIVERY_ROWS", "INSTALLED_UPDATE_DELIVERY_ROWS", "INSTALLED_UPDATE_DELIVERY_PREVIOUS_ROWS"):
+            aliases = getattr(normalizer, name, {})
+            rows = [aliases[row["path"]][1] if row["path"] in aliases
+                    and row == aliases[row["path"]][0] else row for row in rows]
         fixed = getattr(normalizer, "UPDATE_DOWNLOAD_FIXED", None)
         previous = getattr(normalizer, "UPDATE_DOWNLOAD_PREVIOUS", None)
         preceding = getattr(normalizer, "UPDATE_DOWNLOAD_PARALLEL_PREVIOUS", None)
@@ -651,7 +672,7 @@ def _code_rows(files, *, normalizer=None):
     return sorted(rows, key=lambda row: row["path"])
 
 
-def _update_source_rows(files, *, art_changed, native_changed=False):
+def _update_source_rows(files, *, art_changed, native_changed=False, menu_sources=()):
     """Snapshot only consumed compiler sources on an independently owned path.
 
     Retain the full captured mod identity in the signed update. A code compiler
@@ -666,7 +687,7 @@ def _update_source_rows(files, *, art_changed, native_changed=False):
     # In particular, an authored-bank update must not duplicate these files.
     if art_changed:
         media_helpers = {"tools/quest-builder/" + name for name in ("movie_banks.py", "movie_render.py", "requirements-movies.txt")}
-        return [row for row in files if not _separate_movie(row["path"])
+        return [row for row in files if not _separate_movie(row["path"]) and not _separate_menu_story(row["path"])
                 and not row["path"].startswith("tools/quest-movies/") and row["path"] not in media_helpers]
     prefixes = ("src/", "tools/QuestWeaver/", "tools/figure-mesh/", "unity/GloomhavenVR.Quest/", "libs/RefAsm/", "libs/RuntimeDeps/")
     audio_sources = {"tools/quest-builder/audio_banks.py"} | {"tools/quest-recovery/NativePortableRecovery/" + name
@@ -675,9 +696,11 @@ def _update_source_rows(files, *, art_changed, native_changed=False):
     # compiler snapshot must not advertise itself as another complete release.
     native_paths = ({"tools/quest-procedural-runtime/" + name for name in (*_proton_helpers().SOURCE_NAMES, "runtime.py", "upstream.lock.json")}
                     | {"tools/quest-builder/proton_helper_update.py"}) if native_changed else set()
-    return [row for row in files if row["path"] != "quest-builder-release.json" and not _separate_movie(row["path"]) and
+    menu_paths = {row["path"] for row in menu_sources}
+    return [row for row in files if row["path"] != "quest-builder-release.json"
+            and not _separate_movie(row["path"]) and not _separate_menu_story(row["path"]) and
             (row["path"].startswith(prefixes)
-             or row["path"] in native_paths or row["path"] in audio_sources
+             or row["path"] in native_paths or row["path"] in audio_sources or row["path"] in menu_paths
              or "/" not in row["path"] and row["path"].endswith((".props", ".targets", ".config", ".json")))]
 
 
@@ -708,6 +731,13 @@ _LEGACY_BUILDER_AST = "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f
 # Native Shader code only reads delivered native bytes and writes audit JSON.
 # Unknown source edits (including new converter behavior) still need migration.
 _PAYLOAD_AUDIT_ONLY_ROWS = {
+    # This exact validator extension admits the separately delivered numeric
+    # Story suffix. It writes no original scene, shader, mesh or game archive.
+    # The delivery recipe still binds its current bytes and real consumer tests.
+    "tools/quest-builder/installation_manifest.py": {
+        (6718, "5834182392fbe03897b0c04a34995d9e065f779c4cc0201cda499c862124721d"),
+        (9378, "b9225b9d5662b8cfc1cce46daa4c72fc46a120e38c8ef96a8e7d8760365f253c"),
+    },
     "tools/quest-builder/campaign_compute.py": {
         (22840, "a9f9201ba8a5c2c205f2c334efe1d57c715244846e3899dba8e83384d4158a97"),
         (23104, "b7215b2c8e61918816f4050e24c0a78469d4f12ea572aabda1e59d54497b4c86"),
@@ -935,6 +965,7 @@ def update_requirements(builder, source, base, files, mod_build, *, output=None)
     code_changed = (_code_rows(files, normalizer=normalizer) != _code_rows(current_mod["files"], normalizer=normalizer)
                     or mod_build != base.get("modBuild", current_mod.get("modBuild")))
     art_changed = _art_rows(files) != _art_rows(current_mod["files"])
+    menu_story_changed = _menu_story_rows(files) != _menu_story_rows(current_mod["files"])
     native_changed = bool(_proton_helpers().changed_rows(_native_rows(files), _native_rows(current_mod["files"]),
                                                        original.get("proceduralBackend")))
     figure_changed = False
@@ -960,6 +991,7 @@ def update_requirements(builder, source, base, files, mod_build, *, output=None)
             "nativeHelperChanged": native_changed, "figureBanksChanged": figure_changed,
             "audioBanksChanged": audio_changed,
             "movieBanksChanged": movie_changed,
+            "menuStoryChanged": menu_story_changed,
             "requiresUnity": bool(reasons or code_changed or art_changed or native_changed or figure_changed or audio_changed or movie_unity),
             "updateStrategy": "cached-full-build" if reasons else "compact-code"}
 
@@ -1360,7 +1392,7 @@ def _retain_current_apk(builder, plan, base, output):
     signing = plan.get("signing", {})
     certificate = signing.get("certificateSha256")
     if (plan.get("seedRequired") or plan.get("requiresUnity") or plan.get("rebuildReasons") or plan.get("codeChanged")
-            or plan.get("artChanged") or plan.get("movieBanksChanged") or signing.get("mode") != "original"
+            or plan.get("artChanged") or plan.get("movieBanksChanged") or plan.get("menuStoryChanged") or signing.get("mode") != "original"
             or not isinstance(certificate, str) or not re.fullmatch(r"[0-9a-f]{64}", certificate)
             or certificate != signing.get("sourceCertificateSha256")
             or plan["inputs"]["mod"]["modBuild"] != base.get("modBuild")
@@ -1434,6 +1466,7 @@ def run(builder, args, repo, output):
         replacements = {}
         code = None
         native_helpers = None
+        fast_inputs = []
         if args.command == "update-profile":
             builder.build_progress.operation("update-profile", detail="Preparing the signed offline profile.")
             replacements.update(core.profile_update(base_apk, inputs["profile"]))
@@ -1443,7 +1476,9 @@ def run(builder, args, repo, output):
             if plan["codeChanged"] or changed_art or plan.get("nativeHelperChanged") or plan.get("figureBanksChanged") or plan.get("audioBanksChanged"):
                 builder.build_progress.operation("update-mod-source", detail="Freezing the current mod source.")
                 source_rows = _update_source_rows(inputs["mod"]["files"], art_changed=changed_art,
-                                                 native_changed=bool(plan.get("nativeHelperChanged")))
+                    native_changed=bool(plan.get("nativeHelperChanged")),
+                    menu_sources=(builder.menu_depth_resources.plan(repo, inputs["mod"]["files"])["sources"]
+                        if _has_menu_depth(inputs["mod"]["files"]) else ()))
                 source_key = builder.value_hash({"mod": inputs["mod"]["key"], "files": source_rows,
                                                 "scope": "compact-update-source-v1"})
                 source = output / "updates/source-inputs" / source_key
@@ -1467,6 +1502,8 @@ def run(builder, args, repo, output):
                 project = output / "updates/code-projects" / compiler_scope
                 code = _compile_code(builder, args, inputs, output, source, game, project, base_apk, tools, root)
                 replacements.update(code["replacements"])
+                resource_path = getattr(args, "_quest_menu_depth_resource", None)
+                if resource_path: fast_inputs.append(resource_path)
             else:
                 builder.build_progress.operation("update-code", complete=True,
                     detail="Signed managed runtime retained; no IL2CPP compilation." if plan.get("nativeHelperChanged")
@@ -1480,6 +1517,16 @@ def run(builder, args, repo, output):
                 # Only authored VR banks and their original-derived environment
                 # inputs are rebuilt; the original Campaign bank is never opened.
                 archive, manifest, bank_receipt = authored_art_delivery(builder, inputs, output, source, game, tools)
+                if _has_menu_depth(inputs["mod"]["files"]):
+                    archive, manifest, bank_receipt = builder.menu_depth_content.augment(builder, output, repo,
+                        archive, manifest, bank_receipt, source_files=inputs["mod"]["files"])
+                    fast_inputs.append(archive.parent.relative_to(output).as_posix())
+            elif plan.get("menuStoryChanged"):
+                builder.build_progress.operation("update-art", detail="Updating supplied menu relief; existing game and mod banks are retained.")
+                archive, manifest, bank_receipt, menu_paths = builder.menu_depth_update.delivery(
+                    builder, repo, inputs, output, base_apk, base)
+                fast_inputs.extend(menu_paths)
+            if changed_art or plan.get("menuStoryChanged"):
                 replacements["assets/quest-mod-content.zip"] = archive
                 replacements.update(core.patch_resource_json(base_apk, {
                     "quest-mod-content": manifest, "quest-mod-bundles": bank_receipt}, replacements=replacements))
@@ -1542,6 +1589,13 @@ def run(builder, args, repo, output):
                    "updateSeed": _seed(builder).inspect_seed(apk, core.inspect_base(apk)),
                    "baseApk": plan["baseApk"],
                    **({"certificateSha256": result["certificateSha256"]} if "certificateSha256" in result else {})}
+        # Only publish an exhaustive dependency list. Older/profile-only
+        # results without that proof deliberately keep the cleanup fallback.
+        if plan.get("menuStoryChanged") and _has_menu_depth(inputs["mod"]["files"]):
+            menu_key = builder.menu_depth_resources.plan(repo, inputs["mod"]["files"])["producerKey"]
+            menu_cache = Path("cache/menu-depth-resources") / menu_key
+            if (output / menu_cache).is_dir(): fast_inputs.append(menu_cache.as_posix())
+            details["fastUpdateInputs"] = sorted(set(fast_inputs))
         builder.write_json(report, {"schema": 1, "buildResult": "Succeeded", "scope": "APK update", **details})
         builder.build_progress.operation("update-verify", complete=True, detail="Signed update published; original game content is retained.")
         return [apk, report], details

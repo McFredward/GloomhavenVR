@@ -143,6 +143,7 @@ REQUIRED |= AUTHORED_RESOURCES | AUTHORED_MOVIES | PROMOTIONAL_ASSETS | {
     'tools/quest-menu-depth/Editor/MenuDepthResourceBuilder.cs',
     MENU_STORY_ROOT + 'manifest.json',
     'tools/quest-builder/update_seed.py', 'tools/quest-installer/installed_source.py',
+    'tools/quest-builder/menu_depth_update.py',
     'tools/quest-builder/movie_banks.py', 'tools/quest-builder/movie_render.py',
     'tools/quest-builder/requirements-movies.txt', 'tools/quest-movies/recipe.json',
     'tools/quest-movies/MovieBankBuild.cs', 'tools/quest-movies/QuestMovieEye.shader',

@@ -72,6 +72,9 @@ _release = _local_helper("release") if Path(__file__).with_name("release.py").is
 apk_updates = _local_helper("apk_update")
 apk_input_hashes = _local_helper("apk_input_cache")
 portable_packages = _local_helper("portable_package")
+menu_depth_resources = _local_helper("menu_depth_resources")
+menu_depth_content = _local_helper("menu_depth_content")
+menu_depth_update = _local_helper("menu_depth_update")
 
 
 def _module_context():
@@ -811,7 +814,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
             write_json(project / "QuestBuilderSettings.json", {"schema": 1, "target": args.target, "inputKey": inputs["inputKey"],
                        "profileSha256": digest(resources / "quest-profile.json"), "package": PACKAGE, "modBuild": inputs["mod"]["modBuild"]})
             import_workspace.stage(project, args.target)
-        with resume.operation("preparation-contracts", 5 if args.target == "startup" else 4 if args.target == "game" else 1):
+        menu_story = args.target == "game" and has_menu_depth(inputs)
+        with resume.operation("preparation-contracts", 5 if args.target == "startup" else (5 if menu_story else 4) if args.target == "game" else 1):
             if args.target in ("startup", "game"):
                 resume.run("compiler-contracts", "preparation-contracts", compiler_contracts, lambda _: compiler_paths(), mutations=compiler_paths)
                 resume.run("case-paths", "preparation-contracts", migrate_case_paths, case_contracts, mutations=case_mutations)
@@ -829,6 +833,18 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
                            extra=["QuestBuilderSettings.json", "Assets/StreamingAssets/Quest/input-manifest.json"]),
                        mutations=["QuestBuilderSettings.json", "Assets/StreamingAssets/Quest/input-manifest.json", import_workspace.RECEIPT,
                                   "ProjectSettings/ProjectSettings.asset"])
+            if menu_story:
+                story_marker = project / "QuestStartupEvidence/menu-depth-story.json"
+                story_key = value_hash(menu_depth_resources.story_records(source, inputs["mod"]["files"]))
+                try:
+                    marker = json.loads(story_marker.read_text()) if story_marker.stat().st_size <= 4096 else None
+                except (OSError, ValueError, UnicodeError):
+                    marker = None
+                menu_contracts = ["Assets/Quest/Resources/quest-mod-content.json", "Assets/Quest/Resources/quest-mod-bundles.json",
+                                 "Assets/StreamingAssets/quest-mod-content.zip", "QuestStartupEvidence/menu-depth-story.json"]
+                resume.run("menu-story-content", "preparation-contracts",
+                    lambda: package_menu_content(project, inputs, output, source), menu_contracts,
+                    mutations=menu_contracts, refresh_tail=marker != {"schema": 1, "contentKey": story_key})
         manifest = project / "Assets/StreamingAssets/Quest/input-manifest.json"
         settings = project / "QuestBuilderSettings.json"
         import_receipt = project / import_workspace.RECEIPT if (project / import_workspace.RECEIPT).is_file() else None
@@ -855,6 +871,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
                               project / "Packages/com.unity.ugui/Runtime/UI/Core/Layout/LayoutRebuilder.cs"])
             contracts.extend([resources / "quest-mod-content.json", resources / "quest-mod-bundles.json",
                               project / "Assets/StreamingAssets/quest-mod-content.zip"])
+            if menu_story:
+                contracts.append(project / "QuestStartupEvidence/menu-depth-story.json")
             if args.target == "game":
                 contracts.extend([project / "QuestCampaignEvidence/native-runtime.json", resources / "quest-procedural-runtime.json",
                                   resources / "quest-procedural-native.json", project / "Assets/StreamingAssets/Quest/procedural-native.json",
@@ -1167,6 +1185,23 @@ def package_mod_content(project: Path, inputs: dict, output: Path, source: Path,
     return manifest
 
 
+def package_menu_content(project, inputs, output, source):
+    """Add loose fields after the independently cached, unchanged art producer."""
+    resources = project / "Assets/Quest/Resources"
+    archive_path = project / "Assets/StreamingAssets/quest-mod-content.zip"
+    manifest = json.loads((resources / "quest-mod-content.json").read_text())
+    receipt = json.loads((resources / "quest-mod-bundles.json").read_text())
+    archive, manifest, receipt = menu_depth_content.augment(_module_context(), output, source,
+        archive_path, manifest, receipt, source_files=inputs["mod"]["files"])
+    if archive != archive_path:
+        shutil.copyfile(archive, archive_path)
+    write_json(resources / "quest-mod-content.json", manifest)
+    write_json(resources / "quest-mod-bundles.json", receipt)
+    write_json(project / "QuestStartupEvidence/menu-depth-story.json", {
+        "schema": 1, "contentKey": receipt["menuDepthStory"]["contentKey"]})
+    return manifest
+
+
 def exclude_recovered_package_plugins(project: Path) -> None:
     """Keep original script assets for exact remapping; compile one copy of each package."""
     for name in ("UnityEngine.UI", "Unity.InputSystem", "Unity.Addressables", "Unity.ResourceManager", "Unity.ScriptableBuildPipeline"):
@@ -1218,12 +1253,33 @@ def restore_ugui_layout_gate(project: Path, game: Path, editor: Path) -> None:
         "scope": "private generated UGUI package; original game and editor unchanged"})
 
 
+def has_menu_depth(inputs):
+    return any(row.get("path") == "src/GloomhavenVR/WorldUI/MenuDepth/MenuDepthDisplay.cs"
+               for row in inputs["mod"].get("files", []))
+
+
 def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: Path) -> None:
     if args.target not in ("game", "startup"):
         return
     dotnet = tool_path(args.dotnet, "dotnet")
+    resource = None
+    if has_menu_depth(inputs):
+        build_progress.event("menu-depth-resources", 0, 1, "banks",
+            "Preparing the small Android menu resource bank; original game content is retained.",
+            operation="update-code" if getattr(args, "command", "") == "update-mod" else None)
+        owned_game = (game_data(Path(args.game_root))
+                      if getattr(args, "game_root", None) and not getattr(args, "installed_game", False) else game)
+        resource = menu_depth_resources.produce(_module_context(), source, output, game=owned_game,
+            editor=tool_path(args.unity_editor, "Unity"), base_apk=getattr(args, "base_apk", None),
+            source_files=inputs["mod"]["files"])
+        args._quest_menu_depth_resource = resource["bundle"].parent.relative_to(output).as_posix()
+        build_progress.event("menu-depth-resources", 1, 1, "banks", "Android menu resource bank ready.",
+            status="complete", operation="update-code" if getattr(args, "command", "") == "update-mod" else None)
     key = value_hash({"game": inputs["game"]["key"], "mod": inputs["mod"]["key"],
-                      "target": args.target, "profile": inputs["profileKey"], "recipe": RECIPE})
+                      "target": args.target, "profile": inputs["profileKey"], "recipe": RECIPE,
+                      **({"menuDepth": {"producerKey": resource["producerKey"],
+                           "bundle": digest(resource["bundle"]), "provenance": digest(resource["provenance"])}}
+                         if resource is not None else {})})
     root = output / "cache/weave" / key
     staged = root / "Managed"
     report = root / "weave-report.json"
@@ -1231,8 +1287,11 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
     def run_weaver():
         mod_project = source / "src/GloomhavenVR/GloomhavenVR.csproj"
         dll_dir = root / "mod"
+        resource_args = ([] if resource is None else ["-p:GloomhavenVRMenuDepthBundle=" + str(resource["bundle"]),
+            "-p:GloomhavenVRMenuDepthProvenance=" + str(resource["provenance"]),
+            "-p:GloomhavenVRMenuDepthSkipStoryCopy=true"])
         command([str(dotnet), "build", str(mod_project), "--configuration", "Release",
-                 "--output", str(dll_dir), "-p:GameManaged=" + str(game / "Managed")],
+                 "--output", str(dll_dir), "-p:GameManaged=" + str(game / "Managed"), *resource_args],
                 output / "logs" / ("mod-" + key[:12] + ".log"), cwd=source)
         dll = dll_dir / "GloomhavenVR.dll"
         if not dll.is_file():

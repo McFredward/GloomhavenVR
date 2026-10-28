@@ -40,6 +40,12 @@ _MEDIA_SCOPE_PREVIOUS = 'e59c521e2299a9f7a03691bdf1b7d577c1bffeaf2e01f9a734bcb44
 # calls are unchanged; globals and the reviewed source-row classifier are still
 # included above, so admit only this complete AST recipe, never arbitrary edits.
 _INSTALLED_SOURCE_RECIPE = '11c6d285414bbd809b05169a41e42d0a87112310aa94f7670def7207a66d5eed'
+# Exact dev734 delivery/read-only Resources extension. The complete source
+# selectors remain bound below; actual new menu C#/shader/weaver inputs still
+# differ in producer_rows and therefore require their matched native pair.
+# Numeric loose Story fields alone never change that pair. Unknown AST changes
+# cannot cross this finite bridge, including a changed Story exclusion rule.
+_MENU_DELIVERY_RECIPE = 'a747cabc0ba7afd3c6a5afc248619a03133d8b05b75da140a1acb90e2a964b3d'
 _HEX = re.compile(r"[0-9a-f]{64}")
 
 
@@ -70,7 +76,7 @@ def compiler_recipe(builder, driver_path):
     flow, so select their production functions explicitly rather than treating
     a parser repair as a new native-code input.
     """
-    producers = ((Path(driver_path), ("_compile_code", "_build_code_player", "_bind_code_packages", "package_fingerprint", "_compact_player_command", "_native_producer_rows", "_code_rows", "_payload_rows", "_native_rows", "_art_rows", "_separate_movie")),
+    producers = ((Path(driver_path), ("_compile_code", "_build_code_player", "_bind_code_packages", "package_fingerprint", "_compact_player_command", "_native_producer_rows", "_code_rows", "_payload_rows", "_native_rows", "_art_rows", "_separate_movie", "_separate_menu_story")),
                  (Path(builder.apk_updates.__file__), None))
     rows = []
     for path, names in producers:
@@ -82,7 +88,7 @@ def compiler_recipe(builder, driver_path):
             raise builder.BuildError("The compact compiler recipe is incomplete: " + path.name)
         rows.append({"path": path.name, "functions": [ast.dump(node, include_attributes=False) for node in selected]})
     recipe = builder.value_hash({"scope": "quest-native-production-recipe-v1", "producers": rows})
-    return _MEDIA_SCOPE_CURRENT if recipe == _INSTALLED_SOURCE_RECIPE else recipe
+    return _MEDIA_SCOPE_CURRENT if recipe in (_INSTALLED_SOURCE_RECIPE, _MENU_DELIVERY_RECIPE) else recipe
 
 
 def _same_recipe(previous, recipe):
