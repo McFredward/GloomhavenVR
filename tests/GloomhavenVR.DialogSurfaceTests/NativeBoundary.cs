@@ -186,7 +186,8 @@ namespace GloomhavenVR.WorldUI
         // Real ConvertedPanel liveness follows the original native rect, which
         // intentionally survives normal conversion release.
         internal bool IsAlive => Target != null;
-        internal bool ModLayerEnabled;
+        internal bool ModLayerEnabled, HideBackground;
+        internal int BaseSortingOrder;
         internal RectTransform Target = new();
         internal GameObject HostGo = new("host");
         internal RectTransform HostRect => (RectTransform)HostGo.transform;
@@ -201,12 +202,12 @@ namespace GloomhavenVR.WorldUI
         internal static bool ReturnNull, ThrowConvert, ThrowPlace, ThrowRelease;
         internal static ConvertedPanel? Last;
         internal static Camera? WorldCamera = new();
-        internal static ConvertedPanel? Convert(RectTransform? root, string name, int pokeTuning, bool? fitContent=null, bool flattenWindow=false, bool useModLayer=false)
+        internal static ConvertedPanel? Convert(RectTransform? root, string name, int pokeTuning, bool? fitContent=null, bool flattenWindow=false, bool useModLayer=false, bool transparentBackground=false,int sortingOrder=0)
         {
             ++Converts;
             if (ThrowConvert) throw new InvalidOperationException("convert");
             if (ReturnNull) return null;
-            Last = new ConvertedPanel { Target = root!, Home = root!.parent, ModLayerEnabled=useModLayer };
+            Last = new ConvertedPanel { Target = root!, Home = root!.parent, ModLayerEnabled=useModLayer, HideBackground=transparentBackground, BaseSortingOrder=sortingOrder };
             Last.HostGo.scene=root!.gameObject.scene;root.SetParent(Last.HostRect,false);
             ActivePanels.Add(Last); return Last;
         }

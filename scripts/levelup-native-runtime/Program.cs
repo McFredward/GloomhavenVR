@@ -286,6 +286,10 @@ public static partial class LevelUpNativeProgram
         Check(CanvasConversion.Converts==before&&CanvasConversion.PoseAuthors==0,"persistent membership never creates repeated captures or an independent pose author");
         var presentation=ConfirmationPresentation738(camera,root,owner,manager,box,boxWindow,boxRect,output);
         while(presentation.MoveNext())yield return presentation.Current;
+        box.IsOpen=boxWindow.IsOpen=boxWindow.IsVisible=false;ConfirmationOnOwner.Tick();
+        var direct739=ConfirmationGeometry739(camera,root,owner,output);
+        while(direct739.MoveNext())yield return direct739.Current;
+        box.IsOpen=boxWindow.IsOpen=boxWindow.IsVisible=true;Record(manager,owner);ConfirmationOnOwner.Tick();
         var unload=SceneManager.UnloadSceneAsync(scene);while(!unload.isDone)yield return null;
         ConfirmationOnOwner.Tick();
         Check(box!=null&&box.gameObject.scene.name=="DontDestroyOnLoad"&&box.IsOpen&&boxRect.parent==home,

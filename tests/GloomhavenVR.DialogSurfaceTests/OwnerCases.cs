@@ -137,6 +137,8 @@ internal static class OwnerCases
         Check(ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window) && CanvasConversion.Converts==2,
             "persistent level-up dialog uses a safe owner-aligned capture instead of standalone placement");
         Check(CanvasConversion.Last!.ModLayerEnabled,"persistent confirmation admits isolated filtered capture and scoped blur treatment");
+        Check(CanvasConversion.Last!.HideBackground,"persistent confirmation removes only full-frame backdrops before reveal and allocation");
+        Check(CanvasConversion.Last!.BaseSortingOrder==panel.BaseSortingOrder+1,"persistent confirmation starts above its owner inside the native depth tie");
         Check(manager.CurrentBox.gameObject.scene==2
             && !manager.CurrentBox.transform.IsChildOf(source.transform),
             "persistent level-up dialog never inherits the scene-owned producer lifetime");

@@ -49,5 +49,55 @@ atlas=ptr(fd['m_AtlasTextures'][0],font).read();atlas.image.save(out/'font-atlas
 links={'m_Script','m_GameObject','material','spriteSheet','m_SourceFontFile','m_AtlasTextures','m_SourceFontFile_EditorRef','fallbackFontAssetTable','m_FallbackFontAssetTable'}
 (out/'font.json').write_text(json.dumps({k:v for k,v in fd.items() if k not in links},indent=2)+'\n')
 (out/'button.json').write_text(json.dumps({'button':d,'image':image_data,'text':td,'sprites':records,'font':p.object_id(font),'atlas':p.object_id(atlas.object_reader)},indent=2)+'\n')
+# The confirmation's full-screen backdrop is on its root (not only its Blur
+# child). Export actual RectTransform/layout/graphic declarations and artwork.
+confirmation_env=UnityPy.load(str(root/'ressources/GH_Data/level1'));confirmation_env.typetree_generator=gen
+confirmation_ids={x.path_id:x for x in confirmation_env.objects}
+fonts={}
+def export_font(font_reader,material_reader):
+ key=(font_reader.assets_file.name,font_reader.path_id,material_reader.path_id)
+ if key in fonts:return fonts[key]
+ prefix='confirmation-font-'+str(len(fonts));fonts[key]=prefix
+ fd=p.authored_tree(font_reader);md=p.authored_tree(material_reader);saved=md['m_SavedProperties']
+ atlas=ptr(fd['m_AtlasTextures'][0],font_reader).read();atlas.image.save(out/(prefix+'-atlas.png'))
+ (out/(prefix+'.json')).write_text(json.dumps({k:v for k,v in fd.items() if k not in links},indent=2)+'\n')
+ (out/(prefix+'-material.json')).write_text(json.dumps({'keywords':md.get('m_ValidKeywords',[]),'renderQueue':md['m_CustomRenderQueue'],
+  'floats':[{'name':k,'value':v} for k,v in saved['m_Floats']], 'colors':[{'name':k,'value':v} for k,v in saved['m_Colors']]},indent=2)+'\n')
+ return prefix
+def clean(value):
+ if isinstance(value,dict):return {k:clean(v) for k,v in value.items() if not (isinstance(v,dict) and 'm_PathID' in v)}
+ if isinstance(value,list):return [clean(v) for v in value]
+ return value
+def confirmation_node(reader):
+ go=reader.read();result={'name':go.m_Name,'active':bool(go.m_IsActive),'original':p.object_id(reader),'components':[]};transform=None
+ for slot in go.m_Component:
+  component=slot.component.deref();kind=component.type.name
+  if kind=='MonoBehaviour':kind=component.parse_monobehaviour_head().m_Script.read().m_ClassName
+  record={'kind':kind,'original':p.object_id(component)}
+  if kind in ('RectTransform','Image','TextMeshProUGUI','VerticalLayoutGroup','HorizontalLayoutGroup','ContentSizeFitter','LayoutElement'):
+   d=p.authored_tree(component);record['json']=json.dumps(clean(d))
+   if kind=='RectTransform':transform=component.read()
+   if kind=='Image':
+    record['shader']='UI/Default'
+    if d['m_Material']['m_PathID']:
+     material=ptr(d['m_Material'],component).deref();md=p.authored_tree(material)
+     record['shader']=ptr(md['m_Shader'],material).deref().read_typetree()['m_ParsedForm']['m_Name']
+     record['material']=p.object_id(material)
+    if d['m_Sprite']['m_PathID']:
+     sprite_reader=ptr(d['m_Sprite'],component).deref();sprite=sprite_reader.read()
+     record['sprite']='confirmation-sprite-'+str(component.path_id);sprite.image.save(out/(record['sprite']+'.png'))
+     record.update(border=p.vector(sprite.m_Border,'xyzw'),pivot=p.vector(sprite.m_Pivot,'xy'),ppu=sprite.m_PixelsToUnits,spriteOriginal=p.object_id(sprite_reader))
+   if kind=='TextMeshProUGUI':record['font']=export_font(ptr(d['m_fontAsset'],component).deref(),ptr(d['m_sharedMaterial'],component).deref())
+  result['components'].append(record)
+ if transform:result['children']=[confirmation_node(c.read().m_GameObject.deref()) for c in transform.m_Children]
+ return result
+confirmation=confirmation_node(confirmation_ids[1337]);assert confirmation['name']=='Confirmation Box_pc'
+assert [n['name'] for n in confirmation['children']]==['Blur','Box']
+root_image=next(c for c in confirmation['components'] if c['kind']=='Image');assert json.loads(root_image['json'])['m_Color']['a']>.79
+assert next(c for c in confirmation['children'][0]['components'] if c['kind']=='Image')['shader']=='Custom/SimpleGrabPassBlur'
+(out/'native-confirmation-tree.json').write_text(json.dumps(confirmation,indent=2)+'\n')
+(out/'native-confirmation-provenance.json').write_text(json.dumps({'scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level1').read_bytes()).hexdigest(),
+ 'presentation':'Original rect/layout/image/TMP declarations; original sprites and font data. Native game controllers are not installed. Localized question is an explicit input.',
+ 'nativeDefaultGraphicShader':'Original Box and full-screen root use built-in UI/Default; actual editor stock shader executes. Native Blur shader uses declared GL GrabPass stand-in.'},indent=2)+'\n')
 (out/'pins.json').write_text(json.dumps({x.name:hashlib.sha256(x.read_bytes()).hexdigest() for x in out.iterdir() if x.is_file()},indent=2)+'\n')
 print('exported original native widget sprites/font',out)

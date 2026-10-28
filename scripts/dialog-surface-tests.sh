@@ -22,6 +22,7 @@ for name,before,after,expected in [
  ('no-release','CanvasConversion.Release(_panel);','{}','desktop rescue releases only presentation'),
  ('native-hide','private void ReleasePanel()\n    {','private void ReleasePanel()\n    {\n        if (_attached != null) _attached.CurrentBox.IsOpen = false;','desktop rescue releases only presentation'),
  ('no-retry','_conversionFailure = null;','{}','failed opening transfers ownership once without per-frame retry or log flood'),
+ ('standalone-backdrop-retained','transparentBackground: true','transparentBackground: false','standalone confirmation removes only full-frame backdrops before reveal and allocation'),
  ('standalone-capture-bypassed','useModLayer: true','useModLayer: false','standalone confirmation admits isolated filtered capture and scoped blur treatment'),
 ]:
  assert before in originals['DialogSource'],'Mutation binding drift: '+name
@@ -31,6 +32,8 @@ for name,key,before,after,expected in [
  ('stale-producer','OriginSource','Requests.Remove(box);','if (CurrentScope != null) Requests.Remove(box);','unowned reuse of a pooled dialog must retain standalone fallback instead of stale level-up ownership'),
  ('lost-home','OwnerSource','rect.SetParent(seat.Home != null ? seat.Home : null, worldPositionStays: false);','// original parent restore omitted','native hide must restore the original confirmation parent without a lingering claim'),
  ('collapsed-frame','OwnerSource','rect.sizeDelta = seat.Frame;','rect.sizeDelta = Vector2.zero;','centering must preserve measured native frame, not collapse stretched anchors'),
+ ('persistent-owner-tier-lost','OwnerSource','sortingOrder: panel.BaseSortingOrder + 1','sortingOrder: 0','persistent confirmation starts above its owner inside the native depth tie'),
+ ('persistent-backdrop-retained','OwnerSource','transparentBackground: true','transparentBackground: false','persistent confirmation removes only full-frame backdrops before reveal and allocation'),
  ('persistent-capture-bypassed','OwnerSource','useModLayer: true','useModLayer: false','persistent confirmation admits isolated filtered capture and scoped blur treatment'),
  ('persistent-lease-not-retired','OwnerSource','if (PanelAlive(seat.PersistentMember)) return false;','if (seat.PersistentMember.IsAlive) return false;','lost level-up owner restores persistent presentation without native cancellation'),
 ]:

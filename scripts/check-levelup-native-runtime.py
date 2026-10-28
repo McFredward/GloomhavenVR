@@ -78,6 +78,34 @@ def main():
         kernels.append(supersample_capture[start:supersample_capture.index(';', start) + 1])
     originals['SupersampleKernel.cs'] = ('using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;namespace GloomhavenVR.WorldUI {'
         'internal static partial class PanelSupersample {\n' + '\n'.join(kernels) + '\n}}\n')
+    adopt = (root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.2.Adopt.cs').read_text()
+    lifecycle = (root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.4.Lifecycle.cs').read_text()
+    background = [method(adopt, 'private static void HideFullScreenBackground(')]
+    for name in ('BackgroundCoverFraction', 'BackgroundOpaqueAlpha', 'CanvasSweepIntervalFrames'):
+        declaration = re.findall(r'private const (?:float|int) ' + name + r'\s*=\s*[^;]+;', adopt)
+        if len(declaration) != 1: raise RuntimeError('Native backdrop constant binding drift: ' + name)
+        background.append(declaration[0])
+    restore = method(lifecycle, 'for (int i = 0; i < panel.HiddenBackgrounds.Count; i++)')
+    originals['NativeBackgroundKernel739.cs'] = ('using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;'
+        'namespace GloomhavenVR.WorldUI {internal static partial class CanvasConversion {'
+        'private static readonly List<Graphic> BgGraphicScratch=new(64);private static readonly Vector3[] BgCornerScratch=new Vector3[4];'
+        'internal static void SweepBackgrounds739(ConvertedPanel panel){if(panel.HideBackground)HideFullScreenBackground(panel,false);}'
+        'internal static void RestoreBackgrounds739(ConvertedPanel panel){' + restore + 'panel.HiddenBackgrounds.Clear();}'
+        + '\n'.join(background) + '}}')
+    order_source=(root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.8.Order.cs').read_text()
+    order_methods=[method(order_source,signature) for signature in ('internal static void TickPanelOrder(', 'private static void StampShownPose(', 'private static float PanelEyeDistance(', 'private static void ApplyPanelOrder(', 'internal static void RegisterOrderFollower(ConvertedPanel panel, Canvas canvas, int offset)')]
+    for name in ('PanelOrderBase','PanelOrderStep','PanelOrderMaxRank','OrderSwapMarginMeters','OrderSwapStableFrames'):
+        declaration=re.findall(r'(?:private|internal) const (?:int|float) '+name+r'\s*=\s*[^;]+;',order_source)
+        if len(declaration)!=1:raise RuntimeError('Ordering constant binding drift: '+name)
+        order_methods.append(declaration[0])
+    originals['NativeOrderKernel739.cs']=('using System;using System.Collections.Generic;using UnityEngine;namespace GloomhavenVR.WorldUI {internal static partial class CanvasConversion {'
+        'private static readonly List<ConvertedPanel> OrderedPanels=new(32),StandaloneOrderPanels=new(1);'
+        'private static List<ConvertedPanel> Active=>ActivePanels;private static float s_orderSwapMarginScale=1,s_orderSwapMarginWorld=.02f;private static float OrderSwapMargin=>s_orderSwapMarginWorld;'
+        'private static int s_orderDistanceMeasures=0,s_orderWrites=0,s_orderResorts=0,s_orderHashNodes=0;internal static int ShownStampFrame {get;private set;}'
+        'private static void TickFurnitureOrder(Vector3 eye){}private static void BuildSeenThroughLadder(Vector3 eye){}private static void LogPanelOrder(){}'
+        'private static void CheckFollowerOffset(int offset,string name,bool allowBehind){}'
+        'internal static void ResetOrder739(){foreach(var p in ActivePanels){p.OrderListed=false;p.OrderSwapPeer=null;p.OrderSwapStreak=0;}OrderedPanels.Clear();}'
+        + '\n'.join(order_methods)+'}}')
     cases = [('production', {}, '')]
     changes = [
         ('unsafe-active-clone', 'AnnouncementContinueView.cs', 'staging.SetActive(false);', '/* active staging regression */', 'native input controller clones never enable'),
@@ -97,6 +125,9 @@ def main():
         ('persistent-capture-bypassed', 'ConfirmationOnOwner.cs', 'useModLayer: true', 'useModLayer: false', 'owned confirmation keeps final pixels independent of its native full-frame GrabPass'),
         ('standalone-capture-bypassed', 'DialogSurface.cs', 'useModLayer: true', 'useModLayer: false', 'standalone confirmation keeps final pixels independent of its native full-frame GrabPass'),
         ('confirmation-blur-allowed', 'SupersampleKernel.cs', 'if (PanelGraphicMaterial.NeutraliseGrabPass(t.GetComponent<Graphic>()))', 'if (PanelGraphicMaterial.NeutraliseGrabPass(null))', 'owned confirmation keeps final pixels independent of its native full-frame GrabPass'),
+        ('persistent-backdrop-retained', 'ConfirmationOnOwner.cs', 'transparentBackground: true', 'transparentBackground: false', 'owned direct confirmation has no full-screen black or GrabPass surface outside the native small box'),
+        ('standalone-backdrop-retained', 'DialogSurface.cs', 'transparentBackground: true', 'transparentBackground: false', 'standalone direct confirmation has no full-screen black or GrabPass surface outside the native small box'),
+        ('persistent-owner-tier-lost', 'ConfirmationOnOwner.cs', 'sortingOrder: panel.BaseSortingOrder + 1', 'sortingOrder: 0', 'owned direct confirmation retains every front and rear native foreground pixel during motion'),
         ('persistent-lease-not-retired', 'ConfirmationOnOwner.cs', 'if (PanelAlive(seat.PersistentMember)) return false;', 'if (seat.PersistentMember.IsAlive) return false;', 'native close restores exact persistent dialog home while owner remains open'),
     ]
     for name, file, before, after, expected in changes:
@@ -122,7 +153,7 @@ def main():
         if result.returncode: raise RuntimeError('Native export failed: ' + str(run / 'native-export.log'))
         manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'cases': []}
         hashes = {}
-        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', Path(__file__), *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
+        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', Path(__file__), *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
             hashes[str(file)] = hashlib.sha256(file.read_bytes()).hexdigest()
         (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'coverage': 'partial' if args.case else 'production-and-controls', 'limits': __doc__}, indent=2) + '\n')
         env = os.environ.copy(); env.update(UseSharedCompilation='false', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0')

@@ -67,6 +67,8 @@ namespace UnityEngine.UI
 }
 namespace GloomhavenVR.Core
 {
+    internal static class PerfMonitor {internal readonly struct Noop:IDisposable{public void Dispose(){}}internal static Noop Scope(string name)=>default;internal static void Count(string name,int count){}}
+    internal static class UnseenTileOrder {internal static void Tick(Vector3 eye){}}
     internal static class VRLog {internal static void Info(string area,string message){}internal static void Warn(string area,string message){}internal static void Alert(string area,string message){} }
 }
 namespace GloomhavenVR.Core.Events {internal static class VRModeStateMachine {internal static bool TableInFrontOfPlayer=true;} }
@@ -81,7 +83,7 @@ namespace GloomhavenVR.WorldUI
         internal static FixtureSetting<float> PanelMipLodOffset=new(0f);
     }
     internal static class Defaults {internal const float PanelMipLodOffset=0f;}
-    internal static class PanelLayout {internal const float WorldScale=1f;}
+    internal static class PanelLayout {internal static float WorldScale=1f;}
     internal static class HeadFacing
     {
         internal readonly struct Facing {internal readonly Quaternion Rotation;internal Facing(Quaternion rotation){Rotation=rotation;}}
@@ -95,20 +97,26 @@ namespace GloomhavenVR.WorldUI
     {
         internal RectTransform Target=null!,HostRect=null!;internal GameObject HostGo=null!;internal Canvas HostCanvas=null!;
         internal GraphicRaycaster HostRaycaster=null!;internal bool IsAlive=>Target!=null;
-        internal bool ModLayerEnabled=false,RevealPending=false,RenderHidden=false,OwnerRenderHidden=false;
-        internal int DrawSortingOrder=>HostCanvas.sortingOrder;internal Transform HostTransform=>HostRect;
+        internal bool ModLayerEnabled=false,RevealPending=false,RenderHidden=false,OwnerRenderHidden=false,HideBackground=false;
+        internal int BackgroundSweepNextFrame=0,FitOneShotStableCount=0,FitSettleStillCount=0,FitOneShotStableGraphics=0;
+        internal readonly List<Graphic> HiddenBackgrounds=new();
+        internal int DrawSortingOrder=0,BaseSortingOrder=0,OrderSwapStreak=0,LastShownFrame=0;internal float OrderDistance=0;internal bool OrderListed=false;internal ConvertedPanel? OrderSwapPeer=null;
+        internal Vector3 LastShownPosition=default,LastShownLossyScale=Vector3.one;internal Quaternion LastShownRotation=Quaternion.identity;
+        internal readonly List<OrderFollower> OrderFollowers=new();internal Transform HostTransform=>HostRect;
         internal Transform? Home;internal int Index;internal Vector2 Min,Max,Pivot,Size,Position;internal Vector3 Scale;internal Quaternion Rotation;
     }
-    internal static class CanvasConversion
+    internal struct OrderFollower {internal Canvas? Canvas;internal Renderer? Renderer;internal int Offset;internal OrderFollower(Renderer? renderer){Canvas=null;Renderer=renderer;Offset=0;}}
+    internal static class MrBacking {internal static void SyncPlateOrders(){}}
+    internal static partial class CanvasConversion
     {
         internal static readonly List<ConvertedPanel> ActivePanels=new();internal static Camera? WorldCamera;
         internal static int Converts=0,PoseAuthors=0,Releases=0;
         internal static ConvertedPanel? Convert(RectTransform? target,string name,bool pokeable=true,
-            Hands.Interact.PokeSurfaceTuning? pokeTuning=null,bool? fitContent=null,bool flattenWindow=false,bool useModLayer=false)
+            Hands.Interact.PokeSurfaceTuning? pokeTuning=null,bool? fitContent=null,bool flattenWindow=false,bool useModLayer=false,bool transparentBackground=false,int sortingOrder=0)
         {
             if(target==null)return null;
             var panel=new ConvertedPanel {Target=target,Home=target.parent,Index=target.GetSiblingIndex(),Min=target.anchorMin,Max=target.anchorMax,
-                Pivot=target.pivot,Size=target.sizeDelta,Position=target.anchoredPosition,Scale=target.localScale,Rotation=target.localRotation,ModLayerEnabled=useModLayer};
+                Pivot=target.pivot,Size=target.sizeDelta,Position=target.anchoredPosition,Scale=target.localScale,Rotation=target.localRotation,ModLayerEnabled=useModLayer,BaseSortingOrder=sortingOrder,DrawSortingOrder=sortingOrder};
             panel.HostGo=new GameObject("capture-only:"+name,typeof(RectTransform),typeof(Canvas),typeof(GraphicRaycaster));
             panel.HostRect=(RectTransform)panel.HostGo.transform;panel.HostRect.sizeDelta=target.rect.size;
             panel.HostCanvas=panel.HostGo.GetComponent<Canvas>();panel.HostRaycaster=panel.HostGo.GetComponent<GraphicRaycaster>();
@@ -119,20 +127,21 @@ namespace GloomhavenVR.WorldUI
             target.SetParent(panel.HostRect,false);target.anchorMin=target.anchorMax=target.pivot=new Vector2(.5f,.5f);target.anchoredPosition=Vector2.zero;
             panel.HostCanvas.renderMode=RenderMode.WorldSpace;panel.HostCanvas.worldCamera=WorldCamera;
             panel.HostCanvas.sortingOrder=10;panel.HostRect.localScale=Vector3.one*.001f;panel.HostGo.layer=target.gameObject.layer;
+            if(transparentBackground){panel.HideBackground=true;HideFullScreenBackground(panel,true);}
             ActivePanels.Add(panel);Converts++;return panel;
         }
         internal static void Release(ConvertedPanel? panel)
         {
             if(panel==null)return;Releases++;
+            RestoreBackgrounds739(panel);
             panel.Target.SetParent(panel.Home,false);panel.Target.anchorMin=panel.Min;panel.Target.anchorMax=panel.Max;panel.Target.pivot=panel.Pivot;
             panel.Target.sizeDelta=panel.Size;panel.Target.anchoredPosition=panel.Position;panel.Target.localScale=panel.Scale;panel.Target.localRotation=panel.Rotation;
-            ActivePanels.Remove(panel);if(!panel.Target.IsChildOf(panel.HostRect))UnityEngine.Object.Destroy(panel.HostGo);
+            panel.OrderListed=false;ActivePanels.Remove(panel);if(!panel.Target.IsChildOf(panel.HostRect))UnityEngine.Object.Destroy(panel.HostGo);
         }
         internal static void TransferSeatedSubtree(RectTransform rect,ConvertedPanel? destination) { }
         internal static void PlaceHost(ConvertedPanel panel,Vector3 position,Quaternion rotation,float scale)
         {panel.HostRect.SetPositionAndRotation(position,rotation);panel.HostRect.localScale=Vector3.one*scale;PoseAuthors++;}
-        internal static void RegisterOrderFollower(ConvertedPanel panel,Canvas follower,int offset)
-        {follower.sortingOrder=panel.DrawSortingOrder+offset;}
+
     }
     internal static partial class ModalFallback
     {

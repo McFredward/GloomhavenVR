@@ -27,6 +27,7 @@ internal static class Program
         Check(Choreographer.s_Choreographer == null && CanvasConversion.Converts == 1,
             "already-open map confirmation converts without scenario choreographer");
         Check(CanvasConversion.Last!.ModLayerEnabled,"standalone confirmation admits isolated filtered capture and scoped blur treatment");
+        Check(CanvasConversion.Last!.HideBackground,"standalone confirmation removes only full-frame backdrops before reveal and allocation");
         CanvasConversion.Last!.HostRaycaster.enabled = false;
         surface.Tick();
         Check(CanvasConversion.Last.HostRaycaster.enabled, "modal lock cannot disable original confirmation raycaster");
