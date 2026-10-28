@@ -773,8 +773,10 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     if original_prefix:
         reviewed = []
         for row in rows:
-            current, preceding = INSTALLED_UPDATE_DELIVERY_ROWS.get(row["path"], (None, row))
-            if row == current: row = preceding
+            for aliases in (INSTALLED_UPDATE_DELIVERY_ROWS,
+                            globals().get("INSTALLED_UPDATE_DELIVERY_PREVIOUS_ROWS", {})):
+                current, preceding = aliases.get(row["path"], (None, row))
+                if row == current: row = preceding
             current, preceding = REBASE_MEDIA_DELIVERY_ROWS.get(row["path"], (None, row))
             if row == current: row = preceding
             current, preceding = REBASE_AUDIO_DELIVERY_ROWS.get(row["path"], (None, row))

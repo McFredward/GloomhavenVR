@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -161,13 +162,86 @@ class RuntimeOverlayTests(unittest.TestCase):
 class ExactRuntimeProfilesTests(unittest.TestCase):
     def test_only_complete_b692_b693_current_profiles_normalize(self):
         canonical = list(overlay.B692.values())
-        for profile in (overlay.B692, overlay.B693, overlay.CURRENT):
+        for profile in (overlay.B692, overlay.B693, overlay.B717, overlay.CURRENT):
             self.assertEqual(overlay.normalize_rows(list(profile.values())), canonical)
-        for profile in (overlay.B692, overlay.B693, overlay.CURRENT):
+        for profile in (overlay.B692, overlay.B693, overlay.B717, overlay.CURRENT):
             rows = copy.deepcopy(list(profile.values())); rows[0]['sha256'] = 'f' * 64
             self.assertEqual(overlay.normalize_rows(rows), rows)
         rows = [*overlay.CURRENT.values(), overlay.CURRENT[overlay.TARGETS[0]]]
         self.assertEqual(overlay.normalize_rows(rows), rows)
+
+    def test_current_and_previous_bootstrap_bytes_are_exact_and_only_one_runtime_script_changes(self):
+        for name, expected in overlay.B717.items():
+            raw = subprocess.check_output(['git', '-C', str(ROOT), 'show', '595791b7:' + name])
+            self.assertEqual(record(name, raw), expected)
+        self.assertEqual({name: storage.record_file(ROOT / name, name) for name in overlay.TARGETS}, overlay.CURRENT)
+        changes = overlay.changes({'mod': {'files': list(overlay.B717.values())}},
+                                  {'mod': {'files': list(overlay.CURRENT.values())}})
+        self.assertEqual([name for name, _, _ in changes], [overlay.TARGETS[0]])
+        bad = copy.deepcopy(list(overlay.CURRENT.values()))
+        bad[0]['sha256'] = 'f' * 64
+        with self.assertRaisesRegex(storage.BuildError, 'whole reviewed'):
+            overlay.changes({'mod': {'files': list(overlay.B717.values())}}, {'mod': {'files': bad}})
+
+
+class ActualBootstrapOverlayTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = completed.CompletedPreparationTests('test_runtime_update_keeps_all_twenty_seven_asset_steps_and_later_owners')
+        self.before = {name: subprocess.check_output(['git', '-C', str(ROOT), 'show', '595791b7:' + name])
+                       for name in overlay.TARGETS}
+        self.after = {name: (ROOT / name).read_bytes() for name in overlay.TARGETS}
+        self.metas = {name + '.meta': ('fileFormatVersion: 2\nguid: ' + format(index, '032x') + '\n').encode()
+                      for index, name in enumerate(overlay.TARGETS, 1)}
+        self.fixture.editor_sources = {**self.before, **self.metas}
+        self.fixture.setUp(); self.addCleanup(self.fixture.doCleanups)
+        self.f, self.project = self.fixture.f, self.fixture.project
+        for name, raw in self.after.items(): self.f.write(self.f.source, name, raw)
+        self.current = self.fixture.updated()
+
+    def assert_bootstrap(self):
+        self.fixture.assert_retained(self.current)
+        value = json.loads(self.fixture.journal.read_text())
+        latest = metadata._latest(value)
+        for name, expected in overlay.CURRENT.items():
+            relative = name[len(overlay.PREFIX):]
+            self.assertEqual((self.project / relative).read_bytes(), self.after[name])
+            self.assertEqual(latest[relative][1], {**expected, 'path': relative})
+            self.assertEqual(value['steps'][latest[relative][0]]['name'], 'base-project')
+            self.assertEqual(sum(row['path'] == relative for step in value['steps'] for row in step['outputs']), 1)
+            self.assertEqual((self.project / (relative + '.meta')).read_bytes(), self.metas[name + '.meta'])
+
+    def test_real_b717_to_story_reader_refresh_changes_only_original_bootstrap_and_warm_update_reuses_it(self):
+        self.assertEqual(identity.rebind_key(self.f.output, self.project, self.current, self.f.source,
+            target='game', recipe=builder.RECIPE, recovery=recovery_resume), self.fixture.before['inputKey'])
+        published = []
+        actual = editor_overlay.publish
+        def observed(path, raw):
+            published.append(Path(path)); actual(path, raw)
+        with patch.object(editor_overlay, 'publish', side_effect=observed), \
+             patch.object(builder.prepare_resume, 'copy_changed', side_effect=AssertionError('No original bank/project recopy')):
+            self.f.run_prepare()
+        bootstrap = self.project / overlay.TARGETS[0][len(overlay.PREFIX):]
+        self.assertEqual(published, [bootstrap])
+        self.assert_bootstrap()
+        stamp = bootstrap.stat().st_mtime_ns
+        self.current = self.fixture.updated(2)
+        with patch.object(editor_overlay, 'publish', side_effect=AssertionError('Already current Bootstrap retained')):
+            self.f.run_prepare()
+        self.assert_bootstrap()
+        self.assertEqual(bootstrap.stat().st_mtime_ns, stamp)
+
+    def test_actual_bootstrap_publication_cut_replays_its_exact_base_owner_without_original_conversions(self):
+        bootstrap = self.project / overlay.TARGETS[0][len(overlay.PREFIX):]
+        actual = editor_overlay.publish
+        def interrupted(path, raw):
+            actual(path, raw)
+            if Path(path) == bootstrap: raise RuntimeError('cut after exact Bootstrap publication')
+        with patch.object(editor_overlay, 'publish', side_effect=interrupted), \
+             self.assertRaisesRegex(RuntimeError, 'exact Bootstrap publication'):
+            self.f.run_prepare()
+        self.assertEqual(json.loads(self.fixture.journal.read_text())['inputKey'], self.fixture.before['inputKey'])
+        self.f.run_prepare()
+        self.assert_bootstrap()
 
 
 if __name__ == '__main__': unittest.main()

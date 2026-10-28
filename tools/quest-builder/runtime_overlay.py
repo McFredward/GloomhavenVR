@@ -1,6 +1,6 @@
 """Exact late Quest runtime overlays for completed original preparation.
 
-Only the whole shipped B692/B693/current template profiles qualify. The current
+Only the whole shipped B692/B693/B717/current template profiles qualify. The current
 Player still compiles the real new scripts. This transaction changes neither
 original asset bytes, existing script GUIDs nor Unity Library.
 """
@@ -35,12 +35,21 @@ B693 = _profile(
     (28585, "931d23b2957c60d9fff8aa6396a4a921716c2a91e4256e96e5df016f14084b9e"),
     (20925, "25d222d3062f977463c4608a7d93047ccf13d213df9c504ea42f32525ab551b2"),
     (8372, "d7a1e3c0ac643f75f37e5837cbb8849c334b1df8c5dde8ee2b09a72652a3cee2"), (0, ""))
-CURRENT = _profile(
+B717 = _profile(
     (41145, "6ced6388681376258d397e891fdc70ce95570d3f920057343a92a80e3037c7e6"),
     (28763, "25f1b906d6666154b73d75fa3554f550f9ad9b106e2b60eff86e68d82a11b5c4"),
     (21068, "a555c4add725f73e6b75997aef78a42ac4d17c940dbf14f8ba8a1cb319788e90"),
     (8372, "d7a1e3c0ac643f75f37e5837cbb8849c334b1df8c5dde8ee2b09a72652a3cee2"),
     (10132, "720f83bbb1deabc6a08d1fabf3acdfb47f41682b17dd4c3ec2d3e1d45875e4d9"))
+# Build735 extends only the startup reader's finite mod inventory admission:
+# the existing four bank records may carry their exact numeric Story suffix.
+# Retain the complete B717 template profile and refresh only this base-project
+# script, preserving original assets, GUID metadata and imported Unity state.
+CURRENT = {
+    **B717,
+    TARGETS[0]: {"path": TARGETS[0], "size": 43060,
+                 "sha256": "52e6c2f59911441ee4bfdd8799a60df6b552702cd3809db7fe8f9970abd45597"},
+}
 
 
 def _selected(rows):
@@ -54,7 +63,7 @@ def _selected(rows):
 
 def normalize_rows(rows):
     """Normalize complete reviewed profiles, retaining every unknown input."""
-    if _selected(rows) not in (B692, B693, CURRENT): return rows
+    if _selected(rows) not in (B692, B693, B717, CURRENT): return rows
     return [B692[row["path"]] if row["path"] in B692 else row for row in rows
             if row["path"] not in TARGETS or row["path"] in B692]
 
@@ -62,7 +71,7 @@ def normalize_rows(rows):
 def changes(previous, inputs):
     before, after = _selected(previous["mod"]["files"]), _selected(inputs["mod"]["files"])
     if before == after: return []
-    if before not in (B692, B693, CURRENT) or after != CURRENT:
+    if before not in (B692, B693, B717, CURRENT) or after != CURRENT:
         raise BuildError("Runtime overlay is outside its whole reviewed source profile.")
     return [(name, before.get(name), after[name]) for name in TARGETS
             if before.get(name) != after.get(name)]

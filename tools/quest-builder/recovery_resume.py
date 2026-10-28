@@ -438,6 +438,17 @@ OBSERVATION_EDITOR_OVERLAY = {
         "sha256": "b0a71bcf03909dbb9d8a5b7eecde3fe6cafc9393dd1af0765f20bceb132ee912"},
 }
 
+# The exact startup reader now admits the closed Story suffix. Its runtime
+# overlay still refreshes only reviewed base-project scripts; original assets,
+# GUIDs and native import state remain under their unchanged producer owners.
+OBSERVATION_STORY_RUNTIME_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
+OBSERVATION_EDITOR_OVERLAY = {
+    **OBSERVATION_STORY_RUNTIME_PREVIOUS,
+    "tools/quest-builder/runtime_overlay.py": {
+        "path": "tools/quest-builder/runtime_overlay.py", "size": 7858,
+        "sha256": "a743d207ac5af706c33563ba47bb0f8ac334960f2c77621a7d6e9379ac70a779"},
+}
+
 ORCHESTRATION_FILES = set(LEGACY_MERGE_FILES) | {OBSERVER_FILE}
 # native_stage runs only on the fresh derived project, after all raw export
 # checkpoints. Its deferred duplicate audit cannot alter an original export.
@@ -497,7 +508,8 @@ def preparation_source_rows(rows):
     # to the legacy normalized-profile matcher below.
     raw = {}
     for row in rows: raw.setdefault(row["path"], []).append(row)
-    shipped_profile = next((profile for profile in (OBSERVATION_RUNTIME_PREVIOUS, OBSERVATION_MENU_STORY_PREVIOUS, OBSERVATION_EDITOR_OVERLAY)
+    shipped_profile = next((profile for profile in (OBSERVATION_RUNTIME_PREVIOUS, OBSERVATION_MENU_STORY_PREVIOUS,
+                            OBSERVATION_STORY_RUNTIME_PREVIOUS, OBSERVATION_EDITOR_OVERLAY)
                             if all(raw.get(name) == [fixed] for name, fixed in profile.items())), None)
     rows = _native_byte_rows(rows)
     rows = [PARALLEL_OBSERVATION_ROWS[row['path']][1]
@@ -519,6 +531,7 @@ def preparation_source_rows(rows):
                                            OBSERVATION_PARALLEL_PREVIOUS,
                                            OBSERVATION_RUNTIME_PREVIOUS,
                                            OBSERVATION_MENU_STORY_PREVIOUS,
+                                           OBSERVATION_STORY_RUNTIME_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:
