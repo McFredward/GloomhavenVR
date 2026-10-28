@@ -117,7 +117,8 @@ def export(game, output):
     container.save_typetree(tree)
     asset_type = copy.copy(container.serialized_type)
     original.types.append(asset_type)
-    raw = container.get_raw_data()
+    raw = container.data
+    assert raw is not None
     objects[1] = ObjectReader(original, container.reader, 1, len(original.types) - 1,
         asset_type, container.class_id, ClassIDType.AssetBundle, 0, len(raw), None, None, raw)
     original.objects = objects
@@ -148,6 +149,7 @@ def export(game, output):
     output.write_bytes(wrapper.save('lz4'))
     actual = UnityPy.load(str(output)).assets[0]
     assert not actual.externals and len(actual.objects) == 8
+    assert actual.objects[1].read_typetree() == tree, 'The real asset container must expose the new render asset names'
     for path_id, expected in objects.items():
         left = actual.objects[path_id].get_raw_data()
         right = expected.data if expected.data is not None else expected.get_raw_data()

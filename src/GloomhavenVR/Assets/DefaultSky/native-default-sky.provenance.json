@@ -144,8 +144,8 @@
       ]
     }
   ],
-  "bundle_sha256": "05688cccca385acb8b05de74b3de161eaf3375f983ae45aacfd18660c63e4991",
-  "bundle_bytes": 2219991,
+  "bundle_sha256": "9c4c57eb8777fb02b9ba3d53b0a55e768be9aa9b6600151618f743b4e2fd0c16",
+  "bundle_bytes": 2219921,
   "stream_bytes": 5841076,
   "native_platforms": [
     "Direct3D11"
