@@ -11,13 +11,20 @@ into the Android mod does not supply the current menu rendering contract.
   license, the original native-card provenance and the consumed producer sources.
   It excludes build numbers, unrelated runtime code, movies and story fields.
 - `produce(builder, source, output, game=None, editor=None, base_apk=None,
-  native_cache=None)` returns `bundle`, `provenance`, `producerKey` and `reused`.
+  native_cache=None, source_files=None)` returns `bundle`, `provenance`,
+  `producerKey` and `reused`.
   Bundle/provenance are private `Path` values below
   `output/cache/menu-depth-resources/<producerKey>/`.
 - Pass the two returned paths to MSBuild as `GloomhavenVRMenuDepthBundle` and
   `GloomhavenVRMenuDepthProvenance`. Their embedded logical names are
   `GloomhavenVR.MenuDepth.Rendering.bundle` and
   `GloomhavenVR.MenuDepth.Rendering.provenance.json`.
+
+`source_files` is the containing Builder's already-qualified immutable source
+roster. Planning can consume it without restoring the complete source checkout;
+an actual new compilation requalifies its consumed files before any native work.
+The helper captures its storage ABI during isolated Builder loading and restores
+temporary aliases after late native audits.
 
 The producer first validates its closed cache. Otherwise it reads only the mod's
 IL2CPP resource sidecar in the selected installed APK. Matching recipe, bundle
@@ -40,7 +47,9 @@ No original game scene, campaign bank, media or other shader is imported.
 Loose story delivery remains independent. `story_records(source,
 source_files=None)` returns the exact numeric manifest+GMD closure with
 `StreamingAssets/MenuDepth/Story/` destination paths. `write_story(open_zip,
-source, records)` appends those files to the existing mod-content archive. The
+source, records)` appends those files to the existing mod-content archive,
+qualifying the actual transferred bytes and stable source identity while writing.
+No complete archive readback is needed. The
 current closure has515 GMD files plus its manifest. The Quest catalogue must
 read `EnvironmentBundleDirectory/MenuDepth/Story`; ordinary DLL-adjacent Content
 copying does not survive IL2CPP assembly deployment.
@@ -51,17 +60,20 @@ The resource worker starts from rebased candidate `8f3921adc`. This is a bounded
 asset/producer lane within the integrator's class-C rebase validation; it does
 not establish a new complete-gate pass.
 
-- Eight standard-library host tests pass, including resource-directory bounds,
+- Ten host tests pass, including resource-directory bounds,
   corrupt input rejection, stable producer identity, installed-only/cache reuse,
   changed recipe refusal and real ZIP publication of numeric story content.
-- Tiny actual Unity generation produces a55295-byte Android/Vulkan bank with
+  A causal concurrent-source mutation fails during actual story-byte transfer;
+  a late native audit also works after the loader removes its storage alias.
+- Final tiny actual Unity generation produces a54637-byte Android/Vulkan bank with
   four shader roots. Its native card has12 native combined stage aliases and
   four distinct executable programs, covering all original alpha-clip/rect
   choices. The exact five original DXBC hashes agree with the desktop handoff.
 - Independent actual-byte cache/APK reuse and five causal serialized controls
   pass: Windows target, missing alpha clip, missing native card root, ZWrite off
-  and corrupt closed provenance. The second focused audit takes1.69seconds and
-  invokes no Unity or original PC game input.
+  and corrupt closed provenance. Final generation plus all actual-byte
+  reuse/control checks takes9.57seconds. The isolated cache/APK recovery paths
+  invoke no Unity or original PC game input.
 - Preserve the first failed audit separately: its bank compilation/audit and
   reuse pass, then its desktop-target mutation changes UnityPy's public cached
   enum instead of the serialized backing field. The corrected mutation changes
@@ -70,7 +82,12 @@ not establish a new complete-gate pass.
 Evidence is retained under
 `/home/claw/quest3-local/build/evidence/quest-dev734-rebase-20261028/resources/`.
 `run-67f7ajhc` retains the tiny compiler inputs/output and failed control attempt;
-`run-ycxpq5e4` retains the passing actual-byte reuse/control proof. Exact project
+`run-ycxpq5e4` retains the passing earlier actual-byte reuse/control proof.
+`run-6xyk812a` binds the final production source through `b195b474c` and passes
+the complete tiny generation/reuse/control proof. Its producer key is
+`01e667ffbd7804a0f168024938b5ff97712780514bb3329bc9c9e8b49c7b3db7`, and
+bank SHA256 is `a5c62bcd5a0343a0ec829280bbb8e2f2fd00cf21209155670bc07a42dd840edf`.
+Exact project
 editor/compiler processes are stopped and reaped before the common completion
 cleanup removes the generated Unity Library. Original game inputs and shared
 native caches remain unchanged.
