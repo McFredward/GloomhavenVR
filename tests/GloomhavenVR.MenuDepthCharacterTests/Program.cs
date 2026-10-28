@@ -10,7 +10,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
-public static class MenuDepthCharacterProgram
+public static partial class MenuDepthCharacterProgram
 {
     private static void ActivateCharacters()
     {

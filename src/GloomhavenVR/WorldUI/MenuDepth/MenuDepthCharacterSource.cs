@@ -29,6 +29,10 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private readonly Transform _holder;
     private readonly Func<Character3DDisplayManager, bool> _readHidden;
     private readonly RenderTexture _nativeTarget;
+    private readonly List<Renderer> _shadowRenderers = new(32);
+    private readonly List<Light> _shadowLights = new(8);
+    private readonly List<(Renderer Renderer, UnityEngine.Rendering.ShadowCastingMode Casting, bool Receive, bool ForceOff)> _rendererShadows = new(32);
+    private readonly List<(Light Light, LightShadows Shadows)> _lightShadows = new(8);
     private readonly CalibrationCache _calibration;
     private readonly MenuDepthCharacterSurface _surface;
     private readonly BoundsClipper _boundsClipper = new();
@@ -161,7 +165,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         RenderTexture target = EnsureTarget(!headRaster && !direct && eye.Right);
         _lastCapture = Time.unscaledTime;
         Texture original = _image.texture;
-        RenderOriginal(target, view, headRaster);
+        RenderOriginal(target, view, identity, headRaster);
         // A native render callback may replace a pooled preview. Do not overwrite
         // that new original with an eye of the retired character.
         if (!BindingAlive || !ReferenceEquals(_image.texture, original))
@@ -579,7 +583,69 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
 
     internal RenderTexture? DepthTexture(bool right) => right ? _right : _left;
 
-    private void RenderOriginal(RenderTexture target, MenuDepthCharacterProjection.View view, bool headRaster = false)
+    private void SuppressPreviewShadows(object original)
+    {
+        // Build737: the maintainer explicitly permits shadowless window figures
+        // after all native heroes showed unstable, view-dependent shadow patches.
+        // Keep the original lit materials, colours and light intensities. Suppress
+        // only these preview actors and their owned lights during the borrowed
+        // Camera.Render; never change scene/global quality or gameplay actors.
+        // Fresh local membership includes pooled/replaced renderer births, unlike
+        // the bounds cache. A native actor can also live outside the camera holder.
+        SuppressPreviewShadows(_holder);
+        foreach (Transform root in _calibration.ModelRoots(original))
+            if (root != null && !root.IsChildOf(_holder)) SuppressPreviewShadows(root);
+    }
+
+    private void SuppressPreviewShadows(Transform root)
+    {
+        root.GetComponentsInChildren(true, _shadowRenderers);
+        for (int i = 0; i < _shadowRenderers.Count; i++)
+        {
+            Renderer renderer = _shadowRenderers[i];
+            if (renderer == null || (renderer.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.Off
+                && !renderer.receiveShadows)) continue;
+            _rendererShadows.Add((renderer, renderer.shadowCastingMode, renderer.receiveShadows, renderer.forceRenderingOff));
+            // Off normally draws colour; an authored shadow-only proxy must not
+            // become a newly visible mesh when its shadow pass is suppressed.
+            if (renderer.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly)
+                renderer.forceRenderingOff = true;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+        }
+        root.GetComponentsInChildren(true, _shadowLights);
+        for (int i = 0; i < _shadowLights.Count; i++)
+        {
+            Light light = _shadowLights[i];
+            if (light == null || light.shadows == LightShadows.None) continue;
+            // The authored GUI3D Forward camera has its own shadowed directional
+            // and point lights. Disabling their maps also covers custom native
+            // shaders without replacing or editing any original material.
+            _lightShadows.Add((light, light.shadows));
+            light.shadows = LightShadows.None;
+        }
+    }
+
+    private void RestorePreviewShadows()
+    {
+        for (int i = _lightShadows.Count - 1; i >= 0; i--)
+        {
+            var state = _lightShadows[i];
+            if (state.Light != null) state.Light.shadows = state.Shadows;
+        }
+        for (int i = _rendererShadows.Count - 1; i >= 0; i--)
+        {
+            var state = _rendererShadows[i];
+            if (state.Renderer == null) continue;
+            state.Renderer.shadowCastingMode = state.Casting;
+            state.Renderer.receiveShadows = state.Receive;
+            state.Renderer.forceRenderingOff = state.ForceOff;
+        }
+        _lightShadows.Clear(); _rendererShadows.Clear();
+        _shadowLights.Clear(); _shadowRenderers.Clear();
+    }
+
+    private void RenderOriginal(RenderTexture target, MenuDepthCharacterProjection.View view, object original, bool headRaster = false)
     {
         // Keep source-owned image effects and their native configuration. Copying
         // a Camera component alone loses Beautify and other attached callbacks.
@@ -610,6 +676,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         try
         {
             _rendering = true;
+            SuppressPreviewShadows(original);
             RenderTexture.active = target;
             GL.Clear(true, true, _camera.backgroundColor);
             _camera.targetTexture = target;
@@ -631,6 +698,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         }
         finally
         {
+            RestorePreviewShadows();
             GL.invertCulling = originalCullingInverted;
             if (_camera != null)
             {
@@ -692,6 +760,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         private readonly Transform _holder;
         private readonly Dictionary<object, Vector3> _origins = new();
         private readonly Dictionary<object, Renderer[]> _samplingRenderers = new();
+        private readonly Dictionary<object, Transform[]> _modelRoots = new();
         internal CalibrationCache(Camera camera, Transform holder) { _camera = camera; _holder = holder; }
         internal bool TryGet(object original, out Vector3 result)
         {
@@ -736,6 +805,26 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             result = renderers.ToArray();
             if (_samplingRenderers.Count >= 32) _samplingRenderers.Clear();
             _samplingRenderers.Add(original, result); return result;
+        }
+
+        internal Transform[] ModelRoots(object original)
+        {
+            if (_modelRoots.TryGetValue(original, out Transform[] result)) return result;
+            var roots = new List<Transform>();
+            if (ReferenceEquals(original, _holder)) roots.Add(_holder);
+            else
+            {
+                FieldInfo? models = original.GetType().GetField("models", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (models?.GetValue(original) is IEnumerable list)
+                    foreach (object member in list)
+                    {
+                        Component? actor = member.GetType().GetProperty("CharacterManager")?.GetValue(member, null) as Component;
+                        if (actor != null) roots.Add(actor.transform);
+                    }
+            }
+            result = roots.ToArray();
+            if (_modelRoots.Count >= 32) _modelRoots.Clear();
+            _modelRoots.Add(original, result); return result;
         }
     }
 
