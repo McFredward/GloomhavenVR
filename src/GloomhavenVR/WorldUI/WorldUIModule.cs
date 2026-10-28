@@ -143,6 +143,7 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(Patches.Character3DDisplayRefcount));
         VRSession.Harmony?.PatchAll(typeof(MenuDepth.MenuDepthCharacterDisplayObserver));
         VRSession.Harmony?.PatchAll(typeof(MenuDepth.MenuDepthLifecycleObserver));
+        VRSession.Harmony?.PatchAll(typeof(MenuDepth.MenuDepthLevelUpHoverObserver));
         // ModBuild 191 (user report 2026-08-21, the merchant's item mouseovers): the SECOND tooltip
         // family — UIPartyItemInventoryTooltip / UILocalTooltip / UITempleSlotTooltip / TooltipUI —
         // never touches CanvasManager.tooltipCanvas, so WorldTooltips had never heard of it. Each of
