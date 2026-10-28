@@ -175,7 +175,13 @@ def _plan(builder, root):
     if (value.get("schema") != 1 or value.get("mode") != "update-mod" or value.get("updateKey") != root.name
             or value.get("updateStrategy") != "compact-code" or value.get("codeChanged") is not True):
         raise builder.BuildError("Retained compact Player has an incompatible update plan; no compiler output was overwritten.")
-    original = {key: item for key, item in value.items() if key not in ("updateKey", "baseApk", "sourcePackage")}
+    # Match inspect()'s immutable update identity. Installed-Quest updates carry
+    # an extracted original Mono seed at compilerGameRoot; its local location
+    # is not a compiler input. Hashing that transport path here rejects the
+    # real freshly written plan before current_plan() can qualify native work.
+    # Seed bytes and original inputs retain their independent exact admission.
+    original = {key: item for key, item in value.items()
+                if key not in ("updateKey", "baseApk", "sourcePackage", "compilerGameRoot")}
     # The prior post-build parser may have attached a proposed rebuild verdict.
     # Reconstruct only this one declared overlay over an original compact plan.
     if original.pop("rebuildDecisionRequired", False):

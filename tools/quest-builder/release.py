@@ -20,7 +20,7 @@ PUBLIC_PACKAGES = {'prebuilt/quest-converters-win64-v1.zip': '61f7d664384b12663f
 ROOT_FILES = {'Quest-Builder.cmd', 'Quest-Builder.sh', 'Quest-Repair-Access.cmd', 'Quest-Repair-Access.sh', 'QUEST-BUILDER-START.txt', 'LICENSE', 'Directory.Build.props', 'GloomhavenVR.sln', 'global.json', 'nuget.config', '.editorconfig'}
 TOOL_ROOTS = {'QuestCampaignInventory', 'QuestProceduralExport', 'QuestWeaver', 'RuntimeDepsBuild',
               'ShaderOcclusionPatcher', 'environment-mesh', 'figure-mesh', 'quest-builder', 'quest-campaign-audit', 'quest-compute',
-              'quest-installer', 'quest-movies', 'quest-native', 'quest-network', 'quest-procedural',
+              'quest-installer', 'quest-menu-depth', 'quest-movies', 'quest-native', 'quest-network', 'quest-procedural',
               'quest-procedural-runtime', 'quest-recovery', 'quest-shaders', 'quest-wizard', 'quest-wizard-ui'}
 UNITY_ROOTS = {'GloomhavenVR.Assets', 'GloomhavenVR.Quest', 'GloomhavenVR.FigureMeshes'}
 SCRIPTS = {'build-quest.py', 'build-quest-native.py', 'recover-quest.py', 'build-runtimedeps.sh', 'repair-quest-access.ps1',
@@ -64,6 +64,14 @@ AUTHORED_MOVIES = {'src/GloomhavenVR/Assets/Movies/CP_Intro/' + name for name in
     'GH_CP_Intro.mov', 'GH_CP_Intro.sbs-v2.mov')}
 GAME_MOVIE_ROOTS = tuple('src/GloomhavenVR/Assets/Movies/' + name + '/'
                         for name in ('Heroes', 'Ambient', 'Embedded'))
+MENU_RENDER_ROOT = 'src/GloomhavenVR/Assets/MenuDepth/Rendering/'
+MENU_STORY_ROOT = 'src/GloomhavenVR/Assets/MenuDepth/Story/'
+# The desktop bundle also contains original native DXBC. A game-free source
+# release ships the authored recipes/numeric fields, never that derived bank.
+# The owner's Android producer uses the immutable original shader inputs.
+MENU_RECIPES = {MENU_RENDER_ROOT + name for name in (
+    'MenuDepthDisplay.shader', 'MenuDepthGraphic.shader', 'MenuDepthCharacter.shader',
+    'provenance.json', 'NativeCard.provenance.json', 'NativeDissolve.provenance.json', 'Unity-LICENSE.txt')}
 
 
 def owned_derived_source(name):
@@ -128,6 +136,9 @@ REQUIRED = set(PUBLIC_PACKAGES) | {"tools/quest-builder/staging_copy.py", "tools
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs',
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestNativePluginContract.cs'}
 REQUIRED |= AUTHORED_RESOURCES | AUTHORED_MOVIES | PROMOTIONAL_ASSETS | {
+    'tools/quest-builder/menu_depth_resources.py',
+    'tools/quest-menu-depth/Editor/MenuDepthResourceBuilder.cs',
+    MENU_STORY_ROOT + 'manifest.json',
     'tools/quest-builder/update_seed.py', 'tools/quest-installer/installed_source.py',
     'tools/quest-builder/movie_banks.py', 'tools/quest-builder/movie_render.py',
     'tools/quest-builder/requirements-movies.txt', 'tools/quest-movies/recipe.json',
@@ -166,6 +177,7 @@ REQUIRED |= AUTHORED_RESOURCES | AUTHORED_MOVIES | PROMOTIONAL_ASSETS | {
     'tools/quest-builder/update_capacity.py',
     'tools/quest-builder/apk_input_cache.py',
     'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs'}
+REQUIRED |= MENU_RECIPES
 
 
 def safe_name(name):
@@ -245,6 +257,45 @@ def movie_recipe_closure(repo, rows):
         raise BuildError('Builder movie recipe is incomplete or invalid.') from exc
 
 
+def menu_story_closure(repo, rows):
+    """Close the supplied numeric relief roster without inference or rehashing.
+
+    These are separate copied Content, so a valid compiler source inventory
+    alone cannot prove their presence. The exact original image bindings stay
+    in the delivered manifest; publication never generates missing depth data.
+    """
+    path = ordinary(repo / (MENU_STORY_ROOT + 'manifest.json'))
+    try:
+        if not path.is_file() or path.stat().st_size > 4 * 1048576:
+            raise ValueError('missing or oversized manifest')
+        manifest = json.loads(path.read_text(encoding='utf-8'))
+        images = manifest.get('images')
+        if (manifest.get('schema') != 1 or manifest.get('status') != 'complete'
+                or manifest.get('format') != 'GMD1' or not isinstance(images, list)
+                or not 1 <= len(images) <= 4096):
+            raise ValueError('invalid numeric relief manifest')
+        records = {row['path']: row for row in rows}
+        expected = set()
+        for image in images:
+            source = image['source_id']
+            name = image['depth_file']
+            if (not isinstance(source, str) or not re.fullmatch('[0-9a-f]{32}', source)
+                    or name != source + '.gmd' or name in expected
+                    or type(image['depth_bytes']) is not int or image['depth_bytes'] <= 0
+                    or not re.fullmatch('[0-9a-f]{64}', image['depth_sha256'])):
+                raise ValueError('invalid or duplicate numeric relief identity')
+            expected.add(name)
+            row = records.get(MENU_STORY_ROOT + name)
+            if row is None or (row['size'], row['sha256']) != (image['depth_bytes'], image['depth_sha256']):
+                raise BuildError('Menu story depth field is missing or differs: ' + name)
+        actual = {name.removeprefix(MENU_STORY_ROOT) for name in records
+                  if name.startswith(MENU_STORY_ROOT) and name.endswith('.gmd')}
+        if actual != expected:
+            raise ValueError('unlisted numeric relief field')
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise BuildError('Builder menu story recipe is incomplete or invalid.') from exc
+
+
 def _retired_source_witness(path, relative):
     expected = RETIRED_B713_INPUTS.get(relative)
     if expected is None:
@@ -310,6 +361,7 @@ def verified_source_inventory(repo):
             raise BuildError('Builder release file changed: ' + name)
     if not REQUIRED <= names: raise BuildError('Builder release is incomplete.')
     movie_recipe_closure(repo, rows)
+    menu_story_closure(repo, rows)
     if value['kind'] == RELEASE_KIND and not LINUX_REQUIRED <= names:
         raise BuildError('Cross-platform builder release is missing its Linux launcher.')
     # Traverse without following junctions; ignore only declared per-user generated
@@ -348,6 +400,7 @@ def assemble(repo, destination):
         raise BuildError('Authored link target is missing from the release source inventory.')
     records = [record_file(originals[name], name) for name in names]
     movie_recipe_closure(repo, records)
+    menu_story_closure(repo, records)
     protocol = (repo / 'src/GloomhavenVR/Net/NetProtocol.cs').read_text(encoding='utf-8')
     match = re.search(r'const (?:int|ushort) ModBuild\s*=\s*(\d+)', protocol)
     if not match: raise BuildError('Cannot identify the released mod build.')

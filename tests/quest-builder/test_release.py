@@ -80,6 +80,14 @@ class ReleaseOverlayTests(unittest.TestCase):
         for name in names:
             self.put(name, b'public controlled fixture input')
         self.put('tools/quest-movies/recipe.json', b'{"schema":1,"movies":[]}')
+        depth_name = '1' * 32 + '.gmd'
+        depth = self.put(release.MENU_STORY_ROOT + depth_name, b'controlled numeric relief fixture')
+        record = release.record_file(depth, release.MENU_STORY_ROOT + depth_name)
+        self.put(release.MENU_STORY_ROOT + 'manifest.json', json.dumps({
+            'schema': 1, 'status': 'complete', 'format': 'GMD1', 'images': [{
+                'source_id': '1' * 32, 'depth_file': depth_name,
+                'depth_bytes': record['size'], 'depth_sha256': record['sha256']}]}).encode())
+        names.add(record['path'])
         self.rows = [release.record_file(self.root / name, name) for name in sorted(names)]
         value = {'schema': 1, 'kind': release.RELEASE_KIND, 'sourceCommit': 'b' * 40,
                  'modBuild': 716, 'files': self.rows,

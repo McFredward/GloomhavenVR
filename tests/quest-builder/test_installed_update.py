@@ -124,6 +124,38 @@ class InstalledUpdateTests(unittest.TestCase):
         self.assertEqual([row['done'] for row in calls], [1, 2])
         self.assertEqual([row['total'] for row in calls], [2, 2])
 
+    def test_actual_seeded_code_plan_reaches_native_admission_after_local_seed_relocation(self):
+        import native_update_resume
+        self.seeded(); f = self.f
+        f.args.command = 'update-mod'
+        f.builder.source_inventory = lambda repo: (f.current_mod['files'], '8' * 40, False)
+        f.builder.mod_build = lambda repo: f.current_mod['modBuild']
+        requirements = {'rebuildReasons': [], 'codeChanged': True, 'artChanged': False,
+                        'nativeHelperChanged': False, 'figureBanksChanged': False,
+                        'audioBanksChanged': False, 'movieBanksChanged': False, 'requiresUnity': True}
+        with patch.object(driver, 'update_requirements', return_value=requirements):
+            plan = driver.inspect(f.builder, f.args, ROOT, f.output)
+        root = f.output / 'updates' / plan['updateKey']
+        admitted = lambda: native_update_resume.current_plan(f.builder, driver.__file__, plan['inputs'], root)
+        self.assertEqual(admitted(), plan)
+        self.assertTrue(plan['installedGame'])
+        source = Path(plan['compilerGameRoot'])
+        before = {path.name: path.read_bytes() for path in (source / 'Managed').glob('*.dll')}
+        relocated = f.root / 'relocated original compiler references'
+        source.rename(relocated)
+        plan['compilerGameRoot'] = str(relocated)
+        storage.write_json(root / 'plan.json', plan)
+        self.assertEqual(admitted(), plan)
+        self.assertEqual(before, {path.name: path.read_bytes() for path in (relocated / 'Managed').glob('*.dll')})
+        self.assertEqual(plan['updateKey'], root.name)
+        # The local path is transport metadata; original source/profile identity
+        # still cannot be edited to adopt an incompatible completed native pair.
+        changed = copy.deepcopy(plan)
+        changed['inputs']['profile']['displayName'] = 'Different immutable owner'
+        storage.write_json(root / 'plan.json', changed)
+        with self.assertRaisesRegex(storage.BuildError, 'plan changed'):
+            admitted()
+
     def test_new_original_derived_asset_producer_requests_pc_instead_of_rebuilding(self):
         self.seeded(); f = self.f
         f.args.command = 'update-mod'

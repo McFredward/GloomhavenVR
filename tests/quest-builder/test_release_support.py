@@ -49,6 +49,32 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(BuildError, 'chunk is missing or differs'):
             release.movie_recipe_closure(self.root, [{**row, 'sha256': 'f' * 64}])
 
+    def test_menu_recipe_admission_retains_supplied_depth_and_rejects_missing_or_changed_content(self):
+        row = record_file(self.root / (release.MENU_STORY_ROOT + '1' * 32 + '.gmd'),
+                          release.MENU_STORY_ROOT + '1' * 32 + '.gmd')
+        with mock.patch.object(release, 'digest', side_effect=AssertionError('no repeated depth hashing')):
+            release.menu_story_closure(self.root, [row])
+        with self.assertRaisesRegex(BuildError, 'depth field is missing or differs'):
+            release.menu_story_closure(self.root, [])
+        with self.assertRaisesRegex(BuildError, 'depth field is missing or differs'):
+            release.menu_story_closure(self.root, [{**row, 'sha256': 'f' * 64}])
+        with self.assertRaisesRegex(BuildError, 'menu story recipe is incomplete or invalid'):
+            release.menu_story_closure(self.root, [row, {**row, 'path': release.MENU_STORY_ROOT + '2' * 32 + '.gmd'}])
+        path = self.root / (release.MENU_STORY_ROOT + 'manifest.json')
+        manifest = json.loads(path.read_text())
+        original = manifest['images'][0]
+        for changed in ({'depth_file': '../outside.gmd'}, {'source_id': 'unbound'},
+                        {'depth_bytes': -1}, {'depth_sha256': 'unknown'}):
+            with self.subTest(changed=changed):
+                manifest['images'] = [{**original, **changed}]
+                write_json(path, manifest)
+                with self.assertRaisesRegex(BuildError, 'menu story recipe is incomplete or invalid'):
+                    release.menu_story_closure(self.root, [row])
+        manifest['images'] = [original, original]
+        write_json(path, manifest)
+        with self.assertRaisesRegex(BuildError, 'menu story recipe is incomplete or invalid'):
+            release.menu_story_closure(self.root, [row])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name) / 'repo'; self.root.mkdir()
         for name in release.REQUIRED | release.LINUX_REQUIRED | {'src/GloomhavenVR/Net/NetProtocol.cs', 'tools/quest-wizard/tools.lock.json'}:
@@ -56,6 +82,13 @@ class ReleaseTests(unittest.TestCase):
             if name in release.PUBLIC_PACKAGES: shutil.copyfile(ROOT / name, path); continue
             path.write_text('public const ushort ModBuild = 625;' if name.endswith('NetProtocol.cs') else 'public fixture source')
         write_json(self.root / 'tools/quest-movies/recipe.json', {'schema': 1, 'movies': []})
+        depth = self.root / (release.MENU_STORY_ROOT + '1' * 32 + '.gmd')
+        depth.write_bytes(b'controlled numeric relief fixture')
+        record = record_file(depth, depth.relative_to(self.root).as_posix())
+        write_json(self.root / (release.MENU_STORY_ROOT + 'manifest.json'), {
+            'schema': 1, 'status': 'complete', 'format': 'GMD1', 'images': [{
+                'source_id': '1' * 32, 'depth_file': depth.name,
+                'depth_bytes': record['size'], 'depth_sha256': record['sha256']}]})
         self.manifest()
     def tearDown(self): self.temp.cleanup()
     def manifest(self):
@@ -66,6 +99,7 @@ class ReleaseTests(unittest.TestCase):
         write_json(self.root / release.MANIFEST, value); return value
     def test_actual_archive_excludes_owned_environment_data_and_keeps_its_generator(self):
         generated = {
+            release.MENU_RENDER_ROOT + 'menu-depth.bundle': b'private original native DXBC fixture',
             'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/static-100.bytes': b'GHEM1 ORIGINAL FIXTURE GEOMETRY',
             'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/static-100.bytes.meta': b'original mesh importer fixture',
             'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json': b'{"format":1,"entries":["private original"]}',
@@ -94,8 +128,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn(shader.relative_to(self.root).as_posix(), names)
         for name in ('tools/quest-builder/environment_bank.py', 'tools/environment-mesh/export-native.py',
                      'scripts/generate-environment-meshes.py', 'tools/environment-mesh/geometry.py',
-                     'tools/environment-mesh/roles.py'):
+                     'tools/environment-mesh/roles.py', 'tools/quest-builder/menu_depth_resources.py',
+                     'tools/quest-menu-depth/Editor/MenuDepthResourceBuilder.cs', *release.MENU_RECIPES):
             self.assertIn(name, names)
+        self.assertIn(release.MENU_STORY_ROOT + '1' * 32 + '.gmd', names)
         self.assertIn('original-derived figure/environment mesh banks', report['excluded'])
 
     def test_git_free_inventory_keeps_manifest_and_rejects_tamper(self):
