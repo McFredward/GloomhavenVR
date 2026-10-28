@@ -629,7 +629,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 737;
+    public const ushort ModBuild = 738;
+
+    // ModBuild738 — correct level-up hover pose before first draw and stable confirmations.
+    // The maintainer confirms737 resolves preview shadows, card relief and the
+    // missing candidate list. Native immediate hover pooling preserves world
+    // rotation while reparenting into a yawed VR window; a later budgeted flatten
+    // pass caused the visible snap. Align only the exact immediate hover root at
+    // UILevelUpCardHolder.PlaceNewCard completion inside its live converted owner.
+    // Preserve native delayed reveal animation, pooling, position/scale and input.
+    // Both original standalone and persistent level-up confirmations omitted the
+    // mod capture-layer option. Their full-stretch native GrabPass blur then bypassed
+    // the existing filtered capture/neutralization and wrote depth beside coplanar
+    // text/buttons. Enroll those two consumers in the same existing path as normal
+    // windows; retain original confirmation widgets, modal permissions and callbacks.
+    // No shared allocator/compositor, native shader-bank, actor or wire change.
 
     // ModBuild737 — shadowless window figures, stronger cards and native level-up lists.
     // The maintainer confirms Build736 resolves pitched-window disappearance,
