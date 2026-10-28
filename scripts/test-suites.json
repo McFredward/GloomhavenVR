@@ -3296,6 +3296,17 @@
         "local"
       ],
       "weight": 2
+    },
+    {
+      "id": "default-sky-runtime",
+      "command": [
+        "python3",
+        "scripts/default-sky-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 2
     }
   ]
 }
