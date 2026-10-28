@@ -44,6 +44,7 @@ namespace GloomhavenVR.Rig
 namespace GloomhavenVR.WorldUI
 {
     internal static class WorldUIConfig { internal static bool ConversionActive = true; internal sealed class Setting { internal bool Value = true; } internal static readonly Setting CharacterPreviewDepth = new(); }
-    internal sealed class ConvertedPanel { internal Transform Target = null!; }
+    internal sealed class ConvertedPanel { internal Transform Target = null!; internal bool IsAlive = true; }
     internal static class CanvasConversion { internal static readonly List<ConvertedPanel> ActivePanels = new(); }
+    internal static class FlatScreen { internal static bool ManualScreenActive; }
 }
