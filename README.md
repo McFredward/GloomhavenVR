@@ -138,7 +138,8 @@ something else if you stand around long enough.
 
 There is one setting for this, with five options. Same table, same scenario in all of them. The two
 rooms above are the ones built for the mod. The other three are the game's own sky, no sky at all,
-and mixed reality. Choose **Mixed Reality** under **VR Options → World → Scenery** to put the
+and mixed reality. Your selection applies in the main menu, on the 3D map and in scenarios,
+including the game's original Default sky. Choose **Mixed Reality** under **VR Options → World → Scenery** to put the
 table in your room.
 
 - **Steam Frame standalone:** native passthrough is built in and needs no additional patch.

@@ -140,7 +140,8 @@ bleibt, bemerkt vielleicht noch etwas anderes.
 
 Dafür gibt es eine Einstellung mit fünf Möglichkeiten. Derselbe Tisch, dasselbe Szenario in allen.
 Die beiden Räume oben sind die, die für die Mod gebaut wurden. Die anderen drei sind der Himmel des
-Spiels, gar kein Himmel und Mixed Reality. Wähle **Mixed Reality** unter
+Spiels, gar kein Himmel und Mixed Reality. Deine Auswahl gilt im Hauptmenü, auf der 3D-Karte
+und in Szenarien, einschließlich des originalen Standardhimmels des Spiels. Wähle **Mixed Reality** unter
 **VR-Optionen → Umgebung → Schauplatz**, um den Tisch in dein Zimmer zu stellen.
 
 - **Steam Frame standalone:** Natives Passthrough ist integriert und benötigt keinen zusätzlichen
