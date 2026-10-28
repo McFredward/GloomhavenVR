@@ -32,6 +32,7 @@ for name,key,before,after,expected in [
  ('lost-home','OwnerSource','rect.SetParent(seat.Home != null ? seat.Home : null, worldPositionStays: false);','// original parent restore omitted','native hide must restore the original confirmation parent without a lingering claim'),
  ('collapsed-frame','OwnerSource','rect.sizeDelta = seat.Frame;','rect.sizeDelta = Vector2.zero;','centering must preserve measured native frame, not collapse stretched anchors'),
  ('persistent-capture-bypassed','OwnerSource','useModLayer: true','useModLayer: false','persistent confirmation admits isolated filtered capture and scoped blur treatment'),
+ ('persistent-lease-not-retired','OwnerSource','if (PanelAlive(seat.PersistentMember)) return false;','if (seat.PersistentMember.IsAlive) return false;','lost level-up owner restores persistent presentation without native cancellation'),
 ]:
  assert before in originals[key],'Mutation binding drift: '+name
  cases.append((name,{key:originals[key].replace(before,after)},expected))

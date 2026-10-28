@@ -282,7 +282,12 @@ internal static partial class ConfirmationOnOwner
             if (seat.PersistentMember != null)
             {
                 CanvasConversion.Release(seat.PersistentMember);
-                if (seat.PersistentMember.IsAlive) return false;
+                // ConvertedPanel.IsAlive means its original Target survives,
+                // which is required after a successful release. It is not a
+                // conversion lease: using it here retained every persistent
+                // seat forever and re-released a closed box on every tick.
+                // The original-home check below still retains a refused restore.
+                if (PanelAlive(seat.PersistentMember)) return false;
             }
             rect.SetParent(seat.Home != null ? seat.Home : null, worldPositionStays: false);
             if (!ReferenceEquals(rect.parent, seat.Home != null ? seat.Home : null))

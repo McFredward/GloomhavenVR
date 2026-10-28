@@ -150,6 +150,27 @@ internal static class OwnerCases
         surface.Shutdown();
 
         (surface,manager,source,panel,home)=Setup();
+        manager.CurrentBox.gameObject.scene=2;
+        Record(manager,source);manager.Show();surface.Tick();
+        var persistent=CanvasConversion.Last!;
+        var persistentRect=(RectTransform)manager.CurrentBox.transform;
+        manager.CurrentBox.IsOpen=false;persistentRect.RejectReparent=true;
+        ConfirmationOnOwner.Release(manager.CurrentBox);
+        Check(ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window)&&persistentRect.IsChildOf(persistent.HostRect),
+            "refused persistent detach retains its original subtree and restoration record after registry removal");
+        persistentRect.RejectReparent=false;ConfirmationOnOwner.Release(manager.CurrentBox);
+        Check(persistent.IsAlive&&!ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window)&&ReferenceEquals(persistentRect.parent,home),
+            "successful persistent release keeps the native target alive while retiring its conversion seat");
+        int persistentReleases=CanvasConversion.Releases;
+        for(int i=0;i<50;i++)surface.Tick();
+        Check(CanvasConversion.Releases==persistentReleases,
+            "a closed persistent confirmation is not released again on every frame");
+        int persistentConverts=CanvasConversion.Converts;Record(manager,source);manager.Show();surface.Tick();
+        Check(ConfirmationOnOwner.IsOwned(manager.CurrentBox.Window)&&CanvasConversion.Converts==persistentConverts+1,
+            "a normally retired persistent confirmation can acquire a fresh presentation on native reopen");
+        surface.Shutdown();
+
+        (surface,manager,source,panel,home)=Setup();
         var other = new GameObject("other owner"); other.AddComponent<UIWindow>();
         var perk = other.AddComponent<UIPerksInventory>();
         CanvasConversion.Convert((RectTransform)other.transform,"perks",1);

@@ -183,7 +183,9 @@ namespace GloomhavenVR.WorldUI
     internal static class PanelLayout { internal const float WorldScale = 1f; }
     internal sealed class ConvertedPanel
     {
-        internal bool IsAlive = true;
+        // Real ConvertedPanel liveness follows the original native rect, which
+        // intentionally survives normal conversion release.
+        internal bool IsAlive => Target != null;
         internal bool ModLayerEnabled;
         internal RectTransform Target = new();
         internal GameObject HostGo = new("host");
@@ -211,7 +213,7 @@ namespace GloomhavenVR.WorldUI
         internal static void Release(ConvertedPanel panel)
         {
             if (ThrowRelease) throw new InvalidOperationException("release");
-            ++Releases; panel.IsAlive = false; ActivePanels.Remove(panel);
+            ++Releases; ActivePanels.Remove(panel);
             panel.Target.SetParent(panel.Home, false);
         }
         internal static void PlaceHost(ConvertedPanel panel, Vector3 pos, Quaternion rotation, float scale)
