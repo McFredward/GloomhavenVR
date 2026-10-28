@@ -123,4 +123,3 @@ enabled, so this does not establish original game-uGUI gate timing. Native pose,
 parenting, pool selection, activation, callback and head/UI render operations run.
 The original game files remain read-only. Actual native game art/D3D11 and headset
 appearance still require hardware acceptance.
-
