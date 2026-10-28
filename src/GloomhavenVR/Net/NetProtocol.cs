@@ -629,7 +629,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 738;
+    public const ushort ModBuild = 739;
+
+    // ModBuild739 — show only the original small confirmation dialog.
+    // The maintainer accepts738 hover orientation, but reports a large black veil
+    // and front-only flicker of the card-choice prompt; its rear remains stable.
+    // Fresh738 logs prove that its requested filtered capture was refused at the
+    // occupied session budget, so the native full-frame Black_Backdrop and
+    // CullBack/GrabPass depth-writing blur still drew directly into the eyes.
+    // Opt both local confirmation consumers into the converter's existing reversible
+    // full-cover background removal, before reveal and independent of admission.
+    // Keep the native small Box, text/buttons, callbacks, persistent lifetime and
+    // accepted hover correction. No shared capture, allocator, shader or wire change.
 
     // ModBuild738 — correct level-up hover pose before first draw and stable confirmations.
     // The maintainer confirms737 resolves preview shadows, card relief and the
