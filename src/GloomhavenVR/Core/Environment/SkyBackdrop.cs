@@ -212,6 +212,7 @@ internal static class SkyBackdrop
         {
             if (_mech != Mechanism.Undecided || _applied)
                 FullReset();
+            NativeDefaultSky.Reset();
             return;
         }
 
@@ -220,24 +221,48 @@ internal static class SkyBackdrop
             // MR hides the sphere for the chroma key (and SkyAlternative hides it for its own
             // 3D environment) — restore it to vanilla first so the owner records/disables a
             // clean renderer. Keep the decision cached.
-            if (_applied)
+            if (NativeDefaultSky.Owns(_sky))
+                FullReset();
+            else if (_applied)
                 RemoveEffects();
+            NativeDefaultSky.Release();
             return;
         }
 
+        if (NativeDefaultSky.RefreshLifetime()) FullReset();
         EnsureAcquired();
+        NativeDefaultSky.UpdatePose();
         if (_sky == null || _mat == null)
             return;
         ApplyEffects();
     }
 
     /// <summary>Full teardown (VR stop / hot reload). Restores the sphere and forgets the decision.</summary>
-    internal static void RestoreAll() => FullReset();
+    internal static void RestoreAll()
+    {
+        FullReset();
+        NativeDefaultSky.Reset();
+    }
 
     // ---- acquisition --------------------------------------------------------------------------
 
     private static void EnsureAcquired()
     {
+        // Build740: Default must also exist before any scenario has ever loaded.
+        // While using the render-only bank, retry native discovery on the same
+        // bounded cadence. A late native scene sky replaces our presentation,
+        // rather than rendering two domes or losing the scenario's own authority.
+        Renderer? arrived = null;
+        if (NativeDefaultSky.Owns(_sky) && Time.frameCount >= _scanNextFrame)
+        {
+            _scanNextFrame = Time.frameCount + ScanIntervalFrames;
+            arrived = FindNativeSky();
+            if (arrived != null)
+            {
+                FullReset();
+                NativeDefaultSky.Release();
+            }
+        }
         // Unity fake-null: the sphere was destroyed by a scene unload → forget it and re-scan.
         if (_sky == null || _mat == null)
         {
@@ -248,7 +273,7 @@ internal static class SkyBackdrop
                 return;
             _scanNextFrame = Time.frameCount + ScanIntervalFrames;
 
-            Renderer? found = FindSky();
+            Renderer? found = arrived != null ? arrived : FindSky() ?? NativeDefaultSky.Acquire();
             if (found == null)
                 return;
             Material? mat = found.sharedMaterial;
@@ -265,12 +290,15 @@ internal static class SkyBackdrop
     /// <see cref="SkyAlternative"/> hides the SAME renderer this class treats — one set of hints,
     /// no second definition of "the sky" to drift.</summary>
     internal static Renderer? FindSky()
+        => FindNativeSky() ?? NativeDefaultSky.Renderer;
+
+    private static Renderer? FindNativeSky()
     {
         Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>();
         for (int i = 0; i < all.Length; i++)
         {
             Renderer r = all[i];
-            if (r == null)
+            if (r == null || NativeDefaultSky.Owns(r))
                 continue;
             if (MatchesHint(r.gameObject.name))
                 return r;
