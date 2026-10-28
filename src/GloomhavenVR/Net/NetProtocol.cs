@@ -629,7 +629,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 736;
+    public const ushort ModBuild = 737;
+
+    // ModBuild737 — shadowless window figures, stronger cards and native level-up lists.
+    // The maintainer confirms Build736 resolves pitched-window disappearance,
+    // card-label flicker and menu hand trailing. Remove only dynamic shadows
+    // during private character-preview draws; retain original lights/materials
+    // and finally restore native shadow state for normal gameplay rendering.
+    // Raise original ability/item card subtrees by 60% more physical-width depth,
+    // keeping authored layout, pointer behavior and scoped backing/text separation.
+    // Native TMP returns inverted +/-2^31 ink bounds for active glyphless labels.
+    // Feeding those bounds into the retained level-up preview envelope sent both
+    // original lists billions of pixels outside the window. Include only finite,
+    // positive visible ink while retaining the original text/card rectangles and
+    // real overflowing glyphs. Preserve the native outside-level-up browse toggle
+    // and original locked/reset/selection permissions; no progression is invented.
 
     // ModBuild736 — retain character windows under head pitch and stable native text.
     // Build734 hardware on D3D11 reveals a sampled-depth reconstruction Y mismatch:
