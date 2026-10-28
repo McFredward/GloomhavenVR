@@ -146,3 +146,35 @@ Resource changes from `5ee2bca24` and `b195b474c` are local test dependencies;
 the resource lane owns their source and independent Android/Vulkan proof.
 The earlier 97-test intermediate pass is retained separately. Every run reaps
 its process and invokes common cleanup; no regenerable Unity project exists.
+
+## Actual previous Builder source comparison
+
+The retained B717 production audit identifies source
+`6f5c94aceead0031720ac35868dcfa2c391aafe6` and its exact 3,648-file
+`source-release-manifest.json` (SHA256
+`6b5470867b6d78f4c5db05ce4e15afde3fe9c4eae2d48988f269a06f8dc3bbfd`).
+Compare that source to lane commit `3fc15a0b6`: current selection contains
+4,221 files / 2,254,410,079 bytes. Reuse 3,537 previously measured rows only
+with the original report's source-commit binding and identical immutable Git
+objects; freshly measure 684 changed rows / 173,256,206 bytes. Do not rescan
+unchanged multi-GB movie recipes just to compare their source manifest.
+
+Execute the actual production requirements planner against these source rows
+and the same controlled original-file metadata used by the retained B717
+producer audit. Authored art, native helpers, figure, audio and movie producers
+are unchanged; all corresponding changed flags are false. No separate movie
+pixel input changed. The original Builder producer AST remains exactly
+`6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1`.
+Managed code changes and the new shader/depth delivery remain independently
+required. This establishes source/recipe compatibility; the original metadata
+is controlled audit input, not a new claim about a selected device APK.
+
+On this intermediate lane commit the only remaining full-build reason is the
+delivery-only `installation_manifest.py` validator change. The integrator owns
+its precise classification along with the newly assigned orchestration; this
+intermediate result does not claim the final integrated route is fixed.
+The read-only audit completes in 1.469 seconds and retains its source rows,
+requirements and cleanup result under the lane evidence directory. A preceding
+audit-harness attempt lacked installer-captured bank modules and failed before
+planning; its correction uses the existing production driver helper loaders.
+That failed instrumentation attempt remains separate from the successful audit.
