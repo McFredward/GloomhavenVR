@@ -77,6 +77,9 @@
                       LogicalName="GloomhavenVR.StereoVideo.ui-sbs.bundle" />
     <EmbeddedResource Include="Assets\SteamLink\scene.bundle"
                       LogicalName="GloomhavenVR.SteamLink.scene.bundle" />
+    <!-- Original render-only sky for VR contexts without a native scenario sky. -->
+    <EmbeddedResource Include="Assets\DefaultSky\native-default-sky.bundle"
+                      LogicalName="GloomhavenVR.DefaultSky.bundle" />
     <!-- Isolated public OpenVR identity reader: never initialize another VR client in the game. -->
     <EmbeddedResource Include="Assets\SteamLink\connection-reader.exe"
                       LogicalName="GloomhavenVR.SteamLink.connection-reader.exe" />

@@ -3285,6 +3285,17 @@
         "local"
       ],
       "weight": 4
+    },
+    {
+      "id": "environment-menu-scope",
+      "command": [
+        "python3",
+        "scripts/check-environment-menu-scope.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 2
     }
   ]
 }

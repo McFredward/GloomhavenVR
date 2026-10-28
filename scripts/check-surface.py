@@ -270,6 +270,24 @@ AUTHORIZED_RETIREMENTS = {
         "typeof(FigureVisualMirror), nameof(FigureVisualMirror.CloneVisual)": "src/GloomhavenVR/Core/Perf/ScenarioIdleAnimationBudget.cs",
     },
     "logTokens": {
+        # The maintainer's 2026-10-28 environment request explicitly includes menus
+        # and maps. These all-caps fragments occurred only in the obsolete English
+        # and German Sky/Style configuration help, never a VRLog call. Keep this
+        # retirement restricted to their original source paths; log markers remain
+        # protected by the same comparison and no parser rule is relaxed.
+        "FIXED PLACE AROUND THE BOARD": "src/GloomhavenVR/Core/Environment/SkyAlternative.cs",
+        "MUCH LARGER PLACE": "src/GloomhavenVR/Core/Environment/SkyAlternative.cs",
+        "REALITY ALWAYS WINS": "src/GloomhavenVR/Core/Environment/SkyAlternative.cs",
+        "SMALL GAME BOARD FLOATING IN THE MIDDLE OF": "src/GloomhavenVR/Core/Environment/SkyAlternative.cs",
+        "THE BOARD NEVER MOVES INSIDE THE ROOM": "src/GloomhavenVR/Core/Environment/SkyAlternative.cs",
+        "BEWEGT SICH NIEMALS IM RAUM": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",
+        "DAS BRETT": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",
+        "DAS IN DER MITTE": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",
+        "EINES VIEL": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",
+        "FESTEN ORT UM DAS": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",
+        "KLEINES SPIELFELD IST": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",
+        "MIXED REALITY GEWINNT IMMER": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",
+        "ORTES SCHWEBT": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",
         # Maintainer's 2026-10-18 ruling moves shared cosmetic movie reviews to
         # Cheats. These were page captions, never runtime log markers; the new
         # localized scope keeps save-changing cheats offline without falsely

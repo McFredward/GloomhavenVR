@@ -629,7 +629,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 739;
+    public const ushort ModBuild = 740;
+
+    // ModBuild740 — selected surroundings in the main menu, 3D map and scenarios.
+    // The maintainer extends the environment choice to every VR context, including
+    // the game's Default animated sky. This supersedes the old menu exclusion.
+    // Keep custom rooms world-fixed; a menu uses a fixed tracking-floor footprint,
+    // while map/scenario placement retains its native subject arithmetic. Retire
+    // rooms on actual rig replacement, never on ordinary motion or same-rig recenter.
+    // Default uses the original native scene renderer whenever available. Outside
+    // scenarios, load only its seven original render assets from an isolated bank:
+    // unchanged AMP_SkyShader/material/mesh/texture payloads and fallback dependencies.
+    // The private presentation uses the existing mod layer and non-occluding sky
+    // path, fits the existing far plane, and yields to native arrival, styles and MR.
+    // Keep native actor/session authority, enum keys, defaults and wire unchanged;
+    // product help now describes the same scope in English and German.
 
     // ModBuild739 — show only the original small confirmation dialog.
     // The maintainer accepts738 hover orientation, but reports a large black veil
