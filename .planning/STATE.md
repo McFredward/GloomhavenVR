@@ -1,3 +1,54 @@
+**Character-window motion clarity, readable hints and laser rotation, Build734, 2026-10-28.**
+
+The exact Build729 hardware logs show no depth fallback or pool failure, but 184 outer
+sampling reallocations. A fixed 2020x1112 New Party frame drops from 1.50 to 0.25
+sampling, losing 36 times its core pixel count during movement. The old source-only
+motion fixture did not exercise this allocator. Render the entire original UI
+and character on fixed actual-head pixel grids, prepare both eyes through the
+real coordinator, and retain the private mono photograph's retirement for the
+spatial presentation lifetime. Preserve native framing, masks, effects and input.
+
+Actual 4040 eye descriptors use finite, exact format-derived window/scratch ledgers;
+capacity is lazy and does not reduce quality with player motion. Original window
+frames clip ordinary UI while exact authored-depth hint rectangles and real
+foreground card silhouettes retain their proper extent. Native card effects keep
+the original D3D11 programs, with scoped depth writes and original alpha clipping;
+an independent parsed-asset audit verifies the derivative and causal controls.
+
+Skin, personal-quest and colliding creation hints use the original serialized
+widgets in the right-side lane without enlarging the window. Their actual TMP
+description child supplies annotation membership even without a ready character.
+Hold the laser trigger on the original portrait and move sideways to rotate only
+the private preview about its fixed native ground origin. Native actors, window
+pose, callbacks, accepted framing and default-on depth preference remain intact.
+
+Final pooled-card reuse also exposes never-active graphic helpers retaining dead
+registrations. Register only active lifetimes, retain first activation through
+OnEnable, and renew active same-state reacquisition once after an actual card
+owner release. Unchanged retained decorations return before any linear membership
+lookup. The final complete card suite passes 1990 assertions/17 controls on 38
+identical integration inputs. Final seven render/hint consumers pass in 507.6 seconds;
+the complete performance suite passes 1133 assertions/11 controls on 34 identical
+inputs. Actual warm registrations are zero; the causal prior variant makes 377
+calls in its first measured frame. Mean CPU Tick ratio is 0.411 versus fixed Build724
+baseline, with unchanged 0.5 limit. This does not certify headset frame pacing.
+Strict real Debug/Release and metadata Release pass 0W0E; all 16 source gates pass.
+Keep the failed 258-suite complete checkpoint and its 255 passes/3 failures, repaired
+focused proofs and inherited unchanged Build733 evidence separate. The verified 264-suite
+aggregate comprises 228 unchanged checkpoint passes, 12 unchanged published733
+scopes, 15 earlier affected passes, 7 final consumers, and final card/performance
+passes. It is not a new complete-gate pass. Compiled review confines final cost
+repair to the graphic helper; no gameplay, wire, shader or resource changes.
+See MENU734-STABLE-WINDOWS-HINTS-AND-ROTATION.md and ignored menu730/validation-final734.json.
+
+Published Build731/733 runtime remains unchanged. Remote Build717 hardware logs are stale,
+not paired Build729 evidence. Actual coordinator/final-head GL pixels and original
+D3D11 byte equivalence do not certify headset appearance or joystick frame pacing;
+motion clarity, hints and rotation still need hardware acceptance. Source-only
+dev delivery; the Windows installer builds its archive. Preserve evidence while
+retiring all five clean worker worktrees with verified evidence archives, using
+per-run cache cleanup and stopping the task-private ADB after the final Unity run.
+
 **Shared city-event and quest readiness review, Build733, 2026-10-27.**
 
 The native desktop city proposal leaves clients' original ready window hidden;

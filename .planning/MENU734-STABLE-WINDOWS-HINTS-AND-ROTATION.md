@@ -86,6 +86,32 @@ game host, widgets, input, layout and callbacks remain native. Retiring the spat
 presentation restores the original photograph state. Mixed-reality backing and
 native focus order must follow the active replacement too.
 
+The head raster preserves the original physical window frame. Only the exact,
+live native hint rectangles may extend outside it; their authored depth and
+actual root-Canvas mapping remain intact. Foreground cards need their original
+sprite silhouette to write depth so the frame does not cut genuine raised ink.
+The existing graphic adapter supplies that depth only during its live card/head
+lease, without an extra draw, a rectangular blocker or changed native input.
+
+Native full/item/mini backgrounds use `GUI/AbilityCard_Shd`, whose original
+programs exist only for D3D11. A derived mod-bundle shader preserves every native
+program byte, property, keyword, dependency and other render state; only its
+parsed name and depth-write flag differ. The scoped material selects the native
+alpha-clip variant, including its original 0.001 discard threshold. The independent
+asset audit checks the complete parsed tree and eleven serialized negative
+controls. GL stand-ins prove dispatch, scope and silhouette behavior, not native
+D3D11 effect pixels. The 73108-byte bundle has SHA256
+`35fb32df65d0c81b7ff153cabfeb58810da4c410a8ad6b55194db84d676b1119`.
+
+The final reuse test also catches a cold-pool lifetime defect in this adapter.
+Unity does not guarantee disable/destroy callbacks for never-active components;
+registering hidden native card helpers during configuration could therefore leave
+a destroyed source and abort a later window capture. Admit only active helpers,
+let their existing `OnEnable` admit first activation, and renew registration
+once after an actual last-card-owner release so an active helper can be reacquired
+without another enable. Retained unchanged decorative graphics return before any
+linear registry membership search. Original teardown and scene discovery remain.
+
 ## Original hints and preview interaction
 
 Right-side hint routing identifies serialized native skin, description,
@@ -108,13 +134,99 @@ drag composes preview yaw around the native main actor's ground origin. Original
 model/holder/gameplay transforms, window pose and automatic celebration consumers
 remain untouched. Source readiness and identity replacement cancel old drags.
 
-## Validation checkpoint
+## Validation and evidence reuse
 
-Standalone interaction currently passes235 assertions and11 causal controls;
-enrolled interaction through the real Source.Camera.Render passes110 and4. The
-whole-window motion checkpoint passes1465 assertions and3 causal controls through
-NativeFlat and the production PanelSupersample coordinator, both eyes over52poses.
-Independent fixed-world UI/model references compare final head pixels. These are
-checkpoint results; final resource, hint-authoring and complete local-gate evidence
-must be recorded after integration. Automated GPU, source and log evidence remain
-distinct from headset acceptance.
+Test class C applies to the integrated capture/coordinator change. The complete
+258-suite checkpoint ran once: 255 passed and 3 failed in 3403.4 seconds. Preserve
+that failed invocation at `debug/menu730/full-gate`, including its 2701 stable
+source/input pins. Its three failures were the capture fixture's incorrect HDR
+factory setting, a desktop causal-control anchor and the rotation fixture's
+missing real head-raster source. Later bounded class B repairs rerun their affected
+suites rather than relabel that complete invocation or repeat unaffected tests.
+
+The final 24-suite integration selection took 560.2 seconds: 22 passed and 2 failed,
+with 2818 stable source/input pins. The nested-card and coplanar controls still
+targeted old code shapes; both fixtures were repaired without weakening their
+pixel or render-count oracles. Desktop's complete follow-up passed in 168.1 seconds.
+The card follow-up then exposed the cold-pool lifetime defect described above.
+Its complete repaired suite passes 1990 native card/GPU assertions and 17 causal
+controls in 155.3 seconds, including all six repeated hovers on each of the three
+native routes. Its 38 source, fixture, native assembly and bundle input hashes
+match that integration exactly. The eight registry/graphic consumers then pass
+all seven functional render/hint suites, but the performance comparison fails its
+unchanged mean-ratio limit: 1.939 ms versus 2.547 ms baseline, ratio 0.761 instead of
+less than 0.5. Source review identifies repeated linear membership searches before
+the retained decorative graphics' same-state return. Restrict renewal to the
+actual released-card case and extend the existing performance instrumentation
+with real `Register` calls plus a mutant restoring the redundant work. The final
+seven render/hint consumers pass in 507.6 seconds with 2818 unchanged input pins.
+The complete final card suite again passes 1990 assertions/17 controls in 168.0 seconds;
+all 38 inputs match the integration. The complete performance suite passes 1133
+assertions/11 controls in 62.6 seconds, with 34 identical integration inputs.
+Its 270 measured frames make zero repeated registrations; the causal restored
+variant makes 377 calls in the first measured frame and fails the counter check.
+Mean CPU Tick time is 0.969 ms versus 2.360 ms for the fixed historical workload
+(ratio 0.411); p99 ratio is 0.078. These are CPU fixture readings, not headset frame
+times. No timing or pixel threshold is relaxed. Performance assertion counts
+depend on the measured frame population; the added counter contributes one check
+per frame. Card counts add 18 first-title checks, 18 reacquisition checks and 2 cold
+census preconditions without removing existing cases.
+
+Passing integration evidence already includes:
+
+| Scope | Evidence |
+|---|---|
+| Whole-window motion | Actual NativeFlat and PanelSupersample coordinators, both eyes over52 poses; independent fixed-world text and figure references and final head pixels |
+| Hardware-sized resources | Actual4040 eye descriptor, exact finite ledgers, simultaneous owners, release accounting, resize and annotation-only windows |
+| Original window frame |45 assertions, both eyes/front/rear, figure IoU1 and zero ordinary-UI leakage |
+| Authored hint planes |330 assertions plus the wrong-glyph-plane negative control |
+| Figure/card overlap |163 assertions plus depth-test control, with an independent physical-mesh reference |
+| Tooltips | Converted211 assertions/7 controls; native101/8, including actual serialized TMP child text |
+| Laser rotation | Standalone235/11; actual enrolled source and head front/rear156/4 |
+| Native shader asset |21 independent checks and11 serialized controls;2.7seconds in the integration selection |
+
+The final inventory is 264 local/119 hosted/16 source suites. Five added city
+helper suites and affected city consumers inherit published Build733 evidence with
+unchanged source, fixtures and native inputs; the menu selection also exercises
+shared pose/geometry, modal, map-ready/handoff and level-up consumers. The compiled
+review records all 18 preserved city source hashes. The verified final coverage
+map is `debug/menu730/validation-final734.json`: 228 passes from the unchanged
+complete checkpoint, 12 from unchanged published Build733 scopes, 15 from the earlier
+affected selection, 7 from the final consumer run, and the final complete card and
+performance suites. Every current local suite has passing coverage. This aggregate
+is not a new successful 264-suite invocation; earlier failed reports remain failed.
+
+Strict actual-runtime Debug and Release and separate metadata Release builds pass
+with 0 warnings/0 errors after the final cost repair. All 16 source gates pass in
+37.0 seconds. Compiled comparison against Build729 records 14 menu behavior types,
+17 unchanged published Build731/733 types, 7 additions and 10 build-identity/metadata
+differences, with no removed types. The final bounded compiled delta adds only
+the released-card flag and its configuration/release/enable behavior. Earlier
+build-identity normalization separately records the dirty developer-document
+stamp and its inlined startup summary. The public surface retains
+670 configuration keys, 261 literal Harmony registrations and 4845 log tokens;
+the 13 registrations and 2 tokens added since the menu checkpoint belong to Build733.
+All 306431 golden vectors pass on the earlier integrated wire inputs; wire version,
+codecs and layouts remain unchanged through Build734. Reuse verifies 261 unchanged
+compiled source inputs, the unchanged project and both actual-game Unity runtime
+reference hashes; the remaining protocol source differs only by comments,
+whitespace and the inlined build value. That inherited proof is distinct from
+compiling or executing a new734-stamped golden binary.
+
+Evidence lives under ignored `debug/menu730`: strict and metadata run manifests,
+`source-registration734`, `affected734`, `fixture-repair734`, `lifetime-repair734`,
+`registration-repair734`, `goldens`, `compiled734-registration`, and
+archived worker runs. Earlier failed runs remain available. Each completed run
+reaps its processes and uses `cleanup_completed_run`; worktree retirement preserves
+and verifies unique source, log, result and capture evidence before removal.
+All five owned worktrees are retired after verified archival, including the
+bounded performance follow-up; borrowed native inputs, hardware logs, `.keep`
+pins and other agents' worktrees remain. The separately created private ADB server
+is stopped after the last own Unity run.
+
+Automated GL pixels, source/log evidence and native binary equivalence do not
+establish headset appearance, D3D11 effect execution or joystick frame pacing.
+All 16 supplied hardware camera census rows use a full viewport; partial native
+camera viewports remain an unverified conditional API case, not a diagnosed cause.
+The maintainer still needs to judge motion clarity, right-side hints and rotation
+on the headset. Delivery is pushed dev source; the Windows installer builds its ZIP.
