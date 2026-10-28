@@ -74,6 +74,17 @@ GL fragment stand-in; do not call those original D3D11 FX pixels.
 
 ## Validation and delivery
 
+The separate after-close loop is now source-proven: real ConvertedPanel.IsAlive
+means only Target!=null, and the native target intentionally survives release.
+ReleaseAt tested that property as though it described the conversion lease, so
+it retained the same seat indefinitely. After Release, test the existing
+PanelAlive predicate (host plus active registry). The subsequent original-home
+ReferenceEquals guard still retains a refused restoration. Both pure/native
+fixture ports now model the real Target-only contract; a refused detach/retry,
+50 closed ticks without another release and a fresh native reopen are covered.
+This repair is local to the confirmation owner and is separate from the visible
+GrabPass/depth flicker.
+
 Implementation and focused proof remain in two disjoint worktrees from published
 `9a3736d4f`. Root owns registration, fixture compatibility outside those lanes,
 the build stamp, final integrated checks and documentation. Record final counts,

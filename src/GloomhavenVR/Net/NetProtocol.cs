@@ -643,6 +643,9 @@ internal static class NetProtocol
     // the existing filtered capture/neutralization and wrote depth beside coplanar
     // text/buttons. Enroll those two consumers in the same existing path as normal
     // windows; retain original confirmation widgets, modal permissions and callbacks.
+    // A released ConvertedPanel keeps its native Target alive. Retire an owned
+    // confirmation by its active presentation lease, retaining refused native-home
+    // restores, instead of releasing the same closed box on every later frame.
     // No shared allocator/compositor, native shader-bank, actor or wire change.
 
     // ModBuild737 — shadowless window figures, stronger cards and native level-up lists.
