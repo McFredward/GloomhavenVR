@@ -18,7 +18,10 @@ Both local confirmation conversion consumers now request the existing reversible
 full-cover background removal before reveal. It operates independently of render
 target admission, preserving the smaller native Box, text, buttons, callbacks,
 modal authority, persistent scene and flat restoration. Keep Build738's accepted
-hover observer and active-lease retirement unchanged. No shared renderer,
+hover observer and active-lease retirement unchanged. The member also receives its actual owner's base sorting tier +1. Fresh738
+logs kept the nearer member at116 below its owner at132: its32px foreground
+offset is inside the distance ladder's2cm tie margin. Use the existing insertion
+tie rule without changing shared hysteresis or accepted poses. No shared renderer,
 allocator, shader asset or protocol change is planned.
 
 ClassB bounded local presentation repair. Reuse the fresh complete737 checkpoint

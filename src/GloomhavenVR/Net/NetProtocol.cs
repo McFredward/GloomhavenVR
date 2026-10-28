@@ -640,7 +640,9 @@ internal static class NetProtocol
     // Opt both local confirmation consumers into the converter's existing reversible
     // full-cover background removal, before reveal and independent of admission.
     // Keep the native small Box, text/buttons, callbacks, persistent lifetime and
-    // accepted hover correction. No shared capture, allocator, shader or wire change.
+    // accepted hover correction. Seed the persistent member one tier above its
+    // owner inside the existing depth tie;738 logs placed it behind that owner.
+    // No shared capture, allocator, shader or wire change.
 
     // ModBuild738 — correct level-up hover pose before first draw and stable confirmations.
     // The maintainer confirms737 resolves preview shadows, card relief and the
