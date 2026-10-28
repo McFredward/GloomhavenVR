@@ -47,6 +47,7 @@ _resource_proofs = set()
 _resource_value_proofs = {}
 _UINT32_SENTINEL = 0xffffffff
 _MAX_ZIP_DIRECTORY = 64 * 1024 * 1024
+_MAX_RESOURCE_METADATA = 64 * 1024 * 1024
 
 
 class RebuildRequired(BuildError):
@@ -666,6 +667,129 @@ def profile_update(base, profile):
     raw = _json_bytes(profile)
     if len(raw) > 4096: raise BuildError("Offline profile exceeds its runtime bound.")
     return {PROFILE: raw}
+
+
+def _resource_json_file(raw):
+    """Qualify the pinned player object table before UnityPy follows any object."""
+    import UnityPy
+    from script_order import _Reader
+    if not 48 <= len(raw) <= MAX_MEMBER:
+        raise BuildError("Quest JSON resource serialized file exceeds its bound.")
+    header = _Reader(raw, endian=">")
+    header.take(8)
+    version = header.number("I")
+    header.take(4)
+    little = header.number("B")
+    if version != 22 or little not in (0, 1) or header.take(3) != b"\0\0\0":
+        raise BuildError("Quest JSON resources require the native Unity v22 player format.")
+    metadata_size, file_size, data_offset = header.number("I"), header.number("q"), header.number("q")
+    header.take(8)
+    if (file_size != len(raw) or not 0 < metadata_size <= _MAX_RESOURCE_METADATA
+            or not 48 < 48 + metadata_size <= data_offset <= file_size):
+        raise BuildError("Quest JSON resource serialized header extents are invalid.")
+    reader = _Reader(raw, 48, 48 + metadata_size, "<" if little == 0 else ">")
+    unity = bytearray()
+    while len(unity) <= 64:
+        byte = reader.take(1)
+        if byte == b"\0": break
+        unity.extend(byte)
+    if bytes(unity) != b"2021.3.5f1":
+        raise BuildError("Quest JSON resource Unity version changed; audit the native layout.")
+    reader.take(4)  # The original player target does not change this object table.
+    type_tree = reader.number("B")
+    if type_tree not in (0, 1): raise BuildError("Quest JSON resource type-tree flag is invalid.")
+    types = []
+    for _ in range(reader.count(4096)):
+        class_id = reader.number("i")
+        reader.take(3)
+        if class_id == 114: reader.take(16)
+        reader.take(16)
+        if type_tree:
+            nodes, strings = reader.count(262144), reader.count(16 * 1024 * 1024)
+            reader.take(nodes * 32 + strings)
+            reader.take(reader.count(262144) * 4)
+        types.append(class_id)
+    objects, intervals = {}, []
+    for _ in range(reader.count()):
+        reader.align()
+        path_id, start, size, type_index = reader.number("q"), reader.number("q"), reader.number("I"), reader.number("i")
+        start += data_offset
+        if (path_id in objects or not 0 <= type_index < len(types)
+                or not data_offset <= start <= start + size <= file_size):
+            raise BuildError("Quest JSON resource object identity or extents are invalid.")
+        objects[path_id] = (start, size)
+        intervals.append((start, start + size))
+    previous = data_offset
+    for start, end in sorted(intervals):
+        if start < previous: raise BuildError("Quest JSON resource object extents overlap.")
+        previous = end
+    env = UnityPy.load(raw)
+    if len(env.files) != 1: raise BuildError("Quest Resources must be one serialized player file.")
+    file = next(iter(env.files.values()))
+    if (not hasattr(file, "objects") or set(file.objects) != set(objects)
+            or any((obj.byte_start, obj.byte_size) != objects[path_id] for path_id, obj in file.objects.items())):
+        raise BuildError("Quest JSON resource object registry differs from its native metadata.")
+    return env, file
+
+
+def read_resource_json(base_apk, names):
+    """Read only retained mod delivery contracts through native Resources pointers.
+
+    No asset is saved and no update proof is minted. Only the native player
+    registry and its selected safe serialized files are opened; Campaign banks
+    and the authored content archive remain outside this read operation.
+    """
+    try: requested = (names,) if isinstance(names, str) else tuple(names)
+    except TypeError as exc: raise BuildError("Unsupported Quest JSON TextAsset read scope.") from exc
+    if (not requested or any(name not in ("quest-mod-content", "quest-mod-bundles") for name in requested)
+            or len(set(requested)) != len(requested)):
+        raise BuildError("Unsupported Quest JSON TextAsset read scope.")
+    try:
+        stamp = _base_stamp(base_apk)
+        with zipfile.ZipFile(base_apk) as apk:
+            entries = _entries(apk)
+            manager_name = "assets/bin/Data/globalgamemanagers"
+            if manager_name not in entries: raise BuildError("Quest lacks the original native ResourceManager registry.")
+            manager, manager_file = _resource_json_file(apk.read(entries[manager_name]))
+            resources = [obj for obj in manager.objects if obj.type.name == "ResourceManager"]
+            if len(resources) != 1: raise BuildError("Quest requires one native ResourceManager.")
+            groups, found = {}, set()
+            for key, ptr in resources[0].read_typetree().get("m_Container", []):
+                if key not in requested: continue
+                if key in found: raise BuildError("Quest JSON resource path is ambiguous: " + key)
+                found.add(key)
+                index, path_id = ptr["m_FileID"], ptr["m_PathID"]
+                if (type(index) is not int or type(path_id) is not int
+                        or not 0 < index <= len(manager_file.externals) or not path_id):
+                    raise BuildError("Quest JSON resource has an invalid external pointer.")
+                member = _external_member(manager_file.externals[index - 1].path)
+                if not _resource_member(member): raise BuildError("Quest JSON resource is outside its safe player asset scope.")
+                if member not in entries: raise BuildError("Quest JSON resource references a missing player file: " + member)
+                groups.setdefault(member, {})[key] = path_id
+            if found != set(requested): raise BuildError("Quest JSON resource is missing from the original native registry.")
+            values = {}
+            for member, selected in groups.items():
+                env, _ = _resource_json_file(apk.read(entries[member]))
+                objects = {obj.path_id: obj for obj in env.objects}
+                for key, path_id in selected.items():
+                    obj = objects.get(path_id)
+                    if obj is None or obj.type.name != "TextAsset":
+                        raise BuildError("Quest JSON resource pointer does not resolve to a TextAsset.")
+                    if not 0 < obj.byte_size <= MAX_JSON + 4096:
+                        raise BuildError("Quest JSON resource TextAsset exceeds its bounded contract.")
+                    fields = obj.read_typetree()
+                    if fields.get("m_Name") != key: raise BuildError("Quest JSON resource pointer names the wrong object.")
+                    raw = fields.get("m_Script")
+                    if isinstance(raw, str): raw = raw.encode("utf-8")
+                    if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_JSON:
+                        raise BuildError("Quest JSON resource TextAsset has an invalid JSON extent.")
+                    parsed = json.loads(raw)
+                    if not isinstance(parsed, dict): raise BuildError("Quest JSON resource contract must be an object: " + key)
+                    values[key] = parsed
+        if _base_stamp(base_apk) != stamp: raise BuildError("Quest APK changed while reading its native Resources contracts.")
+        return values
+    except (OSError, ValueError, KeyError, IndexError, EOFError, struct.error, zipfile.BadZipFile) as exc:
+        raise BuildError("Quest native Resources JSON could not be read safely.") from exc
 
 
 def patch_resource_json(base, name, value=None, *, replacements=None):
