@@ -1,3 +1,41 @@
+**Original small confirmation foreground, Build739, 2026-10-28.**
+
+The maintainer accepts738 hover cards, but confirmation hardware still flickers
+from the front and has an unwanted black full-screen veil. Fresh local738 logs
+prove its filtered capture was refused: 28.9 MB minimum, -15.9 MB remaining.
+The earlier isolated-capture proof did not cover that direct route. Remove the
+original full-cover Black_Backdrop/GrabPass images reversibly before reveal,
+independently of capture admission, through both local confirmation consumers.
+Keep the original small Box, buttons, callbacks, DDOL and738 lease repair.
+
+The persistent member's32px foreground offset is inside the existing2cm depth
+tie. Logs kept it at116 below its owner at132. Seed its existing sorting tier from
+the actual owner +1; preserve shared ordering, poses and the accepted hover fix.
+
+Strict Debug/Release and metadata pass0W0E, source16 passes23.5s, and compiled
+scope is only2local UI consumers plus9ModBuild-only types (0added/removed).
+Native containing414/21 and pure165/16 preserve all prior157/18 and162/13.
+All80 direct front/rear final-head samples match the independent small-box
+references exactly; backdrop/tier omission controls reproduce exterior ink and
+lost prompt pixels. Original geometry/sprites/fonts and production hide/order
+kernels execute. Root inspected front/rear captures. Outer conversion/allocator,
+native session and character-owner head compositor remain qualified ports;
+original D3D11 fragments and headset appearance still require hardware acceptance.
+
+Nine unchanged consumers pass233.6s; final pure/native scopes execute the final
+local tier argument. Verified264-suite aggregate coverage inherits complete737
+and verified738 evidence for unchanged areas;306431 goldens are inherited with
+261unchanged compile inputs and only NetProtocol comments/build stamp excepted.
+This is not a new complete pass. The only worker source-binding exception fixes
+one hardware-build comment and has verified identical non-comment tokens.
+
+Both owned worktrees are archived/hash-verified/retired; owned run caches and
+private ADB are cleaned, preserving evidence and current artifacts. See
+MENU739-CONFIRMATION-FOREGROUND.md and ignored menu739/validation-final.json.
+Delivery is origin/dev source; the Windows script builds the archive. Remote717
+is stale. The next authorized request is environment parity across main menu,
+3D map and scenario, including Default; reserve Build740, with Quest741 coordinated.
+
 **Correct first hover frame and stable level-up confirmation, Build738, 2026-10-28.**
 
 The maintainer confirms Build737 resolves shadows, stronger card relief and the

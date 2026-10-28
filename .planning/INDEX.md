@@ -1,6 +1,9 @@
 # Planning index
 
-Updated 2026-10-27: Build728 completes native menu depth, original level-up presentation and raised menu cards; aggregate252-suite coverage, goldens and strict builds pass. The Windows installation script builds the archive.
+Updated 2026-10-28: Build739 removes the original full-screen confirmation veil
+independently of capture admission and restores the small prompt's foreground
+order. See STATE.md for final validation and hardware acceptance. The Windows
+installation script builds the archive.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +13,9 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MENU739-CONFIRMATION-FOREGROUND.md](MENU739-CONFIRMATION-FOREGROUND.md) | Native small confirmation without the full-screen black/GrabPass surface, owner foreground order and direct-path regression evidence |
+| [MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md](MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md) | Accepted first-frame hover alignment, prior capture-only confirmation repair and its qualified evidence |
+| [MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md](MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md) | Accepted preview shadows/card relief/level-up list repairs and the latest complete integration checkpoint |
 | [MENU728-DEPTH-CARDS-AND-LEVELUP.md](MENU728-DEPTH-CARDS-AND-LEVELUP.md) | Native source/final-window depth, complete level-up presentation, original raised menu cards and integration evidence |
 | [MENU727-CHARACTER-DEPTH-PREFERENCE.md](MENU727-CHARACTER-DEPTH-PREFERENCE.md) | Default-on local character depth switch, immediate native flat fallback/re-enable, focused verification and Windows-side archive delivery |
 | [MENU726-COMMON-CHARACTERS-AND-TRAVEL.md](MENU726-COMMON-CHARACTERS-AND-TRAVEL.md) | Common original character ground/scale, front/rear cabinet projection, native travel-loop ownership, original-asset audit and focused integration evidence |
