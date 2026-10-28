@@ -46,6 +46,12 @@ internal static partial class Loc
     {
         if (string.IsNullOrEmpty(section) || string.IsNullOrEmpty(key))
             return null;
+        if (QuestStandalonePlatform.FixedEyeTextureAllocation
+            && section == "RenderQuality" && key == "EyeResolutionScale")
+            return QuestText.Get("fixedEyeResolution", CurrentLanguage == "German");
+        if (QuestStandalonePlatform.FixedEyeTextureAllocation
+            && section == "RenderQuality" && key == "MsaaLevel")
+            return QuestText.Get("fixedEyeMsaa", CurrentLanguage == "German");
 
         Dictionary<string, string>? table = DescriptionTable(CurrentLanguage);
         if (table == null)

@@ -1,0 +1,898 @@
+# Complete standalone Campaign port: implementation evidence
+
+Work continues on `feature/quest3-standalone`; the concurrent desktop `dev` tree
+is independent. The requested deliverable is the full Campaign hardware package,
+including owned Jaws of the Lion and Solo Scenarios, original VR controls/MR,
+local native saves and original session-code multiplayer. Guildmaster is included
+again by the maintainer's2026-10-06 correction: its former exclusion depended on
+removing the procedural engine, whereas the implemented bridge retains it.
+Steam Workshop remains unavailable. Store/cloud/friends services stay absent.
+
+## Original content and dynamic generation
+
+The actual owned rules inventory contains 140 custom-level entries: 95 Campaign,
+25 Jaws of the Lion, 17 Solo and three examples. This inventory is neither a
+scenario-playthrough count nor proof of rendering. Campaign gameplay RNG remains
+original. Fixed scenarios still rebuild geometry when obstacles, tile avoidance,
+object membership and procedural parameters change; a pristine-scene bake cannot
+preserve every original gameplay function.
+
+The original engine is an x64 Windows native library. The isolated same-version
+Unity Mono host runs that untouched library and the original 601 procedure graphs.
+It executes the actual Intro input-singleton scene, original startup/rules loading,
+and Scenario_Campaign_001. Its observed generation completes 18 procedural owners
+and creates 1,986 renderers. The original scene controller's headless loading UI
+flag remains set; the receipt exposes that limitation instead of pretending the
+headless scene is playable. No gameplay RNG, original rules or placement-ready
+flags are substituted.
+
+`tools/QuestProceduralExport` copies the actual native build/asset/task traffic
+before or after each original call. Scenario001 supplies 18 build requests, 87
+asset requests, 92 asset responses and 18 task buffers. The native-helper worker's
+independent original-DLL replay matches all frame/parameter/geometry data after
+normalizing only documented opaque object/resource identity handles. This is host
+native parity; the Android guest dependency closure and Quest execution remain
+separate work.
+
+All 3,255 original catalog bundles have completed bounded recovery, capturing
+916,609 serialized original objects. The completed catalog association has no
+unresolved locations. Exact original CAB/pathID identities retain object and
+subobject ownership. Public recovery no longer needs the private B614 cache:
+six retained shader GUID contracts are established through exact native object
+bytes. Full hash validation, Unity import and complete shader reconstruction are
+distinct gates. The source contains 688 physical Shader identities; a successful
+sample compiler result cannot certify the entire set.
+
+## Platform, save, networking and compile boundary
+
+The game-target platform adapter preserves original rules, save serializers,
+admission tokens and Photon/Bolt transport. Local profiles support Steam/Epic/GOG;
+full provider IDs remain separate from the original 32-bit account field. Steam
+local metadata, complete local provider DLC evidence or an explicit purchased-DLC
+declaration controls entitlement. Bundled DLC bytes alone never imply ownership.
+
+Native save writes bind only the filesystem seam to temporary-file/flush/backup
+replacement. Original queue/callback/serialization behavior remains authoritative.
+Quest suspension requests the original local/host save flow; it does not promise
+that Android grants time for all callbacks. The save export/import scripts retain
+the entire original root and back up replacements.
+
+The ARM64 Opus library uses fixed native CTL wrappers rather than Windows varargs.
+Original voice opt-in requests microphone permission before entering the original
+bridge. The complete networking/storage Quest sources compile successfully with
+the real Unity2021 Android player compiler. A generated QuestGame.Campaign assembly
+references the original game explicitly without exposing its global Debug wrapper
+to unrelated Unity packages. Compilation does not prove PC room admission, actual
+microphone operation or headset rendering.
+
+Current focused QuestWeaver proof: 754 assertions, including roundtripped native
+proxy bodies and a changed-ABI negative control. Original DLL adaptation verifies
+5,050 unrelated types unchanged. Full packaging remains gated by complete assets,
+faithful shaders, native runtime dependencies and current-mod AOT evidence; no
+menu-only APK has been relabelled as the requested complete game.
+
+## Integrated full-game installation and native stage
+
+The ARM64 bridge now stages the original engine DLL and a verified 1,398-file
+portable dependency payload. Actual Android/Bionic Box64 and server PIE files
+are installed under nativeLibraryDir with preload disabled. Private Wine state
+uses Context.filesDir; emulated external storage cannot provide its symlinks.
+The exact worker replay matches18 original entities,87 resource requests and
+56,133 canonical task bytes, including192 callback reentries and original Save/
+restart. This is independent source/host execution evidence, not Quest execution.
+
+Full-target preparation preserves all13 original scenes and every associated
+catalog object, including6,102 objects outside the initial preload. The original
+AssetBundleManager remains the sole owner of native asset preloading. The added
+locator retains original keys and typed subobjects. The corrected native pointer
+closure and complete shader banks remain mandatory source/import gates.
+
+The signed APK declares one adjacent complete owned-content ZIP. The Windows
+installer transfers and hashes this bank automatically, retains app data, and
+reuses verified identical banks on the same headset. Superseded banks from its
+own earlier successful installation are removed only after replacement succeeds.
+The content worker verifies/extracts the external bank directly, avoiding a
+second multi-gigabyte archive copy. Existing installed content remains reusable
+across mod changes through the independent content key; warm starts do not repeat
+byte hashes. APK ZIP32 limits do not justify dropping game assets.
+
+The builder provisions pinned conversion packages in its own Python environment
+and a separate pinned.NET10 recovery SDK. Managed inspection/weaving continues
+with the selected.NET8 toolchain. No system environment or desktop mod is changed.
+The actual full-target Unity2021 Android player script compilation passes with
+17 assemblies. Focused Python builder/installer controls pass164/62 tests.
+
+The original Odin serializer's desktop CanEmit getter is a constant true. The
+game target selects its existing reflection/AOT fallback by changing that one
+capability opcode in the staged assembly. Save serializers and formats remain
+original; Unity IL2CPP execution and full-game headset acceptance stay distinct.
+The collector now includes bounded raw private procedural worker/engine logs
+through run-as for the diagnostic player.
+
+The corrected native recovery stage contains128,629 hashed files and461,566 actual
+serialized PPtr references. All36,764 formerly unresolved native targets now map
+by exact owner/field and original CAB/pathID; missing/duplicate GUID counts are
+zero. Packed atlas geometry matches all895 original Windows-player sprites under
+actual Unity2021 import, including vertices, UVs, rectangle and pivot.
+
+## Complete-build pipeline corrections, 2026-10-05
+
+The first full-target attempt exposed assumptions that the small startup project
+had not exercised. Already restored native packed loading-Sprites must retain
+their original zero-based drawing geometry; a second atlas-coordinate rewrite
+would corrupt them. Exact packed receipt GUID/pathID/hash and source prefix fields
+now distinguish these from the older trimmed export. The full original UI recipe
+set also includes a second physical blur Shader of the same name. The UI seam
+selects the three exact audited native recipe hashes, retaining the existing
+EULA, promotion and framebuffer-blur programs.
+
+Original CAB ownership scans nested bundle paths as well as top-level banks;
+129 PCG-related banks are nested. Actual full native reconstruction completes
+688 Shaders and9,187 material associations. Complete Android compilation and
+live driver acceptance remain required; a success on a sample family does not
+certify all native keyword banks. Full production builds expose a real graphics
+host because Unity's Null renderer hides original MRT passes.
+
+The actual current-mod Android build produces all three authored banks:
+`gloomhavenvr.bundle`, `ghvr-town.bundle`, `ghvr-town-voices.bundle`. All1,465 core
+clips and the six original CAB Vorbis clips are staged. Four bundled clips carry
+native quad-channel extensions; their repaired Ogg streams preserve every
+original compressed Vorbis packet. Actual imported six-clip GUID/localID/channel/
+rate/frame evidence is distinct from headset listening.
+
+Save AOT closure additionally roots the exact original GlobalData metadata
+classes, SaveOwner/avatar byte arrays, ISerializable formatter families and
+original collection/equality-comparer branches. The real Unity Android SDK passes
+with17 assemblies and these exact roots. Independent original/native-save fixtures
+serialize identical bytes through the original/reflection paths; full headset
+Campaign save/load and cross-platform session admission remain hardware tests.
+
+The complete portable image lane now preserves all31 native Cubemaps and their
+1,272 face/mip levels. Both HDR cubes retain original half-float pixels and
+precomputed roughness levels. Actual Unity imports check all31 cubes,132 HDR
+face/mip GPU readbacks, three Alpha8 font textures and four native RenderTextures.
+Source BC6H decoding and actual GLES import do not establish original D3D/Quest
+pixel parity. All5,159 native Sprites are covered:1,790 packed objects stay
+byte-identical, while3,369 ordinary objects retain native drawing geometry and
+UV streams. Actual complete ordinary-Sprite Editor import validation passes
+after normalizing physical case collisions without changing original keys.
+
+All13 native ComputeShaders and36 kernels are reconstructed from the original
+DXBC instructions, with exact property bindings, native image allocations and
+structured-buffer strides. Actual Android GLES3.1 cooked bytes retain the whole
+kernel/input/output census. Independent host GPU fixtures reproduce the original
+EyeHistogram64-bin weighted counts and Waveform16-byte RGB counter words. These
+fixtures do not certify every original dispatch edge or Quest rendering. The
+production builder additionally decodes the actual signed APK and adjacent
+complete bank, rejecting missing objects or conflicting compiled duplicates.
+
+The complete ordinary Texture2D audit covers14,862 PNG exports. Thirty-three
+float/HDR originals require native reconstruction instead of an8-bit PNG: eight
+RGBAHalf animation textures and25 BC6H skies retain their original half-float
+sampling and complete mip chains. All294 actual GPU mip readbacks match restored
+pixel bytes. The consuming material PPtr type was a separate integration defect:
+the retained imported-image type3 reference did not resolve a native type2 target.
+Exact GUID/fileID-targeted repair changes69 real references in65 original
+materials, and actual Unity import resolves every reference to its original
+texture identity. Scalar strings and immutable original object hashes stay intact.
+
+The full Quest player follows the current mod's public MultiPass stereo contract.
+Its existing per-eye camera callbacks and authored Shader banks therefore use
+their supported route, and the Quest flat-screen adapter selects the completed
+eye texture through that same route. Desktop mode selection is unchanged.
+
+Current focused Python builder gate passes203 tests in the provisioned private
+Python environment; compute fixtures pass27 and case-path fixtures pass14. Own
+superseded APKs are removed; B622 native symbols are retained with matching build
+ID9a2274f00b636520 before deleting its generated28-GB Library. Final full-player
+compilation, signed APK and Windows hardware package still remain required.
+All14 source checks, strict Release with zero errors/warnings and286,760 direct
+unchanged wire/golden assertions pass after the stereo integration. Complete
+native Shader family compilation, live driver acceptance and ComputeShader edge
+semantics are still being checked before the final source freeze.
+
+## Full-player Vulkan boundary
+
+The original Windows programs retain D3D reversed-depth and top-origin texture
+conventions in their optimized DXBC. Unity2021's Vulkan backend shares these
+conventions; GLES does not. The complete player therefore selects Vulkan instead
+of introducing speculative rewrites of optimized shadow/depth instructions.
+Startup/probe targets keep their previously tested GLES contract. Vulkan support
+and shader compiler evidence are separate from headset picture acceptance.
+
+All three current-mod authored banks have actually built with Vulkan: 699 assets,
+1,602 compiler inputs and 132,862,237 bank bytes. Independent cooked-object
+inspection finds 29 native Shaders, all with Vulkan platform18; the voice bank
+contains no Shader objects. The actual build log contains no shader compilation
+errors. Evidence remains private under the immutable mod-bank cache and
+`build/evidence/vulkan-authored-art-preflight`.
+
+The complete original compute bank also builds on actual Unity Android Vulkan:
+13 objects and36 kernels. Cooked SPIR-V descriptor, uniform layout, storage image
+format and structured-buffer-stride audits pass. A separate lavapipe host creates
+all36 pipelines and executes the original Lerp, cleared Vectorscope, Gather and
+MSVO dispatch-edge fixtures with robustness disabled. This does not establish
+Quest driver performance, all post-effect pixel parity or a hardware playthrough.
+The signed-player delivery gate records backend-specific executable-byte proof.
+
+The Windows x64 Python3.14 dependency audit resolves all19 binary-only pinned
+packages to compatible wheels whose hashes are already allowed; the intentional
+pure-Python source dependency retains its separate verified source-install route.
+Native compiler calls now select real LLVM executables with explicit Android29
+target/sysroot, and APK verification invokes the JDK executable and apksigner JAR
+directly. Actual ARM64 passthrough compilation and existing-player certificate
+verification pass using literal paths containing spaces, ampersands and percent
+signs. This is host/argument evidence; it does not certify a Windows full build or
+the not-yet-built full Campaign APK.
+
+The complete native Vulkan pass smoke test compiles all1,432 original pass banks
+and resolves all9,187 original material associations. Independent executable
+inspection and live host-driver creation accept1,432 aliases/544 distinct graphics
+pipelines. Eight original Windows/D3D versus Vulkan image witnesses match exactly
+for geometry, lighting, diffuse color, UVs, opacity, animation and eye transforms;
+two negative controls fail as intended. These are host witnesses, not Quest images.
+
+Shipping coverage retains all51,564 original native Vulkan keyword aliases.
+Synthetic future multiview aliases are tracked separately and do not inflate that
+census. All three exact final compiler partitions now pass and their verified
+disjoint union contains688 shaders, all9,187 original consumers and11,212 distinct
+actual SPIR-V pairs. The independent full live-driver census passes all51,564
+aliases/all11,212 pairs, including a real missing-entry-point negative control.
+Seven original/native instanced NaN-control readbacks and three original shadow
+witnesses match the original D3D output, including the formerly failing tier2
+instancing bank. Focused shader fixtures pass51 tests. No original alias or
+rendering calculation is dropped to satisfy compilation.
+
+The first complete preparation reached full native shader reconstruction but
+exposed a shared path-migration helper that required diagnostic startup manifests.
+Campaign-only recovery now validates its own complete catalog/script-binding
+pair; partial manifests and changed GUIDs fail before mutation. The actual full
+generated asset tree passes25 moves/50 byte-preserved files without fabricating
+startup manifests. Campaign-authoritative script-order selection now passes all
+7,003 real source records/6,930 distinct scripts/145 authored nonzero orders, with
+16 focused fixtures and12 rejected injected defects. Four additional dynamically
+sourced Campaign video routes are covered without changing original playback;
+the actual13-scene producer covers all8 players and19 external movies. Managed
+router checks pass208 assertions/22 rejected defects, including destroyed-player
+global-hook cleanup. These changes are integrated before the next production
+freeze.
+The interrupted prepare copies are removed only after retaining their unique
+receipts; the canonical recovered content remains. No full Campaign APK is ready
+yet.
+
+## Complete preparation and excluded-mode admission
+
+Full-target preparation now completes successfully at the pre-admission-guard
+freeze `3c7de308`. Its source input is
+`9c37114a911705e00291e1a124fe8318e6c2ec22c16d8d775b78df99c4dddd7b`.
+The complete prepared tree retains 688 native shader identities, 9,187 original
+material consumers and all 13 original scenes. Actual file/GUID verification
+matches all 682 cache-eligible shader sources and all 11,656 program includes
+against the final production compiler donor; the six preserved original UI
+sources remain excluded from that cache. This is a completed preparation gate,
+not a final player or hardware result.
+
+The existing gray Guildmaster entry did not prevent original session-code
+admission from accepting a PC Guildmaster host. The Quest-only static adapter
+now rejects that mode before privilege/save transfer and denies its native load
+method before save mutation. Campaign branches and unknown-mode handling retain
+their original bodies. The localized native notice reuses the original caller
+cancellation method, preserves imported save bytes, and retires prior native
+error buttons/hotkeys before showing the unavailable explanation.
+
+Integrated checks pass 904 static Weaver assertions, including 150 actual
+original-method admission assertions; 11,998 network/codec assertions and 12
+original codec paths; 145 notice assertions with six rejected defects; and 30
+original SDK ABI assertions. The network count decreases by two because the two
+explicitly adapted types leave its unchanged-type census; the added admission
+checks cover their complete preserved method bodies and actual emitted branches.
+The existing native purchase scope and its 20 defect controls also pass. No
+desktop behavior, original save serializer or multiplayer transport is changed.
+
+The final production source freeze must include this admission guard and runtime
+notice. A new matching prepared project, complete Unity/import/native-bank gates,
+IL2CPP compilation, signed full player, adjacent complete content bank and Windows
+hardware package remain required. The prior successful prepared tree is retained
+only as non-final source evidence until its replacement is verified.
+
+## Complete imported Campaign and actual Android SDK (2026-10-05)
+
+The complete runtime/game source is frozen at `fa6c1f9a` / ModBuild623, including
+the excluded-mode admission guard. Input key `7ecd1e978c52` is prepared in the
+retained private project `91d2b825b6fc`. The actual Unity cold import completed;
+its 95.9-minute refresh and a subsequent 49.4-minute settings-triggered refresh
+are recorded as build-time costs in the Wizard audit. No asset cuts were made.
+
+The full project exposed a native Editor-host cursor failure under `-nographics`.
+GDB places it in Xcursor during default cursor initialization. The real GLCore
+Editor context under Xvfb retains the original cursor and completes the same
+imported project's actual Android SDK compilation without repeating the cold
+import. Build driver `1b898c21` selects this host only for the full-game target
+and records its own SHA independently of the frozen runtime input.
+
+The actual SDK contains 17 assemblies. The original package API gate resolves
+553 types and 1,464 members with five exact rebindings and zero issues. Independent
+review confirms the nine Campaign runtime types, 183 Campaign member references,
+45 native bindings with actual ARM64 exports, and the exact 75 plugin/eight SDK
+hash contract. These checks establish compilation/binding evidence, not headset
+execution or cross-platform room admission.
+
+The first full Player attempt stopped before asset-bank/IL2CPP compilation because
+the script-order consumer understood Startup exclusions but rejected the full
+Campaign producer's 113 TestRunner exclusions. Correction `4fe56275` accepts only
+those unreferenced, default-order original identities with the exact Campaign
+scope, manifest/binding hashes, and source rows. Unknown exclusions and missing
+required game scripts still fail before importer mutation. Production-consumer
+fixtures pass 92 checks and 29 negative controls; a separate compile against the
+actual Unity2021.3.5f1 Editor assemblies passes. The actual native restoration
+receipt remains a gate in the resumed full build.
+
+The retained project's one Editor-only correction is recorded separately in
+`full-game-editor-order-override.json`; the frozen game/mod runtime files remain
+unchanged. Resume verifies every other preparation output and both immutable
+source snapshots rather than publishing a false replacement preparation receipt.
+The complete native-bank, IL2CPP, signed APK, delivered-content and Windows
+handoff gates remain pending at this checkpoint. No full hardware package is
+claimed yet.
+
+## Native compute importer references and portable build provenance
+
+The resumed actual Player passes original script-order restoration: 2,019
+imported MonoScripts have verified orders, including the exact original
+SRDebugger.Settings GUID/localID and explicit order zero. Audio, original UI,
+Bloom, camera-movie, and world-screen source gates also pass. The full typed
+asset gate then exposed twelve unresolved ComputeShader fields in the original
+PostProcessResources asset. The class72 targets had been converted from native
+`.asset` files to `.compute` sources; their owner PPtrs still used the native
+importer's type2 rather than ComputeShaderImporter's type3.
+
+A bounded actual Unity2021.3.5f1 fixture imports all 13 generated compute targets
+with unchanged GUID/localID7200000. All twelve original owner fields are null in
+the type2 baseline and resolve to their exact targets after changing only those
+twelve type tokens to3. The full-project source-backed repair census finds one
+owner and twelve changes. Correction `84340ebd` adds that exact native-class72
+repair to normal staging, with original CAB/pathID identities and owner before/
+after hashes. Forty focused compute checks pass; kernel code/math is unchanged.
+The retained project receives the same direct repair without changing its
+compute manifest, source/metas, Library, or the historical preparation receipt.
+
+The actual host modules, staged Editor files, and applied compute repair now
+participate in a separate derivative build key. Capture keeps the immutable
+`fa6c1f9a` / B623 / input7ecd runtime identity, hashes current and baseline tool
+sources independently, and rejects changing source bytes. The Player report,
+hashed build outputs, and Windows handoff carry portable `buildProvenance` and
+the actual packaged installer hashes. No private paths, signing fields, accounts,
+or environment dumps enter that evidence. Twenty-one provenance fixtures and
+twelve APK/handoff checks pass. Input evidence retains false hardware/import
+readiness flags; separate actual Unity results establish import proof.
+
+The full build resumes under derivative key `4785f5c9bedd` on the retained project.
+At this checkpoint complete Android banks, IL2CPP, the signed Player, delivered
+compute validation, and the Windows hardware package are still pending.
+
+## Actual complete typed import gate passed
+
+Derivative `4785f5c9bedd` opens every original scene after the compute repair, but
+Unity rejects restoring its initial empty batch SceneManagerSetup. Editor-only
+correction `fc1505af` preserves ordinary loaded/active setups and restores an empty
+start as one valid empty Editor scene. Cleanup failures cannot replace an original
+content exception. A bounded actual Unity fixture passes 29 checks, including the
+original invalid-empty native control, all13 synthetic scenes, one/two-scene
+restoration, and a preserved scene-order failure without a success receipt. The
+pinned Editor has no public OpenPreviewScene API; no unsupported workaround or
+Paths initialization was added.
+
+The retained full project now has exactly two explicitly recorded Editor-source
+overrides. Its actual derivative `efa973d1498f` passes the complete typed import
+gate: 6,531 original objects, 4,066 serialized-value locations, all13 original
+scene closures, 1,790 packed sprites/two atlases, and six bundled audio clips.
+The source/import receipt does not claim an Android Player or playable Campaign.
+
+Actual native texture/sprite gates also pass: 33 precision-sensitive Texture2Ds
+with294 GPU mip readbacks, 64 native texture targets/69 references in65 owners,
+31 Cubemaps/1,272 imported face-mips, and all5,159 original Sprite identities
+(3,369 non-packed/1,790 packed). Readbacks use the real GLCore Editor host;
+BC6 GPU parity and headset pictures remain explicitly unverified. Complete
+Android shader/content banks, IL2CPP, signed delivery, and Windows packaging
+continue after these gates.
+
+## Exact imported shader collection classification
+
+Derivative `efa973d1498f` reached the native shader retention gate after all
+complete typed/texture/sprite import checks passed. Unity rejected the original
+KriptoFX/RFX4/Particle collection entry as Normal. The two physical original
+shader identities each contain864 aliases with Lighting On and no explicit
+LightMode: Unity2021.3.5f1 imports these implicit legacy passes as Vertex.
+Explicit Always/ForwardBase modes and Lighting Off retain their existing types.
+
+Correction `69219e18` fixes producer classification and verifies subshader/pass
+ordinals against the actual imported public ShaderData API before retaining
+variants. A real Editor witness accepts all51,564 original aliases, checks
+Contains for each, serializes688 shader identities/16,201 unique SVC entries,
+and rejects eight wrong-type/missing-pass controls. All1,376 original shader/meta
+hashes remain unchanged. Actual producer execution for the two native originals
+also emits byte-identical ShaderLab. Fifty-four focused shader checks pass.
+
+The retained project applies only the verified1,728 Normal-to-Vertex metadata
+changes in those two GUIDs and the third explicit Editor-source override. All
+other manifest fields, native programs, compute kernels, source/meta files and
+Library remain intact. The actual manifest hash is now
+`36f7c1cb1882ff458693d4c06d0b4a0e185a6972af8bc560220d090b388e595f`.
+Correction `24bf10be` adds its portable path/hash/size to derivative provenance;
+27 focused provenance checks include scope/count/identity/race controls. No
+shader contents or private paths are exported. Runtime remains frozen at
+`fa6c1f9a` / B623 / input7ecd. The full Player resumes on the same imported
+project; Android banks, IL2CPP, signing and delivered-content gates still need
+to complete before a full hardware package can be claimed.
+
+## Actual full Campaign native shader gate passed
+
+On 2026-10-05, derivative `f9053689b680` passed the actual Android/Vulkan
+compiler gate with all51,564 original aliases and all9,187 material associations.
+The retained original collection contains688 shaders/16,201 unique entries.
+This is completed native compilation evidence; it does not establish original
+pixel parity or headset appearance. The same Player process continues into
+Android content packaging and IL2CPP. No complete signed hardware artifact has
+been published at this checkpoint.
+
+An independently tested completed-evidence cache is ready for integration at a
+safe Player boundary. It binds the exact graphics inputs, compiler and verifier
+sources and actual output hashes. Its bounded real Unity witness makes zero
+native queries on an unchanged hit and recompiles changed graphics inputs.
+Migration of this actual full PASS must verify the retained live input snapshot,
+launch provenance, receipt and output files; partial evidence is never accepted.
+Normal player builds must avoid the exhaustive developer validation sweep.
+
+The first bilingual Wizard UI is integrated separately from this frozen Player:
+owned GloomhavenVR logo, responsive four-step presentation, explicit unknown
+progress, cancellation/resume views and optional verified local game artwork.
+Seven focused UI tests and four artwork tests pass. Real HTTP integration,
+automatic prerequisite installation and transactional Unity resume remain in
+progress; this UI checkpoint is not a completed clean-PC builder claim.
+
+## Completed shader reuse and batched native content preparation
+
+The full f905 PASS is now sealed by an actual Unity2021.3.5f1 migration run:
+all688 shaders/all51,564 aliases/all9,187 materials, all20,930 native output
+files, the stable24,781-file input capture and original launch provenance match.
+The original receipt hash is
+`32a2fdcb487e20ee35ed87e63029a51e0e4c4c1ae4ab5fac3fa33062e7182922`.
+The completed graphics closure is
+`2d67bf67108358d3be36d1402116c8e571d68cc459b6dbe51e09f1e3806d483d`.
+No native sweep was repeated to introduce reuse. Generated Addressables .asset
+metadata is excluded from the graphics-only closure; explicit imported
+dependencies, sources/includes/unknown files and XR settings remain bound.
+The actual bounded Unity controls prove those distinctions.
+
+The ensuing full-content preparation exposed repeated imports while creating
+3,254 native source-bundle groups. Correction `d2e090a8` batches group/schema
+imports using native StartAssetEditing/StopAssetEditing and completes interrupted
+schemas through the package API. It preserves independent ownership, keys,
+labels, preload semantics and profile links. Actual Unity/package1.19.19 and a
+separate Editor reopen pass973 checks. The24-group fixture measures763.66ms/
+121 import callbacks before and278.85ms/two callbacks after (2.74x); native
+SaveAssets calls remain49 in both. This does not predict full-project speed.
+
+The verified owned f905 process was terminated after the complete shader PASS
+to apply these Editor-only changes. Raw PlayerSettings stayed identical. The
+same Library, frozen game/mod snapshots and all previous evidence were retained;
+five explicit Editor ledger entries now include one added helper with no
+fabricated preparation baseline. The resumed driver verifies all unchanged
+preparation outputs and reuses the verified weave/standalone stages. Signed
+full Player and delivered-bank validation remain pending.
+
+The Wizard now has automatic pinned Hub setup, explicit sign-in/license actions,
+kernel-lock detection of interrupted runs, and an opaque local-art endpoint.
+Forty focused backend checks and an actual loopback HTTP/Chrome test pass.
+Windows provisioning and seamless interruption during Unity/content generation
+still need their own implementation/runtime evidence.
+
+## Actual full Player reuse and Wizard artwork integration
+
+Derivative `62b4af038a07` confirms the completed graphics-cache hit in the real
+full Campaign Player invocation: all688 shaders/all51,564 native aliases/all9,187
+materials are accepted with zero repeated native compiler queries. The same
+retained project and Library are used. At2026-10-05T15:54:32Z, native content
+preparation has reached2,909 of3,254 groups. Observed throughput is now several
+hundred groups per minute, versus about13 per minute before batching. This is
+actual group preparation evidence, not a prediction of bundle compilation,
+IL2CPP time or an APK completion percentage. Signed Player and delivered-bank
+validation remain pending.
+
+The integrated Wizard displays the project-owned logo and, only after matching
+local recovery evidence, three guarded images from the user's original game.
+Landscape DLC artwork preserves complete titles; accessible English/German
+descriptions remain. An independent Root run of the actual loopback backend and
+Chrome browser passes all8 tests, including JavaScript MIME/CSP, authenticated
+transport and byte hashes of the original images. The private fixture uses
+existing inspected inputs and does not claim a fresh conversion, Unity install,
+Windows execution or headset installation. No original game artwork is tracked
+or distributed by this UI.
+
+## Actual native content build and additional Foliage permutations
+
+The actual62b4 content preparation completed all3,254 source-bundle groups.
+The native Android build now produced3,255 bundle files totalling9,188,027,820
+bytes and proceeds through catalog packaging and the complete content ZIP.
+No full signed hardware artifact is available yet.
+
+This real bundle invocation exposes26 compiler errors in `Amp_Basic_Foliage`:
+additional `STEREO_MULTIVIEW_ON` keyword combinations beyond the original51,564
+manifest aliases put Unity's generated stereo input after `SV_IsFrontFace`.
+All90 original FrontFace program interfaces belong to this Shader. A separate
+bounded native witness reproduces those26 original failures. Moving only the
+generated declaration allows the first previously failing bank to compile but
+also reveals a vertex/fragment interpolation mismatch that still needs repair.
+Neither this partial positive nor the earlier original-alias PASS is treated as
+proof of complete cooked graphics or a headset picture. Native calculations,
+original identities and mono outputs must remain preserved by the correction.
+
+The original Player remains unchanged while those isolated checks run. It has
+also reported25,696 native keyword-space assertions during dependency usage
+calculation, then progressed into bundle compilation, compression and catalog
+processing. Unity's2021.3.11f1 release notes describe an AssetBundle assertion fix
+for the same message (UUM-11958); that source does not establish today's exact
+cause or authorize ignoring actual compiler failures. No Unity upgrade or
+repeated exhaustive shader sweep has been initiated.
+
+The Wizard launcher now keeps its durable workspace at `%USERPROFILE%/.ghvrq`
+by default, preserving script-local Python. Isolated reviewed checkpoints also
+provide transactional export/build restart, stable owned original-asset import
+workspace across mod/profile changes, pre-first-import Linear/Vulkan settings,
+and shorter generated program/cache paths. Those captured central tools remain
+held until a safe Player boundary. Further isolated archive work targets exact
+unchanged-content reuse and avoids recompressing native Unity bundles; no timing
+improvement is claimed before its actual focused evidence.
+
+## Targeted stereo repair and restartable production build
+
+The isolated same-version witness now reproduces all26 added Foliage failures
+and passes all33 corrected native keyword banks, seven byte-identical mono
+controls, a strict Android/Vulkan asset bundle and33 actual host Vulkan pipelines.
+The correction moves only Unity's generated stereo declaration immediately before
+the original FrontFace declaration. It preserves original field order and math;
+the earlier first-field candidate remains a recorded rejected approach.
+
+The stopped retained full project has the exact90-header repair applied. All688
+Shader identities,9,187 Materials,51,564 original aliases,11,566 other headers,
+ShaderLab and metadata bytes remain unchanged. Its recognized receipt binds the
+current manifest, native input identities, compiler/driver witnesses and portable
+generator hashes against the honest frozen source baseline. It does not assert
+headset pictures or original Windows pixel parity. The prior exhaustive PASS is
+separate historical evidence and is not reused after these90 inputs change.
+
+The62b4 invocation completed a9,699,679,018-byte native bank with6,366 members.
+An actual read of every member verifies uncompressed size, SHA-256 and ZIP CRC.
+The exact owned Unity process was stopped at the Player boundary before accepting
+its known-invalid graphics output. The original source, native bundles, imported
+Library and complete archive are retained. Unity had automatically repeated the
+manual Addressables build; the documented DoNotBuildWithPlayer setting now gives
+our controlled complete-content build sole ownership. A separate scoped delivery
+fix must also hide the native Addressables directory during APK assembly because
+the package copies it into StreamingAssets independently of that setting.
+
+Integrated production defaults now retain/import-check all shader identities
+without the exhaustive51,564-alias compiler loop, even on a first build. Explicit
+--validate-campaign-shaders enables that development audit. Targeted native
+bundle/player compilation remains mandatory. Focused build-mode, shader order,
+path, provenance, import-workspace and restart tests pass on the integrated tree.
+
+Wizard interruption support now preserves verified downloads, original export
+batches, the imported Unity Library and mutable content transactions. Stable
+original-asset workspace ownership allows normal mod/profile changes to retain
+imports. Linear/Vulkan settings precede the first Android import; Windows shader
+filenames/cache directories now fit the ordinary path budget or report the exact
+required shorter location. Forty backend checks, seven UI checks and four guarded
+artwork checks pass. This is not a clean Windows provisioning or headset claim.
+A signed complete APK, delivered-bank audit and hardware package remain pending.
+
+## Fixed full Player invocation f392a5a2b1a7
+
+The native content build now sets DoNotBuildWithPlayer, uses a source-captured
+standard-library ZIP/ZIP64 helper for true Stored native banks and unchanged
+archive reuse, and temporarily excludes both the source bank and the complete
+Addressables BuildPath while assembling the APK. Exact generated native linker
+bytes remain in Assets. A durable scoped journal restores ZIP/meta/native
+directory after success, constructor failure or process death; restored ownership
+accepts subsequent legitimate mod/profile/linker changes. All99 actual C#
+filesystem controls and the pinned Unity/Addressables metadata compile pass.
+The central Python consumer passes17 focused lifecycle controls plus13 existing
+resume controls on the integrated tree. These do not prove an Android Player.
+
+The actual retained-project retry has derivative
+`f392a5a2b1a7930094b19c8e5adb91d66cf1dee6722ef32fdd02a90d92ea2500`.
+Its portable launch capture binds30 actual host modules,23 staged Editor files
+and the recognized90-header repair. Runtime source/input identity remains
+fa6c1f9a/ModBuild623/7ecd1e97. Both verified managed adaptation stages are reused
+and the real Android SDK/API compilation completes. The Player is running with
+minimum shader mode; the old exhaustive native receipt is not reused or relabelled
+as a new graphics PASS. Native packaging, IL2CPP and delivered artifact gates
+remain pending.
+
+## Completed native content, host-memory interruption
+
+Invocation f392 completed one controlled native content build: 3,255 native
+bundles, 6,366 delivered members and a 10,703,844,611-byte ZIP64 bank. The real
+standard-library packer used Stored native bundles, verified every member, and
+completed in 162.09 seconds. Native shader compilation reported zero errors and
+zero keyword assertions; minimum mode made zero individual alias queries.
+The temporary ZIP/Addressables exclusion and preserved native linker were active.
+
+The kernel then killed the exact owned Unity PID 3111516 for global memory
+exhaustion at 2026-10-05 17:43:43 UTC, during Android Player assembly. Exit 137
+is not a successful Player or a hardware result. Original imports and the native
+build remain intact. After child termination, central recovery restored the
+Addressables directory and the prior complete mutable content pair. Private
+kernel and completed-native receipts retain this distinction.
+
+An additional temporary 16 GiB swap file is active for this development build;
+it changes no persistent OS configuration. The integrated host retry now also
+recovers only an exact, provenance-bound interrupted delivery copy before
+launching another child. Eight focused delivery controls, thirteen resume
+controls and ten native-packer controls pass on the feature tree.
+
+The next derivative is
+`dc3c56bb091ba4d318765fb26fb1a8f5dc1a9c2743ae9e2188fff8fe7ed3fbb9`.
+It adds a game-only managed collection and safe unused-imported-assets unload
+inside the content-exclusion scope immediately before native Player assembly.
+A bounded two-sample receipt records the real memory handoff. The exact method
+compiles against Unity2021.3.5 metadata; ten pinned-Mono release/dispatch controls
+and two source-bound stage controls pass. The native Editor unload and full
+Player peak are distinct runtime observations, not established by those controls.
+Frozen ModBuild623 runtime, input identity and imported Library remain retained.
+
+## Completed native Player and targeted delivery corrections
+
+The dc3 invocation completes the full Android Player, IL2CPP compilation and
+signing. Its APK is 2,352,116,065 bytes. Its controlled content build produces
+3,255 native bundles and a 10,703,844,562-byte ZIP64 bank with all 6,366 members
+verified. This candidate is not delivered: the actual Player log contains 47
+shader errors, and the delivered-compute postflight does not complete.
+
+Forty-four errors are ForwardAdd light/shadow products absent from the original
+native keyword graph. The new owned-shader Editor callback removes only those
+unsupported products, preserving all 51,564 original aliases. A same-version
+native bundle witness forces 80 products, rejects 67 unsupported combinations
+and retains three valid executable pairs byte for byte. Three further errors
+come from FinalPass/Uber Layer output wrappers in multiview. Their narrowly
+guarded stereo repair passes 27 native compiler banks; all 18 mono/instancing
+stage pairs remain unchanged. These are compiler results, not headset pictures.
+
+EyeHistogram is present in the signed APK under its serialized GUID, rather than
+a .assets filename. The bounded metadata classifier identifies it by reading
+5,711 native metadata tables and decoding one compute payload in 0.886 seconds.
+Its actual Vulkan executable passes the original kernel/interface/thread-group
+audit. The same Resources object additionally retains a desktop OpenGL 17/11
+bank. Its exact original owner and serialized bytes are recorded separately;
+only the Vulkan bank is selected for the Android executable audit. The raw
+delivered object and frozen validator remain unchanged. Full 13-shader/36-kernel
+postflight and an error-free replacement Player remain mandatory.
+
+The memory handoff releases approximately 105 MB of managed allocations; actual
+process RSS does not decrease. No broader peak-memory improvement is claimed.
+Owned obsolete generated C/C++ backups are removed after a fresh live-reference
+check, reclaiming 11,518,809,720 bytes. Historical DLL/PDB evidence, prior B622
+symbols, current native source, imported Library and original inputs remain.
+An intervening filesystem restriction prevented starting a replacement Player;
+the restored full-access session continues from these retained inputs.
+
+## Retained full-player retry after access restoration
+
+Actual write probes confirm both the feature worktree and private build root are
+writable again. Invocation
+`096d48d6f0ef4850cc75ab8c1d3209edaee1ce396986912699fc0fe93728b0b9`
+uses the retained original import, frozen fa6c1f9a/ModBuild623 runtime and input
+7ecd1e97. Its launch capture binds 31 host modules, the three-header Layer repair
+and the owned ForwardAdd keyword callback. The Android package-API compilation
+completes before the controlled native content build. No exhaustive shader sweep
+is requested, and no full-game artifact is published at this checkpoint.
+
+The native dependency calculation again reports Unity keyword-space assertions.
+These remain a separate unresolved observation from compiler errors and require
+checking against actual cooked coverage; successful process exit alone does not
+resolve them. The complete Player log is now a mandatory native compiler-error
+gate, with the previous 47-error dc3 log serving as its rejection control.
+
+Cleanup checks actual host process references, immutable input/build records and
+clean integrated Git ancestry before removing owned obsolete outputs. Ten old
+worker/fixture candidates reclaim 5,231,525,888 bytes. Four obsolete staged
+B612–B615 startup APK copies reclaim another 5,033,417,543 bytes; their small
+diagnostic documents remain. Current Library, native linker/source, transaction
+rollback, B622 baseline, supplied captures, signing state and other dev work are
+preserved. Private completed-removal receipts record each scope and identity.
+
+## Actual bundled graphics retention defect and bounded repair witness
+
+The read-only native audit resolves original public Material/Shader roots to the
+actual cooked CAB/pathID, instead of matching names. Three original Materials
+retain their original keywords and enabled instancing, but reference reduced
+native Shader banks. The same defect remains in the completed 096d native bank:
+Amp_Basic_N_MRAO lacks 960 original aliases, FoliageLow lacks 918 and NMRAOLow
+lacks 2,040. Their non-instanced omissions are 480, 567 and 1,260 respectively.
+Source retention requests and zero compiler errors therefore do not establish
+complete delivered graphics. The existing native audit did not check class48.
+
+A separate original Foliage/Vulkan Addressables witness uses Unity2021.3.5 and
+unchanged original source. Its control already sets KeepAll instancing but keeps
+the collection only in Player Resources: actual bundles retain 45 of 1,275
+original aliases. Giving a separate native copy of that collection to the
+Addressables build retains all 1,275, including every instanced and non-instanced
+alias. Exact native ownership and three combined VS/FS payload samples are checked
+after Unity exits. This bounded actual bundle comparison does not invoke the
+51,564-program developer sweep and is not a headset result.
+
+The retained/full Player is not restarted while live. The reviewed correction
+will retain original public Shader ownership and expose only missing private
+Shader roots for an exact delivered GUID-to-CAB/pathID audit. Shader names are
+not identity: 50 original names are duplicated, with up to 324 objects per name.
+The final production gate must inspect actual bundled aliases and material
+bindings before accepting the full hardware package. 096d remains a candidate,
+not an accepted complete graphics delivery.
+
+## Native retention correction and warm large-APK packaging
+
+The production correction uses a separate copied native SVC outside Resources
+and Unity's actual public serialized KeepAll enum. The original mapping contains
+70 existing bundled Shader entries; 112 further typed catalog Shader locations
+belong to LegacyResourcesProvider. The native build adds the 618 missing private
+Shader roots without changing those 70 existing owners, addresses or labels.
+A second actual small native build verifies private-root creation inside the
+production asset-edit batch, unchanged Player collection, the native SVC's exact
+CAB/pathID pointer and all 1,275 original Foliage aliases. Six focused tests,
+including sixteen negative controls, pass; real SDK compilation also passes.
+
+096d completes native Shader compilation with zero compiler errors, including
+the corrected ForwardAdd and Layer cases. Its subsequent Gradle package task
+fails while reading the previous 2,352,116,065-byte cached APK: its resource
+entry starts at unsigned offset 2,161,209,495 and AGP reports a negative signed
+offset. Removing only that obsolete generated launcher APK allows the actual
+unchanged generated Player to package successfully, producing 2,352,232,793 bytes
+in 161 seconds. No Shader or C++ compilation is repeated for this control.
+Known bundled graphics omissions still prevent accepting it as the full delivery.
+
+The Quest Android callback now removes only large generated cached APKs before
+Gradle packaging. Real sparse-filesystem controls preserve small APKs, non-APK
+files, native inputs and files outside the generated APK directory. The exact
+callback compiles against the pinned Unity Android/Editor SDK. Imports, Library,
+C++ objects, signing data, saves and other Gradle task outputs remain reusable.
+
+The production delivered-graphics gate now verifies all688 exact original Shader
+GUID roots and51,564 native pass/tier/keyword aliases, separately from the native
+SVC projection. It resolves cooked CAB/pathID ownership and samples16 original
+public material bindings. The report explicitly does not claim all9,187 material
+objects or headset pixel parity. All27 focused native-graphics controls and the
+361 affected builder tests pass. The production module also passes the actual
+1,275-alias native fixture and rejects its incomplete original control.
+
+The complete compute postflight of the manually packaged096d candidate rejected
+an additional native backend. Targeted readback shows that EyeHistogram still
+matches its previously witnessed desktop-OpenGL bank, while the1,421,936-byte
+original postprocess bundle contains the other12 compute objects with both
+desktop OpenGL17/11 and Android Vulkan21/0. The Vulkan validator remains unchanged;
+exact additional-bank qualification now passes for all13 objects and36 Vulkan
+kernels, with the frozen Vulkan validator unchanged. Each extra desktop bank is
+qualified against exact original owner/source/interface and actual bank hashes;
+six new negative controls reject owner, source and backend drift. This candidate
+has not replaced the last accepted hardware APK because graphics closure remains
+a separate delivery gate.
+
+The Windows Campaign Editor launcher now requests the same OpenGLCore import
+backend as the witnessed Linux compiler host, instead of introducing an untested
+default Direct3D compute bank. Unity2021.3 documents the `-force-glcore` Editor
+switch in its [command-line reference](https://docs.unity3d.com/2021.3/Documentation/Manual/EditorCommandLineArguments.html).
+Two focused launch-contract controls pass. This does not claim a complete clean
+Windows build or qualification of a differently generated native backend.
+
+## Early native fog retention diagnosis, 2026-10-06
+
+The 60be retained native Addressables build produces 3,256 bundles and 6,367 content
+files. A bounded actual-byte census resolves all 688 original GUID/root identities
+and 51,564 original alias requirements. Exactly one Shader, original Ambient
+Occlusion GUID 5a1f387d3c895934bba5174e16819fb6, loses 27 FOG aliases: nine each
+for linear, exponential and exponential-squared fog. All other original alias
+requirements and the native SVC's 688 identities/16,201 projections are retained.
+The incomplete build is stopped before Player packaging; its failure receipt,
+typed census and imported/compiler caches are preserved. No B623 delivery is
+claimed.
+
+Actual Unity 2021.3.5 property inspection verifies FogStripping enum choices
+Automatic/Custom and three Boolean keep flags. The generated project's Automatic
+mode ignores the already-enabled flags. The Campaign-only builder now requests
+Custom and verifies all three original modes, alongside KeepAll instancing.
+Seven focused production-body tests pass, including 25 failure controls and exact
+original-owner/collection preservation. The actual small AO native comparison
+now reproduces the exact 27 missing aliases in Automatic mode and retains all
+54 original aliases with the production Custom setting. Both native Addressables
+builds use unchanged original Shader/include/metadata bytes. Exact native GUID,
+SVC/PPtr, program-directory ranges and combined VS/FS payload samples pass; all
+42 original source/metadata file hashes remain unchanged after Unity exits.
+The complete retained retry and signed delivery remain pending.
+
+The early native-directory gate now runs immediately after the actual
+Addressables build and before large archive/Player production. It reads only the
+typed Shader/SVC/material dependency closure and invokes no compiler. The signed
+Player and delivered content still require their final independent closure gate.
+All 377 integrated Quest-builder tests pass, including 34 native-graphics
+controls; unsafe, missing or concurrently changed native inputs are rejected.
+The Windows CLI retains isolated Python execution and junction rejection.
+Unity's [Graphics settings reference](https://docs.unity3d.com/2021.3/Documentation/Manual/class-GraphicsSettings.html)
+documents automatic scene-based stripping and explicit Custom fog retention.
+
+The retained 88ecc build completes the actual native Addressables generation.
+Its first gate invocation exposes an interpreter-path defect: resolving the
+venv executable symlink starts base Python without UnityPy. The gate now uses
+the lexical venv executable through a separate pinned environment argument;
+the standard-library content packer retains its existing selection. A real
+isolated child-venv/module control covers this distinction.
+
+Running the production gate on those already completed native files with the
+correct interpreter passes all 688 original Shader roots, 51,564 aliases, native
+SVC/PPtrs and 16 original material samples across 20 dependency bundles. No
+compiler is invoked. This is complete native-AA evidence, not a signed Player
+or hardware success; the imported project and completed native cache are retained
+for the Player retry.
+
+## Accepted complete Campaign delivery — 2026-10-06
+
+The preserved warm retry `1ac08393c2401fc0ff0e85806ecd6eb313c42e55563e86abf7ba8e5181f00186`
+completes the actual Android Player and every production delivery gate. Runtime
+input remains `fa6c1f9a`, ModBuild623/input `7ecd1e978c52905f…`; the recorded host
+and Editor corrections are captured from `796ea528d`. No original game references
+or concurrent `dev` work are changed. All378 final affected builder tests pass.
+The opt-in51,564-program compiler matrix is not repeated. The native-AA gate
+invokes zero compiler queries and passes all688 exact original roots/51,564
+aliases before content packaging. The completed Player has zero native Shader
+compiler errors, preserves MultiPass/Vulkan and all14 selected scenes, and passes
+the actual signed Shader and13-compute/36-kernel executable-byte closure checks.
+
+The complete content bank has6,367 byte-verified members,3,256 native Android
+bundles,10,912,754,791 archive bytes and11,169,001,254 declared expanded bytes.
+The signed APK is2,494,100,526 bytes, SHA-256
+`ef954d63eb7f12eb284205817ac170c0c7559092ca18ee4f297100be5d6268f9`.
+The content bank SHA is
+`f6be86714e77536d38d00b3701ae5f64f720e357305deed22966ac9419eb668c`.
+The Windows archive is13,408,142,006 bytes, SHA
+`e855b11c43c574e304a0f8c4a0dbf0a61c5be5bab533e061aad48ecba3b32201`.
+It contains wireless installation, capture and save scripts with automatic local
+Python/platform-tools provisioning. This private candidate uses the explicit
+dummy identity and selected purchased Jaws of the Lion/Solo Scenarios; alternate
+skins remain unowned. Guildmaster/Workshop and store/cloud services remain
+excluded under the previously recorded contracts.
+
+The independent whole-artifact audit passes in893.479 seconds. It reads8,968
+native payloads, confirms every6,531 original public catalog root and6,431
+runtime alias, all601 procedural definitions,8 actual movie bindings/19 external
+movies, all688 original Shader identities and51,564 original aliases in both
+native banks, both native SVC/PPtr projections and all2,316 public original
+Material roots. Actual13/36 Vulkan kernels and the4 exact Unity-engine compute
+objects pass independently. ZIP64 end records, archive CRCs and all nested
+payload/build-evidence/50 installer-source hashes match the actual deliverables.
+It does not certify every9,187 private Material object, original pixel parity,
+Android gameplay or server admission.
+
+Two defects in the private independent auditor are corrected without changing
+the APK: isolated Python omitted its sibling ShaderObserver module; native public
+root matching lowercased only expected paths. The latter false positive is
+reproduced against the actual unchanged portrait bundle: all4 original paths
+and their Sprite/Texture2D native preloads are present, with original case.
+Consistent case normalization accepts those paths while missing, renamed and
+wrong-directory controls still reject. All16 general parser controls pass and
+the entire independent artifact audit is repeated successfully. The original
+failed receipts and exact auditor source hashes remain in private evidence.
+
+Native Build ID `d23d2717d3cae4f7` matches the signed APK, Gradle's packaged bytes
+and retained complete debug library including debug-info/line sections. The
+1,150 actual unshipped native-source/managed-backup files have a retained hash
+boundary. Old B622 hardware packages and B615–B622 symbol payloads are removed
+only after recorded identity checks and zero live references; matching B623
+symbols/source and the imported project stay available. This resumed session
+reclaims36,603,371,520 bytes from obsolete owned payloads and its released16-GiB
+swap, without touching host swap, original game files, saves, captures or other
+agents' worktrees. Previous worker/C++ cleanup evidence remains retained.
+
+The modern resumable Windows Wizard implementation remains available on the
+feature branch. A complete fresh Windows-user build is not inferred from this
+Linux-hosted Player or backend/browser checks. Integrated Quest pictures, cold
+and warm startup timing, full Campaign turns/room transitions/procedural bridge,
+save round trips, DLC paths and PC-with/without-mod multiplayer/voice remain the
+next hardware checks. See [the concrete B623 procedure](QUEST3-HARDWARE-623.md).

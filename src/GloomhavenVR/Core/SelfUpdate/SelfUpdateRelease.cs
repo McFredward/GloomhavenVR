@@ -271,9 +271,9 @@ internal static class SelfUpdateJson
     /// <summary>Nesting cap: a hostile or broken payload must not recurse the stack away.</summary>
     private const int MaxDepth = 24;
 
-    internal static object? Parse(string? text)
+    internal static object? Parse(string? text, int maxInputChars = MaxInputChars)
     {
-        if (string.IsNullOrEmpty(text) || text!.Length > MaxInputChars)
+        if (string.IsNullOrEmpty(text) || text!.Length > maxInputChars)
             return null;
         try
         {

@@ -67,6 +67,11 @@ public static partial class WorldMaterialProgram
             source.gameObject.layer = 0; source.enabled = true; source.forceRenderingOff = false;
             source.SetPropertyBlock(null); source.sharedMaterials = new[] { first, second };
             first.SetColor("_Tint", Color.red); PerfConfig.SharedEnvironmentMaterialReadsOn = true;
+            if (QuestCameraCallbacks)
+            {
+                Center(ui); // Cold camera deliberately renders originals while its owner attaches.
+                Center(world);
+            }
             Center(world); Material retained = source.sharedMaterial;
             Check(WorldMaterialBudget.IsOwnedVariant(retained), "UI mask fixture starts with a current native world variant");
             ResetReads(); Color firstUI = Center(ui); Color secondUI = Center(ui);

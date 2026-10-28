@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "box64": {
+    "url": "https://codeload.github.com/ptitSeb/box64/tar.gz/2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a",
+    "sha256": "ce844041092de3f44316bd1c033a3cc10024e5f798c1a8e8a58f046c6d967981",
+    "revision": "2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a",
+    "version": "0.4.4"
+  },
+  "wine": {
+    "url": "https://github.com/Kron4ek/Wine-Builds/releases/download/9.0/wine-9.0-amd64.tar.xz",
+    "sha256": "cf0c09d4346dc10bc92ab674936292cff47eeb71ca7604b8e6303b7bdb97e2f6",
+    "version": "9.0",
+    "source": "https://gitlab.winehq.org/wine/wine/-/tree/wine-9.0"
+  },
+  "guestPackages": {
+    "libgcc-s1": {
+      "Version": "14.2.0-4ubuntu2~24.04.1",
+      "Filename": "pool/main/g/gcc-14/libgcc-s1_14.2.0-4ubuntu2~24.04.1_amd64.deb",
+      "SHA256": "aa7fadbe33b78bcf99885318040601c550c208929565b179891d9a3cc2aa68cd"
+    },
+    "libfontconfig1": {
+      "Version": "2.15.0-1.1ubuntu2",
+      "Filename": "pool/main/f/fontconfig/libfontconfig1_2.15.0-1.1ubuntu2_amd64.deb",
+      "SHA256": "a2bc05cfef021fdb84285036f98eda5ebec3c4b7a378f5aa2bdba5c4d3d8d586"
+    },
+    "libfreetype6": {
+      "Version": "2.13.2+dfsg-1ubuntu0.1",
+      "Filename": "pool/main/f/freetype/libfreetype6_2.13.2+dfsg-1ubuntu0.1_amd64.deb",
+      "SHA256": "f6937fd8a77e83001dcfd3857d5a5cfbd4caaeb297c7fdb71ec50514843e48af"
+    },
+    "libexpat1": {
+      "Version": "2.6.1-2ubuntu0.6",
+      "Filename": "pool/main/e/expat/libexpat1_2.6.1-2ubuntu0.6_amd64.deb",
+      "SHA256": "494b8e672f722130c6bca6a7bc4cc31a43ca891a31d60d868bfdd699a3c20b13"
+    },
+    "libpng16-16t64": {
+      "Version": "1.6.43-5ubuntu0.6",
+      "Filename": "pool/main/libp/libpng1.6/libpng16-16t64_1.6.43-5ubuntu0.6_amd64.deb",
+      "SHA256": "ac0163f58b8aa52dfdd17cdc10a83f3db084cb91a62686023f5c983d6ff89f8b"
+    },
+    "zlib1g": {
+      "Version": "1:1.3.dfsg-3.1ubuntu2.2",
+      "Filename": "pool/main/z/zlib/zlib1g_1.3.dfsg-3.1ubuntu2.2_amd64.deb",
+      "SHA256": "84b9cf5752b29c9f92c27cd4c4ba9bbcc70b5ccf9b1b515421a28ae23212e273"
+    },
+    "libbrotli1": {
+      "Version": "1.1.0-2build2",
+      "Filename": "pool/main/b/brotli/libbrotli1_1.1.0-2build2_amd64.deb",
+      "SHA256": "74492419b8fda803774b8c9acef6afc5d2f9ff31782635aae212906adae7b277"
+    },
+    "libbz2-1.0": {
+      "Version": "1.0.8-5.1ubuntu0.1",
+      "Filename": "pool/main/b/bzip2/libbz2-1.0_1.0.8-5.1ubuntu0.1_amd64.deb",
+      "SHA256": "36ee08b00b1ee5018b2fce02881b7d2d73c9b4e32990bde3388400d86c48126a"
+    },
+    "gcc-14-base": {
+      "Version": "14.2.0-4ubuntu2~24.04.1",
+      "Filename": "pool/main/g/gcc-14/gcc-14-base_14.2.0-4ubuntu2~24.04.1_amd64.deb",
+      "SHA256": "b95c172411a7fdae70307cf33a9f5320ba5e056b556454543dd5b679d5ce1c4f"
+    }
+  },
+  "licenses": {
+    "Wine-LGPL-2.1.txt": {
+      "url": "https://raw.githubusercontent.com/wine-mirror/wine/wine-9.0/COPYING.LIB",
+      "sha256": "e237fa56668030e928551ddd60f05df5fe957f75eab874bbd017e085ed722e7c"
+    },
+    "GCC-GPL-3.txt": {
+      "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-14.2.0/COPYING3",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    "GCC-Runtime-Exception.txt": {
+      "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-14.2.0/COPYING.RUNTIME",
+      "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"
+    }
+  }
+}

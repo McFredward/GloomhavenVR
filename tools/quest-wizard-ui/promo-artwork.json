@@ -1,0 +1,341 @@
+{
+  "schema": 1,
+  "images": [
+    {
+      "id": "cragheart",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/aaecd1506f113c0201f649ebd5edfc102487a296.png",
+      "sha256": "7d0047de8ae0de2427265eca5d91c97f0440aef22995d9851a741ecf3f0603a7",
+      "size": 834094,
+      "dimensions": [
+        1024,
+        512
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "localPath": "assets/promo/cragheart.png",
+      "caption": {
+        "en": "Cragheart",
+        "de": "Cragheart"
+      }
+    },
+    {
+      "id": "spellweaver",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/da3142c891b8f9db1fc519d0f1e614841d5f62c5.png",
+      "sha256": "bd9b309cc60b2694eadcad4515d8afe150b6299752c0ab7ffc6004acac1146ef",
+      "size": 984081,
+      "dimensions": [
+        1024,
+        512
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "localPath": "assets/promo/spellweaver.png",
+      "caption": {
+        "en": "Spellweaver",
+        "de": "Spellweaver"
+      }
+    },
+    {
+      "id": "brute",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/f93c359b56f45e2a784a2d9ba4a4d2fc72a1013f.jpg",
+      "sha256": "c32b2b7bebfee084b0fa8e469279608e14f3cd61b852802180e97fab9e859a7b",
+      "size": 415123,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "localPath": "assets/promo/brute.jpg",
+      "caption": {
+        "en": "Brute",
+        "de": "Brute"
+      }
+    },
+    {
+      "id": "scoundrel",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/c95b9a1eb26a78ab9667f1f5b07d7fda78d98c65.png",
+      "sha256": "5d7e8b7db4eab09b11481be93feb425a0a7ed01a9daf1971732ed2835337bba9",
+      "size": 899792,
+      "dimensions": [
+        1024,
+        512
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "localPath": "assets/promo/scoundrel.png",
+      "caption": {
+        "en": "Scoundrel",
+        "de": "Scoundrel"
+      }
+    },
+    {
+      "id": "bandit-guard",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/a750722541b8307487ad4b200ed238b39440f7aa.jpg",
+      "sha256": "b1bdce0149fdff98edb45d7e9e2d425acae77a8751fd04cd6dc7930f1e14095c",
+      "size": 704007,
+      "dimensions": [
+        1767,
+        982
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1558613054&feed=steam_community_announcements",
+      "localPath": "assets/promo/bandit-guard.jpg",
+      "caption": {
+        "en": "Bandit Guard",
+        "de": "Bandit Guard"
+      }
+    },
+    {
+      "id": "bandit-archer",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/93dd9a981723ad43aaa93108c8eac0827e169965.jpg",
+      "sha256": "f8f59f43adb6333edfe9961e64b8e4ff2792d6c5d92e407122f19f7a4923ee04",
+      "size": 704461,
+      "dimensions": [
+        1767,
+        994
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/bandit-archer.jpg",
+      "caption": {
+        "en": "Bandit Archer",
+        "de": "Bandit Archer"
+      }
+    },
+    {
+      "id": "living-bones",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/0989b551f14e700a13a7d44a7b0afa813e805730.jpg",
+      "sha256": "220ab5a1c05449e0517dcac53032752943e4a957a251f166945de18dc954048b",
+      "size": 502741,
+      "dimensions": [
+        1764,
+        988
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-bones.jpg",
+      "caption": {
+        "en": "Living Bones",
+        "de": "Living Bones"
+      }
+    },
+    {
+      "id": "living-corpse",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/b19de380d06c5886f2569c682a042fc9e5f43020.jpg",
+      "sha256": "3a9217fd856ca615289355b201cc42cee516ecf3a3c725eccb75c541a717b089",
+      "size": 129759,
+      "dimensions": [
+        1757,
+        988
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-corpse.jpg",
+      "caption": {
+        "en": "Living Corpse",
+        "de": "Living Corpse"
+      }
+    },
+    {
+      "id": "living-spirit",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/b8b2a6af509dffd26503c2b9b924ee8b525c2ece.jpg",
+      "sha256": "5c45932c0ece544bf529ed8d73ba5a6567506b4f5128854101cd27c2767662f4",
+      "size": 668187,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-spirit.jpg",
+      "caption": {
+        "en": "Living Spirit",
+        "de": "Living Spirit"
+      }
+    },
+    {
+      "id": "cultist",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/cd840f6195e309893b52f07fb7f06da7a418cf30.jpg",
+      "sha256": "e3d164b950ff0cb350c5df7c9e203e8b50fabf235bcd479e5d2fa252ea4e9718",
+      "size": 659702,
+      "dimensions": [
+        1769,
+        988
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/cultist.jpg",
+      "caption": {
+        "en": "Cultist",
+        "de": "Cultist"
+      }
+    },
+    {
+      "id": "sun-demon",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/88588502b296106e77c3ce95c3674d8ff914608b.jpg",
+      "sha256": "cad3fb54e8901dff6f827ef7accdb945ddbf2b6bcf692883bb32144d0b4d2631",
+      "size": 932835,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/sun-demon.jpg",
+      "caption": {
+        "en": "Sun Demon",
+        "de": "Sun Demon"
+      }
+    },
+    {
+      "id": "night-demon-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/97257a6a78c5e27b6081ccbce2cc96832c817e84.jpg",
+      "sha256": "7d604da72008a295260ef9a3248c4f91f192888ce6416ee98c9449e160c02067",
+      "size": 930195,
+      "dimensions": [
+        1768,
+        988
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/night-demon-elite.jpg",
+      "caption": {
+        "en": "Night Demon (Elite)",
+        "de": "Night Demon (Elite)"
+      }
+    },
+    {
+      "id": "bandit-guard-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/d5c4696fbc7c9c8baab084e5fa9fa02b05934072.jpg",
+      "sha256": "1d3d522f3b4be449ef3f3b2fb4f1c687f07bada487db5b0fc52b9e4b27041ac1",
+      "size": 732660,
+      "dimensions": [
+        1767,
+        995
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/bandit-guard-elite.jpg",
+      "caption": {
+        "en": "Bandit Guard (Elite)",
+        "de": "Bandit Guard (Elite)"
+      }
+    },
+    {
+      "id": "bandit-archer-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/dfa8267fb75af4174836fc92ddbfe734917a36e2.jpg",
+      "sha256": "af1136d0c017123c52835162323c4000d2afd153dac236de7ddf50dfd85946a7",
+      "size": 715763,
+      "dimensions": [
+        1767,
+        982
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/bandit-archer-elite.jpg",
+      "caption": {
+        "en": "Bandit Archer (Elite)",
+        "de": "Bandit Archer (Elite)"
+      }
+    },
+    {
+      "id": "living-bones-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/a604456cce8b32fe9d64c40de02936c7df4cd3fe.jpg",
+      "sha256": "cc8e4c382dcaa1dbfb6d12db1aca51ecfac96a400541cf3c30a410cc4a5380d5",
+      "size": 1099618,
+      "dimensions": [
+        1755,
+        988
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-bones-elite.jpg",
+      "caption": {
+        "en": "Living Bones (Elite)",
+        "de": "Living Bones (Elite)"
+      }
+    },
+    {
+      "id": "living-corpse-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/521023e8440a61f13648327fc11e58e32f2db8fb.jpg",
+      "sha256": "fd105c5f6ac1de45cbd9e47b9d02d7ae366a6111a32e3c681326626f4db87451",
+      "size": 906268,
+      "dimensions": [
+        1767,
+        982
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-corpse-elite.jpg",
+      "caption": {
+        "en": "Living Corpse (Elite)",
+        "de": "Living Corpse (Elite)"
+      }
+    },
+    {
+      "id": "living-spirit-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/3e078e4d3e2a9897c8f579b53a67297f9637f580.jpg",
+      "sha256": "3d49a113b199da2b1ceecb2fa21a5131dd13bb332da4e0051438563bdeb45397",
+      "size": 981548,
+      "dimensions": [
+        1767,
+        982
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/living-spirit-elite.jpg",
+      "caption": {
+        "en": "Living Spirit (Elite)",
+        "de": "Living Spirit (Elite)"
+      }
+    },
+    {
+      "id": "cultist-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/c9ee32fda803ce49d35ff7a63db9f0cc90e291ca.jpg",
+      "sha256": "85b46fe2763212eaa7397ec411afd0831034fb0d37853603e7dc9822bffe7931",
+      "size": 709090,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/cultist-elite.jpg",
+      "caption": {
+        "en": "Cultist (Elite)",
+        "de": "Cultist (Elite)"
+      }
+    },
+    {
+      "id": "sun-demon-elite",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/22adc1bdaa0c1a21b9627cc788455cb57acae878.jpg",
+      "sha256": "2bd567e1d1fa42e808743d2cdb1cde031330347bffdfc1d8f9226ad9d574e783",
+      "size": 1017739,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/sun-demon-elite.jpg",
+      "caption": {
+        "en": "Sun Demon (Elite)",
+        "de": "Sun Demon (Elite)"
+      }
+    },
+    {
+      "id": "bandit-commander",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/10f9207d547ce2903dd174821b7559ceaebd9381.jpg",
+      "sha256": "abe3610fbcf932402d8289a511d17fd16cacc6beb7daf533ebe52a2bc42e5522",
+      "size": 818780,
+      "dimensions": [
+        1750,
+        997
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1557410073",
+      "localPath": "assets/promo/bandit-commander.jpg",
+      "caption": {
+        "en": "Bandit Commander",
+        "de": "Bandit Commander"
+      }
+    },
+    {
+      "id": "nightcrawler-scoundrel",
+      "url": "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/clans/33333530/4f30fa0ca8fda602d406d30b23e64ae31ebbefc2.jpg",
+      "sha256": "9e9b06d764ae30e01ec0a0032c7a4a93e7c280fa4689a5cd8e118d30fe763460",
+      "size": 3122690,
+      "dimensions": [
+        3840,
+        2160
+      ],
+      "source": "https://store.steampowered.com/news/posts/?appids=780290&enddate=1564327021&feed=steam_community_announcements",
+      "localPath": "assets/promo/nightcrawler-scoundrel.jpg",
+      "caption": {
+        "en": "Nightcrawler Scoundrel",
+        "de": "Nightcrawler Scoundrel"
+      }
+    }
+  ]
+}

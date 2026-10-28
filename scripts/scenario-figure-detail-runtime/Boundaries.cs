@@ -74,6 +74,13 @@ namespace GloomhavenVR.Board.FigureGrab
 }
 namespace GloomhavenVR.Core
 {
+    // Resolve the fixture's installed native bank beside its loaded assembly,
+    // matching the ordinary desktop loader port without enabling Quest storage.
+    internal static class RuntimeDepsLoader
+    {
+        internal static string PluginDir => System.IO.Path.GetDirectoryName(
+            typeof(RuntimeDepsLoader).Assembly.Location) ?? string.Empty;
+    }
     internal static class FigureClock { internal static float Now; }
     internal static class VRSession
     {

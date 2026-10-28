@@ -704,6 +704,14 @@ internal static class NetProtocol
     // acceptance item; no lower-quality or capture-rate fallback is introduced.
     // Build735 is already used by the separate Quest standalone branch.
 
+    // ModBuild735 — rebase Quest Standalone onto completed dev734.
+    // Preserve shared absolute window geometry, city/quest authority, stable
+    // complete character-window detail, right-side native hints and preview-only
+    // rotation. Retain Quest input, loading, native FX, mobile profile and local
+    // installed-APK compiler-reference updates. Qualify Android resource bindings
+    // independently of the upstream D3D11 shader bank; preserve compatible game
+    // conversion and separate movie/figure/audio producers. Source-only delivery;
+    // no local full APK or archive, and no unperformed headset acceptance claim.
     // ModBuild734 — complete menu-quality delivery after shared city readiness733.
     // Finish the unpublished732 menu checkpoint on the current integration branch.
     // Fixed actual-head rasters preserve complete native UI/character detail during

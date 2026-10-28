@@ -20,15 +20,24 @@
     <!-- Keep original artwork native: only compact relief fields and their source bindings
          accompany the DLL. The finite delivery roster is validated by both packagers. -->
     <Content Include="Assets\MenuDepth\Story\*.gmd"
+             Condition="'$(GloomhavenVRMenuDepthSkipStoryCopy)' != 'true'"
              CopyToOutputDirectory="PreserveNewest" TargetPath="MenuDepth\Story\%(Filename)%(Extension)" />
     <Content Include="Assets\MenuDepth\Story\manifest.json"
+             Condition="'$(GloomhavenVRMenuDepthSkipStoryCopy)' != 'true'"
              CopyToOutputDirectory="PreserveNewest" TargetPath="MenuDepth\Story\manifest.json" />
     <EmbeddedResource Include="Assets\MenuDepth\Rendering\menu-depth.bundle"
+                      Condition="'$(GloomhavenVRMenuDepthBundle)' == ''"
                       LogicalName="GloomhavenVR.MenuDepth.Rendering.bundle" />
+    <EmbeddedResource Include="$(GloomhavenVRMenuDepthBundle)"
+                      Condition="'$(GloomhavenVRMenuDepthBundle)' != ''"
+                      LogicalName="GloomhavenVR.MenuDepth.Rendering.bundle" />
+    <EmbeddedResource Include="$(GloomhavenVRMenuDepthProvenance)"
+                      Condition="'$(GloomhavenVRMenuDepthProvenance)' != ''"
+                      LogicalName="GloomhavenVR.MenuDepth.Rendering.provenance.json" />
     <!-- Movies remain separate Content, never DLL resources. Source-only builds can
          exercise the explicit mono fallbacks without offline conversions; both packagers
          require every path in packaging/movie-files.txt before touching an installation. -->
-    <Content Include="Assets\Movies\CP_Intro\GH_CP_Intro.mov"
+    <Content Include="Assets\Movies\CP_Intro\GH_CP_Intro.mov" Condition="Exists('Assets\Movies\CP_Intro\GH_CP_Intro.mov')"
              CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\CP_Intro\GH_CP_Intro.mov" />
     <Content Include="Assets\Movies\CP_Intro\GH_CP_Intro.sbs-v2.mov" Condition="Exists('Assets\Movies\CP_Intro\GH_CP_Intro.sbs-v2.mov')"
              CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\CP_Intro\GH_CP_Intro.sbs-v2.mov" />
@@ -75,6 +84,11 @@
     <!-- The small, explicitly loaded stereo UI shader does not replace the main asset bank. -->
     <EmbeddedResource Include="Assets\StereoVideo\ui-sbs.bundle"
                       LogicalName="GloomhavenVR.StereoVideo.ui-sbs.bundle" />
+    <!-- Quest-only foreground spinner shader: compact updates retain every large mod bank. -->
+    <EmbeddedResource Include="Assets\QuestLoading\ghvr-quest-loading.bundle"
+                      LogicalName="GloomhavenVR.QuestLoading.spinner.bundle" />
+    <EmbeddedResource Include="Assets\QuestLoading\provenance.json"
+                      LogicalName="GloomhavenVR.QuestLoading.provenance.json" />
     <EmbeddedResource Include="Assets\SteamLink\scene.bundle"
                       LogicalName="GloomhavenVR.SteamLink.scene.bundle" />
     <!-- Original render-only sky for VR contexts without a native scenario sky. -->

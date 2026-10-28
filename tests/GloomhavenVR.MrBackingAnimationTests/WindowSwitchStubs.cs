@@ -5,6 +5,11 @@ using UnityEngine;
 
 // The actual Bind/entry-point/cancel methods are extracted unchanged from production.
 // These doubles represent configuration persistence and Unity construction boundaries only.
+namespace GloomhavenVR.Core
+{
+    internal static class QuestStandalonePlatform { internal static bool Enabled => false; }
+}
+
 namespace BepInEx
 {
     internal static class Paths { internal const string BepInExRootPath = "test-install"; }

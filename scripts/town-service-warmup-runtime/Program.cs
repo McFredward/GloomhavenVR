@@ -86,6 +86,10 @@ namespace GloomhavenVR.WorldUI
 
 namespace GloomhavenVR.Core
 {
+    internal static class RuntimeDepsLoader
+    {
+        internal static string PluginDir => AppContext.BaseDirectory;
+    }
     internal static class VRLog
     {
         internal static void Debug(string area, string message) { }

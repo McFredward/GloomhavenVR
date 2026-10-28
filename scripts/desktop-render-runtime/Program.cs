@@ -111,7 +111,10 @@ public static class InteractionProgram
             VRSession.IsRunning = true;
             flat.Tick(false, false);
             RenderTexture.active = privateTarget;
+            int desktopClears = FixtureGL.ClearCalls;
             flat.OnEndOfFrame();
+            Check(FixtureGL.ClearCalls == desktopClears + 1,
+                "ordinary desktop spectator-off still requests its black clear");
             Check(RenderTexture.active == privateTarget,
                 "black desktop clear restores the previous in-headset capture target");
             flat.Tick(false, true);
@@ -121,6 +124,30 @@ public static class InteractionProgram
             VRSession.IsRunning = false;
             flat.OnEndOfFrame();
             Check(RenderTexture.active == privateTarget, "flat mode leaves its current native target untouched");
+
+            // Quest retains native menu capture/scrub ownership, but has no PC
+            // spectator endpoint. Execute the actual provider/clear methods with
+            // the Android capability on; observe the actual Unity API boundary.
+            VRSession.IsRunning = true;
+            QuestStandalonePlatform.Enabled = true;
+            var standalone = new FlatScreen();
+            try
+            {
+                standalone.Tick(true, false);
+                Check(!standalone.OwnsDesktopMirror,
+                    "Quest never captures or reconfigures a desktop mirror provider");
+                RenderTexture.active = privateTarget;
+                int beforeQuest = FixtureGL.ClearCalls;
+                standalone.OnEndOfFrame();
+                Check(RenderTexture.active == privateTarget,
+                    "Quest spectator-off leaves the current native target bound");
+                Check(FixtureGL.ClearCalls == beforeQuest,
+                    "Quest spectator-off never requests a default framebuffer clear");
+                standalone.Tick(true, true);
+                Check(!standalone.OwnsDesktopMirror,
+                    "Quest ignores a saved PC spectator preference without provider ownership");
+            }
+            finally { standalone.End(); QuestStandalonePlatform.Enabled = false; }
         }
         finally
         {

@@ -55,6 +55,8 @@ def main():
                  'MenuDepthCards.cs', 'MenuDepthCardPlane.cs')
         source_files = {name: source / name for name in names}
         source_files['CardFaceMipBake.cs'] = ROOT / 'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs'
+        source_files['QuestTextureCopy.cs'] = ROOT / 'src/GloomhavenVR/Core/QuestTextureCopy.cs'
+        source_files['QuestDesktopBoundary.cs'] = ROOT / 'scripts/menu-depth-capture/QuestDesktopBoundary.cs'
         sources = {name: path.read_text() for name, path in source_files.items()}
         fixture = ROOT / 'tests/GloomhavenVR.MenuDepthGraphicTests'
         cases = [

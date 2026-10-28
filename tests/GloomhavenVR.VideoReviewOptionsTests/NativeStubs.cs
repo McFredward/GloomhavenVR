@@ -6,13 +6,39 @@ using System.Collections.Generic;
 namespace UnityEngine
 {
     internal static class Time { internal static float unscaledTime => 0f; }
-    internal sealed class Transform { }
+    internal class Component { }
+    internal sealed class Transform : Component
+    {
+        private readonly string _name;
+        private readonly Component? _component;
+        internal readonly List<Transform> Children = new();
+        internal Transform(string name = "", Component? component = null)
+        { _name = name; _component = component; }
+        internal Transform? Find(string name) => Children.Find(child => child._name == name);
+        internal T? GetComponent<T>() where T : Component => _component as T;
+        internal T? GetComponentInChildren<T>(bool includeInactive) where T : Component
+        {
+            if (_component is T match) return match;
+            foreach (Transform child in Children)
+                if (child.GetComponentInChildren<T>(includeInactive) is T found) return found;
+            return null;
+        }
+    }
     internal sealed class GameObject
     {
         internal readonly TMPro.TMP_Text Label = new();
+        internal readonly Transform transform = new();
         internal bool activeSelf = true;
+        internal GameObject()
+        {
+            // Explicit donor-order challenge: the inactive option label precedes
+            // StampRow's authored Title. Include-inactive lookup sees both.
+            transform.Children.Add(new Transform("Option", new TMPro.TMP_Text()));
+            transform.Children.Add(new Transform("Title", Label));
+        }
         internal void SetActive(bool active) => activeSelf = active;
-        internal T? GetComponentInChildren<T>(bool includeInactive) where T : class => Label as T;
+        internal T? GetComponentInChildren<T>(bool includeInactive) where T : Component =>
+            transform.GetComponentInChildren<T>(includeInactive);
     }
 }
 namespace BepInEx.Configuration
@@ -30,7 +56,7 @@ namespace BepInEx.Configuration
 internal static class FFSNetwork { internal static bool IsOnline; }
 namespace TMPro
 {
-    internal sealed class TMP_Text
+    internal sealed class TMP_Text : UnityEngine.Component
     {
         private string _text = "";
         internal int Writes;
