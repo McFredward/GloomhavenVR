@@ -196,6 +196,8 @@ internal static class SkyBackdrop
     private static bool _applied;   // mechanism effects currently active
     private static int _scanNextFrame;
     private static bool _watchingScenes;
+    private static Camera? _seenHead;
+    private static int _seenHeadMask;
 
     private static readonly int BackgroundQueue = (int)RenderQueue.Background; // 1000
 
@@ -223,6 +225,14 @@ internal static class SkyBackdrop
             SceneManager.sceneLoaded += OnSceneLoaded;
             _watchingScenes = true;
         }
+        Camera? currentHead = VRRigDriver.HeadCamera;
+        int currentMask = currentHead != null ? currentHead.cullingMask : 0;
+        if (!ReferenceEquals(currentHead, _seenHead) || currentMask != _seenHeadMask)
+        {
+            _seenHead = currentHead;
+            _seenHeadMask = currentMask;
+            _scanNextFrame = 0;
+        }
 
         if (skyOwnedElsewhere)
         {
@@ -238,6 +248,8 @@ internal static class SkyBackdrop
         }
 
         if (NativeDefaultSky.RefreshLifetime()) FullReset();
+        if (_sky != null && !NativeDefaultSky.Owns(_sky) && !HeadCanRender(_sky))
+            FullReset();
         EnsureAcquired();
         NativeDefaultSky.UpdatePose();
         if (_sky == null || _mat == null)
@@ -260,6 +272,8 @@ internal static class SkyBackdrop
         if (!_watchingScenes) return;
         SceneManager.sceneLoaded -= OnSceneLoaded;
         _watchingScenes = false;
+        _seenHead = null;
+        _seenHeadMask = 0;
     }
 
     // ---- acquisition --------------------------------------------------------------------------
@@ -274,7 +288,7 @@ internal static class SkyBackdrop
         if (NativeDefaultSky.Owns(_sky) && Time.frameCount >= _scanNextFrame)
         {
             _scanNextFrame = Time.frameCount + ScanIntervalFrames;
-            arrived = FindNativeSky();
+            arrived = FindNativeSky(headVisibleOnly: true);
             if (arrived != null)
             {
                 FullReset();
@@ -291,7 +305,8 @@ internal static class SkyBackdrop
                 return;
             _scanNextFrame = Time.frameCount + ScanIntervalFrames;
 
-            Renderer? found = arrived != null ? arrived : FindSky() ?? NativeDefaultSky.Acquire();
+            Renderer? found = arrived != null ? arrived
+                : FindNativeSky(headVisibleOnly: true) ?? NativeDefaultSky.Renderer ?? NativeDefaultSky.Acquire();
             if (found == null)
                 return;
             Material? mat = found.sharedMaterial;
@@ -308,9 +323,9 @@ internal static class SkyBackdrop
     /// <see cref="SkyAlternative"/> hides the SAME renderer this class treats — one set of hints,
     /// no second definition of "the sky" to drift.</summary>
     internal static Renderer? FindSky()
-        => FindNativeSky() ?? NativeDefaultSky.Renderer;
+        => FindNativeSky(headVisibleOnly: false) ?? NativeDefaultSky.Renderer;
 
-    private static Renderer? FindNativeSky()
+    private static Renderer? FindNativeSky(bool headVisibleOnly)
     {
         Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>();
         for (int i = 0; i < all.Length; i++)
@@ -320,8 +335,7 @@ internal static class SkyBackdrop
                 continue;
             // A serialized scenario can arrive before its new rig does. Until
             // the owned head actually sees that layer, keep the menu's own sky.
-            Camera? head = VRRigDriver.HeadCamera;
-            if (head != null && (head.cullingMask & (1 << r.gameObject.layer)) == 0)
+            if (headVisibleOnly && !HeadCanRender(r))
                 continue;
             if (MatchesHint(r.gameObject.name))
                 return r;
@@ -330,6 +344,12 @@ internal static class SkyBackdrop
                 return r;
         }
         return null;
+    }
+
+    private static bool HeadCanRender(Renderer renderer)
+    {
+        Camera? head = VRRigDriver.HeadCamera;
+        return head != null && (head.cullingMask & (1 << renderer.gameObject.layer)) != 0;
     }
 
     private static bool MatchesHint(string? s)

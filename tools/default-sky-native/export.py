@@ -112,7 +112,7 @@ def export(game, output):
     tree['m_PreloadTable'] = [{'m_FileID': 0, 'm_PathID': i} for i in objects]
     tree['m_Container'] = [(name, {'preloadIndex': 0, 'preloadSize': len(objects),
         'asset': {'m_FileID': 0, 'm_PathID': i}}) for name, i in
-        (('native/default-sky/mesh', 12), ('native/default-sky/material', 4), ('native/default-sky/shader', 18))]
+        (('native/default-sky/material', 4), ('native/default-sky/mesh', 12), ('native/default-sky/shader', 18))]
     tree['m_MainAsset'] = {'preloadIndex': 0, 'preloadSize': 0, 'asset': {'m_FileID': 0, 'm_PathID': 0}}
     container.save_typetree(tree)
     asset_type = copy.copy(container.serialized_type)
