@@ -138,6 +138,22 @@ internal sealed partial class FlatScreen
         { ReleaseMenuDepthScreen(); return; }
         try
         {
+            _menuDepthCameras.Clear();
+            for (int i = 0; i < _captured.Count; i++)
+            {
+                CapturedCamera source = _captured[i];
+                if (!source.IsUi || source.Camera == null || !source.Camera.isActiveAndEnabled) continue;
+                int at = _menuDepthCameras.Count;
+                while (at > 0 && _menuDepthCameras[at - 1].depth > source.Camera.depth) at--;
+                _menuDepthCameras.Insert(at, source.Camera);
+            }
+            // MainMenu can retain an enabled UI camera without a matching original
+            // Canvas. Validate the complete stack before admitting any head targets
+            // or preparing a source. The previous late failure allocated/released
+            // both4040 eye rasters every frame before restoring the same mono UI.
+            // Native camera callbacks and input still use their original fallback;
+            // a newly valid mapping can resume immediately, without a rate tier.
+            ValidateMenuDepthMappings(left, right);
             Rect frame = new(0f,0f,1f,1f);
             Vector2Int pixels = MenuDepthHeadRaster.Size(head);
             int width = pixels.x, height = pixels.y;
@@ -161,15 +177,6 @@ internal sealed partial class FlatScreen
                 * _quad.transform.TransformVector(Vector3.up).magnitude);
             if (SystemInfo.usesReversedZBuffer) physical = -physical;
             _menuDepthPhysicalScale = new Vector2(DepthSide(left) * physical, DepthSide(right) * physical);
-            _menuDepthCameras.Clear();
-            for (int i = 0; i < _captured.Count; i++)
-            {
-                CapturedCamera source = _captured[i];
-                if (!source.IsUi || source.Camera == null || !source.Camera.isActiveAndEnabled) continue;
-                int at = _menuDepthCameras.Count;
-                while (at > 0 && _menuDepthCameras[at - 1].depth > source.Camera.depth) at--;
-                _menuDepthCameras.Insert(at, source.Camera);
-            }
             CaptureMenuDepthUi(_menuDepthCarrierLeft ?? _uiRt, new MenuDepthEye(false, left, head));
             CaptureMenuDepthUi(_menuDepthRight!, new MenuDepthEye(true, right, head));
             _menuDepthHeadMaterial ??= MenuDepthDisplay.CreateDisplayMaterial(_menuDepthCarrierLeft!, _menuDepthRight!);
@@ -209,6 +216,20 @@ internal sealed partial class FlatScreen
                     try { Canvas.ForceUpdateCanvases(); source.Render(); }
                     catch (Exception fallback) { if (count <= 2) VRLog.Warn("WorldUI", "MENU DEPTH DESKTOP RESTORE: " + fallback.GetType().Name); }
                 }
+        }
+    }
+
+    private void ValidateMenuDepthMappings(Vector3 left, Vector3 right)
+    {
+        for (int i = 0; i < _menuDepthCameras.Count; i++)
+        {
+            Camera source = _menuDepthCameras[i];
+            Canvas? canvas = MenuDepthNativeUiScope.FindCanvas(source, _menuDepthGraphics);
+            if (canvas == null || !MenuDepthScreenProjection.TryMap(_quad!.transform, source,
+                    (RectTransform)canvas.transform, left, out _, out _, allowCoplanar: true)
+                || !MenuDepthScreenProjection.TryMap(_quad.transform, source,
+                    (RectTransform)canvas.transform, right, out _, out _, allowCoplanar: true))
+                throw new InvalidOperationException("The original UI root has no physical head mapping.");
         }
     }
 
