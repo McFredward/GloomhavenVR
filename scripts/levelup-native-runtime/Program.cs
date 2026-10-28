@@ -16,6 +16,7 @@ using Object=UnityEngine.Object;
 public static class LevelUpNativeProgram
 {
     private static int _checks,_controllerEnables,_translations,_nativeButtonChecks;
+    private static bool _allowNativeButton;
     private static string _language="Continue";
     private static Harmony? _harmony;
     private static TMP_FontAsset _nativeFont=null!;
@@ -52,7 +53,7 @@ public static class LevelUpNativeProgram
     private static void Check(bool value,string message){_checks++;if(!value)throw new Exception(message);}
     private static bool Translate(string Term,ref string __result){_translations++;__result=Term=="GUI_CONTINUE"?_language:Term;return false;}
     private static bool ControllerEnable(){_controllerEnables++;return false;}
-    private static bool BlockNativeButton(ref bool __result){_nativeButtonChecks++;__result=false;return false;}
+    private static bool BlockNativeButton(ref bool __result){_nativeButtonChecks++;__result=_allowNativeButton;return false;}
     private static MethodInfo Method(string name)=>typeof(LevelUpNativeProgram).GetMethod(name,BindingFlags.Static|BindingFlags.NonPublic)!;
     private static RectTransform Rect(string name,Transform? parent,float width,float height)
     {
@@ -88,7 +89,7 @@ public static class LevelUpNativeProgram
     {var previous=ConfirmationOnOwner.Begin(source);ConfirmationOnOwner.Record(manager);ConfirmationOnOwner.CurrentScope=previous;}
     public static IEnumerator Run(string output)
     {
-        _checks=_controllerEnables=_translations=_nativeButtonChecks=0;_language="Continue";
+        _checks=_controllerEnables=_translations=_nativeButtonChecks=0;_language="Continue";_allowNativeButton=false;
         WorldUIConfig.ConversionActive=true;FlatScreen.ManualScreenActive=false;FFSNetwork.IsOnline=false;
         UIConfirmationBoxManager.MainMenuInstance=null;CanvasConversion.Converts=CanvasConversion.PoseAuthors=0;NativeFont();
         var harmony=_harmony=new Harmony("GloomhavenVR.LevelUpNative."+typeof(LevelUpNativeProgram).Assembly.GetName().Name);
@@ -144,6 +145,60 @@ public static class LevelUpNativeProgram
         inventoryInk.enabled=comparisonInk.enabled=true;seated=Capture(camera,Path.Combine(output,"rebuilt-three-columns.png"));
         Check(BrightPixels(reference)>20&&BrightPixels(seated)>=BrightPixels(reference)-2,"later original text rebuild remains complete in actual pixels");
         Object.DestroyImmediate(reference);Object.DestroyImmediate(seated);
+
+        // Real TMP uses +/-2^31 sentinels when no character is visible. This is
+        // the exact Build736 hardware extent, not a fabricated large-layout input.
+        owner.IsShowing=false; // native reveal has finished; its window remains open for choice
+        Vector3 candidateSeat=inventory.parent.localPosition,comparisonSeat=comparison.parent.localPosition;
+        var glyphless=Text(card,"original whitespace-only optional label"," \t \n ",120,50);
+        glyphless.ForceMeshUpdate();Bounds absentInk=glyphless.textBounds;
+        File.WriteAllText(Path.Combine(output,"glyphless-tmp-bounds.txt"),"textInfo.characters="+glyphless.textInfo.characterCount+" bounds="+absentInk+" min="+absentInk.min+" max="+absentInk.max);
+        Check(absentInk.size.x<0&&absentInk.size.y<0,"actual original TMP exposes inverted sentinel bounds for whitespace-only labels");
+        LevelUpComposite.Tick();
+        Check(Vector3.Distance(candidateSeat,inventory.parent.localPosition)<.01f&&Vector3.Distance(comparisonSeat,comparison.parent.localPosition)<.01f,
+            "glyphless TMP cannot eject either original card list after the reveal");
+        Texture2D choicePixels=Capture(camera,Path.Combine(output,"after-reveal-native-choice.png"));
+        int candidatePixels=0;foreach(Color32 p in choicePixels.GetPixels32())if(p.r>50&&p.r>p.g*1.7f&&p.r>p.b*1.7f)candidatePixels++;
+        Check(candidatePixels>300,"original right-side candidate column stays visible in final Unity pixels after glyphless labels");
+        Object.DestroyImmediate(choicePixels);
+
+        var choiceRect=Rect("original candidate selection control",inventory,300,65);
+        var choiceImage=choiceRect.gameObject.AddComponent<Image>();choiceImage.color=Color.white;
+        var choiceButton=choiceRect.gameObject.AddComponent<native::ExtendedButton>();choiceButton.targetGraphic=choiceImage;
+        choiceButton.useAudioController=false;choiceButton.textLanguageKey="";
+        int selectionRequests=0;choiceButton.onClick.AddListener(()=>selectionRequests++);
+        Texture2D choiceWithButton=Capture(camera,Path.Combine(output,"after-reveal-native-choice-control.png"));Object.DestroyImmediate(choiceWithButton);
+        var pointer=new PointerEventData(EventSystem.current){position=camera.WorldToScreenPoint(choiceRect.TransformPoint(choiceRect.rect.center)),button=PointerEventData.InputButton.Left};
+        var hits=new List<RaycastResult>();panel.HostRaycaster.Raycast(pointer,hits);
+        File.WriteAllText(Path.Combine(output,"choice-raycast.txt"),"position="+pointer.position+" graphicDepth="+choiceImage.depth+" culled="+choiceImage.canvasRenderer.cull+" canvas="+choiceImage.canvas+" hitCount="+hits.Count+" camera="+panel.HostRaycaster.eventCamera);
+        Check(hits.Exists(hit=>ReferenceEquals(hit.gameObject,choiceRect.gameObject)),"actual native candidate control remains reachable by the owning window raycaster");
+        choiceButton.OnPointerClick(pointer);Check(selectionRequests==0,"native candidate click still observes its original permission gate");
+        _allowNativeButton=true;choiceButton.OnPointerClick(pointer);_allowNativeButton=false;
+        Check(selectionRequests==1,"native candidate pointer dispatch retains its original callback exactly once");
+
+        // Flat exposes this same inventory through its explicit Further Ability
+        // Cards toggle outside level-up, with its cards locked. Session/lock state
+        // is an input here; actual transforms, raster, raycast and game button run.
+        owner.myWindow.IsOpen=false;card.gameObject.SetActive(false);owner.cardHolder.cardHolder.Card=null;
+        var reset=inventory.gameObject.AddComponent<UIResetLevelUpWindow>();reset.inventory=owner.inventory;
+        reset.displayToggle=Rect("native Further Ability Cards toggle",comparison,40,40).gameObject.AddComponent<Toggle>();reset.displayToggle.isOn=true;
+        Singleton<UIResetLevelUpWindow>.Instance=reset;LevelUpComposite.Tick();
+        Check(inventory.IsChildOf(comparison)&&!inventory.IsChildOf(level),"native Further Ability Cards browse opens beside character cards outside active level-up");
+        var browseText=Text(comparison,"native browse preview before first hover"," ",180,60);browseText.ForceMeshUpdate();
+        int hoverRequests=0;choiceButton.onMouseEnter=new UnityEngine.Events.UnityEvent();choiceButton.onMouseExit=new UnityEngine.Events.UnityEvent();
+        choiceButton.onMouseEnter.AddListener(()=>{hoverRequests++;browseText.text="Browse card";browseText.ForceMeshUpdate();});
+        choiceButton.highlightScaleFactor=1f;choiceButton.animateScaling=false;
+        choiceButton.interactable=false;_allowNativeButton=true;choiceButton.OnPointerClick(pointer);_allowNativeButton=false;
+        Check(selectionRequests==1,"outside-level browse retains the native locked-card restriction");
+        choiceButton.OnPointerEnter(pointer);
+        Check(hoverRequests==1&&browseText.textInfo.characterCount>0&&browseText.textBounds.size.x>0,
+            "locked native browse card still dispatches its original hover event after an empty preview");
+        choiceButton.OnPointerExit(pointer);browseText.gameObject.SetActive(false);
+        reset.displayToggle.isOn=false;inventory.GetComponent<UIWindow>().IsOpen=false;LevelUpComposite.Tick();
+        Check(ReferenceEquals(inventory.parent,root),"closing native Further Ability Cards returns the original inventory home");
+        owner.myWindow.IsOpen=inventory.GetComponent<UIWindow>().IsOpen=true;card.gameObject.SetActive(true);owner.cardHolder.cardHolder.Card=card.GetComponent<NativeAbilityCard>();LevelUpComposite.Tick();
+        Check(inventory.IsChildOf(level),"the next active level-up reuses the same original candidate inventory");
+        choiceButton.interactable=true;
 
         // Build a native widget input from the audited307x65 original declaration.
         // Actual game ExtendedButton and real sprites/TMP render; gameplay owners/controllers

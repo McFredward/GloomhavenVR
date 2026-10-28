@@ -15,6 +15,15 @@ run unchanged. Fixture-only Harmony patches provide translation, reject the
 reward button's native click gate, and record unsafe controller activation.
 These patches are never included in the mod.
 
+Build737 adds the actual original TMP whitespace-only negative-size bounds witness
+matching the Build736 +/-2^31 hardware spill. The production card-list envelope,
+real final column pixels, owning GraphicRaycaster, original ExtendedButton pointer
+dispatch and locked browse/reopen lifecycle execute. Native session, choice event,
+permission and lock state remain explicit inputs; this does not bootstrap native
+level-up actors or claim an actual card grant. The unchanged original
+UIResetLevelUpWindow.ToggleDisplay path exposes this browser outside leveling with
+locked cards. Its reset costs, campaign and character-control permissions stay native.
+
 `export_inputs.py` reads the original `UICampaignRewardWindow.continueButton`
 from `level9` (owner 16283, button 18225). It records complete native widget tree,
 component object hashes, 307×65 frame, original nine-slice and SpriteSwap images,
