@@ -1133,17 +1133,33 @@ class Preparation:
         if backup_counter: backup_counter.finish()
         return rows
 
-    def run(self, name, operation, action, contracts, *, mutations=()):
-        """Run one real function, committing only after its contracts qualify."""
+    def run(self, name, operation, action, contracts, *, mutations=(), refresh_tail=False):
+        """Run one real function, optionally replacing only its closed tail.
+
+        A late independent content owner may change while every original asset
+        prefix remains valid. Retain the prior tail through its undo transaction;
+        publish the replacement only after all new contracts qualify. A stopped
+        refresh reopens through the ordinary constructor's rollback first.
+        """
+        replacing = None
+        if refresh_tail and self.value.get("pending"):
+            raise BuildError("Reopen preparation to recover its interrupted tail before refreshing again.")
         if self.index < len(self.value["steps"]):
             step = self.value["steps"][self.index]
             if (step["name"], step["operation"]) != (name, operation):
                 raise BuildError("Preparation phase order changed; use a new recipe/input identity.")
-            self.index += 1
-            self._substage(name, operation, "reuse")
-            return step.get("result")
+            if refresh_tail:
+                if self.index != len(self.value["steps"]) - 1:
+                    raise BuildError("Preparation refresh may replace only the matching final checkpoint.")
+                replacing = self.index
+            else:
+                self.index += 1
+                self._substage(name, operation, "reuse")
+                return step.get("result")
         self._substage(name, operation, "start")
         paths = mutations() if callable(mutations) else mutations
+        if replacing is not None and not paths:
+            raise BuildError("Preparation tail refresh requires explicit mutation undo paths.")
         undo = self._undo(name, paths) if paths else []
         self.value["pending"] = {"name": name, "operation": operation, "undo": undo}
         write_json(self.journal, self.value)
@@ -1170,9 +1186,19 @@ class Preparation:
             if counter: counter.finish()
             self.assert_sources()
             step = {"name": name, "operation": operation, "outputs": outputs}
-            self.value["steps"].append(step)
-            self.value["pending"] = None
-            write_json(self.journal, self.value)
+            if replacing is None:
+                self.value["steps"].append(step)
+                self.value["pending"] = None
+                write_json(self.journal, self.value)
+            else:
+                completed = {**self.value, "steps": list(self.value["steps"]), "pending": None}
+                completed["steps"][replacing] = step
+                write_json(self.journal, completed)
+                # Keep the old in-memory tail and pending undo too until the
+                # atomic journal publication returns. A writer failure must
+                # not permit same-object retry to overwrite the old backups.
+                self.value["steps"][replacing] = step
+                self.value["pending"] = None
             self.index += 1
             self.copies.commit()
             root = self.root / ("undo-" + name)

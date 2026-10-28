@@ -124,6 +124,22 @@ class CompletedPreparationTests(unittest.TestCase):
             self.f.run_prepare()
         self.assert_retained(current)
 
+    def test_complete_game_schedule_accepts_only_the_exact_optional_closed_story_suffix(self):
+        value = copy.deepcopy(self.value)
+        tail = {"name": "menu-story-content", "operation": "preparation-contracts",
+                "outputs": [{"path": "QuestStartupEvidence/menu-story-content.json", "size": 1, "sha256": "a" * 64}]}
+        value["steps"].append(tail)
+        self.assertTrue(identity._completed_game_preparation(value, "game"))
+        for change in (lambda: value["steps"][-1].update(operation="mod-banks"),
+                       lambda: value["steps"][-1].update(name="unreviewed-story-producer"),
+                       lambda: value["steps"].append(copy.deepcopy(tail)),
+                       lambda: value["steps"].reverse(),
+                       lambda: value.update(pending={"name": "menu-story-content"})):
+            value = copy.deepcopy(self.value); value["steps"].append(copy.deepcopy(tail))
+            change()
+            self.assertFalse(identity._completed_game_preparation(value, "game"))
+        self.assertFalse(identity._completed_game_preparation(value, "startup"))
+
     def test_changed_desktop_xr_refs_retain_all_asset_steps_without_reading_payloads(self):
         # Capture160059 reset the complete27 frontier solely because these
         # later compile references and their provenance changed in a new release.

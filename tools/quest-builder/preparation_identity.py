@@ -688,6 +688,11 @@ def _completed_game_preparation(value, target):
     names += [(name, "mod-banks") for name in ("startup-archive", "archive-cleanup", "package-settings", "mod-resource-banks")]
     names += [(name, "preparation-contracts") for name in ("compiler-contracts", "case-paths", "script-orders", "final-settings")]
     steps = value.get("steps")
+    # Story delivery is an independent late owner of the existing mod archive
+    # and small metadata. Retain the exact completed B717 prefix and admit only
+    # this optional final suffix; no earlier producer/order change is hidden.
+    if isinstance(steps, list) and len(steps) == len(names) + 1:
+        names += [("menu-story-content", "preparation-contracts")]
     return (isinstance(steps, list) and len(steps) == len(names)
             and all(isinstance(step, dict) and (step.get("name"), step.get("operation")) == expected
                     for step, expected in zip(steps, names)))
