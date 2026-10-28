@@ -589,10 +589,23 @@ class UpdateDriverTests(unittest.TestCase):
         recipe = source / 'tools/quest-movies/recipe.json'; recipe.parent.mkdir(parents=True)
         storage.write_json(recipe, {'schema': 1, 'movies': []})
         recipe_row = storage.record_file(recipe, recipe.relative_to(source).as_posix())
+        # The current release closes separately delivered Story Content too.
+        # Keep one unchanged numeric input in this metadata-only fixture; the
+        # real delivery/format consumers have their own production controls.
+        story = source / release.MENU_STORY_ROOT
+        story.mkdir(parents=True)
+        field = story / ("1" * 32 + ".gmd")
+        field.write_bytes(b"unchanged numeric relief input")
+        field_row = storage.record_file(field, field.relative_to(source).as_posix())
+        story_manifest = story / "manifest.json"
+        storage.write_json(story_manifest, {"schema": 1, "status": "complete", "format": "GMD1", "images": [
+            {"source_id": "1" * 32, "depth_file": field.name, "depth_bytes": field_row["size"],
+             "depth_sha256": field_row["sha256"]}]})
+        content_rows = [field_row, storage.record_file(story_manifest, story_manifest.relative_to(source).as_posix())]
         manifest = source / release.MANIFEST
         def publish(commit):
             storage.write_json(manifest, {"schema": 1, "kind": release.RELEASE_KIND, "sourceCommit": commit,
-                "modBuild": 671, "files": [code_row, recipe_row], "localDependencyRoots": list(release.LOCAL_DEPENDENCIES)})
+                "modBuild": 671, "files": [code_row, recipe_row, *content_rows], "localDependencyRoots": list(release.LOCAL_DEPENDENCIES)})
         # Real release byte verification supplies the manifest row. Small fixture
         # package requirements avoid shipping unrelated pinned native archives.
         with patch.object(release, "PUBLIC_PACKAGES", {}), patch.object(release, "REQUIRED", {code_row["path"]}), \

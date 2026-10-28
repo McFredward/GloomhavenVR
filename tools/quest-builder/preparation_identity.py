@@ -894,3 +894,19 @@ INSTALLED_UPDATE_DELIVERY_ROWS = {'tools/quest-builder/apk_update.py': ({'path':
                                           {'path': 'tools/quest-builder/update_driver.py',
                                            'sha256': '907a0fe7d02e85707948fc122ee334d6e57a8b9f2041447ad99f9105ae06136e',
                                            'size': 99846})}
+
+# The original public seed-delivery pair remains an exact historical input.
+# This latest reviewed menu delivery/reader pair has the same retained native
+# compiler calls and original asset producers. New menu runtime, shader and
+# weaver sources still participate independently; arbitrary host edits do too.
+INSTALLED_UPDATE_DELIVERY_PREVIOUS_ROWS = INSTALLED_UPDATE_DELIVERY_ROWS
+INSTALLED_UPDATE_DELIVERY_ROWS = {
+    "tools/quest-builder/apk_update.py": (
+        {"path": "tools/quest-builder/apk_update.py", "size": 96861,
+         "sha256": "e9b6528bf7c6f5decc9e9cab296f5bd5cbbb728302b15c0a1400b6320e77e19f"},
+        REBASE_MEDIA_DELIVERY_ROWS["tools/quest-builder/apk_update.py"][0]),
+    "tools/quest-builder/update_driver.py": (
+        {"path": "tools/quest-builder/update_driver.py", "size": 110448,
+         "sha256": "a791248f986fad53840d70d5485a439fd33de69d912a2c8f87ae4d92d029444a"},
+        REBASE_MEDIA_DELIVERY_ROWS["tools/quest-builder/update_driver.py"][0]),
+}

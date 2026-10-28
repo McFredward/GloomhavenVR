@@ -45,7 +45,7 @@ _INSTALLED_SOURCE_RECIPE = '11c6d285414bbd809b05169a41e42d0a87112310aa94f7670def
 # differ in producer_rows and therefore require their matched native pair.
 # Numeric loose Story fields alone never change that pair. Unknown AST changes
 # cannot cross this finite bridge, including a changed Story exclusion rule.
-_MENU_DELIVERY_RECIPE = 'a747cabc0ba7afd3c6a5afc248619a03133d8b05b75da140a1acb90e2a964b3d'
+_MENU_DELIVERY_RECIPE = '526115c9f974059fe55db46544b719eda5add29636753ab5effd3bdbb3f69645'
 _HEX = re.compile(r"[0-9a-f]{64}")
 
 
