@@ -113,3 +113,36 @@ These are focused host proofs, not a complete-gate or headset result. The
 integrator owns orchestration and the final union gate; the resource worker owns
 the new Android shader producer. Independent loose Story delivery into the
 existing mod-content archive is the next explicitly assigned bounded scope.
+
+## Independent loose Story delivery
+
+`menu_depth_content.augment()` accepts the already qualified mod archive,
+content inventory and native-bank receipt, then returns a closed archive and
+matching content/bundle metadata. It copies existing compressed bank records
+directly, preserving their exact payloads, order, source records and dependency
+contract. Only the finite supplied Story manifest/GMD fields are appended.
+The current numeric roster, exact retained archive/metadata and actual writer
+sources identify its independent cache; unchanged retries do not rewrite
+Story or decompress banks. A damaged owned delivery cache repairs just that
+archive, and interruption preserves original inputs and previous outputs.
+
+The bundle metadata adds `menuDepthStory` with schema, complete file records
+and a content key. Its existing bundle/source records remain unchanged.
+The full and compact orchestration callers belong to the integrator.
+
+`installation_manifest` preserves legacy three-bank and current four-bank
+admission. Its only new path scope is a manifest-first, lexically ordered
+`StreamingAssets/MenuDepth/Story/` roster of exact 32-hex GMD filenames. The
+actual nested ZIP, per-entry bytes and original-art manifest must close that
+same set. Extra paths, missing fields, modified depth bytes and reordered
+native banks remain rejected; game-bank validation remains metadata-only.
+
+The final focused run passes 108 tests in 7.362 seconds: Story producer and
+archive consumers, signed installation, source release/overlay and support.
+It includes actual compressed-record comparisons, a complete tiny signed
+installation-consumer proof, unchanged cache reuse without ZIP decompression,
+targeted damage repair, interrupted transfer and invalid-content controls.
+Resource changes from `5ee2bca24` and `b195b474c` are local test dependencies;
+the resource lane owns their source and independent Android/Vulkan proof.
+The earlier 97-test intermediate pass is retained separately. Every run reaps
+its process and invokes common cleanup; no regenerable Unity project exists.

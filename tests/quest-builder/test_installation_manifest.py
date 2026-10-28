@@ -91,6 +91,56 @@ class InstallationManifestTests(unittest.TestCase):
         self.write_apk()
         self.assertEqual(self.validate()["modFileCount"], 3)
 
+    def add_story(self):
+        fields = {"1" * 32: b"first exact numeric relief", "2" * 32: b"second exact numeric relief"}
+        images = [{"source_id": name, "depth_file": name + ".gmd", "depth_bytes": len(body),
+                   "depth_sha256": self.sha(body)} for name, body in fields.items()]
+        self.mod[contract.STORY_MANIFEST] = json.dumps({"schema": 1, "status": "complete",
+            "format": "GMD1", "images": images}).encode()
+        self.mod.update({contract.STORY_ROOT + name + ".gmd": body for name, body in fields.items()})
+        self.refresh_mod()
+
+    def refresh_mod(self):
+        self.mod_bytes = self.zip_bytes(self.mod)
+        self.manifest["mod"] = self.inventory(self.mod, "quest-mod-content.zip", self.sha(self.mod_bytes), False)
+        self.write_apk()
+
+    def test_signed_banks_plus_exact_loose_story_set_are_installable_for_both_bank_generations(self):
+        original = dict(self.mod)
+        self.add_story()
+        result = self.validate()
+        self.assertEqual(result["modFileCount"], 7)
+        self.assertEqual({name: self.mod[name] for name in original}, original)
+        self.mod = {name: original[name] for name in contract.LEGACY_MOD_PATHS}
+        self.add_story()
+        self.assertEqual(self.validate()["modFileCount"], 6)
+
+    def test_story_manifest_cannot_certify_a_missing_extra_or_different_field(self):
+        self.add_story()
+        original = dict(self.mod)
+        cases = {
+            "missing": lambda: self.mod.pop(contract.STORY_ROOT + "2" * 32 + ".gmd"),
+            "extra": lambda: self.mod.update({contract.STORY_ROOT + "3" * 32 + ".gmd": b"unlisted numeric data"}),
+            "different": lambda: self.mod.update({contract.STORY_ROOT + "2" * 32 + ".gmd": b"changed depth"}),
+        }
+        for name, change in cases.items():
+            with self.subTest(control=name):
+                self.mod = dict(original)
+                change(); self.refresh_mod()
+                with self.assertRaisesRegex(ValueError, "exact numeric field inventory"):
+                    self.validate()
+
+    def test_story_scope_and_order_are_finite_even_with_consistent_signed_zip_hashes(self):
+        self.add_story()
+        self.reject_changed_manifest(lambda m: m["mod"]["files"].reverse(), "paths/order")
+        original = dict(self.mod)
+        for name in ("StreamingAssets/unknown.bundle", contract.STORY_ROOT + "outside.txt",
+                     contract.STORY_ROOT + "../outside.gmd"):
+            with self.subTest(path=name):
+                self.mod = {**original, name: b"outside the finite story contract"}
+                self.refresh_mod()
+                with self.assertRaises(ValueError): self.validate()
+
     def test_current_environment_bank_cannot_disappear_from_manifest_or_bytes(self):
         self.reject_changed_manifest(lambda m: m["mod"]["files"].pop(), "ZIP entry")
         changed = {name: self.mod[name] for name in contract.LEGACY_MOD_PATHS}

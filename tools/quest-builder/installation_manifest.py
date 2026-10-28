@@ -20,6 +20,54 @@ MAXIMUM_PATH_BYTES = 8192
 MAXIMUM_MOD_ARCHIVE_BYTES = 4 * 1024 * 1024 * 1024
 LEGACY_MOD_PATHS = ("StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle", "StreamingAssets/ghvr-town-voices.bundle")
 MOD_PATHS = LEGACY_MOD_PATHS + ("StreamingAssets/ghvr-environment.bundle",)
+STORY_ROOT = "StreamingAssets/MenuDepth/Story/"
+STORY_MANIFEST = STORY_ROOT + "manifest.json"
+
+
+def mod_file_groups(files):
+    """Admit existing native banks plus one closed, canonical numeric roster."""
+    names = tuple(row["path"] for row in files)
+    count = len(MOD_PATHS) if names[:len(MOD_PATHS)] == MOD_PATHS else len(LEGACY_MOD_PATHS)
+    if names[:count] not in (LEGACY_MOD_PATHS, MOD_PATHS):
+        raise ValueError("Signed PC mod inventory must preserve its complete native-bank paths/order.")
+    story = files[count:]
+    if story:
+        tail = [row["path"] for row in story[1:]]
+        if (not 2 <= len(story) <= 4097 or story[0]["path"] != STORY_MANIFEST
+                or not 0 < story[0]["size"] <= MAXIMUM_MANIFEST_BYTES
+                or tail != sorted(tail) or len(set(tail)) != len(tail)
+                or any(re.fullmatch(re.escape(STORY_ROOT) + r"[0-9a-f]{32}\.gmd", name) is None for name in tail)):
+            raise ValueError("Signed PC mod inventory must preserve its closed menu story paths/order.")
+    return files[:count], story
+
+
+def validate_story_rows(rows, raw):
+    """Bind every delivered GMD field to the signed original-art manifest."""
+    if not rows:
+        return
+    if len(raw) > MAXIMUM_MANIFEST_BYTES:
+        raise ValueError("Signed menu story manifest is excessive.")
+    try:
+        value = json.loads(raw)
+        images = value.get("images")
+        if (value.get("schema") != 1 or value.get("status") != "complete" or value.get("format") != "GMD1"
+                or not isinstance(images, list) or not 1 <= len(images) <= 4096):
+            raise ValueError("incomplete manifest")
+        expected = []
+        for image in images:
+            source = image["source_id"]
+            if (not isinstance(source, str) or re.fullmatch("[0-9a-f]{32}", source) is None
+                    or image["depth_file"] != source + ".gmd"
+                    or type(image["depth_bytes"]) is not int or image["depth_bytes"] <= 0
+                    or not _hash(image["depth_sha256"])):
+                raise ValueError("invalid field identity")
+            expected.append({"path": STORY_ROOT + image["depth_file"],
+                             "size": image["depth_bytes"], "sha256": image["depth_sha256"]})
+        expected.sort(key=lambda row: row["path"])
+        if len({row["path"] for row in expected}) != len(expected) or rows[1:] != expected:
+            raise ValueError("field inventory differs")
+    except (ValueError, KeyError, TypeError, AttributeError, UnicodeError) as error:
+        raise ValueError("Signed menu story manifest differs from its exact numeric field inventory.") from error
 
 
 def _native_packer():
@@ -64,8 +112,8 @@ def _validate_inventory(value, input_key, archive, external, packer):
         insensitive.add(path.casefold())
     # Older signed hardware packages remain installable. Current four-bank
     # payloads must preserve their complete entry set through the ZIP gate below.
-    if not external and tuple(row["path"] for row in value["files"]) not in (LEGACY_MOD_PATHS, MOD_PATHS):
-        raise ValueError("Signed PC mod inventory must preserve its complete native-bank paths/order.")
+    if not external:
+        mod_file_groups(value["files"])
 
 
 def validate(apk, input_key, bank, delivery):
@@ -109,6 +157,9 @@ def validate(apk, input_key, bank, delivery):
                 with nested.open(row["path"]) as source:
                     if packer.stream_hash(source) != row["sha256"]:
                         raise ValueError("Signed PC mod entry SHA differs from its inventory: " + row["path"])
+            _, story = mod_file_groups(mod["files"])
+            if story:
+                validate_story_rows(story, nested.read(STORY_MANIFEST))
     return {"schema": 1, "inputKey": input_key, "manifestSha256": hashlib.sha256(raw).hexdigest(),
             "gameFileCount": len(game["files"]), "modFileCount": len(mod["files"]),
             "gameArchiveSha256": game["archiveSha256"], "modArchiveSha256": mod["archiveSha256"],

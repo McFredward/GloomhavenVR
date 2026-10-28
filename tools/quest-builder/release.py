@@ -137,6 +137,9 @@ REQUIRED = set(PUBLIC_PACKAGES) | {"tools/quest-builder/staging_copy.py", "tools
             'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestNativePluginContract.cs'}
 REQUIRED |= AUTHORED_RESOURCES | AUTHORED_MOVIES | PROMOTIONAL_ASSETS | {
     'tools/quest-builder/menu_depth_resources.py',
+    'tools/quest-builder/menu_depth_content.py',
+    'tools/quest-builder/installation_manifest.py',
+    'tools/quest-builder/native_content_pack.py',
     'tools/quest-menu-depth/Editor/MenuDepthResourceBuilder.cs',
     MENU_STORY_ROOT + 'manifest.json',
     'tools/quest-builder/update_seed.py', 'tools/quest-installer/installed_source.py',

@@ -1,0 +1,111 @@
+"""Deliver supplied loose menu relief alongside unchanged Android mod banks.
+
+No shader, environment, original game or depth-model producer runs here. The
+existing bank ZIP and its signed file inventory stay authoritative; copy their
+qualified compressed records and append the finite current numeric Story set.
+"""
+from __future__ import annotations
+
+import copy
+import importlib.util
+import json
+import os
+from pathlib import Path
+import zipfile
+
+
+def _installation():
+    spec = importlib.util.spec_from_file_location("quest_menu_content_installation",
+                                                Path(__file__).with_name("installation_manifest.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _read(builder, path):
+    path = builder._ordinary_owned(Path(path))
+    if not 0 < path.stat().st_size <= 8 * 1048576:
+        raise builder.BuildError("Menu Story delivery metadata is missing or excessive.")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise builder.BuildError("Menu Story delivery metadata must be an object.")
+    return value
+
+
+def augment(builder, output, source, archive, content_manifest, bundle_receipt, *, source_files=None, resources=None):
+    """Return closed (archive, content manifest, bank receipt) for either caller.
+
+    `resources` is captured during the Builder's isolated import. Do not import
+    a fresh globally aliased storage/profile dependency after that import ends.
+    Input archive SHA qualification and the existing stage's strong witnesses
+    retain exact byte proof without repeating an unchanged bank/depth sweep.
+    """
+    resources = resources or getattr(builder, "menu_depth_resources", None)
+    if resources is None:
+        raise builder.BuildError("Menu Story delivery needs the selected captured resource producer.")
+    contract = _installation()
+    packer = contract._native_packer()
+    archive = builder._ordinary_owned(Path(archive))
+    content = copy.deepcopy(content_manifest)
+    bundles = copy.deepcopy(bundle_receipt)
+    try:
+        if not isinstance(content, dict) or not contract._hash(content.get("inputKey")) or not isinstance(bundles, dict):
+            raise ValueError("existing mod identity/receipt is invalid")
+        contract._validate_inventory(content, content.get("inputKey"), "quest-mod-content.zip", False, packer)
+        banks, prior_story = contract.mod_file_groups(content["files"])
+        receipt_banks = bundles.get("bundles", [bundles.get("bundle")])
+        if (not isinstance(receipt_banks, list) or not receipt_banks
+                or banks != [{**row, "path": "StreamingAssets/" + row["path"]} for row in receipt_banks]
+                or bundles.get("bundle") != receipt_banks[0]):
+            raise ValueError("existing bank receipt differs from its content inventory")
+        if builder.digest(archive) != content["archiveSha256"]:
+            raise ValueError("existing archive SHA differs from its signed inventory")
+        with zipfile.ZipFile(archive) as retained:
+            packer.verify_entries(retained, content["files"])
+            if prior_story:
+                contract.validate_story_rows(prior_story, retained.read(contract.STORY_MANIFEST))
+        story = resources.story_records(source, source_files)
+        # Use the same signed canonical namespace accepted by the installer.
+        contract.mod_file_groups([*banks, *story])
+    except (ValueError, KeyError, TypeError, OSError, zipfile.BadZipFile) as error:
+        raise builder.BuildError("Menu Story delivery cannot retain an unqualified mod archive: " + str(error)) from error
+    story_identity = {"schema": 1, "files": story, "contentKey": builder.value_hash(story)}
+    if prior_story == story and bundles.get("menuDepthStory") == story_identity:
+        return archive, content, bundles
+    identity = {"scope": "quest-loose-menu-story-v1", "archive": content, "bundles": bundles,
+                "story": story, "producerSha256": builder.digest(Path(__file__)),
+                "resourceProducerSha256": builder.digest(Path(resources.__file__))}
+    key = builder.value_hash(identity)
+    root = builder._ordinary_owned(Path(output) / "cache/menu-depth-content" / key)
+    result_archive = root / "quest-mod-content.zip"
+    manifest_path, bundles_path = root / "quest-mod-content.json", root / "quest-mod-bundles.json"
+
+    def produce():
+        root.mkdir(parents=True, exist_ok=True)
+        temporary = builder._ordinary_owned(result_archive.with_suffix(".zip.partial"))
+        try:
+            with zipfile.ZipFile(archive) as retained, zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED,
+                                                                     compresslevel=1, allowZip64=True) as destination:
+                packer.verify_entries(retained, content["files"])
+                for row in banks:
+                    packer.copy_compressed_entry(retained, destination, retained.getinfo(row["path"]))
+                resources.write_story(destination, source, story)
+            if builder.digest(archive) != content["archiveSha256"]:
+                raise builder.BuildError("Retained mod archive changed during loose Story publication.")
+            current = {**content, "files": [*banks, *story], "archiveSha256": builder.digest(temporary)}
+            current_bundles = {**bundles, "menuDepthStory": story_identity}
+            with zipfile.ZipFile(temporary) as delivered:
+                packer.verify_entries(delivered, current["files"])
+                contract.validate_story_rows(story, delivered.read(contract.STORY_MANIFEST))
+            os.replace(temporary, result_archive)
+            builder.write_json(manifest_path, current)
+            builder.write_json(bundles_path, current_bundles)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return [result_archive, manifest_path, bundles_path], {
+            "scope": identity["scope"], "inputKey": content["inputKey"],
+            "storyKey": story_identity["contentKey"], "retainedBankFiles": banks,
+            "originalGameRebuilt": False, "artBanksRebuilt": False, "depthInferred": False}
+
+    builder.Stages(output).run("menu-depth-content", key, produce)
+    return result_archive, _read(builder, manifest_path), _read(builder, bundles_path)
