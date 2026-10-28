@@ -279,11 +279,35 @@ namespace GloomhavenVR.Quest
                 ? new[] { "StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle",
                     "StreamingAssets/ghvr-town-voices.bundle", "StreamingAssets/ghvr-environment.bundle" }
                 : new[] { "StreamingAssets/gloomhavenvr.bundle" };
-            if (manifest.files.Length != banks.Length)
+            if (manifest.files.Length < banks.Length || !fullGame && manifest.files.Length != banks.Length)
                 throw new InvalidDataException("Real mod content must contain the complete manifested Android bank set.");
             for (int i = 0; i < banks.Length; i++)
                 if (manifest.files[i].path != banks[i])
                     throw new InvalidDataException("Real mod content contains an unexpected Android bank or loader order.");
+            if (manifest.files.Length == banks.Length) return;
+            // Full Campaign may append the already installed numeric story
+            // companions. Preserve the exact four-bank loader prefix; this is
+            // the same finite manifest-first, sorted lower-hex GMD contract as
+            // the signed PC installation manifest, without admitting other art.
+            const string storyRoot = "StreamingAssets/MenuDepth/Story/";
+            int count = manifest.files.Length - banks.Length;
+            QuestGameContentFile storyManifest = manifest.files[banks.Length];
+            if (count < 2 || count > 4097 || storyManifest.path != storyRoot + "manifest.json"
+                || storyManifest.size <= 0 || storyManifest.size > 8 * 1024 * 1024)
+                throw new InvalidDataException("Real mod content has an invalid numeric story manifest suffix.");
+            string previous = null;
+            for (int i = banks.Length + 1; i < manifest.files.Length; i++)
+            {
+                string path = manifest.files[i].path;
+                if (!path.StartsWith(storyRoot, StringComparison.Ordinal) || path.Length != storyRoot.Length + 36
+                    || !path.EndsWith(".gmd", StringComparison.Ordinal)
+                    || previous != null && string.CompareOrdinal(previous, path) >= 0)
+                    throw new InvalidDataException("Real mod content has an unexpected or unordered numeric story field.");
+                for (int character = storyRoot.Length; character < storyRoot.Length + 32; character++)
+                    if (!(path[character] >= '0' && path[character] <= '9' || path[character] >= 'a' && path[character] <= 'f'))
+                        throw new InvalidDataException("Real mod content has an invalid numeric story field identity.");
+                previous = path;
+            }
         }
 
         IEnumerator PrepareModBanks(string root, bool fullGame)

@@ -419,10 +419,16 @@ internal static class Program
         Setup("mod-bank-admission"); var owner = Owner();
         string[] paths = { "StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle",
             "StreamingAssets/ghvr-town-voices.bundle", "StreamingAssets/ghvr-environment.bundle" };
-        QuestGameContentManifest manifest(string[] names) => new() { files = names.Select(path => new QuestGameContentFile { path = path }).ToArray() };
+        QuestGameContentManifest manifest(string[] names) => new() { files = names.Select(path => new QuestGameContentFile {
+            path = path, size = 1, sha256 = new string('a', 64) }).ToArray() };
         Call(owner, "ValidateModBanks", manifest(paths), true);
         Call(owner, "ValidateModBanks", manifest(paths.Take(1).ToArray()), false);
         Check(true, "bank-manifest", "full game admits all four banks and startup its single bank");
+        const string storyRoot = "StreamingAssets/MenuDepth/Story/";
+        string[] story = { storyRoot + "manifest.json", storyRoot + new string('0', 32) + ".gmd",
+            storyRoot + new string('a', 32) + ".gmd" };
+        Call(owner, "ValidateModBanks", manifest(paths.Concat(story).ToArray()), true);
+        Check(true, "story-bank-manifest", "the actual runtime consumer must admit installed numeric story companions after its unchanged four-bank prefix");
         foreach (string[] invalid in new[] { paths.Take(3).ToArray(), paths.Append(paths[0]).ToArray(),
             paths.Reverse().ToArray(), paths.Take(3).Append(paths[0]).ToArray(), paths.Take(3).Append("StreamingAssets/unknown.bundle").ToArray() })
         {
@@ -431,6 +437,35 @@ internal static class Program
             catch (InvalidDataException) { rejected = true; }
             Check(rejected, "bank-manifest", "missing, extra, reordered or foreign banks must stop startup");
         }
+        foreach (string[] invalid in new[] {
+            story.Take(1).ToArray(), story.Skip(1).ToArray(), story.Reverse().ToArray(),
+            new[] { story[0], story[2], story[1] }, new[] { story[0], story[1], story[1] },
+            new[] { story[0], storyRoot + new string('A', 32) + ".gmd" },
+            new[] { story[0], storyRoot + new string('g', 32) + ".gmd" },
+            new[] { story[0], storyRoot + new string('a', 31) + ".gmd" },
+            new[] { story[0], "StreamingAssets/Other/" + new string('a', 32) + ".gmd" },
+            new[] { story[0], storyRoot + "../" + new string('a', 32) + ".gmd" },
+            new[] { story[0], storyRoot + new string('a', 32) + ".bundle" },
+            new[] { story[0], storyRoot + new string('a', 32) + ".gmd", storyRoot + "unknown.json" },
+            new[] { story[0] }.Concat(Enumerable.Range(0, 4097).Select(i => storyRoot + i.ToString("x32") + ".gmd")).ToArray() })
+        {
+            bool rejected = false;
+            try { Call(owner, "ValidateModBanks", manifest(paths.Concat(invalid).ToArray()), true); }
+            catch (InvalidDataException) { rejected = true; }
+            Check(rejected, "story-bank-manifest", "runtime must reject missing, foreign, duplicate, unordered or excessive numeric story suffixes");
+        }
+        foreach (long size in new long[] { 0, 8 * 1024 * 1024 + 1 })
+        {
+            QuestGameContentManifest invalid = manifest(paths.Concat(story).ToArray()); invalid.files[4].size = size;
+            bool rejected = false;
+            try { Call(owner, "ValidateModBanks", invalid, true); }
+            catch (InvalidDataException) { rejected = true; }
+            Check(rejected, "story-bank-manifest", "numeric story manifest must remain positive and bounded");
+        }
+        bool startupRejected = false;
+        try { Call(owner, "ValidateModBanks", manifest(paths.Take(1).Concat(story).ToArray()), false); }
+        catch (InvalidDataException) { startupRejected = true; }
+        Check(startupRejected, "startup-story-scope", "diagnostic startup must retain its exact single-bank scope");
         var startup = (IEnumerator)Call(owner, "PrepareModBanks", Fixture.Root, false)!;
         Check(!startup.MoveNext() && AssetBundle.HeaderReads == 0, "startup-bank-scope", "diagnostic startup must not require the game bank");
         AssetBundle.Request = new AssetBundleCreateRequest { isDone = false };
