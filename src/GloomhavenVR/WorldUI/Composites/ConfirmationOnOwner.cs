@@ -169,8 +169,8 @@ internal static partial class ConfirmationOnOwner
                 // 2 cm tie margin at the accepted owner scale. Build738 therefore
                 // kept the new default-tier member at 116 behind its owner at 132,
                 // even though the member was nearer. Seed this owned confirmation
-                // one tier above its actual owner so the existing tie rule puts the
-                // small dialog first in that owner's foreground from the first draw.
+                // one tier above its actual owner so the existing tie rule paints
+                // the small dialog over that owner from the first visible frame.
                 seat.PersistentMember = CanvasConversion.Convert(rect, "LevelUpConfirmationMember",
                     pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog, fitContent: false,
                     sortingOrder: panel.BaseSortingOrder + 1,
