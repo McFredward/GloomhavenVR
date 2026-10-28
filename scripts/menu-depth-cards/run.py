@@ -23,13 +23,22 @@ def execute(command, log, timeout=300):
             child.wait()
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('--case',action='append'); args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('--case',action='append'); parser.add_argument('--graphics-api',choices=['glcore','vulkan'],default='glcore'); args=parser.parse_args()
     out=ROOT/'.planning/debug/menu-depth-cards';out.mkdir(parents=True,exist_ok=True)
     run=Path(tempfile.mkdtemp(prefix='run-',dir=out));completion=run/'completion.log';completion.write_text('Evidence: '+str(run)+'\n')
     print('Evidence: '+str(run),flush=True)
     source=ROOT/'src/GloomhavenVR/WorldUI/MenuDepth'; paths=[*source.glob('*.cs'),ROOT/'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs']
     sources={p.name:p.read_text()for p in paths}; fixture=ROOT/'tests/GloomhavenVR.MenuDepthCardTests'
     variants=[('production','','','',''),
+        ('head-text-736','','','',''),
+        ('lost-head-text-bias','MenuDepthGraphic.cs','private const float CardBackingWidthRatio = 1f / 4096f;',
+         'private const float CardBackingWidthRatio = 0f;', 'coplanar original card text stays intact'),
+        ('lost-head-text-rear-bias','MenuDepthGraphic.cs','(eye.z < 0f ? 1f : -1f)',
+         '1f', 'coplanar original card text stays intact'),
+        ('lost-head-text-mesh-restore','MenuDepthGraphic.cs',
+         'if (_headBackingMesh) { _headBackingMesh = false; graphic.SetVerticesDirty(); }',
+         'if (_headBackingMesh) { _headBackingMesh = false; }',
+         'ending head capture restores the original native backing mesh plane'),
         ('native-hover','','','',''),
         ('lost-cold-helper-activation','MenuDepthGraphic.cs',
          'if (IsActive()) MenuDepthSources.Register(this);','MenuDepthSources.Register(this);',
@@ -65,13 +74,14 @@ def main():
     for name,filename,before,after,expected in variants:
         if filename:assert sources[filename].count(before)==1,(name,before)
     bundle=ROOT/'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle';unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');game=ROOT/'ressources/GH_Data/Managed'
-    pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest()for p in [*paths,*fixture.glob('*'),Path(__file__),Path(__file__).parent/'Editor/Runner.cs',Path(__file__).parent/'audit-native.py',bundle,game/'GH.Runtime.dll',game/'UnityEngine.UI.dll',game/'Unity.TextMeshPro.dll',ROOT/'scripts/menu-depth-character/project_compilers.py']if p.is_file()}
+    card_shaders=[ROOT/'tests/GloomhavenVR.MenuDepthDesktopTests'/n for n in ['NativeCard732.shader','NativeCardDepth732.shader']]
+    pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest()for p in [*paths,*fixture.glob('*'),*card_shaders,Path(__file__),Path(__file__).parent/'Editor/Runner.cs',Path(__file__).parent/'audit-native.py',bundle,game/'GH.Runtime.dll',game/'UnityEngine.UI.dll',game/'Unity.TextMeshPro.dll',ROOT/'scripts/menu-depth-character/project_compilers.py']if p.is_file()}
     status=1;project=run/'unity'
     try:
         retained=run/'Sources';retained.mkdir(); shutil.copytree(fixture,retained/'fixture');shutil.copy2(Path(__file__),retained/'run.py');shutil.copy2(Path(__file__).parent/'Editor/Runner.cs',retained/'Runner.cs')
         for name,code in sources.items():(retained/name).write_text(code)
         (run/'source-pins.json').write_text(json.dumps({'sha256':pins,'scope':__doc__,'subset':args.case},indent=2)+'\n')
-        (run/'editor-environment.json').write_text(json.dumps({k:os.environ.get(k)for k in ['ADB_SERVER_SOCKET','ADB_MDNS_AUTO_CONNECT']},indent=2)+'\n')
+        (run/'editor-environment.json').write_text(json.dumps({k:os.environ.get(k)for k in ['ADB_SERVER_SOCKET','ADB_MDNS_AUTO_CONNECT','VK_DRIVER_FILES','VK_ICD_FILENAMES']},indent=2)+'\n')
         audit_command=['/home/claw/unitypy-venv/bin/python',str(Path(__file__).parent/'audit-native.py'),'--output',str(run/'native-authoring.json')]
         if execute(audit_command,run/'native-authoring.log'):raise RuntimeError('Original native field audit failed')
         audit=json.loads((run/'native-authoring.json').read_text())
@@ -88,12 +98,14 @@ def main():
             command=['/home/claw/.dotnet/dotnet','build',str(csproj),'-c','Release','-v','quiet','--nologo','--disable-build-servers','-nr:false','-p:UseSharedCompilation=false','-p:CaseName='+assembly,'-p:FixtureDir='+str(retained/'fixture'),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(unity.parent/'Data/Managed'),'-p:GameManaged='+str(game),'-p:DepthBundle='+str(bundle)]
             if execute(command,case/'build.log'):raise RuntimeError('Compilation failure is not a causal-control pass: '+name)
             binary=case/'bin/Release/net472'/(assembly+'.dll');target=run/'assemblies';target.mkdir(exist_ok=True);shutil.copy2(binary,target/binary.name)
-            manifest['cases'].append({'name':name,'dll':str(target/binary.name),'expected':expected,'method':'RunNativeUiFreeze' if name in {'native-ui-freeze','lost-native-freeze-birth','lost-native-freeze-parent'} else 'RunNativeHover' if name in {'native-hover','lost-hover-identity','lost-hover-depth','lost-hover-relief','lost-cold-helper-activation','lost-active-helper-reacquire'} else 'Run'})
+            manifest['cases'].append({'name':name,'dll':str(target/binary.name),'expected':expected,'method':'RunHeadText736' if name=='head-text-736' or name.startswith('lost-head-text-') else 'RunNativeUiFreeze' if name in {'native-ui-freeze','lost-native-freeze-birth','lost-native-freeze-parent'} else 'RunNativeHover' if name in {'native-hover','lost-hover-identity','lost-hover-depth','lost-hover-relief','lost-cold-helper-activation','lost-active-helper-reacquire'} else 'Run'})
         for folder in ['Assets/Editor','Packages','ProjectSettings']:(project/folder).mkdir(parents=True)
         (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{'com.unity.ugui':'1.0.0','com.unity.textmeshpro':'3.0.6','com.unity.modules.assetbundle':'1.0.0','com.unity.modules.imageconversion':'1.0.0'}})+'\n')
         shutil.copy2(Path(__file__).parent/'Editor/Runner.cs',project/'Assets/Editor/Runner.cs');(run/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
-        command=['xvfb-run','-a',str(unity),'-batchmode','-force-glcore','-projectPath',str(project),'-executeMethod','MenuDepthCardRunner.Start','-menuDepthCardManifest',str(run/'manifest.json'),'-logFile',str(run/'unity.log')]
+        for shader in card_shaders:
+            shutil.copy2(shader,project/'Assets'/shader.name);shutil.copy2(shader,retained/shader.name)
+        command=['xvfb-run','-a',str(unity),'-batchmode','-force-'+args.graphics_api,'-projectPath',str(project),'-executeMethod','MenuDepthCardRunner.Start','-menuDepthCardManifest',str(run/'manifest.json'),'-logFile',str(run/'unity.log')]
         (run/'command.json').write_text(json.dumps(command)+'\n');status=execute(command,run/'launch.log',420)
         stable=all(Path(p).is_file()and hashlib.sha256(Path(p).read_bytes()).hexdigest()==h for p,h in pins.items());(run/'source-stability.json').write_text(json.dumps({'unchanged':stable,'inputs':len(pins)})+'\n')
         if not stable:status=1

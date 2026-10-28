@@ -56,6 +56,10 @@ public static class MenuDepthCardRunner
                     active = manifest.cases[index++]; count = -1;
                     string output = Path.Combine(manifest.evidence, active.name); Directory.CreateDirectory(output);
                     assembly = Assembly.LoadFile(active.dll);
+                    if (active.method == "RunHeadText736")
+                        assembly.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthDisplay")
+                            .GetField("_nativeCardShader", BindingFlags.Static | BindingFlags.NonPublic)
+                            .SetValue(null, Shader.Find("GloomhavenVR/FixtureNativeCardDepth"));
                     pending = (IEnumerator)assembly.GetType("MenuDepthCardProgram").GetMethod(string.IsNullOrEmpty(active.method) ? "Run" : active.method).Invoke(null, new object[] { output });
                 }
                 if (pending.MoveNext()) { if (pending.Current is int checks) count = checks; return; }

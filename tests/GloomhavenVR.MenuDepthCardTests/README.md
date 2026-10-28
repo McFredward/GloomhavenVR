@@ -84,3 +84,20 @@ still be discovered; separate source controls suppress each edge. The original
 400×48 comparison with/without a proposed observer guard was equally quiet, so no
 unnecessary guard or fake hierarchy notification is retained. Read-only reflection
 observes the actual private known-Graphic set without adding a product test API.
+
+Build736's `head-text-736` exercises the actual `MenuDepthDisplay.RenderHead`
+coordinator, private UI rasters and final head pixels. Real TMP title and Button
+label geometry must survive all 64 front/rear, subpixel and pitched-eye/style
+samples. Its colour reference uses the identical complete card-root loan and
+native layout/materials with only backdrop depth helpers disabled. No bright
+title or button glyph pixel may disappear. A read-only postfix observes the real
+uGUI `DoMeshGeneration` worker mesh after its modifier chain and SetMesh; a normal
+Canvas flush must restore the original local backing plane after each capture.
+Three controls remove the backing separation, reverse its rear-view direction,
+or omit mesh restoration. The prior cases and seventeen controls remain intact.
+
+`--graphics-api glcore|vulkan` selects an actual editor backend and the report
+records `SystemInfo.usesReversedZBuffer`. The original D3D11-only native-card
+programs cannot execute in this Linux fixture; two explicitly declared shared
+shader stand-ins from the desktop suite exercise dispatch and depth state.
+They are input-pinned and do not certify native D3D11 effects or headset pixels.

@@ -26,8 +26,9 @@ public static partial class MenuDepthCardProgram
     public static IEnumerator Run(string output) => RunCore(output, false);
     public static IEnumerator RunNativeUiFreeze(string output) => RunCore(output, true);
     public static IEnumerator RunNativeHover(string output) => RunCore(output, false, true);
+    public static IEnumerator RunHeadText736(string output) => RunCore(output, false, headTextOnly: true);
 
-    private static IEnumerator RunCore(string output, bool nativeFreezeOnly, bool nativeHoverOnly = false)
+    private static IEnumerator RunCore(string output, bool nativeFreezeOnly, bool nativeHoverOnly = false, bool headTextOnly = false)
     {
         _checks = 0; _output = output; VRSession.IsRunning = true;
         var native = new Harmony("MenuDepthCards.NativePorts." + typeof(MenuDepthCardProgram).Assembly.GetName().Name);
@@ -35,9 +36,18 @@ public static partial class MenuDepthCardProgram
         native.CreateClassProcessor(typeof(NativePorts)).Patch();
         if (nativeHoverOnly) native.CreateClassProcessor(typeof(NativeHoverPorts)).Patch();
         observer.CreateClassProcessor(typeof(MenuDepthLifecycleObserver)).Patch();
+        if (headTextOnly) observer.CreateClassProcessor(typeof(HeadMeshObserver736)).Patch();
         try
         {
-            if (nativeFreezeOnly)
+            if (headTextOnly)
+            {
+                using (var scene = new Scene(1, headRaster: true))
+                {
+                    IEnumerator proof = scene.ProveHeadText736();
+                    while (proof.MoveNext()) yield return proof.Current;
+                }
+            }
+            else if (nativeFreezeOnly)
             {
                 IEnumerator freeze = ProveNativeUiFreeze728(output);
                 while (freeze.MoveNext()) yield return freeze.Current;
@@ -225,7 +235,7 @@ public static partial class MenuDepthCardProgram
         private bool _rightEye;
         private readonly string _name;
         private int _request, _completed, _traced = -1;
-        internal Scene(int path)
+        internal Scene(int path, bool headRaster = false)
         {
             MenuDepthDriver.Shutdown(); _path = path; _name = new[] { "direct", "supersampled", "desktop" }[path];
             var root = Go("original flat menu capture"); root.layer = 5; _root = (RectTransform)root.transform;
@@ -244,7 +254,8 @@ public static partial class MenuDepthCardProgram
             _glass = (RectTransform)Go("physical original glass").transform; _glass.sizeDelta = new Vector2(1.2f, .9f);
             _glass.gameObject.layer = 6; var glassCanvas = _glass.gameObject.AddComponent<Canvas>(); glassCanvas.renderMode = RenderMode.WorldSpace;
             _pane = _glass.gameObject.AddComponent<RawImage>(); _pane.texture = _left;
-            if (path == 1) _display = new MenuDepthDisplay(_pane, _left, _left);
+            if (path == 1) _display = new MenuDepthDisplay(_pane, _left, _left, headRaster: headRaster);
+            if (headRaster) { _ui.allowHDR = _head.allowHDR = false; _ui.allowMSAA = _head.allowMSAA = false; }
             if (path == 2)
             {
                 _desktopMaterial = MenuDepthDisplay.CreateDisplayMaterial(_left, _right); _pane.material = _desktopMaterial;
@@ -279,7 +290,10 @@ public static partial class MenuDepthCardProgram
             {
                 if (camera != _head) return;
                 Vector3 eye = _head.transform.position - (_rightEye ? _head.transform.right * .064f : Vector3.zero);
-                if (_path == 1)
+                if (_path == 1 && headRaster)
+                    _display!.RenderHead(_ui, _root, _root.rect, _left,
+                        new MenuDepthEye(false, eye, _head), new MenuDepthEye(true, eye + _head.transform.right * .064f, _head));
+                else if (_path == 1)
                     _display!.Render(_ui, _root, _root.rect, _left, _left,
                         new MenuDepthEye(false, eye, _head), new MenuDepthEye(true, eye + _head.transform.right * .064f, _head));
                 else if (_path == 2)
