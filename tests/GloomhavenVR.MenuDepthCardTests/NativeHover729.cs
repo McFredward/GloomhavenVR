@@ -118,7 +118,7 @@ public static partial class MenuDepthCardProgram
                 // Compare two actual rasters. At the smaller native hover fit,
                 // a subpixel glyph centroid cannot support a percentage against
                 // an ideal continuous projection. The main geometry proof still
-                // requires the independent6.5% plane and rejects the old plane.
+                // requires the independent 10.4% plane and rejects the old plane.
                 FieldInfo ratio = typeof(MenuDepthCardPlane).GetField("_depthWidthRatio", BindingFlags.Instance | BindingFlags.NonPublic)!;
                 object configured = ratio.GetValue(marker)!;
                 Texture2D priorPixels;

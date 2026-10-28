@@ -335,7 +335,7 @@ public static partial class MenuDepthCardProgram
                     Vector3 point = OnPlane(_head, baseline.Center, _path == 0 ? _root : _glass);
                     float width = _path == 2 ? _ui.WorldToViewportPoint(card.Rect.TransformPoint(new Vector3(card.Rect.rect.xMax, 0))).x
                         - _ui.WorldToViewportPoint(card.Rect.TransformPoint(new Vector3(card.Rect.rect.xMin, 0))).x : card.Rect.rect.width * card.Rect.TransformVector(Vector3.right).magnitude;
-                    float depth = (card.Owner is ItemCardUI || card.Owner is FullAbilityCard ? .065f : .035f) * width * (_path == 2 ? 1.2f : 1f);
+                    float depth = (card.Owner is ItemCardUI || card.Owner is FullAbilityCard ? .104f : .056f) * width * (_path == 2 ? 1.2f : 1f);
                     Vector3 expected = _head.WorldToViewportPoint(point - Vector3.forward * depth);
                     marker.enabled = true; ++_request; while (_completed != _request) yield return null;
                     Texture2D pixels = Read(card, true, pose); Ink actual = White(pixels);
@@ -344,7 +344,7 @@ public static partial class MenuDepthCardProgram
                     Check(error < 1.8f, "the complete original card text follows the independently specified raised physical plane");
                     if ((card.Owner is ItemCardUI || card.Owner is FullAbilityCard) && pose == 0)
                     {
-                        Vector3 prior = _head.WorldToViewportPoint(point - Vector3.forward * (depth * (.035f / .065f)));
+                        Vector3 prior = _head.WorldToViewportPoint(point - Vector3.forward * (depth * (.035f / .104f)));
                         float priorDisplacement = Vector2.Scale(new Vector2(prior.x, prior.y) - baseline.Center,
                             new Vector2(pixels.width, pixels.height)).magnitude;
                         float displacement = Vector2.Scale(actual.Center - baseline.Center, new Vector2(pixels.width, pixels.height)).magnitude;
@@ -376,7 +376,7 @@ public static partial class MenuDepthCardProgram
         }
 
         private Vector3 Expected(Card card, Ink baseline)
-            => Expected(card, baseline, card.Owner is ItemCardUI || card.Owner is FullAbilityCard ? .065f : .035f);
+            => Expected(card, baseline, card.Owner is ItemCardUI || card.Owner is FullAbilityCard ? .104f : .056f);
 
         private Vector3 Expected(Card card, Ink baseline, float ratio)
         {

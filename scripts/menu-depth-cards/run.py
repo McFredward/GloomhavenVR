@@ -56,7 +56,7 @@ def main():
          'if (!_running || graphic == null || (graphic is not Image && graphic is not RawImage) || !KnownGraphics.Contains(graphic)) return;',
          'real native Graphic birth during actual capture is still discovered'),
         ('lost-early-prime','MenuDepthCardPlane.cs','IMenuDepthOcclusionSource, IMenuDepthDirectSource','IMenuDepthOcclusionSource','the complete original card text follows'),
-        ('lost-card-lift','MenuDepthCardPlane.cs','private const float DepthWidthRatio = .035f;','private const float DepthWidthRatio = 0f;','the complete original card text follows'),
+        ('lost-card-lift','MenuDepthCardPlane.cs','private const float DepthWidthRatio = .056f;','private const float DepthWidthRatio = 0f;','the complete original card text follows'),
         ('background-only-lift','MenuDepthCardPlane.cs','_owner = owner; _card = card;','_owner = owner; _card = backgrounds[0].rectTransform;','the complete original card text follows'),
         ('lost-pose-restore','MenuDepthCardPlane.cs','_card.localPosition = _position; _card.localScale = _scale;','/* injected: native root retains a private eye pose */','card capture restores the original root pose'),
         ('nested-double-lift','MenuDepthCardPlane.cs','if (_parentPlane != null && _parentPlane.IsReady) return;','', 'nested native card and modifier content inherits exactly one raised parent plane'),
@@ -64,10 +64,10 @@ def main():
         ('lost-late-background','MenuDepthCards.cs','plane.Rebind(windowRoot, graphics);','plane.Rebind(windowRoot, plane.DepthGraphics);','late native background assignment refreshes'),
         ('lost-fit-depth','MenuDepthCardPlane.cs',' * xScale / zScale;',';','native XY-only fitting retains a raised depth proportional'),
         ('lost-item-identity','MenuDepthCards.cs','new("ItemCardUI", false,','new("NoSuchNativeItemCard", false,','exact native full mini and item card roots receive'),
-        ('lost-item-relief','MenuDepthCardPlane.cs','private const float ItemDepthWidthRatio = .065f;','private const float ItemDepthWidthRatio = .035f;','the complete original card text follows'),
+        ('lost-item-relief','MenuDepthCardPlane.cs','private const float ItemDepthWidthRatio = .104f;','private const float ItemDepthWidthRatio = .056f;','the complete original card text follows'),
         ('lost-hover-identity','MenuDepthCards.cs','new("FullAbilityCard", false,','new("NoSuchNativeFullCard", false,','native character hover admits its detached disabled-controller card'),
-        ('lost-hover-depth','MenuDepthCardPlane.cs','private const float FullDepthWidthRatio = .065f;','private const float FullDepthWidthRatio = 0f;','native character hover renders complete original card text'),
-        ('lost-hover-relief','MenuDepthCardPlane.cs','private const float FullDepthWidthRatio = .065f;','private const float FullDepthWidthRatio = .035f;','native character hover is visibly stronger'),
+        ('lost-hover-depth','MenuDepthCardPlane.cs','private const float FullDepthWidthRatio = .104f;','private const float FullDepthWidthRatio = 0f;','native character hover renders complete original card text'),
+        ('lost-hover-relief','MenuDepthCardPlane.cs','private const float FullDepthWidthRatio = .104f;','private const float FullDepthWidthRatio = .056f;','native character hover renders complete original card text'),
     ]
     if args.case:
         selection=set(args.case);assert selection<={v[0]for v in variants};variants=[v for v in variants if v[0]in selection]

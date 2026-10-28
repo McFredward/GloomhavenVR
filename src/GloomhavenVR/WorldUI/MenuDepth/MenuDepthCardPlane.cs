@@ -24,9 +24,9 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     private Transform? _headParent;
     private Canvas? _headNativeCanvas;
     private Vector3 _headWorldEye;
-    private const float DepthWidthRatio = .035f;
-    private const float ItemDepthWidthRatio = .065f;
-    private const float FullDepthWidthRatio = .065f;
+    private const float DepthWidthRatio = .056f;
+    private const float ItemDepthWidthRatio = .104f;
+    private const float FullDepthWidthRatio = .104f;
     private float _depthWidthRatio;
     private readonly List<(Image Image, MenuDepthGraphic Surface)> _depthSurfaces = new(6);
 
@@ -75,10 +75,11 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     internal void Configure(MonoBehaviour owner, RectTransform card, IReadOnlyList<Graphic> backgrounds, Transform? window)
     {
         _owner = owner; _card = card; _backgrounds = backgrounds; _configured = true;
-        // Build729 hardware review: the original item cards barely cleared the
-        // window, and the full character-card preview was not visibly raised.
-        // Exact native item/full roots get6.5% physical-width relief; smaller
-        // overview cards keep their existing plane. No hover/name heuristic.
+        // Build737 hardware review requests more relief for both ability and
+        // item cards. Raise every existing plane by 60% of its accepted depth:
+        // overview cards use 5.6%, exact item/full roots 10.4% of physical width.
+        // Keep their relative emphasis and native widget geometry unchanged;
+        // identity still follows the original typed roots, not hover or names.
         _depthWidthRatio = owner is ItemCardUI ? ItemDepthWidthRatio
             : owner is FullAbilityCard ? FullDepthWidthRatio : DepthWidthRatio;
         Rebind(window, backgrounds); MenuDepthSources.Register(this);
