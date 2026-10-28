@@ -1,3 +1,51 @@
+**Character-window pitch, native text and main-menu hand investigation, Build736, 2026-10-28.**
+
+Fresh local734/c0f636c55 logs confirm Windows D3D11/RTX4090, SteamVR/OpenXR,
+4040x4040 MultiPass targets; remote717 remains stale. The reported whole-window
+disappearance under head pitch is reproduced by the mismatch between sampled
+canonical RT UVs and the Y-flipped GPU projection used for depth inversion.
+Normalize only Y before inversion in display/character surfaces; preserve depth
+conventions, native poses, resolution and camera state. Shader assets are unchanged.
+
+Actual native card backings write depth on the same plane as original TMP titles
+and action text. A head-capture repro loses 153/419 bright glyph pixels. Separate
+only the backing mesh shallowly away from the current eye during its live head
+lease, preserving native text/card transforms and materials. Complete card tests
+pass 2696 assertions/20 controls; actual reversed-Z Vulkan passes 706/3. Native
+prefab enumeration verifies the real title/default-button descendants. The
+original 1990/17 cases remain intact.
+
+Main-menu logs show 223 frames/10 seconds versus faster map intervals; no scenario phase is
+present in these supplied logs. The original UI stack can contain an enabled
+camera without a Canvas mapping, causing a large eye pair to be admitted and
+discarded every frame. Preflight all mappings before allocation or source prep;
+preserve original mono/input and resume on the first ready Canvas. The coordinator
+witness and omission control verify this. Destroyed preview effects also retire
+without querying dead Unity components or leaking target/calibration reservations.
+
+Do not change hand tracking, HDR or MSAA to claim a ghosting fix. The proposed
+menu HDR seed changed actual AA coverage and was withdrawn: correct Arcane values
+at QAA8/RTAA1 yield 1015 changed pixels, maximum channel delta 223. Main-menu video feedback was falsified
+by the existing cull guard and original camera pose. The eliminated allocation
+loop is source-proven workload; actual hand/headset pacing remains acceptance.
+
+The final 12 affected suites record 11 passes/1 stale graphic-control anchor
+failure in 506.6 seconds. Its fixture-only port and complete containing follow-up
+pass in 41.8 seconds. All 16 source gates pass; strict real Debug/Release and
+metadata Release pass with 0 warnings/0 errors. Verified 264-suite aggregate
+coverage inherits unchanged Build734 scopes and exact-input c0f town-close
+113/13. It is not a fresh complete-gate pass. All 306431 goldens retain unchanged
+wire inputs except comments/build stamp. Compiled behavior is confined to 6 menu
+types; Rig and native shader bank remain byte-identical, with 0 new/removed types.
+The strict optional Vulkan figure-reference discrepancy is byte-identically
+inherited and remains a qualified limitation; no threshold is relaxed.
+
+Delivery is `origin/dev` source, no ZIP. Build735 belongs to the separate Quest
+standalone branch. Preserve hardware/capture/source/log/result evidence and all
+cleanup receipts; three owned worktrees are archived/verified/retired, and only
+the task-private ADB is stopped. See MENU736-HEAD-PITCH-TEXT-AND-MENU-PACING.md
+and ignored menu736/validation-final.json. Actual D3D11/headset acceptance remains open.
+
 **Character-window motion clarity, readable hints and laser rotation, Build734, 2026-10-28.**
 
 The exact Build729 hardware logs show no depth fallback or pool failure, but 184 outer
