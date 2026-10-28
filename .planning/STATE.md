@@ -1,3 +1,51 @@
+**Correct first hover frame and stable level-up confirmation, Build738, 2026-10-28.**
+
+The maintainer confirms Build737 resolves shadows, stronger card relief and the
+missing level-up list. Fresh local737/RTX4090/D3D11 logs now accompany hover pose
+snapping and confirmation flicker; remote717 remains stale, with no new images.
+
+Original immediate Highlighter/Holder pooling retains world rotation while
+reparenting into a yawed window. Correct only that exact native root synchronously
+after immediate hover placement, behind live owner/VR/conversion/manual/native
+parent guards. Preserve delayed won-card reveal, pooling, callbacks and scale/XY.
+The new observer is explicitly registered; patch inventory is 220 classes/334 methods.
+Complete card coverage is 2777/25 (prior 2696/20 plus 81/5); twelve first final RGB
+rasters exactly match the independent orientation reference. A private test copy
+ports four missing editor LayoutRebuilder.Enable setters; all 30345 native method
+instruction streams are audited, with original game layout-gate timing qualified.
+
+Both standalone and persistent confirmation consumers omitted useModLayer, so
+their original full-stretch SimpleGrabPassBlur bypassed existing filtering and
+blur handling. The native shader writes depth with LEqual/opaque blending across
+three GrabPass/color passes, conflicting with coplanar world-space glyphs. Enroll
+those two local consumers in the existing capture path. No shared renderer change.
+Both routes' 24 final head samples retain visible glyph references with zero RGB/glyph
+loss; omitted flags/blur remedy reproduce changing pixels and lost text. Native
+confirmation 157/18 and pure dialog 162/13 pass with 25+8 exact input bindings.
+
+The 5091 after-close release reports are a separate proven lease bug: IsAlive means
+the original Target survives release. Use the existing active PanelAlive check,
+retaining the original-home guard for refused detach. Close/retry/50 closed ticks/
+fresh native reopen pass without auto-confirm or original-target destruction.
+
+Production is frozen at cad48b9a2. Compiled scope is three existing UI types plus
+one new observer, nine ModBuild-only consumers and zero removals. Strict
+Debug/Release and metadata pass 0W0E; all 16 source gates pass in 21.4 seconds.
+The final ten-consumer invocation records nine passes/one fixture CS0649 failure
+in 218.3 seconds. Only explicit false initialization in its test boundary follows;
+the complete containing performance suite then passes in 54.8 seconds. All other
+tested inputs remain exact. Verified 264-suite aggregate coverage reuses fresh
+Build737 full proof for unchanged scopes and all 306431 goldens with 261 unchanged
+wire inputs except comments/build stamp. This is
+not a new complete invocation. Worker containing passes are input-qualified reuse.
+
+Preserve all failures, native/GL/fixture limits, sources/captures/logs and cleanup
+receipts. Both clean owned worktrees are archived/hash-verified/retired; remove
+per-run project/bytecode caches and stop only private ADB. See
+MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md and ignored menu738/validation-final.json.
+Delivery is origin/dev source; Windows installer builds the archive. Native D3D11/
+headset acceptance remains open for these new fixes.
+
 **Shadowless previews, stronger card relief and native level-up selection, Build737, 2026-10-28.**
 
 The maintainer confirms Build736 resolves the previous pitched-window, text-flicker

@@ -9,16 +9,16 @@ The latter also occurred before owner containment, while it was standalone.
 
 Six immutable hardware log copies and hashes are retained under ignored
 `debug/menu738/hardware-inputs` and `round-start.json`. Both fresh local banners
-identify Build737, D3D11/RTX4090, Unity2021.3.5f1. Remote717 remains stale. There
+identify Build737, D3D11/RTX4090, Unity 2021.3.5f1. Remote717 remains stale. There
 is no fresh screenshot/video. The supplied episode seats the confirmation once
-at line4629; repeated forced-hidden cleanup begins after closure at4746. Those
+at line 4629; repeated forced-hidden cleanup begins after closure at 4746. Those
 5091 later cleanup reports do not prove repeated visible seating or explain the
 reported flicker. Keep that distinction when reporting the cause.
 
 Class B: two local level-up presentation defects, with no general capture,
 allocator, wire or actor-authority changes. The fresh Build737 complete checkpoint
-supplies the unchanged input-bound basis:264/264 local suites,306431 actual
-goldens,2747 pinned inputs, strict Debug/Release, metadata and source16. Execute
+supplies the unchanged input-bound basis: 264/264 local suites, 306431 actual
+goldens, 2747 pinned inputs, strict Debug/Release, metadata and 16 source gates. Execute
 affected containing suites/controls and dependent consumers on the final union;
 do not repeat the complete checkpoint solely for this bounded repair. Escalate
 if implementation requires a broader shared mechanism.
@@ -38,7 +38,7 @@ the original pool, position, scale, fades, callbacks and delayed reveal animatio
 Do not patch the global ObjectPool or increase recurring flatten work.
 
 `MenuDepthLevelUpHoverObserver` is registered through the existing WorldUIModule.
-The generated patch inventory now records220 classes/334 methods, up by exactly
+The generated patch inventory now records 220 classes/334 methods, up by exactly
 one observer/method. Performance fixture ports expose only the same live-panel
 and manual-screen inputs required by this added source; they do not alter oracles.
 
@@ -85,11 +85,56 @@ fixture ports now model the real Target-only contract; a refused detach/retry,
 This repair is local to the confirmation owner and is separate from the visible
 GrabPass/depth flicker.
 
-Implementation and focused proof remain in two disjoint worktrees from published
-`9a3736d4f`. Root owns registration, fixture compatibility outside those lanes,
-the build stamp, final integrated checks and documentation. Record final counts,
-input bindings, failures, elapsed validation and hardware limits after source
-freeze. Preserve every failed attempt and source/capture/input/log artifact.
-After every run use central completion cleanup or `cleanup_completed_run`, then
-archive/hash-verify/retire the two clean owned worktrees. Stop only private ADB.
-Delivery is `origin/dev` source; the Windows installation script builds its archive.
+Production is frozen at `cad48b9a2`. Compiled review confirms three changed existing
+UI types, one added immediate-hover observer and nine ModBuild-only consumers;
+no production type is removed. The WorldUIModule diff is exactly one scoped
+registration after accounting for automatic local-variable numbering. No shared
+capture, allocator, shader, actor or wire behavior changed.
+
+The complete card suite passes 2777 assertions and 25 controls in 169.9 seconds:
+all prior 2696/20 cases remain, plus 81/5 native hover checks. All twelve first
+final RGB rasters match the independent window-oriented reference exactly.
+All 45 inputs were stable during that run; final integration retains 44 exact
+execution inputs and one uncompiled README-only trailing-blank-line correction.
+The private native API port audits all 30345 method instruction streams and changes
+only four LayoutRebuilder.Enable setters in two pool methods. Original game
+references remain unchanged; original game-uGUI layout-gate timing is unverified.
+
+The complete pure dialog suite passes 162 assertions/13 controls in 44.6 seconds
+on eight exact source/fixture bindings plus the exact runner. The native containing
+suite passes 157/18 in 55 seconds on 25 exact inputs. Each route has 24 final head
+samples with zero RGB difference or lost bright glyphs against its clean reference;
+the references retain at least 3441/3526 bright pixels. Old capture flags produce
+subpixel/head-motion-dependent differences and lose up to 223/219 bright pixels;
+omitting existing blur neutralization loses 30/31. No artificial time pulses or
+tolerance relaxation were added. Native widget/session/resource/outer-scheduler
+ports and the GL fragment witness are explicitly qualified. Native ExtendedButton
+OnDestroy logs from unavailable game services occur at fixture teardown and never
+substitute for the named causal-control assertions.
+
+Root's final ten-consumer run retains nine passes and one fixture compile failure
+in 218.317 seconds: the new performance input needed an explicit false initializer
+under warnings-as-errors. Only that fixture declaration changed afterward. The
+complete containing performance follow-up passes all eleven controls in 54.8
+seconds. Its production assertion count is 1095 versus the preceding 1067 because
+the same three-second run sampled 268 rather than 261 frames, each with four
+unchanged steady-state checks. No case or threshold was removed. Cards, native
+confirmation and pure dialog worker passes are reused after exact input comparison;
+they are not redundantly re-executed merely for the integration SHA.
+
+Strict actual Debug/Release and metadata Release pass with zero warnings/errors
+on 1169 stable production inputs. All sixteen source gates pass in 21.4 seconds.
+Bundles and bilingual-guide checks pass. Source surfaces retain 670 config keys;
+263 Harmony entries and 4846 log tokens account for only the added bounded observer.
+The verified 264-suite aggregate inherits unchanged Build737 complete-checkpoint
+coverage and all 306431 wire goldens. All 261 other wire compile inputs are exact;
+NetProtocol differs only by comments/build stamp. This is not a new complete-gate
+invocation or a newly executed Build738 golden executable.
+
+Ignored `debug/menu738/validation-final.json` binds the reports, input comparisons,
+compiled scope and retained failures. Both clean owned worktrees are archived,
+SHA256-verified and retired; per-run project caches are removed through the central
+completion API. Preserve logs, source/input/capture/manifests and current artifacts.
+Stop only the task-private ADB after the final owned run and clean untracked
+bytecode. Delivery is `origin/dev` source; the Windows script builds its archive.
+Actual native D3D11/HMD appearance remains a maintainer acceptance step.
