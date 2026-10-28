@@ -26,6 +26,7 @@ namespace GloomhavenVR.WorldUI.MenuDepth
     {
         internal bool IsReady => false;
         internal bool HasHeadLease => false;
+        internal Vector3 HeadWorldEye => default;
         internal bool OwnsDepthGraphic(UnityEngine.UI.Graphic value) => false;
     }
 }

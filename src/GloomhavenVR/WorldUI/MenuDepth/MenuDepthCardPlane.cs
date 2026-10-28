@@ -23,6 +23,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
     private bool _borrowed, _configured, _headCapture;
     private Transform? _headParent;
     private Canvas? _headNativeCanvas;
+    private Vector3 _headWorldEye;
     private const float DepthWidthRatio = .035f;
     private const float ItemDepthWidthRatio = .065f;
     private const float FullDepthWidthRatio = .065f;
@@ -42,6 +43,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
             && _card.IsChildOf(_headNativeCanvas.transform)))
         && (_borrowed || (_parentPlane != null && _parentPlane._card != null
             && _card.IsChildOf(_parentPlane._card) && _parentPlane.HasHeadLease));
+    internal Vector3 HeadWorldEye => _headWorldEye;
 
     private void RebindDepthSurfaces()
     {
@@ -127,6 +129,7 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
         AfterCapture();
         if (!IsReady || _card == null) return;
         _headCapture = MenuDepthHeadRaster.Active;
+        _headWorldEye = eye.WorldPosition;
         _headParent = _card.parent;
         Canvas canvas = Graphic.canvas;
         _headNativeCanvas = canvas != null && canvas.rootCanvas != null

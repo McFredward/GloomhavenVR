@@ -25,6 +25,8 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
     private bool _configured, _planeOnly, _planeRegistrationReleased;
     private readonly List<MenuDepthCardPlane> _planeOwners = new(2);
     private bool _projected;
+    private bool _headBackingMesh;
+    private const float CardBackingWidthRatio = 1f / 4096f;
     private Vector3 _eye;
     private Material? _baseMaterial, _depthMaterial;
     private Material? _nativeMaterial;
@@ -58,7 +60,7 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
             _planeOnly = true;
             ConfigureCore(image, null, 0f, new Vector4(1f,1f,0f,0f));
         }
-        if (MenuDepthHeadRaster.Active) image.SetMaterialDirty();
+        if (MenuDepthHeadRaster.Active) { image.SetMaterialDirty(); image.SetVerticesDirty(); }
     }
 
     internal void ReleasePlaneOcclusion(MenuDepthCardPlane owner)
@@ -71,7 +73,36 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
         }
     }
 
-    internal void EndPlaneCapture() { if (graphic != null) graphic.SetMaterialDirty(); }
+    internal void EndPlaneCapture()
+    {
+        if (graphic == null) return;
+        graphic.SetMaterialDirty();
+        if (_headBackingMesh) { _headBackingMesh = false; graphic.SetVerticesDirty(); }
+    }
+
+    private float HeadBackingBias()
+    {
+        if (!MenuDepthHeadRaster.Active || _image == null) return 0f;
+        for (int i = 0; i < _planeOwners.Count; i++)
+        {
+            MenuDepthCardPlane owner = _planeOwners[i];
+            if (owner == null || !owner.OwnsDepthGraphic(graphic) || !owner.HasHeadLease) continue;
+            Vector3 eye = transform.InverseTransformPoint(owner.HeadWorldEye);
+            float xScale = transform.TransformVector(Vector3.right).magnitude;
+            float zScale = transform.TransformVector(Vector3.forward).magnitude;
+            if (!MenuDepthProjection.Finite(eye) || !MenuDepthProjection.Finite(new Vector3(xScale, zScale, 0f))
+                || xScale <= 1e-8f || zScale <= 1e-8f) return 0f;
+            // Build734's head-only ZWrite backgrounds fought the original TMP
+            // and button content on their exact same plane. Their independent
+            // vertex programs need a real, shallow depth separation. Move only
+            // this backing mesh away from the actual eye by 1/4096 of its
+            // physical width, including native XY-only fits and rear viewing.
+            // Original card/text TRS, callbacks and colour materials stay native.
+            return (eye.z < 0f ? 1f : -1f) * Mathf.Abs(_image.rectTransform.rect.width)
+                * CardBackingWidthRatio * xScale / zScale;
+        }
+        return 0f;
+    }
 
     private bool HasPlaneOwner(bool borrowed)
     {
@@ -202,7 +233,8 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
         if (_stream.Count == 0) return;
         if (_field == null)
         {
-            float depth = Mathf.Min(_image.rectTransform.rect.width, _image.rectTransform.rect.height) * _depthRatio;
+            float bias = HeadBackingBias(); _headBackingMesh = bias != 0f;
+            float depth = Mathf.Min(_image.rectTransform.rect.width, _image.rectTransform.rect.height) * _depthRatio + bias;
             vertices.Clear();
             for (int i = 0; i < _stream.Count; i++)
             {
