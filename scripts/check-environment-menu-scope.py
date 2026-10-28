@@ -11,12 +11,111 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import select
 import shutil
 import signal
 import subprocess
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def cleanup_run_compilers(run, *, editor_reaped=False):
+    """Retire only VBCSCompiler processes still borrowing this completed run.
+
+    Unity Bee can launch Roslyn outside the editor process group with a global
+    working directory and PWD. An open private Bee descriptor is the ownership
+    proof in that case. A compiler with another private run open is left alone.
+    pidfds bind signals to the rechecked process; no global daemon shutdown runs.
+    """
+    if editor_reaped is not True:
+        raise ValueError('Reap the private editor before its compiler cleanup.')
+    run = str(Path(run).absolute())
+    if not hasattr(os, 'pidfd_open') or not hasattr(signal, 'pidfd_send_signal'):
+        raise RuntimeError('Private compiler cleanup requires Linux pidfds.')
+    result = {'run': run, 'editor_reaped': True, 'matched': [], 'refused': [],
+              'term_sent': [], 'kill_sent': [], 'remaining': []}
+    handles = {}
+
+    def inside(path):
+        return path == run or path.startswith(run + '/')
+
+    def ownership(proc):
+        try:
+            if proc.stat().st_uid != os.geteuid():
+                return None
+            args = [a for a in (proc / 'cmdline').read_bytes().split(b'\0') if a]
+            compilers = {b'VBCSCompiler.dll', b'VBCSCompiler.exe'}
+            if not args or args[0].rsplit(b'/', 1)[-1] not in {b'dotnet', b'mono', b'mono-sgen', *compilers}:
+                return None
+            if not any(a.rsplit(b'/', 1)[-1] in compilers for a in args):
+                return None
+            cwd = os.readlink(proc / 'cwd').removesuffix(' (deleted)')
+            files = []
+            for fd in (proc / 'fd').iterdir():
+                try:
+                    files.append(os.readlink(fd).removesuffix(' (deleted)'))
+                except FileNotFoundError:
+                    continue
+            owned = [path for path in [cwd, *files] if inside(path)]
+            if not owned:
+                return None
+            other = [path for path in [cwd, *files]
+                     if '/.planning/debug/' in path and not inside(path)]
+            if other:
+                return {'private_paths': owned, 'conflicting_private_paths': sorted(set(other))}
+            return {'private_paths': sorted(set(owned)), 'conflicting_private_paths': []}
+        except (OSError, ValueError):
+            return None  # Exit/race/unknown ownership must never authorize a signal.
+
+    def wait(pending, seconds):
+        deadline = time.monotonic() + seconds
+        while pending:
+            ready, _, _ = select.select(pending, [], [], max(0, deadline - time.monotonic()))
+            pending = [fd for fd in pending if fd not in ready]
+            if time.monotonic() >= deadline:
+                break
+        return pending
+
+    try:
+        for proc in Path('/proc').iterdir():
+            if not proc.name.isdecimal() or int(proc.name) == os.getpid():
+                continue
+            proof = ownership(proc)
+            if proof is None:
+                continue
+            if proof['conflicting_private_paths']:
+                result['refused'].append({'pid': int(proc.name), **proof})
+                continue
+            try:
+                fd = os.pidfd_open(int(proc.name), 0)
+            except ProcessLookupError:
+                continue
+            checked = ownership(proc)
+            if checked is None or checked['conflicting_private_paths']:
+                os.close(fd)
+                continue
+            handles[fd] = int(proc.name)
+            result['matched'].append({'pid': int(proc.name), **checked})
+        for fd, pid in handles.items():
+            try:
+                signal.pidfd_send_signal(fd, signal.SIGTERM)
+                result['term_sent'].append(pid)
+            except ProcessLookupError:
+                pass
+        pending = wait(list(handles), .4)
+        for fd in pending:
+            try:
+                signal.pidfd_send_signal(fd, signal.SIGKILL)
+                result['kill_sent'].append(handles[fd])
+            except ProcessLookupError:
+                pass
+        result['remaining'] = [handles[fd] for fd in wait(pending, 1)]
+        return result
+    finally:
+        for fd in handles:
+            os.close(fd)
 
 
 def main():
@@ -111,6 +210,13 @@ def main():
     finally:
         if process is not None and process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL); process.wait(); reaped = True
+        compilers = cleanup_run_compilers(run, editor_reaped=reaped)
+        (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
+        if compilers['remaining'] or compilers['refused']:
+            # The central runner also performs completion cleanup. Pin this run
+            # rather than let that outer cleanup delete another live borrower's data.
+            (run / '.keep').write_text('Compiler ownership/exit unresolved; inspect compiler-cleanup.json.\n')
+            raise RuntimeError('Private compiler ownership/exit unresolved; caches retained: ' + str(run))
         spec = importlib.util.spec_from_file_location('retention', ROOT / 'scripts/town_run_retention.py')
         retention = importlib.util.module_from_spec(spec); spec.loader.exec_module(retention)
         result = retention.cleanup_completed_run('environment-menu-scope', code, completion, ROOT, process_reaped=reaped)
