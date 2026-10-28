@@ -7,10 +7,13 @@ qualified compressed records and append the finite current numeric Story set.
 from __future__ import annotations
 
 import copy
+from contextlib import closing
 import importlib.util
 import json
 import os
 from pathlib import Path
+import sqlite3
+import stat
 import zipfile
 
 
@@ -32,6 +35,48 @@ def _read(builder, path):
     return value
 
 
+def _qualify_archive(builder, output, archive, expected_sha256, storage_abi):
+    """Persist actual native file proofs, never a signed hash without a read.
+
+    The selected resource module captured this exact storage ABI during its
+    isolated load. Reliable physical identity/change stamps retain the measured
+    archive across processes; changed or unsupported metadata requires bytes.
+    Keep the optional database inside the output, even for borrowed archives.
+    """
+    database = Path(output) / "cache/menu-depth-content-witnesses.sqlite3"
+    safe = True
+    try:
+        builder._ordinary_owned(database)
+        for path in (database, database.with_name(database.name + "-wal"), database.with_name(database.name + "-shm")):
+            builder._ordinary_owned(path)
+            if path.exists():
+                info = path.lstat()
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 8 * 1048576:
+                    safe = False
+        if safe:
+            database.parent.mkdir(parents=True, exist_ok=True)
+    except (OSError, builder.BuildError):
+        safe = False
+
+    def qualify(connection):
+        witnesses = storage_abi.ValidatedFileWitnesses(connection, archive.parent,
+            {"schema": 1, "owner": "Quest retained menu mod archive", "sha256": expected_sha256})
+        result = witnesses.qualify(archive, expected_sha256, archive.stat().st_size, hasher=builder.digest)
+        connection.commit()
+        return result
+
+    if safe:
+        try:
+            with closing(sqlite3.connect(database, timeout=30)) as connection:
+                return qualify(connection)
+        except (sqlite3.DatabaseError, OSError):
+            # An optional damaged/unwritable cache never supplies a byte proof.
+            # Preserve it and fall back to actual current archive qualification.
+            pass
+    with closing(sqlite3.connect(":memory:")) as connection:
+        return qualify(connection)
+
+
 def augment(builder, output, source, archive, content_manifest, bundle_receipt, *, source_files=None, resources=None):
     """Return closed (archive, content manifest, bank receipt) for either caller.
 
@@ -43,6 +88,9 @@ def augment(builder, output, source, archive, content_manifest, bundle_receipt, 
     resources = resources or getattr(builder, "menu_depth_resources", None)
     if resources is None:
         raise builder.BuildError("Menu Story delivery needs the selected captured resource producer.")
+    storage_abi = getattr(resources, "_storage", None)
+    if storage_abi is None:
+        raise builder.BuildError("Menu Story delivery needs its captured native file-witness ABI.")
     contract = _installation()
     packer = contract._native_packer()
     archive = builder._ordinary_owned(Path(archive))
@@ -58,7 +106,7 @@ def augment(builder, output, source, archive, content_manifest, bundle_receipt, 
                 or banks != [{**row, "path": "StreamingAssets/" + row["path"]} for row in receipt_banks]
                 or bundles.get("bundle") != receipt_banks[0]):
             raise ValueError("existing bank receipt differs from its content inventory")
-        if builder.digest(archive) != content["archiveSha256"]:
+        if not _qualify_archive(builder, output, archive, content["archiveSha256"], storage_abi):
             raise ValueError("existing archive SHA differs from its signed inventory")
         with zipfile.ZipFile(archive) as retained:
             packer.verify_entries(retained, content["files"])
@@ -90,7 +138,7 @@ def augment(builder, output, source, archive, content_manifest, bundle_receipt, 
                 for row in banks:
                     packer.copy_compressed_entry(retained, destination, retained.getinfo(row["path"]))
                 resources.write_story(destination, source, story)
-            if builder.digest(archive) != content["archiveSha256"]:
+            if not _qualify_archive(builder, output, archive, content["archiveSha256"], storage_abi):
                 raise builder.BuildError("Retained mod archive changed during loose Story publication.")
             current = {**content, "files": [*banks, *story], "archiveSha256": builder.digest(temporary)}
             current_bundles = {**bundles, "menuDepthStory": story_identity}

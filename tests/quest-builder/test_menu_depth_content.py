@@ -167,6 +167,51 @@ class MenuDepthContentTests(unittest.TestCase):
         with zipfile.ZipFile(repaired[0]) as archive:
             self.assertEqual(archive.namelist(), [row["path"] for row in repaired[1]["files"]])
 
+    def test_native_archive_witness_reads_once_then_reuses_across_fresh_invocations(self):
+        storage._invocation_file_proofs.clear()
+        actual = storage.digest
+        reads = []
+        def measured(path):
+            if Path(path) == self.archive: reads.append(path)
+            return actual(path)
+        with patch.object(self.builder, "digest", side_effect=measured):
+            first = self.augment()
+        self.assertEqual(reads, [self.archive])
+        storage._invocation_file_proofs.clear()
+        def no_input_read(path):
+            if Path(path) == self.archive: raise AssertionError("no repeated retained bank hash")
+            return actual(path)
+        with patch.object(self.builder, "digest", side_effect=no_input_read):
+            self.assertEqual(self.augment(), first)
+
+    def test_native_archive_witness_rejects_same_size_mutation_and_false_expected_hash(self):
+        self.augment()
+        storage._invocation_file_proofs.clear()
+        with patch.dict(self.manifest, archiveSha256="f" * 64), self.assertRaisesRegex(storage.BuildError, "archive SHA"):
+            self.augment()
+        before = self.archive.read_bytes()
+        self.archive.write_bytes(b"X" + before[1:])
+        with self.assertRaisesRegex(storage.BuildError, "archive SHA"):
+            self.augment()
+
+    def test_unknown_filesystem_stamps_cannot_reuse_native_archive_hashes(self):
+        self.augment()
+        storage._invocation_file_proofs.clear()
+        actual = storage.digest
+        def no_input_read(path):
+            if Path(path) == self.archive: raise AssertionError("unknown filesystem needs actual bytes")
+            return actual(path)
+        with patch.object(storage, "_file_witness_stamp", return_value=None), \
+             patch.object(self.builder, "digest", side_effect=no_input_read), \
+             self.assertRaisesRegex(AssertionError, "unknown filesystem"):
+            self.augment()
+
+    def test_archive_witness_uses_captured_storage_after_global_alias_changes(self):
+        import types
+        with patch.dict(sys.modules, storage=types.ModuleType("unrelated_application_storage")):
+            first = self.augment()
+            self.assertEqual(self.augment(), first)
+
 
 if __name__ == "__main__":
     unittest.main()
