@@ -906,7 +906,7 @@ internal static class SkyAlternative
         {
             _active = true;
             _loggedActive = true;
-            VRLog.Info("Core", $"Sky alternative ON — style {style} (scenario active): the game's sky " +
+            VRLog.Info("Core", $"Sky alternative ON — style {style} (VR environment active): the game's sky " +
                                "sphere is hidden (pure renderer.enabled hiding; SkyBackdrop stands down). " +
                                "The ROOM is a fixed place around the board — world-anchored, never " +
                                "re-seated, its open play space several board widths across and its floor " +
@@ -914,7 +914,7 @@ internal static class SkyAlternative
                                "middle of it like a tabletop diorama — and the SKY is world-anchored " +
                                "but rig-scale tracked " +
                                "(perceived-constant, a distant sky at every zoom). MR overrides it off; " +
-                               "leaving the scenario despawns it. THE FAR PLANE IS NOW BUDGETED for " +
+                               "a new rig rebuilds it at that rig's subject. THE FAR PLANE IS NOW BUDGETED for " +
                                $"this environment ({EnvMinFarMeters:F0} m × rig scale for the sky, the " +
                                "room's own world extent for the room, each plus the head's distance to " +
                                "that branch's origin) — the audit line below reports whether the camera " +
