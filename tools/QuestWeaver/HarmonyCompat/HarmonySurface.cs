@@ -46,6 +46,7 @@ namespace HarmonyLib
     [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyPrefix : Attribute { }
     [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyPostfix : Attribute { }
     [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyFinalizer : Attribute { }
+    [AttributeUsage(AttributeTargets.Method)] public sealed class HarmonyTargetMethods : Attribute { }
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
     public sealed class HarmonyPriority : Attribute { public HarmonyPriority(int priority) { } }
 

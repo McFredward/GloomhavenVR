@@ -59,6 +59,12 @@ try
         Console.WriteLine($"Quest current mod AOT compatibility: {assertions} assertions passed.");
         return;
     }
+    if (args.Length == 2 && args[0] == "--menu-depth-only")
+    {
+        MenuDepthCompatibilityTests.Run(projectRoot, Path.GetFullPath(args[1]), temp, Check);
+        Console.WriteLine($"Quest menu-depth AOT compatibility: {assertions} assertions passed.");
+        return;
+    }
     if (args.Length == 1 && args[0] == "--offline-profile-only")
     {
         OfflineDynamicProfileTests.Run(projectRoot, Check);

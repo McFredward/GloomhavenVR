@@ -200,6 +200,8 @@ internal sealed class Discovery : IDisposable
 
     private MethodDefinition[] SelectorCandidates(TypeDefinition type)
     {
+        if (type.FullName == "GloomhavenVR.WorldUI.MenuDepth.MenuDepthLifecycleObserver")
+            return MenuDepthCompatibility.LifecycleTargets(type, FindType);
         MethodDefinition[] selectors = type.Methods.Where(m => m.Name is "TargetMethod" or "TargetMethods").ToArray();
         return CandidateTargets(MetadataClosure(selectors));
     }

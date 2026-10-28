@@ -29,6 +29,7 @@ internal static class CurrentModCompatibilityTests
             check(report.Issues.Count == 0, "Actual current mod conversion blocked: " + string.Join("; ", report.Issues));
             int expected = model.Mod.MainModule.GetType("GloomhavenVR.Core.ScenarioCameraCullBoundary") == null ? 2 : 3;
             if (model.Mod.MainModule.GetType("GloomhavenVR.WorldUI.NativeVideoMovies") != null) expected++;
+            if (model.Mod.MainModule.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthLifecycleObserver") != null) expected++;
             check(report.StaticSubstitutions.Count == expected, "Current mod did not qualify its known AOT substitutions.");
             NativeMovieBoundaryTests.Verify(model, managed, check);
             check(mainBody.SequenceEqual(Body(camera.Methods.Single(m => m.Name == "get_Main")))
