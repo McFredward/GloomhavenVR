@@ -28,7 +28,7 @@
     <!-- Movies remain separate Content, never DLL resources. Source-only builds can
          exercise the explicit mono fallbacks without offline conversions; both packagers
          require every path in packaging/movie-files.txt before touching an installation. -->
-    <Content Include="Assets\Movies\CP_Intro\GH_CP_Intro.mov"
+    <Content Include="Assets\Movies\CP_Intro\GH_CP_Intro.mov" Condition="Exists('Assets\Movies\CP_Intro\GH_CP_Intro.mov')"
              CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\CP_Intro\GH_CP_Intro.mov" />
     <Content Include="Assets\Movies\CP_Intro\GH_CP_Intro.sbs-v2.mov" Condition="Exists('Assets\Movies\CP_Intro\GH_CP_Intro.sbs-v2.mov')"
              CopyToOutputDirectory="PreserveNewest" TargetPath="Movies\CP_Intro\GH_CP_Intro.sbs-v2.mov" />
@@ -75,6 +75,11 @@
     <!-- The small, explicitly loaded stereo UI shader does not replace the main asset bank. -->
     <EmbeddedResource Include="Assets\StereoVideo\ui-sbs.bundle"
                       LogicalName="GloomhavenVR.StereoVideo.ui-sbs.bundle" />
+    <!-- Quest-only foreground spinner shader: compact updates retain every large mod bank. -->
+    <EmbeddedResource Include="Assets\QuestLoading\ghvr-quest-loading.bundle"
+                      LogicalName="GloomhavenVR.QuestLoading.spinner.bundle" />
+    <EmbeddedResource Include="Assets\QuestLoading\provenance.json"
+                      LogicalName="GloomhavenVR.QuestLoading.provenance.json" />
     <EmbeddedResource Include="Assets\SteamLink\scene.bundle"
                       LogicalName="GloomhavenVR.SteamLink.scene.bundle" />
     <!-- Isolated public OpenVR identity reader: never initialize another VR client in the game. -->

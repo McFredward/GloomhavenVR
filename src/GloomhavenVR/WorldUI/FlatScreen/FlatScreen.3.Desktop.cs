@@ -29,6 +29,11 @@ internal sealed partial class FlatScreen
     /// </summary>
     private void TickDesktopMirrorMode()
     {
+        // Quest's Android player has no separate desktop spectator endpoint.
+        // A null target does not identify a separate monitor; a PC mirror
+        // preference must not reconfigure standalone presentation.
+        if (QuestStandalonePlatform.Enabled)
+            return;
         if (!VRSession.IsRunning)
         {
             RestoreDesktopMirrorMode();
@@ -182,6 +187,7 @@ internal sealed partial class FlatScreen
                 antiAliasing = 1,
             };
             _scrubRt.Create();
+            DesktopScrubTarget = _scrubRt;
         }
 
         Camera? head = Rig.VRRigDriver.HeadCamera;
@@ -405,6 +411,8 @@ internal sealed partial class FlatScreen
         _scrubbed.Clear();
         if (_scrubRt != null)
         {
+            if (DesktopScrubTarget == _scrubRt)
+                DesktopScrubTarget = null;
             _scrubRt.Release();
             Object.Destroy(_scrubRt);
             _scrubRt = null;

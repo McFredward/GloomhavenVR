@@ -60,13 +60,16 @@ def main():
         ('desktop-focus-veto-regression','WallSegmentFade.Performance.cs','loaded && VRSession.InputFocus != false','loaded && VRSession.InputFocus != false && Application.isFocused','desktop window focus is irrelevant to headset Auto'),
         ('unknown-xr-focus-veto-regression','WallSegmentFade.Performance.cs','VRSession.InputFocus != false','VRSession.InputFocus == true','unknown XR focus does not permanently veto loaded Auto'),
         ('xr-focus-loss-ignored','WallSegmentFade.Performance.cs','VRSession.InputFocus != false','true','native loading reveal or explicit XR focus loss does not trigger Auto'),
-        ('native-loading-ignored','WallSegmentFade.Performance.cs','!controller.IsLoading && !controller.ScenarioIsLoading','true','native loading reveal or explicit XR focus loss does not trigger Auto'),
-        ('native-reveal-ignored','WallSegmentFade.Performance.cs','!ScenarioRoomLoading.HasPendingReveal','true','native loading reveal or explicit XR focus loss does not trigger Auto'),
-        ('auto-recovery-grace-lost','WallSegmentFade.Performance.cs','eligible && now - _performanceReadySince >= .5f','eligible','native loading reveal or XR focus recovery starts a fresh grace and full window'),
+        ('native-loading-ignored','WallSegmentFade.Performance.cs','!controller.IsLoading && !controller.ScenarioIsLoading','true','neither native load flag nor pending reveal supplies Auto samples'),
+        ('native-reveal-ignored','WallSegmentFade.Performance.cs','!ScenarioRoomLoading.HasPendingReveal','true','neither native load flag nor pending reveal supplies Auto samples'),
+        ('auto-recovery-grace-lost','WallSegmentFade.Performance.cs','eligible && now - Time.unscaledDeltaTime - _performanceReadySince\n                    >= PerformancePostLoadGraceSeconds','eligible','all ten post-load seconds precede FPS measurement'),
+        ('post-load-grace-shortened','WallSegmentFade.Performance.cs','PerformancePostLoadGraceSeconds = 10f','PerformancePostLoadGraceSeconds = .5f','all ten post-load seconds precede FPS measurement'),
+        ('grace-boundary-frame-leak','WallSegmentFade.Performance.cs','eligible && now - Time.unscaledDeltaTime - _performanceReadySince','eligible && now - _performanceReadySince','frame overlapping grace is excluded from the entire two-second FPS window'),
+        ('same-scene-scenario-reset-lost','WallSegmentFade.Performance.cs','|| !ReferenceEquals(_performanceScenario, scenario)','|| false','same-scene same-generator new native scenario resets the old hidden policy'),
         ('cosmetic-hidden-inventory-veto-regression','WallSegmentFade.Performance.cs','TickPerformanceInventory(gen, now, loaded);','TickPerformanceInventory(gen, now, loaded && !ScenarioInteractionPreparation.IsPreparing);','same-count native generation collects fresh new wall membership'),
         ('auto-threshold-reset-lost','WallSegmentFade.Performance.cs','modeChanged || autoThresholdChanged','modeChanged','latched Auto threshold edit restores exact walls immediately'),
         ('auto-threshold-cache-lost','WallSegmentFade.Performance.cs','_performanceAutoBelowFps = autoBelowFps;','if (autoBelowFps != 20) _performanceAutoBelowFps = autoBelowFps;','edited Auto can relatch only after fresh sustained slow window'),
-        ('auto-threshold-grace-reset-lost','WallSegmentFade.Performance.cs','eligible && now - _performanceReadySince >= .5f','eligible && (_performanceAutoBelowFps == 20 || now - _performanceReadySince >= .5f)','threshold edit requires new half-second grace'),
+        ('auto-threshold-grace-reset-lost','WallSegmentFade.Performance.cs','eligible && now - Time.unscaledDeltaTime - _performanceReadySince\n                    >= PerformancePostLoadGraceSeconds','eligible && (_performanceAutoBelowFps == 20 || now - Time.unscaledDeltaTime - _performanceReadySince\n                    >= PerformancePostLoadGraceSeconds)','threshold edit requires new ten-second grace'),
         ('auto-threshold-wire-recovery-lost','WallSegmentFade.Performance.cs','if (recoverWireKeys) ComputeWireKeys();','if (recoverWireKeys && modeChanged) ComputeWireKeys();','threshold recovery rebuilds native sender keys exactly once'),
         ('auto-threshold-effective-clamp-lost','Boundaries.cs','Defaults.WallAutoHideBelowFpsCount, 5, 30)','Defaults.WallAutoHideBelowFpsCount, 5, 90)','out-of-range threshold uses thirty FPS effective maximum'),
         ('collector-remask-lost','WallSegmentFade.Performance.cs','SetPerformanceCollectionMasks(true);','SetPerformanceCollectionMasks(false);','same-count native generation collects fresh new wall membership'),
@@ -85,6 +88,7 @@ def main():
     if args.case:variants=[v for v in variants if v[0]=='production' or v[0] in args.case]
     variants.append(('baseline-entry',baseline,''))
     args.output_dir.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
+    print('evidence: '+str(run),flush=True)
     inputs=paths+[Path(__file__).resolve()]+sorted(p for p in fixture.rglob('*') if p.is_file())
     hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     (run/'source-hashes.json').write_text(json.dumps({'sha256':hashes,'sourceRoot':str(root),'baselineEntryCommit':baseline_sha,'baselineWallSha256':hashlib.sha256(old_wall.encode()).hexdigest(),'limits':[

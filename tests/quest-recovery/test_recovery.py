@@ -2,11 +2,13 @@
 """Conversion contract tests, including stale/invalid input negative controls."""
 from pathlib import Path
 import base64
+import json
 import struct
 import sys
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/quest-recovery"))
@@ -14,6 +16,7 @@ import recover
 import md4
 import probe_slice
 import catalog
+import bundle_recovery
 
 
 class RecoveryContracts(unittest.TestCase):
@@ -205,6 +208,19 @@ class RecoveryContracts(unittest.TestCase):
         self.assertEqual(decoded["keys"], ["owned-asset-key", "owned-bundle-key"])
         self.assertEqual(decoded["locations"][0]["dependencyEntries"], [1])
         self.assertEqual(catalog.bundle_closure(decoded, [0]), ["StreamingAssets/aa/StandaloneWindows64/owned.bundle"])
+
+    def test_catalog_plan_reuses_actual_qualified_bundle_hashes_without_second_read(self):
+        source = self.fake_game()
+        directory = source / "StreamingAssets/aa/StandaloneWindows64"; directory.mkdir(parents=True)
+        bundle = directory / "owned.bundle"; bundle.write_bytes(b"UnityFS\0actual original bundle")
+        (directory.parent / "catalog.json").write_text(json.dumps(self.catalog_fixture()))
+        original = bundle_recovery.catalog_bundle_plan(source)
+        inventory, _ = recover.source_inventory(source)
+        with patch.object(bundle_recovery, "sha256", side_effect=AssertionError("Qualified bundles need no second hash")):
+            self.assertEqual(bundle_recovery.catalog_bundle_plan(source, source_inventory=inventory), original)
+        bundle.write_bytes(b"UnityFS\0changed size since qualification")
+        with self.assertRaisesRegex(recover.RecoveryError, "changed after source qualification"):
+            bundle_recovery.catalog_bundle_plan(source, source_inventory=inventory)
 
     def test_truncated_catalog_or_unknown_key_cannot_silently_map_assets(self):
         invalid = self.catalog_fixture()

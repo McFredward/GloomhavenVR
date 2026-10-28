@@ -24,6 +24,7 @@ FILES["ScenarioInteractionPreparation.cs"] = "src/GloomhavenVR/Core/ScenarioInte
 FILES["ScenarioRoomLoading.cs"] = "src/GloomhavenVR/Core/ScenarioRoomLoading.cs"
 FILES["IGrabbable.cs"] = "src/GloomhavenVR/Hands/Interact/IGrabbable.cs"
 CONTROLS = (
+    ("omit-retained-timing-window", "ScopeMethods.cs", "QuestPerformanceEvidence.RetainTiming(retainedSummary);", "// omit delivered timing observation", "closed SPLIT report is retained exactly alongside its original log"),
     ("calibration-as-native-frame", "PerfNativeLoopProbe.cs", "if (enabled && !_installed) Install();\n        _spikeCapture = enabled;", "_spikeCapture = enabled;\n        if (enabled && !_installed) Install();", "first native frame excludes synthetic hook calibration"),
     ("stop-spike-at-summary-cap", "PerfNativeLoopProbe.cs", "if (!_sampling && !_spikeCapture)", "if (!_sampling)", "callbacks after summary cap still reach exact frame attribution"),
     ("retain-native-previous-frame", "PerfNativeLoopProbe.cs", "target.FrameCalls = 0;", "// retain prior frame", "callbacks after summary cap still reach exact frame attribution"),

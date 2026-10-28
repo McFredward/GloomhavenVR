@@ -247,22 +247,7 @@ internal static class PanelMipBake
             for (int i = 0; i < RawScratch.Count; i++)
             {
                 RawImage raw = RawScratch[i];
-                // The Unity-null check on tex matters: a Destroyed Texture2D still passes the
-                // C# type pattern, and touching its width/height would throw out of the scan.
-                if (raw == null || raw.texture is not Texture2D tex || tex == null)
-                    continue; // null/destroyed (provider unloaded) or not a bakeable plain texture
-                if (s_rawOriginalByBaked.ContainsKey(tex.GetInstanceID()))
-                    continue; // already pointing at one of our baked copies
-                if (tex.mipmapCount > 1)
-                    continue; // the source already has mips -- nothing to fix
-                Texture2D? baked = CardFaceMipBake.BakedTextureFor(tex);
-                if (baked == null)
-                    continue; // budget/size/failed -- keeps the original, never worse
-                int bakedId = baked.GetInstanceID();
-                if (!s_rawOriginalByBaked.ContainsKey(bakedId))
-                    s_rawOriginalByBaked[bakedId] = tex;
-                raw.texture = baked; // same dimensions -> the game's uvRect stays valid
-                swapped++;
+                if (raw != null && RefreshRawTexture(raw)) swapped++;
             }
             RawScratch.Clear();
 
@@ -284,6 +269,37 @@ internal static class PanelMipBake
                                       "original mipless graphics.");
             }
         }
+    }
+
+    /// <summary>Keep the native UV rectangle and original identity while refreshing a
+    /// changed Quest source. A baked RawImage still points at its prior copy, so the
+    /// original has to be resolved before the source's CPU updateCount can be checked.
+    /// The native portrait provider normally replaces its whole atlas; this also covers
+    /// a source updated in place. Existing owners retain their usual rescan cadence.</summary>
+    internal static bool RefreshRawTexture(RawImage raw)
+    {
+        if (raw.texture is not Texture2D displayed || displayed == null) return false;
+        Texture2D source = displayed;
+        bool wasBaked = s_rawOriginalByBaked.TryGetValue(displayed.GetInstanceID(), out Texture original);
+        if (wasBaked)
+        {
+            if (!QuestStandalonePlatform.Enabled || original is not Texture2D live || live == null) return false;
+            source = live;
+        }
+        if (source.mipmapCount > 1) return false;
+        Texture2D? baked = CardFaceMipBake.BakedTextureFor(source);
+        if (baked == null)
+        {
+            // A new generation that cannot fit the unchanged cache budget must show
+            // its correct original pixels, never the previous generation's portrait.
+            if (wasBaked && QuestStandalonePlatform.Enabled) { raw.texture = source; return true; }
+            return false;
+        }
+        if (ReferenceEquals(displayed, baked)) return false;
+        int bakedId = baked.GetInstanceID();
+        if (!s_rawOriginalByBaked.ContainsKey(bakedId)) s_rawOriginalByBaked[bakedId] = source;
+        raw.texture = baked;
+        return true;
     }
 
     /// <summary>Read-only native identity for public raw-image presentation; never changes the

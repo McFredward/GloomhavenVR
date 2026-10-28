@@ -22,10 +22,32 @@ internal static class ScenarioEnvironmentMeshBank
     private static readonly Dictionary<string, bool> Provenance = new();
     private static readonly HashSet<string> Failed = new();
     private static bool _loaded;
+    private static string _failureDetail = string.Empty;
+    private static HashSet<string>? _questSources;
     private static Func<bool>? _ensureAssetsLoaded;
     internal static void ConfigureAssetPreparation(Func<bool> ensureAssetsLoaded) => _ensureAssetsLoaded = ensureAssetsLoaded;
     internal static bool IsReady => PrepareIndex();
     internal static bool IsUnavailable => Failed.Contains("index") || Failed.Contains("asset-loader");
+    internal static string Diagnostics => "environmentBank loaded=" + _loaded + " entries=" + Entries.Count
+        + " nativeMatches=" + NativeEntries.Count + " meshes=" + Meshes.Count + " failures=" + Failed.Count
+        + " questOrigins=" + (_questSources?.Count ?? 0)
+        + " firstFailure=" + (_failureDetail.Length == 0 ? "none" : _failureDetail);
+
+    // B691's retained headset state reported only failures=1, while its useful
+    // Note was absent from the saturated text-log lanes. Keep the first exact
+    // stage/type/inner cause in the existing bounded Debug snapshot. This is not
+    // another scan, retry or source hash; it executes only on the first failure.
+    private static void RetainFailure(string stage, Exception error)
+    {
+        if (_failureDetail.Length != 0) return;
+        string detail = stage;
+        for (int depth = 0; depth < 3 && error != null; depth++, error = error.InnerException!)
+            detail += ":" + error.GetType().Name + ":" + error.Message;
+        if (detail.Length > 384) detail = detail.Substring(0, 384);
+        char[] text = detail.ToCharArray();
+        for (int i = 0; i < text.Length; i++) if (char.IsControl(text[i])) text[i] = ' ';
+        _failureDetail = new string(text);
+    }
 
     internal static bool TryGetExact(Mesh native, out Mesh mesh) => TryGet(native, 100, out mesh);
     internal static bool TryGetDetail(Mesh native, int percent, out Mesh mesh) => TryGet(native, percent >= 100 ? 100 : percent >= 50 ? 50 : 0, out mesh);
@@ -70,7 +92,11 @@ internal static class ScenarioEnvironmentMeshBank
         {
             if (mesh != null) UnityEngine.Object.Destroy(mesh);
             mesh = null!;
-            if (Failed.Add(variant.file)) VRLog.Note("Perf", "Scenario environment mesh unavailable (" + error.Message + "); native surfaces retained.");
+            if (Failed.Add(variant.file))
+            {
+                RetainFailure("mesh:" + variant.file, error);
+                VRLog.Note("Perf", "Scenario environment mesh unavailable (" + error.Message + "); native surfaces retained.");
+            }
             return false;
         }
     }
@@ -85,8 +111,16 @@ internal static class ScenarioEnvironmentMeshBank
             byte[] bytes = asset.bytes;
             if (bytes.Length > 8 * 1024 * 1024) throw new InvalidDataException("environment index bound");
             using var input = new MemoryStream(bytes, false);
-            Manifest manifest = (Manifest)new DataContractJsonSerializer(typeof(Manifest)).ReadObject(input);
+            Manifest manifest = QuestStandalonePlatform.Enabled ? ReadQuestIndex(bytes)
+                : (Manifest)new DataContractJsonSerializer(typeof(Manifest)).ReadObject(input);
             if (manifest.format != 1 || manifest.entries.Length > 8192) throw new InvalidDataException("environment index format/bound");
+            HashSet<string>? questSources = null;
+            if (QuestStandalonePlatform.Enabled)
+            {
+                TextAsset? origins = Asset("quest-owned-sources.json");
+                if (origins == null) throw new InvalidDataException("missing owned environment source receipt");
+                questSources = QuestStandalonePlatform.OwnedEnvironmentSources(bytes, origins.bytes);
+            }
             var pending = new Dictionary<string, Entry>();
             foreach (Entry entry in manifest.entries)
             {
@@ -103,21 +137,63 @@ internal static class ScenarioEnvironmentMeshBank
                 pending.Add(Identity(entry.signature), entry); // Any duplicate/ambiguous metadata rejects the entire index.
             }
             foreach (var item in pending) Entries.Add(item.Key, item.Value);
+            _questSources = questSources;
             _loaded = true;
             return true;
         }
         catch (Exception error)
         {
-            if (Failed.Add("index")) VRLog.Note("Perf", "Scenario environment mesh index unavailable (" + error.Message + "); native surfaces retained.");
+            if (Failed.Add("index"))
+            {
+                RetainFailure("index", error);
+                VRLog.Note("Perf", "Scenario environment mesh index unavailable (" + error.Message + "); native surfaces retained.");
+            }
             return false;
         }
+    }
+    private static Manifest ReadQuestIndex(byte[] bytes)
+    {
+        var document = QuestEnvironmentJson.Read(bytes);
+        var rows = QuestEnvironmentJson.Array(document, "entries", 0, 8192);
+        var manifest = new Manifest { format = QuestEnvironmentJson.Integer(document, "format"), entries = new Entry[rows.Count] };
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = QuestEnvironmentJson.Object(rows[i]);
+            var signature = QuestEnvironmentJson.Object(QuestEnvironmentJson.Required(row, "signature"));
+            var indices = QuestEnvironmentJson.Array(signature, "indices", 1, 32);
+            var bounds = QuestEnvironmentJson.Array(signature, "bounds", 6, 6);
+            var sources = QuestEnvironmentJson.Array(row, "sources", 1, 128);
+            var variants = QuestEnvironmentJson.Array(row, "variants", 1, 3);
+            var entry = new Entry { key = QuestEnvironmentJson.String(row, "key"), signature = new Signature {
+                name = QuestEnvironmentJson.String(signature, "name"), readable = QuestEnvironmentJson.Boolean(signature, "readable"),
+                vertices = QuestEnvironmentJson.Integer(signature, "vertices"), indices = new uint[indices.Count], bounds = new float[6] },
+                sources = new Source[sources.Count], variants = new Variant[variants.Count] };
+            for (int n = 0; n < indices.Count; n++) entry.signature.indices[n] = QuestEnvironmentJson.Unsigned(indices[n]);
+            for (int n = 0; n < 6; n++) entry.signature.bounds[n] = QuestEnvironmentJson.Single(bounds[n]);
+            for (int n = 0; n < sources.Count; n++)
+            {
+                var source = QuestEnvironmentJson.Object(sources[n]);
+                entry.sources[n] = new Source { path = QuestEnvironmentJson.String(source, "path"), sha256 = QuestEnvironmentJson.String(source, "sha256") };
+            }
+            for (int n = 0; n < variants.Count; n++)
+            {
+                var variant = QuestEnvironmentJson.Object(variants[n]);
+                entry.variants[n] = new Variant { tier = QuestEnvironmentJson.Integer(variant, "tier"), file = QuestEnvironmentJson.String(variant, "file"), sha256 = QuestEnvironmentJson.String(variant, "sha256") };
+            }
+            manifest.entries[i] = entry;
+        }
+        return manifest;
     }
     private static TextAsset? Asset(string filename)
     {
         try { if (_ensureAssetsLoaded?.Invoke() == false) return null; }
         catch (Exception error)
         {
-            if (Failed.Add("asset-loader")) VRLog.Note("Perf", "Scenario environment asset preparation unavailable (" + error.Message + "); native surfaces retained.");
+            if (Failed.Add("asset-loader"))
+            {
+                RetainFailure("asset-loader", error);
+                VRLog.Note("Perf", "Scenario environment asset preparation unavailable (" + error.Message + "); native surfaces retained.");
+            }
             return null;
         }
         string path = AssetRoot + filename;
@@ -136,7 +212,9 @@ internal static class ScenarioEnvironmentMeshBank
             if (!Provenance.TryGetValue(key, out bool valid))
             {
                 valid = false;
-                try
+                if (QuestStandalonePlatform.Enabled)
+                    valid = _questSources?.Contains(key) == true;
+                else try
                 {
                     string path = Path.Combine(Application.streamingAssetsPath, "aa", "StandaloneWindows64", source.path);
                     using var input = File.OpenRead(path);

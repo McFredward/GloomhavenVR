@@ -68,7 +68,7 @@ def startup_sources(source_root, movie, lease, surface):
         flat += member(core, signature)
     for signature in ('    private static bool IsPreMenuScene()\n', '    private bool WantVisible()\n', '    private void Show()\n'):
         flat += member(lifecycle, signature)
-    for signature in ('    internal static bool TryPrepareStartupMovie(', '    internal static bool OwnsStartupMovie(',
+    for signature in ('    internal static bool TryPrepareStartupMovie(', '    internal static bool OwnsStartupMovie(', '    internal static bool OwnsCapturedMoviePlane(', '    internal static void PrepareQuestMovie(',
                       '    private void CaptureStack()\n', '    private void SelectBases()\n', '    private void TickSplitLifecycle()\n',
                       '    private void EnsureBackQuad()\n', '    private void TeardownSplit(', '    private void SetSplitRouting(',
                       '    private void ClearUiRt()\n', '    private void TickNoUiWatchdog()\n', '    private void TickStackClears()\n',
@@ -91,7 +91,7 @@ def startup_sources(source_root, movie, lease, surface):
     # branches are outside this startup fixture and must fail if they are requested.
     head = member(per_eye, '    private void OnPreRenderCamera(Camera cam)\n')
     head = head[head.index('        Camera? head = Rig.VRRigDriver.HeadCamera;'):]
-    head = head[:head.index('        if (_videoShift &&')]
+    head = head[:head.index('        // Desktop retains its existing timing.')]
     stereo += '    private void OnPreRenderCamera(Camera cam)\n    {\n        if (!_active) return;\n' + head
     stereo += '        throw new Exception("Unexpected nonmovie head render in startup fixture");\n    }\n'
     movies = (source_root / 'NativeVideoMovies.cs').read_text()
@@ -100,7 +100,10 @@ def startup_sources(source_root, movie, lease, surface):
     keys = keys[:keys.index('/// <summary>Presentation only.')]
     defaults = (ROOT / 'src/GloomhavenVR/Defaults/Defaults.WorldUI.cs').read_text()
     defaults = '\n'.join(line for line in defaults.splitlines() if re.search(r'internal const .* (StereoScreen|ScreenDepthStrength|VideoDepthLayer|VideoDepth|ScreenParallaxScale) =', line))
-    result = {'CaptureStack.cs': flat + '}\n', 'CaptureRender.cs': (source_root / 'FlatScreen.7.CaptureRender.cs').read_text(),
+    result = {'QuestMaterial.cs': (source_root / 'FlatScreen.7.QuestMaterial.cs').read_text(),
+        'QuestMesh.cs': (source_root / 'FlatScreen.7.QuestMesh.cs').read_text(),
+        'QuestSampling.cs': (ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/QuestScreenSampling.cs').read_text(),
+        'CaptureStack.cs': flat + '}\n', 'CaptureRender.cs': (source_root / 'FlatScreen.7.CaptureRender.cs').read_text(),
         'Compositor.cs': stereo + '}\n', 'Movie.cs': movie, 'NativeMovieCameraPlane.cs': lease, 'StereoVideoSurface.cs': surface,
         'Movies.cs': movies, 'Keys.cs': keys, 'StartupPatch.cs': (source_root / 'NativeEmbeddedMoviePatches.cs').read_text(),
         'Defaults.cs': 'namespace GloomhavenVR;\ninternal static class Defaults\n{\n' + defaults + '\n}\n'}
@@ -128,6 +131,7 @@ def main():
         for directory in ('Assets/Editor', 'Packages', 'ProjectSettings'):
             (project / directory).mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / 'scripts/stereo-movie-render/Editor/StereoVideoRunner.cs', project / 'Assets/Editor/StereoVideoRunner.cs')
+        shutil.copyfile(ROOT / 'tools/quest-movies/QuestMovieEye.shader', project / 'Assets/QuestMovieEye.shader')
         (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {'com.unity.ugui': '1.0.0',
             'com.unity.modules.assetbundle': '1.0.0', 'com.unity.modules.video': '1.0.0'}}) + '\n')
         (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
@@ -194,7 +198,6 @@ def main():
             shutil.copyfile(case / 'bin/Release/net472' / retained.name, retained)
             manifest['cases'].append({'name': name, 'dll': str(retained), 'expected': expected})
         startup = startup_sources(source_root, movie, lease, surface)
-        startup_fixture = fixture / 'Startup'
         variants = [
             ('startup-production', '', '', '', 'Run', ''),
             ('startup-unprepared', '', '', '', 'Unprepared', ''),
@@ -223,13 +226,13 @@ def main():
             ('startup-persistent-lease-lost', 'NativeMovieCameraPlane.cs', '    internal static void AfterRender(Camera camera)\n    {',
                 '    internal static void AfterRender(Camera camera)\n    {\n        ReleaseStartup();', 'Run',
                 'persistent startup plane stays hidden between renders while replacement retains original alpha'),
-            ('startup-release-lost', 'NativeMovieCameraPlane.cs', '{ ReleaseStartup(); return; }', '{ return; }', 'Run',
+            ('startup-release-lost', 'NativeMovieCameraPlane.cs', '|| QuestStandalonePlatform.Enabled && FlatScreen.OwnsCapturedMoviePlane(player))) { ReleaseStartup(); return; }', '|| QuestStandalonePlatform.Enabled && FlatScreen.OwnsCapturedMoviePlane(player))) { return; }', 'Run',
                 'studio reservation restores current original alpha on native continuation or ownership loss: deactivate'),
             ('startup-native-alpha-lost', 'NativeMovieCameraPlane.cs', '_startupAlpha = player.targetCameraAlpha; // Preserve a later native fade.',
                 '/* injected: later native fade is discarded */', 'Run',
                 'later native alpha write updates replacement appearance without reopening packed plane'),
-            ('startup-error-release-lost', 'NativeMovieCameraPlane.cs', 'if (ReferenceEquals(player, _startupPlayer)) ReleaseStartup();',
-                '/* injected: failed native source retains the persistent reservation */', 'Error',
+            ('startup-error-release-lost', 'NativeMovieCameraPlane.cs', '_failedPlayer = player; _failedUrl = global::MovieSourceFixture.GetUrl(player);\n            ReleaseStartup();',
+                '_failedPlayer = player; _failedUrl = global::MovieSourceFixture.GetUrl(player);\n            /* injected: failed native source retains the persistent reservation */', 'Error',
                 'studio reservation restores current original alpha on native continuation or ownership loss: error'),
             ('startup-mono-fallback-lost', 'Movies.cs', '                    global::MovieSourceFixture.SetUrl(player, companion);',
                 '                    global::MovieSourceFixture.SetUrl(player, stereo);', 'IntroDisabled',
@@ -244,14 +247,46 @@ def main():
             ('startup-throw-escape', 'CaptureStack.cs', '            if (!owner._visible) owner.Tick();',
                 '            if (!owner._visible) throw new System.InvalidOperationException(\"injected readiness failure\");', 'ThrowingReadiness',
                 'throwing startup readiness cannot escape the prefix and skip native Play or continuation')]
+        # Qualify every source-bound mutation before any compilation. A drifted
+        # anchor must not spend a minute building unrelated controls first.
+        prepared_startup = []
         for name, filename, before, after, method, expected in variants:
+            code = dict(startup)
+            if filename:
+                code[filename] = replace_once(code[filename], before, after)
+                if name == 'startup-throw-escape':
+                    code[filename] = replace_once(code[filename],
+                        'catch (System.Exception error)\n        {\n            // This runs inside native ShowVideo',
+                        'catch (System.NotSupportedException error)\n        {\n            // This runs inside native ShowVideo')
+            prepared_startup.append((name, code, method, expected))
+        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
+        fixture = ROOT / 'tests/GloomhavenVR.StereoMovieRenderTests'
+        startup_fixture = fixture / 'Startup'
+        dotnet = str(Path.home() / '.dotnet/dotnet')
+        for name, movie_code, lease_code, expected in cases:
+            case = run / name
+            production = case / 'production'
+            production.mkdir(parents=True)
+            (production / 'FlatScreenStereo.5.Movie.cs').write_text(movie_code)
+            (production / 'NativeMovieCameraPlane.cs').write_text(lease_code)
+            (production / 'StereoVideoSurface.cs').write_text(surface)
+            csproj = case / 'StereoMovieRender.csproj'
+            shutil.copyfile(fixture / 'StereoMovieRender.csproj', csproj)
+            assembly = 'StereoMovie_' + name.replace('-', '_')
+            if execute([dotnet, 'build', str(csproj), '-c', 'Release', '-v', 'quiet', '--nologo', '--disable-build-servers', '-nr:false', '-p:UseSharedCompilation=false',
+                    '-p:CaseName=' + assembly, '-p:FixtureDir=' + str(fixture), '-p:ProductionDir=' + str(production),
+                    '-p:UnityManaged=' + str(unity.parent / 'Data/Managed'),
+                    '-p:GameManaged=' + str(ROOT / 'ressources/GH_Data/Managed'),
+                    '-p:StereoBundle=' + str(ROOT / 'src/GloomhavenVR/Assets/StereoVideo/ui-sbs.bundle')], case / 'build.log', 120):
+                raise RuntimeError('Fixture compilation failure is not a negative-control pass: ' + str(case))
+            retained = run / 'assemblies' / (assembly + '.dll')
+            retained.parent.mkdir(exist_ok=True)
+            shutil.copyfile(case / 'bin/Release/net472' / retained.name, retained)
+            manifest['cases'].append({'name': name, 'dll': str(retained), 'expected': expected})
+        for name, codes, method, expected in prepared_startup:
             case = run / name
             production = case / 'production'; production.mkdir(parents=True)
-            for filename_actual, code in startup.items():
-                if filename_actual == filename:
-                    code = replace_once(code, before, after)
-                    if name == 'startup-throw-escape':
-                        code = replace_once(code, 'catch (System.Exception error)', 'catch (System.NotSupportedException error)')
+            for filename_actual, code in codes.items():
                 (production / filename_actual).write_text(code)
             csproj = case / 'Startup.csproj'; shutil.copyfile(startup_fixture / 'Startup.csproj', csproj)
             assembly = 'StereoMovie_' + name.replace('-', '_')

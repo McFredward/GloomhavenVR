@@ -28,7 +28,7 @@ internal sealed partial class RemoteCardArt
         if (effects == null) return;
         if (!ReferenceEquals(_itemNativeSource, effects))
         {
-            _itemNativeBindings?.Destroy(); _itemNativeSource = effects; _itemNativeBindings = new ItemAppearanceBindings(effects);
+            _itemNativeBindings?.Destroy(_questFlameMasks.Release); _itemNativeSource = effects; _itemNativeBindings = new ItemAppearanceBindings(effects);
             RemoteItemAppearancePump pump = _clone.GetComponent<RemoteItemAppearancePump>() ?? _clone.AddComponent<RemoteItemAppearancePump>();
             pump.Art = this; pump.Source = effects;
         }
@@ -41,13 +41,14 @@ internal sealed partial class RemoteCardArt
     }
     private void ApplyItemFlameQueue(Image flame, Material material)
     {
+        if (Core.QuestStandalonePlatform.Enabled) _questFlameMasks.Bind(material, _itemNativeSource?.overlayFrameBurn);
         MeasureFaceQueue(flame);
         if (_faceQueue >= 0) material.renderQueue = Mathf.Min(_faceQueue + 1, FlameQueueCeiling);
     }
     private void ReleaseNativeItemAppearance(ItemCardEffects? source)
     {
         if (!ReferenceEquals(_itemNativeSource, source)) return;
-        _itemNativeBindings?.Destroy(); _itemNativeBindings = null; _itemNativeSource = null;
+        _itemNativeBindings?.Destroy(_questFlameMasks.Release); _itemNativeBindings = null; _itemNativeSource = null;
     }
 }
 internal sealed class RemoteItemAppearancePump : MonoBehaviour

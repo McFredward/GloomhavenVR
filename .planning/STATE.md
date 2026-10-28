@@ -1,3 +1,14 @@
+**Quest dev734 rebase, Build735, 2026-10-28 — integration in progress.**
+
+Requested dev fdbd372e3 was explicitly released after both concurrent integrators
+finished. Rebase the exact published Quest delta from595791b78, preserve public
+history through an ancestry-only merge and a normal fast-forward feature push.
+Retain shared734 behavior, Quest installed-source updates and independently
+compatible original conversion/media. Test class C: run the complete local gate
+once on the final integrated candidate plus affected Android/AOT/Builder checks.
+No local ZIP/APK or headset acceptance is implied. See forthcoming
+QUEST-DEV734-INTEGRATION.md and lane reviews for final results and limitations.
+
 **Character-window motion clarity, readable hints and laser rotation, Build734, 2026-10-28.**
 
 The exact Build729 hardware logs show no depth fallback or pool failure, but 184 outer

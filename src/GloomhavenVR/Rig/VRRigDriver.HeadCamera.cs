@@ -487,6 +487,7 @@ internal sealed partial class VRRigDriver
         _poseDriver.updateType = TrackedPoseDriver.UpdateType.UpdateAndBeforeRender;
 
         VRCameraPolicy.AllowedHead = _camera;
+        StartQuestTrackingEvidence();
     }
 
     /// <summary>Rig root: DontDestroyOnLoad (scene swaps must not kill our camera) + hidden.</summary>

@@ -322,6 +322,7 @@ internal sealed partial class RemoteCardArt
     /// take the materials its Images point at, so without this list a fan that re-ghosts a card on
     /// every state flip would leak one material per card image per flip.</summary>
     private readonly List<Material> _ownedMaterials = new(8);
+    private readonly QuestCardFireMaskBindings _questFlameMasks = new();
 
     public RemoteCardArt(Transform slab, float cardWidth, float cardHeight)
     {
@@ -369,6 +370,7 @@ internal sealed partial class RemoteCardArt
 
     private void ReleaseOwnedMaterials()
     {
+        _questFlameMasks.ReleaseAll();
         for (int i = 0; i < _ownedMaterials.Count; i++)
             if (_ownedMaterials[i] != null) Object.Destroy(_ownedMaterials[i]);
         _ownedMaterials.Clear();
@@ -3231,6 +3233,7 @@ internal sealed partial class RemoteCardArt
         Texture? tex = burn ? _flameBurnTexture : _flameGhostTexture;
         if (tex != null)
             mat.SetTexture(ParticleTextureId, tex);
+        ApplyQuestFlameMask(mat);
         SetFloatIfPresent(mat, OverlayFlowSpeedId, burn ? 0.5f : 0.2f);
         SetFloatIfPresent(mat, OffsetStrengthId, burn ? 0.2f : 0.8f);
         SetFloatIfPresent(mat, ThinHighlightsId, burn ? 0.463f : 0.125f);
@@ -3238,6 +3241,11 @@ internal sealed partial class RemoteCardArt
         SetFloatIfPresent(mat, ThinHighlightMaxId, burn ? 0.195f : 0.9f);
         SetFloatIfPresent(mat, FlowNoiseTilingId, burn ? 6f : 2f);
         SetFloatIfPresent(mat, OverlayGlowId, burn ? 3f : 0f);
+    }
+
+    private void ApplyQuestFlameMask(Material material)
+    {
+        if (QuestStandalonePlatform.Enabled) _questFlameMasks.Bind(material, _flameBurnTexture);
     }
 
     /// <summary>

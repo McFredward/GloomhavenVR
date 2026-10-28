@@ -450,7 +450,8 @@ internal static partial class VROptionsTab
     /// Platform-specific defaults never remove a working performance toggle from the menu.
     /// </summary>
     private static bool IsRowVisible(ConfigCatalog.ConfigItem item) =>
-        !HasItsOwnPage(item)
+        QuestOptionVisibility.IsOffered(item.Section, item.Key, QuestStandalonePlatform.Enabled)
+        && !HasItsOwnPage(item)
         // Build702: MR must follow the actual eye resolution, never a separate
         // quality dial. Preserve the old config key as inert storage and hide it
         // in both the curated and catalog-generated Advanced paths.

@@ -1,0 +1,633 @@
+"""Host-only scheduling and bounded support evidence; never a content-cache input.
+
+The B625 native retry measured a single exceptional frontend with
+VmHWM24,172,988 KiB plus VmSwap3,093,152 KiB. Replaying its exact original
+translation unit with line-table debug information, retaining Release -Os,
+peaks at 456,724 KiB instead. The larger 26.5 MB InvokerTable translation unit
+peaks at 1,662,372 KiB, so native workers reserve 2 GiB each; the old
+32 GiB estimate remains separate historical evidence. A shortfall selects one
+supervised worker rather than rejecting the build. Reported free memory already
+excludes existing OS and parent use.
+Windows commit and Linux cgroup-bounded free swap are observed without changing
+system settings or assuming future paging-file growth.
+"""
+from __future__ import annotations
+
+from contextlib import contextmanager
+import ctypes
+from datetime import datetime, timezone
+import json
+import math
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import time
+import uuid
+
+GIB = 1024 ** 3
+JOBS_ENV = "GHVRQ_BUILD_JOBS"
+EVIDENCE_ENV = "GHVRQ_RESOURCE_EVIDENCE_ROOT"
+INPUT_ENV = "GHVRQ_RESOURCE_INPUT_KEY"
+RUN_ENV = "GHVRQ_RESOURCE_RUN_ID"
+# (largest first worker, each additional worker, parent/Unity headroom, CPU cap)
+PROFILES = {"il2cpp": (2 * GIB, 2 * GIB, 6 * GIB, 32),
+            # JobQueue threads are not full Editor/texture-import processes.
+            # Capture165327 spent 3,516 seconds in 14,986 texture imports while
+            # only JobQueue was configured (6/7 threads). This old 2 GiB/thread
+            # coupling neither enabled parallel imports nor bounded their RAM.
+            "unity": (64 * 1024 ** 2, 64 * 1024 ** 2, 4 * GIB, 64),
+            # Separate Editor children, admitted against actual physical and
+            # Windows commit headroom. Unknown/insufficient capacity keeps the
+            # existing in-process importer, without another Editor allocation.
+            "unity-import": (2 * GIB, 2 * GIB, 6 * GIB, 16),
+            "box64": (4 * GIB, 2 * GIB, 0, 32),
+            "opus": (2 * GIB, GIB, 0, 32),
+            # Managed image codecs are separate processes. Keep native bundle
+            # readers and the single parent YAML publisher outside their pool.
+            # Admission also checks each job's actual estimated payload memory.
+            "asset-codec": (2 * GIB, GIB, 6 * GIB, 16),
+            # Isolated AssetRipper instances load the bounded original core and
+            # one <=768 MiB compressed bundle group. The per-package estimate
+            # additionally accounts for compressed expansion before dispatch.
+            "asset-recovery": (8 * GIB, 8 * GIB, 2 * GIB, 8)}
+NATIVE_REPLAY_PEAK_BYTES = 1662372 * 1024
+NATIVE_DISPATCH_REPLAY_PEAK_BYTES = 456724 * 1024
+NATIVE_HISTORICAL_RESERVE_BYTES = 32 * GIB
+
+
+class ResourceError(ValueError):
+    pass
+
+
+class MemoryStatus(ctypes.Structure):
+    _fields_ = [("length", ctypes.c_uint32), ("load", ctypes.c_uint32)] + [
+        (name, ctypes.c_uint64) for name in ("totalPhys", "availPhys", "totalPageFile",
+                                            "availPageFile", "totalVirtual", "availVirtual", "availExtendedVirtual")]
+
+
+
+class PerformanceInformation(ctypes.Structure):
+    _fields_ = [("cb", ctypes.c_uint32)] + [(name, ctypes.c_size_t) for name in
+        ("CommitTotal", "CommitLimit", "CommitPeak", "PhysicalTotal", "PhysicalAvailable",
+         "SystemCache", "KernelTotal", "KernelPaged", "KernelNonpaged", "PageSize")] + [
+        (name, ctypes.c_uint32) for name in ("HandleCount", "ProcessCount", "ThreadCount")]
+
+
+class ProcessMemoryCounters(ctypes.Structure):
+    _fields_ = [("cb", ctypes.c_uint32), ("PageFaultCount", ctypes.c_uint32)] + [
+        (name, ctypes.c_size_t) for name in ("PeakWorkingSetSize", "WorkingSetSize",
+        "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
+        "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage", "PrivateUsage")]
+
+def _windows_snapshot(kernel=None):
+    """Real Win32 memory/commit and current-process affinity, without PowerShell."""
+    kernel = kernel or ctypes.WinDLL("kernel32", use_last_error=True)
+    state = MemoryStatus(length=ctypes.sizeof(MemoryStatus))
+    memory_function = kernel.GlobalMemoryStatusEx
+    memory_function.argtypes = [ctypes.POINTER(MemoryStatus)]
+    memory_function.restype = ctypes.c_int
+    if not memory_function(ctypes.byref(state)):
+        raise OSError("GlobalMemoryStatusEx failed")
+    # HANDLE and masks are pointer-sized; default ctypes int truncates x64 handles.
+    process_function = kernel.GetCurrentProcess
+    process_function.restype = ctypes.c_void_p
+    process_function.argtypes = []
+    affinity_function = kernel.GetProcessAffinityMask
+    affinity_function.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)]
+    affinity_function.restype = ctypes.c_int
+    process_mask, system_mask = ctypes.c_size_t(), ctypes.c_size_t()
+    affinity = None
+    if affinity_function(process_function(), ctypes.byref(process_mask), ctypes.byref(system_mask)):
+        affinity = process_mask.value.bit_count() or None
+    result = {"totalMemoryBytes": state.totalPhys, "availableMemoryBytes": state.availPhys,
+              "commitHeadroomBytes": state.availPageFile, "affinityCpus": affinity,
+              "processCommitHeadroomBytes": state.availPageFile,
+              "currentCommitLimitBytes": state.totalPageFile}
+    # ullAvailPageFile is allocatable commit for THIS process, not pagefile size
+    # or necessarily system-wide headroom. Preserve both and do not assume that
+    # an administrator-configured automatic pagefile has already grown.
+    try:
+        performance = PerformanceInformation(cb=ctypes.sizeof(PerformanceInformation))
+        function = kernel.K32GetPerformanceInfo
+        function.argtypes = [ctypes.POINTER(PerformanceInformation), ctypes.c_uint32]
+        function.restype = ctypes.c_int
+        if function(ctypes.byref(performance), performance.cb) and performance.PageSize:
+            limit = performance.CommitLimit * performance.PageSize
+            used = performance.CommitTotal * performance.PageSize
+            result.update(systemCommitLimitBytes=limit, systemCommittedBytes=used,
+                          systemCommitHeadroomBytes=max(0, limit - used))
+            result["commitHeadroomBytes"] = min(state.availPageFile, max(0, limit - used))
+    except (AttributeError, OSError):
+        pass
+    try:
+        counters = ProcessMemoryCounters(cb=ctypes.sizeof(ProcessMemoryCounters))
+        function = kernel.K32GetProcessMemoryInfo
+        function.argtypes = [ctypes.c_void_p, ctypes.POINTER(ProcessMemoryCounters), ctypes.c_uint32]
+        function.restype = ctypes.c_int
+        if function(process_function(), ctypes.byref(counters), counters.cb):
+            result.update(processWorkingSetBytes=counters.WorkingSetSize,
+                          processPrivateCommitBytes=counters.PrivateUsage)
+    except (AttributeError, OSError):
+        pass
+    return result
+
+
+def _linux_snapshot(proc=Path("/proc"), cgroup=Path("/sys/fs/cgroup")):
+    values = {}
+    for line in (proc / "meminfo").read_text().splitlines():
+        fields = line.replace(":", " ").split()
+        if len(fields) >= 2 and fields[1].isdigit():
+            values[fields[0]] = int(fields[1]) * 1024
+    available = values.get("MemAvailable")
+    if available is None:
+        available = sum(values.get(name, 0) for name in ("MemFree", "Buffers", "Cached"))
+    result = {"totalMemoryBytes": values.get("MemTotal"), "availableMemoryBytes": available,
+              "commitHeadroomBytes": None, "availableSwapBytes": values.get("SwapFree")}
+    # Respect unified cgroup constraints when exposed, including ancestor limits.
+    roots = [cgroup]
+    try:
+        relative = next(line[3:] for line in (proc / "self/cgroup").read_text().splitlines() if line.startswith("0::"))
+        parts = Path(relative.lstrip("/")).parts
+        if ".." not in parts:
+            current = cgroup.joinpath(*parts)
+            if current.exists():
+                roots = [current, *[p for p in current.parents if p == cgroup or cgroup in p.parents]]
+    except (OSError, StopIteration):
+        pass
+    for root in roots:
+        try:
+            limit = (root / "memory.max").read_text().strip()
+            used = int((root / "memory.current").read_text())
+            if limit.isdigit():
+                limit = int(limit)
+                result["totalMemoryBytes"] = min(result["totalMemoryBytes"] or limit, limit)
+                result["availableMemoryBytes"] = min(result["availableMemoryBytes"], max(0, limit - used))
+        except (OSError, ValueError):
+            pass
+        try:
+            swap_limit = (root / "memory.swap.max").read_text().strip()
+            swap_used = int((root / "memory.swap.current").read_text())
+            if swap_limit.isdigit():
+                free_swap = max(0, int(swap_limit) - swap_used)
+                result["availableSwapBytes"] = min(result.get("availableSwapBytes") or 0, free_swap)
+        except (OSError, ValueError):
+            pass
+        try:
+            quota, period = (root / "cpu.max").read_text().split()
+            if quota.isdigit() and int(period) > 0:
+                cpus = max(1, math.ceil(int(quota) / int(period)))
+                result["quotaCpus"] = min(result.get("quotaCpus", cpus), cpus)
+        except (OSError, ValueError):
+            pass
+    return result
+
+
+def _mac_snapshot():
+    total = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True))
+    stats = subprocess.check_output(["vm_stat"], text=True)
+    page = re.search(r"page size of (\d+) bytes", stats)
+    if not page:
+        raise OSError("vm_stat page size unavailable")
+    available = sum(int(match[1]) for match in re.finditer(r"Pages (?:free|inactive|speculative):\s+(\d+)\.", stats))
+    return {"totalMemoryBytes": total, "availableMemoryBytes": available * int(page[1]), "commitHeadroomBytes": None}
+
+
+def detect_host(output_path):
+    """Portable, nonidentifying host snapshot. Missing memory yields one job."""
+    logical = max(1, os.cpu_count() or 1)
+    result = {"schema": 1, "platform": sys.platform, "logicalCpus": logical, "effectiveCpus": logical,
+              "totalMemoryBytes": None, "availableMemoryBytes": None, "commitHeadroomBytes": None,
+              "diskFreeBytes": None, "diskTotalBytes": None, "warnings": []}
+    try:
+        memory = _windows_snapshot() if sys.platform == "win32" else _linux_snapshot() if sys.platform == "linux" else _mac_snapshot()
+        result.update(memory)
+    except (OSError, ValueError, AttributeError):
+        result["warnings"].append("memory-detection-unavailable")
+    try:
+        result["effectiveCpus"] = min(result["effectiveCpus"], len(os.sched_getaffinity(0)))
+    except (OSError, AttributeError):
+        pass
+    for field in ("affinityCpus", "quotaCpus"):
+        if result.get(field):
+            result["effectiveCpus"] = min(result["effectiveCpus"], result[field])
+    result["effectiveCpus"] = max(1, result["effectiveCpus"])
+    path = Path(output_path).absolute()
+    while not path.exists() and path != path.parent:
+        path = path.parent
+    try:
+        disk = shutil.disk_usage(path)
+        result.update(diskFreeBytes=disk.free, diskTotalBytes=disk.total)
+    except OSError:
+        result["warnings"].append("disk-detection-unavailable")
+    return result
+
+
+def parse_jobs(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool) or not re.fullmatch(r"[1-9][0-9]{0,3}", str(value)) or int(value) > 1024:
+        raise ResourceError("--jobs / GHVRQ_BUILD_JOBS must be an integer from 1 to 1024.")
+    return int(value)
+
+
+def choose_jobs(host, phase, override=None):
+    """Select concurrency from live resources; estimates never prohibit one job."""
+    if phase not in PROFILES:
+        raise ResourceError("Unknown host build phase: " + phase)
+    requested = parse_jobs(os.environ.get(JOBS_ENV) if override is None else override)
+    first, extra, parent, phase_cap = PROFILES[phase]
+    cpus = max(1, host["effectiveCpus"])
+    cpu_limit = min(phase_cap, cpus if requested else max(1, cpus - (1 if cpus > 4 else 0)))
+    physical = host.get("availableMemoryBytes")
+    commit = host.get("commitHeadroomBytes")
+    total = host.get("totalMemoryBytes")
+    if phase in ("il2cpp", "unity", "unity-import"):
+        # Existing OS and Python allocations are already absent from both live
+        # headroom values. Reserving another 10% of installed RAM penalized large
+        # machines and double counted their current allocations. The parent
+        # reserve is FUTURE Unity growth, since admission runs before its launch.
+        os_reserve = 2 * GIB
+        available = commit if phase == "il2cpp" and host.get("platform") == "win32" and commit is not None else physical
+        if phase != "il2cpp" and commit is not None and available is not None:
+            available = min(available, commit)
+        if phase == "il2cpp" and host.get("platform") == "linux" and physical is not None:
+            available = physical + (host.get("availableSwapBytes") or 0)
+    else:
+        os_reserve = max(4 * GIB, int((total or 0) * 0.10))
+        available = physical
+        if commit is not None and available is not None:
+            available = min(available, commit)
+    budget = max(0, available - os_reserve - parent) if available is not None else None
+    memory_limit = 1 if budget is None else max(1, 1 + (budget - first) // extra)
+    if phase == "il2cpp" and physical is not None:
+        physical_budget = max(0, physical - os_reserve - parent)
+        physical_limit = max(1, 1 + (physical_budget - first) // extra)
+        # Paging may cover one frontend; additional workers need actual physical
+        # headroom as well, so a large nominal pagefile cannot cause thrashing.
+        memory_limit = min(memory_limit, physical_limit)
+    jobs = min(cpu_limit, memory_limit, requested or cpu_limit)
+    insufficient = budget is not None and budget < first
+    required_commit = first + parent + os_reserve
+    physical_shortfall = max(0, required_commit - physical) if physical is not None else None
+    commit_shortfall = max(0, required_commit - commit) if commit is not None else None
+    memory_known = budget is not None and physical is not None and (
+        phase not in ("il2cpp", "unity-import") or host.get("platform") != "win32" or commit is not None)
+    if phase in ("il2cpp", "unity-import") and not memory_known:
+        jobs = 1
+    # Capture165405 has 64 GiB installed, 36.1 GiB physically available and
+    # 27.5 GiB of additional commit. Requiring the old exceptional compiler's
+    # 40 GiB estimate stopped it before any work, even though earlier Linux
+    # builds completed on a 32 GiB host. Estimates choose an execution strategy;
+    # actual allocation pressure belongs to the supervised compiler/codec retry.
+    launch_allowed = True
+    paging = (phase == "il2cpp" and bool(physical_shortfall)
+              and ((host.get("platform") == "win32" and commit is not None
+                    and physical is not None and commit > physical)
+                   or bool(host.get("availableSwapBytes"))))
+    # Paging is a fallback, not permission to parallelize against nominal swap.
+    if paging:
+        jobs = 1
+    policy = {"schema": 1, "phase": phase, "requestedJobs": requested, "jobs": jobs,
+            "effectiveCpus": cpus,
+            "cpuLimit": cpu_limit, "memoryLimit": memory_limit, "memoryBudgetBytes": budget,
+            "osReserveBytes": os_reserve, "parentReserveBytes": parent,
+            "largestWorkerReserveBytes": first, "additionalWorkerReserveBytes": extra,
+            "memoryKnown": memory_known, "memoryInsufficient": insufficient or paging,
+            "nativeCapacityInsufficient": insufficient,
+            "nativeLaunchAllowed": launch_allowed, "pagingRequired": paging,
+            "requiredCommitHeadroomBytes": required_commit, "pagingExecutionVerified": False,
+            "windowsExecutionVerified": False, "physicalShortfallBytes": physical_shortfall,
+            "commitShortfallBytes": commit_shortfall, "admissionFailure": None}
+    if phase == "il2cpp":
+        strategy = "single-worker-unmeasured" if not memory_known else (
+            "single-worker-pressure" if insufficient or paging else "resource-bounded-parallel")
+        policy.update(transientReserveBytes=os_reserve, availablePhysicalMemoryBytes=physical,
+                      availableCommitHeadroomBytes=commit,
+                      nativeMemoryStrategy=strategy, workerReserveIsAdvisory=True,
+                      measuredWorkerPeakBytes=NATIVE_REPLAY_PEAK_BYTES,
+                      measuredDispatchPeakBytes=NATIVE_DISPATCH_REPLAY_PEAK_BYTES,
+                      historicalWorkerReserveBytes=NATIVE_HISTORICAL_RESERVE_BYTES,
+                      peakEvidenceScope="B625-Linux-Release-line-tables-dispatch-and-invokers",
+                      hostMemoryEvidence={name: host.get(name) for name in (
+                          "platform", "totalMemoryBytes", "availableMemoryBytes", "commitHeadroomBytes",
+                          "processCommitHeadroomBytes", "currentCommitLimitBytes", "systemCommitLimitBytes",
+                          "systemCommittedBytes", "systemCommitHeadroomBytes", "processWorkingSetBytes",
+                          "processPrivateCommitBytes", "availableSwapBytes")},
+                      admissionMessage=None)
+    return policy
+
+
+def unity_launch_arguments(argv, output_path):
+    """Apply independent JobQueue and native texture/model import scheduling.
+
+    These are witnessed process-local Unity 2021.3.5 command-line overrides.
+    Configure them before the first refresh: an executeMethod or InitializeOnLoad
+    change would miss the initial, expensive Android texture import. Never run
+    several Editors against the same mutable Library. Parallel imports respect
+    Unity's importer queues/dependencies; prefabs and other unsupported types
+    remain on its original sequential path. No shader keywords, formats, quality,
+    variants or compressor settings change. ShaderCompiler has its own native
+    scheduling; JobQueue's count must not be reported as its process count.
+    """
+    result = list(argv)
+    host = detect_host(output_path)
+    jobs = choose_jobs(host, "unity")
+    imports = choose_jobs(host, "unity-import")
+    root = os.environ.get(EVIDENCE_ENV)
+    mode = "InProcess" if imports["jobs"] == 1 or not imports["memoryKnown"] or imports["memoryInsufficient"] else "OutOfProcessPerQueue"
+
+    def option(name, value, *, bounded=False):
+        if name in result:
+            index = result.index(name)
+            if index + 1 >= len(result):
+                raise ResourceError("Unity scheduling option is missing a value: " + name)
+            if bounded:
+                requested = parse_jobs(result[index + 1])
+                value = str(min(int(value), requested))
+            result[index + 1] = value
+        else:
+            result.extend((name, value))
+
+    # An explicit serial retry must remain serial after resource requalification.
+    if "-refreshImportMode" in result:
+        index = result.index("-refreshImportMode")
+        if index + 1 < len(result) and result[index + 1] == "InProcess":
+            mode = "InProcess"
+    if "-job-worker-count" in result:
+        index = result.index("-job-worker-count")
+        if index + 1 < len(result) and result[index + 1] == "1":
+            mode = "InProcess"  # Existing native allocation retry owns this cap.
+    display = None
+    if (mode != "InProcess" and host.get("platform") == "linux"
+            and not os.environ.get("DISPLAY", "").strip()
+            and not any(Path(arg).name == "xvfb-run" for arg in result)):
+        # Unity 2021.3 import children need an X display even if their parent
+        # uses -nographics. The witnessed first headless fixture otherwise
+        # remained waiting for children which had already exited. Use the same
+        # isolated display tool as the full build, or retain in-process import.
+        display = shutil.which("xvfb-run") if shutil.which("xauth") else None
+        if display is None:
+            mode = "InProcess"
+    option("-job-worker-count", str(jobs["jobs"]), bounded=True)
+    option("-refreshImportMode", mode)
+    option("-desiredWorkerCount", str(imports["jobs"] if mode != "InProcess" else 1), bounded=True)
+    # Idle import children should not consume memory during shader/native builds.
+    option("-standbyWorkerCount", "0")
+    if display is not None:
+        result = [display, "-a", *result]
+    queue_count = int(result[result.index("-job-worker-count") + 1])
+    import_count = int(result[result.index("-desiredWorkerCount") + 1])
+    jobs = {**jobs, "jobs": queue_count, "schedulingScope": "JobQueue-threads"}
+    imports = {**imports, "jobs": import_count, "refreshImportMode": mode,
+               "parallelImportWorkerProcesses": import_count if mode != "InProcess" else 0,
+               "schedulingScope": "TextureImporter-and-ModelImporter-processes"}
+    if root:
+        for policy in (jobs, imports):
+            emit_resource_evidence(root, {"event": "policy", "host": host, "policy": policy})
+    print("resources: " + json.dumps({"phase": "unity-launch", "jobQueueThreads": queue_count,
+          "desiredImportWorkers": import_count, "parallelImportWorkerProcesses": imports["parallelImportWorkerProcesses"], "refreshImportMode": mode,
+          "effectiveCpus": host["effectiveCpus"], "availableMemoryBytes": host.get("availableMemoryBytes"),
+          "commitHeadroomBytes": host.get("commitHeadroomBytes"), "shaderCompilerScheduling": "editor-native",
+          "importWorkerReserveBytes": imports["additionalWorkerReserveBytes"],
+          "parallelImportScope": "TextureImporter-and-ModelImporter; other importers retain Unity ordering",
+          "windowsExecutionVerified": False}), flush=True)
+    return result
+
+
+def unity_import_retry_arguments(argv, *, memory_failure):
+    """Select one serial retry for a witnessed parallel initial-import OOM.
+
+    The caller owns bounded current Editor/worker-log inspection through the
+    existing native_admission.memory_failure diagnostics. A failed exit, lost
+    worker or arbitrary process kill alone is not an allocation witness. Keep
+    this helper pure: it neither reads stale logs nor kills another Editor,
+    clears the Library, changes assets, or repeats a Player/native build already
+    owned by the IL2CPP memory supervisor. The returned explicit one-worker
+    policy survives subsequent unity_launch_arguments resource qualification.
+    """
+    if memory_failure is not True:
+        return None
+    result = list(argv)
+    if not all(isinstance(arg, str) for arg in result) or not any(
+            Path(arg).name.casefold() in ("unity", "unity.exe") for arg in result):
+        return None
+
+    def value(name):
+        if result.count(name) != 1:
+            return None
+        index = result.index(name)
+        return result[index + 1] if index + 1 < len(result) else None
+
+    if (value("-executeMethod") != "GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk"
+            or value("-refreshImportMode") != "OutOfProcessPerQueue"):
+        return None
+    try:
+        workers = parse_jobs(value("-desiredWorkerCount"))
+        queue = parse_jobs(value("-job-worker-count"))
+    except ResourceError:
+        return None
+    if workers is None or workers <= 1 or ("-job-worker-count" in result and queue is None):
+        return None
+    for name, replacement in (("-refreshImportMode", "InProcess"),
+                              ("-desiredWorkerCount", "1"), ("-job-worker-count", "1")):
+        if name in result:
+            result[result.index(name) + 1] = replacement
+        else:
+            result.extend((name, replacement))
+    return result
+
+
+def _atomic_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as stream:
+            json.dump(value, stream, sort_keys=True); stream.write("\n")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def emit_resource_evidence(output_root, event):
+    """Only accept bounded public metrics; never serialize argv/environment."""
+    root = Path(output_root)
+    event = {**event, "schema": 1, "utc": datetime.now(timezone.utc).isoformat()}
+    run = os.environ.get(RUN_ENV)
+    key = os.environ.get(INPUT_ENV)
+    if run and re.fullmatch(r"[0-9a-f]{32}", run): event["runId"] = run
+    if key and re.fullmatch(r"[0-9a-f]{64}", key): event["inputKey"] = key
+    encoded = json.dumps(event, sort_keys=True)
+    if len(encoded) > 16384:
+        raise ResourceError("Resource evidence event exceeds its bounded size.")
+    path = root / "evidence/resource-events.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(encoded + "\n")
+    if event.get("event") == "policy":
+        _atomic_json(root / "evidence/resource-policy.json", event)
+    metrics_path = root / "build-metrics.json"
+    try:
+        metrics = json.loads(metrics_path.read_text()) if metrics_path.stat().st_size <= 262144 else {}
+        if (not isinstance(metrics, dict) or metrics.get("schema") != 1
+                or not isinstance(metrics.get("phases", []), list) or not isinstance(metrics.get("policies", {}), dict)):
+            metrics = {}
+    except (OSError, ValueError):
+        metrics = {}
+    metrics.setdefault("schema", 1)
+    if "runId" in event: metrics["runId"] = event["runId"]
+    if "inputKey" in event: metrics["inputKey"] = event["inputKey"]
+    if event.get("event") == "policy":
+        metrics["host"] = event["host"]
+        metrics.setdefault("policies", {})[event["policy"]["phase"]] = event["policy"]
+    else:
+        metrics["phases"] = [*metrics.get("phases", [])[-255:], event]
+    _atomic_json(metrics_path, metrics)
+
+
+def phase_budget(phase, path):
+    host = detect_host(path)
+    policy = choose_jobs(host, phase)
+    root = os.environ.get(EVIDENCE_ENV)
+    if root:
+        event = {"event": "policy", "host": host, "policy": policy}
+        key = os.environ.get(INPUT_ENV)
+        if key and re.fullmatch(r"[0-9a-f]{64}", key):
+            event["inputKey"] = key
+        emit_resource_evidence(root, event)
+    print("resources: " + json.dumps({"phase": phase, "jobs": policy["jobs"], "requestedJobs": policy["requestedJobs"],
+          "effectiveCpus": host["effectiveCpus"], "availableMemoryBytes": host["availableMemoryBytes"],
+          "diskFreeBytes": host["diskFreeBytes"], "memoryInsufficient": policy["memoryInsufficient"],
+          "pagingRequired": policy["pagingRequired"], "nativeLaunchAllowed": policy["nativeLaunchAllowed"],
+          "requiredCommitHeadroomBytes": policy["requiredCommitHeadroomBytes"],
+          "hostMemoryEvidence": policy.get("hostMemoryEvidence"),
+          "nativeMemoryStrategy": policy.get("nativeMemoryStrategy"),
+          "measuredWorkerPeakBytes": policy.get("measuredWorkerPeakBytes"),
+          "admissionFailure": policy["admissionFailure"],
+          "admissionMessage": policy.get("admissionMessage")}), flush=True)
+    if policy["pagingRequired"]:
+        print("resources: native compilation uses one worker because physical memory is constrained; "
+              "available paging capacity is observed. Actual allocation failures are retried with retained outputs.", flush=True)
+    return policy
+
+
+@contextmanager
+def timed_phase(phase, *, log=None):
+    root = os.environ.get(EVIDENCE_ENV)
+    started = time.monotonic()
+    identifier = uuid.uuid4().hex
+    event = {"event": "phase", "phase": phase, "id": identifier}
+    if log:
+        event["logName"] = Path(log).name
+    if root:
+        emit_resource_evidence(root, {**event, "state": "started"})
+    outcome = "failed"
+    try:
+        yield
+        outcome = "succeeded"
+    except KeyboardInterrupt:
+        outcome = "interrupted"
+        raise
+    finally:
+        if root:
+            emit_resource_evidence(root, {**event, "state": "finished", "outcome": outcome,
+                                   "durationSeconds": round(time.monotonic() - started, 3)})
+
+
+@contextmanager
+def resource_context(output, jobs=None):
+    """Orchestrator and direct native tools share the same inherited policy."""
+    requested = parse_jobs(jobs if jobs is not None else os.environ.get(JOBS_ENV))
+    changes = {EVIDENCE_ENV: str(Path(output).absolute()), INPUT_ENV: "", RUN_ENV: uuid.uuid4().hex}
+    if requested is not None:
+        changes[JOBS_ENV] = str(requested)
+    before = {key: os.environ.get(key) for key in changes}
+    os.environ.update(changes)
+    try:
+        yield
+    finally:
+        for key, value in before.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def prepare_bee_launcher(dotnet, output):
+    """Build our small native apphost in a private cache, never installed Unity."""
+    import hashlib
+    dotnet = Path(dotnet).resolve()
+    source = Path(__file__).with_name("host-launcher")
+    names = ("QuestBuildHost.csproj", "Program.cs")
+    fingerprints = {name: hashlib.sha256((source / name).read_bytes()).hexdigest() for name in names}
+    identity = {"schema": 1, "platform": sys.platform, "sources": fingerprints,
+                "dotnetSha256": hashlib.sha256(dotnet.read_bytes()).hexdigest()}
+    key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    root = Path(output) / "tool-cache/host-launcher" / key
+    destination = root / "bin"
+    executable = destination / ("QuestBuildHost.exe" if sys.platform == "win32" else "QuestBuildHost")
+    receipt = root / "host-launcher.json"
+    artifact_names = {executable.name, "QuestBuildHost.dll", "QuestBuildHost.deps.json", "QuestBuildHost.runtimeconfig.json"}
+    if receipt.is_file():
+        try:
+            saved = json.loads(receipt.read_text()) if receipt.stat().st_size <= 16384 else {}
+            files = saved.get("files", [])
+            valid = (set(saved) == {"schema", "identity", "files"} and saved["schema"] == 1 and saved["identity"] == identity
+                     and isinstance(files, list) and len(files) == 4 and {item["path"] for item in files} == artifact_names)
+            if valid:
+                for item in files:
+                    path = destination / item["path"]
+                    if (set(item) != {"path", "sha256", "size"} or type(item["size"]) is not int
+                            or not isinstance(item["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])
+                            or any(part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()) for part in (path, *path.parents))
+                            or not path.is_file() or path.stat().st_size != item["size"]
+                            or hashlib.sha256(path.read_bytes()).hexdigest() != item["sha256"]):
+                        valid = False; break
+            if valid: return executable
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        raise ResourceError("Cached host scheduling launcher differs from its receipt; repair the host-launcher cache.")
+    copied = root / "source"
+    copied.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        shutil.copyfile(source / name, copied / name)
+    log_path = root / "host-launcher-build.log"
+    with timed_phase("host-launcher", log=log_path), log_path.open("w", encoding="utf-8") as log:
+        result = subprocess.run([str(dotnet), "publish", str(copied / names[0]), "--configuration", "Release",
+                "--no-self-contained", "--output", str(destination), "-p:UseAppHost=true",
+                "-p:ImportDirectoryBuildProps=false", "-p:ImportDirectoryBuildTargets=false"],
+                stdout=log, stderr=subprocess.STDOUT, check=False)
+        if result.returncode or not executable.is_file():
+            raise ResourceError("Cannot build the private Bee scheduling apphost; inspect host-launcher-build.log.")
+    files = []
+    for name in (executable.name, "QuestBuildHost.dll", "QuestBuildHost.deps.json", "QuestBuildHost.runtimeconfig.json"):
+        path = destination / name
+        if not path.is_file():
+            raise ResourceError("Host scheduling apphost output is incomplete.")
+        files.append({"path": name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "size": path.stat().st_size})
+    _atomic_json(receipt, {"schema": 1, "identity": identity, "files": files})
+    return executable
+
+
+def unity_native_environment(editor, launcher, jobs, dotnet, base):
+    """Verify the installed backend CLI; exact process-local adapter applies it."""
+    editor = Path(editor)
+    backend = editor.parent / "Data" / ("bee_backend.exe" if sys.platform == "win32" else "bee_backend")
+    if not backend.is_file():
+        raise ResourceError("Selected Unity lacks its native Bee backend.")
+    try:
+        help_text = subprocess.check_output([str(backend), "--help"], text=True, errors="replace", timeout=20,
+                                            stderr=subprocess.STDOUT)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ResourceError("Cannot verify the installed native Bee scheduling options.") from error
+    if "--threads=<integer>" not in help_text or "Specify number of build threads" not in help_text:
+        raise ResourceError("Installed Bee backend does not expose the witnessed --threads option.")
+    jobs = parse_jobs(jobs)
+    if jobs is None:
+        raise ResourceError("Native Bee needs an explicit bounded thread policy.")
+    env = dict(base)
+    env.update(GHVRQ_BEE_REAL_PATH=str(backend.resolve()), GHVRQ_BEE_LAUNCHER=str(Path(launcher).resolve()),
+               GHVRQ_BEE_THREADS=str(jobs), DOTNET_ROOT=str(Path(dotnet).resolve().parent))
+    return env

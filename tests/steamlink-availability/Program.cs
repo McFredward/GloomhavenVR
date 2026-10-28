@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 namespace GloomhavenVR.Core
 {
+    // This request/UI fixture exercises desktop transport capabilities, never a Quest player.
+    internal static class QuestStandalonePlatform { internal static bool Enabled => false; }
     internal static class FrameNativePassthrough
     { internal static bool Required; internal static int Status = 0; internal static bool IsAvailable = true; }
     internal static class MixedReality { internal static Entry SteamLinkNative = new(), SteamLinkEdgeQuality = new(); }

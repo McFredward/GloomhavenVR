@@ -15,7 +15,33 @@ internal sealed class Weaver
         if (absolute == model.ManagedPath || absolute.StartsWith(model.ManagedPath + Path.DirectorySeparatorChar, StringComparison.Ordinal)
             || absolute == Path.GetDirectoryName(model.ModPath)) throw new ArgumentException("Output must not modify an input assembly directory.");
         if (Directory.Exists(absolute) && Directory.EnumerateFileSystemEntries(absolute).Any()) throw new ArgumentException("Output directory must be empty.");
+        // Audit can precede export by other metadata work. Do not let a removed
+        // proof or a late target change turn a successful report into the same
+        // startup rejection observed on B710. A diagnostic subset still retains
+        // its explicit incomplete-export semantics.
+        if (!diagnostic)
+        {
+            var registrationClosure = new AuditReport();
+            StaticRegistrationClosure.Audit(model, registrationClosure);
+            if (registrationClosure.Issues.Count != 0)
+                throw new InvalidDataException("Quest registration closure changed before export: "
+                    + string.Join("; ", registrationClosure.Issues.Select(i => i.Detail)));
+        }
         var allHooks = model.Hooks.ToArray();
+        StaticPatchDefinition[] staticPatches = model.StaticPatches.ToArray();
+        if (staticPatches.Select(p => p.PatchClass.FullName).Distinct(StringComparer.Ordinal).Count() != staticPatches.Length
+            || staticPatches.Any(p => p.PatchClass.Module != model.Mod.MainModule || !p.PatchClass.IsAbstract || !p.PatchClass.IsSealed
+                || p.PatchClass.Methods.Count != 0 || allHooks.Any(h => h.Patch.DeclaringType == p.PatchClass)
+                || !p.RemovedPatch.StartsWith(model.Mod.Name.Name + "/" + p.PatchClass.FullName + "::Transpiler(", StringComparison.Ordinal)
+                || !p.RemovedPatch.EndsWith(")", StringComparison.Ordinal)
+                || p.Target.DeclaringType == null || !p.Target.DeclaringType.Methods.Contains(p.Target) || !p.Target.HasBody
+                || p.Target.IsStatic || !model.Loaded.Contains(p.Target.Module.Assembly)
+                || p.Replacement.DeclaringType == null || !p.Replacement.DeclaringType.Methods.Contains(p.Replacement)
+                || p.Replacement.Module != model.Mod.MainModule
+                || p.Target.Body.Instructions.Count(i => i.OpCode == OpCodes.Call && i.Operand is MethodReference call
+                    && Discovery.MethodKey(call) == Discovery.MethodKey(p.Replacement)) != 1
+                || NativeMovieBoundary.Fingerprint(p.Target) != p.TargetFingerprint))
+            throw new InvalidDataException("Static Quest registration proof is outside its reviewed empty-class/target closure.");
         var protectedSnapshots = model.Loaded.Distinct().ToDictionary(a => a, ProtectedTypes.Snapshot);
         var slots = allHooks.Select((h, i) => (h, i)).ToDictionary(x => x.h, x => x.i);
         foreach (TypeDefinition type in Discovery.AllTypes(model.Mod.MainModule))
@@ -29,11 +55,19 @@ internal sealed class Weaver
         foreach (FieldHelper helper in model.Helpers) ReplaceHelper(helper);
         RewriteRegistrations();
         string manifest = string.Join("\n", allHooks.Select(h => h.Patch.DeclaringType.FullName + "|" + Discovery.MethodKey(h.Target)
-            + "|" + Discovery.MethodKey(h.Patch) + "|" + h.Kind + "|" + h.Priority + "|" + slots[h])) + "\n";
+            + "|" + Discovery.MethodKey(h.Patch) + "|" + h.Kind + "|" + h.Priority + "|" + slots[h]));
         model.Mod.MainModule.Resources.Add(new EmbeddedResource("QuestWeaver.Hooks.v1", ManifestResourceAttributes.Private, Encoding.UTF8.GetBytes(manifest)));
+        if (staticPatches.Length > 0)
+        {
+            string proofs = string.Join("\n", staticPatches.Select(p => p.PatchClass.FullName + "|" + Discovery.MethodKey(p.Target) + "|" + p.RemovedPatch));
+            model.Mod.MainModule.Resources.Add(new EmbeddedResource("QuestWeaver.StaticPatches.v1", ManifestResourceAttributes.Private, Encoding.UTF8.GetBytes(proofs)));
+        }
         // Preserve reflection metadata and generic closure conservatively for the initial port.
         // This does not assert that every dynamic serializer has generated native code.
         string links = "<linker>\n" + string.Join("\n", model.Loaded.Distinct().Select(a => "  <assembly fullname=\"" + a.Name.Name + "\" preserve=\"all\" />")) + "\n  <assembly fullname=\"QuestWeaver.Runtime\" preserve=\"all\" />\n</linker>\n";
+        foreach (ReflectionRoot root in report.ReflectionRoots.Distinct())
+            links = links.Replace("</linker>", "  <assembly fullname=\"" + System.Security.SecurityElement.Escape(root.Assembly)
+                + "\"><type fullname=\"" + System.Security.SecurityElement.Escape(root.Type) + "\" preserve=\"all\" /></assembly>\n</linker>", StringComparison.Ordinal);
         string parent = Path.GetDirectoryName(absolute)!;
         Directory.CreateDirectory(parent);
         string scratch = Path.Combine(parent, ".quest-weaver-" + Guid.NewGuid().ToString("N"));
@@ -51,7 +85,7 @@ internal sealed class Weaver
                 report.ProtectedTypesVerified += ProtectedTypes.Verify(protectedSnapshots[assembly], reread);
             }
             File.Copy(typeof(Registry).Assembly.Location, Path.Combine(scratch, "QuestWeaver.Runtime.dll"));
-            HarmonyFacade.Write(Path.Combine(scratch, "0Harmony.dll"), model.Mod.MainModule.AssemblyReferences.FirstOrDefault(a => a.Name == "0Harmony"));
+            HarmonyFacade.Write(Path.Combine(scratch, "0Harmony.dll"), model.Mod.MainModule.AssemblyReferences.FirstOrDefault(a => a.Name == "0Harmony"), model.Loaded, model.ManagedPath);
             File.WriteAllText(Path.Combine(scratch, "link.xml"), links);
             if (diagnostic) File.WriteAllText(Path.Combine(scratch, "DIAGNOSTIC-INCOMPLETE.txt"), "This subset is not a complete Quest game/mod conversion. Inspect the audit report.\n");
             if (Directory.Exists(absolute)) Directory.Delete(absolute);

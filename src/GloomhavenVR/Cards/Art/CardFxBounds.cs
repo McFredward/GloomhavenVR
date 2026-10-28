@@ -161,6 +161,8 @@ internal static class CardFxBounds
             if (root == null || root.renderMode != RenderMode.WorldSpace)
                 return; // the flat game's own configuration — leave it exactly alone
 
+            if (QuestStandalonePlatform.Enabled) QuestHostedItemFireMask.Attach(cardUI!, fx);
+
             Vector2 size = rect.rect.size;
             if (size.x < 1f || size.y < 1f)
             {

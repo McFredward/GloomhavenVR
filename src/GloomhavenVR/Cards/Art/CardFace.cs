@@ -314,6 +314,7 @@ internal sealed class CardFace
     {
         if (_face == null || _owner == null || _owner.fullAbilityCard == null)
             return;
+        QuestArtworkEvidence.Image(_owner.fullAbilityCard.headerImage, "ability-header");
         if (_artWatch.Poll("card face") > 0)
         {
             _nextMipRescan = Time.unscaledTime + MipRescanInterval; // it just did the backstop's job
@@ -545,6 +546,7 @@ internal sealed class CardFace
     {
         if (faceRoot == null)
             return;
+        Image? questHeader = null;
         try
         {
             CardBodyKind kind;
@@ -575,6 +577,10 @@ internal sealed class CardFace
             }
             if (ability != null)
             {
+                // Offer is the common original-widget seam for adopted cards AND
+                // inactive mod-owned clones. MaintainArtArrival alone requires an
+                // adopted owner and therefore cannot observe every visible face.
+                questHeader = ability.headerImage;
                 kind = CardBodyKind.Ability;
                 root = ability.RectTransform != null
                     ? ability.RectTransform
@@ -662,6 +668,12 @@ internal sealed class CardFace
             VRLog.Warn("Cards", $"CARD SILHOUETTE offer skipped ({ex.GetType().Name}: {ex.Message}) — " +
                                 "kept the rounded-rect card slab.");
         }
+        finally
+        {
+            // Observe after the actual contour offer, so the same protected source
+            // record distinguishes delivered alpha from an applied physical mesh.
+            if (questHeader != null) QuestArtworkEvidence.Image(questHeader, "ability-header");
+        }
     }
 
     /// <summary>
@@ -683,6 +695,7 @@ internal sealed class CardFace
         if (state.LastReason == code)
             return;
         state.LastReason = code;
+        QuestArtworkEvidence.Contour(kind, "refused-" + code);
         VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}): no footprint yet [{code}] — {detail}. " +
                             "The body keeps its opaque rounded-rect shape until a usable outline appears.");
     }
@@ -691,8 +704,9 @@ internal sealed class CardFace
     /// Capture the live card art's opacity footprint (card-space alpha) for one card kind and
     /// drive <see cref="CardMesh.SetSilhouette"/>. We union the alpha of the card's larger
     /// <c>Image</c> sprites (the class-skin backgrounds / frame that define the outer outline),
-    /// each sampled by GPU blit → sub-rect readback so it works even for non-CPU-readable atlas
-    /// textures. Robust: any failure just leaves the opaque rounded-rect slab in place.
+    /// Desktop reads the sprite sub-rect through its existing GPU copy. Quest uses native
+    /// readable mip-zero data or the builder's exact original CPU alpha, preserving the same
+    /// crop/trim/union calculation without relying on an XR framebuffer readback.
     /// </summary>
     private static void TryCapture(RectTransform faceRoot, CardBodyKind kind, SilhouetteState state)
     {
@@ -733,6 +747,7 @@ internal sealed class CardFace
                 continue;
             }
             Sprite sprite = img.sprite;
+            if (QuestStandalonePlatform.Enabled && sprite != null) sprite = CardFaceMipBake.OriginalFor(sprite);
             if (sprite == null || sprite.texture == null)
             {
                 rejectedNoSprite++;
@@ -880,7 +895,8 @@ internal sealed class CardFace
         int fh = Mathf.Clamp(Mathf.RoundToInt(fw * faceRect.height / faceRect.width), 64, 512);
         var alpha = new byte[fw * fh];
         var readbacks = new List<Texture2D>(picks.Count);
-        int stamped = 0, backdrops = 0;
+        var pending = new List<(Image Img, Rect Norm, Sprite Sprite, Rect Crop)>();
+        int stamped = 0, backdrops = 0, dominated = 0;
         // THE ART RECT: the union of the DRAWN rects that actually contributed, in face-normalized
         // coordinates. The footprint itself stays authored over the FULL face rect — that is the
         // space the card BODY samples it in (CardMesh.SetSilhouette's doc, and it is exact) — but a
@@ -890,10 +906,11 @@ internal sealed class CardFace
         var sources = new System.Text.StringBuilder(128);
         try
         {
-            var cache = new Dictionary<int, Texture2D>();
+            var cache = new Dictionary<int, Texture2D?>();
             foreach ((Image img, Rect norm) in picks)
             {
                 Sprite sprite = img.sprite;
+                if (QuestStandalonePlatform.Enabled && sprite != null) sprite = CardFaceMipBake.OriginalFor(sprite);
                 if (sprite == null || sprite.texture == null)
                     continue;
                 Rect tr = sprite.textureRect;
@@ -903,11 +920,21 @@ internal sealed class CardFace
                 // Keyed on the SPRITE, not its texture: two sprites routinely share one atlas
                 // and each needs its own sub-rect readback.
                 int key = sprite.GetInstanceID();
-                if (!cache.TryGetValue(key, out Texture2D region))
+                if (!cache.TryGetValue(key, out Texture2D? region))
                 {
                     region = ReadSpriteRegion(sprite.texture, tr);
                     cache[key] = region;
-                    readbacks.Add(region);
+                    if (region != null) readbacks.Add(region);
+                }
+
+                if (region == null)
+                {
+                    // Process every proven original first, independent of child
+                    // order. An unknown interior decoration needs no pixels ONLY
+                    // if this complete known union already dominates its maximum
+                    // possible contribution at every native footprint sample.
+                    pending.Add((img, norm, sprite, tr));
+                    continue;
                 }
 
                 float colorA = img.color.a;
@@ -989,6 +1016,22 @@ internal sealed class CardFace
                     Object.Destroy(t);
         }
 
+        foreach ((Image img, Rect norm, Sprite sprite, Rect crop) in pending)
+        {
+            if (DominatesUnknown(alpha, fw, fh, img, norm, sprite, crop))
+            {
+                dominated++;
+                continue;
+            }
+            // An unknown header, exterior ornament or even partially opaque
+            // interior can still change the exact native union. Never commit
+            // that partial result or cache an invented physical card contour.
+            state.OutlineImageIds.Clear();
+            Reject(state, kind, "native-alpha-unavailable",
+                "Quest original outline alpha has no readable source or matching owned CPU sidecar; retaining the complete card body");
+            return;
+        }
+
         if (stamped == 0)
         {
             Reject(state, kind, "sampled-empty",
@@ -998,8 +1041,8 @@ internal sealed class CardFace
         }
 
         VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}) attempt {state.Attempts}: footprint {fw}x{fh} " +
-                            $"stamped from {picks.Count - backdrops} of {picks.Count} candidate image(s) " +
-                            $"({backdrops} opaque full-bleed backdrop(s) skipped) on a " +
+                            $"stamped from {picks.Count - backdrops - dominated} of {picks.Count} candidate image(s) " +
+                            $"({backdrops} opaque full-bleed backdrop(s), {dominated} already dominated interior(s) skipped) on a " +
                             $"{faceRect.width:F0}x{faceRect.height:F0} px face — sources: " +
                             $"{(sources.Length > 0 ? sources.ToString() : "none")}. STOCK-ALPHA footprint: " +
                             "the art's own designed alpha at the 0.5 iso — no shadow trim, no frame punch, " +
@@ -1030,6 +1073,7 @@ internal sealed class CardFace
         if (CardMesh.SilhouetteApplied(kind))
         {
             state.CaptureSettled = true;
+            QuestArtworkEvidence.Contour(kind, "cached");
             CardMesh.RefreshSilhouetteCache(kind, alpha, fw, fh, artRect, sourceName);
             return;
         }
@@ -1038,6 +1082,7 @@ internal sealed class CardFace
         if (applied)
         {
             state.CaptureSettled = true;
+            QuestArtworkEvidence.Contour(kind, "applied");
             // FIRST RUN ONLY, and the one thing that shortens its window. Until this moment the
             // blackout had no mask and did nothing; every face already on screen now has one, but
             // each is behind its own 1 s rate limit. Dropping those limits means the very next
@@ -1057,6 +1102,33 @@ internal sealed class CardFace
             Reject(state, kind, "guard-refused",
                    "the footprint failed CardMesh's sanity guard (see the SetSilhouette line above)");
         }
+    }
+
+    /// <summary>An unknown source cannot change a max-alpha union that already
+    /// covers its exact native sample domain at its greatest possible opacity.</summary>
+    private static bool DominatesUnknown(byte[] alpha, int fw, int fh, Image image, Rect norm, Sprite sprite, Rect crop)
+    {
+        int fx0 = Mathf.Clamp(Mathf.FloorToInt(norm.xMin * fw), 0, fw - 1);
+        int fx1 = Mathf.Clamp(Mathf.CeilToInt(norm.xMax * fw), 0, fw - 1);
+        int fy0 = Mathf.Clamp(Mathf.FloorToInt(norm.yMin * fh), 0, fh - 1);
+        int fy1 = Mathf.Clamp(Mathf.CeilToInt(norm.yMax * fh), 0, fh - 1);
+        float srcW = Mathf.Max(1f, sprite.rect.width), srcH = Mathf.Max(1f, sprite.rect.height);
+        Vector2 trim = sprite.textureRectOffset;
+        byte maximum = (byte)Mathf.Clamp(Mathf.RoundToInt(image.color.a * 255f), 0, 255);
+        for (int fy = fy0; fy <= fy1; fy++)
+        {
+            float lv = ((fy + 0.5f) / fh - norm.yMin) / norm.height;
+            float py = lv * srcH - trim.y;
+            if (lv < 0f || lv > 1f || py < 0f || py > crop.height) continue;
+            for (int fx = fx0; fx <= fx1; fx++)
+            {
+                float lu = ((fx + 0.5f) / fw - norm.xMin) / norm.width;
+                float px = lu * srcW - trim.x;
+                if (lu < 0f || lu > 1f || px < 0f || px > crop.width) continue;
+                if (alpha[fy * fw + fx] < maximum) return false;
+            }
+        }
+        return true;
     }
 
     /// <summary>
@@ -1167,19 +1239,23 @@ internal sealed class CardFace
     }
 
     /// <summary>
-    /// CPU-read ONE sprite's region out of a (usually non-CPU-readable, usually 4096²) atlas via
-    /// a GPU blit plus a sub-rect <c>ReadPixels</c>. Sub-rect on purpose: the predecessor read
+    /// CPU-read ONE sprite's region out of an atlas. Quest resolves exact native CPU data or
+    /// the builder's owned original-alpha sidecar; desktop retains its GPU blit plus a sub-rect
+    /// <c>ReadPixels</c>. Sub-rect on purpose: the predecessor read
     /// the WHOLE atlas into a mipped RGBA32 Texture2D — ~85 MB and a full-frame stall per unique
     /// texture per attempt. Only the sprite's own texels are ever sampled, so only they are
     /// fetched, and no mip chain is built (<c>GetPixelBilinear</c> reads level 0). The result is
     /// CPU-side only and destroyed by the caller; it is never rendered.
     /// </summary>
-    private static Texture2D ReadSpriteRegion(Texture src, Rect texRect)
+    private static Texture2D? ReadSpriteRegion(Texture src, Rect texRect)
     {
         int rx = Mathf.Clamp(Mathf.FloorToInt(texRect.x), 0, Mathf.Max(0, src.width - 1));
         int ry = Mathf.Clamp(Mathf.FloorToInt(texRect.y), 0, Mathf.Max(0, src.height - 1));
         int rw = Mathf.Clamp(Mathf.RoundToInt(texRect.width), 1, src.width - rx);
         int rh = Mathf.Clamp(Mathf.RoundToInt(texRect.height), 1, src.height - ry);
+
+        if (QuestStandalonePlatform.Enabled)
+            return QuestArtworkRegion.Read(src, rx, ry, rw, rh);
 
         RenderTexture rt = RenderTexture.GetTemporary(
             src.width, src.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);

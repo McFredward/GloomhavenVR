@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-27: Build728 completes native menu depth, original level-up presentation and raised menu cards; aggregate252-suite coverage, goldens and strict builds pass. The Windows installation script builds the archive.
+Updated 2026-10-28: Quest dev734 integration is in progress; shared dev734 behavior and its own evidence remain preserved. See STATE.md for final qualification status.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [QUEST-DEV-REBASE-20261019.md](QUEST-DEV-REBASE-20261019.md) | Historical Quest current-dev integration, stereo media and minimal-update evidence |
 | [MENU728-DEPTH-CARDS-AND-LEVELUP.md](MENU728-DEPTH-CARDS-AND-LEVELUP.md) | Native source/final-window depth, complete level-up presentation, original raised menu cards and integration evidence |
 | [MENU727-CHARACTER-DEPTH-PREFERENCE.md](MENU727-CHARACTER-DEPTH-PREFERENCE.md) | Default-on local character depth switch, immediate native flat fallback/re-enable, focused verification and Windows-side archive delivery |
 | [MENU726-COMMON-CHARACTERS-AND-TRAVEL.md](MENU726-COMMON-CHARACTERS-AND-TRAVEL.md) | Common original character ground/scale, front/rear cabinet projection, native travel-loop ownership, original-asset audit and focused integration evidence |

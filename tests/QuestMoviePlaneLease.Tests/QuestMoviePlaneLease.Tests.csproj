@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors><EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>CS0649;CS8600</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FixtureSource)/*.cs" />
+    <Compile Include="$(LeaseSource)" Link="Production/NativeMovieCameraPlane.cs" />
+    <Compile Include="$(OwnershipSource)" Link="Production/CapturedMovieOwnership.cs" />
+  </ItemGroup>
+</Project>

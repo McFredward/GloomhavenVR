@@ -25,7 +25,7 @@ internal static class FrameNativePassthrough
     // File.Exists is appropriate at startup, never for the many MR/backing/UI
     // predicates evaluated each frame. Refresh only for a genuinely new instance;
     // changing the installed opt-in marker takes effect on the next VR startup.
-    internal static bool Required => _required ??= FrameDefaults.Active;
+    internal static bool Required => _required ??= !QuestStandalonePlatform.Enabled && FrameDefaults.Active;
     internal static FrameNativePassthroughStatus Status =>
         _feature?.PassthroughStatus ?? FrameNativePassthroughStatus.Checking;
     internal static bool IsAvailable => !Required || Status == FrameNativePassthroughStatus.Available;
@@ -45,7 +45,7 @@ internal static class FrameNativePassthrough
         if (!ReferenceEquals(_feature, feature))
             _feature?.ExitPassthrough();
         _feature = feature;
-        _required = FrameDefaults.Active;
+        _required = !QuestStandalonePlatform.Enabled && FrameDefaults.Active;
     }
 
     internal static void Detach(OpenXrEnvironmentBlendFeature feature)

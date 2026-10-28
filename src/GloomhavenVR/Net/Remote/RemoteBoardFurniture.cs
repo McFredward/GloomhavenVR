@@ -3948,9 +3948,15 @@ internal sealed class RemoteBoardFurniture
         Material? glow = Cards.CardGlow.MakeGlowMaterial(color);
         Material mat = glow ?? BoardVisual.Unlit(color);
         ReportSlotGlowBlend(glow);
-        MeshRenderer mr = BoardVisual.Quad(_root, name,
-            new Vector2(_slotFrameW * scale, _slotFrameH * scale), mat);
-        mr.transform.localPosition = new Vector3(cardLocal.x, cardLocal.y, cardLocal.z + proud);
+        // The local wanted/snap cues own their Quest Quad input upload. Mirrored
+        // scenario guides need that same consumer; keep the owner's exact metrics,
+        // resolved material/fallback, depth, shadow flags and native pulse here.
+        GameObject quad = Cards.CardGlow.CreateGlowQuad(name, _root,
+            new Vector3(_slotFrameW * scale, _slotFrameH * scale, 1f),
+            new Vector3(cardLocal.x, cardLocal.y, cardLocal.z + proud), color, mat);
+        MeshRenderer mr = quad.GetComponent<MeshRenderer>();
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        mr.receiveShadows = false;
         if (pulse)
             mr.gameObject.AddComponent<RemoteGlowPulse>().Init(mat, color);
         mr.gameObject.SetActive(false);

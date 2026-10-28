@@ -10,7 +10,7 @@ verified native structural streams through the actual production mesh decoder. A
 command buffers and `Camera.Render` callbacks execute; there is no simulated
 renderer or pixel oracle substituted for the production fragment.
 
-The pillar-retirement production case makes370 assertions. Retired combinatorial pillar selectors are removed rather than counted as current behavior. Independently compiled negative
+The pillar-retirement production case checks native pillar retention and ordinary walls. Independently compiled negative
 variants each corrupt a production statement and must fail at a named assertion. Shader compilation failures and unrelated exceptions never count as
 passing negative controls. `--production-only` and repeatable `--case NAME` are
 partial development runs; selected cases always retain the production baseline.
@@ -71,7 +71,7 @@ Real prepared terrain proxies publish no canonical material to the wall collecto
 the source renderer remains their sole decision/fade/visibility owner. Otherwise a
 world shader resolving back to `Amp_Basic_WallFade` can enroll those detached
 proxies as another shared wall under the mod host, independently of the native
-wall that is actually clear. This applies to desktop and standalone alike.
+wall that is actually clear. This applies to both desktop and Quest.
 
 Exact registry membership is tested for a live actual proxy, its native source,
 a name/material/layer-identical foreign clone and removal before deferred Unity
@@ -83,6 +83,15 @@ must fail its named duplicate-adoption assertion. Ten thousand private reads
 perform no native material-list query in that counted fixture. A separate actual
 Unity reader microbenchmark records host CPU time without using it as a speed
 assertion or a complete LOD/GPU/headset FPS claim.
+
+The retained Debug terrain snapshot now includes the last nonempty paired draw's
+surface/pillar/reduced counts and original/submitted triangles. Mean/max owner CPU
+costs retain at most 64 samples per Update/pre-cull lane, measured every 16th frame;
+normal log level does not sample. This distinguishes real active LOD draws from a
+ready mesh bank or a paused final camera with zero leases. The existing real
+native source bounds, property blocks, visibility callbacks and restoration are
+unchanged. Actual headset appearance and aggregate performance still need a new
+capture.
 
 ## Independently verified captured structural definitions
 
