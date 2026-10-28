@@ -244,5 +244,56 @@ class GraphicsProgressTests(unittest.TestCase):
         self.assertEqual(len(stage_plan._checkpoint_names('preparation-contracts', 4)), 4)
         self.assertEqual(stage_plan._checkpoint_names('graphics', 3), ())
 
+    def test_five_checkpoint_game_and_startup_show_only_actual_observed_work(self):
+        operation = 'preparation-contracts'
+        for variant, names in (
+            ('game', ('compiler-contracts', 'case-paths', 'script-orders', 'final-settings', 'menu-story-content')),
+            ('startup', ('compiler-contracts', 'case-paths', 'startup-compute', 'script-orders', 'final-settings')),
+        ):
+            with self.subTest(variant=variant):
+                self.session = self.store.create(wizard.choices({'gameRoot': variant}))['session']
+                self.store.begin_stage(self.session, 'build', 'actual-' + variant)
+                previous = 0
+                for index, checkpoint in enumerate(names):
+                    self.open(operation, checkpoint, index, 5)
+                    progress = self.row()['progress']; work = progress['activeWork']
+                    preparation = next(item for group in progress['buildOverview']['groups'] for item in group['operations']
+                        if item['id'] == operation)['preparation']
+                    self.assertEqual([item['id'] for item in preparation['checkpoints']], list(names[:index + 1]))
+                    self.assertEqual((work['done'], work['total'], work['remaining'], work['index']), (index, 5, 5 - index, index + 1))
+                    self.assertEqual(preparation['active'], checkpoint)
+                    self.assertFalse(preparation['checkpoints'][-1]['closed'])
+                    self.assertGreaterEqual(progress['stagePercent'], previous)
+                    previous = progress['stagePercent']
+                    self.store.progress(self.session, 'build', 'prepare-substage:' + checkpoint, index + 1, 5, 'checkpoints',
+                        operation=operation, status='complete')
+                    progress = self.row()['progress']; self.assertGreaterEqual(progress['stagePercent'], previous)
+                    self.assertEqual(progress['activeWork']['done'], index + 1)
+                    previous = progress['stagePercent']
+                self.assertEqual(progress['activeWork']['remaining'], 0)
+        self.assertEqual(stage_plan._checkpoint_names(operation, 5), ())
+
+    def test_late_observed_game_story_keeps_actual_ordinal_without_inventing_prior_work(self):
+        self.open('preparation-contracts', 'menu-story-content', 4, 5)
+        progress = self.row()['progress']; work = progress['activeWork']
+        preparation = next(item for group in progress['buildOverview']['groups'] for item in group['operations']
+            if item['id'] == 'preparation-contracts')['preparation']
+        self.assertEqual([item['id'] for item in preparation['checkpoints']], ['menu-story-content'])
+        self.assertFalse(preparation['checkpoints'][0]['closed'])
+        self.assertEqual((work['done'], work['total'], work['remaining'], work['index']), (4, 5, 1, 5))
+
+    def test_new_attempt_does_not_import_an_unobserved_startup_compute_checkpoint(self):
+        self.open('preparation-contracts', 'startup-compute', 2, 5)
+        self.store.progress(self.session, 'build', 'prepare-substage:startup-compute', 3, 5, 'checkpoints',
+            operation='preparation-contracts', status='complete')
+        self.store.begin_stage(self.session, 'build', 'next-actual-attempt')
+        previous = self.row()['progress']['stagePercent']
+        self.open('preparation-contracts', 'compiler-contracts', 0, 5)
+        progress = self.row()['progress']
+        preparation = next(item for group in progress['buildOverview']['groups'] for item in group['operations']
+            if item['id'] == 'preparation-contracts')['preparation']
+        self.assertEqual([item['id'] for item in preparation['checkpoints']], ['compiler-contracts'])
+        self.assertGreaterEqual(progress['stagePercent'], previous)
+
 
 if __name__ == '__main__': unittest.main()

@@ -204,7 +204,7 @@ CHECKPOINT_OWNERS = {
     **{name: "textures" for name in ("native-cubemaps", "ordinary-texture-audit", "native-texture2d")},
     **{name: "graphics" for name in ("campaign-compute", "campaign-shaders")},
     **{name: "mod-banks" for name in ("startup-archive", "archive-cleanup", "package-settings", "mod-resource-banks")},
-    **{name: "preparation-contracts" for name in ("compiler-contracts", "case-paths", "startup-compute", "script-orders", "final-settings")},
+    **{name: "preparation-contracts" for name in ("compiler-contracts", "case-paths", "startup-compute", "script-orders", "final-settings", "menu-story-content")},
 }
 for checkpoint, owner in CHECKPOINT_OWNERS.items():
     for suffix in ("backup", "contracts"):
@@ -245,6 +245,10 @@ def _checkpoint_names(operation, total):
         names = tuple(name for name in names if name not in ("native-sprites", "ui-recipes", "file-extras"))
     if operation == "preparation-contracts" and total == 4:
         names = tuple(name for name in names if name != "startup-compute")
+    if operation == "preparation-contracts" and total == 5:
+        # Startup has startup-compute; current Game has menu-story-content.
+        # The same denominator cannot identify either actual checkpoint plan.
+        return ()
     return names if len(names) == total else ()
 
 
@@ -636,6 +640,10 @@ def _observe_preparation(plan, operation, value):
         if CHECKPOINT_OWNERS.get(name) != operation: return
         record = records.setdefault(name, {"passes": {}})
         record.update(closed=status in ("complete", "reuse"), status=status)
+        if operation == "preparation-contracts" and type(value.get("done")) is int and type(value.get("total")) is int:
+            ordinal = value["done"] + (0 if status in ("complete", "reuse") else 1)
+            if 1 <= ordinal <= value["total"]:
+                record.update(ordinal=ordinal, total=value["total"], attempt=plan.get("attemptBoundary"))
         if status == "start": record["active"] = None
         return
     scope = plan.get("preparationScopes", {}).get(operation, {})
@@ -666,14 +674,20 @@ def _preparation_overview(plan, operation, failed=False):
     scope = plan.get("preparationScopes", {}).get(operation, plan.get("preparationCompleted", {}).get(operation, {}))
     total, done = scope.get("total"), scope.get("done")
     if type(total) is not int or type(done) is not int or not 0 <= done <= total: return None
-    names = _checkpoint_names(operation, total)
-    if not names: return None
     records = plan.get("preparationDetails", {}).get(operation, {})
+    names = _checkpoint_names(operation, total)
+    observed = not names and operation == "preparation-contracts" and total == 5
+    if observed:
+        names = tuple(sorted((name for name, record in records.items()
+            if CHECKPOINT_OWNERS.get(name) == operation and record.get("total") == total
+                and record.get("attempt") == plan.get("attemptBoundary") and type(record.get("ordinal")) is int),
+            key=lambda name: records[name]["ordinal"]))
+    if not names: return None
     active = scope.get("name") if scope.get("open") and plan.get("liveOperation") == operation else None
     rows = []
     for index, name in enumerate(names):
         record = records.get(name, {})
-        closed = record.get("closed", False) or index < done or operation in plan["completed"]
+        closed = record.get("closed", False) or (record.get("ordinal", total + 1) <= done if observed else index < done) or operation in plan["completed"]
         status = ("failed" if failed else "checking" if closed else "running") if name == active else (
             "reused" if record.get("status") == "reuse" else "complete" if record.get("status") == "complete"
             else "retained") if closed else "pending"
@@ -712,8 +726,10 @@ def _preparation_overview(plan, operation, failed=False):
                      "passPlanKnown": plan_known,
                      "passActive": current_part if name == active else None, "detail": "aggregate" if aggregate else "observed",
                      "nestedCounter": record.get("nestedCounter") if name == active else None})
-    return {"done": sum(item["closed"] for item in rows), "total": total, "remaining": sum(not item["closed"] for item in rows),
-            "active": active, "index": names.index(active) + 1 if active in names else None, "checkpoints": rows}
+    return {"done": done if observed else sum(item["closed"] for item in rows), "total": total,
+            "remaining": total - done if observed else sum(not item["closed"] for item in rows),
+            "active": active, "index": records[active]["ordinal"] if observed and active in names else names.index(active) + 1 if active in names else None,
+            "checkpoints": rows}
 
 
 def _preparation_fraction(plan, operation, value):
