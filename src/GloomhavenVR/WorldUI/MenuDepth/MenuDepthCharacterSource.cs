@@ -71,7 +71,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     }
 
     public Graphic Graphic => _image;
-    internal bool BindingAlive => !_disposed && _image != null && _camera != null && _manager != null
+    internal bool BindingAlive => !_disposed && _image != null && _surface != null && _camera != null && _manager != null
         && _holder != null && _nativeTarget != null && (_rendering || ReferenceEquals(_camera.targetTexture, _nativeTarget))
         && (ReferenceEquals(_image.texture, _nativeTarget) || ReferenceEquals(_image.texture, _borrowed));
     public bool IsReady => ReadyIdentity != null;
@@ -652,11 +652,18 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     public void Dispose()
     {
         if (_disposed) return;
-        AfterCapture();
         _disposed = true;
-        _surface.Retire();
-        if (--_calibration.References == 0) Calibrations.Remove(_manager);
-        if (!_rendering) ReleaseTargets();
+        try { AfterCapture(); }
+        finally
+        {
+            try { _surface.Retire(); }
+            finally
+            {
+                if (--_calibration.References == 0) Calibrations.Remove(_manager);
+                if (!_rendering) ReleaseTargets();
+                if (_image != null) _image.SetMaterialDirty();
+            }
+        }
     }
 
     private void ReleaseTargets()
@@ -801,23 +808,29 @@ internal sealed class MenuDepthCharacterSurface : BaseMeshEffect, IMaterialModif
 
     private void Apply()
     {
-        if (_material == null) return;
+        // A pooled native RawImage can destroy this effect before its managed
+        // source is retired. Never enter BaseMeshEffect's native getter then.
+        if (_material == null || this == null) return;
+        Graphic current = graphic;
+        if (current == null) return;
         _material.SetFloat("_GvrCharacterActive", _capturing ? 1f : 0f);
         _material.SetFloat("_GvrCharacterHeadRaster", _capturing && _headRaster ? 1f : 0f);
         _material.SetVector("_GvrCharacterEyeGraphic", _eyeGraphic);
-        Rect originalRect = graphic.rectTransform.rect;
+        Rect originalRect = current.rectTransform.rect;
         _material.SetVector("_GvrCharacterGraphicRect", new Vector4(originalRect.xMin, originalRect.yMin, originalRect.width, originalRect.height));
         _material.SetFloat("_GvrCharacterDepthWrite", _capturing ? 1f : 0f);
         if (!_capturing)
         {
-            Rect uv = (graphic as RawImage)?.uvRect ?? new Rect(0f, 0f, 1f, 1f);
+            Rect uv = (current as RawImage)?.uvRect ?? new Rect(0f, 0f, 1f, 1f);
             _material.SetVector("_ImageUV", new Vector4(uv.xMin, uv.yMin, uv.xMax, uv.yMax));
             return;
         }
         _material.SetTexture("_NativeDepth", _depth!, UnityEngine.Rendering.RenderTextureSubElement.Depth);
-        _material.SetMatrix("_NativeInverseVP", (GL.GetGPUProjectionMatrix(_view.Projection, true) * _view.WorldToCamera).inverse);
+        Matrix4x4 gpu = GL.GetGPUProjectionMatrix(_view.Projection, true);
+        if (SystemInfo.graphicsUVStartsAtTop) gpu.SetRow(1, -gpu.GetRow(1));
+        _material.SetMatrix("_NativeInverseVP", (gpu * _view.WorldToCamera).inverse);
         _material.SetMatrix("_NativeToGraphic", _view.NativeToGraphic);
-        _material.SetMatrix("_GraphicLocalToWorld", graphic.transform.localToWorldMatrix);
+        _material.SetMatrix("_GraphicLocalToWorld", current.transform.localToWorldMatrix);
         Vector4 nativePlane = _view.NativePlane;
         // Reconstructing a24-bit native scene depth must not classify its exact
         // glass plane as foreground because of sub-millimetre float roundoff.
@@ -832,7 +845,7 @@ internal sealed class MenuDepthCharacterSurface : BaseMeshEffect, IMaterialModif
         float u1 = _viewport.x + (_captureClip.xMax + 1f) * .5f * _viewport.width;
         float v0 = _viewport.y + (_captureClip.yMin + 1f) * .5f * _viewport.height;
         float v1 = _viewport.y + (_captureClip.yMax + 1f) * .5f * _viewport.height;
-        Rect rect = graphic.rectTransform.rect;
+        Rect rect = current.rectTransform.rect;
         _material.SetVector("_CaptureOldUV", new Vector4(u0, v0, u1, v1));
         _material.SetVector("_CaptureRect", new Vector4(rect.xMin + (u0 - _uv.xMin) / _uv.width * rect.width,
             rect.yMin + (v0 - _uv.yMin) / _uv.height * rect.height,
@@ -850,6 +863,7 @@ internal sealed class MenuDepthCharacterSurface : BaseMeshEffect, IMaterialModif
         _retired = true; _capturing = false;
         if (_material != null) Object.Destroy(_material);
         _material = _original = null;
+        if (this == null) return;
         if (graphic != null) graphic.SetMaterialDirty();
         Object.Destroy(this);
     }

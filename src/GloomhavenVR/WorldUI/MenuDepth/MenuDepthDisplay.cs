@@ -258,7 +258,12 @@ internal sealed class MenuDepthDisplay : IDisposable
         Camera head = eye.HeadCamera;
         Matrix4x4 projection = head.stereoEnabled ? head.GetStereoProjectionMatrix(
             eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left) : head.projectionMatrix;
-        return GL.GetGPUProjectionMatrix(projection, true) * projection.inverse * eye.WorldToHeadClip;
+        Matrix4x4 gpu = GL.GetGPUProjectionMatrix(projection, true);
+        // The stored inverse reconstructs canonical sampled RT UVs. D3D-like
+        // render targets flip projection Y to retain those UVs; undo only that
+        // row before inversion, keeping the native/reversed depth encoding.
+        if (SystemInfo.graphicsUVStartsAtTop) gpu.SetRow(1, -gpu.GetRow(1));
+        return gpu * projection.inverse * eye.WorldToHeadClip;
     }
 
     private void CaptureHeadEye(Camera capture, RectTransform plane, RenderTexture target, MenuDepthEye eye, Vector2Int size)
