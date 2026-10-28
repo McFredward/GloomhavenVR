@@ -159,9 +159,15 @@ internal static partial class ConfirmationOnOwner
                 // SimpleGrabPassBlur must take the same isolated capture and
                 // scoped blur remedy as ordinary windows. The default native
                 // UI layer bypassed that path in both this and the old float.
+                // Build739 hardware still refused that capture at its session
+                // budget, leaving the full-frame Black_Backdrop and depth-writing
+                // GrabPass blur directly in the eyes. Hide those original full-cover
+                // graphics before reveal, independently of capture admission. The
+                // smaller native Box, text, buttons and modal callbacks stay intact;
+                // Release restores the recorded graphics for the flat native home.
                 seat.PersistentMember = CanvasConversion.Convert(rect, "LevelUpConfirmationMember",
                     pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog, fitContent: false,
-                    flattenWindow: true, useModLayer: true);
+                    flattenWindow: true, useModLayer: true, transparentBackground: true);
                 if (seat.PersistentMember == null) { Release(box); return false; }
             }
             else rect.SetParent(mount, worldPositionStays: false);

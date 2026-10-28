@@ -149,8 +149,13 @@ internal sealed class DialogSurface
         // Build738: the original generic box carries a full-frame GrabPass blur.
         // The default native layer left it directly in both eye passes, outside
         // ordinary isolated capture/filtering and its existing scoped blur remedy.
+        // Build739: capture can be refused when the shared target budget is full.
+        // Strip the native full-screen backdrop/GrabPass graphic before reveal too,
+        // using the converter's reversible foreground-only treatment. This must not
+        // depend on capture admission: only the original small dialog should draw.
         _panel = CanvasConversion.Convert(box.transform as RectTransform, Name,
-            pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog, useModLayer: true);
+            pokeTuning: Hands.Interact.PokeSurfaceTuning.SmallDialog, useModLayer: true,
+            transparentBackground: true);
         if (_panel == null)
             return;
 
