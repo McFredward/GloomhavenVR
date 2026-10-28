@@ -629,7 +629,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 734;
+    public const ushort ModBuild = 736;
+
+    // ModBuild736 — retain character windows under head pitch and stable native text.
+    // Build734 hardware on D3D11 reveals a sampled-depth reconstruction Y mismatch:
+    // normalize only the render-target projection Y before inversion, preserving
+    // the graphics API's actual depth convention. Original card backgrounds need
+    // shallow head-only separation from their authored coplanar TMP/button ink;
+    // preserve native text/card transforms, materials and real foreground depth.
+    // Validate the complete original UI stack before admitting spatial eye targets
+    // so an unmapped retained camera cannot create/destroy both large eyes every
+    // frame. Keep original mono/input fallback and immediate mapping recovery.
+    // Retire destroyed preview surfaces without leaking scene targets/calibration.
+    // Preserve HDR/MSAA and hand tracking: the candidate menu HDR change altered
+    // antialiasing and was rejected. Actual headset hand pacing remains a hardware
+    // acceptance item; no lower-quality or capture-rate fallback is introduced.
+    // Build735 is already used by the separate Quest standalone branch.
 
     // ModBuild734 — complete menu-quality delivery after shared city readiness733.
     // Finish the unpublished732 menu checkpoint on the current integration branch.
