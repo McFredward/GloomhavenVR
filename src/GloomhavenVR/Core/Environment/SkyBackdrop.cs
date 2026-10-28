@@ -4,6 +4,7 @@ using GloomhavenVR.Cards;
 using GloomhavenVR.Rig;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
 
 namespace GloomhavenVR.Core;
 
@@ -194,6 +195,7 @@ internal static class SkyBackdrop
 
     private static bool _applied;   // mechanism effects currently active
     private static int _scanNextFrame;
+    private static bool _watchingScenes;
 
     private static readonly int BackgroundQueue = (int)RenderQueue.Background; // 1000
 
@@ -210,10 +212,16 @@ internal static class SkyBackdrop
     {
         if (!VRSession.IsRunning)
         {
+            StopWatchingScenes();
             if (_mech != Mechanism.Undecided || _applied)
                 FullReset();
             NativeDefaultSky.Reset();
             return;
+        }
+        if (!_watchingScenes)
+        {
+            SceneManager.sceneLoaded += OnSceneLoaded;
+            _watchingScenes = true;
         }
 
         if (skyOwnedElsewhere)
@@ -240,8 +248,18 @@ internal static class SkyBackdrop
     /// <summary>Full teardown (VR stop / hot reload). Restores the sphere and forgets the decision.</summary>
     internal static void RestoreAll()
     {
+        StopWatchingScenes();
         FullReset();
         NativeDefaultSky.Reset();
+    }
+
+    private static void OnSceneLoaded(Scene scene, LoadSceneMode mode) => _scanNextFrame = 0;
+
+    private static void StopWatchingScenes()
+    {
+        if (!_watchingScenes) return;
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+        _watchingScenes = false;
     }
 
     // ---- acquisition --------------------------------------------------------------------------
@@ -299,6 +317,11 @@ internal static class SkyBackdrop
         {
             Renderer r = all[i];
             if (r == null || NativeDefaultSky.Owns(r))
+                continue;
+            // A serialized scenario can arrive before its new rig does. Until
+            // the owned head actually sees that layer, keep the menu's own sky.
+            Camera? head = VRRigDriver.HeadCamera;
+            if (head != null && (head.cullingMask & (1 << r.gameObject.layer)) == 0)
                 continue;
             if (MatchesHint(r.gameObject.name))
                 return r;

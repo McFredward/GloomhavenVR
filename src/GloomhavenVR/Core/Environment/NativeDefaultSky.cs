@@ -152,8 +152,8 @@ internal static class NativeDefaultSky
         {
             Reset();
             _failed = true;
-            VRLog.Warn("Core", "Default sky unavailable without a native scene (" + error.GetType().Name
-                + "); check the installed plugin's native default sky resource.");
+            VRLog.Warn("Core", "Default sky unavailable without a native scene on " + SystemInfo.graphicsDeviceType
+                + " (" + error.GetType().Name + ": " + error.Message + ").");
             return false;
         }
     }
