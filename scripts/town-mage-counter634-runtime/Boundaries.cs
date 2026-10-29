@@ -23,12 +23,13 @@ namespace GloomhavenVR.WorldUI
         internal Vector3 OriginalScale;
         internal bool IsAlive=>Target!=null;
         internal bool MrBackingSuppressed,HideBackground,KeepBackgroundHidden;
+        internal System.Func<Graphic,bool>? BackgroundFilter=null;
         internal int BackgroundSweepNextFrame,FitOneShotStableCount,FitSettleStillCount,FitOneShotStableGraphics;
         internal readonly List<Graphic> HiddenBackgrounds=new();
     }
     internal static partial class CanvasConversion
     {
-        internal static ConvertedPanel Convert(RectTransform target,string name,bool fitContent,bool useModLayer,bool transparentBackground)
+        internal static ConvertedPanel Convert(RectTransform target,string name,bool fitContent,bool useModLayer,bool transparentBackground,System.Func<Graphic,bool>? backgroundFilter=null)
         {
             var size=target.rect.size;var host=new GameObject(name,typeof(RectTransform),typeof(Canvas));
             var rect=host.GetComponent<RectTransform>();rect.SetParent(target.parent,false);rect.sizeDelta=size;rect.pivot=target.pivot;

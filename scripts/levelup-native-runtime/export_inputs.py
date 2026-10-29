@@ -74,7 +74,8 @@ def confirmation_node(reader,prefix="confirmation"):
   component=slot.component.deref();kind=component.type.name
   if kind=='MonoBehaviour':kind=component.parse_monobehaviour_head().m_Script.read().m_ClassName
   record={'kind':kind,'original':p.object_id(component)}
-  if kind in ('RectTransform','Image','TextMeshProUGUI','VerticalLayoutGroup','HorizontalLayoutGroup','ContentSizeFitter','LayoutElement'):
+  if kind in ('RectTransform','Image','TextMeshProUGUI','VerticalLayoutGroup','HorizontalLayoutGroup','ContentSizeFitter','LayoutElement',
+              'VerticalLayoutGroupExtended','HorizontalLayoutGroupExtended','LayoutElementExtended','AspectRatioFitter','RectMask2D'):
    d=p.authored_tree(component);record['json']=json.dumps(clean(d))
    if kind=='RectTransform':transform=component.read()
    if kind=='Image':
@@ -85,7 +86,7 @@ def confirmation_node(reader,prefix="confirmation"):
      record['material']=p.object_id(material)
     if d['m_Sprite']['m_PathID']:
      sprite_reader=ptr(d['m_Sprite'],component).deref();sprite=sprite_reader.read()
-     record['sprite']=prefix+'-sprite-'+str(component.path_id);sprite.image.save(out/(record['sprite']+'.png'))
+     record['sprite']=prefix+'-sprite-'+str(component.path_id);record['spriteName']=sprite.m_Name;sprite.image.save(out/(record['sprite']+'.png'))
      record.update(border=p.vector(sprite.m_Border,'xyzw'),pivot=p.vector(sprite.m_Pivot,'xy'),ppu=sprite.m_PixelsToUnits,spriteOriginal=p.object_id(sprite_reader))
    if kind=='TextMeshProUGUI':record['font']=export_font(ptr(d['m_fontAsset'],component).deref(),ptr(d['m_sharedMaterial'],component).deref())
   result['components'].append(record)
@@ -100,7 +101,7 @@ import xml.etree.ElementTree as ET
 def xml_node(value):
  element=ET.Element('node',{'name':value['name'],'active':str(int(value['active']))})
  for record in value['components']:
-  attrs={k:str(v) for k,v in record.items() if k in ('kind','json','sprite','shader','font','ppu')}
+  attrs={k:str(v) for k,v in record.items() if k in ('kind','json','sprite','spriteName','shader','font','ppu')}
   for k in ('border','pivot'):
    if k in record:attrs[k]=','.join(map(str,record[k]))
   if record['kind']=='RectTransform':
@@ -136,5 +137,11 @@ for name,value in [('native-card-list-entry',card_entry),('native-card-list-view
 (out/'native-card-list-provenance.json').write_text(json.dumps({'scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level9').read_bytes()).hexdigest(),
  'presentation':'Original Cards tab static hierarchy/rects/images/fonts and closed-list toggle artwork. Actual ExtendedToggle.OnPointerClick and UIResetLevelUpWindow.Show/ToggleDisplay execute; downstream inventory/controller/session are ports. Unrelated LevelUpHighlight/Warning GUI_FlexFrame shader branches are omitted from this static header picture and retained untouched in the authored export.'},indent=2)+'\n')
 
+for name,pathid in [('story',243),('encounter',949),('quest',445)]:
+ value=confirmation_node(byid[pathid],'narrative-'+name)
+ (out/('native-narrative-'+name+'.json')).write_text(json.dumps(value,indent=2)+'\n')
+ ET.ElementTree(xml_node(value)).write(out/('native-narrative-'+name+'.xml'),encoding='unicode',xml_declaration=True)
+(out/'native-narrative-provenance.json').write_text(json.dumps({'scene':'level9','scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level9').read_bytes()).hexdigest(),
+ 'presentation':'Original story/event/quest rect/image/TMP/layout/sprite/font authoring. Native flow, localization, readiness and controller initialization are explicit inputs. Non-UI/Default foreground programs use declared GL UI geometry witnesses; original D3D11 programs are unexecuted.'},indent=2)+'\n')
 (out/'pins.json').write_text(json.dumps({x.name:hashlib.sha256(x.read_bytes()).hexdigest() for x in out.iterdir() if x.is_file()},indent=2)+'\n')
 print('exported original native widget sprites/font',out)

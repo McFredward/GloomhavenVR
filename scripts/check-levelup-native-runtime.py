@@ -33,6 +33,7 @@ FILES = {
     'AnnouncementContinueView.cs': 'Modal/AnnouncementContinueView.cs',
     'DialogSurface.cs': 'Surfaces/DialogSurface.cs',
     'PanelGraphicMaterial.cs': 'Sharpness/PanelGraphicMaterial.cs',
+    'NarrativeBackdrop.cs': 'Modal/NarrativeBackdrop.cs',
 }
 
 
@@ -53,6 +54,7 @@ def main():
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--case', action='append')
     parser.add_argument('--card-list-only', action='store_true', help='Run only the native closed-card-list proof; requires explicit --case selection.')
+    parser.add_argument('--narrative-only', action='store_true', help='Run the native narrative background subset; not a complete level-up suite.')
     args = parser.parse_args()
     if not os.environ.get('ADB_SERVER_SOCKET'):
         parser.error('Use the private task ADB_SERVER_SOCKET; a default shared ADB server is not permitted.')
@@ -101,7 +103,31 @@ def main():
         'private static readonly List<Graphic> BgGraphicScratch=new(64);private static readonly Vector3[] BgCornerScratch=new Vector3[4];'
         'internal static void SweepBackgrounds739(ConvertedPanel panel){if(panel.HideBackground)HideFullScreenBackground(panel,false);}'
         'internal static void RestoreBackgrounds739(ConvertedPanel panel){' + restore + 'panel.HiddenBackgrounds.Clear();}'
+        + 'internal static void InstallBackground746(ConvertedPanel panel,bool transparentBackground,bool keepBackgroundHidden,System.Func<Graphic,bool>? backgroundFilter){'
+        + method(converter_core, 'if (transparentBackground)') + '}'
         + '\n'.join(background) + '}}')
+    story_source=(root / 'src/GloomhavenVR/WorldUI/Composites/StoryComposite.cs').read_text()
+    story_methods=[method(story_source,signature) for signature in ('private static bool Park(',
+        'private static void WriteLayers(', 'private static void ApplyPose(',
+        'private static bool TryPaintedBounds(', 'private static void Unpark(')]
+    painted=story_source[story_source.index('private static bool CountsAsPaintedHere('):story_source.index('    private static void Unpark(')]
+    for name in ('DockName','MinParkSizePx','ImageGapPx','OffsetEpsilonPx'):
+        declaration=re.findall(r'private const (?:string|float) '+name+r'\s*=\s*[^;]+;',story_source)
+        if len(declaration)!=1:raise RuntimeError('Native story constant binding drift: '+name)
+        story_methods.append(declaration[0])
+    originals['NativeStoryComposite746.cs']=('using System.Collections.Generic;using UnityEngine;using UnityEngine.UI;using GloomhavenVR.Core;'
+        'namespace GloomhavenVR.WorldUI {internal static class NativeStoryComposite746 {'
+        'private const string Scope="fixture story";private static RectTransform? _dock,_picture;'
+        'private static UIWindow? _parkHost,_parkSource;private static NarrativeBackdrop.Lease? _narrativeBackdrop;'
+        'private static Vector2 _dockSize,_slotHostSize,_slotPictureSize;private static Rect _slot;'
+        'private static bool _slotValid,_composeLogged;private static int _slotCount;private static string _parkedSprite="",_poseBasis="";'
+        'private static readonly List<Transform> Moved=new(8);private static readonly List<int> MovedIndex=new(8);'
+        'private static readonly MovedSubtreeLayers Layers=new(64);private static readonly List<Graphic> PaintScratch=new(48);'
+        'private static readonly Vector3[] Corners=new Vector3[4];'
+        'private static void LogComposed(UIWindow loadout,UIWindow story,RectTransform host){System.GC.KeepAlive((_composeLogged,_dockSize,_slotCount,_parkedSprite,_poseBasis));}'
+        'internal static bool ParkOriginal(UIWindow loadout,RectTransform host,UIWindow story,RectTransform image)=>Park(loadout,host,story,(RectTransform)story.transform,image);'
+        'internal static void TickOriginal(RectTransform host)=>ApplyPose(host);internal static void UnparkOriginal()=>Unpark("native test hand-back");'
+        + '\n'.join(story_methods)+painted+'}}')
     order_source=(root / 'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.8.Order.cs').read_text()
     order_methods=[method(order_source,signature) for signature in ('internal static void TickPanelOrder(', 'private static void StampShownPose(', 'private static float PanelEyeDistance(', 'private static void ApplyPanelOrder(', 'internal static void RegisterOrderFollower(ConvertedPanel panel, Canvas canvas, int offset)')]
     for name in ('PanelOrderBase','PanelOrderStep','PanelOrderMaxRank','OrderSwapMarginMeters','OrderSwapStableFrames'):
@@ -117,6 +143,42 @@ def main():
         'internal static void ResetOrder739(){foreach(var p in ActivePanels){p.OrderListed=false;p.OrderSwapPeer=null;p.OrderSwapStreak=0;}OrderedPanels.Clear();}'
         + '\n'.join(order_methods)+'}}')
     cases = [('production', {}, '')]
+    cases.append(('narrative-production', {}, ''))
+    narrative_controls = [
+        ('narrative-dimmer-retained', 'NarrativeBackdrop.cs',
+         'if (isStory) return Filter(window.transform, Kind.Story);',
+         'if (isStory) return null;',
+         'native story direct pixels contain no desktop dimmer outside original foreground'),
+        ('narrative-filter-install-lost', 'NativeBackgroundKernel739.cs',
+         'panel.BackgroundFilter = backgroundFilter;', 'panel.BackgroundFilter = null;',
+         'native full-frame illustrations remain enabled beside hidden desktop dimmers'),
+        ('narrative-art-role-lost', 'NarrativeBackdrop.cs',
+         '            || image.GetComponent<Mask>() != null) return false;',
+         '            ) return false;',
+         'original native narrative stencil remains enabled'),
+        ('narrative-root-scope-lost', 'NarrativeBackdrop.cs',
+         '|| !graphic.transform.IsChildOf(root)', '|| false',
+         'foreign native story graphics cannot join another producer background filter'),
+        ('narrative-lease-restore-lost', 'NarrativeBackdrop.cs',
+         'if (IsBackdrop(_root, Kind.Story, graphic)) graphic.enabled = true;',
+         '/* lost native hand-back */',
+         'composite unpark restores every original narrative dimmer flag'),
+        ('narrative-input-role-lost', 'NarrativeBackdrop.cs',
+         'if (image.raycastTarget || image.sprite == null', 'if (false || image.sprite == null',
+         'native transparent input roots retain their original raycast component'),
+        ('narrative-composite-lease-lost', 'NativeStoryComposite746.cs',
+         '_narrativeBackdrop = new NarrativeBackdrop.Lease(dock);', '_narrativeBackdrop = null;',
+         'actual story Park and ApplyPose hide only the native dimmer Image'),
+        ('narrative-composite-sync-lost', 'NativeStoryComposite746.cs',
+         '_narrativeBackdrop?.Sync();', '/* composite pose omitted backdrop sync */',
+         'actual story Park and ApplyPose hide only the native dimmer Image'),
+        ('narrative-composite-unpark-lost', 'NativeStoryComposite746.cs',
+         '_narrativeBackdrop?.Dispose();', '/* composite unpark omitted native hand-back */',
+         'composite unpark restores every original narrative dimmer flag'),
+    ]
+    for name, key, before, after, expected in narrative_controls:
+        if originals[key].count(before) != 1: raise RuntimeError('Narrative mutation binding drift: ' + name)
+        cases.append((name, {key: originals[key].replace(before, after)}, expected))
     changes = [
         ('card-list-opener-waits-for-open', 'CardListEntry.cs', '&& button.gameObject.activeSelf && reset != null', '&& button.gameObject.activeSelf && reset != null && reset.inventory.GetComponent<UIWindow>().IsOpen', 'native closed-list opener is reachable inside converted character Cards tab before list opens'),
         ('card-list-caption-not-clickable', 'CardListEntry.cs', '_caption.raycastTarget = true;', '_caption.raycastTarget = false;', 'native graphic raycast hits More Cards caption'),
@@ -168,6 +230,9 @@ def main():
         cases.append((name, {file: originals[file].replace(before, after)}, expected))
     if args.card_list_only and (not args.case or any(name != 'production' and not name.startswith('card-list-') for name in args.case)):
         parser.error('--card-list-only requires explicit production/card-list case selection')
+    if args.narrative_only:
+        if args.card_list_only: parser.error('Narrative and card-list subsets are separate scopes')
+        cases = [case for case in cases if case[0].startswith('narrative-')]
     if args.case:
         unknown = set(args.case) - {case[0] for case in cases}
         if unknown: parser.error('Unknown cases: ' + str(unknown))
@@ -191,9 +256,9 @@ def main():
         if result.returncode: raise RuntimeError('Native export failed: ' + str(run / 'native-export.log'))
         manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'entry': 'RunCardListEntry745' if args.card_list_only else 'Run', 'cases': []}
         hashes = {}
-        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), root / 'src/GloomhavenVR/Core/Loc/Loc.CardList.cs', *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', modal / 'ModalFallback.CompositeTransfer.cs', Path(__file__), ROOT / 'scripts/check-environment-menu-scope.py', ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/town_run_retention.py', *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
+        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), root / 'src/GloomhavenVR/WorldUI/Composites/StoryComposite.cs', root / 'src/GloomhavenVR/Core/Loc/Loc.CardList.cs', *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', modal / 'ModalFallback.CompositeTransfer.cs', Path(__file__), ROOT / 'scripts/check-environment-menu-scope.py', ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/town_run_retention.py', *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
             hashes[str(file)] = hashlib.sha256(file.read_bytes()).hexdigest()
-        (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'coverage': 'partial' if args.case else 'production-and-controls', 'limits': __doc__}, indent=2) + '\n')
+        (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'coverage': 'partial' if args.case or args.narrative_only or args.card_list_only else 'production-and-controls', 'limits': __doc__}, indent=2) + '\n')
         env = os.environ.copy(); env.update(UseSharedCompilation='false', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0', TMPDIR=str(compiler_temp))
         assemblies = run / 'executed-assemblies'; assemblies.mkdir()
         for name, replacements, expected in cases:
@@ -234,7 +299,8 @@ def main():
                 for item in output.glob('*.dll'):
                     if item.name != dll.name: shutil.copyfile(item, runtime / item.name)
                 manifest['harmony'] = str(runtime / '0Harmony.dll')
-            manifest['cases'].append({'name': name, 'dll': str(dll), 'sha256': hashlib.sha256(dll.read_bytes()).hexdigest(), 'expected': expected})
+            manifest['cases'].append({'name': name, 'dll': str(dll), 'sha256': hashlib.sha256(dll.read_bytes()).hexdigest(), 'expected': expected,
+                'entry': 'RunNarrative746' if name.startswith('narrative-') else ''})
         for path in ('Assets/Editor', 'Assets/Plugins', 'Assets/Resources/OriginalShaders', 'Packages', 'ProjectSettings'): (project / path).mkdir(parents=True)
         shutil.copyfile(fixture / 'Editor/LevelUpRunner.cs', project / 'Assets/Editor/LevelUpRunner.cs')
         for shader in fixture.glob('*.shader'): shutil.copyfile(shader, project / 'Assets/Resources' / shader.name)
@@ -291,7 +357,7 @@ def main():
         if report.is_file(): print(report.read_text(), end='')
         if result or not report.is_file(): raise RuntimeError('Unity failed: ' + str(run / 'unity.log'))
         code = 0
-        print(('PARTIAL PASS' if args.case else 'PASS') + ': ' + str(len(cases)) + ' actual native/Unity variants; ' + str(run))
+        print(('PARTIAL PASS' if args.case or args.narrative_only or args.card_list_only else 'PASS') + ': ' + str(len(cases)) + ' actual native/Unity variants; ' + str(run))
     finally:
         if process is not None and process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL); process.wait(); reaped = True

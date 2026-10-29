@@ -30,7 +30,7 @@ public static partial class LevelUpNativeProgram
         =>Array.ConvertAll(item.GetAttribute(key).Split(','),s=>float.Parse(s,CultureInfo.InvariantCulture));
     private static Vector2 Pair739(XmlElement item,string key){float[] p=Values739(item,key);return new Vector2(p[0],p[1]);}
     private static Vector3 Triple739(XmlElement item,string key){float[] p=Values739(item,key);return new Vector3(p[0],p[1],p[2]);}
-    private static RectTransform ImportNode739(XmlElement node,Transform parent,Dictionary<string,TMP_FontAsset> fonts)
+    private static RectTransform ImportNode739(XmlElement node,Transform parent,Dictionary<string,TMP_FontAsset> fonts,bool narrative=false)
     {
         string name=node.GetAttribute("name");var rect=Rect(name,parent,0,0);rect.gameObject.SetActive(false);
         foreach(XmlElement part in node.SelectNodes("component"))
@@ -51,10 +51,11 @@ public static partial class LevelUpNativeProgram
                     var texture=LoadTexture(part.GetAttribute("sprite"));float[] pivot=Values739(part,"pivot"),border=Values739(part,"border");
                     image.sprite=Sprite.Create(texture,new Rect(0,0,texture.width,texture.height),new Vector2(pivot[0],pivot[1]),
                         float.Parse(part.GetAttribute("ppu"),CultureInfo.InvariantCulture),0,SpriteMeshType.FullRect,new Vector4(border[0],border[1],border[2],border[3]));
+                    image.sprite.name=part.GetAttribute("spriteName");
                 }
                 string shader=part.GetAttribute("shader");
                 if(shader=="Custom/SimpleGrabPassBlur")image.material=new Material(Resources.Load<Shader>("ConfirmationGrab738"));
-                else Check(shader=="UI/Default","native confirmation foreground retains the original stock UI material family");
+                else if(!narrative) Check(shader=="UI/Default","native confirmation foreground retains the original stock UI material family");
             }
             else if(kind=="TextMeshProUGUI")
             {
@@ -66,11 +67,16 @@ public static partial class LevelUpNativeProgram
             {
                 Type? type=kind=="VerticalLayoutGroup"?typeof(VerticalLayoutGroup):kind=="HorizontalLayoutGroup"?typeof(HorizontalLayoutGroup)
                     :kind=="ContentSizeFitter"?typeof(ContentSizeFitter):kind=="LayoutElement"?typeof(LayoutElement):null;
+                if(narrative&&type==null)
+                    type=kind=="VerticalLayoutGroupExtended"?typeof(native::UnityEngine.UI.VerticalLayoutGroupExtended)
+                        :kind=="HorizontalLayoutGroupExtended"?typeof(native::UnityEngine.UI.HorizontalLayoutGroupExtended)
+                        :kind=="LayoutElementExtended"?typeof(native::UnityEngine.UI.LayoutElementExtended)
+                        :kind=="AspectRatioFitter"?typeof(AspectRatioFitter):kind=="RectMask2D"?typeof(RectMask2D):null;
                 if(type!=null)JsonUtility.FromJsonOverwrite(json,rect.gameObject.AddComponent(type));
             }
         }
         rect.name=name;
-        foreach(XmlElement child in node.SelectNodes("node"))ImportNode739(child,rect,fonts);
+        foreach(XmlElement child in node.SelectNodes("node"))ImportNode739(child,rect,fonts,narrative);
         rect.gameObject.SetActive(node.GetAttribute("active")=="1");return rect;
     }
     private static int ExteriorDifference739(Texture2D actual,Texture2D reference,Camera head,RectTransform small)

@@ -28,6 +28,9 @@ internal sealed class UILevelUpWindow:MonoBehaviour
     private void ConfirmSelectCard() { }
 }
 internal sealed class UILevelUpCardInventory:MonoBehaviour { }
+// Native narrative controller identity is a surrounding input; the complete
+// original graphic tree, event target and rendering remain real Unity objects.
+internal sealed class UIEventPanel:MonoBehaviour { }
 internal sealed class UILevelUpCardHighlighter:MonoBehaviour { internal UILevelUpCardHolder cardHolder=null!; }
 internal sealed class UILevelUpCardHolder:MonoBehaviour { internal NativeAbilityCard? Card; }
 internal sealed class NativeAbilityCard:MonoBehaviour { internal NativeFullCard fullAbilityCard=null!; }
@@ -181,7 +184,8 @@ namespace GloomhavenVR.WorldUI
     {
         internal RectTransform Target=null!,HostRect=null!;internal GameObject HostGo=null!;internal Canvas HostCanvas=null!;
         internal GraphicRaycaster HostRaycaster=null!;internal bool IsAlive=>Target!=null;
-        internal bool ModLayerEnabled=false,RevealPending=false,RenderHidden=false,OwnerRenderHidden=false,HideBackground=false;
+        internal bool ModLayerEnabled=false,RevealPending=false,RenderHidden=false,OwnerRenderHidden=false,HideBackground=false,KeepBackgroundHidden=false;
+        internal Func<Graphic,bool>? BackgroundFilter=null;
         internal int BackgroundSweepNextFrame=0,FitOneShotStableCount=0,FitSettleStillCount=0,FitOneShotStableGraphics=0;
         internal readonly List<Graphic> HiddenBackgrounds=new();
         internal int DrawSortingOrder=0,BaseSortingOrder=0,OrderSwapStreak=0,LastShownFrame=0;internal float OrderDistance=0;internal bool OrderListed=false;internal ConvertedPanel? OrderSwapPeer=null;
@@ -205,10 +209,15 @@ namespace GloomhavenVR.WorldUI
     internal static class MrBacking {internal static void SyncPlateOrders(){}}
     internal static partial class CanvasConversion
     {
+        // The actual story Park/ApplyPose proof runs before host conversion, as
+        // its first production tick does. Entering the converted-fit branch is
+        // outside this narrow fixture and must fail rather than invent its policy.
+        internal static void BeginContentQuery()=>throw new NotSupportedException("Converted story fitting is outside this fixture");
+        internal static bool CountsAsFitContent(ConvertedPanel panel,Graphic graphic)=>throw new NotSupportedException("Converted story fitting is outside this fixture");
         internal static readonly List<ConvertedPanel> ActivePanels=new();internal static Camera? WorldCamera;
         internal static int Converts=0,PoseAuthors=0,Releases=0;
         internal static ConvertedPanel? Convert(RectTransform? target,string name,bool pokeable=true,
-            Hands.Interact.PokeSurfaceTuning? pokeTuning=null,bool? fitContent=null,bool flattenWindow=false,bool useModLayer=false,bool transparentBackground=false,int sortingOrder=0)
+            Hands.Interact.PokeSurfaceTuning? pokeTuning=null,bool? fitContent=null,bool flattenWindow=false,bool useModLayer=false,bool transparentBackground=false,int sortingOrder=0,Func<Graphic,bool>? backgroundFilter=null)
         {
             if(target==null)return null;
             var panel=new ConvertedPanel {Target=target,Home=target.parent,Index=target.GetSiblingIndex(),Min=target.anchorMin,Max=target.anchorMax,
@@ -223,7 +232,7 @@ namespace GloomhavenVR.WorldUI
             NormalizeTarget739(target,panel.HostRect,panel.HostRect.rect.size);
             panel.HostCanvas.renderMode=RenderMode.WorldSpace;panel.HostCanvas.worldCamera=WorldCamera;
             panel.HostCanvas.sortingOrder=10;panel.HostRect.localScale=Vector3.one*.001f;panel.HostGo.layer=target.gameObject.layer;
-            if(transparentBackground){panel.HideBackground=true;HideFullScreenBackground(panel,true);}
+            InstallBackground746(panel,transparentBackground,false,backgroundFilter);
             ActivePanels.Add(panel);Converts++;return panel;
         }
         internal static void Release(ConvertedPanel? panel)
