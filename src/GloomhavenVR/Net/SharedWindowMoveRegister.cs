@@ -200,7 +200,7 @@ internal sealed class SharedWindowMoveRegister
         if (!Ready || (!_localClaim && !_announces)) return false;
         // A claimless current publisher retains the accepted manual clock. Carry it in the
         // existing sequence without inventing a grab/release or changing the row grammar.
-        if (!_localClaim && Newer(_clock, _sequence)) _sequence = _clock;
+        if (!_localClaim && (_sequence == 0 || Newer(_clock, _sequence))) _sequence = _clock;
         _sequence = Next(_sequence);
         if (!_localClaim) See(_sequence);
         row = new SharedWindowMoveEntry { Kind = _kind, ContentKey = _key,
