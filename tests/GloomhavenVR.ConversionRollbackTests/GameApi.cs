@@ -104,6 +104,7 @@ namespace GloomhavenVR.WorldUI
         internal readonly List<Camera?> PreCapturedCameras=new();
         internal readonly List<LayerRecord> Relayered=new();
         internal readonly List<Graphic> HiddenBackgrounds=new();
+        internal Func<Graphic,bool>? BackgroundFilter { get; set; }
         internal readonly List<RectMask2D> AddedScrollMasks=new(),EnabledScrollMasks=new();
         internal readonly List<FlattenRecord> Flattened=new();
         internal readonly List<Canvas> HiddenCanvases=new();

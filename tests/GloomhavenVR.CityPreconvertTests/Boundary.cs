@@ -40,6 +40,9 @@ namespace GloomhavenVR.WorldUI
     internal sealed class ConvertedPanel { }
     internal sealed class GrabbableModal { }
     internal static class ConfirmationOnOwner { internal static bool IsOwned(UIWindow window)=>false; }
+    // This city readiness fixture contains no native character-card inventory.
+    // Inventory ownership/retirement executes in the separate native level-up proof.
+    internal static class LevelUpComposite { internal static bool IsOwnedInventory(UIWindow window)=>false; }
     internal static class LoadoutConfirmPark
     { internal static void Tick(){ModalFallback.Steps.Add("release-loadout");ModalFallback.LoadoutHolding=false;} }
     internal static partial class ModalFallback
