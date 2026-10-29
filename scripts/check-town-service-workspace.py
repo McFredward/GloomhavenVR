@@ -24,6 +24,17 @@ def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
     names = ["TownServiceWorkspace.cs", "TownServicePlacement.cs", "TownServiceGrounding.cs", "TownServiceLayout.cs", "TownServiceMerchantCounter.cs"]
     bound = {name: (base / name).read_text() for name in names}
+    station = (base / "TownServiceStation.cs").read_text()
+    selected = []
+    for signature in ["internal void RefreshEnvironment(bool authorPose)", "internal void SetGrounding(float actorFloor, float furnitureBottom)"]:
+        start = station.index(signature)
+        brace = station.index("{", start)
+        cursor, depth = brace + 1, 1
+        while depth:
+            depth += (station[cursor] == "{") - (station[cursor] == "}")
+            cursor += 1
+        selected.append(station[start:cursor])
+    bound["StationEnvironment.cs"] = "using System; using GloomhavenVR.Core; using GloomhavenVR.WorldUI.MapRoom; using UnityEngine; namespace GloomhavenVR.WorldUI { internal sealed partial class TownServiceStation {\n" + "\n".join(selected) + "\n}}"
     return bound, {name: hashlib.sha256(text.encode()).hexdigest() for name, text in bound.items()}
 
 
@@ -50,20 +61,22 @@ def inspect_presentation_contract(root):
 
 def mutations():
     return [
-        ("ground-support", "TownServiceGrounding.cs", "support.Apply(furnitureBottom);", "support.Restore();", "ground supports reach their sampled terrain"),
+        ("ground-support", "TownServiceGrounding.cs", "support.Apply(furnitureBottom);", "support.Restore();", "ground supports reach the canonical native floor without sampling local scenery"),
         ("reading-fade", "TownServiceWorkspace.cs", "float layoutYaw = frame.eulerAngles.y;", "float layoutYaw = seat.YawDegrees;", "reading-side changes cannot restart unchanged workspace fade"),
-        ("environment-divergence", "TownServiceLayout.cs", "radius = ResidentRadius;", "radius = ResidentRadius + (environment == Environment.Forest ? .15f : 0f);", "mixed environment peers resolve identical station poses"),
-        ("parchment-frame", "TownServiceLayout.cs", "GloomhavenVR.Rig.VRRigDriver.YawOnly(parchment.rotation)", "Quaternion.identity", "default MR shares original parchment frame with custom rooms"),
+        ("environment-divergence", "TownServicePlacement.cs", "position.y = CanonicalFloor(seat.FloorPosition.y);", "position.y = GloomhavenVR.Core.SkyAlternative.PlacedRoomRoot != null ? GloomhavenVR.Core.SkyAlternative.PlacedRoomRoot.position.y : seat.FloorPosition.y;", "late joins with another local environment retain the same native resident geometry"),
+        ("parchment-frame", "TownServiceLayout.cs", "GloomhavenVR.Rig.VRRigDriver.YawOnly(parchment.rotation)", "Quaternion.identity", "local room yaw never replaces the canonical parchment frame"),
         ("no-relocation-revision", "TownServiceWorkspace.cs", "checked { RelocationRevision++; }", "", "only invisible pose change advances relocation revision"),
         ("counter-ring", "TownServiceLayout.cs", "* new Vector3(0f, 0f, radius);", "* new Vector3(0f, 0f, visitor != 0 ? 1.5f : radius);", "open counter stays outside complete native map table diagonal"),
-        ("room-frame", "TownServiceLayout.cs", "Quaternion.Euler(0f, room.eulerAngles.y, 0f)", "Quaternion.identity", "room frame matches canonical parchment yaw"),
+        ("room-frame", "TownServiceLayout.cs", "parchment != null ? GloomhavenVR.Rig.VRRigDriver.YawOnly(parchment.rotation) : Quaternion.identity", "room != null ? Quaternion.Euler(0f, room.eulerAngles.y, 0f) : (parchment != null ? GloomhavenVR.Rig.VRRigDriver.YawOnly(parchment.rotation) : Quaternion.identity)", "local room yaw never replaces the canonical parchment frame"),
         ("roster", "TownServiceWorkspace.cs", "player.Id > 0", "player.Id == local", "extra counter clears all three actual resident envelopes"),
         ("visible-teleport", "TownServiceWorkspace.cs", "RelocationVisibility = 0f; ApplyTarget();", "RelocationVisibility = 1f; ApplyTarget();", "pose change has a fully invisible published frame"),
         ("primary", "TownServiceWorkspace.cs", "_shownPrimary ? 0f : _visibility * RelocationVisibility", "_visibility * RelocationVisibility", "primary duplicate is hidden while extensions are visible"),
         ("fifth", "TownServiceWorkspace.cs", 'if (slot > 3) throw new InvalidOperationException("Merchant workspace roster exceeds four users");', "if (slot > 3) slot = 3;", "unexpected fifth user is rejected instead of overlapping a valid seat"),
         ("materials", "TownServiceWorkspace.cs", "copy = new Material(original)", "copy = original", "each workspace owns its materials"),
         ("held-relocation", "TownServiceWorkspace.cs", "_pending && mayRelocate && !_relocating", "_pending && !_relocating", "held or returning card defers relocation"),
-        ("floor", "TownServiceWorkspace.cs", "TownServicePlacement.GroundHeight(room, _target)", "room.position.y", "workspace rests on original sloped floor at its own target"),
+        ("floor", "TownServiceWorkspace.cs", "_target.y = TownServicePlacement.TryCanonicalFloor(out float floor) ? floor : seat.FloorPosition.y;", "_target.y = SkyAlternative.PlacedRoomRoot != null ? SkyAlternative.PlacedRoomRoot.position.y : seat.FloorPosition.y;", "late visitor counters use the native map floor in every local environment"),
+        ("observer-room-light", "StationEnvironment.cs", "_lighting.Refresh(Root);", "_lighting.Refresh(Root, authorPose);", "observer scenery refresh always selects its own local lighting"),
+        ("native-floor-lost", "TownServicePlacement.cs", "GuildmasterRoomGeometry.TryFloor(out float nativeFurnitureFloor) ? nativeFurnitureFloor : mapFloor", "mapFloor", "native Guildmaster furniture remains the common floor authority"),
         ("primary-entry-cost", "TownServiceWorkspace.cs", "return null;\n    }\n\n    internal TownServiceWorkspace(Transform station", "return NetPlayerActors.LocalPlayerId() == 1 ? null : new TownServiceWorkspace(station, service);\n    }\n\n    internal TownServiceWorkspace(Transform station", "second visitor shares the permanent priestess stand"),
     ]
 

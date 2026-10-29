@@ -1603,6 +1603,14 @@ internal static class SkyAlternative
         // gap below it, so the board hovers over the ground like a tabletop diorama at EVERY zoom.
         float floatGap = FloatGapToBoardRatio * extent;
         float floorY = undersideY - floatGap;
+        // Residents use the native map/furniture floor, not the selected room's
+        // terrain. Seat local scenery on that same plane so switching a room
+        // cannot require any change to the shared NPC/counter geometry (paired745).
+        if (WorldUI.MapRoom.MapRoomDriver.Active && WorldUI.TownServicePlacement.TryCanonicalFloor(out float mapFloor))
+        {
+            floorY = mapFloor;
+            floatGap = undersideY - floorY;
+        }
         // A seated player's tracking-origin height is not the visual centre of a
         // closed room. Centre the ready eye between this prefab's actual central
         // Floor/Ceiling surfaces, once; never use the full art bounds (the cellar

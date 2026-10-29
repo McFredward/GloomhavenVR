@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Render production town shaders and real actor meshes across competing-lamp boundaries.
 
-Uses Unity 2021.3.5/GL and the matching Linux source-review bundle. Windows/D3D headset
-output remains a hardware check. No game data or production bundles are modified.
+Uses Unity 2021.3.5/GL with actual shipping bundle meshes/materials/textures and
+explicitly substitutes the three current owned shader programs, compiled for GL.
+Windows/D3D headset output remains a hardware check. No production bundles change.
 """
 import argparse
 import hashlib
@@ -19,7 +20,8 @@ parser.add_argument('--output', type=Path, default=root / '.planning/debug/town-
 parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
 args = parser.parse_args()
 args.output.mkdir(parents=True, exist_ok=True)
-project = Path(tempfile.mkdtemp(prefix='lighting-', dir=args.output.resolve()))
+project = Path(tempfile.mkdtemp(prefix='run-', dir=args.output.resolve()))
+print('Evidence: ' + str(project), flush=True)
 editor = project / 'Assets/Editor'
 editor.mkdir(parents=True)
 def member(source, signature):
@@ -48,11 +50,14 @@ capture = member(binding_path.read_text(), 'private static bool ReadMesh(NodeCac
 (editor / 'ActualMeshCapture.cs').write_text('using System;using System.IO;using System.Collections.Generic;using UnityEngine;namespace GloomhavenVR.Net.TownServices {internal static class ActualMeshCapture { private sealed class NodeCache { internal MeshRenderer Mesh;internal readonly List<Material> MeshMaterials=new List<Material>();internal readonly List<TownServiceValue> MeshValues=new List<TownServiceValue>(); } ' + capture + ' internal static TownServiceValue Capture(MeshRenderer mesh,TownServiceAssets assets) { var cache=new NodeCache{Mesh=mesh};ReadMesh(cache,assets);return cache.MeshValues[0]; } } }')
 material_path = root / 'src/GloomhavenVR/Net/TownServices/TownServiceMaterial.cs'
 material = material_path.read_text().replace('namespace GloomhavenVR.Net.TownServices;', 'namespace GloomhavenVR.Net.TownServices {') + '\n}\n'
+material = material.replace('UnityEngine.Object.Destroy(', 'GloomhavenVR.WorldUI.TownLightingEditorLifetime.Destroy(')
 (editor / 'ActualMaterial.cs').write_text('#nullable enable\n' + material)
 frame_path = root / 'src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs'
 frame = frame_path.read_text()
 (editor / 'ActualMaterialValue.cs').write_text('#nullable enable\nusing System;using System.Collections.Generic;namespace GloomhavenVR.Net.TownServices {' + member(frame,'internal sealed class TownServiceValue\n') + member(frame,'internal sealed class TownServiceValueComparer') + '\n}')
 shutil.copytree(root / 'unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Shaders', project / 'Assets/Shaders')
+foreign = (project / 'Assets/Shaders/TownNpc.shader').read_text().replace('Shader "GloomhavenVR/TownNpc"', 'Shader "Fixture/ForeignEnvironment"', 1)
+(project / 'Assets/Shaders/ForeignEnvironment.shader').write_text(foreign)
 shutil.copy(root / 'scripts/town-lighting-runtime/TownNpc548.shader', project / 'Assets/Shaders')
 (project / 'Packages').mkdir()
 (project / 'Packages/manifest.json').write_text(json.dumps({'dependencies': {
@@ -67,6 +72,9 @@ inputs.append(root / 'src/GloomhavenVR/Net/TownActivityState.cs')
 inputs += [marker_path, binding_path, material_path, frame_path]
 (project / 'source-hashes.json').write_text(json.dumps({str(path.relative_to(root)): hashlib.sha256(
     path.read_bytes()).hexdigest() for path in inputs if path.is_file()}, indent=2))
+(project / 'bundle-input.json').write_text(json.dumps({'path': str(args.bundle.resolve()),
+    'sha256': hashlib.sha256(args.bundle.read_bytes()).hexdigest(),
+    'shader_boundary': 'Current shipping meshes/material values/textures; current TownNpc/TownEye/TownCornea programs recompiled for Linux/GL; D3D bytecode is not executed.'}, indent=2))
 result = subprocess.run(['xvfb-run', '-a', str(args.unity), '-batchmode', '-projectPath', str(project),
                          '-executeMethod', 'ValidateTownLighting.Run', '-logFile', str(project / 'unity.log')])
 report = project / 'result.txt'

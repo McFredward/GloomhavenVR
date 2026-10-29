@@ -55,10 +55,16 @@ namespace GloomhavenVR.WorldUI.MapRoom
         internal static bool Active = true, Available = true;
         internal static Vector3 Center = new(70, 90, -140);
         internal static float Scale = 198f, Yaw = 58f;
+        internal static float? Floor;
         internal static bool TryGetParchmentFrame(out Vector3 center, out float scale)
         { center = Center; scale = Scale; return Available; }
         internal static bool TrySolveSeat(out MapRoomSeat.Seat seat, out string reason)
-        { seat = new MapRoomSeat.Seat { YawDegrees = Yaw, FloorPosition = Center }; reason = "fixture"; return Available; }
+        { seat = new MapRoomSeat.Seat { YawDegrees = Yaw, FloorPosition = new Vector3(Center.x,Floor ?? Center.y,Center.z) }; reason = "fixture"; return Available; }
+    }
+    internal static class GuildmasterRoomGeometry
+    {
+        internal static float? Floor;
+        internal static bool TryFloor(out float floor) { floor = Floor ?? 0f; return Floor.HasValue; }
     }
 }
 namespace GloomhavenVR.Core

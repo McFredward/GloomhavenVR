@@ -148,6 +148,8 @@ public static class InteractionProgram
                 {
                     var world=foot.sharedMesh.vertices.Select(v=>foot.transform.TransformPoint(v)).ToArray();
                     Check(Math.Abs(world.Max(v=>v.y)-top[foot])<.001f,"ground support stretching preserves authored top anchor");
+                    Check(TownServicePlacement.TryCanonicalFloor(out float floor)&&world.Min(v=>v.y)<=floor+.001f,
+                        "ground supports reach the canonical native floor without sampling local scenery");
                     var target=mirrored[foot.name];
                     Check(Close(foot.transform.localPosition,target.localPosition) && Close(foot.transform.localScale,target.localScale),"remote uses identical support transforms without local floor resolution");
                 }
@@ -168,17 +170,17 @@ public static class InteractionProgram
         var sharedPosition=new Vector3[3];var sharedRotation=new Quaternion[3];bool firstRoom=true;
         foreach(bool forest in new[]{false,true})
         {
-            var room=new GameObject("MeasuredRoom");room.transform.rotation=Quaternion.Euler(0,37,0);
+            var room=new GameObject("MeasuredRoom");room.transform.rotation=Quaternion.Euler(0,forest?121:37,0);
             var geometry=new GameObject("RoomGeo");geometry.transform.SetParent(room.transform,false);
             var floor=new GameObject(forest?"Ground":"Floor");floor.transform.SetParent(geometry.transform,false);
             SkyAlternative.PlacedRoomRoot=room.transform;
-            Check(Quaternion.Angle(TownServiceLayout.Frame(room.transform,parchment.transform),room.transform.rotation)<.001f,"room frame matches canonical parchment yaw");
+            Check(Quaternion.Angle(TownServiceLayout.Frame(room.transform,parchment.transform),parchment.transform.rotation)<.001f,"local room yaw never replaces the canonical parchment frame");
             for(byte service=1;service<=3;service++)
             {
                 MapRoomDriver.Yaw=0;TownServicePlacement.TryResolve(service,MapRoomDriver.Center,MapRoomDriver.Scale,out var p,out var q);
                 if(firstRoom){sharedPosition[service-1]=p;sharedRotation[service-1]=q;}
                 else Check(Close(p,sharedPosition[service-1])&&Quaternion.Angle(q,sharedRotation[service-1])<.001f,"mixed environment peers resolve identical station poses");
-                RecordPose(forest?"forest":"cellar","resident",service,p,q,room.transform.rotation);
+                RecordPose(forest?"forest":"cellar","resident",service,p,q,parchment.transform.rotation);
                 for(int reading=15;reading<360;reading+=15)
                 {
                     MapRoomDriver.Yaw=reading;TownServicePlacement.TryResolve(service,MapRoomDriver.Center,MapRoomDriver.Scale,out var other,out var rotation);
@@ -201,7 +203,7 @@ public static class InteractionProgram
                         Check(visitors[i].RelocationRevision==0&&visitors[i].RelocationVisibility==1f,"reading-side changes cannot restart unchanged workspace fade");
                     }
                 }
-                for(int i=1;i<visitors.Count;i++)RecordPose(forest?"forest":"cellar","visitor",i,visitors[i].Root.position,visitors[i].Root.rotation,room.transform.rotation);
+                for(int i=1;i<visitors.Count;i++)RecordPose(forest?"forest":"cellar","visitor",i,visitors[i].Root.position,visitors[i].Root.rotation,parchment.transform.rotation);
             }
             finally{foreach(var visitor in visitors)visitor.Dispose();UnityEngine.Object.DestroyImmediate(station);}
             UnityEngine.Object.DestroyImmediate(room);SkyAlternative.PlacedRoomRoot=null;firstRoom=false;
@@ -260,7 +262,7 @@ public static class InteractionProgram
     public static int Run()
     {
         count=0; PoseEvidence.Clear(); WorkspaceClock.Now=0; SkyAlternative.PlacedRoomRoot=null;
-        ReadingIndependentRooms(); BakedActorEnvelope();
+        count+=EnvironmentIsolation746.Run();ReadingIndependentRooms(); BakedActorEnvelope();
         PrimaryEntryCost();
         foreach(byte service in new byte[]{2,3}) { WorkspaceClock.Now=0; ServiceWorkspace(service); }
         count += WorkspacePropsProgram.Run();
@@ -351,9 +353,12 @@ public static class InteractionProgram
             try
             {
                 SkyAlternative.PlacedRoomRoot = room.transform; WorkspaceClock.Now = 5; moving.Tick(); WorkspaceClock.Now = 5.12f; moving.Tick(); WorkspaceClock.Now = 5.23f; moving.Tick();
+                Check(TownServicePlacement.TryCanonicalFloor(out float canonicalFloor)
+                    && Math.Abs(moving.Root.position.y-canonicalFloor)<.001f,
+                    "workspace environment switches retain the common native floor and pose");
                 Vector3 local = room.transform.InverseTransformPoint(moving.Root.position);
-                Check(Math.Abs(local.y - (.1f + .02f * local.x + .01f * local.z)) < .0001f, "workspace rests on original sloped floor at its own target");
-                Check(Math.Abs(local.y) > .005f, "slope fixture differs measurably from room-root height");
+                Check(Math.Abs(local.y-(.1f+.02f*local.x+.01f*local.z))>.005f,
+                    "local sloped scenery differs measurably from the shared floor reference");
                 var supports=moving.FurnitureRoot.GetComponentsInChildren<MeshFilter>(true)
                     .Where(f=>f.name.StartsWith("GroundSupport") && f.gameObject.activeInHierarchy).ToArray();
                 Check(supports.Length>0,"workspace has actual authored ground supports");
@@ -361,8 +366,7 @@ public static class InteractionProgram
                 {
                     var vertices=foot.sharedMesh.vertices;
                     Vector3 corner=vertices.Select(v=>foot.transform.TransformPoint(v)).OrderBy(v=>v.y).First();
-                    float floor=TownServicePlacement.GroundHeight(room.transform,corner);
-                    Check(corner.y<=floor+.001f,"ground supports reach their sampled terrain: workspace");
+                    Check(corner.y<=canonicalFloor+.001f,"ground supports reach the native floor: workspace");
                 }
                 GroundingParity(room.transform);
                 var parent=new GameObject("ReturnParent").transform;parent.SetParent(moving.Root,false);
@@ -372,7 +376,7 @@ public static class InteractionProgram
                     foreach(var foot in counter.Root.GetComponentsInChildren<MeshFilter>(true).Where(f=>f.name.StartsWith("GroundSupport")))
                     {
                         Vector3 corner=foot.sharedMesh.vertices.Select(v=>foot.transform.TransformPoint(v)).OrderBy(v=>v.y).First();
-                        Check(corner.y<=TownServicePlacement.GroundHeight(room.transform,corner)+.001f,"ground supports reach their sampled terrain: legacy return");
+                        Check(corner.y<=canonicalFloor+.001f,"ground supports reach the native floor: legacy return");
                     }
                 }
                 UnityEngine.Object.DestroyImmediate(parent.gameObject);

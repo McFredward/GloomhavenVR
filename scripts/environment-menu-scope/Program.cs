@@ -175,6 +175,13 @@ public static class EnvironmentScopeProgram
         Near(mapRoom.transform.position.y,bounds.min.y-.75f*300,"native map floor keeps the original proportional float gap");
         Check(parchment.transform.position==new Vector3(70,40,-20)&&parchment.transform.localScale==new Vector3(300,2,160),"map surroundings never alter native parchment geometry");yield return null;
 
+        GloomhavenVR.WorldUI.TownServicePlacement.HasFloor=true;GloomhavenVR.WorldUI.TownServicePlacement.Floor=-137;
+        SkyAlternative.Style.Value=SkyStyle.Cellar;SkyAlternative.Tick();mapRoom=Room();
+        Near(mapRoom.transform.position.y,-137,"local map scenery aligns to the independently measured common native NPC plane");
+        SkyAlternative.Style.Value=SkyStyle.SwampNight;SkyAlternative.Tick();mapRoom=Room();
+        Near(mapRoom.transform.position.y,-137,"another local style retains the native map plane without moving shared residents");
+        GloomhavenVR.WorldUI.TownServicePlacement.HasFloor=false;
+
         priorRig=rig;rig=Rig(new Vector3(-31,-3,8),10,25);Object.DestroyImmediate(priorRig.gameObject);
         MapRoomDriver.Active=false;MapRoomDriver.ParchmentRenderer=null;Object.DestroyImmediate(parchment);
         var board=Keep(new GameObject("native scenario root"));board.transform.rotation=Quaternion.Euler(0,25,0);

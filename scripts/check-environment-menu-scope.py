@@ -131,6 +131,9 @@ def main():
     environment_bank = root / 'prebuilt/gloomhavenvr.bundle'
     source = source_path.read_text()
     mutations = [
+        ('map-native-floor-lost', '&& WorldUI.TownServicePlacement.TryCanonicalFloor(out float mapFloor)',
+         '&& bool.Parse("false") && WorldUI.TownServicePlacement.TryCanonicalFloor(out float mapFloor)',
+         'local map scenery aligns to the independently measured common native NPC plane'),
         ('intro-gate-lost', 'if (!Events.MenuWorldContext.AllowsSurroundings)',
          'if (bool.Parse("false"))', 'studio intro never reveals custom surroundings before the real menu is ready'),
         ('old-menu-gate', '        // OFF (BLACK) — the whole style, in full',

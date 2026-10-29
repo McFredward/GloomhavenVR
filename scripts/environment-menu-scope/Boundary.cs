@@ -43,6 +43,16 @@ namespace GloomhavenVR.WorldUI.MapRoom
     internal static class GuildmasterRoomGeometry
     { internal static bool TryFloor(out float floor){floor=0;return false;} }
 }
+namespace GloomhavenVR.WorldUI
+{
+    // Native map-seat solving is exercised by the town workspace fixture. This
+    // port supplies its independently measured plane to the real scenery owner.
+    internal static class TownServicePlacement
+    {
+        internal static bool HasFloor=false;internal static float Floor;
+        internal static bool TryCanonicalFloor(out float floor){floor=Floor;return HasFloor;}
+    }
+}
 namespace GloomhavenVR.Core
 {
     internal static class VRSession { internal static bool IsRunning=true; }

@@ -176,10 +176,13 @@ internal static class TownServicePopulation
             Sequence = unchecked(++_faceSequence), Clock = _faceClock };
         var activities = new TownActivityState { Active = enabled, Epoch = _faceEpoch, Sequence = _faceSequence, Clock = _faceClock,
             HasSharedPerformance = true, Interactive = interactive };
-        // Only the elected author transmits physical contacts and environment
-        // tails. Keep a follower's diagnostic snapshot valid without inventing
-        // a second source of shared lighting or sound.
+        // Only the elected author transmits physical contacts. Environment
+        // lighting is a local preference under the paired745 review ruling.
         activities.HasAuthoredFoley = IsFaceAuthor;
+        // The historical Foley payload includes the preceding light tail. Keep
+        // that wire prefix valid and neutral; it describes no participant's room.
+        activities.HasEnvironmentLight = IsFaceAuthor;
+        activities.EnvironmentLightDirection = Vector3.forward;
         bool sharedInteractive = hasActivity && remoteActivity.HasSharedPerformance
             ? remoteActivity.Interactive : interactive;
         TownActivityState activitySeed = default;
@@ -489,9 +492,11 @@ internal static class TownServicePopulation
             { NativeTemplates.InvalidateResident(service); resident.Occupation.Dispose(); resident.Visit.Dispose(); resident.Station.Dispose(); Residents.Remove(service); }
         }
         if (missing && retry) _retryAt = now + 2f;
-        if (IsFaceAuthor) TownServiceLighting.SampleEnvironment(_frame!.transform, ref activities);
-        else if (hasActivity) TownServiceLighting.ApplyEnvironment(_frame!.transform, in remoteActivity);
-        TownActivityState surfaceLighting = IsFaceAuthor ? activities : remoteActivity;
+        // The historical environment wire tails remain readable, but a remote
+        // player's local room must never replace our fill, key or ambient probe.
+        // Keep the environment sample separate from the published actor/foley state.
+        TownActivityState surfaceLighting = default;
+        TownServiceLighting.SampleEnvironment(_frame!.transform, ref surfaceLighting);
         foreach (Resident resident in Residents.Values) resident.Station.BindEnvironment(_frame!.transform, in surfaceLighting);
         // Keep TLV79's historical cloth tail readable, but no longer author it.
         published.HasCloth = false;

@@ -214,7 +214,15 @@ internal sealed class TownServiceLighting : IDisposable
             {
                 if (!OwnedEnvironmentMaterial(material)) continue;
                 supported = true;
-                if (surface is MeshRenderer) BindMaterial(material, state.HasAuthoredKey, direction, colour, in state.AmbientProbe);
+                if (surface is MeshRenderer)
+                {
+                    // Mesh material values participate in native presentation snapshots.
+                    // The paired745 environment-isolation ruling makes ambient/key local:
+                    // use this shader's native Unity-light/probe path for mesh surfaces,
+                    // rather than publishing a viewer's room in immutable material values.
+                    if (material.GetFloat(SharedAmbientId) != 0f) material.SetFloat(SharedAmbientId, 0f);
+                    if (material.GetFloat(SharedKeyId) != 0f) material.SetFloat(SharedKeyId, 0f);
+                }
             }
             // Original mesh snapshots reject undeclared property blocks. Their
             // owned shader uniforms travel through the existing exact material
@@ -244,20 +252,6 @@ internal sealed class TownServiceLighting : IDisposable
         && (material.shader.name == "GloomhavenVR/TownNpc" || material.shader.name == "GloomhavenVR/TownEye"
             || material.shader.name == "GloomhavenVR/TownCornea")
         && material.HasProperty(SharedAmbientId) && material.HasProperty(SharedKeyId);
-
-    private static void BindMaterial(Material material, bool sharedKey, Vector3 direction, Vector3 colour, in TownAmbientProbe p)
-    {
-        material.SetFloat(SharedAmbientId, 1f); material.SetFloat(SharedKeyId, sharedKey ? 1f : 0f);
-        material.SetVector(KeyDirectionId, new Vector4(direction.x, direction.y, direction.z, 0f));
-        material.SetVector(KeyColourId, new Vector4(colour.x, colour.y, colour.z, 1f));
-        material.SetVector(AmbientIds[0], new Vector4(p.C3.x, p.C1.x, p.C2.x, p.C0.x - p.C6.x));
-        material.SetVector(AmbientIds[1], new Vector4(p.C3.y, p.C1.y, p.C2.y, p.C0.y - p.C6.y));
-        material.SetVector(AmbientIds[2], new Vector4(p.C3.z, p.C1.z, p.C2.z, p.C0.z - p.C6.z));
-        material.SetVector(AmbientIds[3], new Vector4(p.C4.x, p.C5.x, p.C6.x * 3f, p.C7.x));
-        material.SetVector(AmbientIds[4], new Vector4(p.C4.y, p.C5.y, p.C6.y * 3f, p.C7.y));
-        material.SetVector(AmbientIds[5], new Vector4(p.C4.z, p.C5.z, p.C6.z * 3f, p.C7.z));
-        material.SetVector(AmbientIds[6], new Vector4(p.C8.x, p.C8.y, p.C8.z, 1f));
-    }
 
     public void Dispose()
     {
