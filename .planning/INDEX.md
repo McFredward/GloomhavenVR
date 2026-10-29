@@ -1,10 +1,10 @@
 # Planning index
 
-Updated 2026-10-29: Build742 keeps confirmations on their exact producer,
-restores whole-character-window antialiasing with3D, and introduces the movable
-world main menu with post-intro surroundings and central-height arrival. See
-STATE.md for complete aggregate verification, measured storage and hardware limits.
-Windows builds its archive.
+Updated 2026-10-29: Build744 repairs main-menu laser carry, makes Default a finite
+world-fixed menu/map bubble and stabilizes the native X pause-menu canvas before
+reveal. Accepted character AA/depth and embedded assets remain. See STATE.md for
+focused verification, inherited complete evidence and hardware limits. Windows
+builds its archive.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -14,6 +14,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md](MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md) | Native laser self-occlusion, finite Default geometry/clipping and reversible native pause-canvas ownership with focused verification |
 | [MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md](MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md) | Native producer confirmations, fixed-quality head sampling, original TMP metrics, sample color permissions and post-intro world-menu arrival |
 | [MENU740-ALL-CONTEXT-ENVIRONMENTS.md](MENU740-ALL-CONTEXT-ENVIRONMENTS.md) | Chosen surroundings in every VR context, original Default asset bank, mode transitions and complete aggregate verification |
 | [MENU739-CONFIRMATION-FOREGROUND.md](MENU739-CONFIRMATION-FOREGROUND.md) | Native small confirmation without the full-screen black/GrabPass surface, owner foreground order and direct-path regression evidence |

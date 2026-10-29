@@ -1,3 +1,38 @@
+**Menu laser carry, finite Default and native pause opening, Build744, 2026-10-29.**
+
+Fresh742/fc74 logs and the maintainer identify trigger-laser carry and X pause.
+Real physics sync exposes the menu handle's own palm trigger before its visible
+rod. The native default pick and missing-hand map fallback now exclude the mod
+render/registry layer; authored native masks, UI/solid/near and held-press gates
+remain. Actual paused laser motion/reel/release also passes after near resizing.
+
+Default's private menu/map shell is finite and world-fixed, using the existing
+12-unit fallback reference for a common approximately7m horizontal radius.
+Its authored shape/offset/yaw and native scenario authority remain. Existing
+clipping consumes actual bounds including first acquisition; intro/MR/style and
+lifetime controls pass. A native disabled root pause Canvas previously retained
+its camera adapter and reprojected onto square head pixels. The existing menu-only
+conversion opt-in now leases WorldSpace before nesting and restores original
+mode after native home/camera, including refused-home and construction rollback.
+
+Fresh union Debug/Release0W0E (14.90/14.16s), source16PASS21.4s. Seven complete
+focused local scopes pass in two parallel containing runs218.42/220.14s: menu28
+variants166/27, Default20variants138/19, desktop40variants169/39, rollback199/12,
+menu-rig lifecycle, environment107/8 and budget11478/96variants. Workers also
+pass4map/near and2VR-options dependent scopes. Inherit unchanged final742
+aggregate267 evidence and306431goldens with explicit build-stamp qualification;
+this is not a new complete-gate execution.
+
+Compiled scope is6runtime+9exactModBuild-only existing types,0added/removed.
+All8548088embedded-resource bytes match742; accepted AA/depth/assets remain.
+Config670,265Harmony signatures,4835log tokens,223patch classes/338methods and
+12frame orders pass. Root reviewed GL final sky and native-menu pixel witnesses;
+D3D11/HMD acceptance remains outstanding. All3owned workers are archived/hash
+verified/retired, per-run caches cleaned and evidence/current artifacts retained.
+See MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md and ignored menu744/ reports. Windows
+builds the archive; source goes to origin/dev. Quest743 remains a separate lane
+and receives no further rebase authorization from this delivery.
+
 **Producer confirmations, stable character AA and a world main menu, Build742, 2026-10-29.**
 
 The maintainer accepts740's small level-up prompt but reports Perks floating
