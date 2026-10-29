@@ -99,6 +99,7 @@ public static partial class MenuDepthProgram
         DirectAndNested();
         PhotoCanvasLifecycle();
         HeadSorting();
+        MemberSyncBoundary745();
         Check(PanelSupersample.ExtraBytes == 0, "all owned eye resources are released after window teardown");
         return _checks;
     }

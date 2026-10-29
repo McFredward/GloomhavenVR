@@ -113,6 +113,22 @@ def main():
             'head.GetStereoViewMatrix(Camera.StereoscopicEye.Right).inverse.MultiplyPoint3x4(Vector3.zero)', 'global::MenuDepthFixture.Right')
         cases = [
             ('production', '', '', '', ''),
+            ('member-sync-lost745', 'PanelDepth.cs',
+             'SyncOwnedMembers(e); // live permission/lifetime before either actual head eye',
+             '/* omitted membership boundary */',
+             'membership sync boundary precedes actual native source preparation for the exact entry'),
+            ('member-sync-wrong-entry745', 'PanelDepth.cs',
+             'SyncOwnedMembers(e); // live permission/lifetime before either actual head eye',
+             'SyncOwnedMembers(new Entry());',
+             'membership sync boundary precedes actual native source preparation for the exact entry'),
+            ('member-sync-after-cache745', 'PanelDepth.cs',
+             'SyncOwnedMembers(e); // live permission/lifetime before either actual head eye\n            if (e.MenuDepthFrame == Time.frameCount) { e.MenuDepthDisplay?.PrepareHead(head); continue; }',
+             'if (e.MenuDepthFrame == Time.frameCount) { e.MenuDepthDisplay?.PrepareHead(head); continue; }\n            SyncOwnedMembers(e);',
+             'cached head dispatch observes membership before its cache shortcut without another native draw'),
+            ('member-sync-only-visible745', 'PanelDepth.cs',
+             'SyncOwnedMembers(e); // live permission/lifetime before either actual head eye',
+             'if (e.DisplayImage.isActiveAndEnabled) SyncOwnedMembers(e);',
+             'hidden head dispatch still observes membership before visibility retirement'),
             ('initial-empty-pump-725', 'MenuDepthSources.cs', 'if (pump != null) EnsureHook(); else UnhookIfIdle();',
              'if (pump == null) UnhookIfIdle();', 'an initially empty registry flushes late native readiness before its first actual head draw without recursive pumping'),
             ('late-query-pump-725', 'MenuDepthSources.cs', 'internal static bool HasContent(Transform root)\n    {\n        FlushPendingContent();',
@@ -260,7 +276,7 @@ def main():
                 ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle']
         hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in pins if p.is_file()}
         (run / 'source-hashes.json').write_text(json.dumps({'sha256': hashes,
-            'boundaries': 'XR eye observations/matrices and original panel entry/legacy allocation are explicit ports. Actual new coordinator, projections, UI geometry, source leases, camera rendering, mips and shipping shaders execute.',
+            'boundaries': 'XR eye observations/matrices, original panel entry/legacy allocation and an explicitly empty owned-member group with observed sync dispatch are ports. Actual coordinator, projections, UI geometry, source leases, camera rendering, mips and shipping shaders execute. Real owned-member grouping/layers/lifetime are covered by the head and native producer containers.',
             'limits': 'No physical XR, D3D11, native model/asset loading, gameplay, multiplayer or comfort claim.'}, indent=2) + '\n')
         argv = ['xvfb-run', '-a', '/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-glcore',
                 '-projectPath', str(project), '-executeMethod', 'MenuDepthRunner.Start',

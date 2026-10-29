@@ -57,6 +57,17 @@ namespace GloomhavenVR.WorldUI
         private static readonly List<Entry> Entries = new();
         private static long _vramTotal;
         private static int _completed;
+        // No independently converted confirmation members are supplied in this
+        // capture fixture. Observe the production coordinator's membership seam;
+        // its actual grouping/layer/lifetime implementation is proved by the
+        // full head container and native confirmation producer fixtures.
+        internal static int MemberSyncs { get; private set; }
+        internal static Entry? LastMemberSync { get; private set; }
+        internal static int LastMemberSyncCacheFrame { get; private set; }
+        private static void SyncOwnedMembers(Entry entry)
+        {
+            MemberSyncs++; LastMemberSync = entry; LastMemberSyncCacheFrame = entry.MenuDepthFrame;
+        }
         private enum ReallocTrigger { EyeGrid }
         // Eye-grid demand is an explicit fixture input. The exact production
         // ResolveRate (including dimension/cost/step-down policy) executes; only
