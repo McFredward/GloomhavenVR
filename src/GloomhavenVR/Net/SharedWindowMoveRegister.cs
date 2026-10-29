@@ -87,7 +87,7 @@ internal sealed class SharedWindowMoveRegister
         _phase = SharedWindowMovePhase.Initial;
     }
 
-    internal bool Observe(int sender, in SharedWindowMoveEntry row, int openingAuthor, float now)
+    internal bool Observe(int sender, in SharedWindowMoveEntry row, int openingAuthor, float now, bool allowOpeningRelay = false)
     {
         if (sender <= 0 || sender == _local || !row.Valid || row.Kind != _kind
             || !_view || row.ContentKey != _key) return false;
@@ -97,7 +97,7 @@ internal sealed class SharedWindowMoveRegister
         {
             // Only the current placement author announces an opening, including when a flat
             // native host requires the existing single compatible VR surrogate.
-            if (sender != openingAuthor || row.OpeningAuthor != openingAuthor) return false;
+            if (sender != openingAuthor || (row.OpeningAuthor != openingAuthor && !allowOpeningRelay)) return false;
             if (_retired.TryGetValue(row.OpeningAuthor, out uint retired) && !Newer(row.Opening, retired)) return false;
             if (_openingAuthor == row.OpeningAuthor && _opening != 0 && !Newer(row.Opening, _opening)) return false;
             AdoptOpening(row.OpeningAuthor, row.Opening);

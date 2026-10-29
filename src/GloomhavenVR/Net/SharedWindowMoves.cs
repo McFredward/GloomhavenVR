@@ -17,6 +17,7 @@ internal static class SharedWindowMoves
         internal readonly SharedWindowMoveEntry?[] Rows = new SharedWindowMoveEntry?[7];
         internal readonly float[] At = new float[7];
         internal readonly bool[] Accepted = new bool[7];
+        internal bool RewardRelayPose;
     }
     private static readonly Dictionary<int, Incoming> Peers = new();
     private static bool Enabled => _transport?.Invoke() == true && !NetSession.FlatNetMode
@@ -60,15 +61,21 @@ internal static class SharedWindowMoves
         if (Peers.TryGetValue(author, out Incoming? publisher) && publisher != null && publisher.Rows[(int)kind].HasValue)
         {
             SharedWindowMoveEntry row = publisher.Rows[(int)kind]!.Value;
-            register.Observe(author, in row, author, publisher.At[(int)kind]);
+            register.Observe(author, in row, author, publisher.At[(int)kind],
+                allowOpeningRelay: RewardRelay(kind, author, in row, publisher.RewardRelayPose));
         }
         foreach (KeyValuePair<int, Incoming> peer in Peers)
         {
             if (peer.Key == author || !peer.Value.Rows[(int)kind].HasValue) continue;
             SharedWindowMoveEntry row = peer.Value.Rows[(int)kind]!.Value;
-            register.Observe(peer.Key, in row, author, peer.Value.At[(int)kind]);
+            register.Observe(peer.Key, in row, author, peer.Value.At[(int)kind],
+                allowOpeningRelay: RewardRelay(kind, peer.Key, in row, peer.Value.RewardRelayPose));
         }
     }
+
+    private static bool RewardRelay(SharedWindowKind kind, int sender, in SharedWindowMoveEntry row, bool validReadyPose)
+        => kind == SharedWindowKind.RewardShowcase && validReadyPose && row.Phase != SharedWindowMovePhase.Automatic
+            && RemoteMapStory.MayRelayRewardOpening(sender, row.ContentKey, row.OpeningAuthor);
 
     internal static void Close(SharedWindowKind kind)
     {
@@ -136,10 +143,14 @@ internal static class SharedWindowMoves
             if (previous.HasValue && previous.Value.SameOpening(in row)
                 && !SharedWindowMoveRegister.Newer(row.Sequence, previous.Value.Sequence)) continue;
             SharedWindowMoveRegister register = Register(kind);
-            bool accepted = register.Observe(sender, in row, OpeningAuthor(kind, row.ContentKey), Time.unscaledTime);
+            bool readyReward = kind == SharedWindowKind.RewardShowcase && presence.RewardWindow.Ready
+                && RewardWindowCodec.Valid(in presence.RewardWindow);
+            bool accepted = register.Observe(sender, in row, OpeningAuthor(kind, row.ContentKey), Time.unscaledTime,
+                allowOpeningRelay: RewardRelay(kind, sender, in row, readyReward));
             // Before local native discovery, keep the immutable metadata for Open's exact replay.
             if (register.ContentKey != 0 && !accepted) continue;
             peer.Rows[row.Kind] = row; peer.At[row.Kind] = Time.unscaledTime;
+            if (kind == SharedWindowKind.RewardShowcase) peer.RewardRelayPose = readyReward;
             peer.Accepted[row.Kind] = true;
         }
     }
