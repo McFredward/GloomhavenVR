@@ -290,6 +290,13 @@ public static partial class MenuDepthDesktopProgram
                         Check(scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-uiBefore==(eye==0?2:0),
                             "each head stereo pair executes the original native UI image effect exactly once per eye");
                         Texture2D actual=Read(scene.HeadTarget,Path.Combine(output,"actual-"+path+"-"+frame+"-"+eye+".png"));
+                        if(step==0&&eye==0)
+                        {
+                            var scratch=(RenderTexture)typeof(MenuDepthHeadRaster).GetField("_filterScratch",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
+                            if(scratch!=null)Object.DestroyImmediate(Read(scratch,Path.Combine(output,"scratch-"+path+".png")));
+                            if(path==0&&scene.Flat.Right!=null)Object.DestroyImmediate(Read(LeftHead730(scene),Path.Combine(output,"resolved-"+path+".png")));
+                            File.WriteAllText(Path.Combine(output,"capture-"+path+".txt"),string.Join("\n",GloomhavenVR.Core.VRLog.Messages));
+                        }
                         Texture2D? unfiltered=null;
                         Vector3 referenceEye = worldToGlass.MultiplyPoint3x4(eyePosition);
                         if(frame==40&&eye==0)

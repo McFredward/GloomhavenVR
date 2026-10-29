@@ -204,13 +204,21 @@ Shader "GloomhavenVR/MenuDepthDisplay"
             // covered sample, independently of colour/clear alpha interpolation.
             Cull Off ZTest Always ZWrite On Blend Off ColorMask RGBA
             CGPROGRAM
-            #pragma vertex vert_img
+            #pragma vertex resolveVertex
             #pragma fragment resolveHead
             #pragma target 3.5
             Texture2D _GvrResolveDepth;
             SamplerState Gvr_point_clamp_sampler;
             float4 _MainTex_TexelSize, _GvrResolveUV;
             float _GvrResolveStep;
+            v2f_img resolveVertex(appdata_img v)
+            {
+                v2f_img o;o.pos=float4(v.texcoord*2-1,0,1);o.uv=v.texcoord;
+                #if UNITY_UV_STARTS_AT_TOP
+                    o.pos.y=-o.pos.y;
+                #endif
+                return o;
+            }
             output resolveHead(v2f_img i)
             {
                 float2 uv=i.uv*_GvrResolveUV.xy;

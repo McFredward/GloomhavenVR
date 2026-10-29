@@ -94,10 +94,10 @@ internal static class MenuDepthHeadRaster
     }
     internal static RectInt PixelRegion(Rect clip,Vector2Int head)
     {
-        int x0=Mathf.Clamp(Mathf.FloorToInt((clip.xMin*.5f+.5f)*head.x)-2,0,head.x-1);
-        int y0=Mathf.Clamp(Mathf.FloorToInt((clip.yMin*.5f+.5f)*head.y)-2,0,head.y-1);
-        int x1=Mathf.Clamp(Mathf.CeilToInt((clip.xMax*.5f+.5f)*head.x)+2,x0+1,head.x);
-        int y1=Mathf.Clamp(Mathf.CeilToInt((clip.yMax*.5f+.5f)*head.y)+2,y0+1,head.y);
+        int x0=Mathf.Clamp(Mathf.FloorToInt((Mathf.Clamp(clip.xMin,-1f,1f)*.5f+.5f)*head.x)-2,0,head.x-1);
+        int y0=Mathf.Clamp(Mathf.FloorToInt((Mathf.Clamp(clip.yMin,-1f,1f)*.5f+.5f)*head.y)-2,0,head.y-1);
+        int x1=Mathf.Clamp(Mathf.CeilToInt((Mathf.Clamp(clip.xMax,-1f,1f)*.5f+.5f)*head.x)+2,x0+1,head.x);
+        int y1=Mathf.Clamp(Mathf.CeilToInt((Mathf.Clamp(clip.yMax,-1f,1f)*.5f+.5f)*head.y)+2,y0+1,head.y);
         return new RectInt(x0,y0,x1-x0,y1-y0);
     }
     internal static Rect Union(Rect a,Rect b)=>Rect.MinMaxRect(Mathf.Min(a.xMin,b.xMin),Mathf.Min(a.yMin,b.yMin),Mathf.Max(a.xMax,b.xMax),Mathf.Max(a.yMax,b.yMax));
@@ -147,9 +147,14 @@ internal static class MenuDepthHeadRaster
         internal readonly Vector2Int Pixels;
         private readonly Vector2Int _head;
         private readonly RectInt _region;
+        private readonly Rect _restoreViewport;
         private readonly Material _material;
         internal FilterLease(Vector2Int head,RectInt region,RenderTexture target,Material material)
-        {Target=target;Pixels=new Vector2Int(target.width,target.height);_head=head;_region=region;_material=material;}
+        {
+            Target=target;Pixels=new Vector2Int(target.width,target.height);_head=head;_region=region;_material=material;
+            Camera current=Camera.current;
+            _restoreViewport=current!=null&&current.targetTexture!=null?current.pixelRect:new Rect(0,0,head.x,head.y);
+        }
         internal MenuDepthEye Eye(MenuDepthEye original)
         {
             float w=Pixels.x/(float)SamplesPerAxis,h=Pixels.y/(float)SamplesPerAxis;
@@ -162,6 +167,7 @@ internal static class MenuDepthHeadRaster
         internal void Resolve(RenderTexture destination)
         {
             RenderTexture? previous=RenderTexture.active;bool srgb=GL.sRGBWrite;
+            RenderBuffer previousColor=Graphics.activeColorBuffer,previousDepth=Graphics.activeDepthBuffer;
             try
             {
                 Graphics.SetRenderTarget(destination);GL.Clear(true,true,Color.clear);
@@ -170,18 +176,17 @@ internal static class MenuDepthHeadRaster
                 _material.SetTexture("_GvrResolveDepth",Target,UnityEngine.Rendering.RenderTextureSubElement.Depth);
                 _material.SetFloat("_GvrResolveStep",SamplesPerAxis>1?.5f:0f);
                 _material.SetVector("_GvrResolveUV",new Vector4(_region.width*(float)SamplesPerAxis/Pixels.x,_region.height*(float)SamplesPerAxis/Pixels.y,0,0));
-                GL.PushMatrix();
-                try
-                {
-                    GL.LoadOrtho();GL.Viewport(new Rect(_region.x,_region.y,_region.width,_region.height));
+                    GL.Viewport(new Rect(_region.x,_region.y,_region.width,_region.height));
                     if(!_material.SetPass(2))throw new InvalidOperationException("The fixed head antialias resolve pass is unavailable.");
                     GL.Begin(GL.QUADS);
                     GL.TexCoord2(0,0);GL.Vertex3(0,0,0);GL.TexCoord2(0,1);GL.Vertex3(0,1,0);
                     GL.TexCoord2(1,1);GL.Vertex3(1,1,0);GL.TexCoord2(1,0);GL.Vertex3(1,0,0);GL.End();
-                }
-                finally{GL.PopMatrix();}
             }
-            finally{GL.sRGBWrite=srgb;RenderTexture.active=previous;}
+            finally
+            {
+                GL.sRGBWrite=srgb;RenderTexture.active=previous;
+                Graphics.SetRenderTarget(previousColor,previousDepth);GL.Viewport(_restoreViewport);
+            }
         }
         public void Dispose(){_filterBorrowed=false;}
     }
