@@ -67,9 +67,68 @@ public static class InteractionProgram
         }
         finally { bundle.Unload(true); }
     }
+    private static void CommonFrame()
+    {
+        // Each visitor can change scenery independently. Only the common native
+        // parchment supplies the shared yaw, including when local rooms disagree.
+        var first=new GameObject("FirstLocalRoom");
+        var second=new GameObject("SecondLocalRoom");
+        var parchment=new GameObject("CommonNativeParchment");
+        try
+        {
+            first.transform.position=new Vector3(4f,-2f,9f);
+            second.transform.position=new Vector3(-3f,5f,-7f);
+            first.transform.localScale=Vector3.one*.6f;
+            second.transform.localScale=Vector3.one*2.7f;
+            foreach(float nativeYaw in new[]{0f,37f,219f})
+            {
+                parchment.transform.rotation=Quaternion.Euler(17f,nativeYaw,-11f);
+                Quaternion expected=Quaternion.Euler(0f,nativeYaw,0f);
+                Check(Quaternion.Angle(TownServiceLayout.Frame(null,parchment.transform),expected)<.01f,
+                    "shared layout follows the native parchment yaw without pitch or roll");
+                // Change first one peer's scenery, then the other's. Neither may
+                // move an independently resolved resident or visitor reservation.
+                for(int change=0;change<3;change++)
+                {
+                    first.transform.rotation=Quaternion.Euler(0f,change==0?-85f:138f,0f);
+                    second.transform.rotation=Quaternion.Euler(0f,change<2?142f:264f,0f);
+                    var firstPose=new Pose(first.transform);
+                    var secondPose=new Pose(second.transform);
+                    Quaternion firstFrame=TownServiceLayout.Frame(first.transform,parchment.transform);
+                    Quaternion secondFrame=TownServiceLayout.Frame(second.transform,parchment.transform);
+                    Check(Quaternion.Angle(firstFrame,expected)<.01f&&Quaternion.Angle(secondFrame,expected)<.01f,
+                        "local environment yaw preserves common native layout");
+                    Check(Quaternion.Angle(TownServiceLayout.Frame(first.transform,null),Quaternion.identity)<.01f
+                        &&Quaternion.Angle(TownServiceLayout.Frame(second.transform,null),Quaternion.identity)<.01f,
+                        "missing native parchment uses a common identity frame regardless of local room");
+                    for(byte service=1;service<=3;service++)for(int visitor=0;visitor<4;visitor++)
+                    {
+                        TownServiceLayout.Resolve(TownServiceLayout.Environment.Cellar,service,visitor,out Vector3 local,out float yaw);
+                        Vector3 commonPosition=new Vector3(2f,.7f,-3f)+expected*local;
+                        Quaternion commonRotation=expected*Quaternion.Euler(0f,yaw,0f);
+                        Check(Vector3.Distance(new Vector3(2f,.7f,-3f)+firstFrame*local,commonPosition)<.00001f
+                            &&Vector3.Distance(new Vector3(2f,.7f,-3f)+secondFrame*local,commonPosition)<.00001f
+                            &&Quaternion.Angle(firstFrame*Quaternion.Euler(0f,yaw,0f),commonRotation)<.01f
+                            &&Quaternion.Angle(secondFrame*Quaternion.Euler(0f,yaw,0f),commonRotation)<.01f,
+                            "both peers retain identical native resident and visitor geometry across local room changes");
+                    }
+                    Check(firstPose.Same(first.transform)&&secondPose.Same(second.transform),
+                        "common frame resolution preserves both local scenery transforms");
+                }
+            }
+            Check(Quaternion.Angle(TownServiceLayout.Frame(null,null),Quaternion.identity)<.01f,
+                "absent scenery and parchment retain the common identity frame");
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(first);
+            UnityEngine.Object.DestroyImmediate(second);
+            UnityEngine.Object.DestroyImmediate(parchment);
+        }
+    }
     public static int Run()
     {
-        count=0;OriginalRooms();
+        count=0;OriginalRooms();CommonFrame();
         var rows=new List<string>();
         foreach(var environment in new[]{TownServiceLayout.Environment.Cellar,TownServiceLayout.Environment.Forest})
         {

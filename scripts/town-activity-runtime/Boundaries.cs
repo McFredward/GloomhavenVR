@@ -40,8 +40,10 @@ namespace GloomhavenVR.WorldUI
             : name.StartsWith("spell-soft-") ? Spell : null;
     }
     internal static class SkyAlternative {internal static Transform? PlacedRoomRoot=null;}
-    // Activity cases use no terrain; actual mesh sampling is covered by workspace/setting suites.
+    // Activity cases apply explicit ground offsets and have no native map floor.
+    // Actual native map/furniture floor resolution is covered by workspace/setting suites.
     internal static class TownServicePlacement {internal static float GroundHeight(Transform room,Vector3 world)=>world.y;
+        internal static bool TryCanonicalFloor(out float floor) { floor=0f; return false; }
         internal static bool TryHeight(Vector3 point, Vector3 a, Vector3 b, Vector3 c, out float y) { y=0f; return false; }}
     internal static class TownServicePresentation { internal static bool Active=false;internal static byte Service=0; }
 }
