@@ -92,9 +92,10 @@ native source scratch use high-water capacity buckets;52 measured motion poses
 require6 allocations each rather than the old11. Idle/failed-first/deferred-close
 paths retire their complete owned resources after the active borrow ends.
 
-At640x640 the measured owned peak is24,576,000 bytes. An extreme4040x4040 close or
-coplanar view requires1,305,728,000 bytes (1245.24MiB), excluding Unity-internal and
-driver allocations. This is a measured storage cost, not evidence of hardware
+With the fixture's RGBA32/D24 targets, at640x640 the measured owned peak is
+24,576,000 bytes. An extreme4040x4040 close or coplanar view requires1,305,728,000
+bytes (1245.24MiB), excluding Unity-internal and driver allocations. This is a
+measured storage cost for that format, not evidence of hardware
 frame pacing. Sampling remains2x per axis throughout movement; final eye pairs
 retain their1x head grid. Final repaired pixel and lifetime evidence is pending.
 
