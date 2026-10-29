@@ -66,6 +66,8 @@ def main():
             'video': 'Net/Remote/RemoteMapStory.Video.cs', 'playback': 'Net/Remote/RemoteVideoPlayback.cs',
             'reward': 'Net/Remote/RemoteMapStory.Reward.cs', 'reward_window': 'Net/RewardWindowState.cs',
             'reward_handshake': 'Net/RewardPoseHandshake.cs', 'reward_handoff': 'Net/RewardPoseHandoff.cs',
+            'move_order': 'Net/SharedWindowMoveOrder.cs', 'move_register': 'Net/SharedWindowMoveRegister.cs',
+            'reflow': 'Net/Remote/RemoteMapStory.Reflow.cs', 'moves': 'Net/SharedWindowMoves.cs', 'move_bridge': 'WorldUI/Modal/SharedWindowInteractionBridge.cs',
         }
         original = {name: (root / 'src/GloomhavenVR' / path).read_text() for name, path in files.items()}
         hashes = {files[name]: hashlib.sha256(code.encode()).hexdigest() for name, code in original.items()}
@@ -97,11 +99,11 @@ def main():
             'internal static void WriteU32(', 'internal static uint ReadU32(',
             'internal static void WriteF32(', 'internal static float ReadF32('))
         protocol = '\n'.join(re.search(r'public const (?:byte|ushort|float) ' + name + r' = [^;]+;', original['protocol'])[0] for name in (
-            'ModBuild', 'ExtIdSharedWindowPoseContext', 'ExtIdSharedWindowScaleContext', 'StorySizeMinCode', 'StorySizeMaxCode', 'StorySizeDefaultCode',
+            'ModBuild', 'ExtIdSharedWindowMoveOrder', 'ExtIdSharedWindowPoseContext', 'ExtIdSharedWindowScaleContext', 'StorySizeMinCode', 'StorySizeMaxCode', 'StorySizeDefaultCode',
             'StoryOpenBit', 'StoryPoseBit', 'StoryFinishedBit', 'StoryPageNone', 'StoryPageMax',
             'SharedOpenBit', 'SharedPoseBit', 'SharedFinishedBit', 'SharedWindowKindMapStory',
             'SharedWindowKindQuestConfirm', 'SharedWindowKindEncounter', 'SharedFrameSeatAnchor', 'SharedFrameParchment',
-            'RewardFrameScenario', 'SendRateHz', 'ExtIdRewardPoseHandshake'))
+            'RewardFrameScenario', 'MapRoomInRoomBit', 'MapRoomHostBit', 'SharedWindowMotionMapStoryBit', 'SharedWindowMotionQuestConfirmBit', 'SharedWindowMotionEncounterBit', 'SendRateHz', 'ExtIdRewardPoseHandshake'))
         for signature in ('public static byte EncodeStorySize(', 'public static byte EncodeStoryPage('):
             protocol += '\n' + block(original['protocol'], signature)
         protocol += '\n' + re.search(r'public static float DecodeStorySize\([\s\S]*?;', original['protocol'])[0]
@@ -113,6 +115,8 @@ def main():
         video_observe = block(original['playback'], 'internal static void Observe(')
         video_tail = video_observe[video_observe.rindex('        if (extras.HasVideoWindow)'):-1]
         sources = {
+            'Reflow.cs': original['reflow'], 'MoveOrder.cs': original['move_order'], 'MoveRegister.cs': original['move_register'],
+            'Moves.cs': original['moves'], 'MoveBridge.cs': original['move_bridge'],
             'Context.cs': original['context'], 'Scales.cs': original['scales'], 'Authority.cs': original['authority'],
             'Story.cs': prefix + 'internal static partial class RemoteStorySync {\n' + story + '\n}}',
             'Map.cs': prefix + 'internal static partial class RemoteMapStory {\n' + mapped + '\n}}',
@@ -133,6 +137,27 @@ def main():
         }
         variants = [
             ('production', '', '', '', ''),
+            ('cached-reflow-holder', 'Reflow.cs',
+             'byte held = 0;', 'if (sender > 0) return peer.Held; byte held = 0;',
+             'old holder cannot block room making after another accepted releaser without another old-holder packet'),
+            ('legacy-reflow-held-replayed', 'Reflow.cs',
+             'held = automatic = 0;', 'held = presence.SharedWindowHeldMask; automatic = presence.SharedWindowReflowMask;',
+             'stale rejected77 held and byte-stamp cannot cancel a later accepted real reflow'),
+            ('legacy-reflow-pose-replayed', 'Reflow.cs',
+             'if (SharedWindowMoves.Accepted(sender, kind, entry.ContentKey)\n                && SharedWindowMoves.MayFollow(sender, kind, entry.ContentKey))',
+             'if (sender > 0)',
+             'stale rejected77 held and byte-stamp cannot cancel a later accepted real reflow'),
+            ('auto-own-clock-steals-new-hand', 'MoveRegister.cs',
+             'uint basis = automatic ? row.ParentClaim : row.Claim;', 'uint basis = row.Claim;',
+             'fresh manual claim outranks two delayed automatic operations on an older release basis'),
+            ('receiver-arrival-authority', 'MoveRegister.cs',
+             'int comparison = Compare(basis, basisAuthor, _winningBaseClaim, _winningBaseAuthor);',
+             'int comparison = 1;',
+             'crossed simultaneous real samplers and resolvers converge despite opposite arrival clocks'),
+            ('sample-order-removed', 'MoveRegister.cs',
+             'if (!Newer(row.Sequence, previous.Row.Sequence)) return false;',
+             'if (bool.Parse("false")) return false;',
+             'reordered release tween samples never rewind the final shared pose'),
             ('observer-frame-leaks', 'Context.cs', 'Origin + yaw * (relative.Position * Scale)',
              'GloomhavenVR.WorldUI.PanelLayout.Origin + yaw * (relative.Position * GloomhavenVR.WorldUI.PanelLayout.WorldScale)',
              "record119 reconstructs the sender's canonical world pose independent of every observer's seat and zoom"),
@@ -155,9 +180,9 @@ def main():
             ('map-canonical-frame-rejected', 'Map.cs', 'if (frame == NetProtocol.RewardFrameScenario)',
              'if (scenarioFrame && frame == NetProtocol.RewardFrameScenario)',
              'map initial handoff reconstructs the same sender pose in parchment and normalized fallback frames'),
-            ('story-missing-context', 'Story.cs', 'if (!Canonical || !(referenceScale >= 0.0001f && referenceScale <= 1000000f)) Flags =', 'if (bool.Parse("false")) Flags =',
+            ('story-missing-context', 'Story.cs', 'if (!allowPose || !Canonical || !(referenceScale >= 0.0001f && referenceScale <= 1000000f)) Flags =', 'if (bool.Parse("false")) Flags =',
              'missing or foreign initial scenario provenance stays pending: missing'),
-            ('map-missing-context', 'Map.cs', 'if (!context.HasValue || !context.Value.Valid || !(referenceScale >= 0.0001f && referenceScale <= 1000000f))', 'if (bool.Parse("false"))',
+            ('map-missing-context', 'Map.cs', 'if (!allowPose || !context.HasValue || !context.Value.Valid || !(referenceScale >= 0.0001f && referenceScale <= 1000000f))', 'if (bool.Parse("false"))',
              'missing or foreign map initial provenance stays pending: MapStory missing'),
             ('story-live-host-overrides-manual', 'Story.cs', 'if (bestPeer != 0 && s.Initial && !bestInitial) continue;', '',
              'live scenario pose election also keeps the manual mover ahead of repeated host initialization'),
@@ -182,9 +207,9 @@ def main():
              'live scenario placement adopts the winning packet reference before writing its physical pose'),
             ('map-live-scale-lost', 'Map.cs', 'grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);', '',
              'live map placement adopts the winning packet reference before writing its physical pose'),
-            ('story-missing-scale-accepted', 'Story.cs', 'if (!Canonical || !(referenceScale >= 0.0001f && referenceScale <= 1000000f)) Flags =', 'if (!Canonical) Flags =',
+            ('story-missing-scale-accepted', 'Story.cs', 'if (!allowPose || !Canonical || !(referenceScale >= 0.0001f && referenceScale <= 1000000f)) Flags =', 'if (!Canonical) Flags =',
              'scenario missing or invalid121 remains pending: missing'),
-            ('map-missing-scale-accepted', 'Map.cs', 'if (!context.HasValue || !context.Value.Valid || !(referenceScale >= 0.0001f && referenceScale <= 1000000f))', 'if (!context.HasValue || !context.Value.Valid)',
+            ('map-missing-scale-accepted', 'Map.cs', 'if (!allowPose || !context.HasValue || !context.Value.Valid || !(referenceScale >= 0.0001f && referenceScale <= 1000000f))', 'if (!context.HasValue || !context.Value.Valid)',
              'map missing or invalid121 remains pending: MapStory missing'),
             ('reward-initial-scale-lost', 'Reward.cs', 'referenceScale = owner.ReferenceScale;', 'referenceScale = 0f;',
              'actual reward121 receive and initial publication retain reference and WorldFrame2 pose before conversion exists'),
@@ -210,6 +235,8 @@ def main():
                     if text.count(before) != 1:
                         raise RuntimeError('Causal-control source binding drift: ' + name)
                     text = text.replace(before, after, 1)
+                if name == 'sample-order-removed' and source_name == 'Moves.cs':
+                    text = text.replace('&& !SharedWindowMoveRegister.Newer(row.Sequence, previous.Value.Sequence)', '&& bool.Parse("false")', 1)
                 (generated / source_name).write_text(text)
             for source_name, text in fixture_sources.items():
                 (generated / source_name).write_text(text)

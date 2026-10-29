@@ -27,6 +27,7 @@ compiler_cleanup=importlib.util.module_from_spec(spec);spec.loader.exec_module(c
 
 WHOLE=(
  'Core/Events/MenuWorldContext.cs',
+ 'Net/SharedWindowMoveRegister.cs','Net/SharedWindowMoveOrder.cs','WorldUI/Modal/SharedWindowInteractionBridge.cs',
  'WorldUI/FlatScreen/FlatScreen.9.WorldMenu.cs','WorldUI/FlatScreen/FlatScreen.5.Placement.cs',
  'WorldUI/Surfaces/SurfaceGrabBar.cs','WorldUI/Grab/PanelGrab.cs',
  'WorldUI/Grab/GrabBarLayout.cs','WorldUI/Grab/GrabBarTween.cs','WorldUI/Grab/BarSizeSettle.cs',
@@ -39,6 +40,7 @@ WHOLE=(
  'Rig/LocalTurnControl.cs','Rig/ScrollTurnGate.cs','Rig/LiftWedge.cs',
 )
 KERNELS=(
+ 'WorldUI/Grab/GrabbableModal.cs',
  'Core/Events/VRModeStateMachine.cs','Hands/HandsDriver.cs','Hands/VRHand.cs','Hands/Interact/RayInteractor.cs','Hands/Interact/RayUguiDriver.cs','Board/BoardDriver.cs','WorldUI/MapRoom/MapLocationInteractor.cs',
  'Rig/VRRigDriver.Recenter.cs','WorldUI/FlatScreen/FlatScreen.6.Pointer.cs',
  'WorldUI/Conversion/CanvasConversion.8.Order.cs','WorldUI/Conversion/CanvasConversion.6.Hide.cs',
@@ -59,6 +61,10 @@ def block(source,signature,indent='    ',suffix=''):
 
 def generated(raw):
     result={Path(name).name:raw[name] for name in WHOLE}
+    modal=raw['WorldUI/Grab/GrabbableModal.cs']
+    author=modal[modal.index('    bool IPanelGrabAuthority.IsSharedGrab'):modal.index('    /// <summary>\n    /// USER-OWNED POSE',modal.index('    bool IPanelGrabAuthority.IsSharedGrab'))]
+    wants=modal[modal.index('    private bool WantsReFaceOnRelease()'):modal.index(';',modal.index('    private bool WantsReFaceOnRelease()'))+1]
+    result['ActualSharedOwner746.cs']='using System; using UnityEngine; using GloomhavenVR.Core; namespace GloomhavenVR.WorldUI; internal sealed partial class GrabbableModal {\n'+author+block(modal,'void IPanelGrabOwner.OnGrabFinished()')+'\n'+wants+'\n}'
     mode=raw['Core/Events/VRModeStateMachine.cs']
     enums='\n'.join(block(mode,'internal enum '+name,indent='') for name in ('VRMode','Interactors','HandRole'))
     data='\n'.join(block(mode,'private static readonly Dictionary'+signature,suffix=';') for signature in
@@ -112,6 +118,17 @@ def main():
     paths={name:root/'src/GloomhavenVR'/name for name in (*WHOLE,*KERNELS)}
     raw={name:p.read_text() for name,p in paths.items()}
     mutations=[
+        ('shared-reface-veto-restored746','WorldUI/Grab/WindowReFacePolicy.cs',
+         'WindowFaceMode mode = WorldUIConfig.WindowFacing != null',
+         'if (shared) return false; WindowFaceMode mode = WorldUIConfig.WindowFacing != null',
+         'accepted shared laser release starts the original modal release tween'),
+        ('shared-grip-revocation-lost746','WorldUI/Grab/PanelGrab.cs',
+         '&& !authority.MayContinueGrab)', '&& bool.Parse("false"))',
+         'losing actual shared handle force-drops both grabbers without a release or facing tween'),
+        ('shared-cancel-is-drop746','WorldUI/Grab/PanelGrab.cs',
+         'if (_owner is IPanelGrabAuthority authority && authority.IsSharedGrab)',
+         'if (_owner is IPanelGrabAuthority authority && authority.IsSharedGrab && bool.Parse("false"))',
+         'external cancellation closes the actual shared grip without release-facing'),
         ('unshown-menu-admitted','Core/Events/MenuWorldContext.cs','if (window == null || !window.IsVisible)','if (window == null)',
          'EULA or sign-in initialization does not stand in for the actual visible main menu'),
         ('untracked-menu-admitted','Core/Events/MenuWorldContext.cs','if (!menuRig || !trackingSettled || menu == null','if (!menuRig || menu == null',

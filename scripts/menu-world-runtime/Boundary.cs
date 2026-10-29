@@ -50,6 +50,7 @@ namespace GloomhavenVR.Core
         internal static void Note(string _,string line)=>Lines.Add(line);
         internal static void Debug(string _,string line)=>Lines.Add(line);
         internal static void Warn(string _,string line)=>Lines.Add(line);
+        internal static void Alert(string _,string line)=>Lines.Add(line);
         internal static void Error(string _,string line)=>Lines.Add(line);
     }
     internal static class TickGuard{internal static void Run(string _,Action action)=>action();}

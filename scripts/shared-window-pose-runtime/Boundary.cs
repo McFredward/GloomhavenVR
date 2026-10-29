@@ -64,6 +64,7 @@ namespace UnityEngine
         internal Quaternion rotation=Quaternion.identity;
     }
 }
+internal static class FFSNetwork { internal static bool IsOnline=true,IsHost=false; }
 namespace FFSNet { internal static class FixtureNamespace { } }
 namespace UnityEngine.UI { internal class UIWindow { internal string name="native window"; } }
 internal sealed class DialogLineDTO { internal string text="page-key", character="hero-guid"; }
@@ -84,6 +85,7 @@ namespace GloomhavenVR.WorldUI
     {
         internal readonly Transform Root=new();
         internal bool Visible = true, IsGrabbed = false;
+        internal void YieldSharedControl() { IsGrabbed = false; }
         internal float SharedReferenceWorldScale { get; private set; } = 11.47f;
         internal float ReferenceAtLastPlacement;
         internal int ReferenceApplications;
@@ -95,10 +97,18 @@ namespace GloomhavenVR.WorldUI
     }
     internal static class SharedWindows
     {
+        internal static bool ParticipatesHere(SharedWindowKind kind) => true;
         internal static readonly Dictionary<SharedWindowKind,GrabbableModal> Grabs=new();
         internal static readonly Dictionary<SharedWindowKind,UIWindow> Windows=new();
         internal static bool TryGetGrab(SharedWindowKind kind,out GrabbableModal? grab)=>Grabs.TryGetValue(kind,out grab);
         internal static UIWindow? WindowOf(SharedWindowKind kind)=>Windows.TryGetValue(kind,out UIWindow? w)?w:null;
+    }
+    internal static class SharedWindowReflowBridge
+    {
+        internal static Func<bool>? CanArrange;
+        internal static Func<SharedWindowKind,bool>? Begin;
+        internal static Func<SharedWindowKind,int>? Revision;
+        internal static Action<SharedWindowKind>? End;
     }
     internal static class SharedWindowSpawnBridge
     {
@@ -168,7 +178,7 @@ namespace GloomhavenVR.Net
 {
     using UnityEngine;
     using GloomhavenVR.WorldUI;
-    internal static class FFSNetwork { internal static bool IsOnline=true,IsHost=false; }
+
     internal static class PlayerRegistry { internal const int HostPlayerID=1; }
     internal static class NetPlayerActors {internal static int Id=2;internal static int LocalPlayerId()=>Id;}
     internal static class NetSession {internal static bool FlatNetMode=false;}
@@ -195,6 +205,8 @@ namespace GloomhavenVR.Net
     internal struct PresenceState
     {
         internal bool HasStorySync,StoryInitialPose,HasSharedWindow,HasVideoWindow,HasRewardWindow,HasMapStoryLifecycle,HasRewardPoseHandshake,HasRewardContinuation;
+        internal bool HasMapRoom,HasSharedWindowMotion;
+        internal byte MapRoomFlags,SharedWindowHeldMask,SharedWindowReflowMask;
         internal byte StoryFlags,StoryPage,StoryPageCount,StoryPoseStamp,StorySizeCode;
         internal uint StoryKey;
         internal RigPose StoryPose;
@@ -206,6 +218,7 @@ namespace GloomhavenVR.Net
         internal MapStoryOpening[]? RewardContinuationEntries;
         internal SharedWindowPoseContext? WindowPoseContext;
         internal SharedWindowScaleContext? WindowScales;
+        internal SharedWindowMoveOrder? WindowMoves;
         internal MapStoryOpening[]? MapStoryLifecycleEntries;
     }
     internal static partial class MapStoryLifecycle
@@ -256,7 +269,5 @@ namespace GloomhavenVR.Net
         private static uint EncounterKey(UnityEngine.UI.UIWindow panel)=>((UIEventPanel)panel).Key;
         private static void Note(string reason) { }
         private static void WarnIfOutOfCone(SharedWindowKind kind,int peer,Vector3 pos) { }
-        private static void ObserveReflow(int sender,in PresenceState p) { }
-        private static void ObserveReflowPose(int sender,SharedWindowKind kind,in SharedWindowEntry e,Dictionary<int,byte> stamps) { }
     }
 }

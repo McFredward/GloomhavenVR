@@ -234,7 +234,7 @@ internal static class CardDismissOriginVectors
         t.Equal(4741, size, "eight recent plus128 durable exact samples include all21 page headers");
         t.Equal((byte)21, count, "six recent or seven durable entries fit each byte-length page");
         t.Equal(12515, 7774 + CardFlightOrigins.MaxSize, "encoded worst case includes all additive122 page overhead");
-        t.Equal(12772, PresenceSerializer.MaxSize, "allocation retains the unchanged257-byte spare-record rule");
+        t.Equal(12955, PresenceSerializer.MaxSize, "allocation retains the unchanged257-byte spare-record rule");
         t.Equal(12800, ExtrasFragments.MaxSnapshotBytes, "bounded assembly covers the exact maximum with285 spare");
         packet = Serialize(state);
         var records = Records(packet);

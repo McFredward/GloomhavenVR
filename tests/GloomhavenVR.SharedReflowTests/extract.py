@@ -16,7 +16,8 @@ assert src.count('ObserveReflowPose(senderId, SharedWindowKind.') == 3
 assert 'if (!local.Moving || local.Reflow || grab.IsGrabbed' in src
 assert 'unchecked { local.ReflowRevision++; }\n        grab.PlaceFrameAt' in src
 avatar=(root/'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.cs').read_text()
-assert 'WorldUI.SharedWindows.AnyGrabbedHere() || RemoteMapStory.SharedReflowMoving' in avatar
+assert 'WorldUI.SharedWindows.AnyGrabbedHere()' in avatar
+assert '|| WorldUI.SharedWindows.AnyReleaseTurningHere() || RemoteMapStory.SharedReflowMoving' in avatar
 assert '!RemoteMapStory.SharedReflowSendDue' in avatar
 print('Shared reflow production bindings: 6 passed.')
 

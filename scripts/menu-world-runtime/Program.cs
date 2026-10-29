@@ -15,7 +15,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using Object=UnityEngine.Object;
 
-public static class MenuWorldProgram
+public static partial class MenuWorldProgram
 {
     private static readonly BindingFlags Flags=BindingFlags.Instance|BindingFlags.Static|BindingFlags.NonPublic|BindingFlags.Public;
     private static readonly List<Object> Owned=new();private static FlatScreen? screen;private static int checks;
@@ -283,6 +283,7 @@ public static class MenuWorldProgram
         Near(quad.transform.TransformVector(Vector3.right).magnitude,2,"initial world menu preserves native captured screen width");
         Near(quad.transform.position,head.transform.position+Vector3.forward*1.6f,"actual first placement uses the recentered eye");
         var handle=frame.GetComponent<PanelGrabHandle>()??throw new Exception("missing production world-menu handle");Check(handle.CanGrab,"real grab handle accepts a visible menu owner without a HostCanvas");
+        foreach(var step in SharedController746(left,right,head,output))yield return null;
         LaserRoute(screen,right,left,handle,output);
         foreach(var step in LaserMotion(screen,right,handle,frame,output,"fresh-open"))yield return null;
         initialRear=rear.transform.position;

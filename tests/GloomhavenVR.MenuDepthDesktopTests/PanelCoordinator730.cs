@@ -20,7 +20,7 @@ namespace GloomhavenVR.WorldUI
     // registry, source renders and head presentation execute unchanged.
     internal static partial class PanelSupersample
     {
-        internal sealed class Entry
+        internal sealed partial class Entry
         {
             internal ConvertedPanel Panel = new(); internal Camera Cam = null!;
             internal RenderTexture Rt = null!; internal RawImage DisplayImage = null!;

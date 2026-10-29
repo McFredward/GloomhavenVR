@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -130,19 +131,47 @@ internal static class MenuDepthCharacterRotation
     sources['DesktopCapture.cs'] = sources['DesktopCapture.cs'].replace(
         'camera.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right',
         'global::DesktopEyeInput.Read(camera) == Camera.MonoOrStereoscopicEye.Right')
+    # Exact ready-toggle frame walk, growth hysteresis and band-limit arithmetic. Only
+    # measurement scheduling/diagnostic sinks and unrelated offered-card roots are ports.
+    content = (source_root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.4.Content.cs').read_text()
+    frame_methods = ('private readonly struct ClipFrame', 'private static void MeasureFrame(',
+        'private static void MeasureFramePadding(', 'private static void ApplyFrameHysteresis(',
+        'private static Rect ClampFrameToBandLimit(', 'private static float AllowanceFor(',
+        'private static void SplitAllowance(', 'private static bool ClipsChildren(',
+        'private static bool Draws(', 'private static bool TryHostLocalBounds(', 'private static bool Intersect(')
+    frame_body = ''.join(member(content, signature) for signature in frame_methods)
+    for signature in ('private static float QuantiseUp(', 'private static Rect Union('):
+        start = content.index(signature); frame_body += content[start:content.index(';', start)+1]+'\n'
+    for name in ('FrameQuantumPx','MaxContentExpansion','MinScaledAreaFraction','ScaledContentThreshold',
+                 'FrameOutlierGrowQuanta','FrameShrinkDeadBandQuanta','BandLimitFrameBudgetPx',
+                 'FrameOutlierShrinkRunMeasurements','FrameShrinkRunMeasurements','MaxRtDimension','BandLimitedTexelsPerPixel'):
+        frame_body += re.search(r'private const (?:int|float) '+name+r' = [^;]+;', ownership)[0]+'\n'
+    sources['ReadyFrame746.cs'] = ('using System.Collections.Generic; using GloomhavenVR.Core; using UnityEngine; using UnityEngine.UI; '
+        'namespace GloomhavenVR.WorldUI; internal static partial class PanelSupersample {\n' + frame_body + '\n}')
+    sources['ReadyBadge746.cs'] = (source_root / 'src/GloomhavenVR/WorldUI/Modal/SharedWindowBadgeLayout.cs').read_text()
     fixtures = ROOT / 'tests/GloomhavenVR.MenuDepthDesktopTests'
     inputs = [flat / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.7.CaptureRender.cs', 'FlatScreen.8.MenuDepth.cs')]
     inputs += [depth / name for name in names]
     inputs += [source_root / 'src/GloomhavenVR/WorldUI/Sharpness' / name for name in
-               ('PanelSupersample.1.Core.cs', 'PanelSupersample.2.Capture.cs', 'PanelSupersample.6.MenuDepth.cs', 'PanelSupersample.7.OwnedMembers.cs')]
+               ('PanelSupersample.1.Core.cs', 'PanelSupersample.2.Capture.cs', 'PanelSupersample.4.Content.cs', 'PanelSupersample.6.MenuDepth.cs', 'PanelSupersample.7.OwnedMembers.cs')]
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), *fixtures.glob('*.shader'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     inputs += [ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py']
     inputs += [ROOT / 'ressources/GH_Data/Managed/Unity.TextMeshPro.dll', ROOT / 'scripts/menu-depth-desktop/native_tmp.py']
     wants_native_tmp = not args.case or any(name.startswith(('head-native-tmp','head-confirmation')) for name in args.case)
     if wants_native_tmp:
         inputs += native_tmp.inputs(ROOT)
+    inputs += [source_root / 'src/GloomhavenVR/WorldUI/Modal/SharedWindowBadgeLayout.cs']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in dict.fromkeys(inputs)]
     variants = [
+        ('head-ready746', '', '', '', ''),
+        ('head-ready-cap-old746', 'ReadyFrame746.cs',
+         'if (target == null || target.GetComponent<UIReadyToggle>() == null) return;',
+         'if (target == null || target.GetComponent<UIReadyToggle>() == null || target.GetInstanceID() != 0) return;',
+         'full native vote symbols survive the actual measured capture and final head pixels'),
+        ('head-ready-badge-old746', 'ReadyBadge746.cs',
+         'seat = new Vector2(right + gap + size * 0.5f, top - size * 0.5f);',
+         'seat = new Vector2(20, 0);',
+         'compact multiplayer badge leaves the entire native button and vote ink unobscured'),
         ('head-confirmation745', '', '', '', ''),
         ('head-confirmation-membership-lost745', 'MenuDepthSources.cs',
          '=> source is IMenuDepthOwnedWindowSource member ? ReferenceEquals(member.CaptureOwner, root)',
@@ -449,7 +478,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadConfirmation745' if name.startswith('head-confirmation') else 'HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadReady746' if name.startswith('head-ready') else 'HeadConfirmation745' if name.startswith('head-confirmation') else 'HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrierConverted742' if name.startswith('outer-converted') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else

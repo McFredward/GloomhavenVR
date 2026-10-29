@@ -21,6 +21,16 @@ namespace GloomhavenVR.WorldUI {
     internal static class ModalFallback { internal static void NoteSharedAnchorSpent(SharedWindowKind kind,string why) {} }
 }
 namespace GloomhavenVR.Net {
+    // Explicit legacy-session port. The active123 path and real paired resolver/reflow
+    // integration execute in shared-window-pose-runtime, including adversarial77 replay.
+    internal static class SharedWindowMoves {
+        internal static bool Active => false;
+        internal static bool BeginAutomatic(SharedWindowKind kind) => true;
+        internal static bool Accepted(int sender,SharedWindowKind kind,uint key) => true;
+        internal static bool MayFollow(int sender,SharedWindowKind kind,uint key) => true;
+        internal static void CurrentMotion(int sender,SharedWindowKind kind,out bool held,out bool automatic)
+        {held=automatic=false;}
+    }
     internal static class FFSNetwork { internal static bool IsOnline,IsHost; }
     internal static class NetPlayerActors { internal static int Id; internal static int LocalPlayerId()=>Id; }
     internal static class NetProtocol {

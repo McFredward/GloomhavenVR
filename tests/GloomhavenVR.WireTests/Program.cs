@@ -37,6 +37,7 @@ internal static class Program
             // Pin the two shimmed constants against the real declarations FIRST — every clamp
             // vector below is only meaningful while they agree.
             Shims.VerifyAgainstSource(repoRoot);
+            SharedWindowMoveOrderTests.Run(t);
             LaserBarOwnershipVectors.Run(t, repoRoot);
             MapLaserOwnershipVectors.Run(t, repoRoot);
             InitiativeSelectionOrderVectors.Run(t, repoRoot);
