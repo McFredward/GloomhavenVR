@@ -19,6 +19,7 @@ internal static class CardListEntry
     private static Quaternion _rotation;
     private static TextMeshProUGUI? _caption;
     private static readonly MovedSubtreeLayers Layers = new(16);
+    private static int _restoreFailures;
 
     // False retains a refused native-home restore before the composite changes owners.
     internal static bool Tick()
@@ -59,7 +60,10 @@ internal static class CardListEntry
             _mount.SetParent(nativeView, false);
             _mount.anchorMin = _mount.anchorMax = _mount.pivot = Vector2.one;
             _mount.sizeDelta = nativeButton.rect.size;
-            _mount.anchoredPosition3D = new Vector3(-16f, -16f, 0f);
+            // Native Cards header ink ends at y32; its info row starts at y74.
+            // The caption uses the free32px band between them. The original
+            // narrow arrow remains at the far right, clear of the native text.
+            _mount.anchoredPosition3D = new Vector3(-16f, -20f, 0f);
             _mount.gameObject.layer = nativeView.gameObject.layer;
             nativeButton.SetParent(_mount, false);
             nativeButton.anchorMin = nativeButton.anchorMax = nativeButton.pivot = Vector2.one;
@@ -83,7 +87,8 @@ internal static class CardListEntry
         go.transform.SetParent(_button, false);
         _caption = go.GetComponent<TextMeshProUGUI>()!;
         _caption.font = original.font; _caption.fontSharedMaterial = original.fontSharedMaterial;
-        _caption.fontSize = original.fontSize; _caption.fontStyle = original.fontStyle;
+        _caption.fontSize = 28f; _caption.fontStyle = original.fontStyle;
+        _caption.enableAutoSizing = true; _caption.fontSizeMin = 18f; _caption.fontSizeMax = 28f;
         _caption.color = original.color; _caption.alignment = TextAlignmentOptions.MidlineRight;
         _caption.overflowMode = TextOverflowModes.Ellipsis;
         // The caption is a graphic CHILD of the native toggle. Native uGUI
@@ -91,8 +96,8 @@ internal static class CardListEntry
         // interactability and onValueChanged listeners when the text is pointed at.
         _caption.raycastTarget = true;
         RectTransform rect = _caption.rectTransform;
-        rect.anchorMin = new Vector2(0f, 0f); rect.anchorMax = new Vector2(0f, 1f);
-        rect.pivot = new Vector2(1f, .5f); rect.sizeDelta = new Vector2(200f, 0f);
+        rect.anchorMin = rect.anchorMax = new Vector2(0f, .5f);
+        rect.pivot = new Vector2(1f, .5f); rect.sizeDelta = new Vector2(200f, 32f);
         rect.anchoredPosition3D = new Vector3(-8f, 0f, 0f);
         RefreshCaption(); Loc.OnChanged += RefreshCaption;
     }
@@ -102,22 +107,39 @@ internal static class CardListEntry
 
     internal static bool Release()
     {
-        if (_button != null)
+        try
         {
-            _button.SetParent(_home, false);
-            // Activation-time refusal must never destroy the original toggle.
-            if (!ReferenceEquals(_button.parent, _home)) return false;
-            CanvasConversion.TransferSeatedSubtree(_button, null);
+            if (_button != null)
+            {
+                // A removed scene's home can be Unity-null while the temporarily
+                // carried original still lives. Detach it safely instead of
+                // retaining a dead parent reference or destroying game content.
+                Transform? home = _home != null ? _home : null;
+                _button.SetParent(home, false);
+                // Activation-time refusal must never destroy the original toggle.
+                if (!ReferenceEquals(_button.parent, home)) return false;
+                CanvasConversion.TransferSeatedSubtree(_button, null);
+                _button.anchorMin = _min; _button.anchorMax = _max; _button.pivot = _pivot;
+                _button.sizeDelta = _size; _button.anchoredPosition3D = _position;
+                _button.localRotation = _rotation; _button.localScale = _scale;
+                _button.SetSiblingIndex(_sibling);
+            }
+            // Records may still contain live descendants if the original root
+            // was destroyed externally. Clear them even on that lifetime edge.
             Layers.Restore();
-            _button.anchorMin = _min; _button.anchorMax = _max; _button.pivot = _pivot;
-            _button.sizeDelta = _size; _button.anchoredPosition3D = _position;
-            _button.localRotation = _rotation; _button.localScale = _scale;
-            _button.SetSiblingIndex(_sibling);
+            Loc.OnChanged -= RefreshCaption;
+            if (_caption != null) Object.Destroy(_caption.gameObject);
+            if (_mount != null) Object.Destroy(_mount.gameObject);
+            _caption = null; _button = _mount = _view = null; _home = null; _panel = null;
+            return true;
         }
-        Loc.OnChanged -= RefreshCaption;
-        if (_caption != null) Object.Destroy(_caption.gameObject);
-        if (_mount != null) Object.Destroy(_mount.gameObject);
-        _caption = null; _button = _mount = _view = null; _home = null; _panel = null;
-        return true;
+        catch (System.Exception exception)
+        {
+            int count = ++_restoreFailures;
+            if (count <= 3 || (count & (count - 1)) == 0)
+                VRLog.Warn("WorldUI", "CARD LIST ENTRY: original home restore deferred ("
+                    + exception.GetType().Name + "); occurrence=" + count + ".");
+            return false;
+        }
     }
 }
