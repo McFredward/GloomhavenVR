@@ -1,6 +1,7 @@
 using System;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI;
+using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
 
 internal static class GroundingLifecycle
@@ -16,15 +17,19 @@ internal static class GroundingLifecycle
     }
     internal static void Run()
     {
-        // Real production floor interpolation on a known inclined mesh, with hierarchical
-        // yaw/scale transforms. This is not a fixture-owned grounding implementation.
+        // The local terrain still disagrees with the native plane. A tilted station
+        // keeps sole/footprint samples distinct against that horizontal common plane,
+        // retaining the root-only and lowest-support causal controls after Build746.
         var floor=new Transform { mesh=new Mesh { vertices=new[]{
             new Vector3(-100,-2,-100),new Vector3(100,6,-100),new Vector3(0,-2,100)},triangles=new[]{0,1,2}}};
         SkyAlternative.PlacedRoomRoot=new Transform{floor=floor};
+        MapRoomDriver.Active=true;MapRoomDriver.Floor=0;
+        GuildmasterRoomGeometry.Available=true;
         foreach(float scale in new[]{1f,198f})
         foreach(float yaw in new[]{0f,90f,225f})
         {
-            var root=new Transform{localScale=Vector3.one*scale,rotation=Quaternion.Euler(0,yaw,0)};
+            var root=new Transform{position=new Vector3(4,7,-2),localScale=Vector3.one*scale,rotation=Quaternion.Euler(11,yaw,19)};
+            GuildmasterRoomGeometry.Floor=7f-.07f*scale;
             var actor=new Transform{localPosition=new Vector3(0,.015f,.65f)};root.Add("Actor",actor);
             var furniture=new Transform();root.Add("Counter",furniture);
             var support=new Transform{localPosition=new Vector3(0,.08f,0),localScale=new Vector3(1.42f,.16f,.66f)};support.mesh=SupportMesh();furniture.Add("GroundSupportPlinth",support);
@@ -33,8 +38,9 @@ internal static class GroundingLifecycle
             floor.localScale=Vector3.one*scale;
             helper.Resolve(out float actorOffset,out float bottom);
             Vector3 left=root.TransformPoint(new Vector3(-.12f,0,.65f)),right=root.TransformPoint(new Vector3(.12f,0,.65f));
-            Func<Vector3,float> expected=p=>(.04f*p.x-.02f*p.z)/scale;
-            Near(actorOffset,Math.Min(expected(left),expected(right)),"stable soles use lower actual floor sample");
+            float upProjection=MathF.Cos(11f*MathF.PI/180)*MathF.Cos(19f*MathF.PI/180);
+            Func<Vector3,float> expected=p=>(GuildmasterRoomGeometry.Floor-p.y)*upProjection/scale;
+            Near(actorOffset,Math.Min(expected(left),expected(right)),"stable soles use the lower canonical plane contact");
             float low=float.PositiveInfinity;
             foreach(float x in new[]{-.71f,.71f})foreach(float z in new[]{-.33f,.33f})low=Math.Min(low,expected(root.TransformPoint(new Vector3(x,0,z))));
             Near(bottom,low,"actual support corners determine lowest floor");
@@ -43,7 +49,7 @@ internal static class GroundingLifecycle
                 int writes=actor.LocalWrites+support.LocalWrites;
                 helper.Apply(actorOffset,bottom);
                 if(repeat>0)Check(actor.LocalWrites+support.LocalWrites==writes,"steady follower does not dirty transforms");
-                Near(actor.localPosition.y,.015f+actorOffset,"terrain delta preserves authored sole correction");
+                Near(actor.localPosition.y,.015f+actorOffset,"canonical floor delta preserves authored sole correction");
                 Near(actor.localPosition.z,.65f,"actor anchor remains fixed");
                 Near(support.localPosition.y+support.localScale.y*.5f,.16f,"support upper edge remains fixed");
                 Near(support.localPosition.y-support.localScale.y*.5f,bottom,"support lower edge reaches terrain");
@@ -56,11 +62,12 @@ internal static class GroundingLifecycle
             helper.Apply(float.NaN,0);Near(actor.localPosition.y,.015f,"invalid remote correction ignored");
         }
         floor.localScale=Vector3.one;
+        GuildmasterRoomGeometry.Floor=-.07f;
         // A workspace has only a Counter child; it uses exactly the same contact handling.
         var workspace=new Transform();var counter=new Transform();workspace.Add("Counter",counter);
         var plinth=new Transform{localPosition=new Vector3(0,.08f,0),localScale=new Vector3(1.42f,.16f,.66f)};plinth.mesh=SupportMesh();counter.Add("GroundSupportPlinth",plinth);
         var onlyFurniture=new TownServiceGrounding(workspace);onlyFurniture.Resolve(out float absentActor,out float floorBottom);
-        Near(absentActor,0,"workspace has no actor correction");Check(floorBottom<0,"workspace samples its own floor");
+        Near(absentActor,0,"workspace has no actor correction");Near(floorBottom,-.07f,"workspace uses the common native floor");
         // All four workbench legs and the altar plinth use the same fixed-top operation.
         foreach(string name in new[]{"Shrine","Workbench"})
         {
@@ -71,8 +78,11 @@ internal static class GroundingLifecycle
             void Add(string partName,Vector3 pos,Vector3 size){var part=new Transform{localPosition=pos,localScale=size};part.mesh=SupportMesh();furniture.Add("GroundSupport"+partName,part);parts.Add(part);}
             var helper=new TownServiceGrounding(root);helper.Resolve(out _,out float bottom);helper.Apply(0,bottom);
             foreach(var part in parts){Near(part.localPosition.y-part.localScale.y*.5f,bottom,"every authored support contacts bottom plane");Near(part.localPosition.y+part.localScale.y*.5f,name=="Shrine"?.13f:.88f,"all support tops preserved");}
-            SkyAlternative.PlacedRoomRoot=null;helper.Resolve(out float actor,out bottom);Near(actor,0,"MR does not invent actor terrain");Near(bottom,0,"MR restores original furniture plane");helper.Apply(actor,bottom);
-            foreach(var part in parts)Near(part.localPosition.y-part.localScale.y*.5f,0,"room exit resets contact");
+            SkyAlternative.PlacedRoomRoot=null;helper.Resolve(out float actor,out bottom);Near(actor,0,"MR does not invent an absent actor");Near(bottom,-.07f,"MR retains the common native furniture plane");
+            GuildmasterRoomGeometry.Available=false;
+            helper.Resolve(out actor,out bottom);Near(actor,0,"native fallback does not invent an absent actor");Near(bottom,0,"missing native furniture restores the map floor plane");helper.Apply(actor,bottom);
+            foreach(var part in parts)Near(part.localPosition.y-part.localScale.y*.5f,0,"native floor fallback resets contact");
+            GuildmasterRoomGeometry.Available=true;
             SkyAlternative.PlacedRoomRoot=new Transform{floor=floor};
         }
         Console.WriteLine($"Town grounding: {assertions} production assertions passed");
