@@ -239,6 +239,32 @@ namespace GloomhavenVR.WorldUI
         internal Transform? Home;
         internal readonly GraphicRaycaster HostRaycaster = new();
     }
+    // Capture admission, layers and final pixels are exercised by the actual
+    // head coordinator/native producer containers. This lifecycle-only port
+    // observes the production handoff without implementing or bypassing AA.
+    internal static class PanelSupersample
+    {
+        internal sealed class Binding
+        {
+            internal readonly ConvertedPanel Owner, Member;
+            internal readonly Transform? TargetParent;
+            internal readonly Vector3 Position, Scale, TargetPosition, TargetScale;
+            internal readonly Quaternion TargetRotation;
+            internal readonly bool MemberRegistered;
+
+            internal Binding(ConvertedPanel owner, ConvertedPanel member)
+            {
+                Owner = owner; Member = member; TargetParent = member.Target.parent;
+                Position = member.HostRect.position; Scale = member.HostRect.localScale;
+                TargetPosition = member.Target.localPosition; TargetScale = member.Target.localScale;
+                TargetRotation = member.Target.localRotation;
+                MemberRegistered = CanvasConversion.ActivePanels.Contains(member);
+            }
+        }
+        internal static readonly List<Binding> Bindings = new();
+        internal static void BindConfirmationMember(ConvertedPanel owner, ConvertedPanel member)
+            => Bindings.Add(new Binding(owner, member));
+    }
     internal static class CanvasConversion
     {
         internal static int Converts, Releases, Transfers, CompositeReleases;
@@ -273,6 +299,7 @@ namespace GloomhavenVR.WorldUI
             TownServicePresentation.Owned=false;MapDialogSeat.AllowTransfer=true;
             Core.Events.MenuWorldContext.IsReady = false; FlatScreen.MenuOwner = null; FlatScreen.MenuSource = null;
             ActivePanels.Clear(); Converts = Releases = Transfers = CompositeReleases = 0; Last = LastDestination = null;
+            PanelSupersample.Bindings.Clear();
             ReturnNull = ThrowConvert = ThrowPlace = ThrowRelease = false;
             WorldCamera = new Camera();
         }

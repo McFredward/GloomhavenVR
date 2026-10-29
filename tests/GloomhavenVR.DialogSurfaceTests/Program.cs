@@ -100,6 +100,7 @@ internal static class Program
             "retry restores original subtree before fallback publication");
         surface.Shutdown();
         OwnerCases.Run();
+        CaptureBoundaryCases745.Run();
         Console.WriteLine($"Dialog surface: {_checks} assertions passed.");
     }
 }

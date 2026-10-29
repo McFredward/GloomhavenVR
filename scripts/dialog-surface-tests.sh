@@ -28,6 +28,9 @@ for name,before,after,expected in [
  assert before in originals['DialogSource'],'Mutation binding drift: '+name
  cases.append((name,{'DialogSource':originals['DialogSource'].replace(before,after)},expected))
 for name,key,before,after,expected in [
+ ('capture-handoff-lost','OwnerSource','PanelSupersample.BindConfirmationMember(panel, seat.PersistentMember);','/* capture handoff omitted */','producer capture boundary receives the exact owner and native member once'),
+ ('capture-owner-identity-lost','OwnerSource','PanelSupersample.BindConfirmationMember(panel, seat.PersistentMember);','PanelSupersample.BindConfirmationMember(seat.PersistentMember, panel);','producer capture boundary receives the exact owner and native member once'),
+ ('capture-before-placement','OwnerSource','Apply(seat);\n            PanelSupersample.BindConfirmationMember(panel, seat.PersistentMember);','PanelSupersample.BindConfirmationMember(panel, seat.PersistentMember);\n            Apply(seat);','producer capture boundary observes completed conversion and final native member placement'),
  ('immersive-source-priority-lost','OwnerSource','return window != null && TownServicePresentation.OwnsWindow(window);','return false;','immersive item requests never acquire a generic member or change native home'),
  ('external-source-retained','OwnerSource','Requests.Remove(seat.Box);','/* stale native producer retained */','external transfer clears old exact producer provenance until another native request'),
  ('item-origin-lost','OriginSource','private static void Prefix(UIItemConfirmationBox __instance) => ConfirmationOnOwner.Record(__instance);','private static void Prefix(UIItemConfirmationBox __instance) { }','native item confirmation joins its exact producer and retains original persistence and small foreground'),
