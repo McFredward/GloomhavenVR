@@ -28,21 +28,39 @@ public static partial class MenuDepthCardProgram
     public static IEnumerator RunNativeHover(string output) => RunCore(output, false, true);
     public static IEnumerator RunHeadText736(string output) => RunCore(output, false, headTextOnly: true);
     public static IEnumerator RunLevelUpHover738(string output) => RunCore(output, false, levelUpHoverOnly: true);
+    public static IEnumerator RunMoreCards747(string output) => RunCore(output, false, moreCardsOnly: true);
 
-    private static IEnumerator RunCore(string output, bool nativeFreezeOnly, bool nativeHoverOnly = false, bool headTextOnly = false, bool levelUpHoverOnly = false)
+    private static IEnumerator RunCore(string output, bool nativeFreezeOnly, bool nativeHoverOnly = false, bool headTextOnly = false, bool levelUpHoverOnly = false, bool moreCardsOnly = false)
     {
         _checks = 0; _output = output; VRSession.IsRunning = true;
         var native = new Harmony("MenuDepthCards.NativePorts." + typeof(MenuDepthCardProgram).Assembly.GetName().Name);
         var observer = new Harmony(native.Id + ".observer");
         native.CreateClassProcessor(typeof(NativePorts)).Patch();
         if (nativeHoverOnly) native.CreateClassProcessor(typeof(NativeHoverPorts)).Patch();
-        if (levelUpHoverOnly) native.CreateClassProcessor(typeof(LevelUpHoverPorts738)).Patch();
+        if (levelUpHoverOnly || moreCardsOnly) native.CreateClassProcessor(typeof(LevelUpHoverPorts738)).Patch();
+        if (moreCardsOnly)
+        {
+            native.CreateClassProcessor(typeof(MoreCardsPorts747)).Patch();
+            native.CreateClassProcessor(typeof(MoreCardsFitPort747)).Patch();
+            native.CreateClassProcessor(typeof(MoreCardsInputPort747)).Patch();
+            observer.CreateClassProcessor(typeof(NativeTooltipHide747)).Patch();
+        }
         observer.CreateClassProcessor(typeof(MenuDepthLifecycleObserver)).Patch();
         observer.CreateClassProcessor(typeof(MenuDepthLevelUpHoverObserver)).Patch();
+        Type? furtherObserver = typeof(MenuDepthLevelUpHoverObserver).Assembly.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthFurtherAbilityHoverObserver");
+        if (furtherObserver != null) observer.CreateClassProcessor(furtherObserver).Patch();
         if (headTextOnly) observer.CreateClassProcessor(typeof(HeadMeshObserver736)).Patch();
         try
         {
-            if (levelUpHoverOnly)
+            if (moreCardsOnly)
+            {
+                using (var scene = new Scene(1, headRaster: true))
+                {
+                    IEnumerator proof = scene.ProveMoreCards747();
+                    while (proof.MoveNext()) yield return proof.Current;
+                }
+            }
+            else if (levelUpHoverOnly)
             {
                 using (var scene = new Scene(1, headRaster: true))
                 {

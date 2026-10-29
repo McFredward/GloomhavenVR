@@ -29,6 +29,8 @@ FIELDS = {
     'MiniAbilityCard': [('miniAbilityBackgroundImage',)],
     'ItemCardUI': [('cardBackground',)],
     'AbilityCardUI': [('fullAbilityCard',), ('miniAbilityCard',), ('button',)],
+    'UILevelUpCard': [('cardHolder',), ('fullCardHolder',), ('button',)],
+    'UILevelUpCardInventory': [('cardsContainer',), ('cardPrefab',)],
     'UIPartyCharacterAbilityCardsDisplay': [('abilityCardsPanel', 'm_Content'), ('fullCardAreaToFit',)],
     'MonsterRoundCardUI': [('background',), ('$rootImage',)],
     'MonsterBaseUI': [('backgroundImage',), ('textBackgroundOpacityImage',)],
@@ -118,6 +120,17 @@ def main():
                 'compiled_parameter_names': [name for name, index in pas.m_NameIndices]}
                 for sub in compiled.m_ParsedForm.m_SubShaders for pas in sub.m_Passes]})
 
+    def hierarchy(reader):
+        result = []
+        while reader is not None:
+            parts = components(reader)
+            transform = next(part for part in parts if script(part) in ('RectTransform', 'Transform'))
+            result.append({'owner': identity(reader), 'components': [identity(part) for part in parts]})
+            parent = pointer(tree(transform).get('m_Father'), transform)
+            if parent is None: break
+            reader = parent
+        return result
+
     for source in files:
         relative = str(source.relative_to(data)); report['sources'][relative] = sha(source)
         environment = UnityPy.load(str(source)); environment.typetree_generator = generator
@@ -132,6 +145,17 @@ def main():
                 'serialized_sha256': hashlib.sha256(owner.get_raw_data()).hexdigest(),
                 'root_components': [identity(part) for part in components(owner)],
                 'fields': {'.'.join(path): identity(follow(owner, path)) for path in FIELDS[name]}})
+            if name in ('UILevelUpCard', 'UILevelUpCardInventory'):
+                report['owners'][-1]['native_hierarchy'] = hierarchy(owner)
+                report['owners'][-1]['native_preview_offset_x'] = tree(owner).get('fullCardPositionX')
+            if name == 'UILevelUpCardInventory':
+                row = report['owners'][-1]
+                row['native_content_hierarchy'] = hierarchy(follow(owner, ('cardsContainer',)))
+                prefab = follow(owner, ('cardPrefab',))
+                row['native_card_prefab'] = {'owner': identity(prefab),
+                    'fields': {'.'.join(path): identity(follow(prefab, path)) for path in FIELDS['UILevelUpCard']},
+                    'fullCardPositionX': tree(prefab)['fullCardPositionX'],
+                    'components': [identity(part) for part in components(prefab)]}
     by_id = {(row['owner']['serialized_file'], row['owner']['path_id']): row for row in report['owners']}
     report['character_hover_prefabs'] = []
     for row in report['owners']:

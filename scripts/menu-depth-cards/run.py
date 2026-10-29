@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT/'scripts'))
 from town_run_retention import cleanup_completed_run
 sys.path.insert(0, str(ROOT/'scripts/menu-depth-character'))
 from project_compilers import cleanup_project_compilers, cleanup_project_editors
+from tooltip_kernel import build as tooltip_kernel
 
 def execute(command, log, timeout=300):
     with log.open('w') as stream:
@@ -29,7 +30,32 @@ def main():
     print('Evidence: '+str(run),flush=True)
     source=ROOT/'src/GloomhavenVR/WorldUI/MenuDepth'; paths=[*source.glob('*.cs'),ROOT/'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs']
     sources={p.name:p.read_text()for p in paths}; fixture=ROOT/'tests/GloomhavenVR.MenuDepthCardTests'
+    tooltip_path=ROOT/'src/GloomhavenVR/WorldUI/Tooltips/TooltipOnWindow.cs'
+    tooltip_source=tooltip_path.read_text()
+    tooltip_patches=ROOT/'src/GloomhavenVR/WorldUI/Patches/TooltipWindowPatches.cs'
+    conversion=ROOT/'src/GloomhavenVR/WorldUI/Conversion'
+    conversion_paths=[conversion/name for name in ('CanvasConversion.2.Adopt.cs','CanvasConversion.4.Lifecycle.cs','ConvertedPanel.cs')]
+    sources['TooltipPlacement747.cs']=tooltip_kernel(tooltip_source,tooltip_patches.read_text(),*(p.read_text()for p in conversion_paths))
     variants=[('production','','','',''),
+        ('more-cards747','','','',''),
+        ('more-cards747-missing-final-raise','MenuDepthLevelUpHoverObserver.cs',
+         '        try { SettleOriginal(__instance, ___abilityCard, ___highlighted, ____fullCardPrewiewOffset); }',
+         '        try { /* injected: Further Ability Cards misses its final native placement seam */ }',
+         'browse-only More Cards keeps the complete original preview visible beyond the inventory strip in first and settled head pixels'),
+        ('more-cards747-manual-contamination','MenuDepthLevelUpHoverObserver.cs',
+         'FlatScreen.ManualScreenActive || !VRSession.IsRunning', '!VRSession.IsRunning',
+         'excluded native browse contexts preserve the original preview parent'),
+        ('more-cards747-lost-mini-anchor','MenuDepthLevelUpHoverObserver.cs',
+         'miniOffset.x + nativeOffset.x, miniOffset.y + nativeOffset.y,',
+         'nativeOffset.x, nativeOffset.y,',
+         'browse-only More Cards keeps the complete original preview visible beyond the inventory strip in first and settled head pixels'),
+        ('more-cards747-lost-pool-plane','MenuDepthLevelUpHoverObserver.cs',
+         '        TooltipOnWindow.Settle(full, kind, card);',
+         '        /* injected: placement drops Z before escaping the pooled row basis */',
+         'browse-only More Cards keeps the complete original preview visible beyond the inventory strip in first and settled head pixels'),
+        ('more-cards747-lost-hide-restore','TooltipPlacement747.cs',
+         '        RestoreRaise(Raised[i]);', '        /* injected: native hide loses its pooled Full restoration */',
+         'original browse unhover restores the exact pooled home without stranded raises or changed native callbacks'),
         ('level-up-hover738','','','',''),
         ('lost-level-up-first-rotation','MenuDepthLevelUpHoverObserver.cs',
          '            card.localRotation = Quaternion.identity;',
@@ -97,14 +123,23 @@ def main():
         if filename:assert sources[filename].count(before)==1,(name,before)
     bundle=ROOT/'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle';unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');game=ROOT/'ressources/GH_Data/Managed'
     card_shaders=[ROOT/'tests/GloomhavenVR.MenuDepthDesktopTests'/n for n in ['NativeCard732.shader','NativeCardDepth732.shader']]
-    port_sources=list((Path(__file__).parent/'NativePort').glob('*'))
-    pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest()for p in [*paths,*fixture.glob('*'),*card_shaders,*port_sources,Path(__file__),Path(__file__).parent/'Editor/Runner.cs',Path(__file__).parent/'audit-native.py',bundle,game/'GH.Runtime.dll',game/'UnityEngine.UI.dll',game/'Unity.TextMeshPro.dll',ROOT/'scripts/menu-depth-character/project_compilers.py']if p.is_file()}
+    port_sources=[*list((Path(__file__).parent/'NativePort').glob('*')),Path(__file__).parent/'tooltip_kernel.py',tooltip_path,tooltip_patches,*conversion_paths]
+    toolchain=[unity,unity.parent/'Data/Managed/UnityEngine/UnityEngine.CoreModule.dll',Path('/home/claw/.dotnet/dotnet')]
+    pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest()for p in [*paths,*fixture.glob('*'),*card_shaders,*port_sources,*toolchain,Path(__file__),Path(__file__).parent/'Editor/Runner.cs',Path(__file__).parent/'audit-native.py',bundle,game/'GH.Runtime.dll',game/'UnityEngine.UI.dll',game/'Unity.TextMeshPro.dll',ROOT/'scripts/menu-depth-character/project_compilers.py']if p.is_file()}
     status=1;project=run/'unity'
     try:
         retained=run/'Sources';retained.mkdir(); shutil.copytree(fixture,retained/'fixture');shutil.copy2(Path(__file__),retained/'run.py');shutil.copy2(Path(__file__).parent/'Editor/Runner.cs',retained/'Runner.cs')
         for name,code in sources.items():(retained/name).write_text(code)
+        shutil.copy2(tooltip_path,retained/'TooltipOnWindow.full-source.cs.txt')
+        shutil.copy2(tooltip_patches,retained/'TooltipWindowPatches.full-source.cs.txt')
+        for p in conversion_paths:shutil.copy2(p,retained/(p.name+'.txt'))
+        shutil.copy2(Path(__file__).parent/'tooltip_kernel.py',retained/'tooltip_kernel.py')
+        (run/'tooltip-kernel-boundary.json').write_text(json.dumps({'source':str(tooltip_path),'sha256':hashlib.sha256(tooltip_source.encode()).hexdigest(),
+            'executed':'Unchanged PlaceFullCardPreview, Settle, Flatten, RaiseToWindowTop, raised receipt/scale, ordering caller, TickRaises, Release/Restore, native hide postfix, AdoptCanvas and KeepRaisedOverlayOnTop bodies.',
+            'ports':'Converted owner registry, existing order-follower ladder, camera ownership bookkeeping, poke registry, diagnostic strings and unrelated character-annotation detection. No implementation port of card placement, Canvas adoption/kept-overlay flag, mask escape, clamp, pose restoration or lifecycle.'},indent=2)+'\n')
         (run/'source-pins.json').write_text(json.dumps({'sha256':pins,'scope':__doc__,'subset':args.case},indent=2)+'\n')
         (run/'editor-environment.json').write_text(json.dumps({k:os.environ.get(k)for k in ['ADB_SERVER_SOCKET','ADB_MDNS_AUTO_CONNECT','VK_DRIVER_FILES','VK_ICD_FILENAMES']},indent=2)+'\n')
+        if execute(['/home/claw/.dotnet/dotnet','--info'],run/'dotnet-info.log'):raise RuntimeError('Toolchain identity unavailable')
         audit_command=['/home/claw/unitypy-venv/bin/python',str(Path(__file__).parent/'audit-native.py'),'--output',str(run/'native-authoring.json')]
         if execute(audit_command,run/'native-authoring.log'):raise RuntimeError('Original native field audit failed')
         audit=json.loads((run/'native-authoring.json').read_text())
@@ -112,7 +147,7 @@ def main():
         assert required <= {row['owner']['class']for row in audit['owners']},'Missing native card family'
         shutil.copy2(Path(__file__).parent/'audit-native.py',retained/'audit-native.py')
         manifest={'result':str(run/'results.txt'),'evidence':str(run),'gameManaged':str(game.resolve()),'harmonyRuntime':'/home/claw/.nuget/packages/lib.harmony/2.4.2/lib/net472','cases':[]}
-        if any(name=='level-up-hover738' or name=='lost-level-up-first-rotation' or name.startswith('level-up-hover-') for name,*_ in variants):
+        if any(name=='level-up-hover738' or name=='lost-level-up-first-rotation' or name.startswith(('level-up-hover-','more-cards747')) for name,*_ in variants):
             port=run/'native-port';shutil.copytree(Path(__file__).parent/'NativePort',port)
             build=['/home/claw/.dotnet/dotnet','build',str(port/'NativePort.csproj'),'-c','Release','-v','quiet','--nologo','--disable-build-servers','-nr:false','-p:UseSharedCompilation=false']
             if execute(build,port/'build.log'):raise RuntimeError('Native API port did not compile')
@@ -129,7 +164,7 @@ def main():
             command=['/home/claw/.dotnet/dotnet','build',str(csproj),'-c','Release','-v','quiet','--nologo','--disable-build-servers','-nr:false','-p:UseSharedCompilation=false','-p:CaseName='+assembly,'-p:FixtureDir='+str(retained/'fixture'),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(unity.parent/'Data/Managed'),'-p:GameManaged='+str(game),'-p:DepthBundle='+str(bundle)]
             if execute(command,case/'build.log'):raise RuntimeError('Compilation failure is not a causal-control pass: '+name)
             binary=case/'bin/Release/net472'/(assembly+'.dll');target=run/'assemblies';target.mkdir(exist_ok=True);shutil.copy2(binary,target/binary.name)
-            manifest['cases'].append({'name':name,'dll':str(target/binary.name),'expected':expected,'method':'RunLevelUpHover738' if name=='level-up-hover738' or name=='lost-level-up-first-rotation' or name.startswith('level-up-hover-') else 'RunHeadText736' if name=='head-text-736' or name.startswith('lost-head-text-') else 'RunNativeUiFreeze' if name in {'native-ui-freeze','lost-native-freeze-birth','lost-native-freeze-parent'} else 'RunNativeHover' if name in {'native-hover','lost-hover-identity','lost-hover-depth','lost-hover-relief','lost-cold-helper-activation','lost-active-helper-reacquire'} else 'Run'})
+            manifest['cases'].append({'name':name,'dll':str(target/binary.name),'expected':expected,'method':'RunMoreCards747' if name=='more-cards747' or name.startswith('more-cards747-') else 'RunLevelUpHover738' if name=='level-up-hover738' or name=='lost-level-up-first-rotation' or name.startswith('level-up-hover-') else 'RunHeadText736' if name=='head-text-736' or name.startswith('lost-head-text-') else 'RunNativeUiFreeze' if name in {'native-ui-freeze','lost-native-freeze-birth','lost-native-freeze-parent'} else 'RunNativeHover' if name in {'native-hover','lost-hover-identity','lost-hover-depth','lost-hover-relief','lost-cold-helper-activation','lost-active-helper-reacquire'} else 'Run'})
         for folder in ['Assets/Editor','Packages','ProjectSettings']:(project/folder).mkdir(parents=True)
         (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{'com.unity.ugui':'1.0.0','com.unity.textmeshpro':'3.0.6','com.unity.modules.assetbundle':'1.0.0','com.unity.modules.imageconversion':'1.0.0'}})+'\n')

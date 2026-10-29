@@ -1,6 +1,8 @@
 using System;
 using GloomhavenVR.Core;
 using HarmonyLib;
+using Script.GUI.SMNavigation;
+using Script.GUI.SMNavigation.States.CampaignMapStates;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI.MenuDepth;
@@ -51,5 +53,69 @@ internal static class MenuDepthLevelUpHoverObserver
             card.localRotation = Quaternion.identity;
             return;
         }
+    }
+}
+
+/// <summary>Keep the native locked/browse inventory preview outside its scrolling list's clipper.</summary>
+[HarmonyPatch(typeof(UILevelUpCard), nameof(UILevelUpCard.MouseEnter))]
+internal static class MenuDepthFurtherAbilityHoverObserver
+{
+    private static int _failures;
+
+    [HarmonyPostfix]
+    private static void AfterMouseEnter(UILevelUpCard __instance, AbilityCardUI? ___abilityCard,
+        bool ___highlighted, Vector3 ____fullCardPrewiewOffset)
+    {
+        try { SettleOriginal(__instance, ___abilityCard, ___highlighted, ____fullCardPrewiewOffset); }
+        catch (Exception exception)
+        {
+            int count = ++_failures;
+            if (count <= 3 || (count & (count - 1)) == 0)
+                VRLog.Note("WorldUI", "FURTHER CARD HOVER could not settle the original preview: "
+                    + exception.GetType().Name + "; occurrence=" + count + ".");
+        }
+    }
+
+    internal static void SettleOriginal(UILevelUpCard entry, AbilityCardUI? card, bool highlighted,
+        Vector3 nativeOffset)
+    {
+        if (FlatScreen.ManualScreenActive || !VRSession.IsRunning || !WorldUIConfig.ConversionActive
+            || entry == null || !entry.gameObject.activeInHierarchy || !highlighted
+            || card == null || entry.Selectable == null) return;
+        // The original method decides whether this row requests a preview. In
+        // particular, an ordinary selectable level-up row only highlights the
+        // shared reveal holder; it must not acquire a second preview here.
+        if (entry.Selectable.interactable && !InputManager.GamePadInUse) return;
+        var navigation = Singleton<UINavigation>.Instance;
+        if (navigation == null || navigation.StateMachine == null
+            || navigation.StateMachine.CurrentState
+                == navigation.StateMachine.GetState(CampaignMapStateTag.ShowingCardLevelUp)) return;
+        FullAbilityCard full = card.fullAbilityCard;
+        if (full == null
+            || !full.gameObject.activeInHierarchy || card.MiniAbilityCard == null) return;
+        ConvertedPanel? owner = ModalFallback.FindOwningWindow(card.transform);
+        if (owner == null || !owner.IsAlive || owner.HostRect == null
+            || !ReferenceEquals(ModalFallback.FindOwningWindow(full.transform), owner)) return;
+
+        // Build747: this native path deliberately skips ChangeFullCardPosition,
+        // then writes the Full position again AFTER ToggleFullCardPreview. Its
+        // new Canvas initially escapes the inventory's RectMask2D, but adoption
+        // clears that flag on the next sweep and cuts the card to the list.
+        // Settle after the final native writer, using the same original Mini
+        // anchor/offset in the window's pixel basis. Existing tooltip ownership
+        // raises the original Full, preserves scale and ordering, and hands it
+        // back to this pooled AbilityCardUI on the ordinary native hide edge.
+        Vector3 miniOffset = owner.HostRect.InverseTransformVector(
+            card.MiniAbilityCard.transform.position - card.transform.position);
+        const string kind = "FullAbilityCard (Further Ability Cards hover preview)";
+        // SpawnCard can preserve the pooled row's world rotation. Establish the
+        // Full's existing owner plane before PlaceFullCardPreview drops local Z;
+        // doing that while it still inherits the tilted row loses an in-plane
+        // component. Only the original preview moves; the native row stays owned
+        // by its inventory and keeps its original pool/input lifetime.
+        TooltipOnWindow.Settle(full, kind, card);
+        TooltipOnWindow.PlaceFullCardPreview(card, full,
+            miniOffset.x + nativeOffset.x, miniOffset.y + nativeOffset.y,
+            kind);
     }
 }

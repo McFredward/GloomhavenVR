@@ -44,7 +44,47 @@ namespace GloomhavenVR.Rig
 namespace GloomhavenVR.WorldUI
 {
     internal static class WorldUIConfig { internal static bool ConversionActive = true; internal sealed class Setting { internal bool Value = true; } internal static readonly Setting CharacterPreviewDepth = new(); }
-    internal sealed class ConvertedPanel { internal Transform Target = null!; internal bool IsAlive = true; }
-    internal static class CanvasConversion { internal static readonly List<ConvertedPanel> ActivePanels = new(); }
+    internal sealed class ConvertedPanel
+    {
+        internal RectTransform Target = null!;
+        internal bool IsAlive = true;
+        internal RectTransform HostRect = null!;
+        internal GameObject HostGo = null!;
+        internal Canvas HostCanvas = null!;
+        internal bool OrderListed;
+        internal int DrawSortingOrder = 100;
+        internal readonly List<NestedCanvasRecord> AdoptedCanvases = new();
+        internal bool AdoptedOrderRebaseDirty;
+    }
+    internal static partial class CanvasConversion
+    {
+        internal const int RaisedOverlayOrderOffset = 15;
+        internal static readonly List<ConvertedPanel> ActivePanels = new();
+        // The existing order-ladder service is an explicit boundary. Production
+        // adoption and raised-overlay record/flag ownership execute unchanged.
+        internal static void RegisterOrderFollower(ConvertedPanel owner, Canvas canvas, int offset)
+            => canvas.sortingOrder = owner.DrawSortingOrder + offset;
+    }
+    internal static class ModalFallback
+    {
+        internal static ConvertedPanel? FindOwningWindow(Transform? source)
+        {
+            if (source == null) return null;
+            foreach (ConvertedPanel panel in CanvasConversion.ActivePanels)
+                if (panel.IsAlive && panel.Target != null && source.IsChildOf(panel.Target)) return panel;
+            return null;
+        }
+    }
+    internal static class CharacterTooltipPlacement
+    {
+        internal static void SettleNativeLocal(Component source) { }
+        internal static void ReleaseNativeLocal(Component source) { }
+        internal static bool TryLocalHint(Component source, out RectTransform? anchor) { anchor = null; return false; }
+        internal static void ReleaseConvertedAnnotation(RectTransform source) { }
+        internal static void TrackConvertedAnnotation(RectTransform source, RectTransform? anchor) { }
+        internal static void PlaceLocal(RectTransform source, RectTransform host, RectTransform? anchor) { }
+        internal static Vector3 RightCenter(RectTransform host, Quaternion rotation, RectTransform? anchor,
+            float halfWidth, float halfHeight, float depth) => throw new System.NotSupportedException("No character annotation in card fixture");
+    }
     internal static class FlatScreen { internal static bool ManualScreenActive; }
 }

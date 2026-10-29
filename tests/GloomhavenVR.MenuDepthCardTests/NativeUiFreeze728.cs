@@ -75,9 +75,9 @@ public static partial class MenuDepthCardProgram
             var nativeImage = item.AddComponent<Image>(); nativeImage.color = Color.white;
             if (i == 0) genuineParentChange = nativeImage;
         }
-        CanvasConversion.ActivePanels.Add(new ConvertedPanel { Target = root.transform });
-        CanvasConversion.ActivePanels.Add(new ConvertedPanel { Target = second.transform });
-        CanvasConversion.ActivePanels.Add(new ConvertedPanel { Target = notification.transform });
+        CanvasConversion.ActivePanels.Add(new ConvertedPanel { Target = (RectTransform)root.transform });
+        CanvasConversion.ActivePanels.Add(new ConvertedPanel { Target = (RectTransform)second.transform });
+        CanvasConversion.ActivePanels.Add(new ConvertedPanel { Target = (RectTransform)notification.transform });
         try
         {
             MenuDepthDriver.Tick(); Canvas.ForceUpdateCanvases(); camera.Render();

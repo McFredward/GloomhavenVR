@@ -123,3 +123,45 @@ enabled, so this does not establish original game-uGUI gate timing. Native pose,
 parenting, pool selection, activation, callback and head/UI render operations run.
 The original game files remain read-only. Actual native game art/D3D11 and headset
 appearance still require hardware acceptance.
+
+# Build747 browse-only More Cards clipping
+
+`more-cards747` executes the original `UILevelUpCard.MouseEnter/MouseExit`,
+`AbilityCardUI.ToggleFullCardPreview`, transient Canvas and native pool roundtrip
+outside an active level-up. The real inventory prefab audit follows its content
+through the original `RectMask2D` viewport and records the external pointer/gamepad
+row prefabs and persistent pointer callbacks. The controlled render uses native
+typed card components with explicit text/art witnesses, not reconstructed game
+artwork or a scenario bootstrap.
+
+The unchanged production `TooltipOnWindow` placement, flattening, clamp, raise,
+scale receipt and restore bodies execute alongside the original native hide
+postfix and production `AdoptCanvas`/`KeepRaisedOverlayOnTop` bodies. Only converted
+owner registration, the unchanged order-follower ladder, camera/poke bookkeeping,
+diagnostics, unrelated character annotations, session input and the existing
+desktop-screen-fit cut are service ports. `tooltip-kernel-boundary.json`, the
+retained full sources and source/tool/native hashes identify this boundary.
+
+First and three adopted steady frames must show the entire card beyond its list.
+All four card corners and the complete title bounds must fit inside the actual
+head image with margins; independently projected left/right ink witnesses and the
+title's horizontal ink extent must be visible in every frame. Actual first/steady
+rasters must be bit-identical. The independent point-based reference permits at
+most 128 total one-LSB channel units for float rounding versus vector-based
+placement after a rotated native pool roundtrip. Six pointer/gamepad reuse cycles,
+two window yaws, native callback counts, full-home/Canvas retirement, manual/flat/
+VR-off/retired/unowned/selectable/reveal exclusions and unchanged census counters
+are covered. The scaled fixture also scales its camera near plane, preserving
+depth precision instead of introducing artificial distant coplanar fighting.
+The former exact reference comparison failed with 11 total channel units in 10
+pixels (maximum 1 LSB), while first and steady pixels were identical. The independent
+reference must also preserve owner position within 0.0001 native pixel, orientation
+and physical width, and head projection within 0.001 pixel; actual pose/channel
+deltas are recorded per reuse cycle.
+
+Five compiled controls remove the final seam, manual exclusion, Mini anchor,
+pool-plane raise or hide restoration. The retained pre-fix render reproduces a
+complete first card followed by a vertical mask cut after adoption. Normal hover,
+item/card relief and native level-up hover/won-card introduction cases stay in the
+same containing suite. No network branch changes; multiplayer headset/native
+D3D11 acceptance remains a hardware check.
