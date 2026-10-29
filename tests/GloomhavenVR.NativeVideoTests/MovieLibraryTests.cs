@@ -87,7 +87,9 @@ internal static class MovieLibraryTests
             ambientPlayer.targetCamera = ambientPlayer.gameObject.AddComponent<Camera>();
             ambientPlayer.renderMode = VideoRenderMode.CameraFarPlane;
             var background = new BackgroundView { Player = ambientPlayer, OriginalUrl = Path.Combine(game, "StreamingAssets", "Movies", ambient) };
+            int questPrepares = FlatScreen.QuestPrepareCalls;
             background.Update();
+            check(FlatScreen.QuestPrepareCalls == questPrepares + 1, "actual ambient setter reaches camera-plane preparation before first Play");
             check(ambientPlayer.PlayedUrl == ambientStereo && ambientPlayer.PlayCalls == 1
                 && ambientPlayer.renderMode == VideoRenderMode.CameraFarPlane && NativeVideoMovies.CameraPlaneSource == ambientPlayer,
                 "actual ambient Harmony seam retains camera mode and first-play selection");

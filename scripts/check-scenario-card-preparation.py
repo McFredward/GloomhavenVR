@@ -11,6 +11,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = [
+    'src/GloomhavenVR/Core/QuestTextureCopy.cs',
     'src/GloomhavenVR/Cards/Art/ScenarioCardPreparation.cs',
     'src/GloomhavenVR/Cards/Art/CardArtPin.cs',
     'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs',

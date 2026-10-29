@@ -53,6 +53,8 @@ internal static class Program
             Check(VROptionsTab.Notes.Contains(Loc.VideoReviewCheatsScope), "Cheats scope distinguishes progress changes from shared video previews");
             Check(VROptionsTab.ReservedLines >= 3, "Live status reserves localized feedback space");
             Check(VROptionsTab.Notes.Contains(Loc.VideoReviewHint), "Review explains ordinary window and unchanged progress");
+            Check(VROptionsTab.Labels.Contains(VROptionsTab.StatusLabel!),
+                "Status repaint binds the authored Title despite inactive donor label ordering");
             Check(VROptionsTab.Caption == Loc.VideoReviewReady, "Initial review state is visible");
             foreach (string key in keys)
             {

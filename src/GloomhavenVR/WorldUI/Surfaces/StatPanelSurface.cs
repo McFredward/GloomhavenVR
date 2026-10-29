@@ -662,7 +662,12 @@ internal sealed class StatPanelSurface
             if (watch.Panel.HostRaycaster != null && watch.Panel.HostRaycaster.enabled)
                 watch.Panel.HostRaycaster.enabled = false;
             PlaceWatch(watch);
-            watch.RescanMips(name); // cadence-gated inside; catches the async portrait + actor swaps
+            watch.RescanMips(name);
+            if (live is ActorStatPanel actor)
+                // Use the exact native consumer. The original window can be parked while
+                // its last offscreen capture is still visible; its activation flag must
+                // be evidence, not a reason to hide the portrait's actual draw state.
+                Cards.QuestArtworkEvidence.Image(actor.characterPortrait, "stat-portrait");
         }
     }
 
@@ -856,13 +861,26 @@ internal sealed class StatPanelSurface
                 continue;
             try
             {
-                var dst = new Texture2D(tex.width, tex.height, tex.format, tex.mipmapCount > 1)
+                var dst = QuestStandalonePlatform.Enabled
+                    ? new Texture2D(tex.width, tex.height, tex.format, tex.mipmapCount,
+                        !UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat))
+                    : new Texture2D(tex.width, tex.height, tex.format, tex.mipmapCount > 1);
+                dst.name = tex.name + " (VR copy)";
+                dst.filterMode = tex.filterMode;
+                dst.wrapMode = tex.wrapMode;
+                dst.anisoLevel = tex.anisoLevel;
+                // B689: copying a GPU-only portrait into a fresh readable texture
+                // does not guarantee a valid CPU pixel shadow. PanelMipBake.Rescan
+                // trusts isReadable and can bake that stale allocation into a broken
+                // SECOND panel while the original GPU-only panel stays correct.
+                // Discard the destination's CPU allocation BEFORE the GPU copy;
+                // Apply after copying would upload those stale bytes over the art.
+                // Optional Quest filtering then retains this exact GPU portrait.
+                // Desktop's existing copy/filtering recipe is unchanged.
+                if (QuestStandalonePlatform.Enabled && !tex.isReadable)
                 {
-                    name = tex.name + " (VR copy)",
-                    filterMode = tex.filterMode,
-                    wrapMode = tex.wrapMode,
-                    anisoLevel = tex.anisoLevel,
-                };
+                    dst.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+                }
                 Graphics.CopyTexture(tex, dst);
                 var rebuilt = Sprite.Create(dst, sprite.rect, NormalizedPivot(sprite),
                                             sprite.pixelsPerUnit, 0, SpriteMeshType.FullRect,

@@ -34,7 +34,7 @@ internal static partial class VROptionsTab
         // Reserve space for localized refusal feedback before the first press.
         // A longer asynchronous result must not move the next button under the pointer.
         var status = BuildNote(ContentRoot, VideoReviewCaption(), multiline: true, minLines: 3);
-        _videoReviewStatus = status.GetComponentInChildren<TMP_Text>(true);
+        _videoReviewStatus = FindPart<TMP_Text>(status.transform, "Title");
         _videoReviewCaption = string.Empty;
         _videoReviewSnapshot = false;
 

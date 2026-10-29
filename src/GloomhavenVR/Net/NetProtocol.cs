@@ -660,6 +660,19 @@ internal static class NetProtocol
     // Keep map/scenario placement, video playback, MR precedence and wire intact.
     // Build741 is reserved for the coordinated Quest standalone development lane.
 
+    // ModBuild741 — Quest integration after finalized dev740.
+    // Preserve the accepted menu depth, character quality, hover, confirmation
+    // and environment behavior, together with all existing Quest presentation,
+    // input, profile and installed-APK update adapters. Qualify the renamed
+    // readonly AOT reader closure without changing its field access semantics.
+    // Supply the original render-only Default sky through an independent Android
+    // resource pair: existing Android player assets are preferred; first PC builds
+    // compile only its three original shaders. Retain all Campaign, authored art,
+    // movie, figure and audio producers. Bind portable resources to the already
+    // qualified APK, publish real shader progress and retain fast-update inputs
+    // while cleaning closed generation caches. Source-only delivery; headset
+    // appearance remains a separate hardware acceptance item.
+
     // ModBuild740 — selected surroundings in the main menu, 3D map and scenarios.
     // The maintainer extends the environment choice to every VR context, including
     // the game's Default animated sky. This supersedes the old menu exclusion.
@@ -733,6 +746,14 @@ internal static class NetProtocol
     // acceptance item; no lower-quality or capture-rate fallback is introduced.
     // Build735 is already used by the separate Quest standalone branch.
 
+    // ModBuild735 — rebase Quest Standalone onto completed dev734.
+    // Preserve shared absolute window geometry, city/quest authority, stable
+    // complete character-window detail, right-side native hints and preview-only
+    // rotation. Retain Quest input, loading, native FX, mobile profile and local
+    // installed-APK compiler-reference updates. Qualify Android resource bindings
+    // independently of the upstream D3D11 shader bank; preserve compatible game
+    // conversion and separate movie/figure/audio producers. Source-only delivery;
+    // no local full APK or archive, and no unperformed headset acceptance claim.
     // ModBuild734 — complete menu-quality delivery after shared city readiness733.
     // Finish the unpublished732 menu checkpoint on the current integration branch.
     // Fixed actual-head rasters preserve complete native UI/character detail during

@@ -9,6 +9,7 @@ internal sealed partial class FlatScreenStereo
     private VideoPlayer? _stereoMovie;
     private VideoPlayer? _reportedMovie;
     private string _reportedMovieUrl = string.Empty;
+    private Material? _questMovieEye;
     internal bool StereoMovieActive => _stereoMovie != null;
     internal bool OwnsMoviePlane(Camera camera) => _active && _stereoMovie != null
         && _stereoMovie.targetCamera == camera && _rtRight != null && _rtLeftShifted != null;
@@ -46,7 +47,22 @@ internal sealed partial class FlatScreenStereo
     /// </summary>
     private bool ShowStereoMovie(Camera head, Material material)
     {
-        if (_stereoMovie == null || _rtRight == null || !EnsureShiftRt() || _rtLeftShifted == null) return false;
+        if (_stereoMovie == null) return false;
+        // Quest has already completed all target-changing work at head pre-cull.
+        // Its late headset callback may route textures only (B675 hardware boundary).
+        if (!QuestStandalonePlatform.Enabled) PrepareStereoMovieEyes();
+        if (_rtRight == null || _rtLeftShifted == null) return false;
+        RenderTexture target = head.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right ? _rtRight : _rtLeftShifted;
+        if (!ReferenceEquals(material.mainTexture, target)) material.mainTexture = target;
+        if (QuestStandalonePlatform.SharedStereoEyeRouting)
+            QuestStandalonePlatform.SetFlatScreenEyes(material, _rtLeftShifted, _rtRight);
+        else QuestStandalonePlatform.SetFlatScreenMono(material, target);
+        return true;
+    }
+
+    private void PrepareStereoMovieEyes()
+    {
+        if (_stereoMovie == null || _rtRight == null || !EnsureShiftRt() || _rtLeftShifted == null) return;
         VideoPlayer player = _stereoMovie;
         if (_shiftBlitFrame != Time.frameCount)
         {
@@ -68,16 +84,38 @@ internal sealed partial class FlatScreenStereo
                 // Startup's sole original camera is UI-classified and clears black.
                 // No background stack authors _leftRt there; never expose fresh RT data.
                 Texture? background = _introGuard ? null : _leftRt;
-                DrawMovieEye(valid ? texture : null, _rtLeftShifted, 0, alpha, background);
-                DrawMovieEye(valid ? texture : null, _rtRight, 1, alpha, background);
+                if (QuestStandalonePlatform.Enabled)
+                {
+                    DrawQuestMovieEye(valid ? texture : null, _rtLeftShifted, 0, alpha, background);
+                    DrawQuestMovieEye(valid ? texture : null, _rtRight, 1, alpha, background);
+                }
+                else
+                {
+                    DrawMovieEye(valid ? texture : null, _rtLeftShifted, 0, alpha, background);
+                    DrawMovieEye(valid ? texture : null, _rtRight, 1, alpha, background);
+                }
             }
             finally { RenderTexture.active = previous; }
         }
-        // Actual eyes only. A nested/auxiliary Mono callback can never advance parity
-        // and swap the next head pass to the wrong recorded perspective.
-        RenderTexture target = head.stereoActiveEye == Camera.MonoOrStereoscopicEye.Right ? _rtRight : _rtLeftShifted;
-        if (!ReferenceEquals(material.mainTexture, target)) material.mainTexture = target;
-        return true;
+    }
+
+    private void DrawQuestMovieEye(Texture? texture, RenderTexture target, int eye, float alpha, Texture? background)
+    {
+        if (_questMovieEye == null)
+            _questMovieEye = new Material(QuestMovieAssets.Shader("Hidden/GloomhavenVR/QuestMovieEye"))
+                { hideFlags = HideFlags.HideAndDontSave };
+        Rect frame = MovieFrameRect(target.width, target.height, 1920f / 1080f);
+        _questMovieEye.SetTexture("_Background", background != null ? background : Texture2D.blackTexture);
+        _questMovieEye.SetVector("_FrameSize", new Vector4(frame.width / target.width, frame.height / target.height, 0f, 0f));
+        _questMovieEye.SetFloat("_Eye", eye);
+        _questMovieEye.SetFloat("_Alpha", texture == null ? 0f : alpha);
+        bool srgb = GL.sRGBWrite;
+        try
+        {
+            GL.sRGBWrite = target.sRGB;
+            Graphics.Blit(texture != null ? texture : Texture2D.blackTexture, target, _questMovieEye, 0);
+        }
+        finally { GL.sRGBWrite = srgb; }
     }
 
     internal static Rect MovieFrameRect(int width, int height, float perEyeAspect)

@@ -961,6 +961,7 @@ internal sealed class PileViewer
         private TextMeshPro? _count;
         private TextMeshPro? _captionTmp;
         private Material? _topMaterial;
+        private Mesh? _questSlabMesh;
         private Color _baseColor;
         private int _shown = int.MinValue;
         private bool _hasCards;
@@ -991,9 +992,13 @@ internal sealed class PileViewer
             // Stack body: 4 thin slabs, each a step behind the previous (+Z is into
             // the board) with a small alternating jitter so it reads as a real pile.
             Material? topMaterial = null;
+            Mesh? questSlabMesh = null;
             for (int i = 0; i < 4; i++)
             {
                 var slab = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                var filter = slab.GetComponent<MeshFilter>();
+                if (i == 0) questSlabMesh = QuestLitPrimitiveMesh.Rebuild(filter.sharedMesh, "pile-" + kind);
+                if (questSlabMesh != null) filter.sharedMesh = questSlabMesh;
                 slab.name = $"Slab{i}";
                 Object.Destroy(slab.GetComponent<Collider>());
                 slab.transform.SetParent(go.transform, worldPositionStays: false);
@@ -1054,6 +1059,7 @@ internal sealed class PileViewer
             stack._count = count;
             stack._captionTmp = captionTmp;
             stack._topMaterial = topMaterial;
+            stack._questSlabMesh = questSlabMesh;
             stack._baseColor = color;
             Core.VRLayers.Apply(go); // mod layer (render-only; poke/grab via registries)
             // 2026-08-04 (status-placard defect family): the count/caption TMP labels are
@@ -1062,6 +1068,12 @@ internal sealed class PileViewer
             // are skipped by the queue filter).
             PlayTray.AdoptFurniture(go);
             return stack;
+        }
+
+        private void OnDestroy()
+        {
+            if (_questSlabMesh != null) Object.Destroy(_questSlabMesh);
+            _questSlabMesh = null;
         }
 
         /// <summary>Re-read the pile caption in the current language (live-follow).</summary>

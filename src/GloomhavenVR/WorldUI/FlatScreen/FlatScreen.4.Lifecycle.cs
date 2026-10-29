@@ -21,7 +21,9 @@ internal sealed partial class FlatScreen
     /// </summary>
     public void OnEndOfFrame()
     {
-        if (!VRSession.IsRunning || DesktopMirrorLeftEye)
+        // Null RenderTexture is not evidence of a separate desktop framebuffer
+        // on Android XR. Standalone never owns the PC spectator's black clear.
+        if (QuestStandalonePlatform.Enabled || !VRSession.IsRunning || DesktopMirrorLeftEye)
             return;
         RenderTexture? previous = RenderTexture.active;
         try
@@ -425,13 +427,17 @@ internal sealed partial class FlatScreen
 
         if (_quad == null)
         {
+            ReleaseQuestScreenMesh(ref _questQuadMesh);
             _quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            RebuildQuestScreenMesh(_quad, ref _questQuadMesh, "flat-screen");
             _quad.name = "GloomhavenVR.FlatScreen";
             // Menu scenes load Single — the quad must survive them (root cause of the
             // black HMD menu: quad died with the scene, UICamera stayed on the RT).
             Object.DontDestroyOnLoad(_quad);
             Object.Destroy(_quad.GetComponent<Collider>());
             _quadRenderer = _quad.GetComponent<Renderer>();
+            if (QuestStandalonePlatform.Enabled)
+                _quad.AddComponent<QuestMenuDrawWitness>().Owner = this;
             // Shader choice (P3b, hardware test #4): the quad must render its texture
             // ALPHA-IGNORING — the RT's alpha channel is whatever the UI left behind.
             //
@@ -448,14 +454,16 @@ internal sealed partial class FlatScreen
             //    ≈ 1, so it renders near-opaque instead of invisible.
             // (An opaque keyword/MaterialPropertyBlock variant of Sprites/Default does
             // not exist — the shader has no such keyword — hence the BlitCopy pick.)
-            Shader? shader = Shader.Find("Hidden/BlitCopy")
-                             ?? Shader.Find("Sprites/Default")
-                             ?? Shader.Find("UI/Default");
-            _screenMaterial = new Material(shader) { mainTexture = _rt };
+            Shader? shader = QuestStandalonePlatform.SelectFlatScreenShader(
+                Shader.Find("Hidden/BlitCopy")
+                ?? Shader.Find("Sprites/Default")
+                ?? Shader.Find("UI/Default"));
+            _screenMaterial = CreateScreenMaterial(shader, _rt, glass: false);
+            QuestStandalonePlatform.SetFlatScreenMono(_screenMaterial, _rt);
             // ITEM 1: remember the shader's own queue so the menu/scenario depth policy
             // (TickBackdropDepth) can restore it outside menu modes.
             _screenMaterialQueueDefault = _screenMaterial.renderQueue;
-            _quadRenderer.sharedMaterial = _screenMaterial;
+            SetScreenMaterial(_quadRenderer, _screenMaterial, glass: false);
 
             // No FlatScreen-owned reticle: the RayInteractor's beam + dot clamp to
             // the screen hit via UiHitOverride (test #7 — one convergent visual).
@@ -516,10 +524,16 @@ internal sealed partial class FlatScreen
                 _quad = null;
                 _quadRenderer = null;
             }
+            ReleaseQuestScreenMesh(ref _questQuadMesh);
             if (_screenMaterial != null)
             {
                 Object.Destroy(_screenMaterial);
                 _screenMaterial = null;
+            }
+            if (_questOpaqueUnderlay != null)
+            {
+                Object.Destroy(_questOpaqueUnderlay);
+                _questOpaqueUnderlay = null;
             }
         }
         if (_visible)

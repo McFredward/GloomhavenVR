@@ -585,7 +585,7 @@ internal static partial class PanelSupersample
         RenderTexture? active = RenderTexture.active;
         try
         {
-            Graphics.Blit(previousShown, shown);
+            QuestTextureCopy.Copy(previousShown, shown);
             if (shown.mipmapCount > 1)
                 shown.GenerateMips();
             return true;
@@ -2707,7 +2707,11 @@ internal static partial class PanelSupersample
             // zero is evidence rather than an absent line.
             if (e.Rt.width != e.MipRt.width || e.Rt.height != e.MipRt.height)
                 e.ResolveSizeMismatch++;
-            Graphics.Blit(e.Rt, e.MipRt);
+            // Quest's panels are ordinary 2D camera targets. Keep their MSAA
+            // resolve and premultiplied alpha separate from the XR array-eye
+            // sampler state, just like its movie/card copy paths. Desktop still
+            // uses the original builtin blit through the shared helper.
+            QuestTextureCopy.Copy(e.Rt, e.MipRt);
             e.MipRt.GenerateMips();
             e.MipCount = e.MipRt.mipmapCount;
             // RE-ASSERT THE MIP LOD OFFSET (ModBuild 203). Two reasons, and neither is paranoia

@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -33,10 +34,10 @@ def method(text, signature):
     return text[start:end]
 
 
-def rig_sources(mode):
-    rig = (ROOT / 'src/GloomhavenVR/Rig/VRRigDriver.cs').read_text()
-    camera = (ROOT / 'src/GloomhavenVR/Rig/VRRigDriver.HeadCamera.cs').read_text()
-    recenter = (ROOT / 'src/GloomhavenVR/Rig/VRRigDriver.Recenter.cs').read_text()
+def rig_sources(mode, source):
+    rig = (source / 'src/GloomhavenVR/Rig/VRRigDriver.cs').read_text()
+    camera = (source / 'src/GloomhavenVR/Rig/VRRigDriver.HeadCamera.cs').read_text()
+    recenter = (source / 'src/GloomhavenVR/Rig/VRRigDriver.Recenter.cs').read_text()
     assert '        UpdateRigLifetime(desired, controller, sceneRecheck);' in rig
     lifetime = method(rig, '    private void UpdateRigLifetime(')
     if mode == 'anchor-teardown':
@@ -75,10 +76,12 @@ namespace GloomhavenVR.Rig { internal sealed partial class VRRigDriver {
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output', type=Path, default=ROOT / '.planning/debug/menu-rig-lifecycle')
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     parser.add_argument('--mode', choices=('all', 'production', 'anchor-teardown', 'rebind-motion', 'clear-owner'), default='all')
     args = parser.parse_args()
+    source = args.source_root.resolve(strict=True)
     spec = importlib.util.spec_from_file_location('loading_source_harness', GPU / 'run.py')
     helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
     args.output.mkdir(parents=True, exist_ok=True)
@@ -86,14 +89,20 @@ def main():
     common = Path(subprocess.check_output(['git', 'rev-parse', '--git-common-dir'], cwd=ROOT, text=True).strip())
     integration = (ROOT / common).resolve().parent if not common.is_absolute() else common.resolve().parent
     cleanup_root = integration if run.is_relative_to(integration / '.planning/debug') else ROOT
-    production = ROOT / helper.PRODUCTION
+    production = source / helper.PRODUCTION
     inputs = [production / name for name in helper.FILES]
-    inputs += [ROOT / 'src/GloomhavenVR/Rig' / name for name in (
+    inputs += [source / 'src/GloomhavenVR/Rig' / name for name in (
         'VRRigDriver.cs', 'VRRigDriver.HeadCamera.cs', 'VRRigDriver.Recenter.cs')]
-    bank = ROOT / 'src/GloomhavenVR/Assets/SteamLink/scene.bundle'
-    overlay = ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader'
+    bank = source / 'src/GloomhavenVR/Assets/SteamLink/scene.bundle'
+    overlay = source / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader'
+    targets = source / 'src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.NativeTargets.cs'
+    stack = source / 'src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.2.CameraStack.cs'
+    inputs.append(stack)
+    if targets.is_file(): inputs.append(targets)
+    target_method = re.search(r'    private RenderTexture\? TargetFor\(CapturedCamera c\) =>\s*\n        .*?;', stack.read_text())
+    assert target_method, 'Actual capture routing method drift'
     inputs += [bank, overlay, GPU / 'run.py', *GPU.glob('*.shader'), *[p for p in HERE.iterdir() if p.is_file()]]
-    pins = {str(path.relative_to(ROOT)): sha(path) for path in inputs}
+    pins = {str(path): sha(path) for path in inputs}
     copies = run / 'sources'; copies.mkdir()
     for index, path in enumerate(inputs): shutil.copyfile(path, copies / (str(index) + '-' + path.name))
     (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
@@ -106,7 +115,7 @@ def main():
     framework = Path.home() / '.nuget/packages/microsoft.netframework.referenceassemblies.net472/1.0.3/build/.NETFramework/v4.7.2'
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
     overall = {'scope': 'ACTUAL_UNITY_OWNED_MENU_HEAD_AND_COVERAGE_LIFECYCLE', 'cases': [], 'exit_code': 1,
-               'xr_executed': False, 'headset_picture_proven': False, 'native_receiver_executed': False,
+               'source_root': str(source), 'xr_executed': False, 'headset_picture_proven': False, 'native_receiver_executed': False,
                'mixed_reality_owner_executed': False}
     modes = ('production', 'anchor-teardown', 'rebind-motion', 'clear-owner') if args.mode == 'all' else (args.mode,)
     expected = {'anchor-teardown': 'native menu anchor gap must retain current coverage source',
@@ -131,7 +140,13 @@ def main():
                         'observation': 'count successful returned same-eye renders after unchanged actual method returns',
                         'retained_images_or_masks': False}, indent=2) + '\n')
                 (frozen / name).write_text(text)
-            (frozen / 'MenuLifecycle.cs').write_text(rig_sources(mode))
+            (frozen / 'MenuLifecycle.cs').write_text(rig_sources(mode, source))
+            (frozen / 'CapturedTarget.cs').write_text('using UnityEngine;\nnamespace GloomhavenVR.WorldUI { internal sealed partial class FlatScreen {\n' + target_method.group() + '\n}}\n')
+            if targets.is_file():
+                (frozen / 'NativeTargets.cs').write_text(targets.read_text())
+            else:
+                (frozen / 'NativeTargets.cs').write_text('using UnityEngine;\nnamespace GloomhavenVR.WorldUI { internal sealed partial class FlatScreen {\n private static RenderTexture? DesktopScrubTarget;\n internal static bool OwnsPresentationTarget(Camera camera) => DesktopScrubTarget != null && camera.targetTexture == DesktopScrubTarget;\n}}\n')
+            (frozen / 'SourceCapabilities.cs').write_text('internal static class MenuFixtureSource { internal static bool QuestResolverAvailable => ' + str(targets.is_file()).lower() + '; }\n')
             build = case / 'managed-build'; build.mkdir()
             shutil.copyfile(HERE / 'Fixture.csproj', build / 'Fixture.csproj')
             case_code = 1
@@ -170,7 +185,7 @@ def main():
             finally:
                 receipt = cleanup_completed_run('menu-rig-lifecycle', case_code, completion, cleanup_root, process_reaped=True)
                 (case / 'cleanup.json').write_text(json.dumps(receipt, indent=2) + '\n')
-        assert pins == {str(path.relative_to(ROOT)): sha(path) for path in inputs}, 'Source inputs changed through child reap'
+        assert pins == {str(path): sha(path) for path in inputs}, 'Source inputs changed through child reap'
         assert metadata_pins == {str(path): sha(path) for path in metadata}, 'Borrowed metadata changed'
         overall['exit_code'] = 0
     finally:

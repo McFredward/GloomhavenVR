@@ -54,6 +54,8 @@ namespace GloomhavenVR
 }
 namespace GloomhavenVR.Core
 {
+    // This suite varies desktop/Frame profile inputs without configuring a Quest player.
+    internal static class QuestStandalonePlatform { internal static bool Enabled => false; }
     internal static partial class PerfConfig
     {
         internal static void BindFixture(ConfigFile file)

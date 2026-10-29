@@ -1,0 +1,655 @@
+"""Owned local wizard sessions and atomic, hash-verified stage receipts."""
+from __future__ import annotations
+from contextlib import contextmanager
+from functools import lru_cache
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path, PurePosixPath, PureWindowsPath
+import re
+import math
+import sqlite3
+import stat
+import threading
+import time
+import uuid
+import metadata_io
+import stage_plan
+import timing
+
+STAGES = ("tools", "source", "unity", "profile", "inspect", "build", "install")
+PROGRESS_INTERVAL = 0.5
+PROGRESS_LOG_BYTES = 8 * 1048576
+DERIVED_PROGRESS_FIELDS = frozenset(("buildOverview", "activeWork", "unityImport", "unityTask", "unityWork"))
+
+
+def _history_event(item):
+    """Keep one compact source observation, not another derived UI snapshot.
+
+    The current stage and its durable progress plan retain the complete live
+    overview. Repeating that projection 128 times made a late Unity build's
+    polling state approach the reader's 2 MiB limit. Historical counts, owners,
+    status, detail and timing remain available to resume and the events API;
+    the rotated progress log retains the original full diagnostic event.
+    """
+    if not isinstance(item, dict) or item.get("code") != "stage_progress": return item
+    parameters = item.get("parameters")
+    if not isinstance(parameters, dict) or not DERIVED_PROGRESS_FIELDS.intersection(parameters): return item
+    return dict(item, parameters={key: value for key, value in parameters.items() if key not in DERIVED_PROGRESS_FIELDS})
+
+
+def stage_progress(phase="pending", done=0, total=1, unit="stages", detail=None):
+    """Only observed quantities produce a percentage; an unknown total stays null."""
+    if not isinstance(phase, str) or not phase or len(phase) > 160:
+        raise WizardError("invalid_progress", "Invalid progress phase.")
+    for count in (done, total):
+        if count is not None and (type(count) not in (int, float) or not math.isfinite(count) or count < 0):
+            raise WizardError("invalid_progress", "Progress counts must be finite and non-negative.")
+    if done is not None and total is not None and done > total:
+        raise WizardError("invalid_progress", "Progress exceeds its observed total.")
+    if unit is not None and (not isinstance(unit, str) or len(unit) > 64):
+        raise WizardError("invalid_progress", "Invalid progress unit.")
+    if detail is not None and not isinstance(detail, str):
+        raise WizardError("invalid_progress", "Invalid progress detail.")
+    detail = None if detail is None else re.sub(r"[\x00-\x08\x0b-\x1f]", "", detail)[:1024]
+    # A large native graph can have thousands of completed nodes and one
+    # outstanding backend result. Rounding that observation to one decimal
+    # displayed100% before its successful boundary. Keep the observed ratio;
+    # even floating-point rounding must not turn an unfinished count into100.
+    percent = None if done is None or total is None else (100.0 if total == 0 or done == total
+        else min(math.nextafter(100.0, 0.0), done / total * 100.0))
+    return {"phase": phase, "done": done, "total": total, "unit": unit,
+            "percent": percent, "detail": detail, "updatedAt": time.time()}
+
+
+def _progress_clocks(row, value, old, status):
+    """A log refresh is activity, never evidence of newly completed work.
+
+    Support163304's fifteen-second Asset Pipeline Refresh loop repeatedly
+    reset the UI's 'last progress' clock without completing another task. Keep
+    both observations, using measured increases and actual successful scoped
+    return boundaries for the progress clock. No clock advances a percentage.
+    """
+    now = value["updatedAt"]
+    signals = row.setdefault("progressPlan", {}).setdefault("progressSignals", {})
+    scope = str(value.get("reportedOperation") or value.get("stageOperation") or "") + ":" + value["phase"]
+    previous = signals.get(scope, {})
+    done, total = value.get("done"), value.get("total")
+    increased = type(done) in (int, float) and done > 0 and done > previous.get("done", 0)
+    returned = status in ("complete", "reuse") and previous.get("status") not in ("complete", "reuse")
+    # A raw refresh/busy observation can preserve a previous counter for
+    # continuity, but its unchanged value does not prove further completion.
+    value["lastProgressAt"] = now if increased or returned else old.get("lastProgressAt")
+    value["lastActivityAt"] = now
+    if done is not None or status in ("start", "complete", "reuse", "failed"):
+        if scope not in signals and len(signals) >= 128: signals.pop(next(iter(signals)))
+        signals[scope] = {"done": done or 0, "total": total, "status": status}
+
+
+def native_memory_progress(value):
+    """Retain measured compiler observations, never paths or unbounded tool data."""
+    if not isinstance(value, dict): return None
+    result = {}
+    for name, bound in (("jobs", 4096), ("attempt", 1000000)):
+        number = value.get(name)
+        if type(number) is int and 1 <= number <= bound: result[name] = number
+    for name, bound in (("compilerProfile", 64), ("reason", 80)):
+        token = value.get(name)
+        if isinstance(token, str) and re.fullmatch(r"[a-z][a-z0-9-]{0," + str(bound - 1) + r"}", token):
+            result[name] = token
+    resources = value.get("resources")
+    if isinstance(resources, dict):
+        result["resources"] = {name: resources[name] for name in
+            ("availableMemoryBytes", "commitHeadroomBytes", "processWorkingSetBytes", "processPrivateCommitBytes")
+            if type(resources.get(name)) is int and 0 <= resources[name] <= 2 ** 53 - 1}
+        if not result["resources"]: result.pop("resources")
+    return result or None
+
+
+class WizardError(RuntimeError):
+    def __init__(self, code, en, de=None, **parameters):
+        super().__init__(en)
+        self.code, self.message = code, {"en": en, "de": de or en}
+        self.parameters = parameters
+
+
+class Cancelled(WizardError):
+    def __init__(self):
+        super().__init__("cancelled", "Cancelled; completed work is retained.", "Abgebrochen; abgeschlossene Arbeit bleibt erhalten.")
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def value_hash(value):
+    return hashlib.sha256(canonical(value)).hexdigest()
+
+
+def digest(path, algorithm="sha256", progress=None):
+    result = hashlib.new(algorithm)
+    done = 0
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1048576), b""):
+            result.update(block); done += len(block)
+            if progress: progress(done)
+    return result.hexdigest()
+
+
+@lru_cache(maxsize=1)
+def _receipt_storage():
+    """Load the shared standard-library witness code without global aliases."""
+    path = Path(__file__).resolve().parents[1] / "quest-builder/storage.py"
+    spec = importlib.util.spec_from_file_location("_ghvrq_wizard_receipt_storage", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def ordinary(path):
+    path = Path(path).absolute()
+    for entry in (path, *path.parents):
+        if entry.is_symlink() or (hasattr(entry, "is_junction") and entry.is_junction()):
+            raise WizardError("linked_path", "Wizard-owned paths cannot use links.", "Wizard-Arbeitsordner dürfen keine Verknüpfungen verwenden.")
+    return path
+
+
+def atomic_json(path, value):
+    path = ordinary(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    try:
+        with temp.open("xb") as stream:
+            stream.write(canonical(value) + b"\n"); stream.flush(); os.fsync(stream.fileno())
+        return metadata_io.replace(temp, path, ordinary, WizardError)
+    except OSError as error:
+        if metadata_io.access_error(error):
+            raise metadata_io.busy_error(path, error, WizardError) from error
+        raise
+    finally:
+        try: temp.unlink(missing_ok=True)
+        except OSError as error:
+            metadata_io.record(path, ordinary, "metadata-temp-cleanup-deferred", errorType=type(error).__name__)
+
+
+def read_json(path, limit=2 * 1048576):
+    path = ordinary(path)
+    if path.stat().st_size > limit:
+        raise WizardError("state_size", "Wizard state exceeds its supported size.", "Der Wizard-Status ist unerwartet groß.")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict) or value.get("schema") != 1:
+        raise WizardError("state_schema", "Unsupported wizard state.", "Nicht unterstützter Wizard-Status.")
+    return value
+
+
+@contextmanager
+def file_lock(path):
+    """Kernel-owned lock: hard process death releases it without deleting data."""
+    path = ordinary(path); path.parent.mkdir(parents=True, exist_ok=True)
+    stream = path.open("a+b")
+    if stream.seek(0, os.SEEK_END) == 0: stream.write(b"0"); stream.flush()
+    stream.seek(0)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        stream.close()
+        raise WizardError("already_running", "Another wizard run owns this workspace.", "Ein anderer Wizard-Lauf verwendet diesen Arbeitsordner.") from exc
+    try: yield stream
+    finally:
+        try:
+            stream.seek(0)
+            if os.name == "nt": msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else: fcntl.flock(stream, fcntl.LOCK_UN)
+        finally: stream.close()
+
+
+class Store:
+    def __init__(self, root, *, clock=None):
+        self._lock = threading.RLock()
+        self._live = {}
+        self._progress_saved = {}
+        self._timing = timing.Timeline(clock)
+        self.root = ordinary(root)
+        marker = self.root / "wizard-owner.json"
+        if self.root.exists() and not marker.is_file():
+            if any(self.root.iterdir()):
+                raise WizardError("unowned_workspace", "Select a new wizard workspace.", "Bitte einen neuen Wizard-Arbeitsordner wählen.")
+        self.root.mkdir(parents=True, exist_ok=True)
+        expected = {"schema": 1, "owner": "GloomhavenVR.QuestWizard"}
+        if marker.exists():
+            if read_json(marker) != expected: raise WizardError("unowned_workspace", "Workspace ownership differs.")
+        else: atomic_json(marker, expected)
+
+    def session_dir(self, session):
+        if not isinstance(session, str) or not re.fullmatch(r"[0-9a-f]{32}", session):
+            raise WizardError("invalid_session", "Invalid wizard session ID.", "Ungültige Wizard-Sitzung.")
+        return ordinary(self.root / "sessions" / session)
+
+    def load(self, session):
+        with self._lock:
+            value = read_json(self.session_dir(session) / "state.json")
+        if value.get("session") != session: raise WizardError("invalid_session", "Wizard session identity changed.")
+        if value.get("status") == "running":
+            try:
+                with file_lock(self.root / "run.lock"):
+                    # Re-read after acquiring ownership: another process may
+                    # have completed between the first read and the lock.
+                    value = read_json(self.session_dir(session) / "state.json")
+                    if value.get("status") == "running":
+                        value["status"] = "interrupted"
+                        for row in value["stages"]:
+                            if row["status"] == "running": row["status"] = "interrupted"
+                        value["needsActions"] = [{"code": "interrupted", "message": {
+                            "en": "The previous run stopped. Continue to verify and resume its retained work.",
+                            "de": "Der vorige Lauf wurde beendet. Fortsetzen prüft und verwendet die erhaltene Arbeit."}}]
+                        self.event(value, "interrupted")
+            except WizardError as error:
+                if error.code != "already_running": raise
+        for row in value["stages"]:
+            row.setdefault("progress", stage_progress("complete", 1, 1) if row["status"] == "complete" else stage_progress())
+            stage_plan.advance(row, row["progress"])
+        with self._lock:
+            return self._timing.snapshot(value, self._live.get(session))
+
+    @contextmanager
+    def active(self, state):
+        """Share the running engine's state with progress producers, never status readers."""
+        session = state["session"]
+        with self._lock:
+            self._live[session] = state
+            self._timing.activate(state)
+        try: yield state
+        finally:
+            with self._lock:
+                try:
+                    self._timing.close(state)
+                    self.save(state)
+                finally:
+                    self._live.pop(session, None)
+
+    def _state(self, session):
+        return self._live.get(session) or read_json(self.session_dir(session) / "state.json")
+
+    def _row(self, state, stage):
+        if stage not in STAGES: raise WizardError("invalid_stage", "Invalid wizard stage.")
+        return next(row for row in state["stages"] if row["id"] == stage)
+
+    def save(self, state):
+        with self._lock:
+            state["updated"] = time.time()
+            # Compact compatible history from older Builder archives as well,
+            # without changing current progress or its retained-work evidence.
+            state["events"] = [_history_event(item) for item in state.get("events", [])[-128:]]
+            for row in state["stages"]:
+                row.setdefault("progress", stage_progress("complete", 1, 1) if row["status"] == "complete" else stage_progress())
+                stage_plan.advance(row, row["progress"])
+            self._timing.sync(state)
+            atomic_json(self.session_dir(state["session"]) / "state.json", state)
+
+    def amend(self, session, choices):
+        # Never edit choices under an active run. The same kernel lock is held
+        # by the engine through child shutdown and receipt publication.
+        with file_lock(self.root / "run.lock"):
+            state = self.load(session)
+            if state["choices"] == choices: return state
+            state.update(choices=choices, choicesKey=value_hash(choices), status="ready", needsActions=[])
+            state.pop("installationAction", None)
+            state.pop("installationRecoveryPolicy", None)
+            state.pop("installationContentReinstallApproval", None)
+            state.pop("installationRestoreApproval", None)
+            for row in state["stages"]:
+                row.update(status="pending", details={}, progress=stage_progress())
+                row["workMode"] = choices.get("mode", "build")
+                row.pop("progressPlan", None)
+                row.pop("progressWorkKey", None)
+                row.pop("updateStrategy", None)
+                row.pop("waiting", None)
+                row.pop("timingState", None)
+            self.event(state, "choices_updated")
+            return state
+
+    def installation_pending(self, state, *, skip=False):
+        """Closed earlier stage owners qualify only an inactive final action."""
+        statuses = ("failed", "blocked") if skip else ("failed", "blocked", "cancelled", "interrupted")
+        if state.get("status") not in statuses: return False
+        rows = state.get("stages", [])
+        if [row.get("id") for row in rows] != list(STAGES): return False
+        completed = state.get("completed", {})
+        if rows[-1].get("status") not in statuses: return False
+        return all(row.get("status") == "complete" and completed.get(row["id"], {}).get("key")
+                   for row in rows[:-1])
+
+    def create(self, choices):
+        session = uuid.uuid4().hex
+        state = {"schema": 1, "session": session, "choices": choices, "choicesKey": value_hash(choices),
+                 "status": "ready", "stages": [{"id": name, "status": "pending", "attempts": 0,
+                    "workMode": choices.get("mode", "build")} for name in STAGES],
+                 "needsActions": [], "lastEvent": 0, "events": [], "created": time.time(),
+                 "progress": {"completed": 0, "total": len(STAGES), "phase": None, "percent": None}}
+        self.save(state)
+        self.remember_session(state)
+        return state
+
+    def remember_session(self, state):
+        """A locked restart hint must not block the selected durable run.
+
+        Support150224 fails before any stage because Windows refuses replacing
+        latest-session.json. Session state and receipts own the real work; this
+        convenience pointer only selects a homepage default. Try the bounded
+        metadata repair, then record the deferral and continue the chosen run.
+        """
+        path = self.root / "latest-session.json"
+        try:
+            atomic_json(path, {"schema": 1, "session": state["session"]})
+        except WizardError as error:
+            if error.code != "workspace_metadata_busy": raise
+            state["restartHintDeferred"] = True
+            self.event(state, "workspace_metadata_deferred", **error.parameters, buildContinues=True,
+                       message={"en": "The optional restart hint is busy; the selected run continues.",
+                                "de": "Der optionale Startverweis ist gesperrt; der gewählte Lauf wird fortgesetzt."})
+            return False
+        state.pop("restartHintDeferred", None)
+        return True
+
+    def event(self, state, code, stage=None, **parameters):
+        with self._lock: return self._event(state, code, stage, **parameters)
+
+    def _event(self, state, code, stage=None, **parameters):
+        self._timing.sync(state)
+        if stage: parameters["timing"] = dict(self._row(state, stage)["timing"])
+        state["lastEvent"] += 1
+        item = {"sequence": state["lastEvent"], "time": time.time(), "code": code, "parameters": parameters}
+        if stage: item["stage"] = stage
+        state["events"] = (state["events"] + [_history_event(item)])[-128:]
+        completed = sum(row["status"] == "complete" for row in state["stages"])
+        state["progress"].update(completed=completed, phase=stage,
+                                 percent=100 if state["status"] == "complete" else None)
+        self.save(state)
+        self._log(state["session"], item)
+        return item
+
+    def _log(self, session, item):
+        """Bounded diagnostic history supplements the small polling/event state."""
+        path = self.session_dir(session) / "logs/progress.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size >= PROGRESS_LOG_BYTES:
+            os.replace(path, path.with_name("progress.previous.log"))
+        with path.open("ab") as stream: stream.write(canonical(item) + b"\n")
+
+    def record(self, session, code, stage=None, **parameters):
+        with self._lock: return self._event(self._state(session), code, stage, **parameters)
+
+    def begin_stage(self, session, stage, key, *, work_key=None, previous_work_key=None):
+        """Separate receipt identity from compatible, retained build work.
+
+        The engine qualifies the game/profile/workflow scope independently of
+        the changing Builder release. This scope preserves display evidence;
+        stage receipts still require their exact immutable artifact key.
+        Legacy adoption requires the engine's explicitly captured old scope.
+        """
+        if (work_key is not None or previous_work_key is not None) and stage != "build":
+            raise WizardError("invalid_progress", "A retained work scope belongs to the build stage.")
+        for scope in (work_key, previous_work_key):
+            if scope is not None and (not isinstance(scope, str) or not scope or len(scope) > 160 or "\0" in scope):
+                raise WizardError("invalid_progress", "Invalid retained build work scope.")
+        if previous_work_key is not None and work_key is None:
+            raise WizardError("invalid_progress", "Legacy work qualification requires the current scope.")
+        with self._lock:
+            state = self._state(session); row = self._row(state, stage)
+            row["workMode"] = state["choices"].get("mode", "build")
+            prior_key, prior_work = row.get("progressKey"), row.get("progressWorkKey")
+            compatible = work_key is not None and (prior_work == work_key or
+                prior_work is None and (previous_work_key == work_key or prior_key == key))
+            if prior_key != key or work_key is not None and prior_work is not None and prior_work != work_key:
+                if compatible and prior_key is not None:
+                    stage_plan.retain_committed(row)
+                else:
+                    row.pop("progressPlan", None)
+                    row.pop("progressWorkKey", None)
+                    row.pop("updateStrategy", None)
+                row["progress"] = stage_progress()
+                row["status"] = "pending"
+                row.pop("timingState", None)
+            row["progressKey"] = key
+            if work_key is not None: row["progressWorkKey"] = work_key
+            self.save(state)
+
+    def operation(self, session, stage, name, *, complete=False, detail=None):
+        with self._lock:
+            row = self._row(self._state(session), stage)
+            if name not in stage_plan.planned_operations(row):
+                raise WizardError("invalid_progress", "Unknown planned operation.")
+        return self.progress(session, stage, "operation:" + name, 1 if complete else None,
+                             1 if complete else None, "operations", detail,
+                             operation=name, status="complete" if complete else "start")
+
+    def begin_run(self, session):
+        """Clear old failures/live work before checking prerequisite receipts.
+
+        Stage receipts remain immutable. begin_stage separately qualifies the
+        build's retained work scope after prerequisites refresh their details.
+        This boundary clears current-attempt diagnostics before that check.
+        """
+        with self._lock:
+            state = self._state(session)
+            state.update(status="running", needsActions=[])
+            state.pop("installationAction", None)
+            for row in state["stages"]:
+                row["workMode"] = state["choices"].get("mode", "build")
+                stage_plan.retain_preparation_history(row, state.get("events"))
+                if row["status"] != "complete": row["status"] = "pending"
+                row.pop("waiting", None)
+                row["progress"] = stage_progress("complete", 1, 1) if row["status"] == "complete" else stage_progress()
+                stage_plan.begin_attempt(row, row["progress"]["updatedAt"])
+            self.save(state)
+
+    def progress(self, session, stage, phase, done=None, total=None, unit=None, detail=None, *, operation=None, status=None, nativeMemory=None):
+        value = stage_progress(phase, done, total, unit, detail)
+        memory = native_memory_progress(nativeMemory)
+        if memory: value["nativeMemory"] = memory
+        if status == "waiting" and (stage != "install" or phase not in ("install-connection-wait", "install-recovery-manual-launch")):
+            raise WizardError("progress_status", "Waiting progress belongs to an installation connection or manual-launch prerequisite.")
+        if status is not None and status not in ("start", "progress", "complete", "reuse", "failed", "waiting"):
+            raise WizardError("invalid_progress", "Invalid progress event status.")
+        with self._lock:
+            state = self._state(session); row = self._row(state, stage)
+            if phase == "update-compact-qualified":
+                if stage != 'build' or row.get('workMode') != 'update-mod':
+                    raise WizardError('invalid_progress', 'A compact update route belongs to the Mod update build.')
+                stage_plan.compact_update(row)
+                operation, status = None, 'progress'
+            elif phase == "update-rebuild-required":
+                if stage != "build" or row.get("workMode") != "update-mod":
+                    raise WizardError("invalid_progress", "An asset migration belongs to the Mod update build.")
+                stage_plan.migrate_update(row, [detail] if detail else [])
+                # The incoming event's compact owner is now retired. It cannot
+                # close or mark failed any operation in the full project plan.
+                operation, status = None, "progress"
+            elif (stage == "build" and row.get("workMode") == "update-mod"
+                  and row.get("updateStrategy") == "cached-full-build"
+                  and operation in stage_plan.UPDATE_PLANS["update-mod"]):
+                # inspect() still qualifies the selected APK/profile before
+                # entering its normal build callback. These compact setup
+                # events must not claim full original-input phases completed.
+                value["migrationSetupOperation"], operation = operation, None
+            if operation is not None and operation not in stage_plan.planned_operations(row):
+                mapped = stage_plan.update_alias(row, operation)
+                if mapped is None: raise WizardError("invalid_progress", "Unknown planned operation.")
+                value["childOperation"], operation = operation, mapped
+            stage_plan.advance(row, value, operation, status)
+            old = row.get("progress", {})
+            _progress_clocks(row, value, old, status)
+            row["progress"] = value
+            self._timing.observe(state, row, value, status)
+            clock = time.monotonic(); last = self._progress_saved.get((session, stage), 0)
+            changed_phase = old.get("phase") != phase or old.get("total") != total
+            completed = total is not None and done == total and old.get("done") != done
+            # A final progress counter can reach N/N before the caller's
+            # successful return. Persist that later explicit terminal even
+            # inside the normal throttle window, including unchanged counts.
+            terminal = status in ("start", "complete", "reuse", "failed") and old.get("operationStatus") != status
+            if changed_phase or completed or terminal or clock - last >= PROGRESS_INTERVAL:
+                self._progress_saved[(session, stage)] = clock
+                self._event(state, "stage_progress", stage, **value)
+            return dict(value)
+
+    def waiting(self, session, stage, code, message, action="unity-open"):
+        if not isinstance(message, dict) or set(message) != {"en", "de"} or any(not isinstance(x, str) or len(x) > 4096 for x in message.values()):
+            raise WizardError("invalid_wait", "Waiting messages require English and German text.")
+        if not isinstance(code, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,99}", code) or action not in ("unity-open", "unity-check"):
+            raise WizardError("invalid_wait", "Invalid prerequisite action.")
+        with self._lock:
+            state = self._state(session); row = self._row(state, stage)
+            old = row.get("waiting", {})
+            waiting = {"stage": stage, "code": code, "message": dict(message), "action": action,
+                       "checkAction": "unity-check", "since": old.get("since", time.time()) if old.get("code") == code else time.time(),
+                       "nonce": old.get("nonce", uuid.uuid4().hex) if old.get("code") == code else uuid.uuid4().hex}
+            row["waiting"] = waiting
+            state["needsActions"] = [item for item in state.get("needsActions", []) if item.get("stage") != stage] + [waiting]
+            if waiting != old: self._event(state, "stage_waiting", stage, reason=code, action=action)
+            return dict(waiting)
+
+    def clear_waiting(self, session, stage):
+        with self._lock:
+            state = self._state(session); row = self._row(state, stage)
+            had_wait = row.pop("waiting", None)
+            state["needsActions"] = [item for item in state.get("needsActions", []) if item.get("stage") != stage]
+            if had_wait: self._event(state, "stage_wait_cleared", stage)
+
+    def cancel(self, session):
+        self.load(session)
+        atomic_json(self.session_dir(session) / "cancel.json", {"schema": 1, "session": session, "time": time.time()})
+        with self._lock:
+            state = self._live.get(session)
+            if state is not None:
+                # A CLI/second server can request cancellation, but must not
+                # overwrite the running owner's durable state snapshot.
+                self._timing.pause(state)
+                self.save(state)
+
+    def check_cancel(self, session):
+        if (self.session_dir(session) / "cancel.json").exists(): raise Cancelled()
+
+    def clear_cancel(self, session): (self.session_dir(session) / "cancel.json").unlink(missing_ok=True)
+
+    def receipt(self, session, stage):
+        if stage not in STAGES: raise WizardError("invalid_stage", "Invalid wizard stage.")
+        return self.session_dir(session) / "receipts" / (stage + ".json")
+
+    @contextmanager
+    def _receipt_witnesses(self, session, stage, key):
+        """Schema-1 receipts keep authority; the small DB only caches byte proofs."""
+        helper = _receipt_storage()
+        directory = ordinary(self.session_dir(session) / "receipts")
+        directory.mkdir(parents=True, exist_ok=True)
+        database = ordinary(directory / ".file-witnesses.sqlite3")
+        paths = (database, *(database.with_name(database.name + suffix) for suffix in ("-wal", "-shm", "-journal")))
+        def guard():
+            for path in paths:
+                ordinary(path)
+                if path.exists():
+                    value = path.lstat()
+                    if not stat.S_ISREG(value.st_mode) or value.st_nlink != 1 or getattr(value, "st_file_attributes", 0) & 0x400:
+                        raise WizardError("receipt_path", "Receipt witness files must be regular wizard-owned files.")
+        guard()
+        connection = sqlite3.connect(database, timeout=30)
+        try:
+            try:
+                connection.execute("PRAGMA journal_mode=WAL")
+                connection.execute("PRAGMA synchronous=NORMAL")
+            except sqlite3.DatabaseError as error:
+                if getattr(error, "sqlite_errorcode", None) not in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB): raise
+                # This is a derived metadata cache, not the authoritative
+                # receipt. A corrupt cache loses all trust and is byte-seeded
+                # again; it must never force deletion of actual build outputs.
+                connection.close(); guard()
+                for path in paths: path.unlink(missing_ok=True)
+                connection = sqlite3.connect(database, timeout=30)
+                connection.execute("PRAGMA journal_mode=WAL")
+                connection.execute("PRAGMA synchronous=NORMAL")
+            witnesses = helper.ValidatedFileWitnesses(connection, self.root,
+                {"schema": 1, "owner": "Quest wizard stage output", "session": session, "stage": stage, "key": key})
+            yield witnesses
+            connection.commit()
+        except helper.BuildError as error:
+            raise WizardError("output_changed", str(error)) from error
+        finally:
+            connection.close()
+
+    def records(self, paths, progress=None, *, witnesses=None):
+        paths = [ordinary(raw) for raw in paths]
+        total = sum(path.stat().st_size for path in paths)
+        done = 0
+        result = []
+        for raw in paths:
+            path = ordinary(raw)
+            if self.root not in path.parents or not path.is_file():
+                raise WizardError("receipt_path", "Stage outputs must be regular files inside this wizard workspace.")
+            before = path.stat()
+            hasher = lambda candidate: digest(candidate, progress=lambda count: progress(done + count, total, path.name) if progress else None)
+            hashed = witnesses.observe(path, hasher=hasher) if witnesses else hasher(path)
+            after = path.stat(); done += after.st_size
+            if progress: progress(done, total, path.name)
+            stamp = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+            if stamp(before) != stamp(after):
+                raise WizardError("output_changed", "A stage output changed while being recorded.")
+            result.append({"path": path.relative_to(self.root).as_posix(), "size": after.st_size, "sha256": hashed})
+        return result
+
+    def valid(self, session, stage, key, *, report_progress=False):
+        path = self.receipt(session, stage)
+        if not path.is_file(): return None
+        try:
+            value = read_json(path, limit=64 * 1048576)
+            if value.get("stage") != stage or value.get("key") != key or not value.get("outputs"): return None
+            if not isinstance(value["outputs"], list) or any(not isinstance(row, dict) or type(row.get("size")) is not int or row["size"] < 0
+                    or not isinstance(row.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) for row in value["outputs"]): return None
+            total = sum(row["size"] for row in value["outputs"]); done = 0
+            for row in value["outputs"]:
+                raw = row["path"]
+                if not isinstance(raw, str): return None
+                relative = PurePosixPath(raw)
+                if (relative.is_absolute() or PureWindowsPath(raw).drive
+                        or "\\" in raw or ":" in raw or ".." in relative.parts): return None
+            with self._receipt_witnesses(session, stage, key) as witnesses:
+                def hasher(target):
+                    if report_progress and witnesses.counters["files_read"] == 0:
+                        known = witnesses.db.execute("SELECT 1 FROM validated_file_witnesses WHERE owner=? LIMIT 1", (witnesses.namespace,)).fetchone()
+                        detail = ("First qualification of this legacy receipt: one-time byte read; later resumes use strong metadata. "
+                                  if known is None else "Output has no matching strong witness: qualify its actual bytes. ")
+                        self.progress(session, stage, "receipt-verify", done, total, "bytes", detail + target.name)
+                    def report(count):
+                        self.check_cancel(session)
+                        self.progress(session, stage, "receipt-verify", done + count, total, "bytes", target.name)
+                    return digest(target, progress=report if report_progress else None)
+                if report_progress: self.check_cancel(session)
+                # The common fast path enumerates each directory once and
+                # checks its real leaf identities; it does not reopen every
+                # SDK file just to request a Windows attribute handle.
+                for row, valid in witnesses.qualify_many(value["outputs"], hasher=hasher):
+                    if not valid: return None
+                    done += row["size"]
+                    if report_progress:
+                        self.check_cancel(session)
+                        self.progress(session, stage, "receipt-verify", done, total, "bytes", PurePosixPath(row["path"]).name)
+                if report_progress:
+                    self.progress(session, stage, "receipt-verify", done, total, "bytes", witnesses.summary())
+            return value
+        except Cancelled: raise
+        except (OSError, ValueError, TypeError, KeyError, WizardError, sqlite3.Error): return None
+
+    def publish(self, session, stage, key, paths, details):
+        def report(done, total, name):
+            self.check_cancel(session)
+            self.progress(session, stage, "output-verify", done, total, "bytes", name)
+        with self._receipt_witnesses(session, stage, key) as witnesses:
+            value = {"schema": 1, "stage": stage, "key": key, "outputs": self.records(paths, report, witnesses=witnesses), "details": details}
+        if not value["outputs"]: raise WizardError("empty_stage", "Stage completed without verified output.")
+        atomic_json(self.receipt(session, stage), value)
+        return value

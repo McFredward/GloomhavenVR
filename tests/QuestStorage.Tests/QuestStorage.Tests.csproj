@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>QuestWeaver.Tests</AssemblyName><ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable><DefineConstants>GHVR_QUEST_STARTUP</DefineConstants>
+    <NoWarn>$(NoWarn);CS0649;SYSLIB0050;SYSLIB0011</NoWarn>
+    <EnableUnsafeBinaryFormatterSerialization>true</EnableUnsafeBinaryFormatterSerialization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../tools/QuestWeaver/QuestWeaver.csproj" />
+    <Compile Include="../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameSaveStorage.cs" Link="QuestGameSaveStorage.cs" />
+    <Compile Include="../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameSaveLifecycle.cs" Link="QuestGameSaveLifecycle.cs" />
+  </ItemGroup>
+</Project>

@@ -15,10 +15,12 @@ status; it is not the player manual.
 | File | Purpose |
 |---|---|
 | [MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md](MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md) | Native producer confirmations, fixed-quality head sampling, original TMP metrics, sample color permissions and post-intro world-menu arrival |
+| [QUEST-DEV740-INTEGRATION.md](QUEST-DEV740-INTEGRATION.md) | Coordinated Quest741 rebase, original Android sky, compact update classification and complete aggregate validation |
 | [MENU740-ALL-CONTEXT-ENVIRONMENTS.md](MENU740-ALL-CONTEXT-ENVIRONMENTS.md) | Chosen surroundings in every VR context, original Default asset bank, mode transitions and complete aggregate verification |
 | [MENU739-CONFIRMATION-FOREGROUND.md](MENU739-CONFIRMATION-FOREGROUND.md) | Native small confirmation without the full-screen black/GrabPass surface, owner foreground order and direct-path regression evidence |
 | [MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md](MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md) | Accepted first-frame hover alignment, prior capture-only confirmation repair and its qualified evidence |
 | [MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md](MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md) | Accepted preview shadows/card relief/level-up list repairs and the latest complete integration checkpoint |
+| [QUEST-DEV-REBASE-20261019.md](QUEST-DEV-REBASE-20261019.md) | Historical Quest current-dev integration, stereo media and minimal-update evidence |
 | [MENU728-DEPTH-CARDS-AND-LEVELUP.md](MENU728-DEPTH-CARDS-AND-LEVELUP.md) | Native source/final-window depth, complete level-up presentation, original raised menu cards and integration evidence |
 | [MENU727-CHARACTER-DEPTH-PREFERENCE.md](MENU727-CHARACTER-DEPTH-PREFERENCE.md) | Default-on local character depth switch, immediate native flat fallback/re-enable, focused verification and Windows-side archive delivery |
 | [MENU726-COMMON-CHARACTERS-AND-TRAVEL.md](MENU726-COMMON-CHARACTERS-AND-TRAVEL.md) | Common original character ground/scale, front/rear cabinet projection, native travel-loop ownership, original-asset audit and focused integration evidence |

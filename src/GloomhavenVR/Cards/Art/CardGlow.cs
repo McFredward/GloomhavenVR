@@ -1,3 +1,4 @@
+using GloomhavenVR.Core;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -44,17 +45,36 @@ internal static class CardGlow
     /// GameObject so the caller can attach extra behaviour (e.g. a pulse) or toggle it.
     /// </summary>
     internal static GameObject CreateGlowQuad(string name, Transform parent, Vector3 localScale,
-        Vector3 localPos, Color color)
+        Vector3 localPos, Color color, Material? material = null)
     {
         var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.name = name;
         Object.Destroy(quad.GetComponent<Collider>());
+        // The B685 headset still draws the control board but not its drop cues.
+        // These consumers retained Unity's builtin Quad while the menu/pointer
+        // already use the hardware-qualified explicit position/UV/white-COLOR
+        // upload. Give only these mod-owned unlit cues the same bounded upload;
+        // retain their material, depth, placement, pulse and desktop identity.
+        MeshFilter filter = quad.GetComponent<MeshFilter>();
+        Mesh? owned = QuestPrimitiveMesh.Rebuild(filter.sharedMesh, "card-drop-glow");
+        if (owned != null)
+        {
+            filter.sharedMesh = owned;
+            quad.AddComponent<QuestGlowMeshOwner>().Init(owned);
+        }
+        // Register the owner while the fresh primitive is active, before moving
+        // under a possibly inactive board. Unity omits OnDestroy on components
+        // that have never been active; a never-shown hint still owns its upload.
         quad.transform.SetParent(parent, worldPositionStays: false);
         quad.transform.localScale = localScale;
         quad.transform.localPosition = localPos;
-        Material? mat = MakeGlowMaterial(color);
+        // Remote furniture already resolves its exact material/fallback for the
+        // blend report. Reuse that object rather than allocating a second tint.
+        Material? mat = material ?? MakeGlowMaterial(color);
         if (mat != null)
             quad.GetComponent<MeshRenderer>().sharedMaterial = mat;
+        if (owned != null)
+            quad.AddComponent<QuestGlowUniforms>();
         quad.SetActive(false);
         return quad;
     }
@@ -81,6 +101,53 @@ internal static class CardGlow
     // rejected that whole flat-quad look — the card is now framed by WorldUI.SoftCueArt's outline
     // (breathing via SoftFramePulse) and the stack drifts embers, so nothing wanted a pulsing quad any
     // more. The board play slots keep their own PlayTray.SlotPulse, which is where that math came from.
+}
+
+/// <summary>Explicit per-draw tint for Quest's private additive overlay quads.</summary>
+internal sealed class QuestGlowUniforms : MonoBehaviour
+{
+    private static readonly int ColorId = Shader.PropertyToID("_Color");
+    private Renderer? _renderer;
+    private Material? _lastMaterial;
+    private MaterialPropertyBlock? _block;
+    private Color _lastColor;
+    private bool _bound;
+
+    private void OnEnable() => _bound = false;
+
+    private void LateUpdate()
+    {
+        if (!QuestStandalonePlatform.Enabled) return;
+        if (_renderer == null) _renderer = GetComponent<Renderer>();
+        Material? material = _renderer != null ? _renderer.sharedMaterial : null;
+        if (material == null || !material.HasProperty(ColorId)) return;
+        Color color = material.GetColor(ColorId);
+        if (_bound && material == _lastMaterial && color == _lastColor) return;
+        // B692 proves both wanted-slot overlays are active, inside the head
+        // frustum and submitted together, with independent positive material
+        // tints. It does not prove the Android draw received those uniforms.
+        // Isolate that remaining input on the existing private renderer. Keep
+        // the same material, additive blend, pulse, geometry and LEqual test;
+        // never light a slot the native game did not request. This controlled
+        // upload is an Android hypothesis, not a diagnosed driver defect.
+        _block ??= new MaterialPropertyBlock();
+        _renderer!.GetPropertyBlock(_block);
+        _block.SetColor(ColorId, color);
+        _renderer.SetPropertyBlock(_block);
+        _lastMaterial = material; _lastColor = color; _bound = true;
+    }
+}
+
+/// <summary>Release only the optional Quest cue upload, never Unity's shared Quad.</summary>
+internal sealed class QuestGlowMeshOwner : MonoBehaviour
+{
+    private Mesh? _mesh;
+    internal void Init(Mesh mesh) => _mesh = mesh;
+    private void OnDestroy()
+    {
+        if (_mesh != null) Object.Destroy(_mesh);
+        _mesh = null;
+    }
 }
 
 /// <summary>

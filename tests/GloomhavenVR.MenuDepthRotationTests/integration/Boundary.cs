@@ -2,6 +2,16 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+// Explicit Android platform observation plus the target runtime's codegen
+// refusal. Production still discovers/reads the real private manager fields.
+internal static class AndroidAotInput
+{
+    internal static RuntimePlatform Platform => RuntimePlatform.Android;
+    internal static System.Reflection.Emit.DynamicMethod RejectEmit(string name, Type result,
+        Type[] arguments, Type owner, bool skipVisibility)
+        => throw new NotSupportedException("Reflection.Emit is forbidden in the selected Android AOT character path");
+}
+
 // Original manager's native state shape only. No native gameplay controller is
 // started; Characters discovers these real Camera/RT/RawImage identities itself.
 public sealed class Character3DDisplayManager : MonoBehaviour

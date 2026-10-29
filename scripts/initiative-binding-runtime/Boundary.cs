@@ -12,6 +12,13 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.Cards
 {
+    // This real-Unity coordinator fixture runs the desktop presentation path.
+    // Quest's optional artwork observer returns before sampling on desktop;
+    // represent that disabled diagnostic port without changing the coordinator.
+    internal static class QuestArtworkEvidence
+    {
+        internal static void Raw(Component? owner, string role) { }
+    }
     internal sealed class PlayTray
     {
         internal static PlayTray? Current;

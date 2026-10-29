@@ -54,7 +54,8 @@ def main():
     project = run / 'unity'
     try:
         source = ROOT / 'src/GloomhavenVR/WorldUI/MenuDepth'
-        paths = list(source.glob('*.cs')) + [ROOT / 'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs']
+        paths = list(source.glob('*.cs')) + [ROOT / 'src/GloomhavenVR/Cards/Art/CardFaceMipBake.cs',
+            ROOT / 'src/GloomhavenVR/Core/QuestTextureCopy.cs', ROOT / 'scripts/menu-depth-capture/QuestDesktopBoundary.cs']
         sources = {path.name: path.read_text() for path in paths}
         fixture = ROOT / 'tests/GloomhavenVR.MenuDepthPerformanceTests'
         # Added source helpers do not exist in the actual shipped724 tree. Its

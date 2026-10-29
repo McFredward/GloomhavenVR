@@ -53,6 +53,13 @@ public class WorldspacePanelUIController : WorldspaceDisplayPanelBase
 }
 namespace GloomhavenVR.Core
 {
+    // Preserve the installed-bank directory port: each generated fixture assembly
+    // sits beside the independently owned native derivative links in Unity.
+    internal static class RuntimeDepsLoader
+    {
+        internal static string PluginDir => System.IO.Path.GetDirectoryName(
+            typeof(RuntimeDepsLoader).Assembly.Location) ?? string.Empty;
+    }
     internal static class VRLayers
     {
         internal const string ModOwnedNamePrefix = "VR", ModOwnedQualifiedPrefix = "GloomhavenVR.";
