@@ -46,7 +46,7 @@ def main():
          'FlatScreen.ManualScreenActive || !VRSession.IsRunning', '!VRSession.IsRunning',
          'excluded native browse contexts preserve the original preview parent'),
         ('more-cards747-lost-mini-anchor','MenuDepthLevelUpHoverObserver.cs',
-         'miniOffset.x + nativeOffset.x, miniOffset.y + nativeOffset.y,',
+         'miniOffset.x + offsetX, miniOffset.y + offsetY,',
          'nativeOffset.x, nativeOffset.y,',
          'browse-only More Cards keeps the complete original preview visible beyond the inventory strip in first and settled head pixels'),
         ('more-cards747-lost-pool-plane','MenuDepthLevelUpHoverObserver.cs',

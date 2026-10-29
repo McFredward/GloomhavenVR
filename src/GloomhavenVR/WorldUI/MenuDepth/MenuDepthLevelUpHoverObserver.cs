@@ -107,6 +107,8 @@ internal static class MenuDepthFurtherAbilityHoverObserver
         // back to this pooled AbilityCardUI on the ordinary native hide edge.
         Vector3 miniOffset = owner.HostRect.InverseTransformVector(
             card.MiniAbilityCard.transform.position - card.transform.position);
+        float offsetX = nativeOffset.x;
+        float offsetY = nativeOffset.y;
         const string kind = "FullAbilityCard (Further Ability Cards hover preview)";
         // SpawnCard can preserve the pooled row's world rotation. Establish the
         // Full's existing owner plane before PlaceFullCardPreview drops local Z;
@@ -115,7 +117,7 @@ internal static class MenuDepthFurtherAbilityHoverObserver
         // by its inventory and keeps its original pool/input lifetime.
         TooltipOnWindow.Settle(full, kind, card);
         TooltipOnWindow.PlaceFullCardPreview(card, full,
-            miniOffset.x + nativeOffset.x, miniOffset.y + nativeOffset.y,
+            miniOffset.x + offsetX, miniOffset.y + offsetY,
             kind);
     }
 }
