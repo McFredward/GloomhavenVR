@@ -130,7 +130,8 @@ internal static partial class CanvasConversion
         PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
         int sortingOrder = 0, bool diagnostic = false, bool useModLayer = false,
         bool transparentBackground = false, bool fitOneShot = false, bool capHeightToCanvas = false,
-        bool keepBackgroundHidden = false, bool flattenWindow = false, UIWindow? sharedWindow = null)
+        bool keepBackgroundHidden = false, bool flattenWindow = false, UIWindow? sharedWindow = null,
+        System.Func<Graphic, bool>? backgroundFilter = null)
     {
         if (target == null)
         {
@@ -436,6 +437,7 @@ internal static partial class CanvasConversion
         if (transparentBackground)
         {
             panel.HideBackground = true;
+            panel.BackgroundFilter = backgroundFilter;
             // Issue 5: for the full-screen-menu family, leave the backing disabled on Release so a
             // momentary flat re-show on X-close cannot flash the full-window blur veil.
             panel.KeepBackgroundHidden = keepBackgroundHidden;

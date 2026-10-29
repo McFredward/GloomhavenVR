@@ -720,14 +720,23 @@ internal static partial class CanvasConversion
             if (g.color.a < BackgroundOpaqueAlpha)
                 continue;
 
-            var grect = (RectTransform)g.transform;
-            grect.GetWorldCorners(BgCornerScratch);
-            Vector3 ga = panel.HostRect.InverseTransformPoint(BgCornerScratch[0]);
-            Vector3 gc = panel.HostRect.InverseTransformPoint(BgCornerScratch[2]);
-            float gw = Mathf.Abs(gc.x - ga.x);
-            float gh = Mathf.Abs(gc.y - ga.y);
-            if (gw < frameW * BackgroundCoverFraction || gh < frameH * BackgroundCoverFraction)
-                continue; // smaller than the frame → foreground content, keep it
+            if (panel.BackgroundFilter != null)
+            {
+                // Narrative producers identify their exact native dimmer. Their
+                // actual imageHolder can fill the frame too and remains artwork.
+                if (!panel.BackgroundFilter(g)) continue;
+            }
+            else
+            {
+                var grect = (RectTransform)g.transform;
+                grect.GetWorldCorners(BgCornerScratch);
+                Vector3 ga = panel.HostRect.InverseTransformPoint(BgCornerScratch[0]);
+                Vector3 gc = panel.HostRect.InverseTransformPoint(BgCornerScratch[2]);
+                float gw = Mathf.Abs(gc.x - ga.x);
+                float gh = Mathf.Abs(gc.y - ga.y);
+                if (gw < frameW * BackgroundCoverFraction || gh < frameH * BackgroundCoverFraction)
+                    continue; // smaller than the frame → foreground content, keep it
+            }
 
             panel.HiddenBackgrounds.Add(g);
             g.enabled = false; // hide the backing AND its raycast blocker

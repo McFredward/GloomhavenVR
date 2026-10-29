@@ -772,6 +772,9 @@ internal static class StoryComposite
     /// <summary>The mod-owned container. Null when nothing is parked.</summary>
     private static RectTransform? _dock;
 
+    /// <summary>Only the original desktop narrative dimmer while its children are parked.</summary>
+    private static NarrativeBackdrop.Lease? _narrativeBackdrop;
+
     /// <summary>THE HOST — the window the composite is drawn IN. ModBuild 236: this is the LOADOUT
     /// window, not the story window.</summary>
     private static UIWindow? _parkHost;
@@ -4257,6 +4260,7 @@ internal static class StoryComposite
             // story window's children with nobody holding a reference to it would strand the whole
             // dialog for the session — the exact class of leak the catch below exists to prevent.
             _dock = dock;
+            _narrativeBackdrop = new NarrativeBackdrop.Lease(dock);
             _dockSize = measured;
             _parkHost = loadout;
             _parkSource = story;
@@ -4405,6 +4409,8 @@ internal static class StoryComposite
     {
         if (_dock == null || _picture == null || _parkHost == null)
             return;
+
+        _narrativeBackdrop?.Sync();
 
         ConvertedPanel? panel = ModalFallback.PanelFor(_parkHost);
 
@@ -4578,6 +4584,8 @@ internal static class StoryComposite
 
     private static void Unpark(string why)
     {
+        _narrativeBackdrop?.Dispose();
+        _narrativeBackdrop = null;
         if (_dock == null)
         {
             _parkHost = null;

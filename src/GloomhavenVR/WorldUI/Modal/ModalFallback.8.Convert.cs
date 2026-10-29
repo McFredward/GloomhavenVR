@@ -63,8 +63,8 @@ internal static partial class ModalFallback
     /// The full-screen menu family whose floated host would otherwise show an opaque
     /// full-window backing/blur rectangle (user #8 part 2): the ESC / Options menus and
     /// the end-of-scenario Results / Rewards / adventure-completion panels. For these the
-    /// backing image is disabled while floated so only the foreground content shows; every
-    /// other modal (story box, events, messages) keeps its backing.
+    /// backing image is disabled while floated so only the foreground content shows. Native
+    /// narrative producers additionally supply their exact dimmer selector at conversion.
     ///
     /// PAUSE/OPTIONS CONFIRMATIONS (issue #1): the generic-warning confirmation boxes the
     /// pause menu spawns (restart round/turn, skip mission/tutorial, quit dungeon — all
@@ -366,7 +366,8 @@ internal static partial class ModalFallback
             // User #8 part 2: the full-screen menu family (ESC / Options / Results / Rewards)
             // floats as an opaque backing rectangle — hide that backing so only the
             // foreground content shows.
-            bool transparentBg = WantsTransparentBackground(window.ID);
+            var narrativeBackground = NarrativeBackdrop.Filter(window, isStoryBox);
+            bool transparentBg = WantsTransparentBackground(window.ID) || narrativeBackground != null;
             // FLICKER FIX: float the modal host at a dominant sortingOrder so it composites
             // ON TOP of every other order-0 world-space host instead of tying with them and
             // swapping render order as the head micro-moves — see ModalHostSortingOrder.
@@ -434,7 +435,7 @@ internal static partial class ModalFallback
                 // target is still under its original parent. Unconditional, exactly like
                 // flattenWindow above and for the same reason — the ruling is about a CLASS of
                 // window, and a per-ID whitelist here would reproduce the failure it is meant to end.
-                sharedWindow: window);
+                sharedWindow: window, backgroundFilter: narrativeBackground);
             if (sampleConversion) afterCanvas = System.Diagnostics.Stopwatch.GetTimestamp();
 
             if (escMenuWidthHug)

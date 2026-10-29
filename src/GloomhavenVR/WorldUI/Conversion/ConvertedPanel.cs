@@ -645,6 +645,9 @@ internal sealed class ConvertedPanel
     /// </summary>
     public bool HideBackground;
 
+    /// <summary>Optional native-role selector; null retains the ordinary full-frame policy.</summary>
+    public System.Func<Graphic, bool>? BackgroundFilter;
+
     /// <summary>Full-screen background graphics we disabled while floated (re-enabled on Release).</summary>
     public readonly List<Graphic> HiddenBackgrounds = new(4);
 
