@@ -629,7 +629,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 742;
+    public const ushort ModBuild = 744;
+
+    // ModBuild744 — normal menu laser carry, finite Default and stable pause opening.
+    // Local742 hardware confirms the world menu's palm grip but refuses its laser
+    // carry. After real physics synchronization the native ray hits the same
+    // handle's broad palm trigger before its narrow visible rod. Exclude the
+    // render/registry-only mod layer from the default native pick and missing-hand
+    // map restoration; keep authored map/scenario masks and explicit UI/solid gates.
+    // Default's private menu/map shell now keeps one world pose and a common
+    // fallback-derived physical metric instead of following the head/far plane.
+    // Existing clip policy consumes its actual finite bounds, including acquisition
+    // before the first draw. Native scenario geometry remains authoritative.
+    // The X pause opening retained a disabled native root camera Canvas. Assigning
+    // the head re-drove it onto a square frame before reveal. Pin only the existing
+    // menu conversion opt-in to WorldSpace before nesting; restore its original
+    // mode after native home/camera restoration, retaining refused-home receipts.
+    // Keep accepted character AA/depth, original widgets, shaders and frame order.
+    // Build743 is reserved for the separate Quest standalone development lane.
 
     // ModBuild742 — confirmations remain on their producer; a real world main menu.
     // Local740 hardware accepts the small level-up prompt but exposes the Perks
