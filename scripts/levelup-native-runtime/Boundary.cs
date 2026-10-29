@@ -36,12 +36,16 @@ internal sealed class NativeCardsDisplay:MonoBehaviour { }
 internal sealed class UIResetLevelUpWindow:MonoBehaviour
 {
     internal UILevelUpCardInventory inventory=null!;internal Toggle displayToggle=null!;
+    internal readonly HashSet<object> requestDisableShow=new();
     private void ResetAbilities() { }
 }
 internal sealed class NewPartyDisplayUI:MonoBehaviour
 {
+    internal enum DisplayType { NONE, CARDS }
     internal static NewPartyDisplayUI? PartyDisplay;
     internal UIWindow window=null!;internal NativeCardsDisplay? AbilityCardsDisplay;
+    internal DisplayType ActiveDisplay=DisplayType.NONE;
+    internal bool IsDisableFurtherAbilityPanel=false;
 }
 internal sealed class UICampaignRewardWindow:MonoBehaviour { internal ExtendedButton continueButton=null!; }
 internal sealed class CampaignRewardsManager { internal UICampaignRewardWindow rewardsWindow=null!; }
@@ -113,6 +117,13 @@ namespace UnityEngine.UI
 }
 namespace GloomhavenVR.Core
 {
+    internal static class VRSession {internal static bool IsRunning=true;}
+    internal static partial class Loc
+    {
+        internal static string CurrentLanguage="English";
+        internal static event Action? OnChanged;
+        internal static void SetLanguage(string language){CurrentLanguage=language;OnChanged?.Invoke();}
+    }
     internal static class PerfMonitor {internal readonly struct Noop:IDisposable{public void Dispose(){}}internal static Noop Scope(string name)=>default;internal static void Count(string name,int count){}}
     internal static class UnseenTileOrder {internal static void Tick(Vector3 eye){}}
     internal static class VRLog {internal static void Info(string area,string message){}internal static void Warn(string area,string message){}internal static void Alert(string area,string message){}internal static void Note(string area,string message){} }
