@@ -61,12 +61,49 @@ RGB difference2.79355526. The fixed affected narrative scope passes17 variants:
 host ownership/input/artwork/hand-back controls. All32 begin/steady direct and
 captured host comparisons match the independently suppressed reference exactly;
 16 explicit SP/MP pixel comparisons also match. Existing story/event/quest
-comparisons remain. The primary integrated narrative positive independently
-passes all458 assertions with the same source/fixture closure.
+comparisons remain. The primary final narrative scope independently passes
+all17 variants after preserving the existing hand-back log token with its
+corrected visual scope.
 
-Final integration build, source, card, surface and compiled verification are
-recorded in the ignored menu747 validation manifest before delivery. A focused
-case selection is partial coverage, not a new complete267 local invocation.
+The complete worker cards scope passes36 variants:3207 assertions across six
+positive cases and30 compiling controls in205.777s. The original30 cases remain.
+The new399-assertion case exercises actual native pointer methods, both original
+card sizes, gamepad/pointer guards and six real pool roundtrips. Every first and
+all three steady captures retain all four corners, the complete title and both
+independently projected edge marks. First-to-steady images are bit-identical.
+The independent point-based reference differs only by float roundoff: at most
+11 RGB units, one LSB per channel,1.53e-5 native pixels and zero projected pixels.
+Independent geometry/ink checks accompany that explicitly bounded comparison.
+
+The primary strict build first exposed Harmony003 analyzer errors on Vector3
+member reads in the patch container. The final helper is outside that container;
+there is no diagnostic suppression. An equivalent component-local read and two
+mutation bindings are the only other changes. Final primary validation reruns
+the six affected cases (399 assertions and five controls). The unchanged original
+30 cases inherit the completed worker proof:53/55 raw inputs are exact; the
+two bounded source/binding differences are normalized explicitly, with original
+level-up observer and all guard/placement bodies checked. A superseded root full
+cards run was interrupted, reaped and cleaned; it supplies no passing coverage.
+
+Final productionc825d0462 passes strict Debug/Release0W0E in18.81/17.56s and all16
+source suites in19.8s. An earlier parallel source attempt records15PASS/1FAIL:
+enum-arrays raced strict build cleanup in obj. The successful complete source
+rerun is sequential after that cleanup; the failed invocation remains failed.
+Surface670 keys/266 Harmony signatures/4837 tokens removes nothing and adds one
+exact MouseEnter hook plus bounded FURTHER CARD HOVER. Patch registration is
+224 classes/339 methods; all12 frame orders and five EN/DE guide pairs pass.
+
+Fresh Release/ILSpy review finds13 existing types changed: three local UI types,
+nine exact746-to747 constant-only types and one branch identity. Two added types
+are the narrow hover patch/helper; none disappear. The generated project differs
+only in snapshot-relative reference depth. All32 embedded resources (8547877
+bytes) are exact746. Existing capture and level-up observer types have no delta.
+Of1762 strict source/build inputs,1757 are exact746 and five are the reviewed
+bounded files. Wire source is identical after only the build constant/full-line
+comment normalization. Inherit the qualified746267 checkpoint and306739 goldens
+for unchanged areas; this is not a new complete267 invocation or golden run.
+Raw results, failure history and final bindings are recorded under ignored
+`.planning/debug/menu747/validation-final.json`.
 
 These are source-bound Unity2021.3.5f1/OpenGL render and lifecycle proofs. Native
 session/controller initialization and completed localization remain explicit

@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-29: Build747 repairs native More Cards preview clipping and the
+Updated 2026-10-30: Build747 repairs native More Cards preview clipping and the
 additional loadout-owned backing behind composed story illustration/dialog.
 Affected native callback, pool, lifecycle and final-eye checks cover the new
 source; unchanged broad evidence comes from the qualified Build746 checkpoint.

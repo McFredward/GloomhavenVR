@@ -1,3 +1,30 @@
+**Complete More Cards previews and story foreground, Build747, 2026-10-30 — validated for dev.**
+
+Fresh singleplayer746/8e logs identify two native ownership gaps. More Cards
+skips the ordinary preview-position seam; its transient Canvas initially escapes
+the scroll mask, then conversion adoption cuts it. Settle/raise the original
+Full after the final MouseEnter writer, before in-plane placement, preserving
+native guards, rotated pool-row homes and callbacks. The actual composed
+loadout host owns another Black_Backdrop and two Blur graphics outside the
+parked story dialog; lease only those exact visuals in both SP and MP.
+
+Final primary narrative17 variants pass458 assertions/16 controls; full worker
+cards36 pass3207 assertions/30 controls in205.777s. Primary final six new card
+cases pass399/5 after the strict Harmony003 repair: keep presentation helpers
+outside the annotated patch class. The unchanged original30 cases inherit
+explicit53/55 raw-input plus normalized-helper bindings. All24 first/steady
+card pictures retain complete independent edges/title and bit-identical frames.
+Strict Debug/Release0W0E18.81/17.56s, source16PASS19.8s, surfaces670/266/4837,
+patch registration224/339 and five bilingual guides pass. Compiled review:
+three existing UI behavior types, nine exact build-only types, one branch
+identity, two new patch/helper types and zero removals. All32 embedded resources
+remain exact746. Inherit unchanged qualified746267/golden306739 evidence;
+no new complete-gate or hardware acceptance is claimed. Failed initial builds,
+source cleanup race and interrupted obsolete run remain retained and cleaned.
+See MENU747-COMPLETE-PREVIEWS-AND-STORY.md and ignored menu747 validation.
+Both owned workers are archived/hash verified and retired; current artifacts,
+hardware inputs and unrelated worktrees remain. Windows builds the archive.
+
 **Paired multiplayer follow-up, Build746, 2026-10-29 — validated for dev.**
 
 Both hardware banners identify745/c3bb18117. Environment-dependent NPC height
