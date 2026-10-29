@@ -18,6 +18,10 @@ internal sealed partial class FlatScreen
     private Quaternion _savedMenuRotation;
     private float _savedMenuScale;
     private float _savedMenuUnit;
+    private Shader? _worldMenuOriginalShader;
+    private Shader? _worldMenuBackdropShader;
+    private int _worldMenuOriginalQueue;
+    private bool _worldMenuBackdropDepth;
 
     /// <summary>
     /// Keep the original captured menu and its pointer mapping, but mount the screen on the
@@ -98,6 +102,7 @@ internal sealed partial class FlatScreen
 
     private void ReleaseWorldMenu()
     {
+        RestoreWorldMenuBackdrop();
         if (_worldMenuHost == null && _worldMenuGrab == null)
             return;
         Transform? frame = _worldMenuGrab != null ? ((IPanelGrabOwner)_worldMenuGrab).GrabRoot : null;
@@ -120,6 +125,49 @@ internal sealed partial class FlatScreen
         if (_worldMenuHost != null) Object.Destroy(_worldMenuHost);
         _worldMenuHost = null;
         _worldMenuPanel = null;
+    }
+
+    // A world window must occlude the room behind it and let nearer hands occlude it.
+    // The boot screen's BlitCopy deliberately ignores depth. At Background1000 it can
+    // also tie the native sky; the sky's1001 reset and ordinary room geometry then
+    // overpaint its image. Reuse the already shipped unlit Overlay only for the ready
+    // world window, after the sky/reset and before ordinary foreground geometry.
+    private void TickWorldMenuBackdrop()
+    {
+        if (_worldMenuHost == null || !MenuWorldContext.IsReady)
+        {
+            RestoreWorldMenuBackdrop();
+            return;
+        }
+        if (_screenMaterial == null || _worldMenuBackdropDepth)
+            return;
+        Shader? shader = Cards.PlayTray.OverlayShader();
+        if (shader == null)
+            return;
+        _worldMenuOriginalShader = _screenMaterial.shader;
+        _worldMenuOriginalQueue = _screenMaterial.renderQueue;
+        _worldMenuBackdropShader = shader;
+        _screenMaterial.shader = shader;
+        _screenMaterial.SetFloat("_ZTest", (int)UnityEngine.Rendering.CompareFunction.LessEqual);
+        _screenMaterial.SetFloat("_ZWrite", 1f);
+        _screenMaterial.SetFloat("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
+        _screenMaterial.SetFloat("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
+        _screenMaterial.SetFloat("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
+        _screenMaterial.SetFloat("_VertexColor", 0f);
+        _screenMaterial.SetFloat("_UseAlphaMask", 0f);
+        _screenMaterial.SetColor("_Color", Color.white);
+        _worldMenuBackdropDepth = true;
+    }
+
+    private void RestoreWorldMenuBackdrop()
+    {
+        if (_worldMenuBackdropDepth && _screenMaterial != null && _worldMenuOriginalShader != null)
+        {
+            _screenMaterial.shader = _worldMenuOriginalShader;
+            _screenMaterial.renderQueue = _worldMenuOriginalQueue;
+        }
+        _worldMenuBackdropDepth = false;
+        _worldMenuOriginalShader = _worldMenuBackdropShader = null;
     }
 
     // Confirmation ownership is proved from the producer's actual captured native camera.

@@ -185,7 +185,8 @@ internal sealed partial class FlatScreen
         Shader? shader = material != null ? material.shader : null;
         if (ReferenceEquals(material, _coverageMaterial) && ReferenceEquals(shader, _coverageShader)) return;
         _coverageMaterial = material; _coverageShader = shader;
-        _coverageMaterialOpaque = shader != null && shader.name == "Hidden/BlitCopy";
+        _coverageMaterialOpaque = shader != null && (shader.name == "Hidden/BlitCopy"
+            || (_worldMenuBackdropDepth && shader == _worldMenuBackdropShader));
     }
 
     private const float ScreenAspect = 16f / 9f;
@@ -557,13 +558,14 @@ internal sealed partial class FlatScreen
     /// </summary>
     private void TickBackdropDepth()
     {
+        TickWorldMenuBackdrop();
         RefreshOpaqueBackdropMaterial();
         if (_screenMaterial == null)
             return;
 
         bool menuLike = VRModeStateMachine.CurrentMode == VRMode.Menu2D || IsPreMenuScene();
         int wantQueue = menuLike
-            ? (int)UnityEngine.Rendering.RenderQueue.Background
+            ? (int)UnityEngine.Rendering.RenderQueue.Background + (_worldMenuBackdropDepth ? 2 : 0)
             : _screenMaterialQueueDefault >= 0
                 ? _screenMaterialQueueDefault
                 : (int)UnityEngine.Rendering.RenderQueue.Geometry;
