@@ -18,9 +18,12 @@ internal readonly struct MenuDepthEye
     // physical sources use the actual tracked eye directly.
     internal readonly bool HasWorldToHeadClip;
     internal readonly Matrix4x4 WorldToHeadClip;
+    // Keep raster cropping in the projection. Putting it into the native view
+    // changes view-space normals, fog and UI pixel softness when storage grows.
+    internal readonly Matrix4x4 RasterProjection;
 
     internal MenuDepthEye(bool right, Vector3 worldPosition, Camera headCamera, bool projectToGraphicPlane = false,
-        Vector2 pixelFootprint = default, Matrix4x4? worldToHeadClip = null)
+        Vector2 pixelFootprint = default, Matrix4x4? worldToHeadClip = null, Matrix4x4? rasterProjection = null)
     {
         Right = right;
         WorldPosition = worldPosition;
@@ -28,17 +31,25 @@ internal readonly struct MenuDepthEye
         ProjectToGraphicPlane = projectToGraphicPlane;
         PixelFootprint = pixelFootprint;
         HasWorldToHeadClip = worldToHeadClip.HasValue || headCamera != null;
+        RasterProjection = rasterProjection ?? (headCamera != null ? Projection(right, headCamera) : Matrix4x4.identity);
         WorldToHeadClip = worldToHeadClip ?? (headCamera != null
-            ? HeadClip(right, worldPosition, headCamera) : Matrix4x4.identity);
+            ? RasterProjection * HeadView(right, worldPosition, headCamera) : Matrix4x4.identity);
     }
 
     internal static Matrix4x4 HeadClip(bool right, Vector3 physicalPosition, Camera head)
+        => Projection(right, head) * HeadView(right, physicalPosition, head);
+
+    private static Matrix4x4 Projection(bool right, Camera head)
     {
         Camera.StereoscopicEye side = right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left;
-        Matrix4x4 view = head.stereoEnabled ? head.GetStereoViewMatrix(side)
+        return head.stereoEnabled ? head.GetStereoProjectionMatrix(side) : head.projectionMatrix;
+    }
+
+    private static Matrix4x4 HeadView(bool right, Vector3 physicalPosition, Camera head)
+    {
+        Camera.StereoscopicEye side = right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left;
+        return head.stereoEnabled ? head.GetStereoViewMatrix(side)
             : Matrix4x4.Scale(new Vector3(1f, 1f, -1f))
                 * Matrix4x4.TRS(physicalPosition, head.transform.rotation, Vector3.one).inverse;
-        Matrix4x4 projection = head.stereoEnabled ? head.GetStereoProjectionMatrix(side) : head.projectionMatrix;
-        return projection * view;
     }
 }

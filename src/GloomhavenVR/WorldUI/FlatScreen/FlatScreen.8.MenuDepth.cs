@@ -273,7 +273,7 @@ internal sealed partial class FlatScreen
                         eye.WorldPosition, out Vector3 nativeEye, out Matrix4x4 nativeToPhysical, allowCoplanar: true))
                         throw new InvalidOperationException("The original UI root has no physical head mapping.");
                     var mapped = new MenuDepthEye(eye.Right, nativeEye, eye.HeadCamera, false,
-                        worldToHeadClip: eye.WorldToHeadClip * nativeToPhysical);
+                        worldToHeadClip: eye.WorldToHeadClip * nativeToPhysical, rasterProjection: eye.RasterProjection);
                     depthScope.HeadCapture(target, mapped, _menuDepthGraphics);
                     source.Render();
                 }
@@ -318,7 +318,8 @@ internal sealed partial class FlatScreen
         if (_quad == null || source == null || !MenuDepthScreenProjection.TryMap(_quad.transform, source, graphic.rectTransform,
             eye.WorldPosition, out Vector3 position, out Matrix4x4 nativeToPhysical, allowCoplanar: true))
             throw new InvalidOperationException("The original menu bounds have no physical head mapping.");
-        return new MenuDepthEye(eye.Right, position, eye.HeadCamera, false, worldToHeadClip: eye.WorldToHeadClip * nativeToPhysical);
+        return new MenuDepthEye(eye.Right, position, eye.HeadCamera, false, worldToHeadClip: eye.WorldToHeadClip * nativeToPhysical,
+            rasterProjection: eye.RasterProjection);
     }
 
     private bool MenuDepthApplies(Graphic graphic) => NativeUiCamera(graphic) == _menuDepthBorrowedCamera;
@@ -335,7 +336,7 @@ internal sealed partial class FlatScreen
                 _menuDepthEye.WorldPosition, out Vector3 position, out Matrix4x4 nativeToPhysical, allowCoplanar: _menuDepthEye.HasWorldToHeadClip))
             throw new InvalidOperationException("The original menu graphic has no valid physical eye mapping.");
         return new MenuDepthEye(_menuDepthEye.Right, position, _menuDepthEye.HeadCamera, false,
-            worldToHeadClip: _menuDepthEye.WorldToHeadClip * nativeToPhysical);
+            worldToHeadClip: _menuDepthEye.WorldToHeadClip * nativeToPhysical, rasterProjection: _menuDepthEye.RasterProjection);
     }
 
     private void BeforeMenuDepthHead(Camera camera)

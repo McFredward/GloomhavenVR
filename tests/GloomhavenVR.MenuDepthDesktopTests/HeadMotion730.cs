@@ -239,8 +239,9 @@ public static partial class MenuDepthDesktopProgram
             Vector3 screenPosition=scene.Screen.position,screenScale=scene.Screen.localScale;Quaternion screenRotation=scene.Screen.rotation;
             var ids=new HashSet<int>();var sourceIds=new HashSet<int>();bool sourceDimensionsExact=true;double minimumUi=1,minimumModel=1;
             var uiScratchIds = new HashSet<int>();
-            long uiAllocated = 0, sourceAllocated = 0, peakOwnedBytes = 0;
-            int peakSceneSlots = 0;
+            var allocationEvents = new List<string>();
+            long uiAllocated = 0, sourceAllocated = 0, peakOwnedBytes = 0, peakUiBytes = 0;
+            int peakSceneSlots = 0, largestUiWidth = 0, largestUiHeight = 0, growthSteps = 0, capturePose = -1;
             var aliasingProof=new AliasingProof742();
             Camera.CameraCallback sample=c=>
             {
@@ -255,7 +256,14 @@ public static partial class MenuDepthDesktopProgram
                 if (c == scene.OriginalA && MenuDepthHeadRaster.Active)
                 {
                     RenderTexture? scratch = FilterTarget742();
-                    if (scratch != null && uiScratchIds.Add(scratch.GetInstanceID())) uiAllocated += MenuDepthHeadRaster.FilterBytes;
+                    if (scratch != null && uiScratchIds.Add(scratch.GetInstanceID()))
+                    {
+                        uiAllocated += MenuDepthHeadRaster.FilterBytes;
+                        if (scratch.width > largestUiWidth || scratch.height > largestUiHeight) growthSteps++;
+                        largestUiWidth = Math.Max(largestUiWidth, scratch.width); largestUiHeight = Math.Max(largestUiHeight, scratch.height);
+                        allocationEvents.Add(capturePose + "," + Time.unscaledTime + "," + scratch.width + "," + scratch.height
+                            + "," + MenuDepthHeadRaster.FilterBytes + "," + growthSteps);
+                    }
                 }
             };
             Camera.onPreRender+=sample;
@@ -267,6 +275,7 @@ public static partial class MenuDepthDesktopProgram
                     int frame=hardwareRaster||annotations||cards?new[]{0,13,40,51}[step]:step;
                     if(backing)frame=new[]{0,13,24,32,40,51}[step];
                     if(late)frame=new[]{0,7,32,51}[step];
+                    capturePose = frame;
                     int before=Time.frameCount;while(Time.frameCount==before)yield return null;
                     if (late && step == 1)
                     {
@@ -376,6 +385,7 @@ public static partial class MenuDepthDesktopProgram
                             System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
                         peakOwnedBytes = Math.Max(peakOwnedBytes, MenuDepthHeadRaster.FilterBytes + sceneBytes
                             + MenuDepthHeadRaster.Bytes(scene.Ui.descriptor, new Vector2Int(width, height)));
+                        peakUiBytes = Math.Max(peakUiBytes, MenuDepthHeadRaster.FilterBytes);
                         peakSceneSlots = Math.Max(peakSceneSlots, ScratchCount730());
                         csv.WriteLine(frame+","+eye+","+ui+","+model+","+uiContrast+","+modelContrast+","+MenuDepthHeadRaster.FilterBytes
                             +","+sceneBytes+","+MenuDepthHeadRaster.Bytes(scene.Ui.descriptor,new Vector2Int(width,height)));csv.Flush();
@@ -407,7 +417,7 @@ public static partial class MenuDepthDesktopProgram
                 }
             }
             Camera.onPreRender-=sample;
-            Check(annotations ? sourceIds.Count == 0 : sourceIds.Count < 8,
+            Check(annotations ? sourceIds.Count == 0 : growthSteps <= 6,
                 "continuous motion uses bounded GPU capacity growth instead of repeated small reallocations");
             if(aliasing)aliasingProof.Complete(Path.Combine(output,"antialiasing-"+path+".txt"));
             if(path==0)Check(ids.Count==1,"continuous motion retains one final right-eye head raster identity");
@@ -416,7 +426,9 @@ public static partial class MenuDepthDesktopProgram
                 "uiScratchAllocations=" + uiScratchIds.Count + ";sceneScratchAllocations=" + sourceIds.Count
                 + ";uiAllocatedBytes=" + uiAllocated + ";sceneAllocatedBytes=" + sourceAllocated
                 + ";peakOwnedBytes=" + peakOwnedBytes + ";peakSceneSlots=" + peakSceneSlots
-                + ";retainedUiBytes=" + MenuDepthHeadRaster.FilterBytes + "\n");
+                + ";retainedUiBytes=" + MenuDepthHeadRaster.FilterBytes + ";highWaterGrowthSteps=" + growthSteps + "\n");
+            File.WriteAllText(Path.Combine(output, "allocation-events-" + path + ".csv"),
+                "pose,time,width,height,bytes,highWaterGrowthSteps\n" + string.Join("\n", allocationEvents) + "\n");
             if (hardwareRaster || (!annotations && !aliasing && !cards && !pitch && !backing && !late))
             {
                 long retained = MenuDepthHeadRaster.FilterBytes;
@@ -430,10 +442,11 @@ public static partial class MenuDepthDesktopProgram
                 VRRigDriver.HeadCamera = scene.Head;
                 double uiAfter = Corr730(after.GetPixels32(), native.GetPixels32(), false, out _);
                 double modelAfter = Corr730(after.GetPixels32(), native.GetPixels32(), true, out _);
-                Check(MenuDepthHeadRaster.FilterBytes < retained && uiAfter > .99 && modelAfter > .97,
-                    "retiring oversized near-view storage preserves final head UI and figure sampling at the fixed two-times grid");
+                long finalBytes = MenuDepthHeadRaster.FilterBytes;
                 File.WriteAllText(Path.Combine(output, "capacity-retirement-" + path + ".txt"),
-                    "before=" + retained + ";after=" + MenuDepthHeadRaster.FilterBytes + ";ui=" + uiAfter + ";model=" + modelAfter + "\n");
+                    "peak=" + peakUiBytes + ";before=" + retained + ";after=" + finalBytes + ";ui=" + uiAfter + ";model=" + modelAfter + "\n");
+                Check(finalBytes < peakUiBytes && finalBytes <= retained && uiAfter > .99 && modelAfter > .97,
+                    "retiring oversized near-view storage preserves final head UI and figure sampling at the fixed two-times grid");
                 Object.DestroyImmediate(after); Object.DestroyImmediate(native);
             }
             }

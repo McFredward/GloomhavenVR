@@ -223,7 +223,7 @@ internal static class MenuDepthHeadRaster
             crop.m00 = _head.x / width; crop.m03 = (_head.x - 2f * _region.x - width) / width;
             crop.m11 = _head.y / height; crop.m13 = (_head.y - 2f * _region.y - height) / height;
             return new MenuDepthEye(original.Right, original.WorldPosition, original.HeadCamera, original.ProjectToGraphicPlane,
-                new Vector2(Pixels.x, Pixels.y), crop * original.WorldToHeadClip);
+                new Vector2(Pixels.x, Pixels.y), crop * original.WorldToHeadClip, crop * original.RasterProjection);
         }
 
         internal void Resolve(RenderTexture destination)

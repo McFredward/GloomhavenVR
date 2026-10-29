@@ -53,8 +53,7 @@ internal static class MenuDepthCharacterProjection
         if (!eye.HasWorldToHeadClip || eye.HeadCamera == null)
             throw new System.InvalidOperationException("The actual head raster has no eye projection.");
         Camera head = eye.HeadCamera;
-        Camera.StereoscopicEye side = eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left;
-        Matrix4x4 projection = head.stereoEnabled ? head.GetStereoProjectionMatrix(side) : head.projectionMatrix;
+        Matrix4x4 projection = eye.RasterProjection;
         Matrix4x4 scaledView = projection.inverse * eye.WorldToHeadClip * graphic.localToWorldMatrix * portal.NativeToGraphic;
         float sx = scaledView.MultiplyVector(Vector3.right).magnitude;
         float sy = scaledView.MultiplyVector(Vector3.up).magnitude;

@@ -146,8 +146,7 @@ internal sealed class MenuDepthNativeUiScope : IDisposable
             }
         if (_frozen.Count == 0) throw new InvalidOperationException("No original UI Canvas can preserve its head raster basis.");
         Camera head = eye.HeadCamera;
-        Matrix4x4 projection = head.stereoEnabled ? head.GetStereoProjectionMatrix(
-            eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left) : head.projectionMatrix;
+        Matrix4x4 projection = eye.RasterProjection;
         _camera.targetTexture = target; _camera.rect = new Rect(0,0,1,1);
         _camera.orthographic = false; _camera.nearClipPlane = head.nearClipPlane; _camera.farClipPlane = head.farClipPlane;
         _camera.worldToCameraMatrix = projection.inverse * eye.WorldToHeadClip;

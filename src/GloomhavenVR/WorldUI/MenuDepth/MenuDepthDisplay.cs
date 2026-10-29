@@ -283,9 +283,7 @@ internal sealed class MenuDepthDisplay : IDisposable
 
     private static Matrix4x4 GpuClip(MenuDepthEye eye)
     {
-        Camera head = eye.HeadCamera;
-        Matrix4x4 projection = head.stereoEnabled ? head.GetStereoProjectionMatrix(
-            eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left) : head.projectionMatrix;
+        Matrix4x4 projection = eye.RasterProjection;
         Matrix4x4 gpu = GL.GetGPUProjectionMatrix(projection, true);
         // The stored inverse reconstructs canonical sampled RT UVs. D3D-like
         // render targets flip projection Y to retain those UVs; undo only that
@@ -296,9 +294,7 @@ internal sealed class MenuDepthDisplay : IDisposable
 
     private void CaptureHeadEye(Camera capture, RectTransform plane, RenderTexture target, MenuDepthEye eye, Vector2Int size)
     {
-        Matrix4x4 projection = eye.HeadCamera.stereoEnabled
-            ? eye.HeadCamera.GetStereoProjectionMatrix(eye.Right ? Camera.StereoscopicEye.Right : Camera.StereoscopicEye.Left)
-            : eye.HeadCamera.projectionMatrix;
+        Matrix4x4 projection = eye.RasterProjection;
         capture.targetTexture = target; capture.rect = new Rect(0,0,1,1);
         capture.orthographic = false; capture.nearClipPlane = eye.HeadCamera.nearClipPlane; capture.farClipPlane = eye.HeadCamera.farClipPlane;
         capture.worldToCameraMatrix = projection.inverse * eye.WorldToHeadClip;
@@ -307,7 +303,7 @@ internal sealed class MenuDepthDisplay : IDisposable
         using (MenuDepthHeadRaster.Begin(size))
         {
             MenuDepthSources.BeforeCapture(plane,
-                new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, false, new Vector2(size.x,size.y), eye.WorldToHeadClip));
+                new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, false, new Vector2(size.x,size.y), eye.WorldToHeadClip, eye.RasterProjection));
             try
             {
                 ThrowIfHeadOwnerClosed(target);
@@ -449,7 +445,8 @@ internal sealed class MenuDepthDisplay : IDisposable
         if (generatedCulling) capture.ResetCullingMatrix();
         else capture.cullingMatrix = projection * capture.worldToCameraMatrix;
         MenuDepthSources.BeforeCapture(plane,
-            new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, projectToGraphicPlane: true), capture);
+            new MenuDepthEye(eye.Right, eye.WorldPosition, eye.HeadCamera, projectToGraphicPlane: true,
+                worldToHeadClip: eye.HasWorldToHeadClip ? eye.WorldToHeadClip : null, rasterProjection: eye.RasterProjection), capture);
         try
         {
             if (_disposeRequested || !target.IsCreated())

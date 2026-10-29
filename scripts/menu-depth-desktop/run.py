@@ -118,6 +118,19 @@ internal static class MenuDepthCharacterRotation
     inputs += [ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
+        ('head-crop-metric742', '', '', '', ''),
+        ('head-crop-metric-view-lost742', 'MenuDepthCharacterProjection.cs',
+         'Matrix4x4 projection = eye.RasterProjection;',
+         'Matrix4x4 projection = head.projectionMatrix;',
+         'storage-only crop preserves original native view normals and physical clip metric'),
+        ('head-crop-metric-ui-lost742', 'MenuDepthNativeUiScope.cs',
+         'Matrix4x4 projection = eye.RasterProjection;',
+         'Matrix4x4 projection = head.projectionMatrix;',
+         'native UI view and target pixel density remain invariant under a storage-only crop'),
+        ('head-crop-metric-copy-lost742', 'MenuDepthSources.cs',
+         'eye.HasWorldToHeadClip ? eye.WorldToHeadClip : null, eye.RasterProjection);',
+         'eye.HasWorldToHeadClip ? eye.WorldToHeadClip : null);',
+         'actual sampled-source dispatch preserves cropped raster projection and native view metric'),
         ('head-backing742', '', '', '', ''),
         ('head-late-renderer742', '', '', '', ''),
         ('head-late-renderer-census-lost742', 'MenuDepthCharacterSource.cs',
@@ -131,6 +144,9 @@ internal static class MenuDepthCharacterRotation
          'int width = FilterCapacity(region.width, head.x);',
          'int width = Mathf.Min(head.x, Mathf.CeilToInt(region.width / 64f) * 64);',
          'continuous motion uses bounded GPU capacity growth instead of repeated small reallocations'),
+        ('head-capacity-retirement-lost742', 'MenuDepthHeadRaster.cs',
+         'Time.unscaledTime - _filterShrinkSince < 1.5f', 'Time.unscaledTime - _filterShrinkSince < float.PositiveInfinity',
+         'retiring oversized near-view storage preserves final head UI and figure sampling at the fixed two-times grid'),
         ('head-backing-old-single742', '', '', '', 'actual final head retains original window and figure ink for both eyes'),
         ('head-filter-lifecycle742', '', '', '', ''),
         ('head-filter-xr-viewport-lost742', 'MenuDepthHeadRaster.cs',
@@ -342,7 +358,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else
@@ -350,9 +366,13 @@ internal static class MenuDepthCharacterRotation
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         (run / 'command-environment.json').write_text(json.dumps({name: os.environ.get(name) for name in
             ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
+        # The complete75-case scope now includes repeated real two-route head
+        # motion, independent supersampled references and allocation controls.
+        # The old420s editor deadline stopped after39 cases on llvmpipe. Keep
+        # every render/assertion and bound this expanded fixture at900s instead.
         status = execute(['xvfb-run', '-a', '/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-'+args.graphics_api,
             '-projectPath', str(project), '-executeMethod', 'MenuDepthDesktopRunner.Start', '-menuDepthDesktopManifest', str(run / 'manifest.json'),
-            '-logFile', str(run / 'unity.log')], run / 'launch.log', 420, env=env)
+            '-logFile', str(run / 'unity.log')], run / 'launch.log', 900, env=env)
         stable = all(hashlib.sha256(Path(pin['path']).read_bytes()).hexdigest() == pin['sha256'] for pin in pins)
         (run / 'source-stability.json').write_text(json.dumps({'unchanged': stable, 'inputs': len(pins)}) + '\n')
         if not stable: status = 1

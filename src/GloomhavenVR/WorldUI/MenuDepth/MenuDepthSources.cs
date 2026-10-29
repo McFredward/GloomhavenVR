@@ -265,7 +265,7 @@ internal static class MenuDepthSources
 
     private static MenuDepthEye WithPixels(MenuDepthEye eye, Vector2 pixels)
         => new(eye.Right, eye.WorldPosition, eye.HeadCamera, eye.ProjectToGraphicPlane, pixels,
-            eye.HasWorldToHeadClip ? eye.WorldToHeadClip : null);
+            eye.HasWorldToHeadClip ? eye.WorldToHeadClip : null, eye.RasterProjection);
 
     private static MenuDepthEye SampleEye(IMenuDepthSource source, MenuDepthEye eye, Camera? raster = null)
         => source is IMenuDepthSampledSource && eye.PixelFootprint == Vector2.zero && eye.HeadCamera != null

@@ -11,6 +11,8 @@ public static class MenuDepthDesktopRunner
     [Serializable] private sealed class Manifest { public string result, evidence, depthBundle; public Case[] cases; }
     private static Manifest manifest;
     private static StreamWriter writer;
+    private static StreamWriter timings;
+    private static readonly System.Diagnostics.Stopwatch clock = new System.Diagnostics.Stopwatch();
     private static IEnumerator routine;
     private static int index;
     private static int assertions;
@@ -30,6 +32,8 @@ public static class MenuDepthDesktopRunner
         EditorSettings.enterPlayModeOptionsEnabled = true;
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload | EnterPlayModeOptions.DisableSceneReload;
         writer = new StreamWriter(manifest.result);
+        timings = new StreamWriter(Path.Combine(manifest.evidence, "case-timings.csv"));
+        timings.WriteLine("case,elapsedSeconds"); timings.Flush();
         writer.WriteLine("Unity " + Application.unityVersion + "; " + SystemInfo.graphicsDeviceName + "; " + SystemInfo.graphicsDeviceType);
         EditorApplication.update += Tick;
         EditorApplication.EnterPlaymode();
@@ -39,13 +43,14 @@ public static class MenuDepthDesktopRunner
         if (!EditorApplication.isPlaying) return;
         if (index == manifest.cases.Length)
         {
-            writer.Dispose(); EditorApplication.update -= Tick; EditorApplication.Exit(pass ? 0 : 1); return;
+            timings.Dispose(); writer.Dispose(); EditorApplication.update -= Tick; EditorApplication.Exit(pass ? 0 : 1); return;
         }
         Case item = manifest.cases[index];
         try
         {
             if (routine == null)
             {
+                clock.Restart();
                 string output = Path.Combine(manifest.evidence, item.name); Directory.CreateDirectory(output);
                 Action<int> done = count => assertions = count;
                 Assembly assembly=Assembly.LoadFile(item.dll);
@@ -71,6 +76,8 @@ public static class MenuDepthDesktopRunner
             else { pass = false; writer.WriteLine("FAIL " + item.name + ": " + exception); }
         }
         if (routine is IDisposable disposable) disposable.Dispose();
+        timings.WriteLine(item.name + "," + clock.Elapsed.TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        timings.Flush();
         routine = null; index++; writer.Flush();
         foreach (GameObject go in UnityEngine.Object.FindObjectsOfType<GameObject>()) UnityEngine.Object.DestroyImmediate(go);
     }
