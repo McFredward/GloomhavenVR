@@ -50,8 +50,8 @@ public static class MenuDepthDesktopRunner
                 Action<int> done = count => assertions = count;
                 Assembly assembly=Assembly.LoadFile(item.dll);
                 Type display=assembly.GetType("GloomhavenVR.WorldUI.MenuDepth.MenuDepthDisplay");
-                foreach(string part in new[]{"display","graphic","character"})
-                    display.GetField(part=="graphic"?"_depthShader":"_"+part+"Shader",BindingFlags.Static|BindingFlags.NonPublic)
+                foreach(string part in new[]{"display","graphic","character","headresolve"})
+                    display.GetField(part=="graphic"?"_depthShader":part=="headresolve"?"_headResolveShader":"_"+part+"Shader",BindingFlags.Static|BindingFlags.NonPublic)
                         .SetValue(null,depthBundle.LoadAsset<Shader>("assets/menudepth/menudepth"+part+".shader"));
                 if(item.method=="HeadNativeCardEdge732"||item.method=="HeadFigureCard732")
                     display.GetField("_nativeCardShader",BindingFlags.Static|BindingFlags.NonPublic)

@@ -28,6 +28,7 @@ internal sealed class MenuDepthDisplay : IDisposable
     private static readonly Vector4[] AnnotationRects = new Vector4[8];
     private static AssetBundle? _bundle;
     private static Shader? _displayShader;
+    private static Shader? _headResolveShader;
     private static Shader? _depthShader;
     private static Shader? _characterShader;
     private static Shader? _nativeCardShader;
@@ -56,7 +57,17 @@ internal sealed class MenuDepthDisplay : IDisposable
         get { TryLoad(out _); return _depthShader; }
     }
 
-    internal static Shader HeadResolveShader=>TryLoad(out string reason)?_displayShader!:throw new InvalidOperationException(reason);
+    internal static Shader HeadResolveShader
+    {
+        get
+        {
+            if (!TryLoad(out string reason)) throw new InvalidOperationException(reason);
+            if (_headResolveShader == null && _bundle != null)
+                _headResolveShader = _bundle.LoadAsset<Shader>("assets/menudepth/menudepthheadresolve.shader");
+            return _headResolveShader != null && _headResolveShader.isSupported ? _headResolveShader
+                : throw new InvalidOperationException("The menu-depth head antialias resolve shader is unavailable.");
+        }
+    }
 
     internal static Shader? CharacterShader
     {
@@ -193,15 +204,16 @@ internal sealed class MenuDepthDisplay : IDisposable
         CameraState state = new(capture); Rect viewport = capture.rect;
         RenderTexture? active = RenderTexture.active;
         _capturingCamera = capture; _rendering = true;
+        MenuDepthHeadRaster.FilterLease? filter = null;
         try
         {
-            RectInt region=MenuDepthSources.HeadRegion(plane,plane.localToWorldMatrix,frame,left,right);
-            using var filter=MenuDepthHeadRaster.Filter(original.descriptor,size,region,HeadResolveShader);
-            CaptureHeadEye(capture, plane, filter.Target, filter.Eye(left), filter.Pixels);
-            filter.Resolve(_headLeft!);
+            RectInt region = MenuDepthSources.HeadRegion(plane, plane.localToWorldMatrix, frame, left, right);
+            filter = MenuDepthHeadRaster.Filter(original.descriptor, size, region, HeadResolveShader);
+            CaptureHeadEye(capture, plane, filter.Value.Target, filter.Value.Eye(left), filter.Value.Pixels);
+            filter.Value.Resolve(_headLeft!);
             ThrowIfHeadOwnerClosed(_headRight!);
-            CaptureHeadEye(capture, plane, filter.Target, filter.Eye(right), filter.Pixels);
-            filter.Resolve(_headRight!);
+            CaptureHeadEye(capture, plane, filter.Value.Target, filter.Value.Eye(right), filter.Value.Pixels);
+            filter.Value.Resolve(_headRight!);
             ThrowIfHeadOwnerClosed(_headRight!);
             SetHeadCapture(_material, _headLeft!, _headRight!, left, right,
                 plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),
@@ -218,9 +230,18 @@ internal sealed class MenuDepthDisplay : IDisposable
             try { MenuDepthSources.AfterCapture(); }
             finally
             {
-                state.Restore(capture); capture.rect = viewport;
-                RenderTexture.active = active; _capturingCamera = null; _rendering = false;
-                if (_disposeRequested) Dispose();
+                try
+                {
+                    state.Restore(capture);
+                    if (capture != null) capture.rect = viewport;
+                    RenderTexture.active = active;
+                }
+                finally
+                {
+                    _capturingCamera = null; _rendering = false;
+                    filter?.Dispose();
+                    if (_disposeRequested) Dispose();
+                }
             }
         }
     }
@@ -601,8 +622,9 @@ internal sealed class MenuDepthDisplay : IDisposable
 
     internal static void Shutdown()
     {
-        if (_liveDisplays != 0) return; // Original native materials must be restored first.
-        _displayShader = _depthShader = _characterShader = null; _loadFailure = null;
+        MenuDepthHeadRaster.ReleaseFilter();
+        if (_liveDisplays != 0 || MenuDepthHeadRaster.FilterBorrowed) return; // Native programs may still be borrowed by the current draw.
+        _displayShader = _depthShader = _characterShader = _headResolveShader = null; _loadFailure = null;
         if (_bundle != null) _bundle.Unload(true);
         _bundle = null;
     }

@@ -30,6 +30,7 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
     private readonly Func<Character3DDisplayManager, bool> _readHidden;
     private readonly RenderTexture _nativeTarget;
     private readonly List<Renderer> _shadowRenderers = new(32);
+    private readonly List<Renderer> _headBoundsRenderers = new(32);
     private readonly List<Light> _shadowLights = new(8);
     private readonly List<(Renderer Renderer, UnityEngine.Rendering.ShadowCastingMode Casting, bool Receive, bool ForceOff)> _rendererShadows = new(32);
     private readonly List<(Light Light, LightShadows Shadows)> _lightShadows = new(8);
@@ -354,27 +355,40 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
         return true;
     }
 
-    public bool TryGetHeadBounds(MenuDepthEye eye,out Rect clipBounds)
+    public bool TryGetHeadBounds(MenuDepthEye eye, out Rect clipBounds)
     {
-        clipBounds=default;
-        object? identity=ReadyIdentity;
-        if(identity==null||!_calibration.TryGet(identity,out Vector3 origin)
-            ||!MenuDepthCharacterProjection.TryBuild(_camera,_holder,_image.rectTransform,_image.uvRect,
-                eye.WorldPosition,origin,out var view,allowCoplanar:true))return false;
-        float yaw=YawProvider?.Invoke(_image,identity)??0f;
-        if(yaw!=0f)
+        clipBounds = default;
+        object? identity = ReadyIdentity;
+        if (identity == null || !_calibration.TryGet(identity, out Vector3 origin)
+            || !MenuDepthCharacterProjection.TryBuild(_camera, _holder, _image.rectTransform, _image.uvRect,
+                eye.WorldPosition, origin, out var view, allowCoplanar: true)) return false;
+        float angle = YawProvider?.Invoke(_image, identity) ?? 0f;
+        if (angle != 0f)
         {
-            Vector3 ground=_camera.transform.TransformPoint(origin),up=_camera.cameraToWorldMatrix.MultiplyVector(Vector3.up).normalized;
-            view=MenuDepthCharacterProjection.Rotated(view,Matrix4x4.Translate(ground)*Matrix4x4.Rotate(Quaternion.AngleAxis(yaw,up))*Matrix4x4.Translate(-ground));
+            Vector3 anchor = _camera.transform.TransformPoint(origin);
+            Vector3 up = _camera.cameraToWorldMatrix.MultiplyVector(Vector3.up).normalized;
+            view = MenuDepthCharacterProjection.Rotated(view, Matrix4x4.Translate(anchor)
+                * Matrix4x4.Rotate(Quaternion.AngleAxis(angle, up)) * Matrix4x4.Translate(-anchor));
         }
-        Matrix4x4 clip=eye.WorldToHeadClip*_image.transform.localToWorldMatrix*view.NativeToGraphic;
-        bool any=false;
-        foreach(Renderer renderer in _calibration.SamplingRenderers(identity))
+        Matrix4x4 clip = eye.WorldToHeadClip * _image.transform.localToWorldMatrix * view.NativeToGraphic;
+        // Equipment may appear after the original actor completed. A cached
+        // renderer census must not clip that new native foreground artwork.
+        _holder.GetComponentsInChildren(true, _headBoundsRenderers);
+        foreach (Transform actor in _calibration.ModelRoots(identity))
         {
-            if(renderer==null||!renderer.enabled||!renderer.gameObject.activeInHierarchy
-                ||(_camera.cullingMask&(1<<renderer.gameObject.layer))==0)continue;
-            Rect bounds=MenuDepthHeadRaster.ClipBounds(clip,renderer.bounds);
-            clipBounds=any?MenuDepthHeadRaster.Union(clipBounds,bounds):bounds;any=true;
+            if (actor == null || actor.IsChildOf(_holder)) continue;
+            actor.GetComponentsInChildren(true, _shadowRenderers);
+            foreach (Renderer renderer in _shadowRenderers)
+                if (!_headBoundsRenderers.Contains(renderer)) _headBoundsRenderers.Add(renderer);
+        }
+        bool any = false;
+        foreach (Renderer renderer in _headBoundsRenderers)
+        {
+            if (renderer == null || !renderer.enabled || !renderer.gameObject.activeInHierarchy
+                || (_camera.cullingMask & (1 << renderer.gameObject.layer)) == 0) continue;
+            Rect bounds = MenuDepthHeadRaster.ClipBounds(clip, renderer.bounds);
+            clipBounds = any ? MenuDepthHeadRaster.Union(clipBounds, bounds) : bounds;
+            any = true;
         }
         return any;
     }

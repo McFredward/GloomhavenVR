@@ -54,7 +54,7 @@ def main():
         # class142 from the serialized file, producing an unloadable archive.
         (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.assetbundle":"1.0.0"}}\n')
         source = ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering'
-        files = [source / name for name in ('MenuDepthDisplay.shader', 'MenuDepthGraphic.shader', 'MenuDepthCharacter.shader', 'Unity-LICENSE.txt')]
+        files = [source / name for name in ('MenuDepthDisplay.shader', 'MenuDepthGraphic.shader', 'MenuDepthCharacter.shader', 'MenuDepthHeadResolve.shader', 'Unity-LICENSE.txt')]
         files.append(Path(__file__).parent / 'Editor/MenuDepthBuilder.cs')
         for path in files:
             shutil.copyfile(path, project / ('Assets/Editor' if path.suffix == '.cs' else 'Assets/MenuDepth') / path.name)

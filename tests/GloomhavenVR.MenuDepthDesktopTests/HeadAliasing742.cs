@@ -18,16 +18,21 @@ public static partial class MenuDepthDesktopProgram
         {
             scene.Head.targetTexture=target;scene.Head.Render();
             high=Read(target,Path.ChangeExtension(output,"high.png"));
-            Color[] pixels=high.GetPixels();var result=new Texture2D(original.width,original.height,TextureFormat.RGBA32,false);
-            var reduced=new Color[original.width*original.height];
+            Color32[] pixels=high.GetPixels32();var result=new Texture2D(original.width,original.height,TextureFormat.RGBA32,false);
+            var reduced=new Color32[original.width*original.height];
             for(int y=0;y<original.height;y++)for(int x=0;x<original.width;x++)
             {
-                Color sum=Color.clear;
+                int red=0,green=0,blue=0,alpha=0;
                 for(int sy=0;sy<samples;sy++)for(int sx=0;sx<samples;sx++)
-                    sum+=pixels[(y*samples+sy)*target.width+x*samples+sx];
-                reduced[y*original.width+x]=sum/(samples*samples);
+                {
+                    Color32 p=pixels[(y*samples+sy)*target.width+x*samples+sx];
+                    red+=p.r;green+=p.g;blue+=p.b;alpha+=p.a;
+                }
+                int count=samples*samples,round=count/2;
+                reduced[y*original.width+x]=new Color32((byte)((red+round)/count),(byte)((green+round)/count),
+                    (byte)((blue+round)/count),(byte)((alpha+round)/count));
             }
-            result.SetPixels(reduced);result.Apply();File.WriteAllBytes(output,result.EncodeToPNG());return result;
+            result.SetPixels32(reduced);result.Apply();File.WriteAllBytes(output,result.EncodeToPNG());return result;
         }
         finally
         {

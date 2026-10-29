@@ -40,6 +40,7 @@ internal static class MenuDepthSources
     internal static void SetDiscoveryPump(Action? pump)
     {
         _discoveryPump = pump;
+        if (pump == null && Sources.Count == 0) MenuDepthHeadRaster.ReleaseFilter();
         if (pump != null) EnsureHook(); else UnhookIfIdle();
     }
 
@@ -80,6 +81,7 @@ internal static class MenuDepthSources
     internal static void Unregister(IMenuDepthSource source)
     {
         Sources.Remove(source);
+        if (Sources.Count == 0) MenuDepthHeadRaster.ReleaseFilter();
         if (source is IMenuDepthDirectSource direct && DirectPrimes.Remove(direct))
             RestoreDirect(direct, false, "direct unregister");
         if (Sources.Count == 0 && _directCamera != null)
@@ -121,38 +123,49 @@ internal static class MenuDepthSources
         }
     }
 
-    internal static RectInt HeadRegion(Transform? root,Matrix4x4 frameToWorld,Rect frame,MenuDepthEye left,MenuDepthEye right,
-        Func<Graphic,MenuDepthEye,MenuDepthEye>? map=null,Predicate<Graphic>? applies=null)
+    internal static RectInt HeadRegion(Transform? root, Matrix4x4 frameToWorld, Rect frame, MenuDepthEye left, MenuDepthEye right,
+        Func<Graphic, MenuDepthEye, MenuDepthEye>? map = null, Predicate<Graphic>? applies = null)
     {
         FlushPendingContent();
-        var native=new Bounds(frame.center,new Vector3(frame.width,frame.height,0f));
-        Rect clip=MenuDepthHeadRaster.Union(MenuDepthHeadRaster.ClipBounds(left.WorldToHeadClip*frameToWorld,native),
-            MenuDepthHeadRaster.ClipBounds(right.WorldToHeadClip*frameToWorld,native));
-        for(int i=0;i<Sources.Count;i++)
+        Vector2Int pixels = MenuDepthHeadRaster.Size(left.HeadCamera);
+        var native = new Bounds(frame.center, new Vector3(frame.width, frame.height, 0f));
+        Rect clip = MenuDepthHeadRaster.Union(MenuDepthHeadRaster.ClipBounds(left.WorldToHeadClip * frameToWorld, native),
+            MenuDepthHeadRaster.ClipBounds(right.WorldToHeadClip * frameToWorld, native));
+        for (int i = 0; i < Sources.Count; i++)
         {
-            IMenuDepthSource source=Sources[i];Graphic graphic=source.Graphic;
-            if(!Visible(graphic)||!source.IsReady||(root!=null&&!graphic.transform.IsChildOf(root))||(applies!=null&&!applies(graphic)))continue;
-            for(int side=0;side<2;side++)
+            IMenuDepthSource source = Sources[i];
+            Graphic graphic = source.Graphic;
+            if (!Visible(graphic) || !source.IsReady || (root != null && !graphic.transform.IsChildOf(root))
+                || (applies != null && !applies(graphic))) continue;
+            for (int side = 0; side < 2; side++)
             {
-                MenuDepthEye eye=side==0?left:right;
-                // Native mapping is supplied separately for each eye; the mapper
-                // receives the immutable physical eye rather than a stored late one.
-                if(map!=null)eye=map(graphic,eye);
+                MenuDepthEye eye = side == 0 ? left : right;
+                if (map != null) eye = map(graphic, eye);
                 Rect addition;
-                if(source is IMenuDepthHeadBoundsSource spatial)
+                if (source is IMenuDepthHeadBoundsSource spatial)
                 {
-                    if(!spatial.TryGetHeadBounds(eye,out addition))return new RectInt(0,0,MenuDepthHeadRaster.Size(left.HeadCamera).x,MenuDepthHeadRaster.Size(left.HeadCamera).y);
+                    if (!spatial.TryGetHeadBounds(eye, out addition)) return new RectInt(0, 0, pixels.x, pixels.y);
                 }
                 else
                 {
-                    RectTransform rect=source is IMenuDepthWindowAnnotationSource annotation?annotation.AnnotationRect:graphic.rectTransform;
-                    Rect r=rect.rect;
-                    addition=MenuDepthHeadRaster.ClipBounds(eye.WorldToHeadClip*rect.localToWorldMatrix,new Bounds(r.center,new Vector3(r.width,r.height,0f)));
+                    if (source is not IMenuDepthWindowAnnotationSource annotation)
+                        return new RectInt(0, 0, pixels.x, pixels.y);
+                    RectTransform rect = graphic.rectTransform;
+                    Rect ink = rect.rect;
+                    addition = MenuDepthHeadRaster.ClipBounds(eye.WorldToHeadClip * rect.localToWorldMatrix,
+                        new Bounds(ink.center, new Vector3(ink.width, ink.height, 0f)));
+                    // The native quest glyph can sit in a different Z plane from
+                    // its tooltip root. Preserve both its actual ink and the
+                    // complete approved right-side annotation footprint.
+                    RectTransform host = annotation.AnnotationRect;
+                    Rect area = host.rect;
+                    addition = MenuDepthHeadRaster.Union(addition, MenuDepthHeadRaster.ClipBounds(eye.WorldToHeadClip * host.localToWorldMatrix,
+                        new Bounds(area.center, new Vector3(area.width, area.height, 0f))));
                 }
-                clip=MenuDepthHeadRaster.Union(clip,addition);
+                clip = MenuDepthHeadRaster.Union(clip, addition);
             }
         }
-        return MenuDepthHeadRaster.PixelRegion(clip,MenuDepthHeadRaster.Size(left.HeadCamera));
+        return MenuDepthHeadRaster.PixelRegion(clip, pixels);
     }
 
     internal static void CollectWindowAnnotations(List<IMenuDepthWindowAnnotationSource> destination, Transform? root = null)

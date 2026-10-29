@@ -115,8 +115,37 @@ internal static class MenuDepthCharacterRotation
     inputs = [flat / name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs', 'FlatScreen.7.CaptureRender.cs', 'FlatScreen.8.MenuDepth.cs')]
     inputs += [depth / name for name in names]
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), *fixtures.glob('*.shader'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
+    inputs += [ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
+        ('head-backing742', '', '', '', ''),
+        ('head-late-renderer742', '', '', '', ''),
+        ('head-late-renderer-census-lost742', 'MenuDepthCharacterSource.cs',
+         '_holder.GetComponentsInChildren(true, _headBoundsRenderers);',
+         '_headBoundsRenderers.Clear(); _headBoundsRenderers.AddRange(_calibration.SamplingRenderers(identity));',
+         'actual final head figure retains direct native-world XY surface detail during movement'),
+        ('head-crop-origin-lost742', 'MenuDepthHeadRaster.cs',
+         '(_head.x - 2f * _region.x - width) / width', '(_head.x - 2f * (_region.x + .5f) - width) / width',
+         'actual final head text and XY print retain direct native-world pixel detail during movement'),
+        ('head-capacity-small-growth-lost742', 'MenuDepthHeadRaster.cs',
+         'int width = FilterCapacity(region.width, head.x);',
+         'int width = Mathf.Min(head.x, Mathf.CeilToInt(region.width / 64f) * 64);',
+         'continuous motion uses bounded GPU capacity growth instead of repeated small reallocations'),
+        ('head-backing-old-single742', '', '', '', 'actual final head retains original window and figure ink for both eyes'),
+        ('head-filter-lifecycle742', '', '', '', ''),
+        ('head-filter-xr-viewport-lost742', 'MenuDepthHeadRaster.cs',
+         'current != null && current.targetTexture != null ? current.pixelRect : new Rect(0, 0, head.x, head.y)',
+         'current != null ? current.pixelRect : new Rect(0, 0, head.x, head.y)',
+         'a null-target XR observation restores the eye grid rather than the desktop pixel rectangle'),
+        ('head-filter-first-failure-lost742', 'DesktopCapture.cs',
+         '        MenuDepthHeadRaster.ReleaseFilter();', '        /* first failed capture keeps its shared filter */',
+         'failed first capture releases AA storage even before a display material exists'),
+        ('head-filter-pending-release-lost742', 'MenuDepthHeadRaster.cs',
+         'if (_filterBorrowed) { _filterReleasePending = true; return; }', 'if (_filterBorrowed) { return; }',
+         'shutdown requested inside the actual capture drains its AA lease after the native draw'),
+        ('head-filter-idle-release-lost742', 'MenuDepthSources.cs',
+         'if (Sources.Count == 0) MenuDepthHeadRaster.ReleaseFilter();', '/* idle registry retains its head AA surface */',
+         'the last native graphic releases AA storage while discovery remains installed'),
         ('head-aliasing742', '', '', '', ''),
         ('head-aliasing-lost742', 'MenuDepthHeadRaster.cs',
          'SamplesPerAxis = 2;', 'SamplesPerAxis = 1;',
@@ -313,7 +342,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else

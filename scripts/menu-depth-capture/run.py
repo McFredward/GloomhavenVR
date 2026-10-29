@@ -3,6 +3,7 @@
 from pathlib import Path
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -17,11 +18,15 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from town_run_retention import cleanup_completed_run
 sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
 from project_compilers import cleanup_project_compilers, cleanup_project_editors
+_cleanup_spec = importlib.util.spec_from_file_location('menu_depth_compiler_cleanup', ROOT / 'scripts/check-environment-menu-scope.py')
+_cleanup_module = importlib.util.module_from_spec(_cleanup_spec)
+_cleanup_spec.loader.exec_module(_cleanup_module)
+cleanup_run_compilers = _cleanup_module.cleanup_run_compilers
 
 
-def execute(argv, log, timeout=420):
+def execute(argv, log, timeout=420, env=None):
     with log.open('w') as stream:
-        process = subprocess.Popen(argv, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+        process = subprocess.Popen(argv, env=env, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             return process.wait(timeout=timeout)
         finally:
@@ -49,6 +54,8 @@ def main():
     output = ROOT / '.planning/debug/menu-depth-capture'; output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=output)); completion = run / 'completion.log'
     completion.write_text('evidence: ' + str(run) + '\n'); print('Evidence: ' + str(run), flush=True)
+    compiler_temp = Path(tempfile.mkdtemp(prefix='ghmc-', dir='/tmp'))
+    (run / 'compiler-temp.json').write_text(json.dumps({'TMPDIR': str(compiler_temp)}) + '\n')
     status = 1
     try:
         fixture = ROOT / 'tests/GloomhavenVR.MenuDepthCaptureTests'
@@ -158,14 +165,14 @@ def main():
              'e.MenuDepthDisplay.RenderHead(e.Cam, e.Panel.HostRect, e.Frame, e.Rt, leftEye, rightEye);',
              'e.Cam.Render();', 'a successful spatial window has exactly two UI camera draws per tick and no automatic third draw'),
             ('wrong-right-eye', 'MenuDepthDisplay.cs',
-             'CaptureHeadEye(capture, plane, _headRight!, right, size);',
-             'CaptureHeadEye(capture, plane, _headRight!, left, size);',
+             'CaptureHeadEye(capture, plane, filter.Value.Target, filter.Value.Eye(right), filter.Value.Pixels);',
+             'CaptureHeadEye(capture, plane, filter.Value.Target, filter.Value.Eye(left), filter.Value.Pixels);',
              'a right preparation failure draws the completed left and fresh mono fallback while restoring all begun leases'),
             ('missing-off-axis', 'MenuDepthProjection.cs',
              'projection = Matrix4x4.Frustum(left, rightEdge, bottom, top, near, far);',
              'projection = Matrix4x4.Perspective(40f, frame.width / frame.height, near, far);',
              'window corners remain exactly pinned in the off-axis capture'),
-            ('missing-native-restore', 'MenuDepthDisplay.cs', 'state.Restore(capture); capture.rect = viewport;',
+            ('missing-native-restore', 'MenuDepthDisplay.cs', 'state.Restore(capture);',
              '/* injected: borrowed camera state survives */',
              'the mono fallback actually contains newly changed native artwork instead of the previous spatial eye'),
             ('missing-source-restore', 'MenuDepthSources.cs', 'try { Prepared[i].AfterCapture(); }',
@@ -196,7 +203,8 @@ def main():
             wanted = set(args.case); assert wanted <= {case[0] for case in cases}
             cases = [case for case in cases if case[0] in wanted]
         manifest = {'evidence': str(run), 'result': str(run / 'results.txt'), 'cases': []}
-        env = dict(os.environ, DOTNET_ROOT='/home/claw/.dotnet', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0')
+        env = dict(os.environ, DOTNET_ROOT='/home/claw/.dotnet', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0',
+                   TMPDIR=str(compiler_temp), UseSharedCompilation='false')
         for name, filename, before, after, expected in cases:
             case = run / name; bound = case / 'production'; bound.mkdir(parents=True)
             for filename_actual, code in production.items():
@@ -248,7 +256,7 @@ def main():
         pins = [*(source / name for name in names), legacy_path, core_path, isolation_path, Path(__file__).parent / 'Routing724.cs',
                 Path(__file__).parent / 'Workload725.cs', Path(__file__).parent / 'Frame728.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.3.Report.cs', ROOT / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.6.MenuDepth.cs',
                 *fixture.glob('*'), Path(__file__), Path(__file__).parent / 'Editor/MenuDepthRunner.cs',
-                ROOT / 'scripts/menu-depth-character/project_compilers.py',
+                ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py',
                 ROOT / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle']
         hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in pins if p.is_file()}
         (run / 'source-hashes.json').write_text(json.dumps({'sha256': hashes,
@@ -260,7 +268,7 @@ def main():
         (run / 'command.json').write_text(json.dumps(argv, indent=2) + '\n')
         (run / 'command-environment.json').write_text(json.dumps({name: os.environ.get(name) for name in
             ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
-        status = execute(argv, run / 'launch.log')
+        status = execute(argv, run / 'launch.log', env=env)
         print((run / 'results.txt').read_text() if (run / 'results.txt').exists() else 'No Unity results', flush=True)
         for name, sha in hashes.items(): assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == sha, name
         (run / 'source-stability.json').write_text(json.dumps({'unchanged': True, 'inputs': len(hashes)}) + '\n')
@@ -273,8 +281,13 @@ def main():
         (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
         if compilers['remaining']:
             raise RuntimeError('Project compiler survived reaping; its generated caches are retained.')
+        borrowed = cleanup_run_compilers(run, editor_reaped=True)
+        (run / 'compiler-fd-cleanup.json').write_text(json.dumps(borrowed, indent=2) + '\n')
+        if borrowed['remaining'] or borrowed['refused']:
+            raise RuntimeError('Private compiler borrowers remain; retaining project caches.')
         cleanup = cleanup_completed_run('menu-depth-capture', status, completion, ROOT, process_reaped=True)
         (run / 'cache-cleanup.json').write_text(json.dumps(cleanup, indent=2) + '\n')
+        shutil.rmtree(compiler_temp)
 
 
 if __name__ == '__main__': raise SystemExit(main())

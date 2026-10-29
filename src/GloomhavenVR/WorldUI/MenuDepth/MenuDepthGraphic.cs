@@ -44,13 +44,16 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMenu
         && _image.overrideSprite == _sprite && (_field == null || MenuDepthDisplay.DepthShader != null)
         && (!_planeOnly || HasPlaneOwner(false));
 
-    public bool TryGetHeadBounds(MenuDepthEye eye,out Rect clipBounds)
+    public bool TryGetHeadBounds(MenuDepthEye eye, out Rect clipBounds)
     {
-        clipBounds=default;if(!IsReady||_image==null)return false;
-        Rect r=_image.rectTransform.rect;
-        float depth=(_field!=null?r.width:Mathf.Min(r.width,r.height))*_depthRatio;
-        var bounds=new Bounds(new Vector3(r.center.x,r.center.y,depth*.5f),new Vector3(r.width,r.height,Mathf.Abs(depth)));
-        clipBounds=MenuDepthHeadRaster.ClipBounds(eye.WorldToHeadClip*transform.localToWorldMatrix,bounds);return true;
+        clipBounds = default;
+        if (!IsReady || _image == null) return false;
+        Rect rect = _image.rectTransform.rect;
+        float depth = (_field != null ? rect.width : Mathf.Min(rect.width, rect.height)) * _depthRatio;
+        var bounds = new Bounds(new Vector3(rect.center.x, rect.center.y, depth * .5f),
+            new Vector3(rect.width, rect.height, Mathf.Abs(depth)));
+        clipBounds = MenuDepthHeadRaster.ClipBounds(eye.WorldToHeadClip * transform.localToWorldMatrix, bounds);
+        return true;
     }
 
     internal void Configure(Image image, MenuDepthHeightfield? field, float depthRatio)

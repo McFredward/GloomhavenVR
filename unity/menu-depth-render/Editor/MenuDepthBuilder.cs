@@ -20,7 +20,7 @@ public static class MenuDepthBuilder
             Directory.CreateDirectory(output);
             AssetBundleManifest result = BuildPipeline.BuildAssetBundles(output,
                 new[] { new AssetBundleBuild { assetBundleName = "menu-depth.bundle", assetNames = new[]
-                { "Assets/MenuDepth/MenuDepthDisplay.shader", "Assets/MenuDepth/MenuDepthGraphic.shader", "Assets/MenuDepth/MenuDepthCharacter.shader", "Assets/MenuDepth/Unity-LICENSE.txt" } } },
+                { "Assets/MenuDepth/MenuDepthDisplay.shader", "Assets/MenuDepth/MenuDepthGraphic.shader", "Assets/MenuDepth/MenuDepthCharacter.shader", "Assets/MenuDepth/MenuDepthHeadResolve.shader", "Assets/MenuDepth/Unity-LICENSE.txt" } } },
                 BuildAssetBundleOptions.None, BuildTarget.StandaloneWindows64);
             if (result == null) throw new InvalidOperationException("Menu-depth shader bundle build failed.");
             AssetBundle probe = AssetBundle.LoadFromMemory(File.ReadAllBytes(Path.Combine(output, "menu-depth.bundle")));
@@ -30,11 +30,12 @@ public static class MenuDepthBuilder
                 Shader display = probe.LoadAsset<Shader>("assets/menudepth/menudepthdisplay.shader");
                 Shader graphic = probe.LoadAsset<Shader>("assets/menudepth/menudepthgraphic.shader");
                 Shader character = probe.LoadAsset<Shader>("assets/menudepth/menudepthcharacter.shader");
-                if (probe.GetAllAssetNames().Length != 4 || display == null || graphic == null || character == null
-                    || !display.isSupported || !graphic.isSupported || !character.isSupported)
+                Shader resolve = probe.LoadAsset<Shader>("assets/menudepth/menudepthheadresolve.shader");
+                if (probe.GetAllAssetNames().Length != 5 || display == null || graphic == null || character == null || resolve == null
+                    || !display.isSupported || !graphic.isSupported || !character.isSupported || !resolve.isSupported)
                     throw new InvalidDataException("The built menu-depth archive is missing supported runtime shader assets.");
                 File.WriteAllText(Path.Combine(output, "runtime-load.txt"), "Exact Unity " + Application.unityVersion
-                    + "; LoadFromMemory; four assets; display, graphic and character shaders supported on " + SystemInfo.graphicsDeviceType + "\n");
+                    + "; LoadFromMemory; five assets; display, graphic, character and head resolve shaders supported on " + SystemInfo.graphicsDeviceType + "\n");
             }
             finally { probe.Unload(true); }
             File.WriteAllText(Path.Combine(output, "build-result.txt"), "Unity " + Application.unityVersion
