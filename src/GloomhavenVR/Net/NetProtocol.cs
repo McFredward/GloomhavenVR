@@ -641,6 +641,8 @@ internal static class NetProtocol
     // bucket capacities reduce approach allocations without reducing quality/rate.
     // A dedicated resolve adds no native content render; the original four shaders
     // remain byte-identical. Retire first-failure/idle/deferred filter ownership.
+    // Keep the storage crop in an explicit raster projection, not the native view:
+    // storage growth must preserve model normals, near/far and UI pixel density.
     // The startup rig predates tracking and the actual main menu. Admit selected
     // surroundings only after the original menu appears and tracked recenter
     // completes; centre a closed room on its real Floor/Ceiling clearance once.
