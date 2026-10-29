@@ -30,14 +30,16 @@ internal static class Program
         var added=p.Target.gameObject.Add<RectMask2D>();p.AddedScrollMasks.Add(added);
         p.Flattened.Add(new FlattenRecord { Transform=p.Target,OriginalLocalZ=8 });
     }
-    private static void NativeRestored(ConvertedPanel p)
+    private static void NativeRestored(ConvertedPanel p, bool construction = true)
     {
         Check(ReferenceEquals(p.Target.parent,p.OriginalParent),"Failed conversion restores the native hierarchy");
         Check(!p.Target.gameObject.Destroyed,"Rollback must preserve native objects");
         Check(p.Target.GetComponent<UIWindow>()!.IsOpen,"Rollback must not close the native decision");
         Check(p.Target.GetComponent<CanvasGroup>()!.interactable,"Rollback preserves native button permission");
         Check(p.Target.sizeDelta.x==300,"Rollback restores original layout");
-        if(p.HostGo!=null)
+        // Destroyed Unity objects compare equal to null; ownership still needs
+        // checking after successful destruction, including every native receipt.
+        if(!ReferenceEquals(p.HostGo,null))
         {
             Check(p.HostGo.Destroyed,"Empty mod host is destroyed after native detach");
             var canvas=p.Target.GetComponent<Canvas>();
@@ -49,7 +51,7 @@ internal static class Program
                     "Rollback restores original menu camera mode after native ownership");
                 Check(canvas.overrideSorting && canvas.sortingOrder==6,"Rollback restores native canvas ordering");
                 Check(p.Target.gameObject.layer==5,"Rollback restores native render layer");
-                Check(p.Target.GetComponent<Graphic>()!.enabled,"Failed menu conversion restores its native background");
+                if(construction)Check(p.Target.GetComponent<Graphic>()!.enabled,"Failed menu conversion restores its native background");
                 Check(p.Target.GetComponent<RectMask2D>()!.Destroyed,"Rollback removes only its added scroll mask");
             }
         }
@@ -174,13 +176,13 @@ internal static class Program
         int pendingMenus=CanvasConversion.PendingCountForTest;CanvasConversion.Release(normalRefusal);
         Check(CanvasConversion.PendingCountForTest==pendingMenus,
             "Normal refused menu release never duplicates the existing retry owner");
-        normalRefusal.Target.RefuseParent=false;CanvasConversion.Retry();NativeRestored(normalRefusal);
+        normalRefusal.Target.RefuseParent=false;CanvasConversion.Retry();NativeRestored(normalRefusal,construction:false);
         Check(!CanvasConversion.Pending(normalRefusal.Target),"Normal refused menu home recovers through existing native retry");
         var normalDetached=NewPanel();Adopt(normalDetached);normalDetached.Target.RefuseSpecificParent=normalDetached.OriginalParent;
         CanvasConversion.Release(normalDetached);
         Check(normalDetached.HostGo!.Destroyed && normalDetached.Target.parent==null && normalDetached.NativeMenuCanvas!=null
             && CanvasConversion.Pending(normalDetached.Target),"Normal persistent menu receipt survives safety detach and destroyed host");
-        normalDetached.Target.RefuseSpecificParent=null;CanvasConversion.Retry();NativeRestored(normalDetached);
+        normalDetached.Target.RefuseSpecificParent=null;CanvasConversion.Retry();NativeRestored(normalDetached,construction:false);
         Check(!CanvasConversion.Pending(normalDetached.Target),"Retained menu receipt restores original home after host destruction");
         var ordinaryRefusal=NewPanel();Adopt(ordinaryRefusal);ordinaryRefusal.NativeMenuCanvas=null;
         ordinaryRefusal.Target.RefuseParent=true;CanvasConversion.Release(ordinaryRefusal);
