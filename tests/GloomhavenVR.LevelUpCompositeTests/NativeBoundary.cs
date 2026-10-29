@@ -217,7 +217,14 @@ namespace UnityEngine.UI
     { public UIWindowID ID; public bool IsOpen=true,IsVisible=true; public int NativeShowCalls,NativeHideCalls; public void Show(){IsOpen=true;++NativeShowCalls;}public void Hide(){IsOpen=false;++NativeHideCalls;} }
     public sealed class LayoutElement : UnityEngine.Behaviour { public bool ignoreLayout; }
     public class Graphic : UnityEngine.Behaviour { public UnityEngine.RectTransform rectTransform=>(UnityEngine.RectTransform)transform;public UnityEngine.Color color=new(1,1,1,1); }
-    public sealed class Toggle : UnityEngine.Behaviour { public bool isOn; }
+    public sealed class Toggle : UnityEngine.Behaviour
+    {
+        private bool _on;
+        public bool interactable=true;
+        public event Action<bool>? ValueChanged;
+        public bool isOn { get=>_on; set { if(_on==value)return;_on=value;ValueChanged?.Invoke(value); } }
+        public void Click(){if(enabled&&interactable&&gameObject.activeInHierarchy)isOn=!isOn;}
+    }
 }
 namespace UnityEngine
 { public struct Color { public float r,g,b,a;public Color(float r,float g,float b,float a){this.r=r;this.g=g;this.b=b;this.a=a;} } }
@@ -243,14 +250,30 @@ internal sealed class UIResetLevelUpWindow:UnityEngine.MonoBehaviour
     internal UILevelUpCardInventory inventory=null!;
     internal UnityEngine.UI.Toggle displayToggle=null!;
     internal UnityEngine.GameObject resetPanel=null!;
+    internal readonly List<UnityEngine.Component> requestDisableShow=new();
     internal UILevelUpCardInventory UILevelUpCardInventory=>GetComponent<UILevelUpCardInventory>()!;
 }
 internal sealed class NativeComparisonCards:UnityEngine.MonoBehaviour
 { internal event Action? Selected;internal void Select()=>Selected?.Invoke(); }
 internal sealed class NewPartyDisplayUI:UnityEngine.MonoBehaviour
-{ internal static NewPartyDisplayUI? PartyDisplay;internal UnityEngine.UI.UIWindow window=null!;internal UnityEngine.Component? AbilityCardsDisplay; }
+{
+    internal enum DisplayType { NONE, INVENTORY, CARDS, PERKS, CHARACTER_SELECTOR, LEVELUP, BATTLE_GOALS }
+    internal static NewPartyDisplayUI? PartyDisplay;
+    internal UnityEngine.UI.UIWindow window=null!;
+    internal UnityEngine.Component? AbilityCardsDisplay;
+    internal DisplayType ActiveDisplay;
+    internal bool IsDisableFurtherAbilityPanel;
+}
 namespace GloomhavenVR.Core
 {
+    internal static class VRSession { internal static bool IsRunning=true; }
+    internal static class Loc
+    {
+        internal static string MoreCards=>German?"Weitere Karten":"More Cards";
+        internal static bool German;
+        internal static event Action? OnChanged;
+        internal static void Language(bool german){German=german;OnChanged?.Invoke();}
+    }
     internal static class VRLog
     {
         internal static int Notes,Warnings;
@@ -307,9 +330,20 @@ namespace TMPro
         }
         public static readonly TextEvent TEXT_CHANGED_EVENT=new();
     }
-    public sealed class TMP_Text : UnityEngine.Behaviour
+    public class TMP_Text : UnityEngine.Behaviour
     {
         public UnityEngine.RectTransform rectTransform => (UnityEngine.RectTransform)transform;
         public UnityEngine.Bounds textBounds;
+        public UnityEngine.Object? font,fontSharedMaterial;
+        public float fontSize=24;
+        public int fontStyle;
+        public UnityEngine.Color color=new(1,1,1,1);
+        public string text="";
+        public bool raycastTarget;
+        public TextAlignmentOptions alignment;
+        public TextOverflowModes overflowMode;
     }
+    public sealed class TextMeshProUGUI:TMP_Text { }
+    public enum TextAlignmentOptions { MidlineRight }
+    public enum TextOverflowModes { Ellipsis }
 }

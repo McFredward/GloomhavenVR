@@ -7,9 +7,11 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <LevelUpSource Condition="'$(LevelUpSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/LevelUpComposite.cs</LevelUpSource>
     <LayerSource Condition="'$(LayerSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/MovedSubtreeLayers.cs</LayerSource>
+    <CardListSource Condition="'$(CardListSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/CardListEntry.cs</CardListSource>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(LevelUpSource)" Link="Production/LevelUpComposite.cs" />
     <Compile Include="$(LayerSource)" Link="Production/MovedSubtreeLayers.cs" />
+    <Compile Include="$(CardListSource)" Link="Production/CardListEntry.cs" />
   </ItemGroup>
 </Project>

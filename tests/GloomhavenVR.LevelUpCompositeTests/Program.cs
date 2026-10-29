@@ -8,7 +8,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using Object=UnityEngine.Object;
 
-internal static class Program
+internal static partial class Program
 {
     private static int _checks;
     private static void Check(bool value,string reason)
@@ -242,6 +242,7 @@ internal static class Program
             f.Tick();Check(ReferenceEquals(f.Inventory.parent,f.Campaign),"unrelated open window never becomes level-up owner");
             LevelUpComposite.Reset();
         }
+        CardListEntryChecks();
         string? report=Environment.GetEnvironmentVariable("GHVR_LEVELUP_REPORT");
         if(!string.IsNullOrEmpty(report))File.WriteAllText(report,JsonSerializer.Serialize(new{checks=_checks,geometry=metrics,scope="Production ownership/rect/layer state machine over bounded native API model; no renderer/headset claim."},new JsonSerializerOptions{WriteIndented=true}));
         Console.WriteLine($"Level-up composite: {_checks} assertions passed.");

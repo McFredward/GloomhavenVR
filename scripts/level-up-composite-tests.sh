@@ -14,13 +14,15 @@ for source in fixture.glob('*'):
  if source.is_file() and source.suffix in ('.cs','.csproj'):shutil.copy2(source,project/source.name)
 source=source_root/'src/GloomhavenVR/WorldUI/Composites/LevelUpComposite.cs'
 layers=source_root/'src/GloomhavenVR/WorldUI/Composites/MovedSubtreeLayers.cs'
+entry=source_root/'src/GloomhavenVR/WorldUI/Composites/CardListEntry.cs'
 source_dir=run/'sources';source_dir.mkdir()
 import hashlib
 bindings=[]
-for name,original in [('LevelUpComposite.cs',source),('MovedSubtreeLayers.cs',layers)]:
+for name,original in [('LevelUpComposite.cs',source),('MovedSubtreeLayers.cs',layers),('CardListEntry.cs',entry)]:
  snapshot=source_dir/name;shutil.copy2(original,snapshot)
  bindings.append({'original':str(original),'snapshot':str(snapshot),'sha256':hashlib.sha256(snapshot.read_bytes()).hexdigest()})
 source=source_dir/'LevelUpComposite.cs';layers=source_dir/'MovedSubtreeLayers.cs'
+entry=source_dir/'CardListEntry.cs'
 (run/'source-bindings.json').write_text(json.dumps(bindings,indent=2))
 log=run/'console.log';log.write_text('Evidence: '+str(run)+'\n')
 print('Evidence: '+str(run),flush=True)
@@ -40,7 +42,7 @@ try:
   for member in ('FittedView','InventoryView'):
    if call+'(panel, LevelUpComposite.'+member not in content:raise RuntimeError('Fixed-fit membership mismatch: '+relative+' '+member)
  print('Level-up composite enrollment: 8 source-order/membership checks passed.',flush=True)
- command=['dotnet','run','--project',str(project/'GloomhavenVR.LevelUpCompositeTests.csproj'),'--configuration','Release','--property:LevelUpSource='+str(source),'--property:LayerSource='+str(layers)]
+ command=['dotnet','run','--project',str(project/'GloomhavenVR.LevelUpCompositeTests.csproj'),'--configuration','Release','--property:LevelUpSource='+str(source),'--property:LayerSource='+str(layers),'--property:CardListSource='+str(entry)]
  env=os.environ.copy();env['GHVR_LEVELUP_REPORT']=str(run/'geometry.json')
  result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,env=env)
  with log.open('a') as stream:stream.write(result.stdout)
@@ -78,6 +80,25 @@ try:
   if result.returncode==0:raise RuntimeError('Negative control escaped fixture: '+name)
   if expected not in result.stdout:raise RuntimeError('Negative control failed at wrong boundary: '+name+'\n'+result.stdout)
   message='Level-up composite negative control: '+name+' rejected.\n'
+  with log.open('a') as stream:stream.write(message)
+  print(message,end='',flush=True)
+ entry_text=entry.read_text()
+ entry_mutations=[
+  ('opener-waits-for-list','if (!available) return Release();','if (!available || !reset!.inventory.GetComponent<UnityEngine.UI.UIWindow>()!.IsOpen) return Release();','closed inventory opener joins original character Cards view before the inventory opens'),
+  ('caption-not-clickable','_caption.raycastTarget = true;','_caption.raycastTarget = false;','caption graphic dispatches to the original native toggle'),
+  ('native-show-lock-bypassed','reset.requestDisableShow.Count == 0','reset.requestDisableShow.Count >= 0','show-lock: opener returns its native geometry and parent'),
+  ('opener-home-retained','_button.SetParent(_home, false);','_button.SetParent(_button.parent, false);','tab: opener returns its native geometry and parent'),
+  ('caption-language-stale','Loc.OnChanged += RefreshCaption;','/* language update omitted */','open caption follows native language changes'),
+ ]
+ for name,old,new,expected in entry_mutations:
+  if entry_text.count(old)!=1:raise RuntimeError('Entry mutation target must occur exactly once: '+name)
+  mutant=run/(name+'.fixture');mutant.write_text(entry_text.replace(old,new))
+  mutant_command=[value if not value.startswith('--property:CardListSource=') else '--property:CardListSource='+str(mutant) for value in command]
+  mutant_env=env.copy();mutant_env.pop('GHVR_LEVELUP_REPORT',None)
+  result=subprocess.run(mutant_command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,env=mutant_env)
+  (run/(name+'.log')).write_text(result.stdout);preserve(name)
+  if result.returncode==0 or expected not in result.stdout:raise RuntimeError('Entry control failed at wrong boundary: '+name+'\n'+result.stdout)
+  message='Card-list entry negative control: '+name+' rejected.\n'
   with log.open('a') as stream:stream.write(message)
   print(message,end='',flush=True)
  status=0

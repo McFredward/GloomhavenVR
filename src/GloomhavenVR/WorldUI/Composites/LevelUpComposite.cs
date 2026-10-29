@@ -140,7 +140,11 @@ internal static class LevelUpComposite
 
     internal static void Tick()
     {
-        try { TickCore(); }
+        try
+        {
+            if (!CardListEntry.Tick()) return;
+            TickCore();
+        }
         catch (System.Exception ex)
         {
             Reset();
@@ -177,14 +181,14 @@ internal static class LevelUpComposite
             || inventoryWindow == null || !inventoryWindow.IsOpen || owner == null
             || mountParent == null || panel == null || !panel.IsAlive)
         {
-            Reset();
+            ResetInventory();
             return;
         }
 
         if (!ReferenceEquals(inventory, _inventory) || !ReferenceEquals(owner, _owner)
             || (_mount != null && !ReferenceEquals(_mount.parent, mountParent)))
         {
-            Reset();
+            ResetInventory();
             // A rejected restore still owns an original subtree. Do not recapture
             // its temporary mount as a new native home on this rebind attempt.
             if (_rect != null || _mount != null || _comparison != null) return;
@@ -329,6 +333,12 @@ internal static class LevelUpComposite
     }
 
     internal static void Reset()
+    {
+        if (!CardListEntry.Release()) return;
+        ResetInventory();
+    }
+
+    private static void ResetInventory()
     {
         if (_comparison != null)
         {
