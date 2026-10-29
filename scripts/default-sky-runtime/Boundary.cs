@@ -13,6 +13,15 @@ namespace GloomhavenVR.Core
     internal static class MixedReality { internal static void Tick(){} }
     internal static class SkyAlternative { }
     internal static class VRCameraPolicy { }
+    // The complete production factory executes its desktop path here. Actual
+    // Quest ordinary-mesh material pixels execute in quest-menu-material-tests.
+    internal static class QuestStandalonePlatform
+    {
+        internal static bool Enabled=>false;
+        internal static bool SharedStereoEyeRouting=>false;
+        internal static Shader? SelectFlatScreenShader(Shader? shader)=>shader;
+        internal static void SetFlatScreenMono(Material material,Texture capture){}
+    }
 }
 namespace GloomhavenVR.Core.Events
 {

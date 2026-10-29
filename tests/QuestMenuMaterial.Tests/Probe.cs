@@ -15,7 +15,7 @@ public static class QuestMenuMaterialProbe
     {
         public string unity, graphics, colorSpace;
         public bool hardwareVerified;
-        public int comparisons, defectControls;
+        public int comparisons, defectControls, leaseCases;
         public List<string> cases = new List<string>();
     }
     public static void Run()
@@ -135,10 +135,58 @@ public static class QuestMenuMaterialProbe
             ownedScreen.renderQueue = 4000;
             Require(Difference(reference, Capture(ownedScreen, ownedGlass)) > 20, "Control detects an opaque screen drawn over foreground hands");
             ownedScreen.renderQueue = 1000; report.defectControls++;
+            // Execute the real production Enter/Exit around the same factory
+            // material, as MainMenu -> Vanilla2DMap does without a loading hide.
+            foreground.SetActive(false); reference = Capture(originalScreen, originalGlass);
+            string[] properties = { "_ZTest", "_ZWrite", "_Cull", "_SrcBlend", "_DstBlend", "_VertexColor", "_UseAlphaMask" };
+            float[] originalFloats = Array.ConvertAll(properties, ownedScreen.GetFloat);
+            Color originalColor = ownedScreen.GetColor("_Color");
+            factory.EnterWorld(ownedScreen);
+            Require(factory.HasQuestLease && ownedScreen.GetFloat("_ZWrite") == 1
+                && ownedScreen.GetFloat("_ZTest") == 4 && ownedScreen.GetFloat("_Cull") == 2
+                && ownedScreen.GetFloat("_DstBlend") == 0, "Actual world menu enters its original opaque depth state");
+            Require(Difference(reference, Capture(ownedScreen, ownedGlass)) > 20,
+                "Control detects retained world-menu alpha/depth state on the ordinary map screen");
+            report.defectControls++;
+            factory.ExitWorld(ownedScreen);
+            for (int i=0;i<properties.Length;i++) Require(ownedScreen.GetFloat(properties[i]) == originalFloats[i], "Original Quest material float restored: " + properties[i]);
+            Require(ownedScreen.GetColor("_Color") == originalColor && !factory.HasQuestLease
+                && Difference(reference, Capture(ownedScreen, ownedGlass)) <= 1,
+                "Actual world-menu exit restores the original ordinary screen RGBA and clears the lease");
+            report.leaseCases++;
+            var varied = new Material(ownedScreen);
+            float[] variedFloats = { 8, 0, 0, 5, 10, 1, 1 };
+            Color variedColor = new Color(.3f,.5f,.7f,.4f);
+            for (int i=0;i<properties.Length;i++) varied.SetFloat(properties[i],variedFloats[i]);
+            varied.SetColor("_Color",variedColor);
+            factory.EnterWorld(varied); factory.ExitWorld(varied);
+            for (int i=0;i<properties.Length;i++) Require(varied.GetFloat(properties[i]) == variedFloats[i], "Borrowed custom material float survives a full lease: " + properties[i]);
+            Require(varied.GetColor("_Color") == variedColor && !factory.HasQuestLease,"Original custom color survives a full lease");
+            report.leaseCases++;
+            factory.EnterWorld(varied);
+            Color foreignColor = new Color(.9f,.2f,.1f,.6f);
+            float[] foreignFloats = { 2, 0, 1, 4, 6, 0, 0 };
+            var foreign = new Material(ownedScreen) { color = foreignColor };
+            for (int i=0;i<properties.Length;i++) foreign.SetFloat(properties[i],foreignFloats[i]);
+            factory.ExitWorld(foreign);
+            for (int i=0;i<properties.Length;i++) Require(foreign.GetFloat(properties[i]) == foreignFloats[i], "Foreign material cannot inherit a prior material's property restore: " + properties[i]);
+            Require(foreign.GetColor("_Color") == foreignColor && !factory.HasQuestLease,"Foreign reference releases the old lease without writing its color");
+            report.leaseCases++;
+            factory.ExitWorld(varied);
+            Require(varied.GetFloat("_ZWrite") == 1 && varied.GetColor("_Color") == Color.white,
+                "A later return of the former material cannot recover an already released lease");
+            report.leaseCases++;
+            var desktop = new Material(ownedScreen);
+            factory.EnterWorld(desktop,false); Require(!factory.HasQuestLease,"Desktop does not acquire Quest property leases"); factory.ExitWorld(desktop);
+            report.leaseCases++;
+            var native = new Material(originalScreen);
+            factory.EnterWorld(native); Require(!factory.HasQuestLease,"A non-owned original shader cannot acquire a Quest property lease"); factory.ExitWorld(native);
+            report.leaseCases++;
+            Object.DestroyImmediate(varied); Object.DestroyImmediate(foreign); Object.DestroyImmediate(desktop); Object.DestroyImmediate(native);
             string output = Path.GetFullPath(Path.Combine(Application.dataPath, "../ProbeOutput"));
             Directory.CreateDirectory(output);
             File.WriteAllText(Path.Combine(output, "results.json"), JsonUtility.ToJson(report, true) + "\n");
-            Debug.Log("PASS Quest menu material comparisons=" + report.comparisons + " defectControls=" + report.defectControls);
+            Debug.Log("PASS Quest menu material comparisons=" + report.comparisons + " leaseCases=" + report.leaseCases + " defectControls=" + report.defectControls);
             EditorApplication.Exit(0);
         }
         catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }

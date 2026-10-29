@@ -629,7 +629,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 742;
+    public const ushort ModBuild = 743;
+
+    // ModBuild743 — Quest integration after finalized dev742.
+    // Preserve native confirmation producers, world-menu readiness/movement,
+    // fixed head sampling, raster projection and original native SDF units.
+    // Compile the independent fifth head-resolve shader for Android alongside
+    // the four existing menu shaders. Retain per-sample permission before color
+    // integration and all existing Quest presentation/input/profile adapters.
+    // Reuse original Campaign, art, figure, audio, movie and Story producers;
+    // qualify only the changed source/resource/native-code update closure.
+    // Source-only feature delivery; actual Quest appearance remains unverified.
 
     // ModBuild742 — confirmations remain on their producer; a real world main menu.
     // Local740 hardware accepts the small level-up prompt but exposes the Perks

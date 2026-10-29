@@ -24,14 +24,15 @@ public static class MenuDepthResourceBuilder
             PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { GraphicsDeviceType.Vulkan });
             AssetDatabase.Refresh();
             string[] paths = { "Assets/MenuDepth/MenuDepthDisplay.shader", "Assets/MenuDepth/MenuDepthGraphic.shader",
-                "Assets/MenuDepth/MenuDepthCharacter.shader", "Assets/MenuDepth/MenuDepthNativeCard.shader" };
+                "Assets/MenuDepth/MenuDepthCharacter.shader", "Assets/MenuDepth/MenuDepthNativeCard.shader",
+                "Assets/MenuDepth/MenuDepthHeadResolve.shader" };
             foreach (string path in paths)
                 if (AssetDatabase.LoadAssetAtPath<Shader>(path) == null)
                     throw new InvalidOperationException("Missing menu-depth shader: " + path);
             // Shader_feature UI variants are selected by a borrowed material at
             // runtime. Explicit roots keep every original alpha/rect combination.
             var variants = new ShaderVariantCollection();
-            Shader native = AssetDatabase.LoadAssetAtPath<Shader>(paths[3]);
+            Shader native = AssetDatabase.LoadAssetAtPath<Shader>("Assets/MenuDepth/MenuDepthNativeCard.shader");
             foreach (string[] keywords in new[] { new string[0], new[] { "UNITY_UI_ALPHACLIP" },
                 new[] { "UNITY_UI_CLIP_RECT" }, new[] { "UNITY_UI_ALPHACLIP", "UNITY_UI_CLIP_RECT" } })
                 variants.Add(new ShaderVariantCollection.ShaderVariant(native, PassType.Normal, keywords));

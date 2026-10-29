@@ -27,9 +27,10 @@ internal static class MenuDepthCompatibility
         ["MenuDepthCards/<NativeTypes>d__6"] = "679aedea1b15737575257ade0d3f0e098a11464ebfcd1c24d0e6322c511d2599",
         ["MenuDepthCards/Kind"] = "4ffc579e808cfaa079dd88958557865d946aa710adec19af13c97298bf4ec52e",
         ["MenuDepthCharacters/<>c__DisplayClass32_0"] = "ebf1a06fd6602d707052d6381981c338ff5664a40a7884c0102139544194b52d",
-        // The upstream preview-shadow/lifetime changes move this generated
-        // closure from 76 to 83; its complete readonly body remains qualified.
-        ["MenuDepthCharacterSource/<>c__DisplayClass83_0"] = "374a3715fa0b0ff19d04b7dbac961d84a92ac910db333246b795d16a5a839263" };
+        // Build742's additional sampling members move this generated closure
+        // from 83 to 85. Complete factory/closure comparison with the qualified
+        // Quest741 input proves only that exact generated-name change.
+        ["MenuDepthCharacterSource/<>c__DisplayClass85_0"] = "b36e8be14e5d1c3964c140e62fd7958790907123c1c1a5c036b1048068843ea0" };
     // These literal names come from the completely pinned descriptor tables.
     // Resolve exact owner assembly and inherited no-argument members, then apply
     // the original native-assembly filter and method-handle deduplication.
@@ -50,7 +51,7 @@ internal static class MenuDepthCompatibility
         var readers = new[] {
             PrepareReader(module, find, "MenuDepthCharacters", "CreateHiddenReader", "isHidden", "System.Boolean", "b5aa95b6621865760a421305cd960f8293b0ce75934cee88b40ba6084bf42b7b"),
             PrepareReader(module, find, "MenuDepthCharacterSource", "CreateOriginalReader", "character3D",
-                "Character3DDisplayManager/Character3D", "f42b3dc473e39002f6493fd43ea50fff2d77f215f2518050ec96c6dcc638aa2e") };
+                "Character3DDisplayManager/Character3D", "0b6263d56b290df0ba7acef4408948d808ccd795fa680ec58f23da7212a544bb") };
         MethodDefinition directory = module.GetType(Prefix + "MenuDepthCatalogue").Methods.Single(m => m.Name == "get_DirectoryPath");
         RequireHash(directory, "91dd0e6a45b336572ce7054c7b3da6ef5192da7ef77e96ad7f3c570721e428fb");
         MethodDefinition resourceRoot = module.GetType("GloomhavenVR.Core.QuestStandalonePlatform").Methods.Single(m =>

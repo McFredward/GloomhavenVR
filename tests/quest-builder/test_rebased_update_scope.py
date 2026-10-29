@@ -215,8 +215,12 @@ class RebasedUpdateScopeTests(unittest.TestCase):
         previous = [copy.deepcopy(pair[1]) for pair in preparation_identity.REBASE_MEDIA_DELIVERY_ROWS.values()]
         for row in current:
             actual = storage.record_file(ROOT / row["path"], row["path"])
-            observed, preceding = preparation_identity.INSTALLED_UPDATE_DELIVERY_ROWS.get(row["path"], (None, actual))
-            self.assertEqual(preceding if actual == observed else actual, row,
+            for aliases in (preparation_identity.SKY_INSTALLED_UPDATE_DELIVERY_ROWS,
+                            preparation_identity.INSTALLED_UPDATE_DELIVERY_ROWS,
+                            preparation_identity.INSTALLED_UPDATE_DELIVERY_PREVIOUS_ROWS):
+                observed, preceding = aliases.get(row["path"], (None, actual))
+                if actual == observed: actual = preceding
+            self.assertEqual(actual, row,
                              "The finite reviewed byte alias must be refreshed only after reviewing the changed host.")
         independent = rows("tools/quest-builder/movie_banks.py", "tools/quest-builder/movie_render.py",
                            "tools/quest-builder/requirements-movies.txt", "tools/quest-movies/films/one.depth.gz")

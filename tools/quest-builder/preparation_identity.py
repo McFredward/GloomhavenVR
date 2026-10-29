@@ -209,6 +209,16 @@ BUILDER_DEFAULT_SKY_AST = {False: ('8117be0e1c2011cd250676fa83ab4cde5922da030f6c
 SKY_DELIVERY_ROWS = {'tools/quest-builder/release.py': ({'path': 'tools/quest-builder/release.py', 'size': 30875, 'sha256': 'db320398f3c25f648e7d4895a1a3b7209796dfaff95ec34628ddb133c556afff'}, {'path': 'tools/quest-builder/release.py', 'size': 30586, 'sha256': '4afc220e36071f000b8d51d4e5d68a337dff482fb45c9e8e671ab3b6bac021d2'})}
 SKY_INSTALLED_UPDATE_DELIVERY_ROWS = {'tools/quest-builder/update_driver.py': ({'path': 'tools/quest-builder/update_driver.py', 'size': 112568, 'sha256': '03932d78d74f439d09d45a4e21057fbcbb8e6b37329012113d977653b3eab29e'}, {'path': 'tools/quest-builder/update_driver.py', 'size': 110448, 'sha256': 'a791248f986fad53840d70d5485a439fd33de69d912a2c8f87ae4d92d029444a'})}
 
+# Build743 requires the fifth authored menu shader in the public source roster.
+# Only this complete reviewed selector differs; no original producer changes.
+# Unknown release edits retain their independent preparation identity.
+HEAD_RESOLVE_DELIVERY_ROWS = {
+    "tools/quest-builder/release.py": (
+        {"path": "tools/quest-builder/release.py", "size": 30910,
+         "sha256": "a2067f0cec36f03bc0157fddd41324e58c940a3ecb11314fc5cea5e36cbc9ae3"},
+        SKY_DELIVERY_ROWS["tools/quest-builder/release.py"][0]),
+}
+
 # Exact delivery-only readers, not generated original assets. The native JSON
 # reader opens two retained Resources contracts; the installation validator
 # accepts the finite Story roster. Every unknown byte row remains consumed.
@@ -774,6 +784,9 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     rows = _reviewed_startup_rows(recovery.preparation_source_rows(inputs["mod"]["files"]))
     rows = [MENU_DEPTH_DELIVERY_ROWS[row["path"]][1]
             if row["path"] in MENU_DEPTH_DELIVERY_ROWS and row == MENU_DEPTH_DELIVERY_ROWS[row["path"]][0]
+            else row for row in rows]
+    rows = [HEAD_RESOLVE_DELIVERY_ROWS[row["path"]][1]
+            if row["path"] in HEAD_RESOLVE_DELIVERY_ROWS and row == HEAD_RESOLVE_DELIVERY_ROWS[row["path"]][0]
             else row for row in rows]
     rows = [SKY_DELIVERY_ROWS[row["path"]][1]
             if row["path"] in SKY_DELIVERY_ROWS and row == SKY_DELIVERY_ROWS[row["path"]][0]

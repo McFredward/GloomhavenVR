@@ -149,10 +149,16 @@ def main():
     originals = {name: path.read_text() for name, path in files.items()}
     screen_core=ROOT/'src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.1.Core.cs'
     screen_lifecycle=ROOT/'src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.4.Lifecycle.cs'
+    quest_material=ROOT/'src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.7.QuestMaterial.cs'
+    files['QuestMaterial.cs']=quest_material
+    originals['QuestMaterial.cs']=quest_material.read_text()
     world_menu=ROOT/'src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.9.WorldMenu.cs'
     core=screen_core.read_text();lifecycle=screen_lifecycle.read_text();menu=world_menu.read_text()
-    begin=lifecycle.index('            Shader? shader = Shader.Find("Hidden/BlitCopy")')
-    end=lifecycle.index('            _quadRenderer.sharedMaterial = _screenMaterial;',begin)+len('            _quadRenderer.sharedMaterial = _screenMaterial;')
+    # Execute the current production factory seam as well. The capability port
+    # selects its exact desktop fallback; Quest Enter/Exit pixels have a separate
+    # actual factory fixture. No literal old lifecycle copy stands in for it.
+    begin=lifecycle.index('            Shader? shader = QuestStandalonePlatform.SelectFlatScreenShader(')
+    end=lifecycle.index('            SetScreenMaterial(_quadRenderer, _screenMaterial, glass: false);',begin)+len('            SetScreenMaterial(_quadRenderer, _screenMaterial, glass: false);')
     coverage=core[core.index('    internal static Renderer? OpaqueBackdrop'):core.index('    // Shader.name marshals')]
     kernels='\n'.join(method(menu,signature) for signature in (
         'private void TickWorldMenuBackdrop()', 'private void RestoreWorldMenuBackdrop()',

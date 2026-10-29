@@ -1,7 +1,7 @@
 """Private Android menu-depth resources from authored code and one owned shader.
 
 The public Builder contains no derived native card bytecode. The first update
-recovers only the pinned original GUI/AbilityCard_Shd, then compiles four shaders
+recovers only the pinned original GUI/AbilityCard_Shd, then compiles five shaders
 in a tiny Android project. Later code updates reuse its closed cache or the
 matching embedded resources in the installed APK. Nothing converts game scenes.
 """
@@ -37,7 +37,8 @@ NATIVE_GUID = "36562efa53e6bc540a6e20b7d1c1782f"
 NATIVE_NAME = "GUI/AbilityCard_Shd"
 DERIVED_NAME = "GloomhavenVR/MenuDepthNativeCard"
 NATIVE_ASSET = "Assets/MenuDepth/MenuDepthNativeCard.shader"
-SHADERS = ("MenuDepthDisplay.shader", "MenuDepthGraphic.shader", "MenuDepthCharacter.shader")
+SHADERS = ("MenuDepthDisplay.shader", "MenuDepthGraphic.shader", "MenuDepthCharacter.shader",
+    "MenuDepthHeadResolve.shader")
 EDITOR = "tools/quest-menu-depth/Editor/MenuDepthResourceBuilder.cs"
 HELPERS = ("tools/quest-builder/menu_depth_resources.py", "tools/quest-builder/full_shaders.py",
     "tools/quest-builder/campaign_native_shaders.py", "tools/quest-shaders/converters.py",
@@ -174,7 +175,7 @@ def inspect_bank(raw, source):
     expected = {"assets/menudepth/" + name.lower(): "GloomhavenVR/" + Path(name).stem
         for name in (*SHADERS, "MenuDepthNativeCard.shader")}
     shaders = {path: obj for path, obj in environment.container.items() if obj.type.name == "Shader"}
-    _require(set(shaders) == set(expected), "four exact runtime shader roots are required")
+    _require(set(shaders) == set(expected), "five exact runtime shader roots are required")
     auditor = _load(source, "tools/quest-builder/campaign_native_shaders.py")
     result = []
     for path, name in expected.items():

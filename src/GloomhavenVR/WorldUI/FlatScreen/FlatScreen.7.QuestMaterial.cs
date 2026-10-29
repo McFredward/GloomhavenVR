@@ -7,6 +7,51 @@ namespace GloomhavenVR.WorldUI;
 internal sealed partial class FlatScreen
 {
     private Material? _questOpaqueUnderlay;
+    private Material? _questWorldMenuMaterial;
+    private QuestWorldMenuMaterialState _questWorldMenuState;
+
+    private struct QuestWorldMenuMaterialState
+    {
+        internal float ZTest, ZWrite, Cull, SrcBlend, DstBlend, VertexColor, UseAlphaMask;
+        internal Color Color;
+    }
+
+    // Quest's ordinary screen already uses Overlay before entering the world
+    // menu. Restoring that same shader cannot restore its normal map blend/depth
+    // state when MainMenu -> Vanilla2DMap retains the original screen material.
+    private void SaveQuestWorldMenuMaterial(Material material)
+    {
+        _questWorldMenuMaterial = null;
+        _questWorldMenuState = default;
+        if (!QuestStandalonePlatform.Enabled || material.shader != Cards.PlayTray.OverlayShader())
+            return;
+        _questWorldMenuState = new QuestWorldMenuMaterialState
+        {
+            ZTest = material.GetFloat("_ZTest"), ZWrite = material.GetFloat("_ZWrite"),
+            Cull = material.GetFloat("_Cull"), SrcBlend = material.GetFloat("_SrcBlend"),
+            DstBlend = material.GetFloat("_DstBlend"), VertexColor = material.GetFloat("_VertexColor"),
+            UseAlphaMask = material.GetFloat("_UseAlphaMask"), Color = material.GetColor("_Color"),
+        };
+        _questWorldMenuMaterial = material;
+    }
+
+    private void RestoreQuestWorldMenuMaterial(Material? material)
+    {
+        if (material != null && ReferenceEquals(material, _questWorldMenuMaterial)
+            && material.shader == Cards.PlayTray.OverlayShader())
+        {
+            material.SetFloat("_ZTest", _questWorldMenuState.ZTest);
+            material.SetFloat("_ZWrite", _questWorldMenuState.ZWrite);
+            material.SetFloat("_Cull", _questWorldMenuState.Cull);
+            material.SetFloat("_SrcBlend", _questWorldMenuState.SrcBlend);
+            material.SetFloat("_DstBlend", _questWorldMenuState.DstBlend);
+            material.SetFloat("_VertexColor", _questWorldMenuState.VertexColor);
+            material.SetFloat("_UseAlphaMask", _questWorldMenuState.UseAlphaMask);
+            material.SetColor("_Color", _questWorldMenuState.Color);
+        }
+        _questWorldMenuMaterial = null;
+        _questWorldMenuState = default;
+    }
 
     /// <summary>
     /// Capture071329 proves that B675's full eye viewport fixes tracking distortion,

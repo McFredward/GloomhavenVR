@@ -71,6 +71,7 @@ MENU_STORY_ROOT = 'src/GloomhavenVR/Assets/MenuDepth/Story/'
 # The owner's Android producer uses the immutable original shader inputs.
 MENU_RECIPES = {MENU_RENDER_ROOT + name for name in (
     'MenuDepthDisplay.shader', 'MenuDepthGraphic.shader', 'MenuDepthCharacter.shader',
+    'MenuDepthHeadResolve.shader',
     'provenance.json', 'NativeCard.provenance.json', 'NativeDissolve.provenance.json', 'Unity-LICENSE.txt')}
 
 

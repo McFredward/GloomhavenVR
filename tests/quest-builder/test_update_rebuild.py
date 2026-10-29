@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -68,6 +69,7 @@ class UpdateRebuildTests(unittest.TestCase):
              patch.object(builder, "snapshot_inputs", side_effect=snapshots), \
              patch.object(builder, "prepare", side_effect=prepare), patch.object(builder, "build", side_effect=build), \
              patch.object(builder.native_admission, "require_capacity"), \
+             patch.object(shutil, "disk_usage", return_value=shutil._ntuple_diskusage(400 << 30, 0, 400 << 30)), \
              patch.object(builder, "output_lock", side_effect=AssertionError("Migration cannot reacquire the CLI lock")), \
              patch.object(builder, "main", side_effect=AssertionError("Migration cannot restart the CLI")):
             self.assertEqual(builder.rebuild_update(self.args, self.plan, self.repo, self.output), apk)

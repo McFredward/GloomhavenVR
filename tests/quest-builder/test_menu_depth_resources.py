@@ -89,6 +89,21 @@ class MenuDepthResources(unittest.TestCase):
         with self.assertRaises(resources.BuildError):
             resources.plan(source)
 
+    def test_head_resolve_is_a_required_compiler_and_compact_snapshot_input(self):
+        source = self.recipe_source()
+        initial = resources.plan(source)
+        name = resources.RENDERING + "MenuDepthHeadResolve.shader"
+        self.assertIn(name, {row["path"] for row in initial["sources"]})
+        shader = source / name
+        shader.write_bytes(shader.read_bytes() + b"\n// changed head resolve compiler input\n")
+        self.assertNotEqual(resources.plan(source)["producerKey"], initial["producerKey"])
+        with self.assertRaisesRegex(resources.BuildError, "producer source is absent or changed"):
+            resources.plan(self.root / "absent-compact-snapshot",
+                [row for row in initial["sources"] if row["path"] != name])
+        shader.unlink()
+        with self.assertRaises(FileNotFoundError):
+            resources.plan(source)
+
     def test_transitive_shader_source_and_converter_lock_changes_invalidate_cache(self):
         source = self.recipe_source()
         initial = resources.plan(source)

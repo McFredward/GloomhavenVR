@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Xml.Linq;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using QuestWeaver;
@@ -14,6 +15,14 @@ internal static class MenuDepthCompatibilityTests
             .ToDictionary(path => path, Hash);
         using (Discovery model = Discovery.Load(modPath, managed))
         {
+            // Conversion must leave the finalized dev742 head-raster pipeline
+            // intact, including the explicit cropped projection, native SDF
+            // units and permission filtering before sample colors are mixed.
+            string[] headTypes = { "MenuDepthEye", "MenuDepthNativeUiScope", "MenuDepthHeadRaster",
+                "MenuDepthHeadRaster/FilterLease", "MenuDepthDisplay", "MenuDepthSources", "MenuDepthCharacterProjection" };
+            var originalHeadMethods = headTypes.SelectMany(name => Discovery.AllTypes(model.Mod.MainModule)
+                    .Single(t => t.FullName == menu + name).Methods).Where(m => m.HasBody)
+                .ToDictionary(m => m.FullName, NativeMovieBoundary.Fingerprint);
             var originalClosures = new[] { "MenuDepthCharacters", "MenuDepthCharacterSource" }.ToDictionary(name => name,
                 name => model.Mod.MainModule.GetType(menu + name).NestedTypes.Where(t => t.Name.Contains("DisplayClass", StringComparison.Ordinal))
                     .SelectMany(t => t.Methods).Where(m => m.Name.Contains("Create", StringComparison.Ordinal))
@@ -65,11 +74,23 @@ internal static class MenuDepthCompatibilityTests
                     .SequenceEqual(new[] { "MenuDepth", "Story" }), "Loose story lookup lost its configured Quest root or exact content path.");
             check(report.ReflectionRoots.Any(r => r.Type == "Character3DDisplayManager"), "Private native field metadata may be stripped.");
             new Weaver(model).Write(output, report, false);
-            check(report.Complete && report.ProtectedTypesVerified > 0 && report.WovenTargets > expected.Length,
+            check(report.Complete && report.ProtectedTypesVerified == 7 && report.WovenTargets > expected.Length,
                 "Actual current-mod weave did not preserve the complete protected game contract.");
             using AssemblyDefinition woven = AssemblyDefinition.ReadAssembly(Path.Combine(output, "GloomhavenVR.dll"));
             check(woven.MainModule.GetType(menu + "MenuDepthLifecycleObserver").Methods.Any(m => m.Name == "TargetMethods"),
                 "The actual written AOT mod lost its runtime selector.");
+            var wovenHeadMethods = Discovery.AllTypes(woven.MainModule).SelectMany(t => t.Methods).Where(m => m.HasBody)
+                .ToDictionary(m => m.FullName, NativeMovieBoundary.Fingerprint);
+            check(originalHeadMethods.All(pair => wovenHeadMethods.TryGetValue(pair.Key, out string? hash) && hash == pair.Value),
+                "AOT conversion changed a complete dev742 head-raster method body.");
+            XElement links = XElement.Load(Path.Combine(output, "link.xml"));
+            check(links.Elements("assembly").Any(a => (string?)a.Attribute("fullname") == "GH.Runtime"
+                && a.Elements("type").Any(t => (string?)t.Attribute("fullname") == "Character3DDisplayManager"
+                    && (string?)t.Attribute("preserve") == "all")),
+                "Written linker metadata lost the exact native readonly-field owner.");
+            check(links.Elements("assembly").Any(a => (string?)a.Attribute("fullname") == "GloomhavenVR"
+                && (string?)a.Attribute("preserve") == "all"),
+                "Written linker metadata lost the new head-raster/AOT closure.");
         }
         Negative("Android platform guard", a => {
             MethodDefinition method = a.MainModule.GetType(menu + "MenuDepthCharacters").Methods.Single(m => m.Name == "CreateHiddenReader");
@@ -92,6 +113,11 @@ internal static class MenuDepthCompatibilityTests
             TypeDefinition closure = a.MainModule.GetType(menu + "MenuDepthCharacterSource").NestedTypes
                 .Single(t => t.Methods.Any(m => m.Name == "<CreateOriginalReader>b__0"));
             closure.Fields.Single(f => f.Name == "field").IsStatic = true;
+        });
+        Negative("original-reader generated closure identity", a => {
+            TypeDefinition closure = a.MainModule.GetType(menu + "MenuDepthCharacterSource").NestedTypes
+                .Single(t => t.Methods.Any(m => m.Name == "<CreateOriginalReader>b__0"));
+            closure.Name = "<>c__DisplayClass83_0";
         });
         Negative("readonly closure semantics", a => {
             MethodDefinition method = a.MainModule.GetType(menu + "MenuDepthCharacters").NestedTypes.SelectMany(t => t.Methods)
