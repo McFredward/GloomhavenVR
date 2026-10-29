@@ -36,10 +36,13 @@ public static partial class MenuDepthCardProgram
         internal IEnumerator ProveLevelUpHover738()
         {
             File.WriteAllText(Path.Combine(_output, "level-up-scope.txt"),
-                "Actual UILevelUpCardHighlighter.HighlightCard, UILevelUpCardHolder.PlaceNewCard/Hide, " +
+                "Actual UILevelUpCardHighlighter.HighlightCard/HighlightWonCard, UILevelUpCardHolder.PlaceNewCard/Hide, " +
                 "ObjectPool.SpawnCard/RecycleCard, typed cards, TMP/uGUI, production observer, " +
                 "MenuDepthDisplay.RenderHead and final eye pixels. Original campaign Init/Show/art decoration " +
-                "and pool-return gameplay cleanup are explicit ports. No actual native game art/D3D11/HMD claim.\n");
+                "and pool-return gameplay cleanup are explicit ports. The decorative GUIAnimator uses an " +
+                "explicit no-motion subclass; native Play/events and LeanTween alpha/callback dispatch execute " +
+                "with a controlled manual clock after auditing the original tween settings. " +
+                "No actual native game art/D3D11/HMD timing claim.\n");
             foreach (Card known in _cards) known.Rect.gameObject.SetActive(false);
             var poolGo = Go("original native ObjectPool");
             var pool = poolGo.AddComponent<ObjectPool>(); ObjectPool.instance = pool;
@@ -49,6 +52,8 @@ public static partial class MenuDepthCardProgram
             holderGo.SetActive(true);
             var highlight = Go("original UILevelUpCardHighlighter", _root).AddComponent<UILevelUpCardHighlighter>();
             Field(highlight, "cardHolder", holder); Field(highlight, "cardHighlightEffect", Go("original optional card effect", _root));
+            var animator = Go("decorative reveal animation port", _root).AddComponent<LevelUpRevealAnimator745>();
+            Field(highlight, "animator", animator);
             var data = new CAbilityCard[2]; var rows = new AbilityCardUI[2]; var cards = new Card[2];
             var pools = new List<ObjectPool.CardPool>();
             for (int i = 0; i < rows.Length; i++)
@@ -94,6 +99,12 @@ public static partial class MenuDepthCardProgram
                         && Quaternion.Angle(rows[0].transform.localRotation, Quaternion.identity) > 30f,
                         "non-window manual flat retired and VR-off holders retain original native pool rotation");
                     holder.Hide();
+                    holder.PlaceNewCard(data[0], immediately: false, () => shownCallbacks++);
+                    Check(Quaternion.Angle(rows[0].transform.rotation, Quaternion.identity) < .01f
+                        && Quaternion.Angle(rows[0].transform.localRotation, Quaternion.identity) > 30f
+                        && AccessTools.Field(typeof(UILevelUpCardHolder), "animationFade").GetValue(holder) != null,
+                        "excluded won-card reveals retain native pool pose and their original pending fade");
+                    holder.Hide();
                     WorldUIConfig.ConversionActive = VRSession.IsRunning = true;
                     FlatScreen.ManualScreenActive = false; panel.IsAlive = true;
                     if (guard == 4) CanvasConversion.ActivePanels.Add(panel);
@@ -109,12 +120,6 @@ public static partial class MenuDepthCardProgram
                 Check(rows[0].transform.parent == physical.transform
                     && Quaternion.Angle(rows[0].transform.localRotation, Quaternion.Euler(0f, 23f, 0f)) < .01f,
                     "an original shown callback retains its deliberate new card parent and orientation");
-                holder.Hide();
-
-                holder.PlaceNewCard(data[0], immediately: false);
-                Check(Quaternion.Angle(rows[0].transform.rotation, Quaternion.identity) < .01f
-                    && AccessTools.Field(typeof(UILevelUpCardHolder), "animationFade").GetValue(holder) != null,
-                    "the original non-immediate won-card reveal keeps its native rotation and fade animation");
                 holder.Hide();
 
                 for (int reuse = 0; reuse < 12; reuse++)
@@ -164,13 +169,96 @@ public static partial class MenuDepthCardProgram
                         && Quaternion.Angle(rows[index].transform.localRotation, Quaternion.identity) < .01f,
                         "original unhover returns the same card and authored orientation to its native pool");
                 }
+
+                // The actual won-card path has the same synchronous native pool birth.
+                // Only its alpha transition differs. Compare at the same native alpha
+                // before any budgeted MenuDepthDriver discovery or artificial settling.
+                for (int reveal = 0; reveal < 3; reveal++)
+                {
+                    int index = reveal % 2;
+                    _root.rotation = Quaternion.Euler(0f, index == 0 ? 47f : -36f, 0f); _glass.rotation = _root.rotation;
+                    eye = _glass.TransformPoint(new Vector3(.10f, .03f, -.90f));
+                    _head.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(_glass.position - eye, _glass.up));
+                    int completed = 0;
+                    highlight.HighlightWonCard(data[index], () => completed++);
+                    var fade = (LTDescr)AccessTools.Field(typeof(UILevelUpCardHolder), "animationFade").GetValue(holder);
+                    Check(ReferenceEquals(holder.Card, rows[index]) && completed == 0 && alpha.alpha == 0f
+                        && fade != null && Math.Abs(fade.time - .5f) < .00001f
+                        && !fade.useManualTime && !fade.useFrames && !fade.useEstimatedTime,
+                        "native won-card reveal retains its original zero-alpha birth half-second fade and deferred callback");
+                    Vector3 position = rows[index].transform.localPosition, scale = rows[index].transform.localScale;
+                    fade!.setUseManualTime(true);
+                    PulseReveal745(.125f);
+                    Check(Math.Abs(alpha.alpha - .25f) < .0001f && completed == 0,
+                        "original native fade reaches first visible alpha without early continuation");
+                    _rightEye = (reveal & 1) != 0;
+                    ++_request; while (_completed != _request) yield return null;
+                    Texture2D first = Read(cards[index], true, 74500 + reveal);
+                    rows[index].transform.localRotation = Quaternion.identity;
+                    ++_request; while (_completed != _request) yield return null;
+                    Texture2D reference = Read(cards[index], false, 74500 + reveal);
+                    try
+                    {
+                        Color32[] actual = first.GetPixels32(), wanted = reference.GetPixels32();
+                        int changed = 0; long error = 0; int visible = 0;
+                        for (int p = 0; p < wanted.Length; p++)
+                        {
+                            int delta = Math.Abs(actual[p].r - wanted[p].r) + Math.Abs(actual[p].g - wanted[p].g) + Math.Abs(actual[p].b - wanted[p].b);
+                            error += delta; if (delta > 12) changed++;
+                            if (actual[p].r > 20 || actual[p].g > 20 || actual[p].b > 20) visible++;
+                        }
+                        Check(visible > 300, "first won-card alpha produces visible original card ink in final head pixels");
+                        File.AppendAllText(Path.Combine(_output, "first-won-card-pixels.csv"), reveal + ",changed=" + changed + ",error=" + error + "\n");
+                        Check(changed == 0,
+                            "the first native won-card reveal raster already matches its independently aligned window plane");
+                        Check(rows[index].transform.localPosition == position && rows[index].transform.localScale == scale,
+                            "won-card orientation preserves original pool placement and physical card size");
+                    }
+                    finally { Object.DestroyImmediate(first); Object.DestroyImmediate(reference); }
+                    PulseReveal745(.125f); PulseReveal745(.125f);
+                    Check(Math.Abs(alpha.alpha - .75f) < .0001f && completed == 0,
+                        "native won-card fade preserves its intermediate progression and continuation gate");
+                    PulseReveal745(.125f);
+                    Check(Math.Abs(alpha.alpha - 1f) < .0001f && completed == 1
+                        && AccessTools.Field(typeof(UILevelUpCardHolder), "animationFade").GetValue(holder) == null,
+                        "original won-card fade completes exactly once and clears its native pending descriptor");
+                    PulseReveal745(.125f);
+                    Check(completed == 1, "completed won-card reveal never duplicates its native callback");
+                    holder.Hide(); animator.Stop();
+                }
+                int cancelled = 0;
+                holder.PlaceNewCard(data[0], immediately: false, () => cancelled++);
+                ((LTDescr)AccessTools.Field(typeof(UILevelUpCardHolder), "animationFade").GetValue(holder)).setUseManualTime(true);
+                PulseReveal745(.125f); holder.Hide(); PulseReveal745(1f);
+                Check(cancelled == 0 && holder.Card == null && !rows[0].gameObject.activeSelf && alpha.alpha == 0f,
+                    "native cancellation recycles a partly revealed card without continuation or an added visibility tail");
+                Check(animator.Starts == 3, "original won-card highlighter retains one decorative Play per presentation");
             }
             finally
             {
                 WorldUIConfig.ConversionActive = VRSession.IsRunning = true;
                 FlatScreen.ManualScreenActive = false; panel.IsAlive = true;
                 holder.Hide(); ObjectPool.instance = null;
+                LeanTween.dtManual = 0f;
             }
         }
     }
+
+    private static void PulseReveal745(float seconds)
+    {
+        // Explicit clock input for the editor fixture. The actual native tween
+        // update, alpha setter, descriptor retirement and callback chain execute.
+        LeanTween.dtManual = seconds;
+        AccessTools.Field(typeof(LeanTween), "frameRendered").SetValue(null, -1);
+        LeanTween.update();
+        LeanTween.dtManual = 0f;
+    }
+}
+
+public sealed class LevelUpRevealAnimator745 : GUIAnimator
+{
+    public int Starts;
+    protected override void Animate() { Starts++; }
+    protected override void ResetFinishState() { }
+    protected override void ResetInitialState() { }
 }

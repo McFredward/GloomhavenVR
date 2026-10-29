@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace GloomhavenVR.WorldUI.MenuDepth;
 
-/// <summary>Keep the native level-up hover's pooled card in its owning window from its first draw.</summary>
+/// <summary>Keep native hover and won-card presentations in their owning window from the first draw.</summary>
 [HarmonyPatch(typeof(UILevelUpCardHolder), nameof(UILevelUpCardHolder.PlaceNewCard))]
 internal static class MenuDepthLevelUpHoverObserver
 {
@@ -14,7 +14,11 @@ internal static class MenuDepthLevelUpHoverObserver
     [HarmonyPostfix]
     private static void AfterPlace(UILevelUpCardHolder __instance, bool immediately)
     {
-        if (!immediately) return; // Keep the original won-card reveal/fade path intact.
+        // Build745: both native paths synchronously spawn and show the same
+        // pooled card. "immediately" changes only its CanvasGroup alpha/fade;
+        // the won-card introduction needs the same owner-local orientation
+        // before the fade's first visible frame. Leave that original tween,
+        // highlight effect and deferred continuation entirely native.
         try { AlignOriginal(__instance); }
         catch (Exception exception)
         {
@@ -42,7 +46,7 @@ internal static class MenuDepthLevelUpHoverObserver
             // receives an inverse local yaw until the budgeted flatten walk finds
             // it. The native recycle path explicitly resets this same root to
             // identity, which is the flat UI's authored orientation. Restore that
-            // intent synchronously after the original show, before any Canvas/head
+            // intent for hover and won-card reveal after the original show, before any Canvas/head
             // batch. Keep the original pool, fade, callback, XY and scale untouched.
             card.localRotation = Quaternion.identity;
             return;
