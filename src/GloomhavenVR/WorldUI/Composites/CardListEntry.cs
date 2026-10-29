@@ -79,9 +79,10 @@ internal static class CardListEntry
 
     private static void CreateCaption(RectTransform view)
     {
-        TMP_Text? original = null;
-        foreach (TMP_Text text in view.GetComponentsInChildren<TMP_Text>(true))
-            if (text != null && text.font != null) { original = text; break; }
+        // Exact native Cards prefab roles avoid the controller "LB" hint,
+        // which can become visible when the player's last input was a gamepad.
+        TMP_Text? original = CaptionTemplate(view, "Container/Header/Title")
+            ?? CaptionTemplate(view, "Container/Info/Text");
         if (original == null || _button == null) return;
         var go = new GameObject("GloomhavenVR.MoreCardsLabel", typeof(RectTransform), typeof(TextMeshProUGUI));
         go.transform.SetParent(_button, false);
@@ -100,6 +101,12 @@ internal static class CardListEntry
         rect.pivot = new Vector2(1f, .5f); rect.sizeDelta = new Vector2(200f, 32f);
         rect.anchoredPosition3D = new Vector3(-8f, 0f, 0f);
         RefreshCaption(); Loc.OnChanged += RefreshCaption;
+    }
+
+    private static TMP_Text? CaptionTemplate(RectTransform view, string path)
+    {
+        TMP_Text? text = view.Find(path)?.GetComponent<TMP_Text>();
+        return text != null && text.gameObject.activeInHierarchy && text.font != null ? text : null;
     }
 
     private static void RefreshCaption()
