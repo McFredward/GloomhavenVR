@@ -1,3 +1,35 @@
+**Quest rebase on finalized dev740, Build741, 2026-10-29.**
+
+The dev integrator explicitly marked `35e08359a` ready before the actual rebase.
+Keep Quest on `feature/quest3-standalone`; retain the old published ancestry for a
+normal push. All accepted dev menu depth, quality, hover, confirmation and selected
+environment behavior is included. A separate tiny Android producer supplies the
+original Default sky; existing Quest player data and qualified caches are preferred.
+Only its three shaders need a first PC resource compile. The original Campaign,
+authored banks, figure/audio/movie and Story producers remain unchanged. Actual
+B735-to-B741 classification selects compact-code updating with no art rebuild.
+
+Strict Debug/Release/metadata and final Android managed builds pass 0W0E. Actual
+AOT conversion writes 370 targets, verifies seven protected types and has zero
+gates; menu tests pass 33/13 and current-mod tests 843 assertions. All four embedded
+Android resource files match the qualified producers byte-for-byte. Actual Vulkan
+asset loading, all native mip levels and 432 shader-stage aliases are qualified.
+
+The complete Quest union records 292PASS/2fixture-compileFAIL across all 294 local
+suites, plus 16/16 source gates. Repairs change only fixture inputs. Their complete
+guarded Unity continuations pass level-up414/21 and stereo209/21, with all 80 direct
+final-head samples exact. All 294 scopes consequently have passing final-input
+coverage; this is not a new successful single complete invocation. The complete
+run's fresh retained wire binary passes 306431 actual goldens. Surface/bundle and
+classified compiled comparison pass with no unapproved removals. Earlier stereo
+worker evidence did not bind the combined Quest fixture and is not inherited.
+
+Logs, sources, manifests and actual artifacts remain; owned compiler/Editor/ADB
+processes and regenerable caches are cleaned. See QUEST-DEV740-INTEGRATION.md and
+ignored quest-dev740-rebase-20261028/validation-final.json. Source-only feature
+delivery; the Windows workflow creates the archive. Quest headset appearance,
+motion quality and actual multiplayer still require hardware evidence.
+
 **Selected surroundings across all VR contexts, Build740, 2026-10-29.**
 
 The maintainer extends the selected environment to main menu, 3D map and scenario,

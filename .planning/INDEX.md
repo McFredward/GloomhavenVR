@@ -1,6 +1,7 @@
 # Planning index
 
-Updated 2026-10-29: Build740 applies the selected surroundings in the main menu,
+Updated 2026-10-29: Quest Build741 rebases onto explicitly finalized dev740 and
+qualifies its Android resources and minimal update path. Build740 applies the selected surroundings in the main menu,
 3D map and scenarios, including the original Default sky. Build739 also removes
 the confirmation veil and restores the small prompt's foreground order. See
 STATE.md for qualified validation and hardware acceptance. Windows builds its archive.
@@ -13,6 +14,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [QUEST-DEV740-INTEGRATION.md](QUEST-DEV740-INTEGRATION.md) | Coordinated Quest741 rebase, original Android sky, compact update classification and complete aggregate validation |
 | [MENU740-ALL-CONTEXT-ENVIRONMENTS.md](MENU740-ALL-CONTEXT-ENVIRONMENTS.md) | Chosen surroundings in every VR context, original Default asset bank, mode transitions and complete aggregate verification |
 | [MENU739-CONFIRMATION-FOREGROUND.md](MENU739-CONFIRMATION-FOREGROUND.md) | Native small confirmation without the full-screen black/GrabPass surface, owner foreground order and direct-path regression evidence |
 | [MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md](MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md) | Accepted first-frame hover alignment, prior capture-only confirmation repair and its qualified evidence |

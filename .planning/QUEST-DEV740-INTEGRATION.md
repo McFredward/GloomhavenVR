@@ -35,7 +35,11 @@ An existing Quest player supplies the exact mesh, material, texture mip chains
 and three-shader fallback graph through bounded serialized-object reads. The
 initial proof uses an actual older B625 APK; it is not a B741 headset result.
 First PC generation uses a separate tiny producer for those three native shaders.
-Its compiler and real asset-loading qualification must complete before delivery.
+Its compiler and real asset-loading qualification have completed. The cold PC
+producer takes 19.4 seconds in the retained local proof, compiling three original
+shaders and retaining all 432 original stage aliases. Actual Vulkan asset-name
+loading resolves the mesh, material, shaders and both complete mip chains. These
+measurements describe the small resource producer, not a complete APK build.
 
 Original Campaign conversion, authored mod banks, figure/audio/movie producers and
 supplied Story fields retain their producers. A portable ZIP's already qualified
@@ -65,22 +69,58 @@ compiler consumers. Run the complete integrated guard once after the tiny GPU
 qualification and final source freeze. Subsequent bounded repairs repeat only
 affected scopes, preserving failed attempts and unchanged input-bound evidence.
 
-Preflight results are independently bound: actual AOT conversion370 targets with
-zero gates;33 menu assertions/13 controls and843 current-mod assertions;91 complete
-update/preparation tests;107 observer tests;99 storage tests; and19 native-resource
-tests before the final PC/GPU repair. These are not a new full-gate pass. Strict
-Debug/Release and metadata-reference compilation are0W0E; docs-i18n passes.
+Preflight results are independently bound: 91 complete update/preparation tests,
+107 observer tests, 99 storage tests and 21 native-resource tests. Strict
+Debug/Release and metadata-reference compilation are 0W0E; docs-i18n passes.
+
+The complete integrated guard was actually invoked on the frozen production tree
+at `b61d63e019f5dbbccc53d097ec279f5d569cdab3`. Source gates pass 16/16. The local
+invocation records all 294 expected suites: 292 pass and two fixture compilation
+failures remain visible in the failed invocation (3698.2 seconds). The level-up
+fixture omitted the real QuestTextureCopy dependency; the stereo fixture combined
+old desktop wrapper injections with already-present Quest boundaries. Repair only
+those fixture inputs; production source is unchanged after the frozen checkpoint.
+
+Both complete containing proofs were then continued from their exact compiled
+assemblies, with source, generated-source and assembly hashes checked before and
+after Unity. Level-up passes 414 assertions and all 21 causal controls; all 80
+front/rear, left/right, final-head samples exactly match independent references.
+Stereo passes 209 assertions and all 21 controls across its unchanged 38 cases.
+These are qualified two-phase continuations, not fresh successful single-command
+invocations. Together with the 292 unchanged closures, they establish passing
+final-input coverage for all 294 suites. The earlier B735 stereo worker proof
+used a dev fixture composition and did not qualify the actual combined Quest
+wrapper; it is not inherited as evidence for this repaired fixture.
+
+The original complete guard stopped before goldens and compiled comparison.
+Its actual freshly built, retained wire executable independently passes 306431
+golden assertions. Bundle-format and surface checks pass: 670 config keys remain,
+Harmony entries grow from 270 to 272, and 13 retired all-caps help fragments are
+the only removed surface tokens (4835 current tokens). The unchanged snapshot
+procedure finds 27 differences against the private actual B735 baseline: the
+expected upstream menu/environment types, two added types, the original Default
+bank/resource entry, nine ModBuild consumers and branch provenance. Every changed
+body is classified; there are no unexplained removals. The generic guard's decimal
+mask also covers the new backing bias, so its actual source value, 1f / 4096f, was
+separately checked against dev rather than inferred from that masked snapshot.
+
+The final actual Android-resource-bound managed build passes 0W0E. Its menu AOT
+suite passes 33 assertions/13 controls; current-mod compatibility passes 843
+assertions. Actual conversion writes 370 targets, verifies seven protected
+original types and reports zero integration gates. Cecil reads all four embedded
+menu/sky bank/provenance resources from that DLL and verifies byte equality with
+the qualified Android pairs. No desktop sky resource enters that Android build.
 
 Final dev740 itself supplies266-suite aggregate coverage and306431 fresh actual
 goldens. Its complete run remains265PASS/1cleanupFAIL; the two isolated containing
 follow-ups close that fixture-only failure. This inherited proof remains distinct
-from the Quest union's forthcoming complete invocation and bounded follow-ups.
+from the Quest union's failed complete invocation and passing bounded continuations.
 
 Ignored evidence root:
 `/home/claw/quest3-local/build/evidence/quest-dev740-rebase-20261028/`.
 The private compiled baseline is the retained actual B735 snapshot; shared
-baselines remain untouched. Final counts, artifact bindings, failed attempts and
-cleanup receipts will be recorded here after the union is qualified.
+baselines remain untouched. `validation-final.json` in the ignored evidence root
+binds final counts, artifact hashes, failed attempts, continuations and cleanup.
 
 Delivery is the feature source push. The Windows installation workflow builds the
 Builder archive; no complete APK or local public ZIP is produced. GPU/source tests
