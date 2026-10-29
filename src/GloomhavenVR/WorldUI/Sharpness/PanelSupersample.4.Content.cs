@@ -447,9 +447,6 @@ internal static partial class PanelSupersample
         }
     }
 
-    /// <summary>Snap an overspill (always &gt;= 0) UP to the capture-frame grid — see
-    /// <see cref="FrameQuantumPx"/>. Every use rounds OUTWARD, so quantising the capture frame can
-    /// only ever grow it and can never crop content that ModBuild 200 kept.</summary>
     /// <summary>The native ready toggle paints its vote icons above its65px button and slides
     /// them in from outside it. Its complete measured ink needs its own per-edge allowance.
     /// All other panels retain the ordinary expansion, band-limit and allocation contracts.</summary>
@@ -463,6 +460,9 @@ internal static partial class PanelSupersample
         padY = Mathf.Max(padY, QuantiseUp(Mathf.Max(host.yMin - ink.yMin, ink.yMax - host.yMax)));
     }
 
+    /// <summary>Snap an overspill (always &gt;= 0) UP to the capture-frame grid — see
+    /// <see cref="FrameQuantumPx"/>. Every use rounds OUTWARD, so quantising the capture frame can
+    /// only ever grow it and can never crop content that ModBuild 200 kept.</summary>
     private static float QuantiseUp(float v) => Mathf.Ceil(v / FrameQuantumPx) * FrameQuantumPx;
 
     // ---- THE TRANSLATION GATE (ModBuild 204, part 1) --------------------------------------------

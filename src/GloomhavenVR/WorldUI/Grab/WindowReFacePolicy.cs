@@ -37,7 +37,8 @@ internal static class WindowReFacePolicy
         VRLog.Note("WorldUI", $"WINDOW RE-FACE: {kind} '{logName}' released — " +
                               $"{(wants ? "RE-FACING" : "keeping its angle")}, because {why}. " +
                               $"[WorldUI] WindowFacing = {mode}, shared = {shared}, laser carry = " +
-                              $"{laserGrab}. Shared releases are authored by the accepted releaser; " +
+                              $"{laserGrab}. THIS LINE IS PRINTED BY EVERY OWNER THAT RE-FACES ON RELEASE. " +
+                              "Shared releases are authored by the accepted releaser; " +
                               "observers retain that same streamed world pose.");
         return wants;
     }

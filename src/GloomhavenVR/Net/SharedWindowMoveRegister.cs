@@ -97,7 +97,7 @@ internal sealed class SharedWindowMoveRegister
         {
             // Only the current placement author announces an opening, including when a flat
             // native host requires the existing single compatible VR surrogate.
-            if (sender != openingAuthor) return false;
+            if (sender != openingAuthor || row.OpeningAuthor != openingAuthor) return false;
             if (_retired.TryGetValue(row.OpeningAuthor, out uint retired) && !Newer(row.Opening, retired)) return false;
             if (_openingAuthor == row.OpeningAuthor && _opening != 0 && !Newer(row.Opening, _opening)) return false;
             AdoptOpening(row.OpeningAuthor, row.Opening);
