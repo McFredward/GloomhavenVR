@@ -97,21 +97,46 @@ With the fixture's RGBA32/D24 targets, at640x640 the measured owned peak is
 bytes (1245.24MiB), excluding Unity-internal and driver allocations. This is a
 measured storage cost for that format, not evidence of hardware
 frame pacing. Sampling remains2x per axis throughout movement; final eye pairs
-retain their1x head grid. Final repaired pixel and lifetime evidence is pending.
+retain their1x head grid. The repaired fixed-eye oracle now measures0 degrees
+normal drift and near/far ratios0.9999999. Its6 assertions and3 omission controls
+cover native model view, uGUI pixel density and the actual source-dispatch copy.
+Actual coordinator cases retain326 antialias,1785 motion,246 pitch,92 paired
+backing and32 filter-lifetime assertions on stable worker inputs.
 
 ## Validation status
 
-Not a delivery candidate yet. The complete integrated gate, strict final builds,
-metadata compilation, final compiled/resource review and cleanup/retirement are
-pending the remaining worker changes.
+The runtime is frozen at`ddd6719ff8285e33d32d858c33ee28865095f300`; the final
+complete267-suite invocation and actual golden executable are running on that
+integrated candidate. This remains pending delivery. Strict Debug/Release pass
+0 warnings/errors in28.19/14.49 seconds; metadata compilation passes in25.93
+seconds. All16 source suites pass in30.9 seconds. Docs-i18n covers5 pairs.
 
-Current focused evidence includes custom environment107 assertions/8 controls;
-Default sky plus real menu backdrop81/16; real menu coordinator/controls103/13;
-and the narrow original confirmation checkpoint241/18 plus native725/23.
-Three affected boot/motion consumers pass; their precise
-results are in ignored `menu742/menu-consumers/results.json`. These are focused
-passes, not a new complete gate. Source16 and inventory preflight17+2 skips have
-passing preliminary runs; later production inputs still require final checks.
+Compiled review against delivered740 finds28 existing runtime types,9 exact
+ModBuild-only consumers,5 added types and0 removals. The late projection repair
+changes exactly7 of those runtime types from the previously reviewed candidate.
+All32 extracted resources are compared; only the75934-byte menu shader bank
+changes. Its4 original serialized shader objects remain byte-identical; the new
+one-pass resolve is the sole addition. Default's native bank remains unchanged.
+Config670 is unchanged; Harmony attributes263 to265 and log tokens4833 to4835
+add only the explicit item/persistent producer hooks and two bounded menu markers.
+Generated inventory is223 patch classes/338 methods, each registered once.
+
+Focused final environment evidence is custom107 assertions/8 controls, Default
+plus menu depth98/16 and real menu coordinator/controls117/17 across18 builds.
+Confirmation evidence includes1056 assertions,36 original plus2 destroyed-input
+controls and240 zero-difference final-head samples, plus pure323/26 and legacy
+native114/13. These are worker/focused proofs, not a complete root pass. Earlier
+boot/motion consumer results live in ignored`menu742/menu-consumers/results.json`.
+
+Failed preflight/control/timeout attempts remain preserved. New conservative
+card bounds duplicated the old fit-depth mutation's short suffix; the fixture
+now targets only its original draw assignment and retains the same native pixel
+oracle. The capture fixture expects the correct2x source domain while retaining
+its1x final-eye checks. The complete desktop fixture grew to75 cases; its old
+420-second editor deadline stopped after39/70. A bounded900-second deadline and
+per-case timing receipts preserve every render, pixel threshold and control.
+Timed far-view retirement is compared with the actually observed near peak,
+allowing retirement during a slow motion trace without weakening image checks.
 
 Unity GL camera/geometry/pixel execution uses explicitly declared native input,
 bootstrap and decoder ports. It does not establish D3D11 headset appearance,
