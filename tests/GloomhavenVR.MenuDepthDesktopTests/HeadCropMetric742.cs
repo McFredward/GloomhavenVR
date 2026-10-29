@@ -19,6 +19,7 @@ public static partial class MenuDepthDesktopProgram
             RawImage raw = null!;
             foreach (RawImage image in Object.FindObjectsOfType<RawImage>())
                 if (ReferenceEquals(image.texture, scene.ModelTarget)) raw = image;
+            raw.canvas.rootCanvas.transform.SetParent(scene.OriginalA.transform, true);
             Canvas.ForceUpdateCanvases();
             Check(MenuDepthScreenProjection.TryMap(scene.Screen, scene.OriginalA, raw.rectTransform, Vector3.zero,
                 out Vector3 nativeEye, out Matrix4x4 nativeToPhysical), "original native preview has its independent physical eye map");
@@ -36,6 +37,10 @@ public static partial class MenuDepthDesktopProgram
             Matrix4x4 nativeView = scene.OriginalA.worldToCameraMatrix;
             Matrix4x4 nativeProjection = scene.OriginalA.projectionMatrix;
             RenderMode nativeMode = raw.canvas.rootCanvas.renderMode;
+            Matrix4x4 nativeGraphic = raw.rectTransform.localToWorldMatrix;
+            Vector3 nativeCameraPosition = scene.OriginalA.transform.localPosition;
+            Quaternion nativeCameraRotation = scene.OriginalA.transform.localRotation;
+            float nativeNear = scene.OriginalA.nearClipPlane, nativeFar = scene.OriginalA.farClipPlane;
             try
             {
                 var lease = new MenuDepthHeadRaster.FilterLease(new Vector2Int(640, 480), new RectInt(200, 100, 128, 128), target, scene.Glass);
@@ -64,6 +69,8 @@ public static partial class MenuDepthDesktopProgram
                     fullProjection = scene.OriginalA.projectionMatrix;
                     fullNear = scene.OriginalA.nearClipPlane;
                     fullFar = scene.OriginalA.farClipPlane;
+                    Check(Same(raw.rectTransform.localToWorldMatrix, nativeGraphic),
+                        "borrowing the head metric leaves a native camera-child Canvas at its original world geometry");
                 }
                 using (var scope = new MenuDepthNativeUiScope(scene.OriginalA, raw.canvas.rootCanvas))
                 {
@@ -79,13 +86,30 @@ public static partial class MenuDepthDesktopProgram
                     Check(Same(scene.OriginalA.worldToCameraMatrix, fullView)
                         && Mathf.Abs(cropPixelX / fullPixelX - 1f) < .0001f
                         && Mathf.Abs(cropPixelY / fullPixelY - 1f) < .0001f
-                        && scene.OriginalA.nearClipPlane == fullNear && scene.OriginalA.farClipPlane == fullFar,
+                        && Mathf.Abs(scene.OriginalA.nearClipPlane / fullNear - 1f) < .0001f
+                        && Mathf.Abs(scene.OriginalA.farClipPlane / fullFar - 1f) < .0001f,
                         "native UI view and target pixel density remain invariant under a storage-only crop");
                 }
                 Check(Same(scene.OriginalA.worldToCameraMatrix, nativeView)
                     && Same(scene.OriginalA.projectionMatrix, nativeProjection)
                     && raw.canvas.rootCanvas.renderMode == nativeMode,
                     "both cropped native UI scopes restore the original camera and Canvas basis");
+                bool enteredCapture = false;
+                try
+                {
+                    using var scope = new MenuDepthNativeUiScope(scene.OriginalA, raw.canvas.rootCanvas);
+                    scope.HeadCapture(target, cropEye, graphics);
+                    enteredCapture = true;
+                    throw new InvalidOperationException("deliberate native capture failure");
+                }
+                catch (InvalidOperationException) { }
+                Check(enteredCapture && Same(scene.OriginalA.worldToCameraMatrix, nativeView)
+                    && Same(scene.OriginalA.projectionMatrix, nativeProjection)
+                    && Same(raw.rectTransform.localToWorldMatrix, nativeGraphic)
+                    && scene.OriginalA.nearClipPlane == nativeNear && scene.OriginalA.farClipPlane == nativeFar
+                    && scene.OriginalA.transform.localPosition == nativeCameraPosition
+                    && scene.OriginalA.transform.localRotation == nativeCameraRotation,
+                    "a failed native head capture restores exact camera pose clip planes and camera-child Canvas geometry");
 
                 MenuDepthSources.Register(observation);
                 MenuDepthSources.BeforeCaptureWhere(head, g => ReferenceEquals(g, raw), g => cropEye,

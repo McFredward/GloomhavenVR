@@ -241,6 +241,7 @@ public static partial class MenuDepthDesktopProgram
                 MenuDepthCharacters.Tick();
             }
             GameObject? lateNative = null, lateReference = null;
+            Camera.CameraCallback? sample = null;
             try
             {
             Vector3 screenPosition=scene.Screen.position,screenScale=scene.Screen.localScale;Quaternion screenRotation=scene.Screen.rotation;
@@ -252,7 +253,7 @@ public static partial class MenuDepthDesktopProgram
             int peakSceneSlots = 0, largestUiWidth = 0, largestUiHeight = 0, growthSteps = 0, capturePose = -1;
             int sourceGrowthSteps = 0, largestSourceWidth = 0, largestSourceHeight = 0;
             var aliasingProof=new AliasingProof742();
-            Camera.CameraCallback sample=c=>
+            sample=c=>
             {
                 if(c==scene.ModelCamera&&c.targetTexture!=scene.ModelTarget)
                 {
@@ -435,27 +436,13 @@ public static partial class MenuDepthDesktopProgram
                     }
                 }
             }
-            Camera.onPreRender-=sample;
-            Check(annotations ? sourceIds.Count == 0 : growthSteps <= 6,
-                "continuous motion uses bounded GPU capacity growth instead of repeated small reallocations");
-            Check(annotations ? sourceIds.Count == 0 : sourceIds.Count <= uiScratchIds.Count && sourceGrowthSteps <= 6,
-                "a native model scratch reallocates only with the observed UI capacity transitions");
             if(aliasing)aliasingProof.Complete(Path.Combine(output,"antialiasing-"+path+".txt"));
             if(path==0)Check(ids.Count==1,"continuous motion retains one final right-eye head raster identity");
             File.WriteAllText(Path.Combine(output,"summary-"+path+".txt"),"UI="+minimumUi+",model="+minimumModel+",targetIDs="+ids.Count+",sourceIDs="+sourceIds.Count);
-            File.WriteAllText(Path.Combine(output, "allocation-ledger-" + path + ".txt"),
-                "uiScratchAllocations=" + uiScratchIds.Count + ";sceneScratchAllocations=" + sourceIds.Count
-                + ";uiAllocatedBytes=" + uiAllocated + ";sceneAllocatedBytes=" + sourceAllocated
-                + ";peakOwnedBytes=" + peakOwnedBytes + ";peakSceneSlots=" + peakSceneSlots
-                + ";retainedUiBytes=" + MenuDepthHeadRaster.FilterBytes + ";highWaterGrowthSteps=" + growthSteps
-                + ";sourceHighWaterGrowthSteps=" + sourceGrowthSteps + "\n");
-            File.WriteAllText(Path.Combine(output, "allocation-events-" + path + ".csv"),
-                "pose,time,width,height,bytes,highWaterGrowthSteps\n" + string.Join("\n", allocationEvents) + "\n");
-            File.WriteAllText(Path.Combine(output, "model-allocation-events-" + path + ".csv"),
-                "pose,time,width,height,bytes,highWaterGrowthSteps\n" + string.Join("\n", sourceAllocationEvents) + "\n");
             if (hardwareRaster || (!annotations && !aliasing && !cards && !pitch && !backing && !late))
             {
                 long retained = MenuDepthHeadRaster.FilterBytes;
+                capturePose = 52;
                 float until = Time.unscaledTime + 1.6f;
                 while (Time.unscaledTime < until) yield return null;
                 scene.Head.cullingMask = 1 << 27; scene.Render(false);
@@ -466,17 +453,40 @@ public static partial class MenuDepthDesktopProgram
                 VRRigDriver.HeadCamera = scene.Head;
                 double uiAfter = Corr730(after.GetPixels32(), native.GetPixels32(), false, out _);
                 double modelAfter = Corr730(after.GetPixels32(), native.GetPixels32(), true, out _);
-                if(nativeTmp)CheckTmpPixels742(after, native, referenceA, scene.Head, output, path, 52, 1);
+                if(nativeTmp)CheckTmpPixels742(after, native, referenceA, scene.Head, output, path, 52, 0);
                 long finalBytes = MenuDepthHeadRaster.FilterBytes;
+                long finalSceneBytes = (long)typeof(MenuDepthCharacterSource).GetField("_headPoolBytes",
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
+                RenderTexture finalTarget = FilterTarget742()!;
+                long expectedSceneBytes = MenuDepthHeadRaster.SingleBytes(scene.ModelTarget.descriptor,
+                    new Vector2Int(finalTarget.width, finalTarget.height));
+                Check(finalSceneBytes == expectedSceneBytes && ScratchCount730() == 1,
+                    "post-motion retirement releases obsolete native model storage while retaining its single current scratch");
                 File.WriteAllText(Path.Combine(output, "capacity-retirement-" + path + ".txt"),
-                    "peak=" + peakUiBytes + ";before=" + retained + ";after=" + finalBytes + ";ui=" + uiAfter + ";model=" + modelAfter + "\n");
+                    "peak=" + peakUiBytes + ";before=" + retained + ";after=" + finalBytes + ";sceneAfter=" + finalSceneBytes
+                    + ";sceneSlots=" + ScratchCount730() + ";ui=" + uiAfter + ";model=" + modelAfter + "\n");
                 Check(finalBytes < peakUiBytes && finalBytes <= retained && uiAfter > .99 && modelAfter > .97,
                     "retiring oversized near-view storage preserves final head UI and figure sampling at the fixed two-times grid");
                 Object.DestroyImmediate(after); Object.DestroyImmediate(native);
             }
+            File.WriteAllText(Path.Combine(output, "allocation-ledger-" + path + ".txt"),
+                "uiScratchAllocations=" + uiScratchIds.Count + ";sceneScratchAllocations=" + sourceIds.Count
+                + ";uiAllocatedBytes=" + uiAllocated + ";sceneAllocatedBytes=" + sourceAllocated
+                + ";peakOwnedBytes=" + peakOwnedBytes + ";peakSceneSlots=" + peakSceneSlots
+                + ";retainedUiBytes=" + MenuDepthHeadRaster.FilterBytes + ";highWaterGrowthSteps=" + growthSteps
+                + ";sourceHighWaterGrowthSteps=" + sourceGrowthSteps + "\n");
+            File.WriteAllText(Path.Combine(output, "allocation-events-" + path + ".csv"),
+                "pose,time,width,height,bytes,highWaterGrowthSteps\n" + string.Join("\n", allocationEvents) + "\n");
+            File.WriteAllText(Path.Combine(output, "model-allocation-events-" + path + ".csv"),
+                "pose,time,width,height,bytes,highWaterGrowthSteps\n" + string.Join("\n", sourceAllocationEvents) + "\n");
+            Check(annotations ? sourceIds.Count == 0 : growthSteps <= 6,
+                "continuous motion uses bounded GPU capacity growth instead of repeated small reallocations");
+            Check(annotations ? sourceIds.Count == 0 : sourceIds.Count <= uiScratchIds.Count && sourceGrowthSteps <= 6,
+                "a native model scratch reallocates only with the observed UI capacity transitions");
             }
             finally
             {
+            if(sample!=null)Camera.onPreRender-=sample;
             if(annotation!=null)MenuDepthSources.Unregister(annotation);
             WorldUIConfig.CharacterPreviewDepth.Value=true;
             if(entry!=null)PanelSupersample.EndHead(entry);if(panelDisplay!=null)Object.DestroyImmediate(panelDisplay);

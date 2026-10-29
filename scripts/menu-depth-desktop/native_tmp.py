@@ -36,6 +36,12 @@ def export_font(root, output):
     shader = pointer(material_data['m_Shader'], material).deref().read_typetree()['m_ParsedForm']['m_Name']
     assert shader == 'TextMeshPro/Distance Field', 'Original native font shader changed'
     atlas = pointer(font_data['m_AtlasTextures'][0], font).read()
+    stream = atlas.m_StreamData
+    stream_source = (root / 'ressources/GH_Data' / stream.path).resolve()
+    assert stream.path == 'resources.assets.resS', 'Original atlas streaming source changed'
+    with stream_source.open('rb') as source:
+        source.seek(stream.offset); consumed = source.read(stream.size)
+    assert len(consumed) == stream.size, 'Original atlas streaming span is incomplete'
     output.mkdir(parents=True)
     atlas.image.save(output / 'font-atlas.png')
     links = {'m_Script', 'm_GameObject', 'material', 'spriteSheet', 'm_SourceFontFile', 'm_AtlasTextures',
@@ -49,9 +55,20 @@ def export_font(root, output):
         'colors': [{'name': key, 'value': value} for key, value in saved['m_Colors']]}, indent=2) + '\n')
     (output / 'original-provenance.json').write_text(json.dumps({
         'font': profile.object_id(font), 'atlas': profile.object_id(atlas.object_reader),
+        'atlas_stream': {'source': str(stream_source), 'offset': stream.offset, 'bytes': stream.size,
+                         'sha256': hashlib.sha256(consumed).hexdigest()},
         'material': profile.object_id(material), 'nativeText': profile.object_id(text),
         'decoder': {'UnityPy': UnityPy.__version__, 'Unity': '2021.3.5f1'},
         'ports': 'Original static font/glyph/atlas/material data. Literal test text; no gameplay controllers.'}, indent=2) + '\n')
+    decoder_files = {Path(sys.executable).resolve()}
+    for module in list(sys.modules.values()):
+        for attribute in ('__file__',):
+            filename = getattr(module, attribute, None)
+            if filename and Path(filename).is_file(): decoder_files.add(Path(filename).resolve())
+    (output / 'decoder-pins.json').write_text(json.dumps({
+        'python_version': sys.version,
+        'files': [{'path': str(p), 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}
+                  for p in sorted(decoder_files)]}, indent=2) + '\n')
     (output / 'pins.json').write_text(json.dumps({p.name: hashlib.sha256(p.read_bytes()).hexdigest()
         for p in output.iterdir() if p.is_file()}, indent=2) + '\n')
 
@@ -60,6 +77,8 @@ def inputs(root):
     shaders = root / 'unity/GloomhavenVR.Assets/Assets/Bundle/HealthBars'
     return [Path(__file__), root / 'scripts/menu726-native-profile.py',
             root / 'ressources/GH_Data/level9', root / 'ressources/GH_Data/resources.assets',
+            root / 'ressources/GH_Data/resources.assets.resS',
+            *sorted((root / 'ressources/GH_Data/Managed').glob('*.dll')),
             *[shaders / name for name in ('ActorBarSDF.shader', 'source-provenance.json', 'TMPro.cginc', 'TMPro_Properties.cginc')]]
 
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using TMPro;
@@ -21,12 +22,18 @@ public static partial class MenuDepthDesktopProgram
         internal readonly TMP_FontAsset Font;
         private readonly Texture2D _atlas;
         private readonly Material _material;
+        private readonly List<GameObject> _labels = new List<GameObject>();
+        private readonly FieldInfo _settings;
+        private readonly TMP_Settings? _ownedSettings;
 
         internal NativeFont742(string output)
         {
             string inputs = Path.Combine(Path.GetDirectoryName(output)!, "native-tmp-inputs");
-            FieldInfo settings = typeof(TMP_Settings).GetField("s_Instance", BindingFlags.Static | BindingFlags.NonPublic)!;
-            if (settings.GetValue(null) == null) settings.SetValue(null, ScriptableObject.CreateInstance<TMP_Settings>());
+            _settings = typeof(TMP_Settings).GetField("s_Instance", BindingFlags.Static | BindingFlags.NonPublic)!;
+            if (_settings.GetValue(null) == null)
+            {
+                _ownedSettings = ScriptableObject.CreateInstance<TMP_Settings>(); _settings.SetValue(null, _ownedSettings);
+            }
             Font = ScriptableObject.CreateInstance<TMP_FontAsset>();
             JsonUtility.FromJsonOverwrite(File.ReadAllText(Path.Combine(inputs, "font.json")), Font);
             _atlas = new Texture2D(2, 2, TextureFormat.RGBA32, false);
@@ -43,11 +50,13 @@ public static partial class MenuDepthDesktopProgram
         internal TextMeshProUGUI Label(Transform parent, string name, string value, Vector2 size, Vector2 position, float fontSize)
         {
             var node = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer));
+            node.SetActive(false); _labels.Add(node);
             node.layer = parent.gameObject.layer; node.transform.SetParent(parent, false);
             var text = node.AddComponent<TextMeshProUGUI>(); text.font = Font; text.fontSharedMaterial = _material;
             text.text = value; text.fontSize = fontSize; text.color = Color.white; text.alignment = TextAlignmentOptions.Center;
             text.enableWordWrapping = false; text.overflowMode = TextOverflowModes.Overflow;
             text.rectTransform.sizeDelta = size; text.rectTransform.anchoredPosition = position;
+            node.SetActive(true);
             text.ForceMeshUpdate(true, true);
             Check(text.textInfo.characterCount == value.Length && text.textInfo.meshInfo[0].vertexCount > 0,
                 "original native static TMP font generates actual glyph geometry before its first head draw");
@@ -56,7 +65,13 @@ public static partial class MenuDepthDesktopProgram
 
         public void Dispose()
         {
+            foreach (GameObject label in _labels) if (label != null) Object.DestroyImmediate(label);
             Object.DestroyImmediate(Font); Object.DestroyImmediate(_material); Object.DestroyImmediate(_atlas);
+            if (_ownedSettings != null)
+            {
+                if (ReferenceEquals(_settings.GetValue(null), _ownedSettings)) _settings.SetValue(null, null);
+                Object.DestroyImmediate(_ownedSettings);
+            }
         }
     }
 

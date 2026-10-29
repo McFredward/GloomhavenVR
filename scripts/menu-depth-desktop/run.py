@@ -117,22 +117,16 @@ internal static class MenuDepthCharacterRotation
     inputs += [depth / name for name in names]
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), *fixtures.glob('*.shader'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     inputs += [ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py']
-    inputs += [ROOT / 'ressources/GH_Data/Managed/Unity.TextMeshPro.dll']
+    inputs += [ROOT / 'ressources/GH_Data/Managed/Unity.TextMeshPro.dll', ROOT / 'scripts/menu-depth-desktop/native_tmp.py']
     wants_native_tmp = not args.case or any(name.startswith('head-native-tmp') for name in args.case)
     if wants_native_tmp:
         inputs += native_tmp.inputs(ROOT)
-    pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
+    pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in dict.fromkeys(inputs)]
     variants = [
         ('head-native-tmp742', '', '', '', ''),
-        ('head-native-tmp-native-metric-probe742', 'MenuDepthNativeUiScope.cs',
-         '_camera.worldToCameraMatrix = projection.inverse * eye.WorldToHeadClip;',
-         '''Matrix4x4 nativeView = projection.inverse * eye.WorldToHeadClip;
-        float metric = Mathf.Pow(nativeView.MultiplyVector(Vector3.right).magnitude * nativeView.MultiplyVector(Vector3.up).magnitude * nativeView.MultiplyVector(Vector3.forward).magnitude, 1f / 3f);
-        for (int row = 0; row < 3; row++) nativeView.SetRow(row, nativeView.GetRow(row) / metric);
-        for (int row = 0; row < 4; row++) projection[row, 3] /= metric;
-        _camera.nearClipPlane /= metric; _camera.farClipPlane /= metric;
-        _camera.worldToCameraMatrix = nativeView;''', ''),
-        ('head-native-tmp-native-pose-probe742', '', '', '', ''),
+        ('head-native-tmp-native-metric-lost742', 'MenuDepthNativeUiScope.cs',
+         'float scale = Mathf.Pow(sx * sy * sz, 1f / 3f);', 'float scale = Mathf.Pow(sx * sy * sz, 0f);',
+         'actual final head native TMP glyphs retain independent original-font pixel detail'),
         ('head-native-tmp-native-view-lost742', 'MenuDepthNativeUiScope.cs',
          'Matrix4x4 projection = eye.RasterProjection;', 'Matrix4x4 projection = head.projectionMatrix;',
          'actual final head native TMP glyphs retain independent original-font pixel detail'),
@@ -333,7 +327,6 @@ internal static class MenuDepthCharacterRotation
          'UIVertex vertex = _stream[i]; /* graphic depth is lost before the real head projection */',
          'original orthographic UI stack carries physical-eye-dependent graphic relief'),
     ]
-    metric_probe = next(item for item in variants if item[0] == 'head-native-tmp-native-metric-probe742')
     if args.case:
         wanted = set(args.case); assert wanted <= {case[0] for case in variants}
         variants = [case for case in variants if case[0] in wanted]
@@ -346,29 +339,21 @@ internal static class MenuDepthCharacterRotation
         shutil.copyfile(ROOT / 'ressources/GH_Data/Managed/Unity.TextMeshPro.dll', plugins / 'Unity.TextMeshPro.dll')
         if wants_native_tmp:
             native_tmp.prepare(ROOT, run, project)
+            pinned = {pin['path'] for pin in pins}
+            for pin in json.loads((run / 'native-tmp-inputs/decoder-pins.json').read_text())['files']:
+                if pin['path'] not in pinned:
+                    pins.append(pin); pinned.add(pin['path'])
         shutil.copyfile(ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs', editor / 'Runner.cs')
         for shader in fixtures.glob('*.shader'):
             shutil.copyfile(shader, project / 'Assets' / shader.name)
         manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'depthBundle': str(source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle'), 'cases': []}
         (run / 'source-pins.json').write_text(json.dumps({'inputs': pins,
             'boundaries': 'Already-visible screen resources and native scene/manager geometry; actual screen-space Canvas, uGUI, native Camera.Render, original capture route/clears/guard/desktop mapper/registry/character and graphic production run. XR availability/active eye are supplied, real Unity stored stereo matrices remain.',
-            'limits': 'No real XR/provider/headset, actual prefab art, native network or final HMD comfort proof.'}, indent=2) + '\n')
+            'limits': 'No real XR/provider/headset, native 3D prefab art, game session/network or Windows D3D11 execution. Native TMP cases use original font/atlas/material/DLL and audited canonical SDF source.'}, indent=2) + '\n')
         assemblies = run / 'assemblies'; assemblies.mkdir()
         for name, filename, before, after, expected in variants:
             case = run / name; production = case / 'production'; production.mkdir(parents=True)
             for source_name, code in sources.items():
-                if name in ('head-native-tmp-native-view-lost742', 'head-native-tmp-converted-view-lost742') and source_name == 'MenuDepthNativeUiScope.cs':
-                    code = replace_once(code, metric_probe[2], metric_probe[3])
-                if name == 'head-native-tmp-native-pose-probe742' and source_name == 'MenuDepthNativeUiScope.cs':
-                    code = replace_once(code, metric_probe[2], metric_probe[3])
-                    code = replace_once(code, '    private readonly Camera _camera;',
-                        '    private readonly Camera _camera; private readonly Vector3 _fixturePosition; private readonly Quaternion _fixtureRotation;')
-                    code = replace_once(code, '_camera = camera;',
-                        '_camera = camera; _fixturePosition = camera.transform.position; _fixtureRotation = camera.transform.rotation;')
-                    code = replace_once(code, '_camera.worldToCameraMatrix = nativeView;',
-                        '_camera.transform.SetPositionAndRotation(nativeView.inverse.MultiplyPoint3x4(Vector3.zero), Quaternion.LookRotation(-nativeView.inverse.MultiplyVector(Vector3.forward), nativeView.inverse.MultiplyVector(Vector3.up))); _camera.worldToCameraMatrix = nativeView;')
-                    code = replace_once(code, '_camera.targetTexture = _target;',
-                        '_camera.transform.SetPositionAndRotation(_fixturePosition, _fixtureRotation); _camera.targetTexture = _target;')
                 if source_name=='MenuDepthDisplay.cs' and name.startswith('head-pitch-rt-y') and args.graphics_api=='glcore':
                     code=replace_once(code,'GL.GetGPUProjectionMatrix(projection, true)',
                         'global::HeadPitchBackend736.TopOriginGpuProjection(projection, true)')
@@ -409,7 +394,7 @@ internal static class MenuDepthCharacterRotation
         (run / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         (run / 'command-environment.json').write_text(json.dumps({name: os.environ.get(name) for name in
             ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
-        # The complete75-case scope now includes repeated real two-route head
+        # The complete80-case scope now includes repeated real two-route head
         # motion, independent supersampled references and allocation controls.
         # The old420s editor deadline stopped after39 cases on llvmpipe. Keep
         # every render/assertion and bound this expanded fixture at900s instead.

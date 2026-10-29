@@ -147,9 +147,24 @@ internal sealed class MenuDepthNativeUiScope : IDisposable
         if (_frozen.Count == 0) throw new InvalidOperationException("No original UI Canvas can preserve its head raster basis.");
         Camera head = eye.HeadCamera;
         Matrix4x4 projection = eye.RasterProjection;
+        Matrix4x4 view = projection.inverse * eye.WorldToHeadClip;
+        // Keep the native object/Canvas unit metric in original shaders. TMP's
+        // retained UV2 scale is authored in those units and combines with clip.w
+        // in its SDF vertex program. Leaving the physical window scale in V
+        // preserves unlit geometry, but changes native font edge softness.
+        // Divide V and projection's translation by the same common scale: VP
+        // changes only by one homogeneous factor, retaining every head pixel.
+        float sx = view.MultiplyVector(Vector3.right).magnitude;
+        float sy = view.MultiplyVector(Vector3.up).magnitude;
+        float sz = view.MultiplyVector(Vector3.forward).magnitude;
+        float scale = Mathf.Pow(sx * sy * sz, 1f / 3f);
+        if (!(scale > 1e-8f)) throw new InvalidOperationException("The native UI head metric is singular.");
+        for (int row = 0; row < 3; row++) view.SetRow(row, view.GetRow(row) / scale);
+        for (int row = 0; row < 4; row++) projection[row, 3] /= scale;
         _camera.targetTexture = target; _camera.rect = new Rect(0,0,1,1);
-        _camera.orthographic = false; _camera.nearClipPlane = head.nearClipPlane; _camera.farClipPlane = head.farClipPlane;
-        _camera.worldToCameraMatrix = projection.inverse * eye.WorldToHeadClip;
+        _camera.orthographic = false;
+        _camera.nearClipPlane = head.nearClipPlane / scale; _camera.farClipPlane = head.farClipPlane / scale;
+        _camera.worldToCameraMatrix = view;
         _camera.projectionMatrix = projection; _camera.cullingMatrix = eye.WorldToHeadClip;
     }
 
