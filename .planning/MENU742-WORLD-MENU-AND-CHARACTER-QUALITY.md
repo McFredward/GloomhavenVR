@@ -103,6 +103,25 @@ cover native model view, uGUI pixel density and the actual source-dispatch copy.
 Actual coordinator cases retain326 antialias,1785 motion,246 pitch,92 paired
 backing and32 filter-lifetime assertions on stable worker inputs.
 
+An additional original-game TMP/SDF witness found a second, older metric error
+in the native flat route. Its original glyph UV2 data remains in native Canvas
+units while the head view contains the physical window's uniform scale. That
+preserves geometry but changes SDF edge softness: the independent Continue-glyph
+comparison measures0.889. A private minimal normalization of view rows, projection
+column3 and near/far improves all36 visible glyph ROIs to0.999912--0.999988 over
+both routes/eyes, four poses and storage retirement. A camera-transform experiment
+is pixel-identical and unnecessary; no camera pose change is adopted. The new
+title witness is isolated from an existing synthetic blue comparison label.
+Its new0.999 glyph threshold distinguishes both known old-projection omissions;
+all existing whole-window/motion thresholds remain unchanged.
+
+Only`NativeUiScope.HeadCapture` needs the additional production repair. Its one
+production call is the original native-UI route in`FlatScreen.8.MenuDepth.cs`;
+converted windows use their separate capture. Keep the complete invocation on
+the frozen baseline, then validate this bounded method repair and its affected
+consumers. Final coverage must identify that follow-up and unchanged inherited
+closures explicitly; it cannot be called one successful final-tree invocation.
+
 ## Validation status
 
 The runtime is frozen at`ddd6719ff8285e33d32d858c33ee28865095f300`; the final
