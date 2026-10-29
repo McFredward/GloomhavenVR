@@ -65,6 +65,10 @@ internal sealed class FlatScreen {
 '''+owner_excerpt+'''
 private bool _visible;
 private Material _screenMaterial;
+// This existing scope keeps the boot/ordinary backdrop route; the Default-sky
+// cross-seam scope executes ready-world depth activation/restoration separately.
+private bool _worldMenuBackdropDepth = false;
+private Shader _worldMenuBackdropShader = null;
 private GameObject _backQuad;
 private Renderer _backRenderer, _quadRenderer;
 internal FlatScreen(bool visible, Material material, Renderer screen, Renderer back) {

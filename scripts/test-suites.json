@@ -3307,6 +3307,17 @@
         "local"
       ],
       "weight": 2
+    },
+    {
+      "id": "menu-world-runtime",
+      "command": [
+        "python3",
+        "scripts/menu-world-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 2
     }
   ]
 }
