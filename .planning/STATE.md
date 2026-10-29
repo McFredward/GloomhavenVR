@@ -1,3 +1,46 @@
+**Selected surroundings across all VR contexts, Build740, 2026-10-29.**
+
+The maintainer extends the selected environment to main menu, 3D map and scenario,
+expressly including Default. Remove the old menu exclusion. Custom rooms use a
+fixed 1.2 m menu footprint with their floor on the tracking floor; native map and
+scenario proportions remain unchanged. Motion/recenter retain the occupied room;
+actual rig replacement renews it. Haunt and native gameplay gates stay intact.
+
+The game provides GH_SkySphere only in scenario scenes. A 2219921-byte isolated
+native bank supplies its seven original render assets outside those scenes:
+mesh/material/two textures/AMP plus original fallback shaders. Preserve original
+encoded data/programs and authored observer offset/flattened scale/yaw. Fit the
+infinite sky within the existing far plane and use the existing non-occluding
+backdrop path. Native visibility, scene notification and head/mask changes govern
+authority. Public native hiding remains unfiltered; MR and other styles win.
+No head-mask/clip-plane, actor, lighting or wire behavior is changed.
+
+Strict Debug/Release and metadata pass0W0E on1172stable inputs; source16 passes.
+Compiled review finds3existing environment/localization types,1new NativeDefaultSky
+type and9build-stamp consumers. Native resource bytes match source. Config670 and
+Harmony263 stay fixed;13retired all-caps CONFIG HELP fragments explain4833surface
+tokens without removing an actual runtime marker. Product help and guides areEN/DE.
+
+All266 current runtime scopes have passing final-input coverage. The complete
+invocation records265PASS/1cleanupFAIL in3169.9s: scope74/6 behavior passed, but a
+shared compiler borrowed the concurrent Default fixture's assembly. Isolate both
+runner pipe directories; their complete parallel follow-up passes74/6 and48/7 in
+59.6s, with264unchanged closures retained from the complete execution. The exact
+retained740wire executable independently passes306431actual golden assertions.
+This is verified complete aggregate coverage, not a new successful single complete
+invocation. Initial static inventory preflight failures remain separate evidence.
+
+Original native geometry/textures and real asset-name loading execute; GL's
+original fallback compatibility and explicit graphics witness do not establish
+native D3D11 AMP-main-program or HMD appearance/pacing. Root inspected cold sky
+and preserved foreground images. Hardware acceptance remains outstanding.
+
+Both owned workers are archived/hash-verified/retired. Per-run caches, private
+compiler leftovers and ADB sockets are cleaned while preserving evidence/current
+artifacts. See MENU740-ALL-CONTEXT-ENVIRONMENTS.md and ignored menu740/validation-final.json.
+Source delivery goes to origin/dev; Windows builds its archive. Quest741 is
+reserved for the coordinated standalone follow-up after the final740SHA handoff.
+
 **Original small confirmation foreground, Build739, 2026-10-28.**
 
 The maintainer accepts738 hover cards, but confirmation hardware still flickers

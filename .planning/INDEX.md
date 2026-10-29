@@ -1,9 +1,9 @@
 # Planning index
 
-Updated 2026-10-28: Build739 removes the original full-screen confirmation veil
-independently of capture admission and restores the small prompt's foreground
-order. See STATE.md for final validation and hardware acceptance. The Windows
-installation script builds the archive.
+Updated 2026-10-29: Build740 applies the selected surroundings in the main menu,
+3D map and scenarios, including the original Default sky. Build739 also removes
+the confirmation veil and restores the small prompt's foreground order. See
+STATE.md for qualified validation and hardware acceptance. Windows builds its archive.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -13,6 +13,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MENU740-ALL-CONTEXT-ENVIRONMENTS.md](MENU740-ALL-CONTEXT-ENVIRONMENTS.md) | Chosen surroundings in every VR context, original Default asset bank, mode transitions and complete aggregate verification |
 | [MENU739-CONFIRMATION-FOREGROUND.md](MENU739-CONFIRMATION-FOREGROUND.md) | Native small confirmation without the full-screen black/GrabPass surface, owner foreground order and direct-path regression evidence |
 | [MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md](MENU738-FIRST-HOVER-POSE-AND-CONFIRMATION.md) | Accepted first-frame hover alignment, prior capture-only confirmation repair and its qualified evidence |
 | [MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md](MENU737-PREVIEW-SHADOWS-CARD-RELIEF-AND-LEVELUP.md) | Accepted preview shadows/card relief/level-up list repairs and the latest complete integration checkpoint |
