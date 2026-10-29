@@ -69,6 +69,11 @@ internal sealed partial class FlatScreen
     /// </summary>
     private void PlaceBackQuad(float scale, float distance)
     {
+        if (_worldMenuHost != null)
+        {
+            SyncWorldMenuBack();
+            return;
+        }
         if (_backQuad == null || _quad == null)
             return;
         Transform t = _quad.transform;
@@ -108,6 +113,8 @@ internal sealed partial class FlatScreen
 
     private void FollowHead()
     {
+        if (TickWorldMenu())
+            return;
         if (_quad == null)
             return;
         Camera? head = CanvasConversion.WorldCamera;

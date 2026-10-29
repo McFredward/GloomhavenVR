@@ -111,17 +111,13 @@ internal sealed class WorldGrab : MonoBehaviour
     {
         Transform? rig = RigTarget.Current;
         VRMode mode = VRModeStateMachine.CurrentMode;
-        // P5: Menu2D is excluded — the menu rig (VRRigDriver menu fallback) exists
-        // there since P5, but there is no table to manipulate; grabbing air must not
-        // drag the menu view. The dev proxy stays exempt so grab math is testable flat.
+        // Boot/intro keep their fixed tracked vantage. Build742 admits the actual ready
+        // world menu; its independent window does not follow a world drag or scale.
+        // The dev proxy stays exempt so grab math is testable flat.
         // Test #13: ModalUI is deliberately NOT excluded anymore — the diorama stays
         // fully manipulable while a dialog floats (see class doc, STICK CONTENTION).
-        // …AND "no table to manipulate" IS NOW EXACT: since ModBuild 178 the 3D map room resolves
-        // to TableIdle rather than Menu2D (VRModeStateMachine.TableInFrontOfPlayer feeds the
-        // composition), so the map table can be grabbed and two-hand zoomed like any diorama, and
-        // Menu2D once again means only the flat 2D menu, where there is genuinely nothing to grab.
         if (rig == null || !ComfortSettings.IsBound || !ComfortSettings.WorldGrabEnabled.Value
-            || (mode == VRMode.Menu2D && !RigTarget.IsDevProxy))
+            || (mode == VRMode.Menu2D && !MenuWorldContext.IsReady && !RigTarget.IsDevProxy))
         {
             Disengage(rig);
             return;

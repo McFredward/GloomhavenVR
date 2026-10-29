@@ -104,18 +104,13 @@ internal sealed class SnapTurn : MonoBehaviour
         // true only while an AoE pattern would REALLY rotate on this very stick — which, since
         // AoeControl moved to the non-turn hand, it never is. Rejected alternatives: LocalTurnControl.
         //
-        // Menu2D STAYS, and is not an oversight: it is the flat 2D menu, where there is no board in
-        // front of the player to turn around at all (dev-proxy runs exempt). The menu-scroll gate
+        // Build742 admits the actual ready world menu, while retaining Menu2D for native
+        // camera/input policy. Boot/intro remain excluded (dev-proxy runs exempt). The menu-scroll gate
         // further down stays too — that one is the user's own ruling ("Scrollen soll mehr dominant
         // sein", 2026-08-11). Neither is board state, so neither is touched by TURN NEVER.
         //
-        // …AND ITS REASON — "there is no board in front of the player to turn around at all" — is
-        // now exact rather than approximate. Since ModBuild 178 the 3D map room resolves to
-        // TableIdle rather than Menu2D (VRModeStateMachine.TableInFrontOfPlayer feeds the
-        // composition), so turning is never blocked where there IS something to turn around, and
-        // Menu2D once again means only the flat 2D menu.
         if (LocalTurnControl.TargetingOwnsStick
-            || (vrMode == VRMode.Menu2D && !RigTarget.IsDevProxy))
+            || (vrMode == VRMode.Menu2D && !MenuWorldContext.IsReady && !RigTarget.IsDevProxy))
         {
             _armed = true; // never fire a stale flick when the stick is handed back
             _scrollGate.Reset(); // …and no stale scroll latch either: this mode owns the stick
