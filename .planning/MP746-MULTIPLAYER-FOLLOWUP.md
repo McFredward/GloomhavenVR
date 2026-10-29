@@ -65,10 +65,12 @@ frame-pacing improvement. See MP746-PERFORMANCE.md for the detailed evidence.
 
 ## Validation and delivery
 
-The immutable complete invocation runs on integration commit ed9bd039f with
-six jobs. All16 source suites pass (14.3s). Its actual already-built golden
-executable also passes306739 assertions; it was executed directly because two
-fixture failures in the local runner prevent the guard reaching that command.
+The immutable complete invocation ran on integration commit ed9bd039f with
+six jobs. All16 source suites pass (14.3s). The complete local inventory records
+267/267 suites:261 pass and6 fail in3227.173s. Each failure is a fixture compile
+or mutation-binding drift; the failed invocation remains recorded as failed.
+Its actual already-built golden executable also passes306739 assertions; it was
+executed directly because the local failures prevented the guard reaching it.
 This is the executable from the complete invocation, with its retained hashes,
 not a writer/reader replacement or a compile-only claim.
 
@@ -79,12 +81,29 @@ Primary complete containing reruns pass2/2 in185.8s: activity181432 assertions
 and41 controls; clearance593 assertions and7 controls. Existing controls remain.
 The additional common-frame checks reproduce the prior room-yaw defect. These
 are bounded repairs after a failed complete invocation, not a new successful
-single full-gate run. The remaining local inventory and final guard suffix are
-still in progress; record their final outcomes before delivery.
+single full-gate run. The three legacy window fixture ports are repaired by
+25e60c10c; primary complete containing reruns pass3/3 in179.356s: reward110
+assertions/8 controls, quest160/4, and shared geometry4463/29. The setting port
+is repaired by a055ddd44; its primary containing suite passes1935 assertions
+and19 controls in64.232s. All6 original failed scopes thus have passing primary
+containing reruns. Original controls and failed attempts remain recorded.
 
-Final production Debug/Release builds have0 warnings/errors (16.54/19.54s).
-All1762 source/build input hashes remain identical after the fixture and cleanup
-repairs. Config670, Harmony registrations265 and log tokens4836 match745 without
+Additional actual active-pipeline checks then exposed two production handover
+defects beyond these fixture repairs: a surviving reward publisher could not
+relay its existing opening to a late native view, and a returning host could
+leave another participant's old automatic room-making claim elected. The reward
+repair abd770c9f retains the default strict origin check and permits only an
+exact-key native-role handover with positive decline or observed departure.
+Known-participant evidence resets on both native opening and content-key changes.
+Its two complete independent reward consumers pass2/2 in29.8s. The automatic
+author repair, complete active-pipeline controls and final guard suffix remain
+in progress; record their final outcomes before delivery.
+
+Before the handover follow-up, strict production Debug/Release builds have
+0 warnings/errors (16.54/19.54s). Their1762 source/build input hashes remained
+identical through the fixture and cleanup repairs; these are not final-build
+evidence for the later production changes. Config670, Harmony registrations265
+and log tokens4836 match745 without
 removals or additions. Patch inventory223 classes/338 methods,12 frame-order
 locks and all5 English/German player guides pass their respective checks.
 

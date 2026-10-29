@@ -6,8 +6,12 @@ dimmer suppression preserves original artwork and input. Opening-scoped shared
 gesture order replaces receiver-arrival election; losing grips cancel safely,
 and the accepted releaser's normal facing setting controls the shared turn.
 Compact ready-button capture includes native vote overspill, with its badge
-outside original ink. Root is reviewing/integrating the final worker tests;
-the complete class C union gate and push remain pending. Build746 is not public.
+outside original ink. Complete class C invocation records261PASS/6fixtureFAIL
+across267 local suites; all6 now have passing primary complete containing
+repairs. Source16 and actual306739 golden assertions pass. Additional actual
+active-pipeline checks exposed reward-publisher and automatic-author handover
+defects; their bounded repairs, final focused checks and guard suffix are being
+completed. Build746 is not public; final validation and push remain pending.
 Map stalls also occur without new interactions (maintainer clarification).
 Their cause remains unproved; bounded Debug capture/seam attribution repairs
 known measurement gaps without claiming a pacing fix or changing quality/rate.

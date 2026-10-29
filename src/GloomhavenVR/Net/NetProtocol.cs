@@ -645,6 +645,10 @@ internal static class NetProtocol
     // foreign movement while locally held. Add opening-scoped TLV123 claim/sample
     // order alongside unchanged poses: deterministic concurrent winner, safe loser
     // cancellation, and causal automatic room making after an observed release.
+    // Follow-up causal tests cover each actual window producer/receiver. Reward
+    // publisher handover retains its original opening only with exact native-role
+    // evidence; changing the eligible room-making author retires old automatic
+    // writes while preserving accepted manual placement and native authority.
     // The accepted releaser's existing facing setting authors the common upright
     // release turn; observers follow the same pose without private corrections.
     // Remove only proven story/event full-frame dimmer Images and their Blur,
