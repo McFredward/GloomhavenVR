@@ -159,7 +159,12 @@ def main():
     pins = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     (run / 'source-pins.json').write_text(json.dumps(pins, indent=2) + '\n')
     code = 1; process = None; reaped = True
-    env = dict(os.environ, DOTNET_CLI_USE_MSBUILD_SERVER='0', MSBUILDDISABLENODEREUSE='1', UseSharedCompilation='false')
+    # Unity Bee's Roslyn pipe name is SDK-derived. Give this suite a short private
+    # Unix socket directory so a parallel editor cannot borrow this run's compiler.
+    compiler_temp = Path(tempfile.mkdtemp(prefix='ghvr-envscope-', dir='/tmp'))
+    (run / 'compiler-temp.json').write_text(json.dumps({'TMPDIR': str(compiler_temp)}) + '\n')
+    env = dict(os.environ, DOTNET_CLI_USE_MSBUILD_SERVER='0', MSBUILDDISABLENODEREUSE='1',
+               UseSharedCompilation='false', TMPDIR=str(compiler_temp))
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
     try:
@@ -221,6 +226,7 @@ def main():
         retention = importlib.util.module_from_spec(spec); spec.loader.exec_module(retention)
         result = retention.cleanup_completed_run('environment-menu-scope', code, completion, ROOT, process_reaped=reaped)
         (run / 'cache-cleanup.json').write_text(json.dumps(result, indent=2) + '\n')
+        shutil.rmtree(compiler_temp)
     return code
 
 

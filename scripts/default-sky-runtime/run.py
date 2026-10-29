@@ -174,8 +174,13 @@ def main():
     unity = Path('/home/claw/unity-2021.3.5/Editor/Unity')
     managed = unity.parent / 'Data/Managed'
     framework = Path.home() / '.nuget/packages/microsoft.netframework.referenceassemblies.net472/1.0.3/build/.NETFramework/v4.7.2'
+    # Keep SDK-named Roslyn pipes local to this suite even when Unity editors run
+    # concurrently. A short /tmp path also respects Unix socket path limits.
+    compiler_temp = Path(tempfile.mkdtemp(prefix='ghvr-defaultsky-', dir='/tmp'))
+    (run / 'compiler-temp.json').write_text(json.dumps({'TMPDIR': str(compiler_temp)}) + '\n')
     env = dict(os.environ, DOTNET_ROOT=str(Path.home() / '.dotnet'), DOTNET_CLI_USE_MSBUILD_SERVER='0',
                MSBUILDDISABLENODEREUSE='1', UseSharedCompilation='false',
+               TMPDIR=str(compiler_temp),
                ADB_SERVER_SOCKET='localfilesystem:/tmp/ghvr-default-sky-' + run.name + '.sock', ADB_MDNS_AUTO_CONNECT='')
     dotnet = str(Path.home() / '.dotnet/dotnet')
     status = 1
@@ -258,6 +263,7 @@ def main():
         receipt = cleanup_completed_run('default-sky-runtime', status, completion, ROOT, process_reaped=True)
         (run / 'cache-cleanup.json').write_text(json.dumps(receipt, indent=2) + '\n')
         (run / 'status.json').write_text(json.dumps({'exit_code': status, 'case_count': len(cases), 'new_complete_local_gate': False}) + '\n')
+        shutil.rmtree(compiler_temp)
     return status
 
 
