@@ -28,6 +28,7 @@ namespace UnityEngine
         public static Vector3 operator *(Vector3 a, float f) => new(a.x*f,a.y*f,a.z*f);
         public static Vector3 operator /(Vector3 a, float f) => a*(1/f);
         internal static Vector3 LerpUnclamped(Vector3 a, Vector3 b, float f) => a+(b-a)*f;
+        internal static Vector3 Lerp(Vector3 a, Vector3 b, float f) => LerpUnclamped(a,b,Math.Clamp(f,0,1));
     }
     internal struct Quaternion : IEquatable<Quaternion>
     {
@@ -45,6 +46,7 @@ namespace UnityEngine
         public override int GetHashCode() => Value.GetHashCode();
         internal static float Angle(Quaternion a, Quaternion b) => 2*MathF.Acos(MathF.Min(1,MathF.Abs(N.Quaternion.Dot(a.Value,b.Value))))*180/MathF.PI;
         internal static Quaternion SlerpUnclamped(Quaternion a, Quaternion b, float f) => new() { Value = N.Quaternion.Slerp(a.Value,b.Value,f) };
+        internal static Quaternion Slerp(Quaternion a,Quaternion b,float f)=>SlerpUnclamped(a,b,Math.Clamp(f,0,1));
     }
     internal static class Mathf
     {
@@ -73,7 +75,7 @@ internal sealed class UIQuestPopup { internal uint Key = 303; }
 internal sealed class UIEventPanel : UnityEngine.UI.UIWindow { internal uint Key = 404; }
 namespace GloomhavenVR.Core
 {
-    internal static class VRLog { internal static void Info(string area,string message) { } }
+    internal static class VRLog { internal static void Info(string area,string message) { } internal static void Note(string area,string message) { } }
 }
 namespace GloomhavenVR.WorldUI
 {
@@ -86,6 +88,8 @@ namespace GloomhavenVR.WorldUI
         internal readonly Transform Root=new();
         internal bool Visible = true, IsGrabbed = false;
         internal void YieldSharedControl() { IsGrabbed = false; }
+        internal int RoomMakingWrites;
+        internal void PlaceRoomMakingSample(Vector3 position,Quaternion rotation){RoomMakingWrites++;PlaceFrameAt(position,rotation);}
         internal float SharedReferenceWorldScale { get; private set; } = 11.47f;
         internal float ReferenceAtLastPlacement;
         internal int ReferenceApplications;
@@ -98,6 +102,9 @@ namespace GloomhavenVR.WorldUI
     internal static class SharedWindows
     {
         internal static bool ParticipatesHere(SharedWindowKind kind) => true;
+        internal static bool SessionIsOnline()=>FFSNetwork.IsOnline;
+        internal static SharedWindowKind KindOf(UIWindow? window)
+        {foreach(var row in Windows)if(ReferenceEquals(row.Value,window))return row.Key;return SharedWindowKind.None;}
         internal static readonly Dictionary<SharedWindowKind,GrabbableModal> Grabs=new();
         internal static readonly Dictionary<SharedWindowKind,UIWindow> Windows=new();
         internal static bool TryGetGrab(SharedWindowKind kind,out GrabbableModal? grab)=>Grabs.TryGetValue(kind,out grab);
@@ -116,8 +123,39 @@ namespace GloomhavenVR.WorldUI
         internal static Func<bool>? InitialAuthor { get; set; }
         internal static InitialPoseReader? TryInitialPose { get; set; }
     }
-    internal static class ModalFallback
+    internal static partial class ModalFallback
     {
+        // Already-admitted converted windows and a completed overlap proposal are explicit
+        // inputs. The actual production tween, authority/revision gates and final write run.
+        private sealed class WindowPanel
+        {internal UIWindow? Window;internal GrabbableModal? Grab;internal bool ReflowCancelled;}
+        private static readonly List<WindowPanel> Converted=new();
+        private static readonly WindowPanel?[] ReflowWindows=new WindowPanel?[ReflowCapacity];
+        private static readonly bool[] ReflowIncluded=new bool[ReflowCapacity];
+        private static readonly Vector3[] ReflowFrom=new Vector3[ReflowCapacity],ReflowTo=new Vector3[ReflowCapacity];
+        private static readonly Quaternion[] ReflowFromRotation=new Quaternion[ReflowCapacity],ReflowToRotation=new Quaternion[ReflowCapacity];
+        private static readonly int[] ReflowRevision=new int[ReflowCapacity];
+        private static readonly SharedWindowKind[] ReflowKinds=new SharedWindowKind[ReflowCapacity];
+        private static int _reflowCount,_reflowIncomingRevision;
+        private static float _reflowStarted;
+        private static bool _reflowRunning;
+        private static WindowPanel? _reflowIncoming;
+        private static SharedWindowKind _reflowIncomingKind;
+        private static bool ReflowVisible(WindowPanel panel)=>panel.Grab?.Visible==true;
+        private static void RefreshStandingArcClaims(int except) { }
+        internal static void ResetRoomProof(){Converted.Clear();_reflowRunning=false;_reflowIncoming=null;_reflowCount=0;Array.Clear(ReflowWindows);Array.Clear(ReflowIncluded);}
+        internal static void StartRoomProof(SharedWindowKind kind,Vector3 target)
+        {
+            ResetRoomProof();var older=new WindowPanel{Window=SharedWindows.Windows[kind],Grab=SharedWindows.Grabs[kind]};
+            _reflowIncomingKind=SharedWindowKind.MapStory;
+            _reflowIncoming=new WindowPanel{Window=SharedWindows.Windows[_reflowIncomingKind],Grab=SharedWindows.Grabs[_reflowIncomingKind]};
+            Converted.Add(older);Converted.Add(_reflowIncoming);_reflowCount=1;_reflowRunning=true;_reflowStarted=Time.unscaledTime;
+            ReflowWindows[0]=older;ReflowIncluded[0]=true;ReflowKinds[0]=kind;
+            ReflowFrom[0]=older.Grab!.Root.position;ReflowTo[0]=target;ReflowFromRotation[0]=ReflowToRotation[0]=older.Grab.Root.rotation;
+            ReflowRevision[0]=SharedWindowReflowBridge.Revision!(kind);_reflowIncomingRevision=SharedWindowReflowBridge.Revision!(_reflowIncomingKind);
+        }
+        internal static void TickRoomProof()=>TickRoomMakingAnimation();
+        internal static bool RoomProofRunning=>_reflowRunning;
         internal static bool Ready=true;
         internal const string StoryWindowLogName="native story";
         internal static bool SharedInitialPoseReady(SharedWindowKind kind)=>Ready;

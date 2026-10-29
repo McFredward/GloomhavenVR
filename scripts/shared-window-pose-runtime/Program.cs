@@ -156,8 +156,15 @@ namespace GloomhavenVR.Net
 
 internal static class Program
 {
-    private static void Main()
+    private static void Main(string[] args)
     {
+        if(args.Length==1)
+        {
+            if(args[0]=="reward-handover")MoveOrderPairs.RewardPlacementHandover();
+            else if(args[0]=="auto-author-return")MoveOrderPairs.AutomaticAuthorReturn();
+            else throw new ArgumentException("Unknown partial shared-window scenario");
+            Console.WriteLine($"Partial shared-window scenario {args[0]}: {Proof.Checks} assertions passed.");return;
+        }
         Authority();ContextCases();Scenario();Map();Video();ReferencePipeline();MoveOrderPairs.Run();
         Console.WriteLine($"Shared window pose runtime: {Proof.Checks} production assertions passed.");
     }

@@ -42,8 +42,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/shared-window-pose-runtime')
+    parser.add_argument('--scenario', choices=('complete','reward-handover','auto-author-return'), default='complete', help='Partial development reproduction; requires --case production')
     parser.add_argument('--case', action='append', help='Partial development run; repeat to choose cases')
     args = parser.parse_args()
+    if args.scenario != 'complete' and args.case != ['production']: parser.error('Partial scenarios require exactly --case production')
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir)).resolve()
@@ -67,7 +69,7 @@ def main():
             'reward': 'Net/Remote/RemoteMapStory.Reward.cs', 'reward_window': 'Net/RewardWindowState.cs',
             'reward_handshake': 'Net/RewardPoseHandshake.cs', 'reward_handoff': 'Net/RewardPoseHandoff.cs',
             'move_order': 'Net/SharedWindowMoveOrder.cs', 'move_register': 'Net/SharedWindowMoveRegister.cs',
-            'reflow': 'Net/Remote/RemoteMapStory.Reflow.cs', 'moves': 'Net/SharedWindowMoves.cs', 'move_bridge': 'WorldUI/Modal/SharedWindowInteractionBridge.cs',
+            'roommaking': 'WorldUI/Modal/ModalFallback.WindowRoomMaking.cs', 'reflow': 'Net/Remote/RemoteMapStory.Reflow.cs', 'moves': 'Net/SharedWindowMoves.cs', 'move_bridge': 'WorldUI/Modal/SharedWindowInteractionBridge.cs',
         }
         original = {name: (root / 'src/GloomhavenVR' / path).read_text() for name, path in files.items()}
         hashes = {files[name]: hashlib.sha256(code.encode()).hexdigest() for name, code in original.items()}
@@ -135,8 +137,57 @@ def main():
             'RewardWindow.cs': prefix + block(original['reward_window'], 'internal struct RewardWindowState') + '\n' + block(original['reward_window'], 'internal static class RewardPosePolicy') + '\ninternal static class RewardWindowCodec {\n' + block(original['reward_window'], 'internal static bool Valid(') + '\n' + re.search(r'private static bool Finite\([^;]+;', original['reward_window'])[0] + '\n}}',
             'RewardCensus.cs': prefix + 'internal static class NetAvatarDriver {\n' + block(original['sender'], 'internal static void CollectRewardPosePeers(') + '\n}}',
         }
+        room = '\n'.join(block(original['roommaking'], signature) for signature in (
+            'private static void TickRoomMakingAnimation(', 'private static void CancelWindowRoomMaking('))
+        for name in ('ReflowCapacity','ReflowSeconds'):
+            room += '\n' + re.search(r'private const (?:int|float) '+name+r' = [^;]+;', original['roommaking'])[0]
+        sources['RoomTween.cs'] = ('using GloomhavenVR.Core; using UnityEngine; namespace GloomhavenVR.WorldUI; '
+            'internal static partial class ModalFallback {\n'+room+'\n}')
         variants = [
             ('production', '', '', '', ''),
+            ('initial-hint-before-validation', 'MoveRegister.cs',
+             '        if (sender <= 0 || sender == _local || !row.Valid || row.Kind != _kind',
+             '        if (row.Phase == SharedWindowMovePhase.Initial) See(row.Sequence);\n        if (sender <= 0 || sender == _local || !row.Valid || row.Kind != _kind',
+             'only a validated initial receipt advances the next genuine claim: publisher'),
+            ('initial-hint-not-observed', 'MoveRegister.cs',
+             'See(row.Phase == SharedWindowMovePhase.Initial ? row.Sequence : row.Claim);',
+             'if (row.Claim != 0) See(row.Claim);',
+             'only a validated initial receipt advances the next genuine claim: publisher'),
+            ('initial-hint-not-published', 'MoveRegister.cs',
+             'if (!_localClaim && (_sequence == 0 || Newer(_clock, _sequence))) _sequence = _clock;',
+             'if (bool.Parse("false") && Newer(_clock, _sequence)) _sequence = _clock;',
+             "initial publisher's sequence carries the observed manual clock without a fabricated claim"),
+            ('initial-publisher-role-stale', 'MoveRegister.cs',
+             '        _initialPublisher = openingAuthor;\n', '',
+             "late reward view adopts the surviving publisher's last actual manual endpoint"),
+            ('automatic-author-not-refreshed', 'Moves.cs',
+             'register.SetAutomaticAuthor(RemoteMapStory.SharedReflowAuthor(), Time.unscaledTime);',
+             '{ }',
+             'native census retires the started local reflow before its next animation tick'),
+            ('retired-manual-basis-is-live', 'MoveRegister.cs',
+             '        && !_closedByAutomatic\n', '',
+             'a delayed held receipt cannot resurrect the released manual basis after automatic author loss'),
+            ('automatic-author-tween-not-canceled', 'Reflow.cs',
+             'if (QuestLocal.Reflow && !SharedWindowMoves.MayWrite(SharedWindowKind.QuestConfirm)) CancelReflow(QuestLocal);', '',
+             'native census retires the started local reflow before its next animation tick'),
+            ('reward-opening-relay-unchecked', 'Moves.cs',
+             'RemoteMapStory.MayRelayRewardOpening(sender, row.ContentKey, row.OpeningAuthor)', 'true',
+             'reward relay rejects missing matching origin evidence'),
+            ('reward-member-history-crosses-key', 'Reward.cs',
+             'if (RewardLocal.Key == key) return;\n        RewardKnownParticipants.Clear();',
+             'if (RewardLocal.Key == key) return;',
+             'reward relay cannot borrow participant departure evidence from a different native key'),
+            ('cold-sequence-zero-treated-as-clock', 'MoveRegister.cs',
+             '(_sequence == 0 || Newer(_clock, _sequence))', 'Newer(_clock, _sequence)',
+             'first publisher sample after cold promotion advances the observed nonzero clock serially'),
+            ('initial-claim-zero-is-serial-predecessor', 'MoveRegister.cs',
+             'if (row.Claim != previous.Row.Claim && previous.Row.Claim != 0\n                && (row.Claim == 0 || !Newer(row.Claim, previous.Row.Claim))) return false;',
+             'if (row.Claim != previous.Row.Claim && !Newer(row.Claim, previous.Row.Claim)) return false;',
+             'first nonzero manual receipt can follow the initial zero sentinel near wrap'),
+            ('initial-sample-order-removed', 'MoveRegister.cs',
+             'if (!Newer(row.Sequence, previous.Row.Sequence)) return false;',
+             'if (row.Phase != SharedWindowMovePhase.Initial && !Newer(row.Sequence, previous.Row.Sequence)) return false;',
+             'invalid initial metadata is rejected before any clock hint: duplicate'),
             ('cached-reflow-holder', 'Reflow.cs',
              'byte held = 0;', 'if (sender > 0) return peer.Held; byte held = 0;',
              'old holder cannot block room making after another accepted releaser without another old-holder packet'),
@@ -156,7 +207,7 @@ def main():
              'crossed simultaneous real samplers and resolvers converge despite opposite arrival clocks'),
             ('sample-order-removed', 'MoveRegister.cs',
              'if (!Newer(row.Sequence, previous.Row.Sequence)) return false;',
-             'if (bool.Parse("false")) return false;',
+             'if (row.Phase == SharedWindowMovePhase.Initial && !Newer(row.Sequence, previous.Row.Sequence)) return false;',
              'reordered release tween samples never rewind the final shared pose'),
             ('observer-frame-leaks', 'Context.cs', 'Origin + yaw * (relative.Position * Scale)',
              'GloomhavenVR.WorldUI.PanelLayout.Origin + yaw * (relative.Position * GloomhavenVR.WorldUI.PanelLayout.WorldScale)',
@@ -236,7 +287,8 @@ def main():
                         raise RuntimeError('Causal-control source binding drift: ' + name)
                     text = text.replace(before, after, 1)
                 if name == 'sample-order-removed' and source_name == 'Moves.cs':
-                    text = text.replace('&& !SharedWindowMoveRegister.Newer(row.Sequence, previous.Value.Sequence)', '&& bool.Parse("false")', 1)
+                    text = text.replace('&& !SharedWindowMoveRegister.Newer(row.Sequence, previous.Value.Sequence)',
+                        '&& row.Phase == SharedWindowMovePhase.Initial && !SharedWindowMoveRegister.Newer(row.Sequence, previous.Value.Sequence)', 1)
                 (generated / source_name).write_text(text)
             for source_name, text in fixture_sources.items():
                 (generated / source_name).write_text(text)
@@ -244,7 +296,7 @@ def main():
             project.write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><AllowUnsafeBlocks>true</AllowUnsafeBlocks><GenerateDocumentationFile>false</GenerateDocumentationFile><NoWarn>CS0649;CS0169</NoWarn></PropertyGroup></Project>\n')
             if execute([dotnet, 'build', str(project), '-c', 'Release', '--disable-build-servers', '--nologo', '--verbosity', 'quiet', '-p:UseSharedCompilation=false'], case / 'build.log'):
                 raise RuntimeError('Compilation is not a passing control: ' + str(case / 'build.log'))
-            code = execute([dotnet, str(case / 'bin/Release/net8.0/Pose.dll')], case / 'runtime.log')
+            code = execute([dotnet, str(case / 'bin/Release/net8.0/Pose.dll'), *([] if args.scenario == 'complete' else [args.scenario])], case / 'runtime.log')
             output = (case / 'runtime.log').read_text()
             passed = code == 0 if not expected else code != 0 and expected in output
             results.append({'case': name, 'passed': passed, 'exit_code': code, 'expected': expected, 'output': output})
@@ -261,7 +313,7 @@ def main():
         return 0
     finally:
         (run / 'source-hashes.json').write_text(json.dumps(hashes, indent=2) + '\n')
-        (run / 'result.json').write_text(json.dumps({'exit_code': status, 'cases': results}, indent=2) + '\n')
+        (run / 'result.json').write_text(json.dumps({'exit_code': status, 'scenario': args.scenario, 'cases': results}, indent=2) + '\n')
         # Sources may be borrowed from the integration checkout; generated outputs belong only to
         # this worker's run, never to the read-only source-root or another agent's active run.
         (run / 'cleanup.json').write_text(json.dumps(cleanup_completed_run('shared-window-pose-runtime', status, completion, ROOT, process_reaped=True), indent=2) + '\n')
