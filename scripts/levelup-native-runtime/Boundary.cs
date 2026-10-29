@@ -190,6 +190,18 @@ namespace GloomhavenVR.WorldUI
         internal Transform? Home;internal int Index;internal Vector2 Min,Max,Pivot,Size,Position;internal Vector3 Scale;internal Quaternion Rotation;
     }
     internal struct OrderFollower {internal Canvas? Canvas;internal Renderer? Renderer;internal int Offset;internal OrderFollower(Renderer? renderer){Canvas=null;Renderer=renderer;Offset=0;}}
+    // Capture ownership is a counted integration port here. The dedicated
+    // desktop fixture executes the real coordinator and final AA head pixels.
+    internal static partial class PanelSupersample
+    {
+        internal sealed class Binding745
+        {
+            internal ConvertedPanel Owner=null!,Member=null!;internal Vector3 Position,Scale;internal Quaternion Rotation;
+        }
+        internal static readonly List<Binding745> ConfirmationBindings745=new();
+        internal static void BindConfirmationMember(ConvertedPanel owner,ConvertedPanel member)
+        { ConfirmationBindings745.Add(new Binding745{Owner=owner,Member=member,Position=member.HostRect.position,Scale=member.HostRect.lossyScale,Rotation=member.HostRect.rotation}); }
+    }
     internal static class MrBacking {internal static void SyncPlateOrders(){}}
     internal static partial class CanvasConversion
     {

@@ -122,5 +122,19 @@ ET.ElementTree(xml_node(item_confirmation)).write(out/'native-item-confirmation-
 (out/'native-confirmation-provenance.json').write_text(json.dumps({'scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level1').read_bytes()).hexdigest(),
  'presentation':'Original rect/layout/image/TMP declarations; original sprites and font data. Native game controllers are not installed. Localized question is an explicit input.',
  'nativeDefaultGraphicShader':'Original Box and full-screen root use built-in UI/Default; actual editor stock shader executes. Native Blur shader uses declared GL GrabPass stand-in.'},indent=2)+'\n')
+# Closed native card-list opener and its original Cards header. Import only
+# static authored presentation; actual native controllers are installed explicitly
+# by CardListEntry745 with downstream campaign services declared as ports.
+card_entry=confirmation_node(byid[2321],"card-list-entry")
+card_view=confirmation_node(byid[361],"card-list-view")
+assert card_entry['name']=='Toggle'
+assert any(c['kind']=='ExtendedToggle' for c in card_entry['components'])
+assert any(c['kind']=='UIPartyCharacterAbilityCardsDisplay' for c in card_view['components'])
+for name,value in [('native-card-list-entry',card_entry),('native-card-list-view',card_view)]:
+ (out/(name+'.json')).write_text(json.dumps(value,indent=2)+'\n')
+ ET.ElementTree(xml_node(value)).write(out/(name+'.xml'),encoding='unicode',xml_declaration=True)
+(out/'native-card-list-provenance.json').write_text(json.dumps({'scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level9').read_bytes()).hexdigest(),
+ 'presentation':'Original Cards tab static hierarchy/rects/images/fonts and closed-list toggle artwork. Actual ExtendedToggle.OnPointerClick and UIResetLevelUpWindow.Show/ToggleDisplay execute; downstream inventory/controller/session are ports. Unrelated LevelUpHighlight/Warning GUI_FlexFrame shader branches are omitted from this static header picture and retained untouched in the authored export.'},indent=2)+'\n')
+
 (out/'pins.json').write_text(json.dumps({x.name:hashlib.sha256(x.read_bytes()).hexdigest() for x in out.iterdir() if x.is_file()},indent=2)+'\n')
 print('exported original native widget sprites/font',out)

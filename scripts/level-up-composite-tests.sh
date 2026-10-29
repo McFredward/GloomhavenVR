@@ -84,10 +84,11 @@ try:
   print(message,end='',flush=True)
  entry_text=entry.read_text()
  entry_mutations=[
+  ('controller-hint-typography','CaptionTemplate(view, "Container/Header/Title")','view.GetComponentsInChildren<TMPro.TMP_Text>(true)[0]','entry caption follows native typography'),
   ('opener-waits-for-list','if (!available) return Release();','if (!available || !reset!.inventory.GetComponent<UnityEngine.UI.UIWindow>()!.IsOpen) return Release();','closed inventory opener joins original character Cards view before the inventory opens'),
   ('caption-not-clickable','_caption.raycastTarget = true;','_caption.raycastTarget = false;','caption graphic dispatches to the original native toggle'),
   ('native-show-lock-bypassed','reset.requestDisableShow.Count == 0','reset.requestDisableShow.Count >= 0','show-lock: opener returns its native geometry and parent'),
-  ('opener-home-retained','_button.SetParent(_home, false);','_button.SetParent(_button.parent, false);','tab: opener returns its native geometry and parent'),
+  ('opener-home-retained','_button.SetParent(home, false);','_button.SetParent(_button.parent, false);','tab: opener returns its native geometry and parent'),
   ('caption-language-stale','Loc.OnChanged += RefreshCaption;','/* language update omitted */','open caption follows native language changes'),
  ]
  for name,old,new,expected in entry_mutations:

@@ -89,6 +89,7 @@ public static partial class LevelUpNativeProgram
     {var previous=ConfirmationOnOwner.Begin(source);ConfirmationOnOwner.Record(manager);ConfirmationOnOwner.CurrentScope=previous;}
     public static IEnumerator Run(string output)
     {
+        PanelSupersample.ConfirmationBindings745.Clear();
         _checks=_controllerEnables=_translations=_nativeButtonChecks=0;_language="Continue";_allowNativeButton=false;
         WorldUIConfig.ConversionActive=true;FlatScreen.ManualScreenActive=false;FFSNetwork.IsOnline=false;
         UIConfirmationBoxManager.MainMenuInstance=null;Singleton<UIItemConfirmationBox>.Instance=null;
@@ -260,6 +261,7 @@ public static partial class LevelUpNativeProgram
         Record(manager,owner);Check(CanvasConversion.Converts==0,"no separate dialog capture is created before semantic ownership admission");
         ConfirmationOnOwner.Tick();
         Check(ConfirmationOnOwner.IsOwned(boxWindow),"same native confirmation joins level-up before independent floating placement");
+        ConfirmationAA745(boxWindow,level,"general level-up");
         Check(box.gameObject.scene.name=="DontDestroyOnLoad"&&!boxRect.IsChildOf(level),"persistent native dialog never inherits the scene-owned level-up lifetime");
         Check(CanvasConversion.Converts==1,"persistent member uses exactly one chrome-free capture");
         Check(!ModalFallback.WantsFloat(boxWindow),"owned confirmation cannot be readmitted as a generic floating window");
@@ -306,8 +308,11 @@ public static partial class LevelUpNativeProgram
         Check(ModalFallback.WantsFloat(boxWindow),"owner release returns a still-open original dialog to its standalone admission");
         box!.IsOpen=boxWindow.IsOpen=boxWindow.IsVisible=false;ConfirmationOnOwner.Tick();
         Check(!ConfirmationOnOwner.IsOwned(boxWindow),"native hide retires exact embedded ownership without extra continuation");
-        ConfirmationOnOwner.Reset();LevelUpComposite.Reset();harmony.UnpatchSelf();
+        ConfirmationOnOwner.Reset();LevelUpComposite.Reset();
         Object.DestroyImmediate(home.gameObject);Object.DestroyImmediate(camera.gameObject);target.Release();Object.DestroyImmediate(target);
+        var browseEntry=CardListEntry745(output,harmony);
+        while(browseEntry.MoveNext())yield return browseEntry.Current;
+        harmony.UnpatchSelf();
         yield return _checks;
     }
 }

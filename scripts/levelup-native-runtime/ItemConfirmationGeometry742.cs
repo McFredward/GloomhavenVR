@@ -45,6 +45,7 @@ public static partial class LevelUpNativeProgram
                 int nativeScene=imported.gameObject.scene.handle;
                 AccessTools.Method(typeof(UIShopItemInventory),"OnSelectedItemSell").Invoke(shop,null);ConfirmationOnOwner.Tick();
                 Check(ConfirmationOnOwner.IsOwned(window),"original native item confirmation uses its exact producer window in either scene");
+                ConfirmationAA745(window,sourceWindow,route);
                 var panel=CanvasConversion.ActivePanels.Find(p=>ReferenceEquals(p.Target,imported))!;CanvasConversion.ResetOrder739();
                 for(int frame=0;frame<10;frame++)
                 {

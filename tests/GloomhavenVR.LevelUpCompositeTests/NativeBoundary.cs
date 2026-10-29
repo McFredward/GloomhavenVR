@@ -107,6 +107,12 @@ namespace UnityEngine
             return new Vector3(local.x / localScale.x, local.y / localScale.y, local.z / localScale.z);
         }
         public Transform GetChild(int index) => Children[index];
+        public Transform? Find(string path)
+        {
+            Transform? found=this;
+            foreach(string part in path.Split('/'))found=found?.Children.FirstOrDefault(x=>x.name==part);
+            return found;
+        }
         public int GetSiblingIndex() => parent?.Children.IndexOf(this) ?? 0;
         public void SetSiblingIndex(int index)
         { if (parent == null) return; parent.Children.Remove(this); parent.Children.Insert(Math.Clamp(index, 0, parent.Children.Count), this); }
@@ -272,6 +278,7 @@ namespace GloomhavenVR.Core
         internal static string MoreCards=>German?"Weitere Karten":"More Cards";
         internal static bool German;
         internal static event Action? OnChanged;
+        internal static int Subscribers => OnChanged?.GetInvocationList().Length ?? 0;
         internal static void Language(bool german){German=german;OnChanged?.Invoke();}
     }
     internal static class VRLog
@@ -336,6 +343,8 @@ namespace TMPro
         public UnityEngine.Bounds textBounds;
         public UnityEngine.Object? font,fontSharedMaterial;
         public float fontSize=24;
+        public float fontSizeMin,fontSizeMax;
+        public bool enableAutoSizing;
         public int fontStyle;
         public UnityEngine.Color color=new(1,1,1,1);
         public string text="";

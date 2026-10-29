@@ -52,6 +52,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/levelup-native-runtime')
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--case', action='append')
+    parser.add_argument('--card-list-only', action='store_true', help='Run only the native closed-card-list proof; requires explicit --case selection.')
     args = parser.parse_args()
     if not os.environ.get('ADB_SERVER_SOCKET'):
         parser.error('Use the private task ADB_SERVER_SOCKET; a default shared ADB server is not permitted.')
@@ -117,6 +118,11 @@ def main():
         + '\n'.join(order_methods)+'}}')
     cases = [('production', {}, '')]
     changes = [
+        ('card-list-opener-waits-for-open', 'CardListEntry.cs', '&& button.gameObject.activeSelf && reset != null', '&& button.gameObject.activeSelf && reset != null && reset.inventory.GetComponent<UIWindow>().IsOpen', 'native closed-list opener is reachable inside converted character Cards tab before list opens'),
+        ('card-list-caption-not-clickable', 'CardListEntry.cs', '_caption.raycastTarget = true;', '_caption.raycastTarget = false;', 'native graphic raycast hits More Cards caption'),
+        ('card-list-caption-language-stale', 'CardListEntry.cs', 'Loc.OnChanged += RefreshCaption;', '/* language change subscription omitted */', 'native card-list caption follows German language switch'),
+        ('confirmation-aa-binding-lost', 'ConfirmationOnOwner.cs', 'PanelSupersample.BindConfirmationMember(panel, seat.PersistentMember);', '/* native producer AA association omitted */', 'native confirmation producer registers original member with owner AA capture'),
+        ('confirmation-aa-before-placement', 'ConfirmationOnOwner.cs', 'Apply(seat);\n            PanelSupersample.BindConfirmationMember(panel, seat.PersistentMember);', 'PanelSupersample.BindConfirmationMember(panel, seat.PersistentMember);\n            Apply(seat);', 'owner AA binding follows final native confirmation placement'),
         ('unsafe-active-clone', 'AnnouncementContinueView.cs', 'staging.SetActive(false);', '/* active staging regression */', 'native input controller clones never enable'),
         ('native-graphics-lost', 'AnnouncementContinueView.cs', '|| component is Graphic', '/* native graphics dropped */', 'native Continue retains complete original hierarchy geometry and font'),
         ('source-callback-retained', 'AnnouncementContinueView.cs', '_button.onClick = new Button.ButtonClickedEvent();', '_button.onClick.RemoveAllListeners();', 'native Continue clone never retains serialized reward callbacks'),
@@ -160,6 +166,8 @@ def main():
         if originals[file].count(before) != 1:
             raise SystemExit('Mutation binding drift: ' + name)
         cases.append((name, {file: originals[file].replace(before, after)}, expected))
+    if args.card_list_only and (not args.case or any(name != 'production' and not name.startswith('card-list-') for name in args.case)):
+        parser.error('--card-list-only requires explicit production/card-list case selection')
     if args.case:
         unknown = set(args.case) - {case[0] for case in cases}
         if unknown: parser.error('Unknown cases: ' + str(unknown))
@@ -181,7 +189,7 @@ def main():
         result = subprocess.run([str(Path.home() / 'unitypy-venv/bin/python'), str(fixture / 'export_inputs.py'), str(root), str(inputs)], capture_output=True, text=True)
         (run / 'native-export.log').write_text(result.stdout + result.stderr)
         if result.returncode: raise RuntimeError('Native export failed: ' + str(run / 'native-export.log'))
-        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'cases': []}
+        manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'entry': 'RunCardListEntry745' if args.card_list_only else 'Run', 'cases': []}
         hashes = {}
         for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), root / 'src/GloomhavenVR/Core/Loc/Loc.CardList.cs', *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', modal / 'ModalFallback.CompositeTransfer.cs', Path(__file__), ROOT / 'scripts/check-environment-menu-scope.py', ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/town_run_retention.py', *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
             hashes[str(file)] = hashlib.sha256(file.read_bytes()).hexdigest()

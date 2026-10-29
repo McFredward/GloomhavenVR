@@ -9,7 +9,7 @@ using UnityEngine;
 public static class LevelUpRunner
 {
     [Serializable] private sealed class Case { public string name, dll, expected; }
-    [Serializable] private sealed class Manifest { public string result, evidence, harmony, managed, inputs; public Case[] cases; }
+    [Serializable] private sealed class Manifest { public string result, evidence, harmony, managed, inputs, entry; public Case[] cases; }
     private static Manifest manifest;
     private static StreamWriter writer, timings;
     private static readonly System.Diagnostics.Stopwatch runClock = new System.Diagnostics.Stopwatch();
@@ -56,7 +56,7 @@ public static class LevelUpRunner
                     string output = Path.Combine(manifest.evidence, active.name); Directory.CreateDirectory(output);
                     program = Assembly.LoadFile(active.dll).GetType("LevelUpNativeProgram");
                     program.GetMethod("Inputs").Invoke(null, new object[] { manifest.inputs });
-                    pending = (IEnumerator)program.GetMethod("Run").Invoke(null, new object[] { output }); count = -1;
+                    pending = (IEnumerator)program.GetMethod(String.IsNullOrEmpty(manifest.entry) ? "Run" : manifest.entry).Invoke(null, new object[] { output }); count = -1;
                 }
                 if (pending.MoveNext())
                 {

@@ -120,7 +120,8 @@ public static partial class LevelUpNativeProgram
                 imported.SetParent(expectedHome,false);int nativeScene=imported.gameObject.scene.handle;
                 box.IsOpen=window.IsOpen=window.IsVisible=true;DialogSurface? surface=null;ownerPanel.HostCanvas.enabled=route!="standalone"&&ownerCanvasEnabled;
                 if(route!="standalone"){Record(manager,route=="owned"?(Component)owner:perks);ConfirmationOnOwner.Tick();
-                    Check(ConfirmationOnOwner.IsOwned(window),"every perks confirmation is a foreground member of its actual producer window");}
+                    Check(ConfirmationOnOwner.IsOwned(window),"every perks confirmation is a foreground member of its actual producer window");
+                    ConfirmationAA745(window,route=="owned"?owner.transform:perksWindow,route);}
                 else {var scope=ConfirmationOnOwner.CurrentScope;ConfirmationOnOwner.CurrentScope=null;ConfirmationOnOwner.Record(manager);ConfirmationOnOwner.CurrentScope=scope;surface=new DialogSurface();surface.Tick();}
                 var panel=CanvasConversion.ActivePanels.Find(p=>ReferenceEquals(p.Target,imported))!;
                 if(route=="standalone"){panel.HostRect.SetPositionAndRotation(ownerRoot.position,ownerRoot.rotation);panel.HostRect.localScale=ownerRoot.lossyScale;}
