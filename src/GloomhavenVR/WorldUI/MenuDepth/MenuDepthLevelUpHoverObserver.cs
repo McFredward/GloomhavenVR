@@ -66,7 +66,7 @@ internal static class MenuDepthFurtherAbilityHoverObserver
     private static void AfterMouseEnter(UILevelUpCard __instance, AbilityCardUI? ___abilityCard,
         bool ___highlighted, Vector3 ____fullCardPrewiewOffset)
     {
-        try { SettleOriginal(__instance, ___abilityCard, ___highlighted, ____fullCardPrewiewOffset); }
+        try { MenuDepthFurtherAbilityHover.SettleOriginal(__instance, ___abilityCard, ___highlighted, ____fullCardPrewiewOffset); }
         catch (Exception exception)
         {
             int count = ++_failures;
@@ -76,6 +76,12 @@ internal static class MenuDepthFurtherAbilityHoverObserver
         }
     }
 
+}
+
+// Keep presentation helpers outside the Harmony container: its analyzer treats
+// reads of Vector3 parameter members as writes to non-ref patch parameters.
+internal static class MenuDepthFurtherAbilityHover
+{
     internal static void SettleOriginal(UILevelUpCard entry, AbilityCardUI? card, bool highlighted,
         Vector3 nativeOffset)
     {

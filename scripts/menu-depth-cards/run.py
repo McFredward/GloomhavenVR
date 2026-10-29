@@ -39,7 +39,7 @@ def main():
     variants=[('production','','','',''),
         ('more-cards747','','','',''),
         ('more-cards747-missing-final-raise','MenuDepthLevelUpHoverObserver.cs',
-         '        try { SettleOriginal(__instance, ___abilityCard, ___highlighted, ____fullCardPrewiewOffset); }',
+         '        try { MenuDepthFurtherAbilityHover.SettleOriginal(__instance, ___abilityCard, ___highlighted, ____fullCardPrewiewOffset); }',
          '        try { /* injected: Further Ability Cards misses its final native placement seam */ }',
          'browse-only More Cards keeps the complete original preview visible beyond the inventory strip in first and settled head pixels'),
         ('more-cards747-manual-contamination','MenuDepthLevelUpHoverObserver.cs',
