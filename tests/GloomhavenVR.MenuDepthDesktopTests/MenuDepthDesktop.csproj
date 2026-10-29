@@ -9,6 +9,7 @@
     <Compile Include="$(FixtureDir)/*.cs"/><Compile Include="$(ProductionDir)/*.cs"/>
     <Reference Include="$(UnityManaged)/UnityEngine/*.dll"><Private>false</Private></Reference>
     <Reference Include="$(GameManaged)/UnityEngine.UI.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/Unity.TextMeshPro.dll"><Private>false</Private></Reference>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all"/>
   </ItemGroup>
 </Project>

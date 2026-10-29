@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
 from town_run_retention import cleanup_completed_run
 from project_compilers import cleanup_project_compilers, cleanup_project_editors
+import native_tmp
 _cleanup_spec = importlib.util.spec_from_file_location('menu_depth_compiler_cleanup', ROOT / 'scripts/check-environment-menu-scope.py')
 _cleanup_module = importlib.util.module_from_spec(_cleanup_spec)
 _cleanup_spec.loader.exec_module(_cleanup_module)
@@ -116,8 +117,33 @@ internal static class MenuDepthCharacterRotation
     inputs += [depth / name for name in names]
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), *fixtures.glob('*.shader'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     inputs += [ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/check-environment-menu-scope.py']
+    inputs += [ROOT / 'ressources/GH_Data/Managed/Unity.TextMeshPro.dll']
+    wants_native_tmp = not args.case or any(name.startswith('head-native-tmp') for name in args.case)
+    if wants_native_tmp:
+        inputs += native_tmp.inputs(ROOT)
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
+        ('head-native-tmp742', '', '', '', ''),
+        ('head-native-tmp-native-metric-probe742', 'MenuDepthNativeUiScope.cs',
+         '_camera.worldToCameraMatrix = projection.inverse * eye.WorldToHeadClip;',
+         '''Matrix4x4 nativeView = projection.inverse * eye.WorldToHeadClip;
+        float metric = Mathf.Pow(nativeView.MultiplyVector(Vector3.right).magnitude * nativeView.MultiplyVector(Vector3.up).magnitude * nativeView.MultiplyVector(Vector3.forward).magnitude, 1f / 3f);
+        for (int row = 0; row < 3; row++) nativeView.SetRow(row, nativeView.GetRow(row) / metric);
+        for (int row = 0; row < 4; row++) projection[row, 3] /= metric;
+        _camera.nearClipPlane /= metric; _camera.farClipPlane /= metric;
+        _camera.worldToCameraMatrix = nativeView;''', ''),
+        ('head-native-tmp-native-pose-probe742', '', '', '', ''),
+        ('head-native-tmp-native-view-lost742', 'MenuDepthNativeUiScope.cs',
+         'Matrix4x4 projection = eye.RasterProjection;', 'Matrix4x4 projection = head.projectionMatrix;',
+         'actual final head native TMP glyphs retain independent original-font pixel detail'),
+        ('head-native-tmp-converted-view-lost742', 'MenuDepthDisplay.cs',
+         '        Matrix4x4 projection = eye.RasterProjection;\n        capture.targetTexture',
+         '        Matrix4x4 projection = eye.HeadCamera.projectionMatrix;\n        capture.targetTexture',
+         'actual final head native TMP glyphs retain independent original-font pixel detail'),
+        ('head-model-churn-lost742', 'MenuDepthCharacterSource.cs',
+         'if (!_headTargets || width != _width || height != _height || bytes != _pairBytes',
+         'if (true || !_headTargets || width != _width || height != _height || bytes != _pairBytes',
+         'a native model scratch reallocates only with the observed UI capacity transitions'),
         ('head-crop-metric742', '', '', '', ''),
         ('head-crop-metric-view-lost742', 'MenuDepthCharacterProjection.cs',
          'Matrix4x4 projection = eye.RasterProjection;',
@@ -307,6 +333,7 @@ internal static class MenuDepthCharacterRotation
          'UIVertex vertex = _stream[i]; /* graphic depth is lost before the real head projection */',
          'original orthographic UI stack carries physical-eye-dependent graphic relief'),
     ]
+    metric_probe = next(item for item in variants if item[0] == 'head-native-tmp-native-metric-probe742')
     if args.case:
         wanted = set(args.case); assert wanted <= {case[0] for case in variants}
         variants = [case for case in variants if case[0] in wanted]
@@ -315,6 +342,10 @@ internal static class MenuDepthCharacterRotation
         project = run / 'unity'; editor = project / 'Assets/Editor'; editor.mkdir(parents=True)
         (project / 'ProjectSettings').mkdir(); (project / 'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project / 'Packages').mkdir(); (project / 'Packages/manifest.json').write_text('{"dependencies":{"com.unity.ugui":"1.0.0"}}\n')
+        plugins = project / 'Assets/Plugins'; plugins.mkdir()
+        shutil.copyfile(ROOT / 'ressources/GH_Data/Managed/Unity.TextMeshPro.dll', plugins / 'Unity.TextMeshPro.dll')
+        if wants_native_tmp:
+            native_tmp.prepare(ROOT, run, project)
         shutil.copyfile(ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs', editor / 'Runner.cs')
         for shader in fixtures.glob('*.shader'):
             shutil.copyfile(shader, project / 'Assets' / shader.name)
@@ -326,6 +357,18 @@ internal static class MenuDepthCharacterRotation
         for name, filename, before, after, expected in variants:
             case = run / name; production = case / 'production'; production.mkdir(parents=True)
             for source_name, code in sources.items():
+                if name in ('head-native-tmp-native-view-lost742', 'head-native-tmp-converted-view-lost742') and source_name == 'MenuDepthNativeUiScope.cs':
+                    code = replace_once(code, metric_probe[2], metric_probe[3])
+                if name == 'head-native-tmp-native-pose-probe742' and source_name == 'MenuDepthNativeUiScope.cs':
+                    code = replace_once(code, metric_probe[2], metric_probe[3])
+                    code = replace_once(code, '    private readonly Camera _camera;',
+                        '    private readonly Camera _camera; private readonly Vector3 _fixturePosition; private readonly Quaternion _fixtureRotation;')
+                    code = replace_once(code, '_camera = camera;',
+                        '_camera = camera; _fixturePosition = camera.transform.position; _fixtureRotation = camera.transform.rotation;')
+                    code = replace_once(code, '_camera.worldToCameraMatrix = nativeView;',
+                        '_camera.transform.SetPositionAndRotation(nativeView.inverse.MultiplyPoint3x4(Vector3.zero), Quaternion.LookRotation(-nativeView.inverse.MultiplyVector(Vector3.forward), nativeView.inverse.MultiplyVector(Vector3.up))); _camera.worldToCameraMatrix = nativeView;')
+                    code = replace_once(code, '_camera.targetTexture = _target;',
+                        '_camera.transform.SetPositionAndRotation(_fixturePosition, _fixtureRotation); _camera.targetTexture = _target;')
                 if source_name=='MenuDepthDisplay.cs' and name.startswith('head-pitch-rt-y') and args.graphics_api=='glcore':
                     code=replace_once(code,'GL.GetGPUProjectionMatrix(projection, true)',
                         'global::HeadPitchBackend736.TopOriginGpuProjection(projection, true)')
@@ -358,7 +401,7 @@ internal static class MenuDepthCharacterRotation
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadNativeTmp742' if name.startswith('head-native-tmp') else 'HeadLateRenderer742' if name == 'head-model-churn-lost742' else 'HeadCropMetric742' if name.startswith('head-crop-metric') else 'HeadMotion730' if name.startswith('head-capacity') else 'HeadLateRenderer742' if name.startswith('head-late-renderer') else 'HeadMotion730' if name.startswith('head-crop-origin') else 'HeadBackingOld742' if name == 'head-backing-old-single742' else 'HeadBacking742' if name.startswith('head-backing') else 'HeadFilterLifecycle742' if name.startswith('head-filter') else 'HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else

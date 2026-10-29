@@ -93,7 +93,7 @@ public static partial class MenuDepthDesktopProgram
         => HeadMotionCore730(output,complete,640,480,false,false,false,false,false,true,true);
     public static IEnumerator HeadLateRenderer742(string output,Action<int> complete)
         => HeadMotionCore730(output,complete,640,480,false,false,false,false,false,false,false,true);
-    private static IEnumerator HeadMotionCore730(string output,Action<int> complete,int width,int height,bool hardwareRaster,bool annotations=false,bool cards=false,bool pitch=false,bool aliasing=false,bool backing=false,bool legacyBacking=false,bool late=false)
+    private static IEnumerator HeadMotionCore730(string output,Action<int> complete,int width,int height,bool hardwareRaster,bool annotations=false,bool cards=false,bool pitch=false,bool aliasing=false,bool backing=false,bool legacyBacking=false,bool late=false,bool nativeTmp=false)
     {
         _count=0;DesktopEyeInput.Available=true;
         for(int route=0;route<(backing?1:annotations?4:2);route++)
@@ -145,10 +145,17 @@ public static partial class MenuDepthDesktopProgram
                 gridImage.rectTransform.sizeDelta=new Vector2(330,320);
                 gridImage.rectTransform.localRotation=Quaternion.Euler(0,0,23);
             }
+            using var nativeFont = nativeTmp ? new NativeFont742(output) : null;
+            if (nativeFont != null)
+            {
+                nativeFont.Label(scene.RootA, "native TMP window title", "ABILITY CARDS", new Vector2(600, 90), new Vector2(250, 420), 60);
+                nativeFont.Label(scene.Button.transform, "native TMP button label", "Continue", new Vector2(240, 60), Vector2.zero, 40);
+            }
             var label=new GameObject("original native text quality witness",typeof(RectTransform),typeof(CanvasRenderer),typeof(Text));label.layer=5;
             label.transform.SetParent(scene.RootA,false);var text=label.GetComponent<Text>();text.font=Resources.GetBuiltinResource<Font>("Arial.ttf");
             text.text="WINDOW 730";text.fontSize=60;text.color=Color.white;text.alignment=TextAnchor.MiddleCenter;
             text.rectTransform.sizeDelta=new Vector2(600,90);text.rectTransform.anchoredPosition=new Vector2(250,350);
+            if (nativeTmp) label.SetActive(false);
             var tooltip=new GameObject("original right tooltip root without Graphic",typeof(RectTransform));tooltip.layer=5;
             tooltip.transform.SetParent(scene.RootA,false);var tooltipRect=(RectTransform)tooltip.transform;
             tooltipRect.sizeDelta=new Vector2(600,100);tooltipRect.anchoredPosition=new Vector2(900,-350);
@@ -240,16 +247,26 @@ public static partial class MenuDepthDesktopProgram
             var ids=new HashSet<int>();var sourceIds=new HashSet<int>();bool sourceDimensionsExact=true;double minimumUi=1,minimumModel=1;
             var uiScratchIds = new HashSet<int>();
             var allocationEvents = new List<string>();
+            var sourceAllocationEvents = new List<string>();
             long uiAllocated = 0, sourceAllocated = 0, peakOwnedBytes = 0, peakUiBytes = 0;
             int peakSceneSlots = 0, largestUiWidth = 0, largestUiHeight = 0, growthSteps = 0, capturePose = -1;
+            int sourceGrowthSteps = 0, largestSourceWidth = 0, largestSourceHeight = 0;
             var aliasingProof=new AliasingProof742();
             Camera.CameraCallback sample=c=>
             {
                 if(c==scene.ModelCamera&&c.targetTexture!=scene.ModelTarget)
                 {
                     if (sourceIds.Add(c.targetTexture.GetInstanceID()))
+                    {
                         sourceAllocated += MenuDepthHeadRaster.SingleBytes(c.targetTexture.descriptor,
                             new Vector2Int(c.targetTexture.width, c.targetTexture.height));
+                        if (c.targetTexture.width > largestSourceWidth || c.targetTexture.height > largestSourceHeight) sourceGrowthSteps++;
+                        largestSourceWidth = Math.Max(largestSourceWidth, c.targetTexture.width);
+                        largestSourceHeight = Math.Max(largestSourceHeight, c.targetTexture.height);
+                        sourceAllocationEvents.Add(capturePose + "," + Time.unscaledTime + "," + c.targetTexture.width + "," + c.targetTexture.height
+                            + "," + MenuDepthHeadRaster.SingleBytes(c.targetTexture.descriptor, new Vector2Int(c.targetTexture.width, c.targetTexture.height))
+                            + "," + sourceGrowthSteps);
+                    }
                     sourceDimensionsExact &= c.targetTexture.width==MenuDepthHeadRaster.Pixels.x&&c.targetTexture.height==MenuDepthHeadRaster.Pixels.y
                         && c.targetTexture.antiAliasing==1&&!c.targetTexture.useMipMap&&!c.targetTexture.descriptor.useDynamicScale;
                 }
@@ -270,11 +287,12 @@ public static partial class MenuDepthDesktopProgram
             using(var csv=new StreamWriter(Path.Combine(output,"head-motion-"+path+".csv")))
             {
                 csv.WriteLine("frame,eye,uiCorrelation,modelCorrelation,uiContrast,modelContrast,uiScratchBytes,sceneScratchBytes,headPairBytes");
-                for(int step=0;step<(late?4:backing?6:aliasing?12:pitch?7:hardwareRaster||annotations||cards?4:52);step++)
+                for(int step=0;step<(nativeTmp?4:late?4:backing?6:aliasing?12:pitch?7:hardwareRaster||annotations||cards?4:52);step++)
                 {
                     int frame=hardwareRaster||annotations||cards?new[]{0,13,40,51}[step]:step;
                     if(backing)frame=new[]{0,13,24,32,40,51}[step];
                     if(late)frame=new[]{0,7,32,51}[step];
+                    if(nativeTmp)frame=new[]{0,13,32,51}[step];
                     capturePose = frame;
                     int before=Time.frameCount;while(Time.frameCount==before)yield return null;
                     if (late && step == 1)
@@ -390,6 +408,7 @@ public static partial class MenuDepthDesktopProgram
                         csv.WriteLine(frame+","+eye+","+ui+","+model+","+uiContrast+","+modelContrast+","+MenuDepthHeadRaster.FilterBytes
                             +","+sceneBytes+","+MenuDepthHeadRaster.Bytes(scene.Ui.descriptor,new Vector2Int(width,height)));csv.Flush();
                         minimumUi=Math.Min(minimumUi,ui);minimumModel=Math.Min(minimumModel,model);
+                        if(nativeTmp)CheckTmpPixels742(actual, reference, referenceA, scene.Head, output, path, frame, eye);
                         if(aliasing)
                         {
                             aliasingProof.Add(actual,unfiltered!,reference);
@@ -419,6 +438,8 @@ public static partial class MenuDepthDesktopProgram
             Camera.onPreRender-=sample;
             Check(annotations ? sourceIds.Count == 0 : growthSteps <= 6,
                 "continuous motion uses bounded GPU capacity growth instead of repeated small reallocations");
+            Check(annotations ? sourceIds.Count == 0 : sourceIds.Count <= uiScratchIds.Count && sourceGrowthSteps <= 6,
+                "a native model scratch reallocates only with the observed UI capacity transitions");
             if(aliasing)aliasingProof.Complete(Path.Combine(output,"antialiasing-"+path+".txt"));
             if(path==0)Check(ids.Count==1,"continuous motion retains one final right-eye head raster identity");
             File.WriteAllText(Path.Combine(output,"summary-"+path+".txt"),"UI="+minimumUi+",model="+minimumModel+",targetIDs="+ids.Count+",sourceIDs="+sourceIds.Count);
@@ -426,9 +447,12 @@ public static partial class MenuDepthDesktopProgram
                 "uiScratchAllocations=" + uiScratchIds.Count + ";sceneScratchAllocations=" + sourceIds.Count
                 + ";uiAllocatedBytes=" + uiAllocated + ";sceneAllocatedBytes=" + sourceAllocated
                 + ";peakOwnedBytes=" + peakOwnedBytes + ";peakSceneSlots=" + peakSceneSlots
-                + ";retainedUiBytes=" + MenuDepthHeadRaster.FilterBytes + ";highWaterGrowthSteps=" + growthSteps + "\n");
+                + ";retainedUiBytes=" + MenuDepthHeadRaster.FilterBytes + ";highWaterGrowthSteps=" + growthSteps
+                + ";sourceHighWaterGrowthSteps=" + sourceGrowthSteps + "\n");
             File.WriteAllText(Path.Combine(output, "allocation-events-" + path + ".csv"),
                 "pose,time,width,height,bytes,highWaterGrowthSteps\n" + string.Join("\n", allocationEvents) + "\n");
+            File.WriteAllText(Path.Combine(output, "model-allocation-events-" + path + ".csv"),
+                "pose,time,width,height,bytes,highWaterGrowthSteps\n" + string.Join("\n", sourceAllocationEvents) + "\n");
             if (hardwareRaster || (!annotations && !aliasing && !cards && !pitch && !backing && !late))
             {
                 long retained = MenuDepthHeadRaster.FilterBytes;
@@ -442,6 +466,7 @@ public static partial class MenuDepthDesktopProgram
                 VRRigDriver.HeadCamera = scene.Head;
                 double uiAfter = Corr730(after.GetPixels32(), native.GetPixels32(), false, out _);
                 double modelAfter = Corr730(after.GetPixels32(), native.GetPixels32(), true, out _);
+                if(nativeTmp)CheckTmpPixels742(after, native, referenceA, scene.Head, output, path, 52, 1);
                 long finalBytes = MenuDepthHeadRaster.FilterBytes;
                 File.WriteAllText(Path.Combine(output, "capacity-retirement-" + path + ".txt"),
                     "peak=" + peakUiBytes + ";before=" + retained + ";after=" + finalBytes + ";ui=" + uiAfter + ";model=" + modelAfter + "\n");
