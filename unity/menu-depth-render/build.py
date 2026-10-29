@@ -2,6 +2,7 @@
 """Build the actual dual-eye and depth-writing UI shaders with the game's Unity version."""
 from pathlib import Path
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -15,11 +16,15 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from town_run_retention import cleanup_completed_run
 sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
 from project_compilers import cleanup_project_compilers, cleanup_project_editors
+_cleanup_spec = importlib.util.spec_from_file_location('menu_depth_compiler_cleanup', ROOT / 'scripts/check-environment-menu-scope.py')
+_cleanup_module = importlib.util.module_from_spec(_cleanup_spec)
+_cleanup_spec.loader.exec_module(_cleanup_module)
+cleanup_run_compilers = _cleanup_module.cleanup_run_compilers
 
 
-def execute(argv, log):
+def execute(argv, log, env):
     with log.open('w') as stream:
-        process = subprocess.Popen(argv, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+        process = subprocess.Popen(argv, env=env, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             return process.wait(timeout=420)
         finally:
@@ -35,6 +40,9 @@ def main():
     log = run / 'completion.log'
     log.write_text('evidence: ' + str(run) + '\n')
     print('Evidence: ' + str(run), flush=True)
+    compiler_temp = Path(tempfile.mkdtemp(prefix='ghmb-', dir='/tmp'))
+    env = dict(os.environ, TMPDIR=str(compiler_temp), UseSharedCompilation='false')
+    (run / 'compiler-temp.json').write_text(json.dumps({'TMPDIR': str(compiler_temp)}) + '\n')
     status = 1
     try:
         project = run / 'unity'
@@ -55,7 +63,7 @@ def main():
                 '-projectPath', str(project), '-executeMethod', 'MenuDepthBuilder.Build',
                 '-menuDepthOutput', str(result), '-logFile', str(run / 'unity.log')]
         (run / 'command.json').write_text(json.dumps(argv, indent=2) + '\n')
-        status = execute(argv, run / 'launch.log')
+        status = execute(argv, run / 'launch.log', env)
         if status:
             raise RuntimeError('Menu-depth shader bundle build failed; evidence=' + str(run))
         bundle = result / 'menu-depth.bundle'
@@ -79,6 +87,10 @@ def main():
         (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
         if compilers['remaining']:
             raise RuntimeError('Project compiler survived reaping; its generated caches are retained.')
+        borrowed = cleanup_run_compilers(run, editor_reaped=True)
+        (run / 'compiler-fd-cleanup.json').write_text(json.dumps(borrowed, indent=2) + '\n')
+        if borrowed['remaining'] or borrowed['refused']:
+            raise RuntimeError('Private compiler borrowers remain; retaining project caches.')
         retained = run / 'assemblies/editor'; retained.mkdir(parents=True, exist_ok=True)
         hashes = {}
         for compiled in sorted((run / 'unity/Library/ScriptAssemblies').glob('*')):
@@ -88,6 +100,7 @@ def main():
         (run / 'editor-assemblies.json').write_text(json.dumps(hashes, indent=2) + '\n')
         cleanup = cleanup_completed_run('menu-depth-shader-build', status, log, ROOT, process_reaped=True)
         (run / 'cache-cleanup.json').write_text(json.dumps(cleanup, indent=2) + '\n')
+        shutil.rmtree(compiler_temp)
 
 
 if __name__ == '__main__':

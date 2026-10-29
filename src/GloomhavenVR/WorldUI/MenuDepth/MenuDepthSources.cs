@@ -121,6 +121,40 @@ internal static class MenuDepthSources
         }
     }
 
+    internal static RectInt HeadRegion(Transform? root,Matrix4x4 frameToWorld,Rect frame,MenuDepthEye left,MenuDepthEye right,
+        Func<Graphic,MenuDepthEye,MenuDepthEye>? map=null,Predicate<Graphic>? applies=null)
+    {
+        FlushPendingContent();
+        var native=new Bounds(frame.center,new Vector3(frame.width,frame.height,0f));
+        Rect clip=MenuDepthHeadRaster.Union(MenuDepthHeadRaster.ClipBounds(left.WorldToHeadClip*frameToWorld,native),
+            MenuDepthHeadRaster.ClipBounds(right.WorldToHeadClip*frameToWorld,native));
+        for(int i=0;i<Sources.Count;i++)
+        {
+            IMenuDepthSource source=Sources[i];Graphic graphic=source.Graphic;
+            if(!Visible(graphic)||!source.IsReady||(root!=null&&!graphic.transform.IsChildOf(root))||(applies!=null&&!applies(graphic)))continue;
+            for(int side=0;side<2;side++)
+            {
+                MenuDepthEye eye=side==0?left:right;
+                // Native mapping is supplied separately for each eye; the mapper
+                // receives the immutable physical eye rather than a stored late one.
+                if(map!=null)eye=map(graphic,eye);
+                Rect addition;
+                if(source is IMenuDepthHeadBoundsSource spatial)
+                {
+                    if(!spatial.TryGetHeadBounds(eye,out addition))return new RectInt(0,0,MenuDepthHeadRaster.Size(left.HeadCamera).x,MenuDepthHeadRaster.Size(left.HeadCamera).y);
+                }
+                else
+                {
+                    RectTransform rect=source is IMenuDepthWindowAnnotationSource annotation?annotation.AnnotationRect:graphic.rectTransform;
+                    Rect r=rect.rect;
+                    addition=MenuDepthHeadRaster.ClipBounds(eye.WorldToHeadClip*rect.localToWorldMatrix,new Bounds(r.center,new Vector3(r.width,r.height,0f)));
+                }
+                clip=MenuDepthHeadRaster.Union(clip,addition);
+            }
+        }
+        return MenuDepthHeadRaster.PixelRegion(clip,MenuDepthHeadRaster.Size(left.HeadCamera));
+    }
+
     internal static void CollectWindowAnnotations(List<IMenuDepthWindowAnnotationSource> destination, Transform? root = null)
     {
         FlushPendingContent(); destination.Clear();

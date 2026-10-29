@@ -9,6 +9,7 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 // scratch may be reused by the next eye only after that draw has consumed it.
 internal static class MenuDepthHeadRaster
 {
+    internal const int SamplesPerAxis = 2;
     internal const int WindowSlots = 8, SceneSlots = 4;
     internal static bool Active { get; private set; }
     internal static Vector2Int Pixels { get; private set; }
@@ -74,6 +75,116 @@ internal static class MenuDepthHeadRaster
         => Budget(SingleBytes(original, pixels), SceneSlots, 96L * 1024 * 1024);
     internal static long Budget(long bytes, int slots, long minimum)
         => bytes > long.MaxValue / slots ? long.MaxValue : Math.Max(minimum, bytes * slots);
+
+    // Bounds are expressed on the absolute head grid. A crop changes storage,
+    // never the position or density of samples. Near-plane uncertainty uses the
+    // whole head, preserving quality instead of shrinking a perspective crop.
+    internal static Rect ClipBounds(Matrix4x4 clip, Bounds local)
+    {
+        Vector3 min=local.min,max=local.max;float x0=1f,y0=1f,x1=-1f,y1=-1f;
+        for(int i=0;i<8;i++)
+        {
+            Vector4 p=clip*new Vector4((i&1)==0?min.x:max.x,(i&2)==0?min.y:max.y,(i&4)==0?min.z:max.z,1f);
+            if(!(p.w>1e-6f)||float.IsNaN(p.w)||float.IsInfinity(p.w))return new Rect(-1,-1,2,2);
+            float x=p.x/p.w,y=p.y/p.w;
+            if(float.IsNaN(x)||float.IsNaN(y)||float.IsInfinity(x)||float.IsInfinity(y))return new Rect(-1,-1,2,2);
+            x0=Mathf.Min(x0,x);x1=Mathf.Max(x1,x);y0=Mathf.Min(y0,y);y1=Mathf.Max(y1,y);
+        }
+        return Rect.MinMaxRect(x0,y0,x1,y1);
+    }
+    internal static RectInt PixelRegion(Rect clip,Vector2Int head)
+    {
+        int x0=Mathf.Clamp(Mathf.FloorToInt((clip.xMin*.5f+.5f)*head.x)-2,0,head.x-1);
+        int y0=Mathf.Clamp(Mathf.FloorToInt((clip.yMin*.5f+.5f)*head.y)-2,0,head.y-1);
+        int x1=Mathf.Clamp(Mathf.CeilToInt((clip.xMax*.5f+.5f)*head.x)+2,x0+1,head.x);
+        int y1=Mathf.Clamp(Mathf.CeilToInt((clip.yMax*.5f+.5f)*head.y)+2,y0+1,head.y);
+        return new RectInt(x0,y0,x1-x0,y1-y0);
+    }
+    internal static Rect Union(Rect a,Rect b)=>Rect.MinMaxRect(Mathf.Min(a.xMin,b.xMin),Mathf.Min(a.yMin,b.yMin),Mathf.Max(a.xMax,b.xMax),Mathf.Max(a.yMax,b.yMax));
+
+    private static RenderTexture? _filterScratch;
+    private static Material? _filterMaterial;
+    private static bool _filterBorrowed;
+    private static float _filterShrinkSince=-1f;
+    internal static long FilterBytes=>_filterScratch!=null?SingleBytes(_filterScratch.descriptor,new Vector2Int(_filterScratch.width,_filterScratch.height)):0;
+    internal static FilterLease Filter(RenderTextureDescriptor original,Vector2Int head,RectInt region,Shader shader)
+    {
+        if(_filterBorrowed)throw new InvalidOperationException("A nested head antialias draw is not owned.");
+        int width=Mathf.Min(head.x,Mathf.CeilToInt(region.width/64f)*64),height=Mathf.Min(head.y,Mathf.CeilToInt(region.height/64f)*64);
+        Vector2Int needed=new(width*SamplesPerAxis,height*SamplesPerAxis);
+        if(needed.x>SystemInfo.maxTextureSize||needed.y>SystemInfo.maxTextureSize)
+            throw new InvalidOperationException("The fixed antialias head grid exceeds the graphics texture limit.");
+        Vector2Int capacity=needed;
+        if(_filterScratch!=null)
+        {
+            bool smaller=needed.x<_filterScratch.width*.75f||needed.y<_filterScratch.height*.75f;
+            if(smaller&&_filterShrinkSince<0f)_filterShrinkSince=Time.unscaledTime;
+            if(!smaller)_filterShrinkSince=-1f;
+            if(!smaller||Time.unscaledTime-_filterShrinkSince<1.5f)
+                capacity=Vector2Int.Max(needed,new Vector2Int(_filterScratch.width,_filterScratch.height));
+        }
+        if(_filterScratch==null||!Matches(_filterScratch,original,capacity))
+        {
+            if(_filterScratch!=null){_filterScratch.Release();UnityEngine.Object.Destroy(_filterScratch);}
+            _filterScratch=new RenderTexture(Descriptor(original,capacity))
+            {name="GloomhavenVR.MenuDepth.HeadAntialias",hideFlags=HideFlags.HideAndDontSave,filterMode=FilterMode.Bilinear,wrapMode=TextureWrapMode.Clamp};
+            if(!_filterScratch.Create()){UnityEngine.Object.Destroy(_filterScratch);_filterScratch=null;throw new InvalidOperationException("The fixed antialias scratch was refused.");}
+            _filterShrinkSince=-1f;
+        }
+        _filterMaterial??=new Material(shader){name="GloomhavenVR.MenuDepth.HeadResolve",hideFlags=HideFlags.HideAndDontSave};
+        _filterBorrowed=true;return new FilterLease(head,region,_filterScratch,_filterMaterial);
+    }
+    internal static void ReleaseFilter()
+    {
+        if(_filterBorrowed)return;
+        if(_filterScratch!=null){_filterScratch.Release();UnityEngine.Object.Destroy(_filterScratch);_filterScratch=null;}
+        if(_filterMaterial!=null){UnityEngine.Object.Destroy(_filterMaterial);_filterMaterial=null;}
+        _filterShrinkSince=-1f;
+    }
+    internal readonly struct FilterLease:IDisposable
+    {
+        internal readonly RenderTexture Target;
+        internal readonly Vector2Int Pixels;
+        private readonly Vector2Int _head;
+        private readonly RectInt _region;
+        private readonly Material _material;
+        internal FilterLease(Vector2Int head,RectInt region,RenderTexture target,Material material)
+        {Target=target;Pixels=new Vector2Int(target.width,target.height);_head=head;_region=region;_material=material;}
+        internal MenuDepthEye Eye(MenuDepthEye original)
+        {
+            float w=Pixels.x/(float)SamplesPerAxis,h=Pixels.y/(float)SamplesPerAxis;
+            Matrix4x4 crop=Matrix4x4.identity;
+            crop.m00=_head.x/w;crop.m03=(_head.x-2f*_region.x-w)/w;
+            crop.m11=_head.y/h;crop.m13=(_head.y-2f*_region.y-h)/h;
+            return new MenuDepthEye(original.Right,original.WorldPosition,original.HeadCamera,original.ProjectToGraphicPlane,
+                new Vector2(Pixels.x,Pixels.y),crop*original.WorldToHeadClip);
+        }
+        internal void Resolve(RenderTexture destination)
+        {
+            RenderTexture? previous=RenderTexture.active;bool srgb=GL.sRGBWrite;
+            try
+            {
+                Graphics.SetRenderTarget(destination);GL.Clear(true,true,Color.clear);
+                GL.sRGBWrite=destination.sRGB;
+                _material.mainTexture=Target;
+                _material.SetTexture("_GvrResolveDepth",Target,UnityEngine.Rendering.RenderTextureSubElement.Depth);
+                _material.SetFloat("_GvrResolveStep",SamplesPerAxis>1?.5f:0f);
+                _material.SetVector("_GvrResolveUV",new Vector4(_region.width*(float)SamplesPerAxis/Pixels.x,_region.height*(float)SamplesPerAxis/Pixels.y,0,0));
+                GL.PushMatrix();
+                try
+                {
+                    GL.LoadOrtho();GL.Viewport(new Rect(_region.x,_region.y,_region.width,_region.height));
+                    if(!_material.SetPass(2))throw new InvalidOperationException("The fixed head antialias resolve pass is unavailable.");
+                    GL.Begin(GL.QUADS);
+                    GL.TexCoord2(0,0);GL.Vertex3(0,0,0);GL.TexCoord2(0,1);GL.Vertex3(0,1,0);
+                    GL.TexCoord2(1,1);GL.Vertex3(1,1,0);GL.TexCoord2(1,0);GL.Vertex3(1,0,0);GL.End();
+                }
+                finally{GL.PopMatrix();}
+            }
+            finally{GL.sRGBWrite=srgb;RenderTexture.active=previous;}
+        }
+        public void Dispose(){_filterBorrowed=false;}
+    }
 
     internal static Lease Begin(Vector2Int pixels)
     {

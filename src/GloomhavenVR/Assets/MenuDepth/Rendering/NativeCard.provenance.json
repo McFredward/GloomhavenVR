@@ -18,7 +18,7 @@
       "GUI/AbilityCard_Shd",
       "GloomhavenVR/MenuDepthNativeCard"
     ],
-    "cab": "CAB-ff0247049ddf8bdc8b9e35e3387f49f3"
+    "cab": "CAB-6f70218d94fa046fb3bc356289ee6b76"
   },
   "asset": "assets/menudepth/menudepthnativecard.shader",
   "native_platforms": [
@@ -30,9 +30,9 @@
     "fragment_without_rect_sha256": "f5dc6f7117ea343cae14bc91ba0d071ded4ab4ada8ca87223849429fbf7bbe6d",
     "fragment_with_rect_sha256": "21d65e110d37abb6f15e76a0c89dec8a2394dcfa1fa8776ffd50b5fac64c717a"
   },
-  "input_mod_bundle_sha256": "fb6649ddee5b1328eef59273c8a4b1b8c0f00761bc494fd86dbfdd3f6e9e3a49",
-  "bundle_sha256": "35fb32df65d0c81b7ff153cabfeb58810da4c410a8ad6b55194db84d676b1119",
-  "bundle_bytes": 73108,
+  "input_mod_bundle_sha256": "f8e047282452586dd98d915d7beabdefb5efb5c6e516297b19c85310dd6c033f",
+  "bundle_sha256": "348baff1a01bd7c1777b162d0afe219e79d5a859a722c92f92d433e401794cb5",
+  "bundle_bytes": 75672,
   "native_d3d11_pixels_verified": false,
   "source_immutable": true
 }

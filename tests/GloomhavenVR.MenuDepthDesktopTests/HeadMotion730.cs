@@ -85,7 +85,9 @@ public static partial class MenuDepthDesktopProgram
         HeadPitchBackend736.TopOrigin=true;
         return HeadMotionCore730(output,complete,640,480,false,false,false,true);
     }
-    private static IEnumerator HeadMotionCore730(string output,Action<int> complete,int width,int height,bool hardwareRaster,bool annotations=false,bool cards=false,bool pitch=false)
+    public static IEnumerator HeadAliasing742(string output,Action<int> complete)
+        => HeadMotionCore730(output,complete,640,480,false,false,false,false,true);
+    private static IEnumerator HeadMotionCore730(string output,Action<int> complete,int width,int height,bool hardwareRaster,bool annotations=false,bool cards=false,bool pitch=false,bool aliasing=false)
     {
         _count=0;DesktopEyeInput.Available=true;
         for(int route=0;route<(annotations?4:2);route++)
@@ -108,6 +110,7 @@ public static partial class MenuDepthDesktopProgram
             ground.transform.position=scene.ModelCamera.transform.TransformPoint(new Vector3(0,-1.2f,2.56f));
             var body=GameObject.CreatePrimitive(PrimitiveType.Cube);body.layer=8;body.transform.SetParent(ground.transform,false);
             body.transform.localPosition=new Vector3(0,.9f,-.12f);body.transform.localScale=new Vector3(.65f,1.8f,.65f);
+            if(aliasing)body.transform.localRotation=Quaternion.Euler(0,17,11);
             var texture=new Texture2D(128,128,TextureFormat.RGBA32,false);texture.filterMode=FilterMode.Point;
             // The stationary-pitch model is only about21 pixels wide. Retain
             // at least two pixels per checker cell across backends; the original
@@ -130,6 +133,12 @@ public static partial class MenuDepthDesktopProgram
             var grid=new GameObject("original native UI high-frequency print",typeof(RectTransform),typeof(CanvasRenderer),typeof(RawImage));grid.layer=5;
             grid.transform.SetParent(scene.RootA,false);var gridImage=grid.GetComponent<RawImage>();gridImage.texture=texture;
             gridImage.rectTransform.sizeDelta=new Vector2(500,500);gridImage.rectTransform.anchoredPosition=new Vector2(300,-30);
+            if(aliasing)
+            {
+                gridImage.texture=Texture2D.whiteTexture;
+                gridImage.rectTransform.sizeDelta=new Vector2(330,320);
+                gridImage.rectTransform.localRotation=Quaternion.Euler(0,0,23);
+            }
             var label=new GameObject("original native text quality witness",typeof(RectTransform),typeof(CanvasRenderer),typeof(Text));label.layer=5;
             label.transform.SetParent(scene.RootA,false);var text=label.GetComponent<Text>();text.font=Resources.GetBuiltinResource<Font>("Arial.ttf");
             text.text="WINDOW 730";text.fontSize=60;text.color=Color.white;text.alignment=TextAnchor.MiddleCenter;
@@ -218,12 +227,13 @@ public static partial class MenuDepthDesktopProgram
             {
             Vector3 screenPosition=scene.Screen.position,screenScale=scene.Screen.localScale;Quaternion screenRotation=scene.Screen.rotation;
             var ids=new HashSet<int>();var sourceIds=new HashSet<int>();bool sourceDimensionsExact=true;double minimumUi=1,minimumModel=1;
+            var aliasingProof=new AliasingProof742();
             Camera.CameraCallback sample=c=>
             {
                 if(c==scene.ModelCamera&&c.targetTexture!=scene.ModelTarget)
                 {
                     sourceIds.Add(c.targetTexture.GetInstanceID());
-                    sourceDimensionsExact &= c.targetTexture.width==scene.HeadTarget.width&&c.targetTexture.height==scene.HeadTarget.height
+                    sourceDimensionsExact &= c.targetTexture.width==MenuDepthHeadRaster.Pixels.x&&c.targetTexture.height==MenuDepthHeadRaster.Pixels.y
                         && c.targetTexture.antiAliasing==1&&!c.targetTexture.useMipMap&&!c.targetTexture.descriptor.useDynamicScale;
                 }
             };
@@ -231,7 +241,7 @@ public static partial class MenuDepthDesktopProgram
             using(var csv=new StreamWriter(Path.Combine(output,"head-motion-"+path+".csv")))
             {
                 csv.WriteLine("frame,eye,uiCorrelation,modelCorrelation,uiContrast,modelContrast");
-                for(int step=0;step<(pitch?7:hardwareRaster||annotations||cards?4:52);step++)
+                for(int step=0;step<(aliasing?12:pitch?7:hardwareRaster||annotations||cards?4:52);step++)
                 {
                     int frame=hardwareRaster||annotations||cards?new[]{0,13,40,51}[step]:step;
                     int before=Time.frameCount;while(Time.frameCount==before)yield return null;
@@ -244,6 +254,7 @@ public static partial class MenuDepthDesktopProgram
                     else if(frame<48){float t=(frame-41)/6f;position=Vector3.Lerp(new Vector3(.25f,.1f,3.1f),new Vector3(-.3f,-.12f,.4f),t);}
                     else position=Vector3.zero;
                     if(pitch)position=Vector3.zero;
+                    if(aliasing)position=new Vector3(step*.00117f,step*.00073f,step*.00143f);
                     Quaternion rotation=pitch?Quaternion.Euler(-18+step*6,0,0):Quaternion.LookRotation(scene.Screen.position-position,Vector3.up);
                     Vector3 left=position-rotation*Vector3.right*.032f,right=position+rotation*Vector3.right*.032f;
                     if(frame==40) left=scene.Screen.TransformPoint(new Vector3(.2f,.03f,0)); // actual eye exactly coplanar, not merely head centre
@@ -279,6 +290,7 @@ public static partial class MenuDepthDesktopProgram
                         Check(scene.OriginalA.GetComponent<MenuDepthAnchorsImageEffect724>().Draws-uiBefore==(eye==0?2:0),
                             "each head stereo pair executes the original native UI image effect exactly once per eye");
                         Texture2D actual=Read(scene.HeadTarget,Path.Combine(output,"actual-"+path+"-"+frame+"-"+eye+".png"));
+                        Texture2D? unfiltered=null;
                         Vector3 referenceEye = worldToGlass.MultiplyPoint3x4(eyePosition);
                         if(frame==40&&eye==0)
                         {
@@ -290,8 +302,15 @@ public static partial class MenuDepthDesktopProgram
                             referenceEye.z=0;
                         }
                         referenceMaterial.SetVector("_Eye",referenceEye);
-                        VRRigDriver.HeadCamera=null;scene.Head.cullingMask=1<<26;scene.Head.Render();VRRigDriver.HeadCamera=scene.Head;
-                        Texture2D reference=Read(scene.HeadTarget,Path.Combine(output,"reference-"+path+"-"+frame+"-"+eye+".png"));
+                        VRRigDriver.HeadCamera=null;scene.Head.cullingMask=1<<26;
+                        Texture2D reference;
+                        if(aliasing)
+                        {
+                            scene.Head.Render();unfiltered=Read(scene.HeadTarget,Path.Combine(output,"unfiltered-"+path+"-"+frame+"-"+eye+".png"));
+                            reference=SupersampledReference742(scene,Path.Combine(output,"reference-"+path+"-"+frame+"-"+eye+".png"),4);
+                        }
+                        else reference=SupersampledReference742(scene,Path.Combine(output,"reference-"+path+"-"+frame+"-"+eye+".png"),2);
+                        VRRigDriver.HeadCamera=scene.Head;
                         Color32[] actualPixels=actual.GetPixels32(),referencePixels=reference.GetPixels32();
                         if(cards&&frame==0&&eye==0)
                         {
@@ -312,8 +331,16 @@ public static partial class MenuDepthDesktopProgram
                         double model=Corr730(actualPixels,referencePixels,true,out double modelContrast);
                         csv.WriteLine(frame+","+eye+","+ui+","+model+","+uiContrast+","+modelContrast);csv.Flush();
                         minimumUi=Math.Min(minimumUi,ui);minimumModel=Math.Min(minimumModel,model);
-                        Check(ui>.99,"actual final head text and XY print retain direct native-world pixel detail during movement");
-                        if(!annotations)Check(model>.97,"actual final head figure retains direct native-world XY surface detail during movement");
+                        if(aliasing)
+                        {
+                            aliasingProof.Add(actual,unfiltered!,reference);
+                            Object.DestroyImmediate(unfiltered);
+                        }
+                        else
+                        {
+                            Check(ui>.99,"actual final head text and XY print retain direct native-world pixel detail during movement");
+                            if(!annotations)Check(model>.97,"actual final head figure retains direct native-world XY surface detail during movement");
+                        }
                         Check(sourceDimensionsExact,"native scene scratch always retains actual head pixel dimensions during movement");
                         Check(scene.Screen.position==screenPosition&&scene.Screen.localScale==screenScale&&scene.Screen.rotation==screenRotation,"moving head raster never moves the original physical window");
                         if(path==0&&scene.Flat.Right!=null)
@@ -331,7 +358,8 @@ public static partial class MenuDepthDesktopProgram
                 }
             }
             Camera.onPreRender-=sample;
-            Check(sourceIds.Count==(annotations?0:1),"continuous motion reuses one native scene scratch across both eyes and all frames");
+            Check(annotations?sourceIds.Count==0:sourceIds.Count<12,"continuous motion reuses bounded head-grid capacity instead of reallocating on every pose");
+            if(aliasing)aliasingProof.Complete(Path.Combine(output,"antialiasing-"+path+".txt"));
             if(path==0)Check(ids.Count==1,"continuous motion retains one final right-eye head raster identity");
             File.WriteAllText(Path.Combine(output,"summary-"+path+".txt"),"UI="+minimumUi+",model="+minimumModel+",targetIDs="+ids.Count+",sourceIDs="+sourceIds.Count);
             }

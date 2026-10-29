@@ -11,7 +11,7 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// colour animation and hit rectangles remain owned by the original UI.
 /// </summary>
 [DisallowMultipleComponent]
-internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMaterialModifier
+internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMenuDepthHeadBoundsSource, IMaterialModifier
 {
     private readonly List<UIVertex> _input = new(96);
     private readonly List<UIVertex> _stream = new(96);
@@ -43,6 +43,15 @@ internal sealed class MenuDepthGraphic : BaseMeshEffect, IMenuDepthSource, IMate
     public bool IsReady => _configured && IsActive() && _image != null && (_field == null || _sprite != null)
         && _image.overrideSprite == _sprite && (_field == null || MenuDepthDisplay.DepthShader != null)
         && (!_planeOnly || HasPlaneOwner(false));
+
+    public bool TryGetHeadBounds(MenuDepthEye eye,out Rect clipBounds)
+    {
+        clipBounds=default;if(!IsReady||_image==null)return false;
+        Rect r=_image.rectTransform.rect;
+        float depth=(_field!=null?r.width:Mathf.Min(r.width,r.height))*_depthRatio;
+        var bounds=new Bounds(new Vector3(r.center.x,r.center.y,depth*.5f),new Vector3(r.width,r.height,Mathf.Abs(depth)));
+        clipBounds=MenuDepthHeadRaster.ClipBounds(eye.WorldToHeadClip*transform.localToWorldMatrix,bounds);return true;
+    }
 
     internal void Configure(Image image, MenuDepthHeightfield? field, float depthRatio)
         => ConfigureMapped(image, field, depthRatio, new Vector4(1f, 1f, 0f, 0f));

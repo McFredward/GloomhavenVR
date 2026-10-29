@@ -15,7 +15,7 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// targets under a strict finally-restored lease. Its Update/animation is never
 /// advanced here, and its native target remains the normal game's mono output.
 /// </summary>
-internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDepthBoundsSource, IDisposable
+internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDepthBoundsSource, IMenuDepthHeadBoundsSource, IDisposable
 {
     private const long MaxPoolBytes = 96L * 1024 * 1024;
     private static readonly int[] ResolutionTiers = { 256, 512, 768, 1024, 1536, 2048 };
@@ -352,6 +352,31 @@ internal sealed class MenuDepthCharacterSource : IMenuDepthDirectSource, IMenuDe
             || !ProjectedBounds(identity, view, eye, foregroundOnly: true, out Rect clip)) return false;
         graphicLocalBounds = GraphicRect(clip);
         return true;
+    }
+
+    public bool TryGetHeadBounds(MenuDepthEye eye,out Rect clipBounds)
+    {
+        clipBounds=default;
+        object? identity=ReadyIdentity;
+        if(identity==null||!_calibration.TryGet(identity,out Vector3 origin)
+            ||!MenuDepthCharacterProjection.TryBuild(_camera,_holder,_image.rectTransform,_image.uvRect,
+                eye.WorldPosition,origin,out var view,allowCoplanar:true))return false;
+        float yaw=YawProvider?.Invoke(_image,identity)??0f;
+        if(yaw!=0f)
+        {
+            Vector3 ground=_camera.transform.TransformPoint(origin),up=_camera.cameraToWorldMatrix.MultiplyVector(Vector3.up).normalized;
+            view=MenuDepthCharacterProjection.Rotated(view,Matrix4x4.Translate(ground)*Matrix4x4.Rotate(Quaternion.AngleAxis(yaw,up))*Matrix4x4.Translate(-ground));
+        }
+        Matrix4x4 clip=eye.WorldToHeadClip*_image.transform.localToWorldMatrix*view.NativeToGraphic;
+        bool any=false;
+        foreach(Renderer renderer in _calibration.SamplingRenderers(identity))
+        {
+            if(renderer==null||!renderer.enabled||!renderer.gameObject.activeInHierarchy
+                ||(_camera.cullingMask&(1<<renderer.gameObject.layer))==0)continue;
+            Rect bounds=MenuDepthHeadRaster.ClipBounds(clip,renderer.bounds);
+            clipBounds=any?MenuDepthHeadRaster.Union(clipBounds,bounds):bounds;any=true;
+        }
+        return any;
     }
 
     private Rect ImageClip()

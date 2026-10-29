@@ -2,6 +2,7 @@
 """Actual native ScreenSpaceCamera menu-depth capture and original glass GPU proof."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,10 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 sys.path.insert(0, str(ROOT / 'scripts/menu-depth-character'))
 from town_run_retention import cleanup_completed_run
 from project_compilers import cleanup_project_compilers, cleanup_project_editors
+_cleanup_spec = importlib.util.spec_from_file_location('menu_depth_compiler_cleanup', ROOT / 'scripts/check-environment-menu-scope.py')
+_cleanup_module = importlib.util.module_from_spec(_cleanup_spec)
+_cleanup_spec.loader.exec_module(_cleanup_module)
+cleanup_run_compilers = _cleanup_module.cleanup_run_compilers
 
 
 def member(source, signature):
@@ -32,9 +37,9 @@ def replace_once(source, before, after):
     return source.replace(before, after, 1)
 
 
-def execute(command, log, timeout=180):
+def execute(command, log, timeout=180, env=None):
     with log.open('w') as output:
-        child = subprocess.Popen(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+        child = subprocess.Popen(command, cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             return child.wait(timeout=timeout)
         finally:
@@ -52,6 +57,9 @@ def main():
     signal.signal(signal.SIGTERM, terminated)
     output = ROOT / '.planning/debug/menu-depth-desktop'; output.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=output)); print('Evidence: ' + str(run), flush=True)
+    compiler_temp = Path(tempfile.mkdtemp(prefix='ghmd-', dir='/tmp'))
+    env = dict(os.environ, TMPDIR=str(compiler_temp), UseSharedCompilation='false')
+    (run / 'compiler-temp.json').write_text(json.dumps({'TMPDIR': str(compiler_temp)}) + '\n')
     completion = run / 'completion.log'; completion.write_text('Evidence: ' + str(run) + '\n')
     source_root = args.source_root.resolve()
     flat = source_root / 'src/GloomhavenVR/WorldUI/FlatScreen'
@@ -109,6 +117,10 @@ internal static class MenuDepthCharacterRotation
     inputs += [source_root / 'src/GloomhavenVR/Assets/MenuDepth/Rendering/menu-depth.bundle', ROOT / 'scripts/menu-depth-desktop/Anchors724.cs', Path(__file__), *fixtures.glob('*.cs'), *fixtures.glob('*.shader'), fixtures / 'MenuDepthDesktop.csproj', ROOT / 'scripts/menu-depth-desktop/Editor/Runner.cs']
     pins = [{'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in inputs]
     variants = [
+        ('head-aliasing742', '', '', '', ''),
+        ('head-aliasing-lost742', 'MenuDepthHeadRaster.cs',
+         'SamplesPerAxis = 2;', 'SamplesPerAxis = 1;',
+         'actual final head UI edges reduce alias error against independent supersampled native pixels'),
         ('head-preflight736', '', '', '', ''),
         ('head-preflight-lost736', 'DesktopCapture.cs', '            ValidateMenuDepthMappings(left, right);',
          '            /* native UI root preflight omitted */',
@@ -297,11 +309,11 @@ internal static class MenuDepthCharacterRotation
                 '-p:FixtureDir=' + str(private_fixture), '-p:ProductionDir=' + str(production),
                 '-p:UnityManaged=/home/claw/unity-2021.3.5/Editor/Data/Managed',
                 '-p:GameManaged=' + str(ROOT / 'ressources/GH_Data/Managed')]
-            if execute(command, case / 'build.log'):
+            if execute(command, case / 'build.log', env=env):
                 raise RuntimeError('Compilation failure is not a causal-control pass: ' + name)
             dll = assemblies / (assembly + '.dll'); shutil.copyfile(case / 'bin/Release/net472' / dll.name, dll)
             manifest['cases'].append({'name': name, 'dll': str(dll), 'expected': expected,
-                                      'method': ('HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
+                                      'method': ('HeadAliasing742' if name.startswith('head-aliasing') else 'HeadPreflight736' if name.startswith('head-preflight') else 'HeadPitchRt736' if name.startswith('head-pitch-rt-y') else 'HeadPitch736' if name.startswith('head-pitch') else 'HeadFigureCard732' if name in ('head-figure-card732','head-native-card-ztest-lost732') else 'HeadNativeCardEdge732' if name.startswith('head-native-card-') else 'HeadCardEdge732' if name == 'head-card-edge732' or name.startswith('head-card-plane-') else 'HeadOrder730' if name in ('head-order730','head-order-stale730') else 'HeadAnnotations730' if name in ('head-annotations730','head-annotation-character-gated730','head-annotation-glyph-plane732') else 'HeadResources730' if name in ('head-resources730','head-window-slots-lost730','head-scene-slots-lost730','head-normalization-lost730') else 'HeadRaster4040' if name == 'head-raster4040' else 'HeadMotion730' if name.startswith('head-motion') or name.startswith('head-coplanar-') else 'HeadFrustum729' if name.startswith('head-frustum-') or name == 'head-frustum729' else
                                           'DesktopResources728' if name.startswith('desktop-') else 'OuterCarrier728' if name.startswith('outer-') else 'NativeDepthProbe728' if name.startswith('native-depth-') and name.endswith('728') else
                                           'AnchorsModelEffect724' if name == 'window-anchors-native-image-effect' else
                                           'AnchorsUiEffect724' if name == 'window-anchors-ui-image-effect' else
@@ -311,7 +323,7 @@ internal static class MenuDepthCharacterRotation
             ('ADB_SERVER_SOCKET', 'ADB_MDNS_AUTO_CONNECT')}, indent=2) + '\n')
         status = execute(['xvfb-run', '-a', '/home/claw/unity-2021.3.5/Editor/Unity', '-batchmode', '-force-'+args.graphics_api,
             '-projectPath', str(project), '-executeMethod', 'MenuDepthDesktopRunner.Start', '-menuDepthDesktopManifest', str(run / 'manifest.json'),
-            '-logFile', str(run / 'unity.log')], run / 'launch.log', 420)
+            '-logFile', str(run / 'unity.log')], run / 'launch.log', 420, env=env)
         stable = all(hashlib.sha256(Path(pin['path']).read_bytes()).hexdigest() == pin['sha256'] for pin in pins)
         (run / 'source-stability.json').write_text(json.dumps({'unchanged': stable, 'inputs': len(pins)}) + '\n')
         if not stable: status = 1
@@ -327,10 +339,15 @@ internal static class MenuDepthCharacterRotation
         if editors['remaining']: raise RuntimeError('Owned editor remains; retaining its project caches.')
         compilers = cleanup_project_compilers(project, editor_reaped=True)
         (run / 'compiler-cleanup.json').write_text(json.dumps(compilers, indent=2) + '\n')
+        borrowed = cleanup_run_compilers(run, editor_reaped=True)
+        (run / 'compiler-fd-cleanup.json').write_text(json.dumps(borrowed, indent=2) + '\n')
+        if borrowed['remaining'] or borrowed['refused']:
+            raise RuntimeError('Private compiler borrowers remain; retaining project caches.')
         if compilers['remaining']:
             raise RuntimeError('Private project compiler processes remain; retaining project caches: ' + str(run))
         receipt = cleanup_completed_run('menu-depth-desktop', status, completion, ROOT, process_reaped=True)
         (run / 'cache-cleanup.json').write_text(json.dumps(receipt, indent=2) + '\n')
+        shutil.rmtree(compiler_temp)
     return status
 
 

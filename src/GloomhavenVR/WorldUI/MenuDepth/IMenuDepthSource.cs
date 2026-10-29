@@ -45,6 +45,12 @@ internal interface IMenuDepthBoundsSource : IMenuDepthSource
     bool TryGetForegroundBounds(MenuDepthEye eye, out Rect graphicLocalBounds);
 }
 
+/// <summary>Conservative original spatial ink bounds in the supplied eye's full head clip frame.</summary>
+internal interface IMenuDepthHeadBoundsSource : IMenuDepthSource
+{
+    bool TryGetHeadBounds(MenuDepthEye eye, out Rect clipBounds);
+}
+
 /// <summary>Prime a stable native UI batch texture, then refresh its pixels for each actual head eye.</summary>
 internal interface IMenuDepthDirectSource : IMenuDepthSampledSource
 {

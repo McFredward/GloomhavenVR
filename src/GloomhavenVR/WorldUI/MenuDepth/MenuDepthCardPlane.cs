@@ -12,7 +12,7 @@ namespace GloomhavenVR.WorldUI.MenuDepth;
 /// The temporary root pose is restored before native input/animation resumes.
 /// </summary>
 [DisallowMultipleComponent]
-internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSource, IMenuDepthDirectSource
+internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSource, IMenuDepthDirectSource, IMenuDepthHeadBoundsSource
 {
     private MonoBehaviour? _owner;
     private RectTransform? _card;
@@ -44,6 +44,16 @@ internal sealed class MenuDepthCardPlane : MonoBehaviour, IMenuDepthOcclusionSou
         && (_borrowed || (_parentPlane != null && _parentPlane._card != null
             && _card.IsChildOf(_parentPlane._card) && _parentPlane.HasHeadLease));
     internal Vector3 HeadWorldEye => _headWorldEye;
+
+    public bool TryGetHeadBounds(MenuDepthEye eye,out Rect clipBounds)
+    {
+        clipBounds=default;if(!IsReady||_card==null)return false;
+        Rect r=_card.rect;float sx=_card.TransformVector(Vector3.right).magnitude,sz=_card.TransformVector(Vector3.forward).magnitude;
+        if(!(sz>1e-8f))return false;
+        float depth=_borrowed||(_parentPlane!=null&&_parentPlane.IsReady)?0f:-Mathf.Abs(r.width)*_depthWidthRatio*sx/sz;
+        var bounds=new Bounds(new Vector3(r.center.x,r.center.y,depth),new Vector3(r.width,r.height,0f));
+        clipBounds=MenuDepthHeadRaster.ClipBounds(eye.WorldToHeadClip*_card.localToWorldMatrix,bounds);return true;
+    }
 
     private void RebindDepthSurfaces()
     {

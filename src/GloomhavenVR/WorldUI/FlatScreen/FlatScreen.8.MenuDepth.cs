@@ -14,6 +14,8 @@ internal sealed partial class FlatScreen
     private readonly List<Camera> _menuDepthCameras = new(8);
     private readonly List<IMenuDepthWindowAnnotationSource> _menuDepthAnnotations = new(8);
     private Func<IMenuDepthWindowAnnotationSource, Matrix4x4>? _menuDepthAnnotationMapper;
+    private Func<Graphic, MenuDepthEye, MenuDepthEye>? _menuDepthBoundsMapper;
+    private Predicate<Graphic>? _menuDepthBoundsApplies;
     private RenderTexture? _menuDepthRight, _menuDepthLeft, _menuDepthCarrierLeft;
     private MenuDepthDesktopCarrier? _menuDepthCarrier;
     private MenuDepthHeadCarrier? _menuDepthHeadCarrier;
@@ -177,8 +179,16 @@ internal sealed partial class FlatScreen
                 * _quad.transform.TransformVector(Vector3.up).magnitude);
             if (SystemInfo.usesReversedZBuffer) physical = -physical;
             _menuDepthPhysicalScale = new Vector2(DepthSide(left) * physical, DepthSide(right) * physical);
-            CaptureMenuDepthUi(_menuDepthCarrierLeft ?? _uiRt, new MenuDepthEye(false, left, head));
-            CaptureMenuDepthUi(_menuDepthRight!, new MenuDepthEye(true, right, head));
+            var leftEye=new MenuDepthEye(false,left,head);var rightEye=new MenuDepthEye(true,right,head);
+            _menuDepthBoundsMapper??=MapHeadBoundsEye;
+            _menuDepthBoundsApplies??=OwnsHeadBoundsGraphic;
+            RectInt region=MenuDepthSources.HeadRegion(null,_quad.transform.localToWorldMatrix,new Rect(-.5f,-.5f,1f,1f),
+                leftEye,rightEye,_menuDepthBoundsMapper,_menuDepthBoundsApplies);
+            using(var filter=MenuDepthHeadRaster.Filter(_uiRt.descriptor,pixels,region,MenuDepthDisplay.HeadResolveShader))
+            {
+                CaptureMenuDepthUi(filter.Target,filter.Eye(leftEye));filter.Resolve(_menuDepthCarrierLeft??_uiRt);
+                CaptureMenuDepthUi(filter.Target,filter.Eye(rightEye));filter.Resolve(_menuDepthRight!);
+            }
             _menuDepthHeadMaterial ??= MenuDepthDisplay.CreateDisplayMaterial(_menuDepthCarrierLeft!, _menuDepthRight!);
             if (_glassMaterial.HasProperty("_Color")) _menuDepthHeadMaterial.SetColor("_Color", _glassMaterial.GetColor("_Color"));
             MenuDepthDisplay.SetHeadCapture(_menuDepthHeadMaterial, _menuDepthCarrierLeft!, _menuDepthRight!,
@@ -293,6 +303,21 @@ internal sealed partial class FlatScreen
             out _, out Matrix4x4 nativeToPhysical, allowCoplanar: true))
             throw new InvalidOperationException("The original native annotation has no physical window mapping.");
         return nativeToPhysical;
+    }
+
+    private bool OwnsHeadBoundsGraphic(Graphic graphic)
+    {
+        Camera? camera=NativeUiCamera(graphic);
+        return camera!=null&&camera.isActiveAndEnabled&&CapturedSet.TryGetValue(camera,out CapturedCamera captured)&&captured.IsUi;
+    }
+
+    private MenuDepthEye MapHeadBoundsEye(Graphic graphic,MenuDepthEye eye)
+    {
+        Camera? source=NativeUiCamera(graphic);
+        if(_quad==null||source==null||!MenuDepthScreenProjection.TryMap(_quad.transform,source,graphic.rectTransform,
+            eye.WorldPosition,out Vector3 position,out Matrix4x4 nativeToPhysical,allowCoplanar:true))
+            throw new InvalidOperationException("The original menu bounds have no physical head mapping.");
+        return new MenuDepthEye(eye.Right,position,eye.HeadCamera,false,worldToHeadClip:eye.WorldToHeadClip*nativeToPhysical);
     }
 
     private bool MenuDepthApplies(Graphic graphic) => NativeUiCamera(graphic) == _menuDepthBorrowedCamera;

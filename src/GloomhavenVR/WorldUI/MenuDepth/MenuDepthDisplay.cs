@@ -56,6 +56,8 @@ internal sealed class MenuDepthDisplay : IDisposable
         get { TryLoad(out _); return _depthShader; }
     }
 
+    internal static Shader HeadResolveShader=>TryLoad(out string reason)?_displayShader!:throw new InvalidOperationException(reason);
+
     internal static Shader? CharacterShader
     {
         get { TryLoad(out _); return _characterShader; }
@@ -106,6 +108,7 @@ internal sealed class MenuDepthDisplay : IDisposable
         {
             Camera.onPreRender -= BeforeCamera; Camera.onPostRender -= AfterCamera;
             PreviousEyes.Clear(); ApplyEye(0);
+            MenuDepthHeadRaster.ReleaseFilter();
         }
     }
 
@@ -192,9 +195,13 @@ internal sealed class MenuDepthDisplay : IDisposable
         _capturingCamera = capture; _rendering = true;
         try
         {
-            CaptureHeadEye(capture, plane, _headLeft!, left, size);
+            RectInt region=MenuDepthSources.HeadRegion(plane,plane.localToWorldMatrix,frame,left,right);
+            using var filter=MenuDepthHeadRaster.Filter(original.descriptor,size,region,HeadResolveShader);
+            CaptureHeadEye(capture, plane, filter.Target, filter.Eye(left), filter.Pixels);
+            filter.Resolve(_headLeft!);
             ThrowIfHeadOwnerClosed(_headRight!);
-            CaptureHeadEye(capture, plane, _headRight!, right, size);
+            CaptureHeadEye(capture, plane, filter.Target, filter.Eye(right), filter.Pixels);
+            filter.Resolve(_headRight!);
             ThrowIfHeadOwnerClosed(_headRight!);
             SetHeadCapture(_material, _headLeft!, _headRight!, left, right,
                 plane.TransformPoint(new Vector3(frame.center.x, frame.center.y)),

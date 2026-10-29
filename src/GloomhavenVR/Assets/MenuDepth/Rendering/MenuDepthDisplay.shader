@@ -197,5 +197,37 @@ Shader "GloomhavenVR/MenuDepthDisplay"
             #pragma multi_compile_local _ UNITY_UI_ALPHACLIP
             ENDCG
         }
+        Pass
+        {
+            // One fixed2x head-grid draw resolves to the existing1x head pair.
+            // Colour integrates four source samples. Geometry keeps the nearest
+            // covered sample, independently of colour/clear alpha interpolation.
+            Cull Off ZTest Always ZWrite On Blend Off ColorMask RGBA
+            CGPROGRAM
+            #pragma vertex vert_img
+            #pragma fragment resolveHead
+            #pragma target 3.5
+            Texture2D _GvrResolveDepth;
+            SamplerState Gvr_point_clamp_sampler;
+            float4 _MainTex_TexelSize, _GvrResolveUV;
+            float _GvrResolveStep;
+            output resolveHead(v2f_img i)
+            {
+                float2 uv=i.uv*_GvrResolveUV.xy;
+                output result;result.color=tex2D(_MainTex,uv);
+                float2 step=abs(_MainTex_TexelSize.xy)*_GvrResolveStep;
+                float a=_GvrResolveDepth.SampleLevel(Gvr_point_clamp_sampler,uv+step*float2(-1,-1),0).r;
+                float b=_GvrResolveDepth.SampleLevel(Gvr_point_clamp_sampler,uv+step*float2(-1,1),0).r;
+                float c=_GvrResolveDepth.SampleLevel(Gvr_point_clamp_sampler,uv+step*float2(1,-1),0).r;
+                float d=_GvrResolveDepth.SampleLevel(Gvr_point_clamp_sampler,uv+step*float2(1,1),0).r;
+                #if defined(UNITY_REVERSED_Z)
+                    result.depth=max(max(a,b),max(c,d));
+                #else
+                    result.depth=min(min(a,b),min(c,d));
+                #endif
+                return result;
+            }
+            ENDCG
+        }
     }
 }
