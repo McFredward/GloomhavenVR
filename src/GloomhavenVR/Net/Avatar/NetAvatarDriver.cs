@@ -1488,7 +1488,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         //
         // "GRABBED" RATHER THAN "THE POSE CHANGED": see SharedWindows.AnyGrabbedHere for why there is
         // no single last-sent pose to diff here and why the grab is the right superset.
-        bool sharedWindowDue = (WorldUI.SharedWindows.AnyGrabbedHere() || RemoteMapStory.SharedReflowMoving)
+        bool sharedWindowDue = (WorldUI.SharedWindows.AnyGrabbedHere()
+                               || WorldUI.SharedWindows.AnyReleaseTurningHere() || RemoteMapStory.SharedReflowMoving)
                                && _extrasAccumulator >= fastInterval;
 
         // BOARD-UI (defects 4 + 5): which controls the owner's board shows RIGHT NOW plus the
@@ -3643,6 +3644,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         extras.ModVersionText = MyPluginInfo.PLUGIN_VERSION;
 
         SharedWindowSpawnAuthority.SampleContext(ref extras);
+        SharedWindowMoves.Sample(ref extras);
         int len = PresenceSerializer.Write(in extras, _sendBuffer);
         _transport.Send(_sendBuffer, len);
     }
@@ -4363,6 +4365,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     // Opening provenance must be available before accepting a pose from the
                     // same snapshot; a repeated title does not identify the same native opening.
                     MapStoryLifecycle.Observe(kv.Key, in p, _transport != null ? _transport.LocalPlayerId : 0);
+                    SharedWindowMoves.Observe(kv.Key, in p);
                     RemoteMapStory.ObserveRewardCompletions(kv.Key, in p, _transport != null ? _transport.LocalPlayerId : 0);
                     RemoteStorySync.Observe(kv.Key, in p);
 

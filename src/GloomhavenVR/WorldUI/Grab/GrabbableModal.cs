@@ -35,7 +35,7 @@ namespace GloomhavenVR.WorldUI;
 /// The world-grab yields any grip that starts on a highlighted/held grabbable, so gripping
 /// the bar moves the menu instead of the diorama (PanelGrabHandle's documented arbitration).
 /// </summary>
-internal sealed class GrabbableModal : IPanelGrabOwner
+internal sealed class GrabbableModal : IPanelGrabOwner, IPanelGrabAuthority
 {
     // ---- THE ROD'S DIMENSIONS NOW LIVE IN GrabBarLayout, AND THAT IS THE WHOLE OF THE CHANGE ----
     //
@@ -740,6 +740,27 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
     /// <summary>True while a hand grips the bar (owner skips no writes — the host just follows).</summary>
     internal bool IsGrabbed => _handle != null && _handle.IsGrabbed;
+    internal bool IsReleaseTurning => _reFaceTween.Active;
+    bool IPanelGrabAuthority.IsSharedGrab => _shared;
+    bool IPanelGrabAuthority.CanBeginGrab => !_shared
+        || SharedWindowInteractionBridge.CanBegin?.Invoke(_sharedKind) != false;
+    bool IPanelGrabAuthority.MayContinueGrab => !_shared
+        || SharedWindowInteractionBridge.MayWrite?.Invoke(_sharedKind) != false;
+    void IPanelGrabAuthority.OnGrabBegan()
+    {
+        _reFaceTween.Cancel();
+        if (_shared) SharedWindowInteractionBridge.Began?.Invoke(_sharedKind);
+    }
+    void IPanelGrabAuthority.OnGrabCanceled()
+    {
+        _reFaceTween.Cancel();
+        if (_shared) SharedWindowInteractionBridge.Canceled?.Invoke(_sharedKind);
+    }
+    internal void YieldSharedControl()
+    {
+        _reFaceTween.Cancel();
+        _handle?.CancelForSharedAuthority();
+    }
 
     /// <summary>
     /// USER-OWNED POSE (user report 2026-08-04: "Sie sollen dort fix bleiben, wo sie stehen,
@@ -977,15 +998,10 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     //
     // ── 2026-08-22: THAT PARAGRAPH IS NOW THE "Always" MODE, NOT THE RULE ────────────────────────
     //
-    // TWO SEPARATE USER STATEMENTS BOUND IT — a shared window never re-faces on any client and that
-    // is not configurable (7b), and for local windows the three-way [WorldUI] WindowFacing dial
-    // decides (8). BOTH GATES, THEIR VERBATIM RULINGS AND THEIR ORDER NOW LIVE IN ONE PLACE:
-    // WindowReFacePolicy (WorldUI/Grab/WindowReFacePolicy.cs), which this owner, SurfaceGrabBar and
-    // every future re-face owner consult. They were written out here and only here, and a second
-    // re-face site shipped in ModBuild 428 without reading the dial at all — the survey's row R1.
-    // The policy is shared; the PIVOT ARITHMETIC below is not, and deliberately so: this owner turns
-    // about the ink union's centre for the reason the paragraph above spends a build explaining,
-    // and a surface turns about its frame origin because that IS its drawn centre.
+    // The 2026-10-29 multiplayer review restores release-facing for shared windows. The same
+    // WindowFacing dial applies; only the accepted gesture author runs the one-shot tween.
+    // Its captured upright target and subsequent pose samples are shared through the same claim.
+    // Private windows and surface owners retain their original policy and pivot geometry.
     //
     // WHAT IS NOT TOUCHED: this is a ONE-SHOT ON RELEASE in every mode. Nothing here makes a window
     // follow the head, and the standing project rule that nothing re-orients with head movement is
@@ -993,6 +1009,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     void IPanelGrabOwner.OnGrabFinished()
     {
         _reFaceTween.Cancel();
+        if (_shared)
+        {
+            if (SharedWindowInteractionBridge.MayWrite?.Invoke(_sharedKind) == false) return;
+            SharedWindowInteractionBridge.Released?.Invoke(_sharedKind);
+        }
         if (_frame == null)
             return;
         if (!WantsReFaceOnRelease())
@@ -1006,8 +1027,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // re-pins the host in LateUpdate — so at this instant the host can still be carrying LAST
         // frame's pose, and a pivot read through a stale transform is a pivot that is wrong by one
         // frame of hand motion. One extra Tick makes it exact by construction. It cannot double-
-        // advance a remote glide: only a SHARED window ever eases, and WantsReFaceOnRelease has
-        // already returned false for every shared window before this line is reached.
+        // advance a remote glide: the accepted local gesture author owns this shared pose, so
+        // remote easing has already yielded before this release can start.
         Tick();
 
         Vector3 pivot = _frame.position;
@@ -1279,7 +1300,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         }
         // The carry has already anchored to this same visible frame. A new hand, a hidden
         // host, or a change to shared ownership ends the release turn before it can write.
-        if (IsGrabbed || _shared || !_panel.HostGo.activeInHierarchy || _panel.RenderHidden
+        if (IsGrabbed || (_shared && SharedWindowInteractionBridge.MayWrite?.Invoke(_sharedKind) == false)
+            || !_panel.HostGo.activeInHierarchy || _panel.RenderHidden
             || _panel.OwnerRenderHidden || !_frame.gameObject.activeInHierarchy)
             _reFaceTween.Cancel();
         // The pose lock's eight-frame grab allowance can expire before a 150 ms turn at high
@@ -2706,7 +2728,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // every quantity above is in the HOST's authored pixels; the host's final world pose is not
         // known until LateSyncHost has run. So the seat is STORED and SeatBadge places it — see THE
         // BADGE'S SEAT block for the "zieht nach" report this answers.
-        _badgeSeatPx = new Vector2(cornerX - sizePx * 0.5f, cornerY - sizePx * 0.5f);
+        _badgeSeatPx = SharedWindowBadgeLayout.TryCompactSeat(hostRect, _inkRect, _inkValid,
+            sizePx, BadgeGapPx, out Vector2 compactSeat) ? compactSeat
+            : new Vector2(cornerX - sizePx * 0.5f, cornerY - sizePx * 0.5f);
         _badgeSizePx = sizePx;
         _badgeSeatValid = true;
     }

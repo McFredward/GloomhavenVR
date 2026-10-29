@@ -21,6 +21,7 @@ internal static partial class RemoteStorySync
             PeerStory peer = pair.Value;
             if (peer.Key != key || !peer.HasPose || Time.unscaledTime - peer.At > PeerStaleSeconds
                 || !MapStoryLifecycle.MatchesPose(false, pair.Key, peer.OpeningEpoch, peer.OpeningToken)) continue;
+            if (!SharedWindowMoves.MayFollow(pair.Key, SharedWindowKind.ScenarioStory, key)) continue;
             if (peer.Initial && !SharedWindowSpawnAuthority.AcceptInitial(pair.Key, peer.Context, 1)) continue;
             if (!PeerPoseChangedAt.TryGetValue(pair.Key, out float at)) continue;
             if (best != 0 && peer.Initial && !initial) continue;

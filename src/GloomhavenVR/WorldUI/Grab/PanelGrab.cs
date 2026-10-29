@@ -68,6 +68,17 @@ internal interface IPanelGrabOwner
     void OnGrabFinished();
 }
 
+/// <summary>Optional presentation-only ownership. Private board/tray owners keep their
+/// existing gesture contract; shared mod windows arbitrate one cross-player gesture.</summary>
+internal interface IPanelGrabAuthority
+{
+    bool IsSharedGrab { get; }
+    bool CanBeginGrab { get; }
+    bool MayContinueGrab { get; }
+    void OnGrabBegan();
+    void OnGrabCanceled();
+}
+
 /// <summary>
 /// What a <see cref="PanelGrabHandle"/> carry may do to the owner root's ROTATION (item 12).
 /// Position + two-hand resize behave identically in every mode.
@@ -157,7 +168,7 @@ internal static class LevelPose
 /// when the grip starts in its grab zone, and never fights the world grab.
 /// No re-parenting, no physics; per-frame math only, zero allocations.
 /// </summary>
-internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighlight
+internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighlight, IGrabCancellation
 {
     private const float MinHandDistance = 0.03f;  // world units (already diorama-scaled)
     private const float Smoothing = 18f;          // 1/s exponential
@@ -426,7 +437,9 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 
     // ------------------------------------------------------------------ IGrabbable --
 
-    public bool CanGrab => _owner != null && _owner.GrabVisible && (_handA == null || _handB == null);
+    public bool CanGrab => _owner != null && _owner.GrabVisible && (_handA == null || _handB == null)
+        && (!(_owner is IPanelGrabAuthority authority)
+            || (_handA == null ? authority.CanBeginGrab : authority.MayContinueGrab));
 
     /// <summary>Boards/world panels are always grip-grabbed (test #27) — the [Cards] GrabButton
     /// dial that once switched this is retired.</summary>
@@ -434,6 +447,14 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 
     public void OnGrab(VRHand hand)
     {
+        bool first = _handA == null;
+        if (_owner is IPanelGrabAuthority authority
+            && !(first ? authority.CanBeginGrab : authority.MayContinueGrab))
+        {
+            CancelLaserCarry();
+            if (ReferenceEquals(hand.Grabber.Held, this)) hand.Grabber.CancelAll();
+            return;
+        }
         if (_handA == null)
         {
             _handA = hand;
@@ -474,6 +495,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         else
             return;
         ReAnchor();
+        if (first && _owner is IPanelGrabAuthority accepted) accepted.OnGrabBegan();
         VRLog.Info(_logChannel, $"{_logName} grab: engaged ({hand.Side}, {(_handB != null ? "two-hand resize" : "one-hand move")}).");
     }
 
@@ -660,6 +682,27 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         LaserCarryReel.Release(this);
     }
 
+    /// <summary>Drop only this presentation gesture. Clearing the slots before notifying the
+    /// grabbers prevents their normal release callback from starting a new release/re-face.</summary>
+    internal void CancelForSharedAuthority()
+    {
+        VRHand? a = _handA, b = _handB;
+        _handA = _handB = null;
+        CancelLaserCarry();
+        if (a != null && ReferenceEquals(a.Grabber.Held, this)) a.Grabber.CancelAll();
+        if (b != null && ReferenceEquals(b.Grabber.Held, this)) b.Grabber.CancelAll();
+    }
+
+    public void OnGrabCancelled(VRHand hand)
+    {
+        if (_owner is IPanelGrabAuthority authority && authority.IsSharedGrab)
+        {
+            CancelForSharedAuthority();
+            authority.OnGrabCanceled();
+        }
+        else OnRelease(hand, Vector3.zero);
+    }
+
     public void OnRelease(VRHand hand, Vector3 velocity)
     {
         if (hand == _handA)
@@ -802,6 +845,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     private void OnDisable()
     {
         VRInteractables.UnregisterGrabbable(this);
+        if (_handA != null && _owner is IPanelGrabAuthority authority) authority.OnGrabCanceled();
         _handA = _handB = null;
         _laserCarry = false;
         LaserCarryReel.Release(this);
@@ -814,6 +858,11 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         Transform? root = _owner?.GrabRoot;
         if (root == null)
             return;
+        if (_handA != null && _owner is IPanelGrabAuthority authority && !authority.MayContinueGrab)
+        {
+            CancelForSharedAuthority();
+            return;
+        }
 
         // Defensive: a hand can vanish (tracking loss/hot reload) without OnRelease.
         if (_handA != null && !_handA.HasPose)
@@ -829,6 +878,8 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             _handA = _handB;
             _handB = null;
             if (_handA != null) ReAnchor();
+            else if (_owner is IPanelGrabAuthority lost)
+            { lost.OnGrabCanceled(); CancelLaserCarry(); }
         }
         if (_handB != null && !_handB.HasPose)
         {
@@ -851,6 +902,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             _laserCarry = false;
             LaserCarryReel.Release(this); // the claim dies with the carry, healed slot included
             if (_handA != null) ReAnchor();
+            else if (_owner is IPanelGrabAuthority healed && healed.IsSharedGrab) healed.OnGrabCanceled();
             else _owner?.OnGrabFinished();
         }
         if (_handB != null && !ReferenceEquals(_handB.Grabber.Held, this))

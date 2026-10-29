@@ -66,6 +66,7 @@ internal static partial class RemoteMapStory
         object? opening = PostQuestRewardSync.Opening;
         if (!ReferenceEquals(opening, _rewardOpening))
         {
+            SharedWindowMoves.Close(SharedWindowKind.RewardShowcase);
             // The original window and public reward group can both be reused. A new native
             // Show must not inherit an earlier occurrence's pose, claim or placement handshake.
             _rewardOpening = opening;
@@ -80,6 +81,7 @@ internal static partial class RemoteMapStory
         RewardLocal.Reset(); RewardHandoff.Reset(); RewardLocal.Key = key; _rewardMoved = false; _rewardSentPose = false;
         _rewardWasPending = _rewardSentReady = false;
     }
+    internal static int MoveOpeningAuthor(uint key) => RewardInitialOwner(key, NetPlayerActors.LocalPlayerId());
     internal static void SampleReward(ref PresenceState presence, int localPlayerId)
     {
         _rewardPlayerId = localPlayerId;
@@ -144,7 +146,14 @@ internal static partial class RemoteMapStory
         SharedWindowEntry entry = presence.RewardWindow.Window;
         if (RewardPeers.TryGetValue(sender, out PeerEntry previous) && previous.ContentKey != entry.ContentKey)
             ForgetReward(sender);
-        RewardPeers[sender] = new PeerEntry(in entry, Time.unscaledTime, context: presence.WindowPoseContext, kind: (int)SharedWindowKind.RewardShowcase, referenceScale: presence.WindowScales?.Reference((int)SharedWindowKind.RewardShowcase) ?? 0f);
+        bool accepted = SharedWindowMoves.Accepted(sender, SharedWindowKind.RewardShowcase, entry.ContentKey);
+        var incoming = new PeerEntry(in entry, Time.unscaledTime, context: presence.WindowPoseContext,
+            kind: (int)SharedWindowKind.RewardShowcase, referenceScale: presence.WindowScales?.Reference((int)SharedWindowKind.RewardShowcase) ?? 0f,
+            allowPose: accepted);
+        if (!accepted && RewardPeers.TryGetValue(sender, out PeerEntry previousPose) && previousPose.ContentKey == entry.ContentKey
+            && SharedWindowMoves.PoseStillCurrent(sender, SharedWindowKind.RewardShowcase, entry.ContentKey))
+            incoming = new PeerEntry(in incoming, in previousPose);
+        RewardPeers[sender] = incoming;
         RewardMoved[sender] = presence.RewardWindow.Moved;
         RewardUnavailable[sender] = presence.RewardWindow.Unavailable;
         RewardReady[sender] = presence.RewardWindow.Ready;

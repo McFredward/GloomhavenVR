@@ -143,7 +143,7 @@ internal static partial class RemoteMapStory
     private readonly struct PeerEntry
     {
         public PeerEntry(in SharedWindowEntry e, float at, uint openingEpoch = 0, uint openingToken = 0,
-            SharedWindowPoseContext? context = null, int kind = 0, float referenceScale = 0f)
+            SharedWindowPoseContext? context = null, int kind = 0, float referenceScale = 0f, bool allowPose = true)
         {
             Flags = e.Flags;
             Page = e.Page;
@@ -156,7 +156,7 @@ internal static partial class RemoteMapStory
             Initial = context.HasValue && context.Value.IsInitial(kind);
             Frame = e.Frame;
             Pose = e.Pose;
-            if (!context.HasValue || !context.Value.Valid || !(referenceScale >= 0.0001f && referenceScale <= 1000000f))
+            if (!allowPose || !context.HasValue || !context.Value.Valid || !(referenceScale >= 0.0001f && referenceScale <= 1000000f))
                 Flags = (byte)(Flags & ~NetProtocol.SharedPoseBit);
             if (context.HasValue && e.Frame == NetProtocol.SharedFrameSeatAnchor)
             {
@@ -168,6 +168,15 @@ internal static partial class RemoteMapStory
             ReceiptFrame = Time.frameCount;
             OpeningEpoch = openingEpoch;
             OpeningToken = openingToken;
+        }
+
+        internal PeerEntry(in PeerEntry content, in PeerEntry pose)
+        {
+            Flags = (byte)((content.Flags & ~NetProtocol.SharedPoseBit) | (pose.Flags & NetProtocol.SharedPoseBit));
+            Page = content.Page; PageCount = content.PageCount; ContentKey = content.ContentKey; At = content.At;
+            PoseStamp = pose.PoseStamp; SizeCode = pose.SizeCode; Frame = pose.Frame; Pose = pose.Pose;
+            Context = pose.Context; ReferenceScale = pose.ReferenceScale; Initial = pose.Initial;
+            ReceiptFrame = pose.ReceiptFrame; OpeningEpoch = pose.OpeningEpoch; OpeningToken = pose.OpeningToken;
         }
 
         public readonly byte Flags;
@@ -1175,6 +1184,8 @@ internal static partial class RemoteMapStory
     /// </summary>
     private static void TrackFrame(SharedWindowKind kind, Local local, bool reset)
     {
+        if (reset) SharedWindowMoves.Close(kind);
+        else SharedWindowMoves.Open(kind, local.Key);
         if (reset || !SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null
             || !SharedWindowFrame.TryRead(grab, out Vector3 pos, out Quaternion rot, out float size,
                 allowUnrevealed: kind == SharedWindowKind.RewardShowcase))
@@ -1193,6 +1204,8 @@ internal static partial class RemoteMapStory
         if (SyncIdentity(kind, local, grab, pos, rot, size))
             return;   // nothing is published on the tick the subject changed
 
+        if (SharedWindowMoves.HasLocalClaim(kind) && !local.PoseOwned)
+        { local.PoseOwned = true; local.Moving = true; }
         if (!local.HaveBaseline)
         {
             local.FramePos = pos;
@@ -1429,20 +1442,35 @@ internal static partial class RemoteMapStory
                     case NetProtocol.SharedWindowKindMapStory:
                         sawStory = true;
                         MapStoryLifecycle.PoseOpening(in p, e.ContentKey, out uint openingEpoch, out uint openingToken);
-                        StoryPeers[senderId] = new PeerEntry(in e, now, openingEpoch, openingToken, p.WindowPoseContext, (int)SharedWindowKind.MapStory, p.WindowScales?.Reference((int)SharedWindowKind.MapStory) ?? 0f);
+                        var incomingStory = new PeerEntry(in e, now, openingEpoch, openingToken, p.WindowPoseContext, (int)SharedWindowKind.MapStory, p.WindowScales?.Reference((int)SharedWindowKind.MapStory) ?? 0f, allowPose: SharedWindowMoves.Accepted(senderId, SharedWindowKind.MapStory, e.ContentKey));
+                        if (!SharedWindowMoves.Accepted(senderId, SharedWindowKind.MapStory, e.ContentKey)
+                            && StoryPeers.TryGetValue(senderId, out PeerEntry previousStory) && previousStory.ContentKey == e.ContentKey
+                            && SharedWindowMoves.PoseStillCurrent(senderId, SharedWindowKind.MapStory, e.ContentKey))
+                            incomingStory = new PeerEntry(in incomingStory, in previousStory);
+                        StoryPeers[senderId] = incomingStory;
                         if (MapStoryLifecycle.MatchesPose(true, senderId, openingEpoch, openingToken))
                             ObserveReflowPose(senderId, SharedWindowKind.MapStory, in e, StoryStamp);
                         NoteStamp(senderId, in e, StoryStamp, StoryStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindQuestConfirm:
                         sawQuest = true;
-                        QuestPeers[senderId] = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.QuestConfirm, referenceScale: p.WindowScales?.Reference((int)SharedWindowKind.QuestConfirm) ?? 0f);
+                        var incomingQuest = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.QuestConfirm, referenceScale: p.WindowScales?.Reference((int)SharedWindowKind.QuestConfirm) ?? 0f, allowPose: SharedWindowMoves.Accepted(senderId, SharedWindowKind.QuestConfirm, e.ContentKey));
+                        if (!SharedWindowMoves.Accepted(senderId, SharedWindowKind.QuestConfirm, e.ContentKey)
+                            && QuestPeers.TryGetValue(senderId, out PeerEntry previousQuest) && previousQuest.ContentKey == e.ContentKey
+                            && SharedWindowMoves.PoseStillCurrent(senderId, SharedWindowKind.QuestConfirm, e.ContentKey))
+                            incomingQuest = new PeerEntry(in incomingQuest, in previousQuest);
+                        QuestPeers[senderId] = incomingQuest;
                         ObserveReflowPose(senderId, SharedWindowKind.QuestConfirm, in e, QuestStamp);
                         NoteStamp(senderId, in e, QuestStamp, QuestStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindEncounter:
                         sawEncounter = true;
-                        EncounterPeers[senderId] = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.Encounter, referenceScale: p.WindowScales?.Reference((int)SharedWindowKind.Encounter) ?? 0f);
+                        var incomingEncounter = new PeerEntry(in e, now, context: p.WindowPoseContext, kind: (int)SharedWindowKind.Encounter, referenceScale: p.WindowScales?.Reference((int)SharedWindowKind.Encounter) ?? 0f, allowPose: SharedWindowMoves.Accepted(senderId, SharedWindowKind.Encounter, e.ContentKey));
+                        if (!SharedWindowMoves.Accepted(senderId, SharedWindowKind.Encounter, e.ContentKey)
+                            && EncounterPeers.TryGetValue(senderId, out PeerEntry previousEncounter) && previousEncounter.ContentKey == e.ContentKey
+                            && SharedWindowMoves.PoseStillCurrent(senderId, SharedWindowKind.Encounter, e.ContentKey))
+                            incomingEncounter = new PeerEntry(in incomingEncounter, in previousEncounter);
+                        EncounterPeers[senderId] = incomingEncounter;
                         ObserveReflowPose(senderId, SharedWindowKind.Encounter, in e, EncounterStamp);
                         NoteStamp(senderId, in e, EncounterStamp, EncounterStampAt, now);
                         break;
@@ -1965,8 +1993,8 @@ internal static partial class RemoteMapStory
             && Time.frameCount - local.SwapFrame <= IdentitySettleFrames)
             return;
 
-        if (local.Moving || (subject != null && subject.IsGrabbed))
-            return; // a stationary grip still owns the window; never fight a hand.
+        if (SharedWindowMoves.Active ? SharedWindowMoves.MayWrite(kind)
+            : local.Moving || (subject != null && subject.IsGrabbed)) return;
 
         // LAST MOVER WINS. Among peers holding the same content and publishing a pose, follow the
         // one whose stamp changed most recently.
@@ -1978,6 +2006,7 @@ internal static partial class RemoteMapStory
             PeerEntry s = kv.Value;
             if (s.ContentKey != key || !s.HasPose)
                 continue;
+            if (!SharedWindowMoves.MayFollow(kv.Key, kind, key)) continue;
             if (kind == SharedWindowKind.MapStory
                 && !MapStoryLifecycle.MatchesPose(true, kv.Key, s.OpeningEpoch, s.OpeningToken))
                 continue;
@@ -1994,7 +2023,7 @@ internal static partial class RemoteMapStory
         }
         if (bestPeer == 0)
             return;
-        if (local.PoseOwned && (bestInitial || bestAt < local.MoveSettleAt))
+        if (!SharedWindowMoves.Active && local.PoseOwned && (bestInitial || bestAt < local.MoveSettleAt))
             return; // our own move is the newer one
 
         PeerEntry owner = peers[bestPeer];
@@ -2009,6 +2038,12 @@ internal static partial class RemoteMapStory
                  + "PAGE sync is untouched by this, which is why an unplaceable window can never "
                  + "hold anybody up");
             return;
+        }
+        if (SharedWindowMoves.Active)
+        {
+            grab.YieldSharedControl();
+            local.Moving = local.PoseOwned = false;
+            local.MoveSettleAt = 0f;
         }
         grab.ApplySharedReferenceWorldScale(owner.ReferenceScale);
         float size = NetProtocol.DecodeStorySize(owner.SizeCode);

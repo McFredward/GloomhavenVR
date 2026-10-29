@@ -24,6 +24,9 @@ internal struct PresenceState
     public bool HasSharedWindowMotion;
     public byte SharedWindowHeldMask;
     public byte SharedWindowReflowMask;
+    /// <summary>Atomic claim/opening/sample order for unchanged shared window pose records.</summary>
+    public SharedWindowMoveOrder? WindowMoves;
+    public bool WindowMoveOrderRecordSeen;
     public bool HasMapStoryLifecycle;
     public MapStoryOpening[]? MapStoryLifecycleEntries;
     public bool HasRewardContinuation;
@@ -1934,8 +1937,9 @@ internal static class PresenceSerializer
     // + active-dismiss berth118(9) + shared author-frame119(24) + quest edge120(14)
     // + captured window references121(27) = 7774.
     // Exact recent and durable dismissal origins122: 7774 + 4741 = 12515 bytes.
-    // Allocation retains257 spare; the bounded12800-byte envelope leaves285.
-    public const int MaxSize = 12772;
+    // Opening-scoped move order123:12515 +183 =12698 bytes. Allocation retains257 spare;
+    // the unchanged bounded12800-byte envelope leaves102 bytes.
+    public const int MaxSize = 12955;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -2017,6 +2021,7 @@ internal static class PresenceSerializer
                           || state.HasTownFace
                           || state.HasTownResidents
                           || state.HasSharedWindowMotion
+                          || state.WindowMoves != null
                           || state.HasVideoWindow
                           || state.HasRewardPoseHandshake
                           || state.HasRewardWindow
@@ -2813,6 +2818,8 @@ internal static class PresenceSerializer
             buffer[i++] = (byte)(state.SharedWindowReflowMask & NetProtocol.SharedWindowMotionDefinedMask);
             records++;
         }
+        if (state.WindowMoves != null && SharedWindowMoveOrder.Write(buffer, ref i, state.WindowMoves))
+            records++;
         if (state.HasMapStoryLifecycle && MapStoryLifecycleCodec.Write(buffer, ref i, state.MapStoryLifecycleEntries))
             records++;
         if (state.HasRewardContinuation && RewardContinuationCodec.Write(buffer, ref i, state.RewardContinuationEntries))
@@ -4259,6 +4266,13 @@ internal static class PresenceSerializer
                 state.SharedWindowHeldMask = (byte)(buffer[i] & NetProtocol.SharedWindowMotionDefinedMask);
                 state.SharedWindowReflowMask = (byte)(buffer[i + 1] & NetProtocol.SharedWindowMotionDefinedMask);
             }
+            return;
+        }
+        if (id == NetProtocol.ExtIdSharedWindowMoveOrder)
+        {
+            if (state.WindowMoveOrderRecordSeen) { state.WindowMoves = null; return; }
+            state.WindowMoveOrderRecordSeen = true;
+            SharedWindowMoveOrder.TryRead(buffer, i, len, out state.WindowMoves);
             return;
         }
         if (id == NetProtocol.ExtIdMapStoryLifecycle)

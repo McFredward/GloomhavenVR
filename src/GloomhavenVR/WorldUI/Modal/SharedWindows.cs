@@ -481,6 +481,17 @@ internal static class SharedWindows
         && grab != null
         && grab.IsGrabbed;
 
+    internal static bool AnyReleaseTurningHere()
+    {
+        for (int value = 1; value <= 6; value++)
+        {
+            var kind = (SharedWindowKind)value;
+            if (ParticipatesHere(kind) && TryGetGrab(kind, out GrabbableModal? grab)
+                && grab != null && grab.IsReleaseTurning) return true;
+        }
+        return false;
+    }
+
     /// <summary>The game window behind a kind, or null when that controller is not up.</summary>
     internal static UIWindow? WindowOf(SharedWindowKind kind)
     {

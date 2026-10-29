@@ -193,6 +193,9 @@ internal static class NetProtocol
     /// <summary>Exact physical dismissal departure origins, attached atomically to the
     /// unchanged recent-flight and durable native-burn records.</summary>
     public const byte ExtIdCardFlightOrigins = 122;
+    /// <summary>Atomic opening identity, manual claim order and pose-sample sequence for
+    /// the unchanged shared window poses. Six bounded30-byte rows plus a count; automatic rows also bind the observed release.</summary>
+    public const byte ExtIdSharedWindowMoveOrder = 123;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>

@@ -127,6 +127,20 @@ internal static partial class RemoteMapStory
     /// <summary>Prefer the participating native host, otherwise the lowest fresh map-VR ID.
     /// The short stable-membership interval prevents opening frames racing the first census.
     /// This is only a decoration admission gate; it never gates a native window or action.</summary>
+    internal static int SharedReflowAuthor()
+    {
+        if (!MapRoomDriver.Active) return 0;
+        int elected = NetPlayerActors.LocalPlayerId();
+        bool host = FFSNetwork.IsHost;
+        foreach (KeyValuePair<int, ReflowPeer> pair in ReflowPeers)
+        {
+            if (Time.unscaledTime - pair.Value.At > PeerStaleSeconds) continue;
+            if ((pair.Value.Host && !host) || (pair.Value.Host == host && pair.Key < elected))
+            { elected = pair.Key; host = pair.Value.Host; }
+        }
+        return elected;
+    }
+
     internal static bool CanArrangeSharedWindows()
     {
         if (!MapRoomDriver.Active) return false;
@@ -163,6 +177,7 @@ internal static partial class RemoteMapStory
         if (SyncIdentity(kind, local, grab, pos, rot, size)
             || (local.SwapFrame != int.MinValue && Time.frameCount - local.SwapFrame <= IdentitySettleFrames))
             return false;
+        if (!SharedWindowMoves.BeginAutomatic(kind)) return false;
         local.FramePos = pos; local.FrameRot = rot; local.FrameSize = size;
         local.HaveBaseline = true;
         local.Reflow = true;
