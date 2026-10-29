@@ -35,6 +35,63 @@ internal static class LevelUpComposite
     private static bool _textEvents;
     private const float MinimumPreviewWidthPx = 640f;
     private const float PreviewGapPx = 48f;
+    private static bool _browsing;
+    private static UILevelUpCardInventory? _retiredBrowse;
+
+    private static bool MandatoryLevelUp(UILevelUpCardInventory inventory) =>
+        Singleton<UILevelUpWindow>.IsInitialized
+        && Singleton<UILevelUpWindow>.Instance is { } level
+        && ReferenceEquals(level.inventory, inventory) && level.myWindow != null && level.myWindow.IsOpen;
+
+    private static bool BrowseOwnerAvailable(UIResetLevelUpWindow reset)
+    {
+        var party = NewPartyDisplayUI.PartyDisplay;
+        return party != null && party.window != null && party.window.IsOpen
+            && party.ActiveDisplay == NewPartyDisplayUI.DisplayType.CARDS && !party.IsDisableFurtherAbilityPanel
+            && party.AbilityCardsDisplay != null && party.AbilityCardsDisplay.gameObject.activeInHierarchy
+            && reset.displayToggle != null && reset.displayToggle.gameObject.activeSelf;
+    }
+
+    private static void RetireBrowse()
+    {
+        if (!VRSession.IsRunning || !WorldUIConfig.ConversionActive || FlatScreen.ManualScreenActive) return;
+        UILevelUpCardInventory? inventory = _browsing ? _inventory : _retiredBrowse;
+        var reset = Singleton<UIResetLevelUpWindow>.IsInitialized ? Singleton<UIResetLevelUpWindow>.Instance : null;
+        if (inventory == null || reset == null || !ReferenceEquals(reset.inventory, inventory)) return;
+        // An actual native level-up always wins over a previous browsing receipt,
+        // even if the story/commit curtain has not stood down yet.
+        if (MandatoryLevelUp(inventory)) return;
+        if (!StoryComposite.PointOfNoReturn && BrowseOwnerAvailable(reset))
+        { _retiredBrowse = null; return; }
+        _retiredBrowse = inventory;
+        var window = inventory.GetComponent<UIWindow>();
+        if (window != null && window.IsOpen)
+        {
+            // Build748: returning an OPEN browser to Campaign Canvas let CatchAll
+            // float it independently after PartyCommitted hid its character owner.
+            // Use the original browse dismissal before returning its native home.
+            // Hide unregisters the native escape/hotkey session and inventory; it
+            // deliberately preserves toggle.isOn. Never invoke ResetAbilities,
+            // OnResetLevel, a card choice or any mandatory progression callback.
+            reset.Hide();
+        }
+    }
+
+    internal static bool IsOwnedInventory(UIWindow window)
+    {
+        if (window == null || !WorldUIConfig.ConversionActive || FlatScreen.ManualScreenActive) return false;
+        var inventory = window.GetComponent<UILevelUpCardInventory>();
+        if (inventory == null) return false;
+        bool seated = ReferenceEquals(inventory, _inventory) && _rect != null && _mount != null
+            && ReferenceEquals(_rect.parent, _mount) && _owner != null && _owner.IsOpen;
+        if (MandatoryLevelUp(inventory))
+            return seated && ReferenceEquals(_owner, FittedView);
+        if (seated) return true;
+        if (!ReferenceEquals(inventory, _retiredBrowse)) return false;
+        var reset = Singleton<UIResetLevelUpWindow>.IsInitialized ? Singleton<UIResetLevelUpWindow>.Instance : null;
+        return reset != null && ReferenceEquals(reset.inventory, inventory)
+            && (StoryComposite.PointOfNoReturn || !BrowseOwnerAvailable(reset));
+    }
 
     // The user727 review explicitly requests a wider level-up composition. This
     // native-pixel allowance is common to every viewer, never read from live zoom.
@@ -142,6 +199,7 @@ internal static class LevelUpComposite
     {
         try
         {
+            RetireBrowse();
             if (!CardListEntry.Tick()) return;
             TickCore();
         }
@@ -201,6 +259,7 @@ internal static class LevelUpComposite
                 return;
             _inventory = inventory;
             _owner = owner;
+            _browsing = !leveling;
             _rect = rect;
             _home = rect.parent;
             _sibling = rect.GetSiblingIndex();
@@ -336,6 +395,7 @@ internal static class LevelUpComposite
     {
         if (!CardListEntry.Release()) return;
         ResetInventory();
+        _retiredBrowse = null;
     }
 
     private static void ResetInventory()
@@ -363,7 +423,7 @@ internal static class LevelUpComposite
             _rect.SetSiblingIndex(_sibling);
         }
         if (_mount != null) Object.Destroy(_mount.gameObject);
-        _mount = _rect = null; _owner = null; _inventory = null; _home = null;
+        _mount = _rect = null; _owner = null; _inventory = null; _home = null; _browsing = false;
         if (_textEvents) TMPro_EventManager.TEXT_CHANGED_EVENT.Remove(PreviewTextChanged);
         _textEvents = false;
         _preview = null; PreviewText.Clear(); _previewWarmup = 0;

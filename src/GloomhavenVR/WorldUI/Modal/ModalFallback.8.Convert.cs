@@ -212,6 +212,7 @@ internal static partial class ModalFallback
         // capture. Report that presentation as handled, including Dialogs=off;
         // a false conversion failure would unnecessarily raise the flat screen.
         if (ConfirmationOnOwner.IsOwned(window)) return true;
+        if (LevelUpComposite.IsOwnedInventory(window)) return true;
         string name = window.name;
         bool sampleConversion = VRLog.WantsDebug && _modalConvertTimingReports < ModalConvertTimingLimit;
         long started = sampleConversion ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;

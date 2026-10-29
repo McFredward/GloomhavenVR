@@ -157,6 +157,7 @@ internal static partial class ModalFallback
     {
         if (window == null || ConfirmationOnOwner.IsOwned(window))
             return false;
+        if (LevelUpComposite.IsOwnedInventory(window)) return false;
         if (convertWanted)
             return true;
         return ConvertBaseActive && ContainsWindow(StrandedFloat, window);

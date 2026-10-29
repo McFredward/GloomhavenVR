@@ -34,12 +34,36 @@ public static partial class LevelUpNativeProgram
     private static UIWindow? _listFixtureWindow745;
     private static int _listOpened745,_listClosed745;
     private static bool _allowList745;
+    private static native::UnityEngine.UI.UIWindow? _nativeListWindow748;
+    private static object? _nativeListFade748;
     private static bool NativeListShow745(bool locked,bool isOpenByToggle)
     {
         Check(locked&&isOpenByToggle,"original native browse callback retains locked cards and toggle provenance");
-        _listOpened745++;_listFixtureWindow745!.IsOpen=true;return false;
+        _listOpened745++;
+        if(_nativeListWindow748!=null)_nativeListWindow748.Show(true);
+        _listFixtureWindow745!.IsOpen=_nativeListWindow748?.IsOpen??true;return false;
     }
-    private static bool NativeListHide745(){_listClosed745++;_listFixtureWindow745!.IsOpen=false;return false;}
+    private static bool NativeListHide745()
+    {
+        _listClosed745++;
+        if(_nativeListWindow748!=null)return true;
+        _listFixtureWindow745!.IsOpen=false;return false;
+    }
+    private static void NativeListHidden748()
+    {
+        if(_nativeListWindow748==null||_listFixtureWindow745==null)return;
+        _listFixtureWindow745.IsOpen=_nativeListWindow748.IsOpen;
+        _listFixtureWindow745.IsVisible=_nativeListWindow748.IsVisible;
+    }
+    private static bool NativeListFade748(object info)
+    {_nativeListFade748=info;return false;}
+    private static void PulseListFade748(float fraction)
+    {
+        object fade=_nativeListFade748!;
+        AccessTools.Method(fade.GetType(),"TweenValue").Invoke(fade,new object[]{fraction});
+        if(fraction==1f)AccessTools.Method(fade.GetType(),"Finished").Invoke(fade,null);
+        NativeListHidden748();
+    }
     private static bool NativeListPeripheral745()=>false;
     private static bool NativeListGamepad745(ref bool __result){__result=false;return false;}
     private static bool NativeListGate745(ref bool __result){__result=_allowList745;return false;}
@@ -174,10 +198,93 @@ public static partial class LevelUpNativeProgram
         Check(ReferenceEquals(arrow.parent,inventory),"live native level-up show lock returns the original browse opener without changing its value");
         enableShow.Invoke(nativeReset,new object[]{true,toggle});reset.requestDisableShow.Clear();LevelUpComposite.Tick();
         Check(arrow.IsChildOf(view)&&!toggle.isOn,"original browse opener resumes after native level-up show lock ends");
+        var retirement=BrowseRetirement748(output,harmony,party,reset,inventory,view,panel,nativeReset,nativeInventory,show,service,toggle);
+        while(retirement.MoveNext())yield return retirement.Current;
         Loc.SetLanguage("English");LevelUpComposite.Reset();
         Check(ReferenceEquals(arrow.parent,inventory)&&arrow.rect.size==new Vector2(43,65),"character-window teardown restores original toggle home and authored frame");
         Object.DestroyImmediate(nativeHolder);Object.DestroyImmediate(inventory.gameObject);Object.DestroyImmediate(root.gameObject);
         Object.DestroyImmediate(head.targetTexture);Object.DestroyImmediate(head.gameObject);Object.DestroyImmediate(events);
         CanvasConversion.ActivePanels.Remove(panel);Singleton<UIResetLevelUpWindow>.Instance=null;NewPartyDisplayUI.PartyDisplay=null;_listFixtureWindow745=null;
+    }
+
+    private static IEnumerator BrowseRetirement748(string output,Harmony harmony,NewPartyDisplayUI party,
+        UIResetLevelUpWindow reset,RectTransform inventory,RectTransform view,ConvertedPanel panel,
+        native::UIResetLevelUpWindow nativeReset,native::UILevelUpCardInventory nativeInventory,
+        MethodInfo show,object service,Toggle toggle)
+    {
+        File.WriteAllText(Path.Combine(output,"browse-retirement748-boundary.txt"),
+            "Production LevelUpComposite, direct/ordinary admission and ReleaseForComposite execute. Original UIResetLevelUpWindow.Hide, ToggleDisplay(false), UILevelUpCardInventory.Hide and native UIWindow.Show/Hide/EvaluateAndTransitionToVisualState/StartAlphaTween execute. Native gameplay population, controller/escape services and global clock are explicit ports. The original FloatTween value/finished callbacks are clocked manually; boundary owner/window fields mirror actual native IsOpen/IsVisible after original calls. No actor ResetAbilities/OnResetLevel/choice/confirmation is invoked.");
+        var nativeWindow=inventory.gameObject.AddComponent<native::UnityEngine.UI.UIWindow>();
+        _nativeListWindow748=nativeWindow;
+        var nativeType=typeof(native::UnityEngine.UI.UIWindow);
+        AccessTools.Field(nativeType,"m_FocusedAction").SetValue(nativeWindow,native::UnityEngine.UI.UIWindow.FocusedAction.None);
+        AccessTools.Field(nativeType,"m_Transition").SetValue(nativeWindow,native::UnityEngine.UI.UIWindow.Transition.Fade);
+        AccessTools.Field(nativeType,"m_TransitionDuration").SetValue(nativeWindow,.1f);
+        AccessTools.Field(typeof(native::UILevelUpCardInventory),"window").SetValue(nativeInventory,nativeWindow);
+        AccessTools.Field(typeof(native::UILevelUpCardInventory),"windowRectTransform").SetValue(nativeInventory,inventory);
+        var runner=AccessTools.Field(nativeType,"m_FloatTweenRunner").GetValue(nativeWindow);
+        harmony.Patch(AccessTools.Method(runner.GetType(),"StartTween"),prefix:new HarmonyMethod(Method(nameof(NativeListFade748))));
+        harmony.Patch(AccessTools.Method(typeof(native::UILevelUpCardInventory),"Hide"),postfix:new HarmonyMethod(Method(nameof(NativeListHidden748))));
+        reset.OnNativeHide=nativeReset.Hide;
+        try
+        {
+            toggle.isOn=true;show.Invoke(nativeReset,new[]{service});LevelUpComposite.Tick();
+            Check(nativeWindow.IsOpen&&inventory.IsChildOf(view)&&LevelUpComposite.IsOwnedInventory(_listFixtureWindow745!),
+                "native browse opening has one proved seated inventory before commitment");
+            int closes=_listClosed745;
+            QuestJourneyCurtain.PartyCommitted=true;
+            LevelUpComposite.Tick();
+            Check(!nativeWindow.IsOpen&&_listClosed745==closes+1&&toggle.isOn,
+                "commitment closes proved browsing through original Hide while preserving the native toggle preference");
+            Check(nativeWindow.IsVisible&&_listFixtureWindow745!.IsVisible&&inventory.parent==null,
+                "original fading browse returns to its true native home while still drawable");
+            int attempts=ModalFallback.AdmissionAttempts;
+            Check(!ModalFallback.WantsFloat(_listFixtureWindow745!)&&ModalFallback.DirectAdmission(_listFixtureWindow745!)
+                &&ModalFallback.AdmissionAttempts==attempts,
+                "retired native-home browser cannot refloat through ordinary or direct admission during its fade");
+            var unrelated=Rect("unrelated native inventory748",null,368,1080);
+            unrelated.gameObject.AddComponent<UILevelUpCardInventory>();var unrelatedWindow=unrelated.gameObject.AddComponent<UIWindow>();
+            Check(ModalFallback.WantsFloat(unrelatedWindow)&&!ModalFallback.DirectAdmission(unrelatedWindow),
+                "unrelated native inventory keeps its independent admission permission");
+            Object.DestroyImmediate(unrelated.gameObject);
+            Check(_nativeListFade748!=null&&(float)AccessTools.Property(_nativeListFade748.GetType(),"duration").GetValue(_nativeListFade748)==.1f,
+                "browse dismissal retains the original native fade duration and callbacks");
+            PulseListFade748(.5f);Check(nativeWindow.IsVisible&&!nativeWindow.IsOpen,"original half-faded browse remains closed and drawable");
+            PulseListFade748(1f);Check(!nativeWindow.IsVisible&&!nativeWindow.IsOpen,"original browse fade completes without an independent window");
+            show.Invoke(nativeReset,new[]{service});
+            Check(nativeWindow.IsOpen,"native later Show attempt retains its original callback before retirement guard");
+            Check(!ModalFallback.WantsFloat(_listFixtureWindow745!)&&ModalFallback.DirectAdmission(_listFixtureWindow745!),
+                "commitment retirement rejects later native Show admission before the next owner tick");
+            LevelUpComposite.Tick();Check(!nativeWindow.IsOpen&&toggle.isOn,
+                "later native Show during commitment closes through the same original browse flow");
+            QuestJourneyCurtain.PartyCommitted=false;show.Invoke(nativeReset,new[]{service});LevelUpComposite.Tick();
+            Check(nativeWindow.IsOpen&&inventory.IsChildOf(view),"fresh native Cards owner recovers browsing after commitment ends");
+            party.window.IsOpen=false;LevelUpComposite.Tick();
+            Check(!nativeWindow.IsOpen&&inventory.parent==null&&!ModalFallback.WantsFloat(_listFixtureWindow745!),
+                "loss of the exact character owner retires only its proved browsing inventory");
+            var levelRoot=Rect("fresh mandatory level-up owner748",null,1600,1080);
+            var level=levelRoot.gameObject.AddComponent<UILevelUpWindow>();level.myWindow=levelRoot.gameObject.AddComponent<UIWindow>();
+            level.inventory=reset.inventory;Singleton<UILevelUpWindow>.Instance=level;
+            QuestJourneyCurtain.PartyCommitted=true;show.Invoke(nativeReset,new[]{service});
+            int beforeMandatory=_listClosed745;LevelUpComposite.Tick();
+            Check(nativeWindow.IsOpen&&_listClosed745==beforeMandatory,
+                "fresh mandatory native level-up overrides the old browse receipt during commitment");
+            Check(ModalFallback.WantsFloat(_listFixtureWindow745!),
+                "unseated mandatory native level-up keeps its original independent fallback permission");
+            var levelPanel=new ConvertedPanel{Target=levelRoot,HostRect=levelRoot,HostGo=levelRoot.gameObject};
+            CanvasConversion.ActivePanels.Add(levelPanel);LevelUpComposite.Tick();
+            Check(nativeWindow.IsOpen&&_listClosed745==beforeMandatory&&inventory.IsChildOf(levelRoot)
+                &&!ModalFallback.WantsFloat(_listFixtureWindow745!)&&ModalFallback.DirectAdmission(_listFixtureWindow745!),
+                "seated mandatory native level-up retains one owner presentation without browse dismissal");
+            LevelUpComposite.Reset();CanvasConversion.ActivePanels.Remove(levelPanel);
+            Singleton<UILevelUpWindow>.Instance=null;Object.DestroyImmediate(levelRoot.gameObject);
+            yield return null;
+        }
+        finally
+        {
+            reset.OnNativeHide=null;_nativeListWindow748=null;_nativeListFade748=null;
+            QuestJourneyCurtain.PartyCommitted=false;StoryComposite.StoryOrLoadoutStanding=false;party.window.IsOpen=true;
+            Singleton<UILevelUpWindow>.Instance=null;
+        }
     }
 }

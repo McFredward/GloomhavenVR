@@ -49,6 +49,7 @@ private static string DrawOrderEvidence(RectTransform rect, ConvertedPanel owner
 internal static void NoteSlotHover(Component source, string kind, bool hovered) { }
 internal static void NoteShowEdgeWithoutWidget(string kind, string what) { }
 internal static void FixtureTick() => TickRaises();
+internal static void FixtureFlattenRow(Transform row) => Flatten(row);
 internal static int FixtureOutstanding => Raised.Count;
 ''' + '\n'.join(bodies) + '\n}\n[HarmonyPatch] internal static class NativeTooltipHide747 {\n' + '''
 [HarmonyPostfix]

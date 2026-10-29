@@ -38,6 +38,10 @@ def main():
     sources['TooltipPlacement747.cs']=tooltip_kernel(tooltip_source,tooltip_patches.read_text(),*(p.read_text()for p in conversion_paths))
     variants=[('production','','','',''),
         ('more-cards747','','','',''),
+        ('more-cards748-lost-left-gap','MenuDepthLevelUpHoverObserver.cs',
+         'if (inventory != null && inventory.transform is RectTransform inventoryRect',
+         'if (inventory != null && inventory.name == "__injected_missing_inventory__" && inventory.transform is RectTransform inventoryRect',
+         'browse-only More Cards keeps the complete original preview visible beyond the inventory strip in first and settled head pixels'),
         ('more-cards747-missing-final-raise','MenuDepthLevelUpHoverObserver.cs',
          '        try { MenuDepthFurtherAbilityHover.SettleOriginal(__instance, ___abilityCard, ___highlighted, ____fullCardPrewiewOffset); }',
          '        try { /* injected: Further Ability Cards misses its final native placement seam */ }',
@@ -147,7 +151,7 @@ def main():
         assert required <= {row['owner']['class']for row in audit['owners']},'Missing native card family'
         shutil.copy2(Path(__file__).parent/'audit-native.py',retained/'audit-native.py')
         manifest={'result':str(run/'results.txt'),'evidence':str(run),'gameManaged':str(game.resolve()),'harmonyRuntime':'/home/claw/.nuget/packages/lib.harmony/2.4.2/lib/net472','cases':[]}
-        if any(name=='level-up-hover738' or name=='lost-level-up-first-rotation' or name.startswith(('level-up-hover-','more-cards747')) for name,*_ in variants):
+        if any(name=='level-up-hover738' or name=='lost-level-up-first-rotation' or name.startswith(('level-up-hover-','more-cards747','more-cards748')) for name,*_ in variants):
             port=run/'native-port';shutil.copytree(Path(__file__).parent/'NativePort',port)
             build=['/home/claw/.dotnet/dotnet','build',str(port/'NativePort.csproj'),'-c','Release','-v','quiet','--nologo','--disable-build-servers','-nr:false','-p:UseSharedCompilation=false']
             if execute(build,port/'build.log'):raise RuntimeError('Native API port did not compile')
@@ -164,7 +168,7 @@ def main():
             command=['/home/claw/.dotnet/dotnet','build',str(csproj),'-c','Release','-v','quiet','--nologo','--disable-build-servers','-nr:false','-p:UseSharedCompilation=false','-p:CaseName='+assembly,'-p:FixtureDir='+str(retained/'fixture'),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(unity.parent/'Data/Managed'),'-p:GameManaged='+str(game),'-p:DepthBundle='+str(bundle)]
             if execute(command,case/'build.log'):raise RuntimeError('Compilation failure is not a causal-control pass: '+name)
             binary=case/'bin/Release/net472'/(assembly+'.dll');target=run/'assemblies';target.mkdir(exist_ok=True);shutil.copy2(binary,target/binary.name)
-            manifest['cases'].append({'name':name,'dll':str(target/binary.name),'expected':expected,'method':'RunMoreCards747' if name=='more-cards747' or name.startswith('more-cards747-') else 'RunLevelUpHover738' if name=='level-up-hover738' or name=='lost-level-up-first-rotation' or name.startswith('level-up-hover-') else 'RunHeadText736' if name=='head-text-736' or name.startswith('lost-head-text-') else 'RunNativeUiFreeze' if name in {'native-ui-freeze','lost-native-freeze-birth','lost-native-freeze-parent'} else 'RunNativeHover' if name in {'native-hover','lost-hover-identity','lost-hover-depth','lost-hover-relief','lost-cold-helper-activation','lost-active-helper-reacquire'} else 'Run'})
+            manifest['cases'].append({'name':name,'dll':str(target/binary.name),'expected':expected,'method':'RunMoreCards747' if name=='more-cards747' or name.startswith(('more-cards747-','more-cards748-')) else 'RunLevelUpHover738' if name=='level-up-hover738' or name=='lost-level-up-first-rotation' or name.startswith('level-up-hover-') else 'RunHeadText736' if name=='head-text-736' or name.startswith('lost-head-text-') else 'RunNativeUiFreeze' if name in {'native-ui-freeze','lost-native-freeze-birth','lost-native-freeze-parent'} else 'RunNativeHover' if name in {'native-hover','lost-hover-identity','lost-hover-depth','lost-hover-relief','lost-cold-helper-activation','lost-active-helper-reacquire'} else 'Run'})
         for folder in ['Assets/Editor','Packages','ProjectSettings']:(project/folder).mkdir(parents=True)
         (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{'com.unity.ugui':'1.0.0','com.unity.textmeshpro':'3.0.6','com.unity.modules.assetbundle':'1.0.0','com.unity.modules.imageconversion':'1.0.0'}})+'\n')

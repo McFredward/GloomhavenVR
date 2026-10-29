@@ -82,6 +82,9 @@ internal static class MenuDepthFurtherAbilityHoverObserver
 // reads of Vector3 parameter members as writes to non-ref patch parameters.
 internal static class MenuDepthFurtherAbilityHover
 {
+    private const float InventoryGapPx = 24f;
+    private static readonly Vector3[] Corners = new Vector3[4];
+
     internal static void SettleOriginal(UILevelUpCard entry, AbilityCardUI? card, bool highlighted,
         Vector3 nativeOffset)
     {
@@ -122,6 +125,27 @@ internal static class MenuDepthFurtherAbilityHover
         // component. Only the original preview moves; the native row stays owned
         // by its inventory and keeps its original pool/input lifetime.
         TooltipOnWindow.Settle(full, kind, card);
+        // Build748: the native Mini offset puts the Full across the hovered row
+        // after this inventory is seated at the right of the character window.
+        // Park the complete original print in the gap LEFT of its exact native
+        // inventory, using the measured border and actual fitted Full width/pivot.
+        // Neither the row nor its original scrolling/selection geometry moves.
+        var inventory = entry.GetComponentInParent<UILevelUpCardInventory>();
+        if (inventory != null && inventory.transform is RectTransform inventoryRect
+            && full.transform is RectTransform fullRect)
+        {
+            inventoryRect.GetWorldCorners(Corners);
+            float border = float.PositiveInfinity;
+            for (int i = 0; i < Corners.Length; i++)
+                border = Mathf.Min(border, owner.HostRect.InverseTransformPoint(Corners[i]).x);
+            fullRect.GetWorldCorners(Corners);
+            float right = float.NegativeInfinity;
+            for (int i = 0; i < Corners.Length; i++)
+                right = Mathf.Max(right, owner.HostRect.InverseTransformPoint(Corners[i]).x);
+            float pivot = owner.HostRect.InverseTransformPoint(fullRect.position).x;
+            float row = owner.HostRect.InverseTransformPoint(card.transform.position).x;
+            offsetX = border - InventoryGapPx - (right - pivot) - row - miniOffset.x;
+        }
         TooltipOnWindow.PlaceFullCardPreview(card, full,
             miniOffset.x + offsetX, miniOffset.y + offsetY,
             kind);

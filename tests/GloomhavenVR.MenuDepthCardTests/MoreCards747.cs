@@ -34,6 +34,7 @@ public static partial class MenuDepthCardProgram
             // Campaign/navigation bootstrap and artwork effects are outside this fixture.
             foreach (string name in new[] { "Awake", "OnDisable", "OnDestroy", "SetBackground" })
                 yield return AccessTools.Method(typeof(UILevelUpCard), name);
+            yield return AccessTools.Method(typeof(UILevelUpCardInventory), "Awake");
             yield return AccessTools.Method(typeof(FullAbilityCard), "Highlight");
             yield return AccessTools.Method(typeof(FullAbilityCard), "ToggleBurningAnimation");
             foreach (MethodInfo method in AccessTools.GetDeclaredMethods(typeof(AbilityCardUI)))
@@ -85,6 +86,27 @@ public static partial class MenuDepthCardProgram
 
     private sealed partial class Scene
     {
+        private void RowInk748(Texture2D pixels, AbilityCardUI row, Card mini)
+        {
+            var rect = (RectTransform)row.transform;
+            Vector3 depth = -row.transform.forward * (.056f * rect.rect.width
+                * row.transform.TransformVector(Vector3.right).magnitude);
+            Bounds bounds = mini.Title.textBounds;
+            Rect expected = HeadBounds747(mini.Title.transform, bounds.min, bounds.max, depth);
+            Color32[] ink = pixels.GetPixels32(); int minX = pixels.width, maxX = -1, count = 0;
+            for (int y = Mathf.FloorToInt(expected.yMin) - 2; y <= Mathf.CeilToInt(expected.yMax) + 2; y++)
+                for (int x = Mathf.FloorToInt(expected.xMin) - 2; x <= Mathf.CeilToInt(expected.xMax) + 2; x++)
+                {
+                    Color32 pixel = ink[y * pixels.width + x];
+                    if (pixel.r > 180 && pixel.g > 180 && pixel.b > 180)
+                    { minX = Mathf.Min(minX, x); maxX = Mathf.Max(maxX, x); count++; }
+                }
+            File.AppendAllText(Path.Combine(_output, "unobscured-native-row748.csv"),
+                "expected=" + expected + ",ink=" + minX + ".." + maxX + ",white=" + count + "\n");
+            Check(count > 40 && minX <= expected.xMin + 5 && maxX >= expected.xMax - 5,
+                "the original hovered row name remains fully readable beside the left-gap preview in first and steady head pixels");
+        }
+
         private Rect HeadBounds747(Transform space, Vector3 min, Vector3 max, Vector3 depth)
         {
             float x0 = float.PositiveInfinity, y0 = float.PositiveInfinity;
@@ -170,7 +192,8 @@ public static partial class MenuDepthCardProgram
             var manager = Go("native UI camera input").AddComponent<UIManager>(); Field(manager, "uiCamera", _ui);
 
             var inventory = (RectTransform)Go("native Further Ability Cards inventory", _root).transform;
-            inventory.sizeDelta = new Vector2(240, 760); inventory.anchoredPosition = new Vector2(180, 0);
+            inventory.gameObject.AddComponent<UILevelUpCardInventory>().enabled = false;
+            inventory.sizeDelta = new Vector2(368, 760); inventory.anchoredPosition = new Vector2(180, 0);
             var viewport = (RectTransform)Go("native inventory scroll viewport", inventory).transform;
             viewport.sizeDelta = inventory.sizeDelta; viewport.gameObject.AddComponent<RectMask2D>();
             var list = (RectTransform)Go("native pooled UILevelUpCard list", viewport).transform;
@@ -185,7 +208,9 @@ public static partial class MenuDepthCardProgram
             var mini = new Card(typeof(MiniAbilityCard), (RectTransform)rowGo.transform, 1);
             full.Rect.gameObject.layer = mini.Rect.gameObject.layer = 5;
             full.Owner.enabled = mini.Owner.enabled = false;
-            mini.Rect.sizeDelta = new Vector2(220, 50); mini.Title.gameObject.SetActive(false);
+            mini.Rect.sizeDelta = new Vector2(220, 50);
+            mini.Title.text = "HOVERED ROW"; mini.Title.fontSize = 22;
+            mini.Title.rectTransform.sizeDelta = new Vector2(200, 32); mini.Title.rectTransform.anchoredPosition = Vector2.zero;
             foreach (Image background in mini.Backgrounds) background.rectTransform.sizeDelta = mini.Rect.sizeDelta;
             Field(row, "fullAbilityCard", full.Owner); Field(row, "miniAbilityCard", mini.Owner);
             Field(full.Owner, "_enhancementElements", new CardEnhancementElements());
@@ -254,6 +279,21 @@ public static partial class MenuDepthCardProgram
                     Check(ReferenceEquals(borrowed, rowGo), "More Cards reuses the exact original native pooled card without cloning its controller");
                     mini.Rect.anchoredPosition = reuse % 2 == 0 ? Vector2.zero : new Vector2(18, -8);
                     entry.MouseEnter();
+                    Texture2D? beforeRowFlatten = null;
+                    if(reuse>=2)
+                    {
+                        ++_request;while(_completed!=_request)yield return null;
+                        beforeRowFlatten=Read(full,true,74705+reuse*10);
+                    }
+                    Vector3 fullPositionBeforeFlatten=full.Rect.position;
+                    Quaternion fullRotationBeforeFlatten=full.Rect.rotation;
+                    // Execute the unchanged source-bound tooltip flatten kernel
+                    // as the declared existing flat-row coordinator input. The
+                    // real hover seam already faced the tilted original pool
+                    // basis; Full is outside this row before flatten executes.
+                    TooltipOnWindow.FixtureFlattenRow(row.transform);
+                    Check(full.Rect.position==fullPositionBeforeFlatten&&full.Rect.rotation==fullRotationBeforeFlatten,
+                        "the existing row flatten kernel cannot repair or move the already raised Full preview");
                     Check(full.Rect.gameObject.activeInHierarchy && enterEvents == priorEnters + reuse + 1,
                         "original browse-only hover activates its full card and native event once");
                     ++_request; while (_completed != _request) yield return null;
@@ -275,8 +315,13 @@ public static partial class MenuDepthCardProgram
                     float actualWidth = full.Rect.rect.width * full.Rect.TransformVector(Vector3.right).magnitude;
                     Vector3 miniInWindow = _root.InverseTransformPoint(mini.Rect.position);
                     Vector3 rowInWindow = _root.InverseTransformPoint(row.transform.position);
+                    var inventoryCorners = new Vector3[4]; inventory.GetWorldCorners(inventoryCorners);
+                    float listLeft = float.PositiveInfinity;
+                    foreach (Vector3 corner in inventoryCorners) listLeft = Mathf.Min(listLeft, _root.InverseTransformPoint(corner).x);
+                    float expectedX = listLeft - 24f - full.Rect.rect.width * (1f - full.Rect.pivot.x)
+                        * full.Rect.lossyScale.x / _root.lossyScale.x;
                     TooltipOnWindow.PlaceFullCardPreview(row, full.Owner,
-                        miniInWindow.x - rowInWindow.x + nativeOffset.x,
+                        expectedX - rowInWindow.x,
                         miniInWindow.y - rowInWindow.y + nativeOffset.y,
                         "reference original Further Ability Cards preview");
                     TooltipOnWindow.FixtureTick();
@@ -305,11 +350,18 @@ public static partial class MenuDepthCardProgram
                         Check(firstError <= 128 && settledError <= 128
                             && firstMaximum <= 1 && settledMaximum <= 1,
                             "browse-only More Cards keeps the complete original preview visible beyond the inventory strip in first and settled head pixels");
+                        var printCorners = new Vector3[4]; full.Rect.GetWorldCorners(printCorners);
+                        float printRight = float.NegativeInfinity;
+                        foreach (Vector3 corner in printCorners) printRight = Mathf.Max(printRight, _root.InverseTransformPoint(corner).x);
+                        Check(printRight <= listLeft - 23.99f,
+                            "the full More Cards preview occupies the measured left gap clear of its hovered native row");
                         Check(ownerDelta <= .0001f && projectedDelta <= .001f
                             && Quaternion.Angle(actualOrientation, full.Rect.rotation) < .001f
                             && Mathf.Abs(actualWidth - full.Rect.rect.width * full.Rect.TransformVector(Vector3.right).magnitude) <= .0001f,
                             "independent point-based browse reference preserves owner geometry orientation width and final head projection within float roundoff");
                         CompleteInk747(first, full, left, right);
+                        if(beforeRowFlatten!=null)CompleteInk747(beforeRowFlatten,full,left,right);
+                        RowInk748(first, row, mini);
                         foreach (Texture2D steady in steadyFrames)
                         {
                             Check(PixelDifference747(first, steady) == 0
@@ -317,6 +369,7 @@ public static partial class MenuDepthCardProgram
                                 && MaximumChannelDifference747(steady, reference) <= 1,
                                 "browse-only More Cards keeps the complete original preview visible beyond the inventory strip in first and settled head pixels");
                             CompleteInk747(steady, full, left, right);
+                            RowInk748(steady, row, mini);
                         }
                         Check(full.Rect.parent == _root && full.Rect.GetComponent<Canvas>().sortingOrder == 115,
                             "native browse preview uses the existing owner raise and top-of-slot ordering");
@@ -324,6 +377,7 @@ public static partial class MenuDepthCardProgram
                     finally
                     {
                         Object.DestroyImmediate(first); Object.DestroyImmediate(reference);
+                        Object.DestroyImmediate(beforeRowFlatten);
                         foreach (Texture2D steady in steadyFrames) Object.DestroyImmediate(steady);
                     }
                     entry.MouseExit();
