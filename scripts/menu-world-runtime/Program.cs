@@ -27,6 +27,23 @@ public static class MenuWorldProgram
     private static void Put(object owner,string name,object? value)=>owner.GetType().GetField(name,Flags)!.SetValue(owner,value);
     private static void Invoke(object owner,string name,params object[] values)
     {try{owner.GetType().GetMethod(name,Flags)!.Invoke(owner,values);}catch(TargetInvocationException error){throw error.InnerException!;}}
+    private static IEnumerable<int> PlayerSteps(float seconds,Action tick,string output,string name,Func<string> state)
+    {
+        // This iterator is driven by EditorApplication.update, which can miss
+        // player frames. Count the real deltas consumed by the disabled native
+        // component, rather than the editor interval between manual calls.
+        var wall=System.Diagnostics.Stopwatch.StartNew();float consumed=0;int frame=Time.frameCount;
+        using var trace=new StreamWriter(Path.Combine(output,name+"-frames.csv"));
+        trace.WriteLine("frame,unscaledDt,scaledDt,consumedDt,state");trace.Flush();
+        while(consumed<seconds&&wall.Elapsed.TotalSeconds<30)
+        {
+            yield return 0;
+            if(frame==Time.frameCount)continue;
+            frame=Time.frameCount;float dt=Time.unscaledDeltaTime;tick();consumed+=dt;
+            trace.WriteLine(FormattableString.Invariant($"{frame},{dt:R},{Time.deltaTime:R},{consumed:R},{state()}"));trace.Flush();
+        }
+        Check(consumed>=seconds,"fixture consumes the requested distinct native frame deltas within its wall deadline");
+    }
     private static GameObject Quad(string name,Material material)
     {
         var go=Keep(GameObject.CreatePrimitive(PrimitiveType.Quad));go.name=name;go.layer=VRLayers.ModLayer;
@@ -139,13 +156,10 @@ public static class MenuWorldProgram
         // The real locomotion writers move only the rig. The independent menu and
         // its separate geometry reference retain their original world metric.
         Time.timeScale=0;left.Thumbstick=Vector2.up;Vector3 travelStart=rig.transform.position;
-        float until=Time.unscaledTime+.12f;int playerFrame=-1;
-        while(Time.unscaledTime<until)
-        {
-            if(playerFrame!=Time.frameCount){playerFrame=Time.frameCount;Invoke(flight,"Update");Invoke(screen,"FollowHead");}
-            yield return null;
-        }
+        foreach(var step in PlayerSteps(.12f,()=>{Invoke(flight,"Update");Invoke(screen,"FollowHead");},output,"flight",
+            ()=>$"ready={MenuWorldContext.IsReady};stick={left.Thumbstick};flying={flight.IsFlying};step={flight.LastStepMeters:R};rig={rig.transform.position}"))yield return null;
         left.Thumbstick=Vector2.zero;
+        File.WriteAllLines(Path.Combine(output,"flight-log.txt"),VRLog.Lines);
         Check(Vector3.Distance(rig.transform.position,travelStart)>.02f,"actual ready-menu stick flight moves the player while native time is paused");
         Near(quad.transform.position,position,"actual stick flight retains the independent menu's world pose");
         Pixels(head,quad,reference,output,"actual-flight");
@@ -157,24 +171,16 @@ public static class MenuWorldProgram
         left.transform.localPosition=new Vector3(-.2f,.8f,.2f);right.transform.localPosition=new Vector3(.2f,.8f,.2f);
         left.ThumbstickClick=left.ThumbstickClickDown=true;Invoke(world,"Update");left.ThumbstickClickDown=false;
         Vector3 dragStart=rig.transform.position;left.transform.localPosition+=new Vector3(.12f,.04f,-.02f);
-        until=Time.unscaledTime+.4f;playerFrame=-1;
-        while(Time.unscaledTime<until)
-        {
-            if(playerFrame!=Time.frameCount){playerFrame=Time.frameCount;Invoke(world,"Update");Invoke(screen,"FollowHead");}
-            yield return null;
-        }
+        foreach(var step in PlayerSteps(.4f,()=>{Invoke(world,"Update");Invoke(screen,"FollowHead");},output,"world-drag",
+            ()=>$"grabbing={world.IsGrabbing};rig={rig.transform.position}"))yield return null;
         Check(world.IsGrabbing&&Vector3.Distance(rig.transform.position,dragStart)>.05f,"actual ready-menu stick-click world drag moves the live rig");
         Near(quad.transform.position,position,"actual world dragging retains the independent menu's world pose");
         right.ThumbstickClick=right.ThumbstickClickDown=true;Invoke(world,"Update");right.ThumbstickClickDown=false;
         float zoomBefore=rig.transform.localScale.x;Vector3 mid=(left.transform.localPosition+right.transform.localPosition)*.5f;
         Vector3 half=(right.transform.localPosition-left.transform.localPosition)*.5f;
         left.transform.localPosition=mid-half*.75f;right.transform.localPosition=mid+half*.75f;
-        until=Time.unscaledTime+.4f;playerFrame=-1;
-        while(Time.unscaledTime<until)
-        {
-            if(playerFrame!=Time.frameCount){playerFrame=Time.frameCount;Invoke(world,"Update");Invoke(screen,"FollowHead");}
-            yield return null;
-        }
+        foreach(var step in PlayerSteps(.4f,()=>{Invoke(world,"Update");Invoke(screen,"FollowHead");},output,"world-pinch",
+            ()=>$"twoHand={world.IsTwoHand};scale={rig.transform.localScale.x:R}"))yield return null;
         Check(world.IsTwoHand&&rig.transform.localScale.x>zoomBefore*1.1f,"actual menu two-stick world pinch changes the player scale");
         Near(quad.transform.TransformVector(Vector3.right).magnitude,width,"actual world pinch preserves the menu's absolute world width");
         Pixels(head,quad,reference,output,"actual-world-pinch");

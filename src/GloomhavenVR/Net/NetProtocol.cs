@@ -643,6 +643,8 @@ internal static class NetProtocol
     // remain byte-identical. Retire first-failure/idle/deferred filter ownership.
     // Keep the storage crop in an explicit raster projection, not the native view:
     // storage growth must preserve model normals, near/far and UI pixel density.
+    // Normalize only the native UI head view's common unit scale as well: original
+    // TMP UV2/SDF metrics must match its unchanged Canvas and glyph geometry.
     // The startup rig predates tracking and the actual main menu. Admit selected
     // surroundings only after the original menu appears and tracked recenter
     // completes; centre a closed room on its real Floor/Ceiling clearance once.
