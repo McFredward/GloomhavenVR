@@ -96,6 +96,17 @@ internal static partial class RemoteMapStory
         // builds are normally refused by the handshake; withholding layout also covers a gap.
         byte held = presence.HasSharedWindowMotion ? presence.SharedWindowHeldMask : (byte)7;
         byte automatic = presence.HasSharedWindowMotion ? presence.SharedWindowReflowMask : (byte)0;
+        if (SharedWindowMoves.Active)
+        {
+            held = automatic = 0;
+            for (int value = (int)SharedWindowKind.MapStory; value <= (int)SharedWindowKind.Encounter; value++)
+            {
+                var kind = (SharedWindowKind)value;
+                SharedWindowMoves.CurrentMotion(sender, kind, out bool gripping, out bool arranging);
+                if (gripping) held |= ReflowBit(kind);
+                if (arranging) automatic |= ReflowBit(kind);
+            }
+        }
         MapStoryLifecycle.PoseOpening(in presence, StoryLocal.Key, out uint storyEpoch, out uint storyToken);
         var peer = new ReflowPeer(
             (presence.MapRoomFlags & NetProtocol.MapRoomHostBit) != 0, held, automatic,
@@ -109,7 +120,7 @@ internal static partial class RemoteMapStory
     // Record 77 has kind bits only. Its story bit belongs to the opening captured from
     // record 83 in that same packet, including after the local native queue advances.
     private static byte CurrentHeldMask(int sender, in ReflowPeer peer)
-        => MapStoryLifecycle.MatchesPose(true, sender, peer.StoryEpoch, peer.StoryToken)
+        => SharedWindowMoves.Active || MapStoryLifecycle.MatchesPose(true, sender, peer.StoryEpoch, peer.StoryToken)
             ? peer.Held : (byte)(peer.Held & ~NetProtocol.SharedWindowMotionMapStoryBit);
 
     private static void ObserveReflowPose(int sender, SharedWindowKind kind,
@@ -118,6 +129,14 @@ internal static partial class RemoteMapStory
         Local? local = ReflowLocal(kind);
         if (local == null || !local.Reflow || (entry.Flags & NetProtocol.SharedPoseBit) == 0
             || entry.ContentKey != local.Key) return;
+        if (SharedWindowMoves.Active)
+        {
+            // Only the current winning123 sample can interrupt this local tween. Replaying a
+            // rejected old Held/Released record must not resurrect its old77 flags or byte stamp.
+            if (SharedWindowMoves.Accepted(sender, kind, entry.ContentKey)
+                && SharedWindowMoves.MayFollow(sender, kind, entry.ContentKey)) CancelReflow(local);
+            return;
+        }
         bool automatic = ReflowPeers.TryGetValue(sender, out ReflowPeer peer)
             && (peer.Automatic & ReflowBit(kind)) != 0;
         if (!automatic && (!stamps.TryGetValue(sender, out byte old) || old != entry.PoseStamp))

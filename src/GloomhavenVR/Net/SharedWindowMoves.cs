@@ -105,6 +105,19 @@ internal static class SharedWindowMoves
             && register.Accepts(sender, in row);
     }
 
+    /// <summary>Legacy77 has no sample clock. In an ordered session its current motion bits
+    /// come from the accepted opening/gesture, never from a delayed packet's byte stamps.</summary>
+    internal static void CurrentMotion(int sender, SharedWindowKind kind, out bool held, out bool automatic)
+    {
+        held = automatic = false;
+        if (!Enabled || !Peers.TryGetValue(sender, out Incoming? peer) || peer == null
+            || Time.unscaledTime - peer.At[(int)kind] > SharedWindowMoveRegister.GripLeaseSeconds) return;
+        SharedWindowMoveRegister register = Register(kind);
+        if (!register.TryGet(sender, out SharedWindowMoveEntry row) || !register.Accepts(sender, in row)) return;
+        held = row.Phase == SharedWindowMovePhase.Held;
+        automatic = row.Phase == SharedWindowMovePhase.Automatic;
+    }
+
     /// <summary>Exactly one call before the original window observers consume this same extras
     /// snapshot. Old/duplicate samples cannot overwrite a newer pose under a stable gesture.</summary>
     internal static void Observe(int sender, in PresenceState presence)
