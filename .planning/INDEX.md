@@ -1,11 +1,12 @@
 # Planning index
 
-Updated 2026-10-29: Build745 aligns the first visible won-card reveal, includes
-native confirmations in their owner's sharp capture, and exposes the original
-card-list toggle with a localized More Cards caption. Complete aggregate267,
-actual306431goldens and strict builds pass with qualified GL evidence. The latest
-paired745 review starts Build746 work on map stalls, local environment isolation,
-narrative backdrops and shared window movement/badges. Windows builds its archive.
+Updated 2026-10-29: Build746 isolates local environments from shared NPC geometry,
+removes exact native narrative dimmers, converges shared grabs and authority
+handovers, restores last-releaser facing, and fits the city-event badge/votes.
+Strict builds, source16, actual306739 goldens and qualified aggregate267 coverage
+are recorded. Passive map-stall cause remains open; bounded Debug attribution
+closes known measurement gaps without claiming a pacing fix. Windows builds
+its archive from the dev source delivery.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -15,7 +16,7 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
-| [MP746-MULTIPLAYER-FOLLOWUP.md](MP746-MULTIPLAYER-FOLLOWUP.md) | Active paired-review integration: local environment isolation, narrative surfaces, shared gesture order, release-facing and compact ready-button geometry |
+| [MP746-MULTIPLAYER-FOLLOWUP.md](MP746-MULTIPLAYER-FOLLOWUP.md) | Validated paired-review integration, authority handovers, exact verification/reuse scope and outstanding hardware acceptance |
 | [MP746-PERFORMANCE.md](MP746-PERFORMANCE.md) | Passive map-stall evidence, repaired diagnostic coverage and explicitly unresolved cause |
 | [MENU745-CARDS-AND-CONFIRMATION-AA.md](MENU745-CARDS-AND-CONFIRMATION-AA.md) | First-visible native card alignment, explicit owner capture membership, original card-list access and complete aggregate verification |
 | [MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md](MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md) | Native laser self-occlusion, finite Default geometry/clipping and reversible native pause-canvas ownership with focused verification |

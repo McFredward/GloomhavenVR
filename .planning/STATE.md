@@ -1,4 +1,4 @@
-**Paired multiplayer follow-up, Build746, 2026-10-29 — integration in progress.**
+**Paired multiplayer follow-up, Build746, 2026-10-29 — validated for dev.**
 
 Both hardware banners identify745/c3bb18117. Environment-dependent NPC height
 and lighting are separated from common native map geometry. Exact narrative
@@ -6,12 +6,21 @@ dimmer suppression preserves original artwork and input. Opening-scoped shared
 gesture order replaces receiver-arrival election; losing grips cancel safely,
 and the accepted releaser's normal facing setting controls the shared turn.
 Compact ready-button capture includes native vote overspill, with its badge
-outside original ink. Complete class C invocation records261PASS/6fixtureFAIL
-across267 local suites; all6 now have passing primary complete containing
-repairs. Source16 and actual306739 golden assertions pass. Additional actual
-active-pipeline checks exposed reward-publisher and automatic-author handover
-defects; their bounded repairs, final focused checks and guard suffix are being
-completed. Build746 is not public; final validation and push remain pending.
+outside original ink. Current publisher/automatic-author handovers preserve the
+accepted opening and manual state; valid Initial.Sequence carries the observed
+claim clock for a late genuine grip. Retired release history cannot revive old
+Held poses. Zero sentinels and actual serial wraps retain ordering.
+
+Complete class C invocation records261PASS/6fixtureFAIL across267 local suites;
+all6 have passing primary complete containing repairs. Final shared pose4675
+assertions/47 controls, primary Unity184/30 controls and5 affected consumer
+suites pass with exact input-bound reuse. Primary positive4675 source units
+match the complete worker control run; no duplicate full267 run is claimed.
+Fresh strict Debug/Release0W0E, source16, actual306739 goldens and remaining
+bundle/surface/compiled suffix pass with reviewed expected41 changed/9 new types.
+All32 embedded resources match745. Source delivery targets origin/dev; Windows
+builds the archive. Owned evidence and private guard snapshots are archived and
+verified before worktree retirement; cache cleanup preserves hardware inputs.
 Map stalls also occur without new interactions (maintainer clarification).
 Their cause remains unproved; bounded Debug capture/seam attribution repairs
 known measurement gaps without claiming a pacing fix or changing quality/rate.
@@ -42,13 +51,12 @@ adding only bounded CARD LIST ENTRY. All5owned worker/validation WTs are archive
 content/hash verified and retired; caches cleaned, evidence/current artifacts kept.
 See MENU745-CARDS-AND-CONFIRMATION-AA.md and ignored menu745/final-validation.
 
-Fresh paired745/c3 hardware logs now report six NEW multiplayer findings. Build746
-is reserved and active: passive map stalls, environment-derived remote NPC height/
+The subsequent paired745/c3 hardware review opened Build746: passive map stalls, environment-derived remote NPC height/
 light coupling, oversized native narrative backdrops, last-releaser-facing shared
 windows, concurrent grip convergence and city-event badge/native-icon placement.
 This review does not establish headset acceptance of every745 change. Environment
 selection must affect only its choosing player; native practical effects remain
-shared. Additive wire123 is reserved for ordered shared-window claims/samples;
+shared. Additive wire123 carries ordered shared-window claims/samples;
 122 remains CardFlightOrigins. Quest743 remains separate: status is no rebase Go.
 Windows builds the delivery archive; source integrates to origin/dev.
 
