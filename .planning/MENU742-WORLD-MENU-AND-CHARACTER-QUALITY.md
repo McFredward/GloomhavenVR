@@ -67,14 +67,36 @@ seating and immersive town palms/masks cannot become competing transform authors
 refused home restoration retains its snapshot and refuses adoption. Existing
 enhancement cancellation remains unchanged.
 
-The character antialias candidate retains the fixed final head grid and existing
+The character antialias implementation retains the fixed final head grid and existing
 3D source presentation. Its source captures use a fixed2x absolute-head sampling
 grid with conservative occupied-region storage. Crop origins change storage,
 never sample spacing or phase. Native content still renders once per eye. The
 independent resolve shader must not be another automatic pass on the display
 renderer. Rejected postfilter and failed intermediate raster experiments remain
-evidence, not passing coverage. Final pixel, lifetime and memory results are
-pending and must be recorded before delivery.
+evidence, not passing coverage.
+
+Final review found a separate camera-input defect which the unlit reference planes
+could not observe. Decomposing the cropped clip matrix against the original head
+projection folded a nonuniform crop shear into the native view. An actual Unity
+oracle keeps the eye fixed and changes only storage: the old implementation changes
+the view by46.68665, a transformed normal by44.4107 degrees and near/far by a factor
+of0.326252. This also changes uGUI's projection-based pixel-size inputs. The repair
+carries the cropped raster projection separately through eye copies and decomposes
+against that projection, retaining the native view and its physical metric. The
+original full-gate candidate was stopped before this runtime repair; its60 passes
+and207 cancelled scopes are not a complete pass.
+
+Conservative late-equipment, decoration and annotation bounds share the same
+absolute grid. Uncertain bounds use the complete head extent. The UI scratch and
+native source scratch use high-water capacity buckets;52 measured motion poses
+require6 allocations each rather than the old11. Idle/failed-first/deferred-close
+paths retire their complete owned resources after the active borrow ends.
+
+At640x640 the measured owned peak is24,576,000 bytes. An extreme4040x4040 close or
+coplanar view requires1,305,728,000 bytes (1245.24MiB), excluding Unity-internal and
+driver allocations. This is a measured storage cost, not evidence of hardware
+frame pacing. Sampling remains2x per axis throughout movement; final eye pairs
+retain their1x head grid. Final repaired pixel and lifetime evidence is pending.
 
 ## Validation status
 
