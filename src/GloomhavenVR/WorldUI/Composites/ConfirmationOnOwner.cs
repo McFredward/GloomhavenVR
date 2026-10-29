@@ -8,7 +8,7 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Keeps an original generic confirmation inside the actual screen which requested it.
+/// Keeps an original native confirmation inside the actual screen which requested it.
 /// Build719 hardware showed the level-up confirmation floating separately; DialogSurface
 /// converted every pooled confirmation at the HMD, irrespective of its native producer.
 /// Producer scopes record identity at the original Show call (see the companion file),
@@ -19,7 +19,7 @@ internal static partial class ConfirmationOnOwner
 {
     private sealed class Seat
     {
-        internal readonly ConfirmationBox Box;
+        internal readonly Component Box;
         internal readonly Request Request;
         internal readonly RectTransform Rect;
         internal readonly Transform? Home;
@@ -37,7 +37,7 @@ internal static partial class ConfirmationOnOwner
         // exact world pose/scale, rather than acquiring a second placement author.
         internal ConvertedPanel? PersistentMember;
 
-        internal Seat(ConfirmationBox box, Request request, RectTransform rect,
+        internal Seat(Component box, Request request, RectTransform rect,
             ConvertedPanel panel, RectTransform mount)
         {
             Box = box; Request = request; Rect = rect; Panel = panel; Mount = mount;
@@ -72,9 +72,10 @@ internal static partial class ConfirmationOnOwner
         for (int i = Seats.Count - 1; i >= 0; i--)
         {
             Seat seat = Seats[i];
+            if (ForeignOwner(seat.Box)) continue;
             if (!Enabled || seat.Box == null || !StillShowing(seat.Box)
                 || !SourceAlive(seat.Request) || !PanelAlive(seat.Panel)
-                || (seat.PersistentMember != null && !seat.PersistentMember.IsAlive))
+                || (seat.PersistentMember != null && !PanelAlive(seat.PersistentMember)))
                 ReleaseAt(i);
         }
         UIConfirmationBoxManager? manager = Singleton<UIConfirmationBoxManager>.IsInitialized
@@ -84,14 +85,25 @@ internal static partial class ConfirmationOnOwner
         UIConfirmationBoxManager? menu = UIConfirmationBoxManager.MainMenuInstance;
         if (menu != null && !ReferenceEquals(menu, manager) && menu.CurrentBox != null)
             TrySeat(menu.CurrentBox);
+        UIItemConfirmationBox? item = Singleton<UIItemConfirmationBox>.IsInitialized
+            ? Singleton<UIItemConfirmationBox>.Instance : null;
+        if (item != null) TrySeat(item);
     }
 
     private static bool Enabled => WorldUIConfig.ConversionActive
-        && VRModeStateMachine.TableInFrontOfPlayer && !FlatScreen.ManualScreenActive;
+        && (VRModeStateMachine.TableInFrontOfPlayer || MenuWorldContext.IsReady)
+        && !FlatScreen.ManualScreenActive;
 
-    internal static bool TrySeat(ConfirmationBox box)
+    internal static bool TrySeat(ConfirmationBox box) => TrySeat((Component)box);
+
+    private static bool TrySeat(Component box)
     {
         if (box == null) return false;
+        if (ForeignOwner(box))
+        {
+            Requests.Remove(box); // the immersive native request must not become a later flat claim
+            return IsOwned(box.GetComponent<UIWindow>());
+        }
         if (!Enabled || !StillShowing(box))
         {
             Release(box);
@@ -144,6 +156,8 @@ internal static partial class ConfirmationOnOwner
             UIWindow? window = box.GetComponent<UIWindow>();
             // Capture native home only after all standalone capture/fit/grab writers retired.
             if (window == null || !ModalFallback.ReleaseForComposite(window)) return false;
+            if (box is UIItemConfirmationBox && !MapDialogSeat.ReleaseForConfirmationOwner(window)) return false;
+            if (ForeignOwner(box)) return false;
             Vector2 size = rect.rect.size;
             if (rect.parent == null || size.x < 2f || size.y < 2f) return false;
             var seat = new Seat(box, request, rect, panel, mount);
@@ -196,14 +210,38 @@ internal static partial class ConfirmationOnOwner
         }
     }
 
+    private static bool ForeignOwner(Component box)
+    {
+        if (box == null) return false;
+        UIWindow? window = box.GetComponent<UIWindow>();
+        return window != null && TownServicePresentation.OwnsWindow(window);
+    }
+
+    // Existing immersive/composite owners call the common transfer seam before
+    // taking the original. Retire this complete lease before they record its home.
+    internal static bool ReleaseForExternalOwner(UIWindow window)
+    {
+        if (window == null) return false;
+        for (int i = Seats.Count - 1; i >= 0; i--)
+        {
+            Seat seat = Seats[i];
+            if (!ReferenceEquals(seat.Rect, window.transform)) continue;
+            if (!ReleaseAt(i)) return false;
+            Requests.Remove(seat.Box);
+        }
+        return !IsOwned(window);
+    }
+
     private static bool SourceAlive(Request request) => request.Source != null
         && request.Source.gameObject.activeInHierarchy
         && (request.Window == null || request.Window.gameObject.activeInHierarchy);
 
-    private static bool StillShowing(ConfirmationBox box)
+    private static bool StillShowing(Component box)
     {
         UIWindow? window = box.GetComponent<UIWindow>();
-        return box.IsOpen || (window != null && window.IsVisible);
+        return (box is ConfirmationBox generic && generic.IsOpen)
+            || (box is UIItemConfirmationBox item && item.IsActive)
+            || (window != null && window.IsVisible);
     }
 
     private static bool PanelAlive(ConvertedPanel panel)
@@ -211,7 +249,7 @@ internal static partial class ConfirmationOnOwner
         if (!panel.IsAlive || panel.HostGo == null || !panel.HostGo.activeInHierarchy) return false;
         for (int i = 0; i < CanvasConversion.ActivePanels.Count; i++)
             if (ReferenceEquals(CanvasConversion.ActivePanels[i], panel)) return true;
-        return false;
+        return FlatScreen.IsMenuOwner(panel);
     }
 
     private static ConvertedPanel? FindPanel(Transform source)
@@ -224,7 +262,7 @@ internal static partial class ConfirmationOnOwner
                 ConvertedPanel panel = CanvasConversion.ActivePanels[i];
                 if (ReferenceEquals(panel.Target, node) && PanelAlive(panel)) return panel;
             }
-        return null;
+        return FlatScreen.TryGetMenuOwner(source, out ConvertedPanel? menuPanel) ? menuPanel : null;
     }
 
     private static void Apply(Seat seat)
@@ -250,7 +288,9 @@ internal static partial class ConfirmationOnOwner
 
     }
 
-    internal static void Release(ConfirmationBox box)
+    internal static void Release(ConfirmationBox box) => Release((Component)box);
+
+    private static void Release(Component box)
     {
         for (int i = Seats.Count - 1; i >= 0; i--)
             if (ReferenceEquals(Seats[i].Box, box)) ReleaseAt(i);
@@ -306,7 +346,7 @@ internal static partial class ConfirmationOnOwner
     internal static void Reset()
     {
         for (int i = Seats.Count - 1; i >= 0; i--) ReleaseAt(i);
-        Requests = new System.Runtime.CompilerServices.ConditionalWeakTable<ConfirmationBox, Request>();
+        Requests = new System.Runtime.CompilerServices.ConditionalWeakTable<Component, Request>();
         CurrentScope = null;
     }
 }

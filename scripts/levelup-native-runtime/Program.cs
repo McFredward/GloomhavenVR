@@ -28,7 +28,7 @@ public static partial class LevelUpNativeProgram
     public static void Inputs(string path)=>_inputs=path;
     public static void Cleanup()
     {
-        AnnouncementContinue.Tick(false);ConfirmationOnOwner.Reset();LevelUpComposite.Reset();
+        AnnouncementContinue.Tick(false);ConfirmationOnOwner.Reset();MapDialogSeat.Reset();LevelUpComposite.Reset();
         _harmony?.UnpatchSelf();_harmony=null;CanvasConversion.ActivePanels.Clear();
         foreach(var go in Object.FindObjectsOfType<GameObject>())Object.DestroyImmediate(go);
     }
@@ -91,7 +91,9 @@ public static partial class LevelUpNativeProgram
     {
         _checks=_controllerEnables=_translations=_nativeButtonChecks=0;_language="Continue";_allowNativeButton=false;
         WorldUIConfig.ConversionActive=true;FlatScreen.ManualScreenActive=false;FFSNetwork.IsOnline=false;
-        UIConfirmationBoxManager.MainMenuInstance=null;CanvasConversion.Converts=CanvasConversion.PoseAuthors=CanvasConversion.Releases=0;NativeFont();
+        UIConfirmationBoxManager.MainMenuInstance=null;Singleton<UIItemConfirmationBox>.Instance=null;
+        GloomhavenVR.Core.Events.MenuWorldContext.IsReady=false;FlatScreen.MenuOwner=null;FlatScreen.MenuSource=null;
+        CanvasConversion.Converts=CanvasConversion.PoseAuthors=CanvasConversion.Releases=0;NativeFont();
         var harmony=_harmony=new Harmony("GloomhavenVR.LevelUpNative."+typeof(LevelUpNativeProgram).Assembly.GetName().Name);
         Assembly game=typeof(native::ExtendedButton).Assembly;
         harmony.Patch(AccessTools.Method(game.GetType("GLOOM.LocalizationManager"),"GetTranslation"),prefix:new HarmonyMethod(Method(nameof(Translate))));
@@ -289,6 +291,12 @@ public static partial class LevelUpNativeProgram
         box.IsOpen=boxWindow.IsOpen=boxWindow.IsVisible=false;ConfirmationOnOwner.Tick();
         var direct739=ConfirmationGeometry739(camera,root,owner,output);
         while(direct739.MoveNext())yield return direct739.Current;
+        var producerProof=ConfirmationProducers742(camera,root,owner,output,harmony);
+        while(producerProof.MoveNext())yield return producerProof.Current;
+        var interopProof=ConfirmationOwnershipInterop742(root,output);
+        while(interopProof.MoveNext())yield return interopProof.Current;
+        var itemProof=ItemConfirmationGeometry742(camera,root,output);
+        while(itemProof.MoveNext())yield return itemProof.Current;
         box.IsOpen=boxWindow.IsOpen=boxWindow.IsVisible=true;Record(manager,owner);ConfirmationOnOwner.Tick();
         var unload=SceneManager.UnloadSceneAsync(scene);while(!unload.isDone)yield return null;
         ConfirmationOnOwner.Tick();

@@ -68,7 +68,7 @@ def clean(value):
  if isinstance(value,dict):return {k:clean(v) for k,v in value.items() if not (isinstance(v,dict) and 'm_PathID' in v)}
  if isinstance(value,list):return [clean(v) for v in value]
  return value
-def confirmation_node(reader):
+def confirmation_node(reader,prefix="confirmation"):
  go=reader.read();result={'name':go.m_Name,'active':bool(go.m_IsActive),'original':p.object_id(reader),'components':[]};transform=None
  for slot in go.m_Component:
   component=slot.component.deref();kind=component.type.name
@@ -85,11 +85,11 @@ def confirmation_node(reader):
      record['material']=p.object_id(material)
     if d['m_Sprite']['m_PathID']:
      sprite_reader=ptr(d['m_Sprite'],component).deref();sprite=sprite_reader.read()
-     record['sprite']='confirmation-sprite-'+str(component.path_id);sprite.image.save(out/(record['sprite']+'.png'))
+     record['sprite']=prefix+'-sprite-'+str(component.path_id);sprite.image.save(out/(record['sprite']+'.png'))
      record.update(border=p.vector(sprite.m_Border,'xyzw'),pivot=p.vector(sprite.m_Pivot,'xy'),ppu=sprite.m_PixelsToUnits,spriteOriginal=p.object_id(sprite_reader))
    if kind=='TextMeshProUGUI':record['font']=export_font(ptr(d['m_fontAsset'],component).deref(),ptr(d['m_sharedMaterial'],component).deref())
   result['components'].append(record)
- if transform:result['children']=[confirmation_node(c.read().m_GameObject.deref()) for c in transform.m_Children]
+ if transform:result['children']=[confirmation_node(c.read().m_GameObject.deref(),prefix) for c in transform.m_Children]
  return result
 confirmation=confirmation_node(confirmation_ids[1337]);assert confirmation['name']=='Confirmation Box_pc'
 assert [n['name'] for n in confirmation['children']]==['Blur','Box']
@@ -111,6 +111,13 @@ def xml_node(value):
  for child in value.get('children',[]):element.append(xml_node(child))
  return element
 ET.ElementTree(xml_node(confirmation)).write(out/'native-confirmation-tree.xml',encoding='unicode',xml_declaration=True)
+item_confirmation=confirmation_node(byid[3340],"item-confirmation")
+assert item_confirmation['name']=='UI Item Confirmation Box'
+assert any(c['kind']=='UIItemConfirmationBox' for c in item_confirmation['components'])
+(out/'native-item-confirmation-tree.json').write_text(json.dumps(item_confirmation,indent=2)+'\n')
+ET.ElementTree(xml_node(item_confirmation)).write(out/'native-item-confirmation-tree.xml',encoding='unicode',xml_declaration=True)
+(out/'native-item-confirmation-provenance.json').write_text(json.dumps({'scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level9').read_bytes()).hexdigest(),
+ 'presentation':'Original item-dialog geometry/layout/images/fonts; original static hierarchy only. Runtime item card and native controllers remain explicit surrounding inputs.'},indent=2)+'\n')
 
 (out/'native-confirmation-provenance.json').write_text(json.dumps({'scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level1').read_bytes()).hexdigest(),
  'presentation':'Original rect/layout/image/TMP declarations; original sprites and font data. Native game controllers are not installed. Localized question is an explicit input.',

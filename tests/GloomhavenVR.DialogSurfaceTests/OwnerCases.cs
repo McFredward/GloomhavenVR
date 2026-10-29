@@ -194,7 +194,10 @@ internal static class OwnerCases
             go => go.AddComponent<UIAdventurePartyAssemblyRoster>(), go => go.AddComponent<UIOptionsWindow>(),
             go => go.AddComponent<ESCMenu>(), go => go.AddComponent<UIMapEscMenu>(),
             go => go.AddComponent<UIMultiplayerEscSubmenu>(), go => go.AddComponent<UIScenarioEscMenu>(),
-            go => go.AddComponent<UIResetLevelUpWindow>() })
+            go => go.AddComponent<UIResetLevelUpWindow>(), go => go.AddComponent<UIShopItemInventory>(),
+            go => go.AddComponent<LevelEditorMainMenu>(), go => go.AddComponent<UICreateModView>(),
+            go => go.AddComponent<UIExportModdingManager>(), go => go.AddComponent<UIRulesetsWindow>(),
+            go => go.AddComponent<PersistentAbilitiesUI>() })
         {
             surface.Shutdown();
             (surface, manager, source, panel, home) = Setup();
@@ -247,11 +250,12 @@ internal static class OwnerCases
         var targets=(IEnumerable<MethodBase>)typeof(ConfirmationProducerScopePatch)
             .GetMethod("TargetMethods",BindingFlags.NonPublic|BindingFlags.Static)!.Invoke(null,null)!;
         int count=0; foreach(var target in targets) { Check(target!=null,"every reviewed producer patch target must exist");count++; }
-        Check(count==16,"all sixteen reviewed in-game producer methods must be covered");
+        Check(count==28,"all twenty-eight reviewed in-game producer methods must be covered");
         var requests=(IEnumerable<MethodBase>)typeof(ConfirmationRequestOriginPatch)
             .GetMethod("TargetMethods",BindingFlags.NonPublic|BindingFlags.Static)!.Invoke(null,null)!;
         count=0; foreach(var target in requests) { Check(target!=null,"every native generic request patch target must exist");count++; }
         Check(count==5,"all five native generic manager request paths must retain provenance");
         surface.Shutdown();
+        ProducerCases742.Run();
     }
 }

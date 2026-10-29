@@ -42,6 +42,39 @@ internal sealed class ConfirmationBox : Component
 }
 internal sealed class UILevelUpWindow : Component { private void ConfirmSelectCard() { } }
 internal sealed class UIResetLevelUpWindow : Component { private void ResetAbilities() { } }
+internal sealed class UIItemConfirmationBox : Component
+{
+    internal bool IsActive=false;
+    private void ShowConfirmation() { }
+}
+internal sealed class UIShopItemInventory : Component { private void OnSelectedItemSell() { } private void OnSelectedItemBuy() { } }
+internal sealed class LevelEditorMainMenu : Component { private void OnPlaySelectedFilePressed() { } }
+internal sealed class UICreateModView : Component { private void Confirm() { } }
+internal sealed class UIExportModdingManager : Component { private void OnExportFailed() { } }
+internal sealed class UIRulesetsWindow : Component
+{
+    internal Action? Completion; internal int Completed;
+    private void ChooseRulesetTypeToCreate() { } private void OnCloseButton() { }
+    private void OnConfirmedRulesetChanges() { } private void OnValidationFailed() { } private void AskDeleteRuleset() { }
+    internal void CompileRuleset() { int request=7; Completion=()=>Completed+=request; }
+}
+internal sealed class UIListModsView : Component
+{
+    internal Action? Completion; internal int Completed;
+    internal void ValidateMod() { int request=11; Completion=()=>Completed+=request; }
+    internal void OpenLevelEditor() { int request=13; Completion=()=>Completed+=request; }
+}
+internal sealed class UIRulesetView : Component
+{
+    internal Action? Completion; internal int Completed;
+    internal void ValidateMod() { int request=17; Completion=()=>Completed+=request; }
+}
+internal sealed class PersistentAbilitiesUI : Component
+{
+    private void OnCancelActiveAbility(int value) { } private void OnCancelActiveAbility(string value) { }
+    private List<Tuple<SpriteMemoryManagement.ReferenceToSprite,string,string,Action,bool>> GetCustomEffects() => new();
+}
+namespace SpriteMemoryManagement { internal sealed class ReferenceToSprite { } }
 internal sealed class UIPerksInventory : Component { private void OnSelectedPerk() { } }
 internal sealed class UIPartyItemInventoryDisplay : Component { private void OnItemSelected() { } }
 internal sealed class UIAdventurePartyAssemblyRoster : Component { private void OnSelectedCharacter() { } }
@@ -146,7 +179,7 @@ namespace UnityEngine.UI
 }
 namespace HarmonyLib
 {
-    [AttributeUsage(AttributeTargets.Class)] internal sealed class HarmonyPatch : Attribute { }
+    [AttributeUsage(AttributeTargets.Class)] internal sealed class HarmonyPatch : Attribute { internal HarmonyPatch() { } internal HarmonyPatch(Type type,string method) { } }
     internal static class AccessTools
     {
         internal static MethodInfo DeclaredMethod(Type type, string name) => type.GetMethod(name, BindingFlags.Instance|BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.DeclaredOnly)
@@ -165,6 +198,8 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.Core.Events
 {
+    internal static class MenuWorldContext { internal static bool IsReady=false; }
+
     internal static class VRModeStateMachine { internal static bool TableInFrontOfPlayer = true; }
 }
 namespace GloomhavenVR.Hands.Interact
@@ -179,7 +214,17 @@ namespace GloomhavenVR.WorldUI
         internal static readonly Flag Dialogs = new();
         internal static bool ConversionActive = true;
     }
-    internal static class FlatScreen { internal static bool ManualScreenActive; }
+    internal static class TownServicePresentation { internal static bool Owned=false;internal static bool OwnsWindow(UIWindow window)=>Owned; }
+    internal static class MapDialogSeat { internal static bool AllowTransfer=true;internal static bool ReleaseForConfirmationOwner(UIWindow window)=>AllowTransfer; }
+    internal static class FlatScreen
+    {
+        internal static bool ManualScreenActive;
+        internal static ConvertedPanel? MenuOwner=null;
+        internal static Transform? MenuSource=null;
+        internal static bool TryGetMenuOwner(Transform source,out ConvertedPanel? panel)
+        { panel=MenuOwner;return Core.Events.MenuWorldContext.IsReady&&MenuSource!=null&&source.IsChildOf(MenuSource)&&panel!=null; }
+        internal static bool IsMenuOwner(ConvertedPanel panel)=>Core.Events.MenuWorldContext.IsReady&&ReferenceEquals(panel,MenuOwner);
+    }
     internal static class PanelLayout { internal const float WorldScale = 1f; }
     internal sealed class ConvertedPanel
     {
@@ -224,6 +269,9 @@ namespace GloomhavenVR.WorldUI
         internal static void Reset()
         {
             ConfirmationOnOwner.Reset(); UIConfirmationBoxManager.MainMenuInstance = null;
+            Singleton<UIItemConfirmationBox>.Instance = null;
+            TownServicePresentation.Owned=false;MapDialogSeat.AllowTransfer=true;
+            Core.Events.MenuWorldContext.IsReady = false; FlatScreen.MenuOwner = null; FlatScreen.MenuSource = null;
             ActivePanels.Clear(); Converts = Releases = Transfers = CompositeReleases = 0; Last = LastDestination = null;
             ReturnNull = ThrowConvert = ThrowPlace = ThrowRelease = false;
             WorldCamera = new Camera();
@@ -235,6 +283,7 @@ namespace GloomhavenVR.WorldUI
         internal static bool ReleaseForComposite(UIWindow window)
         {
             ++CanvasConversion.CompositeReleases;
+            if (!ConfirmationOnOwner.ReleaseForExternalOwner(window)) return false;
             foreach (var panel in CanvasConversion.ActivePanels.ToArray())
                 if (ReferenceEquals(panel.Target,window.transform)) CanvasConversion.Release(panel);
             return true;

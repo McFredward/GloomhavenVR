@@ -24,6 +24,7 @@ from town_run_retention import cleanup_completed_run
 ROOT = Path(__file__).resolve().parents[1]
 FILES = {
     'LevelUpComposite.cs': 'Composites/LevelUpComposite.cs',
+    'MapDialogSeat.cs': 'Composites/MapDialogSeat.cs',
     'MovedSubtreeLayers.cs': 'Composites/MovedSubtreeLayers.cs',
     'ConfirmationOnOwner.cs': 'Composites/ConfirmationOnOwner.cs',
     'ConfirmationOnOwner.Origins.cs': 'Composites/ConfirmationOnOwner.Origins.cs',
@@ -60,6 +61,9 @@ def main():
     conversion = (modal / 'ModalFallback.8.Convert.cs').read_text()
     admit = conversion[conversion.index('private static bool TryConvertWindow('):conversion.index('        string name = window.name;', conversion.index('private static bool TryConvertWindow('))]
     originals['NativeAdmission.cs'] = 'using UnityEngine.UI; namespace GloomhavenVR.WorldUI { internal static partial class ModalFallback {\n' + method(screen, 'private static bool FloatWantedFor(') + '\n' + admit + 'AdmissionAttempts++; return false; } }}\n'
+    transfer = (modal / 'ModalFallback.CompositeTransfer.cs').read_text()
+    originals['NativeTransfer742.cs'] = ('using System;using UnityEngine;using UnityEngine.UI;namespace GloomhavenVR.WorldUI {internal static partial class ModalFallback {'
+        + method(transfer, 'internal static bool ReleaseForComposite(') + '}}')
     supersample_core = (root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs').read_text()
     supersample_capture = (root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs').read_text()
     kernels = [method(supersample_core, 'private static bool Eligible(')]
@@ -121,7 +125,7 @@ def main():
         ('glyphless-ink-admitted', 'LevelUpComposite.cs', 'if (!HasRenderedInk(ink)) continue;', '/* original TMP sentinel edges admitted */', 'glyphless TMP cannot eject either original card list after the reveal'),
         ('cross-scene-rejected', 'ConfirmationOnOwner.cs', '|| mount.IsChildOf(rect))', '|| mount.IsChildOf(rect) || mount.gameObject.scene != rect.gameObject.scene)', 'same native confirmation joins level-up before independent floating placement'),
         ('persistent-scene-stolen', 'ConfirmationOnOwner.cs', 'seat.PersistentMember = CanvasConversion.Convert', 'rect.SetParent(mount,false); seat.PersistentMember = CanvasConversion.Convert', 'persistent native dialog never inherits the scene-owned level-up lifetime'),
-        ('owner-loss-closes-native', 'ConfirmationOnOwner.cs', 'Seat seat = Seats[index];', 'Seat seat = Seats[index]; if (!SourceAlive(seat.Request)) seat.Box.IsOpen = false;', 'owner scene unload restores the original persistent dialog'),
+        ('owner-loss-closes-native', 'ConfirmationOnOwner.cs', 'Seat seat = Seats[index];', 'Seat seat = Seats[index]; if (!SourceAlive(seat.Request)) { if (seat.Box is ConfirmationBox original) original.IsOpen = false; seat.Box.GetComponent<UIWindow>()!.IsVisible = false; }', 'owner scene unload restores the original persistent dialog'),
         ('generic-float-readmission', 'NativeAdmission.cs', 'window == null || ConfirmationOnOwner.IsOwned(window)', 'window == null', 'owned confirmation cannot be readmitted as a generic floating window'),
         ('direct-convert-readmission', 'NativeAdmission.cs', 'if (ConfirmationOnOwner.IsOwned(window)) return true;', '/* semantic admission guard omitted */', 'direct generic conversion acknowledges existing embedded presentation'),
         ('owner-resize-ignored', 'ConfirmationOnOwner.cs', 'host.localScale = seat.Mount.lossyScale;', '/* accepted owner scale omitted */', 'persistent overlay copies only accepted owner world matrix'),
@@ -132,6 +136,21 @@ def main():
         ('standalone-backdrop-retained', 'DialogSurface.cs', 'transparentBackground: true', 'transparentBackground: false', 'standalone direct confirmation has no full-screen black or GrabPass surface outside the native small box'),
         ('persistent-owner-tier-lost', 'ConfirmationOnOwner.cs', 'sortingOrder: panel.BaseSortingOrder + 1', 'sortingOrder: 0', 'owned direct confirmation retains every front and rear native foreground pixel during motion'),
         ('persistent-lease-not-retired', 'ConfirmationOnOwner.cs', 'if (PanelAlive(seat.PersistentMember)) return false;', 'if (seat.PersistentMember.IsAlive) return false;', 'native close restores exact persistent dialog home while owner remains open'),
+        ('item-origin-lost', 'ConfirmationOnOwner.Origins.cs', 'private static void Prefix(UIItemConfirmationBox __instance) => ConfirmationOnOwner.Record(__instance);', 'private static void Prefix(UIItemConfirmationBox __instance) { }', 'native item Show records its exact shop producer and keeps the pooled original persistent'),
+        ('deferred-source-lost', 'ConfirmationOnOwner.Origins.cs', '? field.GetValue(__instance) as Component : null;', '? null : null;', 'native deferred callback uses its captured original producer and restores ambient scope'),
+        ('deferred-scope-not-restored', 'ConfirmationOnOwner.Origins.cs', '__state = ConfirmationOnOwner.CurrentScope;', '__state = null;', 'native deferred callback uses its captured original producer and restores ambient scope'),
+        ('actor-only-source-lost', 'ConfirmationOnOwner.Origins.cs', 'Component? previous = ConfirmationOnOwner.Begin(__instance);', 'Component? previous = ConfirmationOnOwner.CurrentScope;', 'native actor-only tooltip action retains its producing UI and original action'),
+        ('menu-owner-undiscovered', 'ConfirmationOnOwner.cs', 'return FlatScreen.TryGetMenuOwner(source, out ConvertedPanel? menuPanel) ? menuPanel : null;', 'return null;', 'ready menu confirmation uses its proved capture wrapper without a fake table or converted ancestor'),
+        ('menu-owner-not-live', 'ConfirmationOnOwner.cs', 'return FlatScreen.IsMenuOwner(panel);', 'return false;', 'settled menu ownership retains its live wrapper without per-frame release and recapture'),
+        ('item-backdrop-retained', 'ConfirmationOnOwner.cs', 'transparentBackground: true', 'transparentBackground: box is not UIItemConfirmationBox', 'item direct confirmation has no full-frame black or GrabPass surface outside the native content'),
+        ('legacy-member-yield-lost', 'MapDialogSeat.cs', 'window != null && ConfirmationOnOwner.IsOwned(window)', 'window != null && bool.Parse("false")', 'both actual coordinators retain one settled item owner without transform or capture churn'),
+        ('legacy-refused-home-ignored', 'MapDialogSeat.cs', 'if (!ReferenceEquals(rect.parent, seat.Home)) return false;', '/* rejected native parent ignored */', 'rejected legacy native home retains the old lease and prevents a competing producer snapshot'),
+        ('native-transfer-lease-retained', 'NativeTransfer742.cs', 'if (!ConfirmationOnOwner.ReleaseForExternalOwner(window))\n            return false;', '/* prior producer lease incorrectly retained */', 'actual common transfer retires the complete member lease before the palm records native home'),
+        ('immersive-owner-priority-lost', 'ConfirmationOnOwner.cs', 'return window != null && TownServicePresentation.OwnsWindow(window);', 'return false;', 'immersive native requests bypass generic transfer machinery before either coordinator can write'),
+        ('legacy-immersive-handoff-allowed', 'MapDialogSeat.cs', 'if (TownServicePresentation.OwnsWindow(window)) return false;', '/* immersive owner guard omitted */', 'legacy handoff refuses an original currently owned by the immersive native presentation'),
+        ('external-source-retained', 'ConfirmationOnOwner.cs', 'Requests.Remove(seat.Box);', '/* stale native producer retained */', 'external transfer clears old exact producer provenance until another native request'),
+        ('destroyed-foreign-guard-lost', 'ConfirmationOnOwner.cs', 'private static bool ForeignOwner(Component box)\n    {\n        if (box == null) return false;', 'private static bool ForeignOwner(Component box)\n    {', 'destroyed native originals retire without consulting a foreign owner through a missing Unity object'),
+        ('destroyed-original-transfer-accepted', 'ConfirmationOnOwner.cs', 'if (window == null) return false;', '/* destroyed original accepted */', 'a destroyed native original cannot be borrowed by an external presentation owner'),
         ('perks-owner-rejected', 'ConfirmationOnOwner.cs', '|| mount.IsChildOf(rect))', '|| mount.IsChildOf(rect) || request.Source is UIPerksInventory)', 'every perks confirmation is a foreground member of its actual producer window'),
         ('same-scene-member-rejected', 'ConfirmationOnOwner.cs', '|| mount.IsChildOf(rect))', '|| mount.IsChildOf(rect) || mount.gameObject.scene == rect.gameObject.scene)', 'every perks confirmation is a foreground member of its actual producer window'),
     ]
@@ -162,7 +181,7 @@ def main():
         if result.returncode: raise RuntimeError('Native export failed: ' + str(run / 'native-export.log'))
         manifest = {'result': str(run / 'results.txt'), 'evidence': str(run), 'inputs': str(inputs), 'managed': str(managed.resolve()), 'cases': []}
         hashes = {}
-        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', Path(__file__), ROOT / 'scripts/check-environment-menu-scope.py', ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/town_run_retention.py', *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
+        for file in [*(root / 'src/GloomhavenVR/WorldUI' / v for v in FILES.values()), *(root / 'src/GloomhavenVR/WorldUI/Conversion' / name for name in ('CanvasConversion.1.Core.cs','CanvasConversion.2.Adopt.cs','CanvasConversion.3.Fit.cs','CanvasConversion.4.Lifecycle.cs','CanvasConversion.8.Order.cs')), root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.1.Core.cs', root / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.2.Capture.cs', modal / 'ModalFallback.12.ScreenBind.cs', modal / 'ModalFallback.8.Convert.cs', modal / 'ModalFallback.CompositeTransfer.cs', Path(__file__), ROOT / 'scripts/check-environment-menu-scope.py', ROOT / 'scripts/menu-depth-character/project_compilers.py', ROOT / 'scripts/town_run_retention.py', *fixture.rglob('*.cs'), *fixture.glob('*.py'), *fixture.glob('*.shader'), fixture / 'LevelUpNative.csproj', *(managed / v for v in ('GH.Runtime.dll', 'UnityEngine.UI.dll', 'Unity.TextMeshPro.dll'))]:
             hashes[str(file)] = hashlib.sha256(file.read_bytes()).hexdigest()
         (run / 'source-pins.json').write_text(json.dumps({'sha256': hashes, 'coverage': 'partial' if args.case else 'production-and-controls', 'limits': __doc__}, indent=2) + '\n')
         env = os.environ.copy(); env.update(UseSharedCompilation='false', MSBUILDDISABLENODEREUSE='1', DOTNET_CLI_USE_MSBUILD_SERVER='0', TMPDIR=str(compiler_temp))
@@ -170,9 +189,33 @@ def main():
         for name, replacements, expected in cases:
             build = run / name; production = build / 'production'; production.mkdir(parents=True)
             for file, source in originals.items(): (production / file).write_text(replacements.get(file, source))
+            # Harmony/MonoMod keys generated detours by method/type identity. The
+            # real game is common to all variants, but surrounding fake native
+            # controllers must have distinct CLR namespaces in the shared editor.
+            # Production bodies remain unchanged and bind these explicit ports
+            # through global aliases; actual native metadata is audited separately.
+            case_fixture = build / 'fixture'; case_fixture.mkdir()
+            for original in fixture.glob('*.cs'): shutil.copyfile(original, case_fixture / original.name)
+            boundary = (case_fixture / 'Boundary.cs').read_text()
+            namespace = 'NativeBoundary742_' + name.replace('-', '_')
+            start = boundary.index('internal static class FFSNetwork')
+            end = boundary.index('\nnamespace UnityEngine.UI', start)
+            block = boundary[start:end]
+            sprite = 'namespace SpriteMemoryManagement { internal sealed class ReferenceToSprite { } }\n'
+            if block.count(sprite) != 1: raise RuntimeError('Native namespace port binding drift')
+            block = block.replace(sprite, '')
+            aliases = re.findall(r'^internal (?:static |sealed )?class (\w+)', block, re.M)
+            boundary = boundary[:start] + sprite + 'namespace ' + namespace + ' {\n' + block + '\n}\n' + boundary[end:]
+            boundary = boundary.replace('namespace UnityEngine.UI\n{', 'namespace ' + namespace + '\n{', 1)
+            aliases += ['UIWindow', 'UIWindowID']
+            boundary = boundary.replace('extern alias native;\n', 'extern alias native;\n' + '\n'.join('global using ' + alias + ' = ' + namespace + '.' + alias + ';' for alias in aliases) + '\n', 1)
+            (case_fixture / 'Boundary.cs').write_text(boundary)
+            (build / 'fixture-port-binding.json').write_text(json.dumps({'namespace': namespace, 'aliases': aliases,
+                'boundary_sha256': hashlib.sha256(boundary.encode()).hexdigest(),
+                'production': 'Unchanged production bodies; only explicit surrounding fixture native input types have variant identities.'}, indent=2) + '\n')
             csproj = build / 'LevelUpNative.csproj'; shutil.copyfile(fixture / csproj.name, csproj)
             assembly = 'LevelUpNative_' + name.replace('-', '_')
-            result = subprocess.run([dotnet, 'build', str(csproj), '-c', 'Release', '--nologo', '--verbosity', 'quiet', '-p:UseSharedCompilation=false', '-nodeReuse:false', '-p:CaseName=' + assembly, '-p:FixtureDir=' + str(fixture), '-p:ProductionDir=' + str(production), '-p:UnityManaged=' + str(args.unity.parent / 'Data/Managed'), '-p:GameManaged=' + str(managed.resolve())], capture_output=True, text=True, env=env)
+            result = subprocess.run([dotnet, 'build', str(csproj), '-c', 'Release', '--nologo', '--verbosity', 'quiet', '-p:UseSharedCompilation=false', '-nodeReuse:false', '-p:CaseName=' + assembly, '-p:FixtureDir=' + str(case_fixture), '-p:ProductionDir=' + str(production), '-p:UnityManaged=' + str(args.unity.parent / 'Data/Managed'), '-p:GameManaged=' + str(managed.resolve())], capture_output=True, text=True, env=env)
             (build / 'build.log').write_text(result.stdout + result.stderr)
             if result.returncode: raise RuntimeError('Compilation failure is not a successful defect control: ' + str(build / 'build.log'))
             output = build / 'bin/Release/net472'; dll = assemblies / (assembly + '.dll'); shutil.copyfile(output / dll.name, dll)

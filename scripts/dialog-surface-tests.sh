@@ -28,6 +28,14 @@ for name,before,after,expected in [
  assert before in originals['DialogSource'],'Mutation binding drift: '+name
  cases.append((name,{'DialogSource':originals['DialogSource'].replace(before,after)},expected))
 for name,key,before,after,expected in [
+ ('immersive-source-priority-lost','OwnerSource','return window != null && TownServicePresentation.OwnsWindow(window);','return false;','immersive item requests never acquire a generic member or change native home'),
+ ('external-source-retained','OwnerSource','Requests.Remove(seat.Box);','/* stale native producer retained */','external transfer clears old exact producer provenance until another native request'),
+ ('item-origin-lost','OriginSource','private static void Prefix(UIItemConfirmationBox __instance) => ConfirmationOnOwner.Record(__instance);','private static void Prefix(UIItemConfirmationBox __instance) { }','native item confirmation joins its exact producer and retains original persistence and small foreground'),
+ ('deferred-source-lost','OriginSource','? field.GetValue(__instance) as Component : null;','? null : null;','deferred native validation uses its captured owner instead of later focus and restores ambient scope'),
+ ('deferred-scope-not-restored','OriginSource','__state = ConfirmationOnOwner.CurrentScope;','__state = null;','deferred native validation uses its captured owner instead of later focus and restores ambient scope'),
+ ('actor-only-source-lost','OriginSource','Component? previous = ConfirmationOnOwner.Begin(__instance);','Component? previous = ConfirmationOnOwner.CurrentScope;','actor-only deferred tooltip actions retain the original UI source without bypassing the click'),
+ ('menu-owner-undiscovered','OwnerSource','return FlatScreen.TryGetMenuOwner(source, out ConvertedPanel? menuPanel) ? menuPanel : null;','return null;','ready menu confirmation uses its proved capture wrapper without a fake table or converted ancestor'),
+ ('menu-owner-not-live','OwnerSource','return FlatScreen.IsMenuOwner(panel);','return false;','settled menu ownership retains its live wrapper without per-frame release and recapture'),
  ('perks-owner-rejected','OwnerSource','|| mount.IsChildOf(rect))','|| mount.IsChildOf(rect) || request.Source is UIPerksInventory)','new producer request must replace old pooled ownership immediately'),
  ('same-scene-member-rejected','OwnerSource','|| mount.IsChildOf(rect))','|| mount.IsChildOf(rect) || mount.gameObject.scene == rect.gameObject.scene)','causal confirmation has one owner-bound member and no independent world placement'),
  ('double-capture','OwnerSource','if (window == null || !ModalFallback.ReleaseForComposite(window)) return false;','if (window == null) return false;','late semantic adoption must release the old standalone capture before recording native home'),

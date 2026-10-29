@@ -2,6 +2,7 @@ extern alias native;
 global using ExtendedButton = native::ExtendedButton;
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
@@ -9,6 +10,8 @@ using UnityEngine.SceneManagement;
 // Session, native owner fields and conversion services are explicit surrounding inputs.
 // The new production compositor, original Unity transforms/scenes, actual game ExtendedButton,
 // uGUI/TMP pixels, event dispatch and source/root lifetime execute in the real editor.
+internal enum BoxConfirmationType { General,Buy,Sell }
+internal enum EGuildmasterMode { None,Merchant,Temple,Enchantress }
 internal static class Singleton<T> where T:class { internal static T? Instance; internal static bool IsInitialized=>Instance!=null; }
 internal static class FFSNetwork { internal static bool IsOnline; }
 internal sealed class CharacterPermission { internal bool IsUnderMyControl=true; }
@@ -46,11 +49,47 @@ internal sealed class UIConfirmationBoxManager
 {
     internal static UIConfirmationBoxManager? MainMenuInstance;internal ConfirmationBox CurrentBox=null!;
     internal Action? BoxWindowShown=null,BoxWindowHidden=null;
-    private void ShowGenericConfirmation() { } private void ShowGenericWarningConfirmation() { }
+    [MethodImpl(MethodImplOptions.NoInlining)] internal void ShowGenericConfirmation() { CurrentBox.IsOpen=true;CurrentBox.GetComponent<UIWindow>().IsVisible=true;BoxWindowShown?.Invoke(); } private void ShowGenericWarningConfirmation() { }
     private void ShowGenericCancelConfirmation() { } private void ShowGenericSpendConfirmation() { }
     private void ShowCancelActiveAbility() { }
 }
 internal sealed class ConfirmationBox:MonoBehaviour { internal bool IsOpen=true; }
+internal sealed class UIItemConfirmationBox : MonoBehaviour
+{
+    private bool _active=false;internal bool IsActive {get=>_active;set{_active=value;var w=GetComponent<UIWindow>();if(w!=null)w.IsOpen=value;}}
+    internal event Action<BoxConfirmationType>? ConfirmationBoxRequested;
+    [MethodImpl(MethodImplOptions.NoInlining)] internal void ShowConfirmation(BoxConfirmationType kind=BoxConfirmationType.General) { ConfirmationBoxRequested?.Invoke(kind);IsActive=true;GetComponent<UIWindow>().IsVisible=true; }
+}
+internal sealed class UIEnhancementConfirmationBox : MonoBehaviour { }
+internal sealed class UIShopItemInventory : MonoBehaviour { internal UIItemConfirmationBox? Item=null; private void OnSelectedItemSell() { Item?.ShowConfirmation(BoxConfirmationType.Sell); } private void OnSelectedItemBuy() { Item?.ShowConfirmation(BoxConfirmationType.Buy); } }
+internal sealed class LevelEditorMainMenu : MonoBehaviour { private void OnPlaySelectedFilePressed() { } }
+internal sealed class UICreateModView : MonoBehaviour { private void Confirm() { } }
+internal sealed class UIExportModdingManager : MonoBehaviour { private void OnExportFailed() { } }
+internal sealed class UIRulesetsWindow : MonoBehaviour
+{
+    internal Action? Completion; internal int Completed; internal UIConfirmationBoxManager? Manager=null;
+    private void ChooseRulesetTypeToCreate() { } private void OnCloseButton() { }
+    private void OnConfirmedRulesetChanges() { } private void OnValidationFailed() { } private void AskDeleteRuleset() { }
+    internal void CompileRuleset() { int request=7; Completion=()=>{Completed+=request;Manager?.ShowGenericConfirmation();}; }
+}
+internal sealed class UIListModsView : MonoBehaviour
+{
+    internal Action? Completion; internal int Completed; internal UIConfirmationBoxManager? Manager=null;
+    internal void ValidateMod() { int request=11; Completion=()=>{Completed+=request;Manager?.ShowGenericConfirmation();}; }
+    internal void OpenLevelEditor() { int request=13; Completion=()=>{Completed+=request;Manager?.ShowGenericConfirmation();}; }
+}
+internal sealed class UIRulesetView : MonoBehaviour
+{
+    internal Action? Completion; internal int Completed; internal UIConfirmationBoxManager? Manager=null;
+    internal void ValidateMod() { int request=17; Completion=()=>{Completed+=request;Manager?.ShowGenericConfirmation();}; }
+}
+internal sealed class PersistentAbilitiesUI : MonoBehaviour
+{
+    private void OnCancelActiveAbility(int value) { } private void OnCancelActiveAbility(string value) { }
+    internal List<Tuple<SpriteMemoryManagement.ReferenceToSprite,string,string,Action,bool>> Effects=new();
+    [MethodImpl(MethodImplOptions.NoInlining)] internal List<Tuple<SpriteMemoryManagement.ReferenceToSprite,string,string,Action,bool>> GetCustomEffects() => Effects;
+}
+namespace SpriteMemoryManagement { internal sealed class ReferenceToSprite { } }
 internal sealed class UIPerksInventory:MonoBehaviour { private void OnSelectedPerk() { } }
 internal sealed class UIPartyItemInventoryDisplay:MonoBehaviour { private void OnItemSelected() { } }
 internal sealed class UIAdventurePartyAssemblyRoster:MonoBehaviour { private void OnSelectedCharacter() { } }
@@ -62,17 +101,36 @@ internal sealed class UIScenarioEscMenu:MonoBehaviour
 {private void QuitDungeon() { }private void RestartScenario() { }private void QueueRestartRound() { }private void RestartTurn() { }private void SkipMission() { }private void SkipTutorial() { }}
 namespace UnityEngine.UI
 {
-    internal enum UIWindowID { None,PartyPanel,HeroLevelUpPanel }
-    internal sealed class UIWindow:MonoBehaviour { internal bool IsOpen=true,IsVisible=true;internal UIWindowID ID; }
+    internal enum UIWindowID { None,PartyPanel,HeroLevelUpPanel,Shop,EnhancementShop }
+    internal sealed class UIWindow:MonoBehaviour
+    {
+        internal bool IsOpen=true,IsVisible=true;internal UIWindowID ID;
+        internal Action? OnShow,OnHide;
+        internal void Show(){IsOpen=IsVisible=true;OnShow?.Invoke();}
+        internal void Hide(bool instant=false){OnHide?.Invoke();IsOpen=IsVisible=false;}
+        internal void StartAlphaTween(float alpha,float seconds,bool ignoreTimeScale){IsVisible=alpha>0;}
+    }
 }
 namespace GloomhavenVR.Core
 {
     internal static class PerfMonitor {internal readonly struct Noop:IDisposable{public void Dispose(){}}internal static Noop Scope(string name)=>default;internal static void Count(string name,int count){}}
     internal static class UnseenTileOrder {internal static void Tick(Vector3 eye){}}
-    internal static class VRLog {internal static void Info(string area,string message){}internal static void Warn(string area,string message){}internal static void Alert(string area,string message){} }
+    internal static class VRLog {internal static void Info(string area,string message){}internal static void Warn(string area,string message){}internal static void Alert(string area,string message){}internal static void Note(string area,string message){} }
 }
-namespace GloomhavenVR.Core.Events {internal static class VRModeStateMachine {internal static bool TableInFrontOfPlayer=true;} }
+namespace GloomhavenVR.Core.Events {
+    internal static class MenuWorldContext { internal static bool IsReady=false; }
+internal static class VRModeStateMachine {internal static bool TableInFrontOfPlayer=true;} }
 namespace GloomhavenVR.Hands.Interact {internal sealed class PokeSurfaceTuning {internal static readonly PokeSurfaceTuning SmallDialog=new();} }
+namespace GloomhavenVR.WorldUI.MapRoom
+{
+    internal static class GuildmasterDestinations
+    {
+        internal static EGuildmasterMode Mode=EGuildmasterMode.Merchant;
+        internal static readonly Dictionary<EGuildmasterMode,UIWindow> Windows=new();
+        internal static EGuildmasterMode? CurrentDestinationMode()=>Mode;
+        internal static UIWindow? ModeWindow(EGuildmasterMode mode)=>Windows.TryGetValue(mode,out var window)?window:null;
+    }
+}
 namespace GloomhavenVR.WorldUI
 {
     internal sealed class FixtureSetting<T> {internal T Value;internal FixtureSetting(T value){Value=value;}}
@@ -81,6 +139,13 @@ namespace GloomhavenVR.WorldUI
         internal static bool ConversionActive=true;
         internal static FixtureSetting<bool> Dialogs=new(true),NeutraliseGrabPassBlur=new(true);
         internal static FixtureSetting<float> PanelMipLodOffset=new(0f);
+    }
+    internal static class WindowMaterialise {internal static void DropPreRoll(ConvertedPanel panel,string why){} internal static void Cancel(ConvertedPanel panel,string why){}}
+    internal static class TownServicePresentation
+    {
+        internal static UIWindow? Owned=null;
+        internal static bool OwnsWindow(UIWindow window)=>ReferenceEquals(window,Owned);
+        internal static bool IsQuietController(UIWindow window,byte service)=>false;
     }
     internal static class Defaults {internal const float PanelMipLodOffset=0f;}
     internal static class PanelLayout {internal static float WorldScale=1f;}
@@ -91,7 +156,15 @@ namespace GloomhavenVR.WorldUI
         internal static void LogPlaced(string name,Facing facing,Vector3 position,string reason) { }
     }
     internal static class VRLayers {internal static void Apply(GameObject go)=>go.layer=26;}
-    internal static class FlatScreen {internal static bool ManualScreenActive;}
+    internal static class FlatScreen
+    {
+        internal static bool ManualScreenActive;
+        internal static ConvertedPanel? MenuOwner=null;
+        internal static Transform? MenuSource=null;
+        internal static bool TryGetMenuOwner(Transform source,out ConvertedPanel? panel)
+        { panel=MenuOwner;return Core.Events.MenuWorldContext.IsReady&&MenuSource!=null&&source.IsChildOf(MenuSource)&&panel!=null; }
+        internal static bool IsMenuOwner(ConvertedPanel panel)=>Core.Events.MenuWorldContext.IsReady&&ReferenceEquals(panel,MenuOwner);
+    }
     internal static class ChromeParkTuning {internal const float ChromeGapPx=12f,OffsetEpsilonPx=.25f;}
     internal sealed class ConvertedPanel
     {
@@ -153,10 +226,14 @@ namespace GloomhavenVR.WorldUI
         internal static int AdmissionAttempts=0;
         internal static bool WantsFloat(UIWindow window)=>FloatWantedFor(window,true);
         internal static bool DirectAdmission(UIWindow window)=>TryConvertWindow(window);
-        internal static bool ReleaseForComposite(UIWindow window)
-        {
-            for(int i=CanvasConversion.ActivePanels.Count-1;i>=0;i--)if(ReferenceEquals(CanvasConversion.ActivePanels[i].Target,window.transform))CanvasConversion.Release(CanvasConversion.ActivePanels[i]);
-            return true;
-        }
+        internal static ConvertedPanel? PanelFor(UIWindow window)=>CanvasConversion.ActivePanels.Find(p=>ReferenceEquals(p.Target,window.transform));
+        internal static bool FloatIsLive(UIWindow window)=>window.IsOpen&&PanelFor(window)!=null;
+        private sealed class GrabPort {internal void Destroy() { }}
+        private sealed class WindowPanel {internal UIWindow Window=null!;internal ConvertedPanel Panel=null!;internal bool UserClosing=false;internal GrabPort? Grab=null;}
+        private static readonly List<WindowPanel> Converted=new();
+        internal static int CompositeTransfers=0;
+        private static void ReleasePreConvertHide(UIWindow window,string why) { CompositeTransfers++; }
+        private static void ReleaseScreenBind(UIWindow window,string why) { }
+
     }
 }
