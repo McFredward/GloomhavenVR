@@ -1,7 +1,8 @@
 # Android native default-sky resources
 
-This work is isolated resource preparation for Quest Build741. The actual feature
-rebase waits for the maintainer's final dev-ready signal. No complete APK, source
+This work is isolated resource preparation for Quest Build741. The final upstream
+Build740 input is `35e08359a6947bddd7528df594795a84b38577c7`; the integrator owns
+the feature rebase after the explicit dev-ready signal. No complete APK, source
 archive, whole Campaign import or whole-game shader conversion is produced here.
 
 ## Contract and ownership
@@ -98,7 +99,29 @@ restored through the existing DXBC/interface machinery and compiled in a private
 tiny Android project. The prepared complete project is never imported. Native
 cache seeding copies only the exact selected program/interface artifacts into
 the private cache; shared caches remain read-only. Every original compiler alias
-must survive the actual Vulkan shader closure check.
+must survive the actual Vulkan shader closure check. The existing
+`unity_launcher(editor, graphics=True)` is required: Unity's Null device removes
+MRT/Deferred passes before SVC selection. The tiny Editor checks four MRTs and
+sets the exact pinned instancing-retention enum to KeepAll. An actual omitted
+setting control loses only INSTANCING_ON aliases: AMP30, Diffuse51, VertexLit6.
+No pass or original alias is omitted to accommodate that stripping.
+
+The Sky-only binder accepts exactly the three original VertexLit lighting
+DXBC/interface pairs and their translated-source hashes. Original float4[8]
+arrays occupy byte112 (Color),240 (Position),368 (Atten) and496 (SpotDirection),
+with16-byte stride. The directional/point/spot DXBC cbuffers contain23/31/39
+vectors. Their signed loop starts at zero, tests its signed engine count before
+each read and increments by one. A body execution therefore has
+`0 <= i <= INT_MAX-1`; `uint(i)+7/15/23/31` never wraps or addresses vectors0..6.
+Only these28 never-addressed scalar initializer slots receive zero. All original
+accesses and active uniform bindings remain unchanged. The adapter does not
+invent missing lighting uniforms or assume an eight-iteration loop cap. Unknown
+read/source/type/offset/array/identity shapes fail. The exact old engine fields
+`int4 unity_VertexLightParams` and `float4 unity_Lightmap_ST` receive their original
+metadata declarations because UnityCG omits them; their values are not replaced.
+Native uppercase LightMode metadata is emitted using the importer key/value
+spelling for that same finite original semantic enum. Shared conversion sources
+and the old menu producer are unchanged.
 
 PC work lives at `output/work/sky-<producer12>/`. Its `owner.json` contains exactly
 schema1, scope `quest-default-sky-work-v1`, full recipeKey and full producerKey.
@@ -134,18 +157,39 @@ refusal. The actual Build625 scope also exercises all three Vulkan shader banks
 and ten causal corruptions of version/platform, fallback, material, texture, mesh and
 runtime root contracts. Logs, input identities and completed-run cleanup receipts
 live under `quest-dev740-rebase-20261028/sky` in the external evidence tree.
-The current source checkpoint passes19 tests in24.862 seconds. The actual native
-controls include four corrupt/incomplete-cache repairs, byte-identical selected
-resource-pair restoration and refusal of unknown paths/owners. A private strict
-Release build of the Editor source against the real Unity2021 references passes
-with zero warnings/errors in1.39 seconds, without starting Unity.
+The final focused scope passes21 tests in21.19 seconds, including the actual owned Build625
+Android assets, three original PC VertexLit programs, all ten native-bank causal
+controls, four exact-cache repair cases and immutable input/owner/path controls.
+The private strict Release build of the final Editor source against real
+Unity2021 references passes with zero warnings/errors in1.13 seconds. This is bounded worker
+coverage; the integrator owns the complete final Class C union gate.
 
-Actual `AssetBundle.LoadAsset<Mesh/Material/Shader>` readiness, AMP support and
-the tiny PC three-shader compilation remain required before completion. They are
-currently deferred while the upstream complete dev checkpoint occupies Unity;
-no new Unity process is launched without coordination. Serialized platform proof
-or a software Vulkan consumer cannot establish headset pixels, real device
-performance or hardware acceptance.
+The actual tiny PC compilation retains all432 original stage aliases as240
+combined Vulkan aliases (AMP99, Diffuse117, VertexLit24), in19.40 seconds on the
+final inputs. It imports only three
+shader roots and their finite generated native program includes. Original mesh,
+material and each original BC1 mip's losslessly decoded RGBA32 bytes are checked
+again after packing. The installed-only route retains all original existing
+Android ETC mip/program bytes. Both banks execute through actual Unity2021
+Vulkan `AssetBundle.LoadFromFile`, exact `GetAllAssetNames`, canonical
+`LoadAsset<Mesh/Material/Shader>`, both complete texture dependencies and all three
+new native Shader instances reporting support. `LoadAllAssets<Shader>` names only
+the AMP container root; the two fallbacks are internal dependencies, so the
+consumer independently inspects the newly loaded native instances. An actual
+wrong-container-key bank fails at the intended loader-key guard. The final cold-PC
+bank loads in the6.81-second actual Vulkan run. The installed source and key
+control finish in the separate14.25-second scope. Further actual PC-pair controls
+prove reuse with absent game/Editor inputs, no writes or Unity launch, future
+installed-sidecar-only recovery, and byte-identical corrupt-proof repair while
+preserving an unknown child.
+
+The graphics witness is Mesa llvmpipe Vulkan with explicit device index0, not a
+Quest headset. Software Vulkan loading proves platform/API and object readiness;
+it does not establish headset pixels, real device performance or hardware
+acceptance. Pure Windows path-budget checks execute, but no Windows Editor run is
+claimed. Exact source/input rows, successful and failed attempts, native program
+proofs, logs, results and process/common cleanup receipts remain private evidence.
+No raw original game file was written and no complete APK/ZIP was produced.
 
 The existing menu-depth producer is unchanged and still plans to
 `ba75e6e9a5b5ea37c4a3f4b0b48c1f324298875e4aaf67dcdfa8aeccd2116318`.

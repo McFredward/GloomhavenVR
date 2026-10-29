@@ -26,10 +26,26 @@ public static class DefaultSkyResourceBuilder
         {
             if (Application.unityVersion != "2021.3.5f1" || EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android)
                 throw new InvalidOperationException("Native sky compilation requires Unity2021.3.5f1 Android.");
+            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null || SystemInfo.supportedRenderTargetCount < 4)
+                throw new InvalidOperationException("Native sky fallback passes require an actual graphics host with four MRTs; omit -nographics.");
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.stereoRenderingPath = StereoRenderingPath.MultiPass;
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
             PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { GraphicsDeviceType.Vulkan });
+            // The tiny project has no instanced scene renderer. Unity otherwise
+            // strips original INSTANCING_ON aliases despite their explicit SVC.
+            // Use the same exact pinned enum contract as the Campaign builder.
+            var graphics = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
+            var instancing = graphics.FindProperty("m_InstancingStripping");
+            string[] choices = { "StripUnused", "StripAll", "KeepAll" };
+            if (instancing == null || instancing.propertyType != SerializedPropertyType.Enum ||
+                !instancing.enumNames.Select(name => string.Concat(name.Where(char.IsLetterOrDigit))).SequenceEqual(choices))
+                throw new InvalidDataException("Pinned Unity instancing retention enum changed.");
+            instancing.enumValueIndex = Array.IndexOf(choices, "KeepAll");
+            graphics.ApplyModifiedPropertiesWithoutUndo();
+            graphics.Update();
+            if (graphics.FindProperty("m_InstancingStripping").intValue != 2)
+                throw new InvalidDataException("Original sky instancing aliases were not retained.");
             Manifest manifest = JsonUtility.FromJson<Manifest>(File.ReadAllText(Argument("-skyManifest")));
             string[] names = { "AMP_SkyShader", "Legacy Shaders/Diffuse", "Legacy Shaders/VertexLit" };
             if (manifest.shaders == null || manifest.shaders.Length != 3 ||
@@ -72,6 +88,7 @@ public static class DefaultSkyResourceBuilder
         {
             if (Application.unityVersion != "2021.3.5f1" || SystemInfo.graphicsDeviceType != GraphicsDeviceType.Vulkan)
                 throw new InvalidOperationException("Native sky readiness proof requires exact Unity and a Vulkan host.");
+            int[] previous = Resources.FindObjectsOfTypeAll<Shader>().Select(s => s.GetInstanceID()).ToArray();
             bank = AssetBundle.LoadFromFile(Argument("-skyProbe"));
             if (bank == null) throw new InvalidDataException("Actual native sky AssetBundle.LoadFromFile failed.");
             string[] roots = { "native/default-sky/mesh", "native/default-sky/material", "native/default-sky/shader" };
@@ -79,15 +96,25 @@ public static class DefaultSkyResourceBuilder
                 throw new InvalidDataException("Actual native sky loader root names differ.");
             Mesh mesh = bank.LoadAsset<Mesh>(roots[0]);
             Material material = bank.LoadAsset<Material>(roots[1]);
+            Shader main = bank.LoadAsset<Shader>(roots[2]);
             if (mesh == null || mesh.name != "GH_SkySphere" || mesh.vertexCount != 1679 || material == null ||
-                material.name != "BG_SkyClouds 2" || material.shader == null || material.shader.name != "AMP_SkyShader" || !material.shader.isSupported)
+                material.name != "BG_SkyClouds 2" || main == null || material.shader != main || main.name != "AMP_SkyShader" || !main.isSupported)
                 throw new InvalidDataException("NativeDefaultSky.EnsureAssets lookup/support contract failed.");
             foreach (Texture2D? texture in new[] { material.GetTexture("_Map1") as Texture2D, material.GetTexture("_Map2") as Texture2D })
-                if (texture == null || texture.mipmapCount < 10) throw new InvalidDataException("Native sky texture/mip dependency failed.");
+                if (texture == null || !((texture.name == "EN_SkyTest_01" && texture.width == 4096 && texture.height == 2048 && texture.mipmapCount == 13) ||
+                    (texture.name == "PerlinNoiseGray2" && texture.width == 512 && texture.height == 512 && texture.mipmapCount == 10)))
+                    throw new InvalidDataException("Native sky texture/mip dependency failed.");
             Shader[] shaders = bank.LoadAllAssets<Shader>();
-            if (shaders.Length != 3 || shaders.Any(s => !s.isSupported))
+            // LoadAllAssets enumerates named container roots, not internal
+            // dependencies. This bank names only AMP; inspect the three newly
+            // loaded native Shader instances to qualify its fallback closure.
+            Shader[] dependencies = Resources.FindObjectsOfTypeAll<Shader>().Where(s => !previous.Contains(s.GetInstanceID())).ToArray();
+            string[] names = { "AMP_SkyShader", "Legacy Shaders/Diffuse", "Legacy Shaders/VertexLit" };
+            Debug.Log("Native sky loaded shaders: " + string.Join("; ", dependencies.Select(s => s.name + " supported=" + s.isSupported)));
+            if (shaders.Length != 1 || shaders[0] != main || dependencies.Length != 3 ||
+                !dependencies.Select(s => s.name).OrderBy(s => s).SequenceEqual(names.OrderBy(s => s)) || dependencies.Any(s => !s.isSupported))
                 throw new InvalidDataException("Actual three-shader fallback support failed.");
-            File.WriteAllText(Argument("-skyProbeResult"), "PASS actual LoadAsset<Mesh/Material>; original AMP shader supported; three shaders and complete texture dependencies\n");
+            File.WriteAllText(Argument("-skyProbeResult"), "PASS actual LoadAsset<Mesh/Material/Shader>; original AMP and both native fallback instances supported; complete13/10 mip dependencies; Vulkan=" + SystemInfo.graphicsDeviceName + "\n");
             bank.Unload(true); bank = null;
             EditorApplication.Exit(0);
         }

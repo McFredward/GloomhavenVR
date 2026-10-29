@@ -18,6 +18,7 @@ import re
 import shutil
 import struct
 import sys
+import types
 import uuid
 import zipfile
 
@@ -698,6 +699,107 @@ def _decode_bc1_mips(asset):
     return result
 
 
+# These are the original VertexLit directional/point/spot instruction/interface
+# pairs, translated by the pinned tools. Their signed loop starts at zero,
+# breaks before i >= unity_VertexLightParams.x, and increments by one. Thus
+# 0 <= i <= INT_MAX-1 at every read; uint(i)+7/15/23/31 cannot wrap. Lighting
+# vectors 0..6 are never addressed. The generic binder conservatively includes
+# the whole dynamically indexed array and otherwise rejects these empty slots.
+# Do not infer additional engine uniforms from an SDK declaration: only these
+# unreachable initializer slots may receive zero. Original accesses, bounds
+# lowering, declared arrays and all active uniform values remain unchanged.
+VERTEX_LIT = {
+    "76bac418e0c772673a48bc414c52672c1b5c1bdab50b5d4df4043855f1ea00a9": (
+        "fe3f725c2c14772532b292ef8af865eff5060cc3cb72b09ba7777d0d5841e161",
+        "2ef201a3d0e622c87b6d9a0ed488f6d8c1a0ceefe05d21a9b965d73798802226", 23),
+    "b7f32cf6b14b01c482e80470f9e465408386dc90ed982ad14ad2728d8a617a79": (
+        "bd3a89a87e40c63ab48d79bdc9ff09164f965b1db176d8090006628e74e30fa0",
+        "f9cf6737dd62cd22b5f59fab5ba02497f56924e967d6ead2a8d4fe6bdf9c3a89", 31),
+    "21c7c888a1cb1c1b94c78db2e2cda5dac91b43b2fff56215effad9827c0f6faa": (
+        "3b54fb01c25ae844843db024f3cf3470f5aa0c920a22783729d8c3d5e7f1b56b",
+        "87b3c49623d00ee4a21804277fd7b77c726e428f8210ac7d56bc152bae4d9404", 39),
+}
+
+
+def _vertex_lit_uniforms(native, original, hlsl, interface, signatures=(), layouts=()):
+    identity = value_hash(interface)
+    witness = VERTEX_LIT.get(identity)
+    require(witness is not None and _sha(hlsl.encode()) == witness[1],
+        "VertexLit lighting instruction/interface witness changed; audit the exact native program")
+    lighting = next(b for b in interface["buffers"] if b["name"] == "UnityLighting")
+    fields = [{"name": name, "type": 0, "rows": 1, "columns": 4, "matrix": False,
+               "arraySize": 8, "byteOffset": offset} for name, offset in
+              (("unity_LightColor", 112), ("unity_LightPosition", 240),
+               ("unity_LightAtten", 368), ("unity_SpotDirection", 496))[:(witness[2] - 7) // 8]]
+    require(value_hash({**lighting, "fields": sorted(lighting["fields"], key=lambda f: f["byteOffset"])}) ==
+        value_hash({"name": "UnityLighting", "bytes": 768, "fields": fields, "structures": []}),
+        "VertexLit lighting field type/offset/16-byte array stride changed")
+    require(re.search(r"float4 cb1_0_m0\[" + str(witness[2]) + r"\] : packoffset\(c0\);", hlsl),
+        "VertexLit original cbuffer extent changed")
+    def components(field):
+        result = native.field_components(field)
+        if field == fields[0]: result.update({i: "0.0" for i in range(28)})
+        return result
+    scoped = types.FunctionType(original.__code__, {**original.__globals__, "field_components": components},
+                                original.__name__, original.__defaults__, original.__closure__)
+    bound, observed = scoped(hlsl, interface, signatures, layouts)
+    for row in observed:
+        if row["originalBuffer"] == "UnityLighting":
+            row["skyUnreachableInitializerScalars"] = list(range(28))
+            row["skyOriginalDxbcSha256"] = witness[0]
+            row["skyOriginalInterfaceSha256"] = identity
+            row["skyMinimumReadVector"] = 7
+    return bound, observed
+
+
+def _install_sky_binder(native, assets):
+    require(_sha(assets["vertex-lit"]["object"].get_raw_data()) ==
+        "0d0aa1a0490ea849e006ae8054d416724741b5dc804fb1c7529bf8d91a91887a",
+        "VertexLit original object changed")
+    pairs = {(p["originalDxbcSha256"], value_hash(p["interface"]))
+             for p in native.original_programs(assets["vertex-lit"]["object"].read())}
+    require(all((v[0], key) in pairs for key, v in VERTEX_LIT.items()), "VertexLit original program closure changed")
+    original = native.restore_uniforms
+    def restore_uniforms(hlsl, interface, input_signature=(), resource_layouts=()):
+        key = value_hash(interface)
+        if key in VERTEX_LIT or _sha(hlsl.encode()) in {v[1] for v in VERTEX_LIT.values()}:
+            bound, observed = _vertex_lit_uniforms(native, original, hlsl, interface, input_signature, resource_layouts)
+        else:
+            bound, observed = original(hlsl, interface, input_signature, resource_layouts)
+        # Unity's include omits these legacy engine-populated uniforms. Declare
+        # exactly their original metadata types, without substituting values.
+        if key in VERTEX_LIT: bound = "int4 unity_VertexLightParams;\n" + bound
+        if key == "2495e6cb014dd52e45eb43f96c11b95d8f5120ef0c0f680257a508f3e51d843b":
+            bound = "float4 unity_Lightmap_ST;\n" + bound
+        return bound, observed
+    native.restore_uniforms = restore_uniforms
+
+
+def _sky_import_tags(producer):
+    # Compiled native metadata uppercases LightMode. ShaderLab import requires
+    # its public key/value spelling to identify SVC pass types. This recovers
+    # the same known semantic enum; it does not relabel or remove any pass.
+    modes = {v.upper(): v for v in ("ForwardBase", "ForwardAdd", "ShadowCaster", "Deferred",
+        "PrePassBase", "PrePassFinal", "Vertex", "VertexLM", "VertexLMRGBM", "Always")}
+    shader_source = producer.shader_source
+    def source(form, record, cache, includes, graphics_api="Vulkan"):
+        # restore_project clears its module cache first. Bind after that clear,
+        # inside each finite shader emission; restore the shared function after.
+        native = producer.recovery_module()
+        original = native.tags
+        def tags(value):
+            result = copy.deepcopy(value)
+            require(all(str(v).upper() in modes for k, v in value.get("tags", []) if k.upper() == "LIGHTMODE"),
+                "unknown native sky LightMode cannot be imported")
+            result["tags"] = [("LightMode", modes[str(v).upper()]) if k.upper() == "LIGHTMODE" else (k, v)
+                              for k, v in value.get("tags", [])]
+            return original(result)
+        native.tags = tags
+        try: return shader_source(form, record, cache, includes, graphics_api)
+        finally: native.tags = original
+    producer.shader_source = source
+
+
 def _produce_pc(builder, source, output, expected, game, editor, native_cache, project):
     # The prepared complete project is deliberately not imported. Its presence
     # does not authorize scene recovery or whole-game shader/texture compilation.
@@ -711,6 +813,7 @@ def _produce_pc(builder, source, output, expected, game, editor, native_cache, p
     folder.mkdir(parents=True, exist_ok=True)
     if os.name == "nt": _windows_work_budget(output, producer_key)
     native = _load(source, "tools/quest-builder/full_shaders.py")
+    _install_sky_binder(native, assets)
     work = _work_root(output, expected, producer_key)
     unity = work / ("unity-" + uuid.uuid4().hex[:8])
     unity.mkdir()
@@ -732,6 +835,7 @@ def _produce_pc(builder, source, output, expected, game, editor, native_cache, p
     require(not inventory.get("errors") and not inventory.get("blockedShaderCount") and len(inventory["shaders"]) == 3,
         "bounded three-shader native recovery failed")
     producer = _load(source, "tools/quest-shaders/produce.py", "tools/quest-shaders")
+    _sky_import_tags(producer)
     restored = producer.restore_project(project_source, cache / "original-shader-inventory.json", cache, overlay)
     for name in ("Assets/Editor", "Packages", "ProjectSettings"): (unity / name).mkdir(parents=True, exist_ok=True)
     compiler_files = {p["assetPath"] for p in restored["programs"]}
@@ -751,7 +855,7 @@ def _produce_pc(builder, source, output, expected, game, editor, native_cache, p
     unity_log = output / "logs" / ("default-sky-unity-" + suffix + ".log")
     launch_log = output / "logs" / ("default-sky-launch-" + suffix + ".log")
     unity_log.parent.mkdir(parents=True, exist_ok=True)
-    builder.command(builder.unity_launcher(editor) + ["-projectPath", str(unity), "-buildTarget", "Android",
+    builder.command(builder.unity_launcher(editor, graphics=True) + ["-projectPath", str(unity), "-buildTarget", "Android",
         "-executeMethod", "DefaultSkyResourceBuilder.Build", "-skyManifest", str(unity / "sky-shaders.json"),
         "-skyOutput", str(bundles), "-logFile", str(unity_log)], launch_log)
     import UnityPy
@@ -761,7 +865,7 @@ def _produce_pc(builder, source, output, expected, game, editor, native_cache, p
         "tiny compiler did not deliver exactly the three explicit native shader roots")
     auditor = _load(source, "tools/quest-builder/campaign_native_shaders.py")
     for path, role in shader_roots.items():
-        assets[role] = _descriptor("compiled-native-vulkan", compiled.container[path])
+        assets[role] = _descriptor("compiled-native-vulkan", compiled.container[path].deref())
         contract = next(s for s in restored["shaders"] if s["originalName"] == SHADERS[role])
         auditor.require_closure(assets[role]["tree"], contract)
     for role in ("sky", "noise"): assets[role] = _decode_bc1_mips(assets[role])

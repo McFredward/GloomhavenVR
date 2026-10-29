@@ -9,6 +9,7 @@ import struct
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 import warnings
 import zipfile
@@ -171,6 +172,22 @@ class SkyResources(unittest.TestCase):
         with self.assertRaisesRegex(resources.BuildError, "shorter output root"):
             resources._windows_work_budget("C:\\" + "long-root-" * 16, "f" * 64)
 
+    def test_native_lightmode_import_preserves_pass_semantics_and_rejects_unknown(self):
+        native = SimpleNamespace(tags=lambda row: row)
+        original = native.tags
+        producer = SimpleNamespace(recovery_module=lambda: native,
+            shader_source=lambda form, *args: native.tags(form))
+        resources._sky_import_tags(producer)
+        for mode in ("ForwardBase", "ForwardAdd", "Deferred", "Vertex", "VertexLM", "ShadowCaster"):
+            row = {"tags": [("LIGHTMODE", mode.upper()), ("RenderType", "Opaque")]}
+            self.assertEqual(producer.shader_source(row, None, None, None),
+                {"tags": [("LightMode", mode), ("RenderType", "Opaque")]})
+            self.assertIs(native.tags, original)
+            self.assertEqual(row["tags"][0][0], "LIGHTMODE")
+        with self.assertRaises(resources.BuildError):
+            producer.shader_source({"tags": [("LIGHTMODE", "Unknown")]}, None, None, None)
+        self.assertIs(native.tags, original)
+
 
 @unittest.skipUnless(os.environ.get("GHVRQ_SKY_BASE_APK"), "actual owned APK qualification is an explicit bounded scope")
 class ActualSkyResources(unittest.TestCase):
@@ -289,6 +306,45 @@ class ActualSkyResources(unittest.TestCase):
         for name, mutation in controls.items():
             with self.subTest(control=name), self.assertRaises(resources.BuildError):
                 resources.inspect_bank(self.changed(mutation), SOURCE)
+
+
+@unittest.skipUnless(os.environ.get("GHVRQ_SKY_PC_GAME"), "exact original PC shader qualification is an explicit bounded scope")
+class ActualVertexLit(unittest.TestCase):
+    def test_three_native_lighting_programs_and_unknown_read_type_stride_hash_controls(self):
+        with tempfile.TemporaryDirectory() as work:
+            native = resources._load(SOURCE, "tools/quest-builder/full_shaders.py")
+            assets = resources._pc_assets(Path(os.environ["GHVRQ_SKY_PC_GAME"]))
+            original = native.restore_uniforms
+            resources._install_sky_binder(native, assets)
+            seen = set()
+            for program in native.original_programs(assets["vertex-lit"]["object"].read()):
+                interface = program["interface"]; key = resources.value_hash(interface)
+                if key not in resources.VERTEX_LIT or key in seen: continue
+                seen.add(key)
+                translated = native.translate(program["dxbc"], Path(work))
+                hlsl = Path(translated["hlslPath"]).read_text()
+                args = (translated["inputSignature"], translated["originalBufferLayouts"])
+                with self.assertRaises(native.ShaderRecoveryError): original(hlsl, interface, *args)
+                bound, observed = native.restore_uniforms(hlsl, interface, *args)
+                self.assertTrue(bound.startswith("int4 unity_VertexLightParams;\n"))
+                self.assertIn("cb1_0_m0[0] = float4(0.0, 0.0, 0.0, 0.0);", bound)
+                lighting = next(row for row in observed if row["originalBuffer"] == "UnityLighting")
+                self.assertEqual(lighting["skyOriginalDxbcSha256"], program["originalDxbcSha256"])
+                self.assertEqual(lighting["skyUnreachableInitializerScalars"], list(range(28)))
+                self.assertIn("cb1_0_m0[uint(asint(r2.w)) + 7u].xyz", bound)
+                for member, value in (("type", 1), ("columns", 3), ("byteOffset", 108), ("arraySize", 7)):
+                    changed = copy.deepcopy(interface)
+                    next(b for b in changed["buffers"] if b["name"] == "UnityLighting")["fields"][0][member] = value
+                    with self.subTest(program=key, control=member), self.assertRaises(resources.BuildError):
+                        resources._vertex_lit_uniforms(native, original, hlsl, changed, *args)
+                for control in (hlsl.replace("+ 7u].xyz", "+ 0u].xyz", 1),
+                                hlsl.replace("r2.w = 0.0f;", "r2.w = -1.0f;", 1), hlsl + "\n"):
+                    with self.assertRaises(resources.BuildError):
+                        resources._vertex_lit_uniforms(native, original, control, interface, *args)
+            self.assertEqual(seen, set(resources.VERTEX_LIT))
+            key = next(iter(resources.VERTEX_LIT)); old = resources.VERTEX_LIT[key]
+            with patch.dict(resources.VERTEX_LIT, {key: ("0" * 64, *old[1:])}), self.assertRaises(resources.BuildError):
+                resources._install_sky_binder(native, assets)
 
 
 if __name__ == "__main__": unittest.main()
