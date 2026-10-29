@@ -175,7 +175,7 @@ internal static class MenuDepthCharacterRotation
          'if (!SameBinding(member) || !LiveConversion(member.Owner)', 'if (!LiveConversion(member.Owner)',
          'a pooled native identity change revokes and forgets the old exact capture binding'),
         ('head-confirmation-generic-hook-lost745', 'PanelHeadPreCull745.cs',
-         '                CaptureMenuDepth(cam);', '                /* existing generic dispatch lost */',
+         '                CaptureMenuDepth(cam);', '                { /* existing generic dispatch lost */ }',
          'restored producer permission readmits its own native confirmation at unchanged quality'),
         ('head-native-tmp742', '', '', '', ''),
         ('head-native-tmp-native-metric-lost742', 'MenuDepthNativeUiScope.cs',
