@@ -107,6 +107,12 @@ Ein Fenster direkt oder mit dem Laser an der oberen Stange greifen und verschieb
 mit dem Laser bewegt der **Stick derselben Hand** das Fenster näher oder weiter weg.
 Mit beiden Händen an der Stange die Größe ändern; über das **X** das Fenster schließen.
 
+Nach einem Laserzug dreht sich ein Fenster beim Loslassen normalerweise zu dir.
+Bei geteilten Fenstern sehen alle dieselbe Drehung zum letzten Spieler, der das
+Fenster losgelassen hat. Unter **VR Optionen ▸ Tafeln ▸ Beim Loslassen zu dir drehen**
+stellst du das Verhalten ein; bei einem geteilten Fenster gilt die Einstellung
+des loslassenden Spielers.
+
 **Weitere Charakterkarten:** Öffne die **Kartenansicht** im Charakterfenster und zeige
 auf **Weitere Karten** oder das Kartensymbol oben rechts. Mit dem Trigger öffnest du
 die Liste freigeschalteter Karten auch außerhalb eines Auflevelns; erneut drücken
@@ -140,7 +146,7 @@ aufgezeichnete Kameraperspektive behält.
 
 | Zeichen am Fenster | Wer sieht es? |
 |---|---|
-| <img src="img/net-shared.svg" width="22" height="16" alt="Blaues Zwei-Personen-Symbol für geteilte Fenster"> **Geteilt** (im Spiel blau pulsierend) | Alle. Geteilte Fenster und die Seiten der Geschichte bleiben synchron. Das Symbol sitzt oben rechts, unter dem Schließen-**X**, sofern vorhanden. |
+| <img src="img/net-shared.svg" width="22" height="16" alt="Blaues Zwei-Personen-Symbol für geteilte Fenster"> **Geteilt** (im Spiel blau pulsierend) | Alle. Geteilte Fenster und die Seiten der Geschichte bleiben synchron. Das Symbol sitzt am Fensterrand und lässt den Inhalt frei. |
 | **Kein Symbol: lokal** | Nur du. |
 
 ## Die Kampagnenkarte

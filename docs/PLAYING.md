@@ -102,6 +102,11 @@ Move a window by grabbing its top bar directly or with the laser. While holding 
 use **that hand's stick** to move it closer or farther away. Grip the bar with both hands to resize
 the window; use its **X** to close it.
 
+After a laser drag, a window normally turns toward you when you release it.
+For shared windows, everyone sees the turn toward the last player who released
+the window. **VR Options ▸ Panels ▸ Turn to you on release** controls this;
+the releasing player's setting applies to a shared window.
+
 **More character cards:** open the character window's **Cards** view and point at
 **More Cards** or the card icon at the top right. Press the trigger to open the
 unlocked-card list, even when no level-up is in progress; press again to close it.
@@ -133,7 +138,7 @@ of the window; the film keeps its recorded camera view.
 
 | Mark on the window | Who sees it? |
 |---|---|
-| <img src="img/net-shared.svg" width="22" height="16" alt="Blue two-person shared-window symbol"> **Shared** (pulses blue in game) | Everyone. Shared windows and story pages stay synchronized. The symbol sits at the top right, below the close **X** when present. |
+| <img src="img/net-shared.svg" width="22" height="16" alt="Blue two-person shared-window symbol"> **Shared** (pulses blue in game) | Everyone. Shared windows and story pages stay synchronized. The symbol sits by the window's edge, clear of its content. |
 | **No symbol: local** | Only you. |
 
 ## The campaign map

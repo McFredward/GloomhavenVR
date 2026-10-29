@@ -27,9 +27,9 @@ namespace GloomhavenVR.WorldUI;
 /// The legacy per-frame billboard is a different, long-defaulted-off dial
 /// (<c>[WorldUI] PanelsFollowView</c>) and is not related to this one.</para>
 ///
-/// <para><b>SHARED (blue-barred) WINDOWS ARE OUTSIDE ALL THREE MODES</b> and never turn, whatever
-/// this says — see <see cref="SharedWindows.IsShared"/> for that rule and why it is not
-/// configurable.</para>
+/// <para>The maintainer's paired multiplayer review of 2026-10-29 supersedes the earlier shared
+/// exception: shared windows use the last accepted releaser's mode and facing. Other participants
+/// follow that synchronized pose; their own mode cannot add a private correction.</para>
 ///
 /// <para>The member ORDER is the settings-dropdown index map (LaserOnly=0/Always=1/Never=2) — the
 /// preset row casts the dropdown index straight to this enum, exactly like
@@ -991,10 +991,9 @@ internal static class WorldUIConfig
             "whole drag, so re-deriving the yaw on release throws your own aim away. Always = both " +
             "(what every window did before this setting existed). Never = a released window keeps " +
             "exactly the orientation you let go at. This is a ONE-SHOT on release in every mode — " +
-            "no window ever follows your head. SHARED multiplayer windows (the blue grab bar) are " +
-            "excluded from all three and never turn: they belong to everyone in the room, so a " +
-            "facing correction here would turn them away from the other players and would silently " +
-            "disagree with the pose this client just published.");
+            "no window ever follows your head. Shared multiplayer windows also use this setting: " +
+            "the last player to release an accepted grab chooses the facing, and everyone sees " +
+            "the same synchronized turn. Other players' settings do not change that released pose.");
         GrabBarTweenMs = _file.Bind("WorldUI", "GrabBarTweenMs", Defaults.GrabBarTweenMs,
             new ConfigDescription(
                 "How long a floated window's GRAB BAR takes to change shape or place, in " +

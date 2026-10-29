@@ -2763,10 +2763,10 @@ internal static partial class Loc
                 + "Nachdrehen genau die Ausrichtung wegwerfen, die du selbst eingestellt hast. \"Immer\": "
                 + "beides (das bisherige Verhalten aller Fenster). \"Nie\": ein losgelassenes Fenster "
                 + "behält exakt die Ausrichtung, in der du es losgelassen hast. In jedem Modus ist das ein "
-                + "EINMALIGES Drehen beim Loslassen — kein Fenster folgt jemals deinem Kopf. GETEILTE "
-                + "Mehrspieler-Fenster (blauer Greifbalken) sind von allen drei Modi ausgenommen und drehen "
-                + "sich nie: sie gehören allen im Raum, ein Nachdrehen zu dir würde sie von den anderen "
-                + "wegdrehen und der Position widersprechen, die dieser Rechner gerade gesendet hat.",
+                + "EINMALIGES Drehen beim Loslassen — kein Fenster folgt jemals deinem Kopf. Auch geteilte "
+                + "Mehrspieler-Fenster verwenden diese Einstellung: Wer einen angenommenen Griff zuletzt "
+                + "loslässt, bestimmt die Ausrichtung; alle sehen dieselbe synchronisierte Drehung. Die "
+                + "Einstellungen anderer Spieler ändern diese abgelegte Ausrichtung nicht.",
             ["WorldUI/CombatLogFollowSeat"] =
                 "Ankermodus der Kampflog-Tafel (der FOLGEN/FIXIERT-Pin schaltet um). GENAU DIE BEIDEN "
                 + "WÖRTER WIE AM CONTROLBOARD, seit 2026-09-05 mit demselben Code (FollowPinAnchor). "
