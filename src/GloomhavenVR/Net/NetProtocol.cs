@@ -632,7 +632,31 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 745;
+    public const ushort ModBuild = 746;
+
+    // ModBuild746 — isolate environments and converge shared window gestures.
+    // Paired745 hardware uses the same c3bb18117 build on both participants.
+    // Local scenery supplied the published resident floor, layout and grounding;
+    // use the common native map/furniture frame instead. Environment changes
+    // refresh only that viewer's lighting. Keep original practical effects shared;
+    // neutralize only the owned town shaders' eleven environment uniforms and
+    // the required legacy light prefix, preserving native materials and Foley.
+    // Shared poses previously elected by each receiver's arrival time and ignored
+    // foreign movement while locally held. Add opening-scoped TLV123 claim/sample
+    // order alongside unchanged poses: deterministic concurrent winner, safe loser
+    // cancellation, and causal automatic room making after an observed release.
+    // The accepted releaser's existing facing setting authors the common upright
+    // release turn; observers follow the same pose without private corrections.
+    // Remove only proven story/event full-frame dimmer Images and their Blur,
+    // including parked composite members; preserve original art, masks and input.
+    // Compact city-event readiness captures all measured original voting ink and
+    // places the shared badge beyond it without moving the game's own controls.
+    // Passive map stalls are confirmed, but their cause is NOT established:
+    // add Debug-only head-capture intervals and completed-frame seams, correctly
+    // retaining nested camera passes. Small named-scope cost cannot exclude the
+    // mod. No capture rate/resolution reduction, hardware pacing or lag-fix claim.
+    // Version3 and earlier wire grammars remain; TLV123 adds at most183 bytes,
+    // taking the documented worst presence to12698 inside the unchanged12800 cap.
 
     // ModBuild745 — correct won-card reveal, sharp confirmations and visible card-list access.
     // Local744 hardware accepts character-window AA but reports rough confirmation

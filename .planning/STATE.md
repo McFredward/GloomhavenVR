@@ -1,3 +1,19 @@
+**Paired multiplayer follow-up, Build746, 2026-10-29 — integration in progress.**
+
+Both hardware banners identify745/c3bb18117. Environment-dependent NPC height
+and lighting are separated from common native map geometry. Exact narrative
+dimmer suppression preserves original artwork and input. Opening-scoped shared
+gesture order replaces receiver-arrival election; losing grips cancel safely,
+and the accepted releaser's normal facing setting controls the shared turn.
+Compact ready-button capture includes native vote overspill, with its badge
+outside original ink. Root is reviewing/integrating the final worker tests;
+the complete class C union gate and push remain pending. Build746 is not public.
+Map stalls also occur without new interactions (maintainer clarification).
+Their cause remains unproved; bounded Debug capture/seam attribution repairs
+known measurement gaps without claiming a pacing fix or changing quality/rate.
+See MP746-MULTIPLAYER-FOLLOWUP.md and MP746-PERFORMANCE.md. Hardware acceptance
+remains distinct from focused automated worker evidence. No ZIP delivery.
+
 **Native card reveals, sharp confirmations and card-list access, Build745, 2026-10-29.**
 
 The native won-card introduction now aligns the original pooled card before its

@@ -15,6 +15,8 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [MP746-MULTIPLAYER-FOLLOWUP.md](MP746-MULTIPLAYER-FOLLOWUP.md) | Active paired-review integration: local environment isolation, narrative surfaces, shared gesture order, release-facing and compact ready-button geometry |
+| [MP746-PERFORMANCE.md](MP746-PERFORMANCE.md) | Passive map-stall evidence, repaired diagnostic coverage and explicitly unresolved cause |
 | [MENU745-CARDS-AND-CONFIRMATION-AA.md](MENU745-CARDS-AND-CONFIRMATION-AA.md) | First-visible native card alignment, explicit owner capture membership, original card-list access and complete aggregate verification |
 | [MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md](MENU744-WINDOW-INPUT-AND-ENVIRONMENT.md) | Native laser self-occlusion, finite Default geometry/clipping and reversible native pause-canvas ownership with focused verification |
 | [MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md](MENU742-WORLD-MENU-AND-CHARACTER-QUALITY.md) | Native producer confirmations, fixed-quality head sampling, original TMP metrics, sample color permissions and post-intro world-menu arrival |
