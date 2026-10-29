@@ -74,6 +74,8 @@ def confirmation_node(reader,prefix="confirmation"):
   component=slot.component.deref();kind=component.type.name
   if kind=='MonoBehaviour':kind=component.parse_monobehaviour_head().m_Script.read().m_ClassName
   record={'kind':kind,'original':p.object_id(component)}
+  if kind in ('UILoadoutManager','UILoadoutQuestWindow','StoryImageViewer'):
+   record['nativeReferences']=p.authored_tree(component)
   if kind in ('RectTransform','Image','TextMeshProUGUI','VerticalLayoutGroup','HorizontalLayoutGroup','ContentSizeFitter','LayoutElement',
               'VerticalLayoutGroupExtended','HorizontalLayoutGroupExtended','LayoutElementExtended','AspectRatioFitter','RectMask2D'):
    d=p.authored_tree(component);record['json']=json.dumps(clean(d))
@@ -137,11 +139,28 @@ for name,value in [('native-card-list-entry',card_entry),('native-card-list-view
 (out/'native-card-list-provenance.json').write_text(json.dumps({'scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level9').read_bytes()).hexdigest(),
  'presentation':'Original Cards tab static hierarchy/rects/images/fonts and closed-list toggle artwork. Actual ExtendedToggle.OnPointerClick and UIResetLevelUpWindow.Show/ToggleDisplay execute; downstream inventory/controller/session are ports. Unrelated LevelUpHighlight/Warning GUI_FlexFrame shader branches are omitted from this static header picture and retained untouched in the authored export.'},indent=2)+'\n')
 
-for name,pathid in [('story',243),('encounter',949),('quest',445)]:
+for name,pathid in [('story',243),('encounter',949),('quest',445),('loadout',2217)]:
  value=confirmation_node(byid[pathid],'narrative-'+name)
  (out/('native-narrative-'+name+'.json')).write_text(json.dumps(value,indent=2)+'\n')
  ET.ElementTree(xml_node(value)).write(out/('native-narrative-'+name+'.xml'),encoding='unicode',xml_declaration=True)
+loadout=byid[2217].read()
+manager=next(c.component.deref() for c in loadout.m_Component if c.component.deref().type.name=='MonoBehaviour'
+             and c.component.deref().parse_monobehaviour_head().m_Script.read().m_ClassName=='UILoadoutManager')
+info=ptr(p.authored_tree(manager)['questInfo'],manager).deref()
+viewer=ptr(p.authored_tree(info)['imagePaper'],info).deref()
+vd=p.authored_tree(viewer)
+assert ptr(vd['container'],viewer).path_id==1432
+assert ptr(p.authored_tree(viewer)['m_GameObject'],viewer).path_id==1432
+holder=ptr(vd['imageHolder'],viewer).deref()
+assert ptr(p.authored_tree(holder)['m_GameObject'],holder).path_id==2626
+bundle=root/'ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64/loadouts_assets_crypt_ruined.bundle'
+art_env=UnityPy.load(str(bundle))
+art=next(o for o in art_env.objects if o.type.name=='Sprite' and o.read().m_Name=='CR_RU_01_Demon')
+art.read().image.save(out/'native-loadout-illustration.png')
+(out/'native-loadout-role-provenance.json').write_text(json.dumps({'manager':p.object_id(manager),'questInfo':p.object_id(info),
+ 'imagePaper':p.object_id(viewer),'imageHolder':p.object_id(holder),'illustration':p.object_id(art),
+ 'illustration_bundle_sha256':hashlib.sha256(bundle.read_bytes()).hexdigest()},indent=2)+'\n')
 (out/'native-narrative-provenance.json').write_text(json.dumps({'scene':'level9','scene_sha256':hashlib.sha256((root/'ressources/GH_Data/level9').read_bytes()).hexdigest(),
- 'presentation':'Original story/event/quest rect/image/TMP/layout/sprite/font authoring. Native flow, localization, readiness and controller initialization are explicit inputs. Non-UI/Default foreground programs use declared GL UI geometry witnesses; original D3D11 programs are unexecuted.'},indent=2)+'\n')
+ 'presentation':'Original story/event/quest/loadout rect/image/TMP/layout/sprite/font authoring. Loadout native serialized manager/questInfo/imagePaper/container/imageHolder references are retained for explicit fixture identity binding. Native flow, localization, readiness and controller initialization are explicit inputs. Non-UI/Default foreground programs use declared GL UI geometry witnesses; original D3D11 programs are unexecuted.'},indent=2)+'\n')
 (out/'pins.json').write_text(json.dumps({x.name:hashlib.sha256(x.read_bytes()).hexdigest() for x in out.iterdir() if x.is_file()},indent=2)+'\n')
 print('exported original native widget sprites/font',out)

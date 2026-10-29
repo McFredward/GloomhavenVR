@@ -31,6 +31,9 @@ internal sealed class UILevelUpCardInventory:MonoBehaviour { }
 // Native narrative controller identity is a surrounding input; the complete
 // original graphic tree, event target and rendering remain real Unity objects.
 internal sealed class UIEventPanel:MonoBehaviour { }
+internal sealed class UILoadoutManager:MonoBehaviour { internal UILoadoutQuestWindow questInfo=null!; }
+internal sealed class UILoadoutQuestWindow:MonoBehaviour { internal StoryImageViewer imagePaper=null!; }
+internal sealed class StoryImageViewer:MonoBehaviour { internal GameObject container=null!;internal Image imageHolder=null!; }
 internal sealed class UILevelUpCardHighlighter:MonoBehaviour { internal UILevelUpCardHolder cardHolder=null!; }
 internal sealed class UILevelUpCardHolder:MonoBehaviour { internal NativeAbilityCard? Card; }
 internal sealed class NativeAbilityCard:MonoBehaviour { internal NativeFullCard fullAbilityCard=null!; }

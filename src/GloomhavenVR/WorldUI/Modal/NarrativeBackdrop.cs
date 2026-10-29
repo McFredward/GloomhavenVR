@@ -84,4 +84,82 @@ internal static class NarrativeBackdrop
             _hidden.Clear(); _scratch.Clear();
         }
     }
+
+    /// <summary>The active composite also borrows the loadout viewer's own desktop dimmer.</summary>
+    internal sealed class LoadoutLease : IDisposable
+    {
+        private readonly UIWindow _owner;
+        private readonly UILoadoutManager? _manager;
+        private readonly UILoadoutQuestWindow? _info;
+        private readonly StoryImageViewer? _viewer;
+        private readonly Image? _picture;
+        private readonly Image? _dimmer;
+        private readonly Sprite? _source;
+        private readonly List<Image> _graphics = new(3);
+        private readonly List<Image> _hidden = new(3);
+
+        internal LoadoutLease(UIWindow owner, RectTransform picture)
+        {
+            _owner = owner;
+            _manager = owner.GetComponent<UILoadoutManager>();
+            _info = _manager != null ? _manager.questInfo : null;
+            _viewer = _info != null ? _info.imagePaper : null;
+            _picture = picture.GetComponent<Image>();
+            _dimmer = _viewer != null ? _viewer.GetComponent<Image>() : null;
+            if (!OwnsViewer() || _dimmer == null || _dimmer.raycastTarget
+                || _dimmer.GetComponent<Mask>() != null || _dimmer.sprite == null
+                || _dimmer.sprite.name != "Black_Backdrop") return;
+
+            _source = _dimmer.sprite;
+            _graphics.Add(_dimmer);
+            // These are the two authored, direct GrabPass siblings of the
+            // Paper/Image branch. Resolve them once, never scan the host per tick.
+            AddBlur("Blur");
+            AddBlur("Blur (1)");
+        }
+
+        private bool OwnsViewer() => _owner != null && _manager != null && _info != null
+            && _viewer != null && _picture != null && _manager.questInfo == _info
+            && _info.imagePaper == _viewer && _info.transform.parent == _owner.transform
+            && _viewer.transform == _info.transform && _viewer.container == _info.gameObject
+            && _viewer.imageHolder == _picture && _picture.transform.IsChildOf(_viewer.transform);
+
+        private void AddBlur(string name)
+        {
+            Transform? child = _viewer!.transform.Find(name);
+            Image? image = child != null ? child.GetComponent<Image>() : null;
+            Material? material = image != null ? image.material : null;
+            if (image != null && image.sprite == null && image.GetComponent<Mask>() == null
+                && material != null && material.shader != null
+                && material.shader.name == "Custom/SimpleGrabPassBlur") _graphics.Add(image);
+        }
+
+        private bool StillOwned(Image image) => image != null && OwnsViewer() && _dimmer != null
+            && _dimmer.sprite == _source && (image == _dimmer
+                || (image.transform.parent == _viewer!.transform && image.sprite == null));
+
+        internal void Sync()
+        {
+            for (int i = 0; i < _graphics.Count; i++)
+            {
+                Image image = _graphics[i];
+                if (!StillOwned(image) || !image.enabled) continue;
+                if (!_hidden.Contains(image)) _hidden.Add(image);
+                image.enabled = false;
+            }
+        }
+
+        public void Dispose()
+        {
+            // Restore while the same native controller chain still owns the
+            // original image, before the composite hands back the story roots.
+            // Disabled native graphics and objects already reused elsewhere stay untouched.
+            for (int i = 0; i < _hidden.Count; i++)
+            {
+                Image image = _hidden[i];
+                if (StillOwned(image)) image.enabled = true;
+            }
+            _hidden.Clear(); _graphics.Clear();
+        }
+    }
 }

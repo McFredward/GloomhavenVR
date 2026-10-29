@@ -146,3 +146,27 @@ the complete invocation remains failed, with its captures and cleanup retained.
 The runner now flushes monotonic BEGIN/END case timings to`case-timings.csv`.
 No case, pixel threshold, callback permission or causal-control oracle is removed
 or relaxed by this harness budget adjustment.
+
+Build747 extends the narrative subset with the actual `UI Loadout Window` from
+`level9` and the original `CR_RU_01_Demon` illustration. The exporter audits its
+serialized `UILoadoutManager.questInfo.imagePaper.container/imageHolder` chain.
+Build746's synthetic loadout host omitted this native viewer's separate
+half-alpha `Black_Backdrop` and two direct GrabPass children, so the moved story
+dialog could pass while its real host still painted a full desktop rectangle.
+The unchanged746 source fails the new final-eye comparison before the repair.
+
+Actual production Park, pose tick and Unpark execute around this original host.
+Compare direct and captured final pixels at begin and steady state, front, both
+sides and rear, with SP and MP session inputs; equal input modes must retain
+identical pixels. The independent reference removes only the three exported host
+backing graphics. Original illustration, paper, native masks, buttons and input
+flags, native-disabled graphics, controller ownership, source reuse and exact
+story home order remain checked. Seven added causal omissions must compile and
+fail at their named pixel/ownership/input/hand-back assertions.
+
+`--narrative-only` is a partial affected-consumer proof, not the full level-up or
+local gate. Native controller initialization, completed reveal/localization and
+network session flags remain explicit ports. The initial no-panel story fit and
+real mono capture kernels execute; the converted story content-fit service,
+live network traffic, original Windows shader fragments, the complete character
+coordinator, stereo story-depth rendering and headset frame pacing do not.

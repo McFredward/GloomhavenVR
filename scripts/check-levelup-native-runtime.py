@@ -119,6 +119,7 @@ def main():
         'namespace GloomhavenVR.WorldUI {internal static class NativeStoryComposite746 {'
         'private const string Scope="fixture story";private static RectTransform? _dock,_picture;'
         'private static UIWindow? _parkHost,_parkSource;private static NarrativeBackdrop.Lease? _narrativeBackdrop;'
+        'private static NarrativeBackdrop.LoadoutLease? _loadoutBackdrop;'
         'private static Vector2 _dockSize,_slotHostSize,_slotPictureSize;private static Rect _slot;'
         'private static bool _slotValid,_composeLogged;private static int _slotCount;private static string _parkedSprite="",_poseBasis="";'
         'private static readonly List<Transform> Moved=new(8);private static readonly List<int> MovedIndex=new(8);'
@@ -175,6 +176,27 @@ def main():
         ('narrative-composite-unpark-lost', 'NativeStoryComposite746.cs',
          '_narrativeBackdrop?.Dispose();', '/* composite unpark omitted native hand-back */',
          'composite unpark restores every original narrative dimmer flag'),
+        ('narrative-loadout-lease-lost', 'NativeStoryComposite746.cs',
+         '_loadoutBackdrop = new NarrativeBackdrop.LoadoutLease(loadout, image);', '_loadoutBackdrop = null;',
+         'actual composed loadout final head pixels contain no native host dimmer in SP and MP'),
+        ('narrative-loadout-sync-lost', 'NativeStoryComposite746.cs',
+         '_loadoutBackdrop?.Sync();', '/* native host dimmer sync omitted */',
+         'actual composed loadout final head pixels contain no native host dimmer in SP and MP'),
+        ('narrative-loadout-restore-lost', 'NativeStoryComposite746.cs',
+         '_loadoutBackdrop?.Dispose();', '/* native host hand-back omitted */',
+         'actual native host dimmer and both blur flags restore before the next native loadout phase'),
+        ('narrative-loadout-owner-lost', 'NarrativeBackdrop.cs',
+         '&& _info.transform.parent == _owner.transform', '&& true',
+         'foreign native loadout viewer is never leased through a stale manager reference'),
+        ('narrative-loadout-art-source-lost', 'NarrativeBackdrop.cs',
+         '|| _dimmer.sprite.name != "Black_Backdrop"', '|| false',
+         'native viewer illustration content is never mistaken for its desktop dimmer'),
+        ('narrative-loadout-input-role-lost', 'NarrativeBackdrop.cs',
+         '!OwnsViewer() || _dimmer == null || _dimmer.raycastTarget', '!OwnsViewer() || _dimmer == null',
+         'native loadout input graphics cannot join the desktop dimmer lease'),
+        ('narrative-loadout-pooled-source-lost', 'NarrativeBackdrop.cs',
+         '&& _dimmer.sprite == _source', '&& true',
+         'pooled native loadout content is not re-enabled by an expired dimmer lease'),
     ]
     for name, key, before, after, expected in narrative_controls:
         if originals[key].count(before) != 1: raise RuntimeError('Narrative mutation binding drift: ' + name)

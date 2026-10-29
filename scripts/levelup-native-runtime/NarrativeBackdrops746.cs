@@ -138,6 +138,7 @@ public static partial class LevelUpNativeProgram
                 if(graphic!=blur)Check(graphic.enabled==flags[graphic],"flat hand-back restores every original narrative graphic flag");
             if(route=="story")
             {
+                ComposedLoadout747(head,home,root,window,output);
                 var host=Rect("native loadout host input",home,1920,1080);var hostWindow=host.gameObject.AddComponent<UIWindow>();
                 var hostPicture=Image(host,"native loadout image input",1280,720,Color.white);
                 hostPicture.rectTransform.anchoredPosition=new Vector2(0,160);
@@ -182,7 +183,7 @@ public static partial class LevelUpNativeProgram
             if(root!=null)Object.DestroyImmediate(root.gameObject);
         }
         Object.DestroyImmediate(home.gameObject);head.targetTexture=null;target.Release();Object.DestroyImmediate(target);Object.DestroyImmediate(head.gameObject);
-        File.WriteAllText(Path.Combine(output,"narrative-limits.txt"),"Actual role filter, original imported hierarchy/rect/image/TMP/font/sprite/custom native extended-layout declarations, native Black_Backdrop provenance, conversion background kernel, actual StoryComposite Park/WriteLayers/ApplyPose/TryPaintedBounds/Unpark before host conversion, Unity scene geometry and production mono capture/projection/resolve/display kernels execute. Controller classification, native show/localization/readiness and pool/session services are explicit inputs. The composite test uses its actual first-tick no-panel fit path; the converted content-fit branch throws if entered. Non-UI/Default foreground shader programs use UI geometry witnesses; original Windows D3D11 fragments, full native game callbacks, multiplayer and headset appearance are unexecuted. Original transparent input roots and separate imageHolder remain; no GameObject/container/StoryImageViewer is disabled.");
+        File.WriteAllText(Path.Combine(output,"narrative-limits.txt"),"Actual role filter, original imported hierarchy/rect/image/TMP/font/sprite/custom native extended-layout declarations, native Black_Backdrop provenance, conversion background kernel, actual StoryComposite Park/WriteLayers/ApplyPose/TryPaintedBounds/Unpark before host conversion, Unity scene geometry and production mono capture/projection/resolve/display kernels execute. Build747 additionally imports the actual native UILoadoutManager host and CR_RU_01_Demon illustration, audits its serialized questInfo/imagePaper/container/imageHolder chain, and compares begin/steady direct/captured final eye pixels from front/side/rear with identical SP/MP session inputs. Controller classification, native show/localization/readiness and pool/session services are explicit inputs. The composite test uses its actual first-tick no-panel fit path; the converted content-fit branch throws if entered. Non-UI/Default foreground shader programs use UI geometry witnesses; original Windows D3D11 fragments, full native game callbacks, live multiplayer transport and headset appearance are unexecuted. Original transparent input roots and separate imageHolder remain; no GameObject/container/StoryImageViewer is disabled.");
         yield return _checks;
     }
 }
