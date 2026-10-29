@@ -17,6 +17,15 @@ window. Head pixels prove the image/foreground depth, and the actual coverage
 getter rejects foreign visible materials and shaders. Leaving/reentering readiness
 must preserve the original material identity and restore the intro shader/queue.
 
+The exact ready-menu helper creates fixed outward-facing front/rear surfaces.
+Native UI ink is drawn on the glass plane with transparent surrounding pixels;
+both views must retain it. An asymmetric alpha-zero RT mark also proves identical
+world XY/UV mapping on the reversed mesh. Coverage must select the actual visible
+side, and both surfaces must share the same original capture material. A CullOff
+mutation reproduces opaque backing over the native ink. Full reverse-mesh owner
+creation, hide/reopen, external capture loss and destruction run in the companion
+world-menu lifecycle scope.
+
 The scope also retains native sky arrival/visibility authority, rig replacement,
 style/MR stand-down and VR exit controls. It does not bootstrap the native game's
 menu controllers, certify native AMP D3D11 fragment art, OpenXR/frame scheduling,

@@ -38,6 +38,11 @@ namespace GloomhavenVR.Hands
 { internal static class VRHands { internal static object? Left=null,Right=null; } }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class WorldUIConfig
+    {
+        internal sealed class ValuePort { internal float Value=1.6f; }
+        internal static readonly ValuePort ScreenDistance=new();
+    }
     internal sealed partial class FlatScreen
     {
         private Material? _screenMaterial,_coverageMaterial;
@@ -46,6 +51,11 @@ namespace GloomhavenVR.WorldUI
         private Shader? _worldMenuOriginalShader,_worldMenuBackdropShader;
         private int _worldMenuOriginalQueue=0;
         private bool _worldMenuBackdropDepth=false;
+        private GameObject? _quad,_worldMenuRear;
+        private MeshRenderer? _worldMenuRearRenderer;
+        private Mesh? _worldMenuRearMesh;
+        private float _worldMenuUnit=1f;
+        private const float BackplaneGapMeters=.06f;
         private bool _coverageMaterialOpaque=false;
         private int _screenMaterialQueueDefault=-1;
         private bool _handsDiagLogged=false,_visible=true;
@@ -58,8 +68,10 @@ namespace GloomhavenVR.WorldUI
         internal void TickBackdrop()=>TickBackdropDepth();
         internal string MaterialState=>_screenMaterial!.shader.name+"/q"+_screenMaterial.renderQueue;
         internal Material ProbeMaterial=>_screenMaterial!;
+        internal Renderer? RearProbe=>_worldMenuRearRenderer;
+        internal Mesh? RearMeshProbe=>_worldMenuRearMesh;
         internal void SplitProbe(GameObject original,GameObject background)
-        {_backQuad=background;_backRenderer=background.GetComponent<Renderer>();_backRenderer.sharedMaterial=_screenMaterial;_quadRenderer=original.GetComponent<Renderer>();}
-        internal void DestroyProbe(){RestoreWorldMenuBackdrop();if(_screenMaterial!=null)UnityEngine.Object.Destroy(_screenMaterial);_screenMaterial=null;_coverageOwner=null;}
+        {_backQuad=background;_backRenderer=background.GetComponent<Renderer>();_backRenderer.sharedMaterial=_screenMaterial;_quadRenderer=original.GetComponent<Renderer>();SyncWorldMenuBack();}
+        internal void DestroyProbe(){RestoreWorldMenuBackdrop();if(_worldMenuRear!=null)UnityEngine.Object.Destroy(_worldMenuRear);if(_worldMenuRearMesh!=null)UnityEngine.Object.Destroy(_worldMenuRearMesh);if(_screenMaterial!=null)UnityEngine.Object.Destroy(_screenMaterial);_screenMaterial=null;_coverageOwner=null;}
     }
 }

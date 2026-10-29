@@ -32,6 +32,16 @@ public static class MenuWorldProgram
         var go=Keep(GameObject.CreatePrimitive(PrimitiveType.Quad));go.name=name;go.layer=VRLayers.ModLayer;
         Object.DestroyImmediate(go.GetComponent<Collider>());go.GetComponent<MeshRenderer>().sharedMaterial=material;return go;
     }
+    private static bool ReverseMesh(Mesh native,Mesh reverse)
+    {
+        if(native==reverse||native.vertices.Length!=reverse.vertices.Length||native.uv.Length!=reverse.uv.Length)return false;
+        Vector3[] vertices=native.vertices,reversedVertices=reverse.vertices;Vector2[] uv=native.uv,reversedUv=reverse.uv;
+        for(int i=0;i<vertices.Length;i++)if(vertices[i]!=reversedVertices[i])return false;
+        for(int i=0;i<uv.Length;i++)if(uv[i]!=reversedUv[i])return false;
+        int[] front=native.triangles,back=reverse.triangles;if(front.Length!=back.Length)return false;
+        for(int i=0;i<front.Length;i+=3)if(front[i]!=back[i]||front[i+1]!=back[i+2]||front[i+2]!=back[i+1])return false;
+        return front.Length>0;
+    }
     private static void Pointer(FlatScreen window,VRHand hand,Vector2 uv)
     {
         var quad=Get<GameObject>(window,"_quad");Vector3 point=quad.transform.TransformPoint(new Vector3(uv.x-.5f,uv.y-.5f,0));
@@ -113,6 +123,11 @@ public static class MenuWorldProgram
         screen=new FlatScreen();Put(screen,"_quad",quad);Put(screen,"_quadRenderer",quad.GetComponent<Renderer>());Put(screen,"_rt",rt);Put(screen,"_coverageOwner",screen);
         Invoke(screen,"FollowHead");var frame=((IPanelGrabOwner)Get<SurfaceGrabBar>(screen,"_worldMenuGrab")).GrabRoot??throw new Exception("missing production world-menu frame");
         Check(Get<GameObject>(screen,"_worldMenuHost")!=null,"actual flat-screen coordinator mounts the menu on the standard world-window grab frame");
+        var rear=Get<GameObject>(screen,"_worldMenuRear");var rearMesh=Get<Mesh>(screen,"_worldMenuRearMesh");
+        Check(rear!=null&&rearMesh!=null&&rear.transform.parent==quad.transform,"actual menu coordinator creates one owned rear mesh under the original capture");
+        Check(ReverseMesh(quad.GetComponent<MeshFilter>().sharedMesh,rearMesh!),"rear mesh reverses native face winding while keeping native UVs");
+        Check(!rear!.GetComponent<Renderer>().enabled,"unadmitted backdrop material keeps its prepared reverse surface hidden");
+        Vector3 initialRear=rear.transform.position;
         Near(quad.transform.TransformVector(Vector3.right).magnitude,2,"initial world menu preserves native captured screen width");
         Near(quad.transform.position,head.transform.position+Vector3.forward*1.6f,"actual first placement uses the recentered eye");
         var handle=frame.GetComponent<PanelGrabHandle>()??throw new Exception("missing production world-menu handle");Check(handle.CanGrab,"real grab handle accepts a visible menu owner without a HostCanvas");
@@ -176,10 +191,18 @@ public static class MenuWorldProgram
             Near(quad.transform.TransformVector(Vector3.right).magnitude,width,"world menu absolute size is independent of rig zoom");
             Pointer(screen,right,new Vector2(.25f,.68f));Pixels(head,quad,reference,output,"world-pose-"+pose);yield return null;
         }
+        Near(rear.transform.position,initialRear,"walking turning and player zoom do not move the prepared fixed rear surface");
+        Put(screen,"_screenMaterial",material);Invoke(screen,"TickWorldMenuBackdrop");
+        Check(rear.GetComponent<Renderer>().enabled&&ReferenceEquals(rear.GetComponent<Renderer>().sharedMaterial,material),"actual ready backdrop enables the reverse surface with the original capture material");
+        Check(material.shader.name=="GloomhavenVR/Overlay","actual world-menu backing executes the unchanged shipped Overlay shader");
+        Near(rear.transform.position,quad.transform.position,"single capture rear surface stays exactly coplanar with its original picture");
         // A split compositor can create its background after the ready-menu host.
         var back=Quad("late original split background",material);Put(screen,"_backQuad",back);Invoke(screen,"FollowHead");
         Check(back.transform.parent==quad.transform,"late split background joins the same physical world-menu frame");
         Near(Vector3.Dot(back.transform.position-quad.transform.position,quad.transform.forward),.06f,"late split background retains the physical six-centimetre gap");
+        Near(Vector3.Dot(rear.transform.position-quad.transform.position,quad.transform.forward),-.06f,"late split creation seats the reverse backing behind the glass from the rear");
+        Invoke(screen,"RestoreWorldMenuBackdrop");Check(!rear.GetComponent<Renderer>().enabled,"restoring the intro material hides the reverse world-menu surface");
+        Invoke(screen,"TickWorldMenuBackdrop");Check(rear.GetComponent<Renderer>().enabled,"same ready opening reactivates its existing owned reverse mesh");
         back.SetActive(false);reference.SetActive(false);
         rig.transform.localScale=Vector3.one;Invoke(driver,"RecenterMenu");Invoke(screen,"FollowHead");
         Physics.SyncTransforms();var zone=frame.GetComponent<BoxCollider>();Vector3 palm=zone.transform.TransformPoint(zone.center);
@@ -208,7 +231,13 @@ public static class MenuWorldProgram
         Invoke(screen,"FollowHead");position=quad.transform.position;rotation=quad.transform.rotation;width=quad.transform.TransformVector(Vector3.right).magnitude;
         // Movie/options presentation releases the wrapper, while its original
         // capture survives. The same opening must retain its absolute world size.
-        rig.transform.localScale=Vector3.one*2;Invoke(screen,"ReleaseWorldMenu");yield return null;Invoke(screen,"FollowHead");
+        rig.transform.localScale=Vector3.one*2;int releaseFrame=Time.frameCount;Invoke(screen,"ReleaseWorldMenu");
+        Check(Get<GameObject>(screen,"_worldMenuRear")==null&&Get<Mesh>(screen,"_worldMenuRearMesh")==null,"menu presentation release immediately clears both reverse-surface owners");
+        while(Time.frameCount==releaseFrame)yield return null;
+        Check(rear==null&&rearMesh==null,"closing menu presentation destroys its owned reverse mesh and surface");
+        Invoke(screen,"FollowHead");
+        rear=Get<GameObject>(screen,"_worldMenuRear");rearMesh=Get<Mesh>(screen,"_worldMenuRearMesh");
+        Check(rear!=null&&rearMesh!=null&&ReverseMesh(quad.GetComponent<MeshFilter>().sharedMesh,rearMesh),"same-opening recovery rebuilds exactly one correctly wound reverse surface");
         Near(quad.transform.position,position,"same-opening movie/recovery round trip retains the player-moved world pose");
         Near(Quaternion.Angle(quad.transform.rotation,rotation),0,"same-opening round trip retains the chosen window yaw");
         Near(quad.transform.TransformVector(Vector3.right).magnitude,width,"same-opening movie round trip retains absolute window size after independent world zoom");
@@ -226,6 +255,10 @@ public static class MenuWorldProgram
         Check(!FlatScreen.TryGetMenuOwner(source.transform,out _)&&!FlatScreen.IsMenuOwner(owner),"hidden menu host cannot own a visible native confirmation");Get<GameObject>(screen,"_worldMenuHost").SetActive(true);
         manager.MainMenuCamera.SetActive(false);Check(!MenuWorldContext.IsReady&&!MenuWorldContext.AllowsSurroundings,"native menu camera loss revokes the live world place");
         manager.MainMenuCamera.SetActive(true);Check(MenuWorldContext.IsReady,"temporary subpage camera restoration retains the same opening");
+        int lossFrame=Time.frameCount;Object.Destroy(quad);while(Time.frameCount==lossFrame)yield return null;
+        screen.TickCaptureLifetime();lossFrame=Time.frameCount;while(Time.frameCount==lossFrame)yield return null;
+        Check(Get<GameObject>(screen,"_worldMenuHost")==null&&Get<Mesh>(screen,"_worldMenuRearMesh")==null&&rearMesh==null,
+            "external original capture loss retires its wrapper and owned reverse mesh");
         Vector3 tracked=head.transform.localPosition;head.transform.localPosition=Vector3.zero;Put(driver,"_pendingRecenter",true);Invoke(driver,"TickArrival");Invoke(handsDriver,"Update");
         Check(!MenuWorldContext.IsReady&&!left.Grabber.Enabled&&!right.Grabber.Enabled,"tracking reset revokes ready place and both real hand masks");
         head.transform.localPosition=tracked;Invoke(driver,"TickArrival");Check(MenuWorldContext.Opening!=opening,"fresh settled arrival owns a new menu opening");

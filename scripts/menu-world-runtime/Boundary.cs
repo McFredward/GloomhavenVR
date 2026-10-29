@@ -212,7 +212,7 @@ namespace GloomhavenVR.Cards
         public PanelCarryMode CarryMode=>PanelCarryMode.Level;
         public Quaternion GrabLevelFrame=>Quaternion.identity;public Vector2 GrabPitchLimits=>new(-180,180);
         public Vector2 GrabScaleLimits=>new(.15f,2);public void OnGrabFinished(){}
-        internal static Shader? OverlayShader()=>Shader.Find("Unlit/Color");
+        internal static Shader? OverlayShader()=>Shader.Find("GloomhavenVR/Overlay");
         internal static Shader? BoardLitShader()=>Shader.Find("Unlit/Color");
     }
 }

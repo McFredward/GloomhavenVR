@@ -33,6 +33,12 @@ subpages, native camera loss, tracking/rig replacement and VR stop. Window cases
 cover fixed world geometry through actual flight/turn/world drag/zoom, palm grip and
 two-hand resize, late split backgrounds, native pointer UV and reticle, hidden/null
 capture-owner refusals and same-opening movie/recovery round trips after world zoom.
+The actual reverse-backing helper also retains native vertices/UVs with opposite
+triangle winding, stays fixed across player motion, joins a late split capture at
+the opposite physical gap, shares the original material and executes the shipped
+Overlay shader. Intro restoration hides it. Closing and reopening destroys then
+rebuilds its owned mesh and surface, including the original `FlatScreen.Tick` branch
+for externally destroyed capture geometry. These owners are not fixture ports.
 
 Every attempt retains sources, compiled variant assemblies, input manifests,
 results, head captures and failed proof. The private editor and fd-proven escaped

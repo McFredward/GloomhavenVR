@@ -44,6 +44,7 @@ KERNELS=(
  'WorldUI/WorldUIConfig.cs',
  'Rig/ComfortSettings.cs','Rig/Comfort.cs',
  'Rig/VRRigDriver.cs',
+ 'WorldUI/FlatScreen/FlatScreen.1.Core.cs',
 )
 
 def block(source,signature,indent='    ',suffix=''):
@@ -79,6 +80,8 @@ def generated(raw):
     comfort=raw['Rig/ComfortSettings.cs']
     result['ActualMotionEnums.cs']='namespace GloomhavenVR.Rig;\n'+'\n'.join(block(comfort,'internal enum '+name,indent='') for name in ('TurnMode','TurnHandChoice','FlightDirectionSource'))+'\n'
     result['ActualRigClamp.cs']='using UnityEngine; namespace GloomhavenVR.Rig;\n'+block(raw['Rig/Comfort.cs'],'internal static class RigClamp',indent='')+'\n'
+    core=raw['WorldUI/FlatScreen/FlatScreen.1.Core.cs']
+    result['ActualCaptureLifetime.cs']='using GloomhavenVR.Core; namespace GloomhavenVR.WorldUI; internal sealed partial class FlatScreen { internal void TickCaptureLifetime() {\n'+block(core,'if (_visible && _quad == null)',indent='        ')+'\n}}\n'
     return result
 
 
@@ -105,8 +108,18 @@ def main():
          'paused native menu follows actual one-hand carry on the unscaled tracking clock'),
         ('readiness-mask-edge-lost','Hands/HandsDriver.cs','_menuWorldReady = menuReady;\n            ApplyMode(VRModeStateMachine.CurrentMode);','_menuWorldReady = menuReady;',
          'actual HandsDriver readiness edge enables both real near-grabbers without a mode transition'),
-        ('late-background-detached','WorldUI/FlatScreen/FlatScreen.9.WorldMenu.cs','        SyncWorldMenuBack();','        /* omitted late background synchronization */',
+        ('late-background-detached','WorldUI/FlatScreen/FlatScreen.9.WorldMenu.cs','        if (_backQuad != null)\n        {\n            Transform back = _backQuad.transform;',
+         '        if (_backQuad != null && bool.Parse("false"))\n        {\n            Transform back = _backQuad.transform;',
          'late split background joins the same physical world-menu frame'),
+        ('reverse-surface-creation-lost','WorldUI/FlatScreen/FlatScreen.9.WorldMenu.cs','        EnsureWorldMenuRear();','        /* reverse surface omitted */',
+         'actual menu coordinator creates one owned rear mesh under the original capture'),
+        ('reverse-surface-winding-lost','WorldUI/FlatScreen/FlatScreen.9.WorldMenu.cs','for (int i = 0; i + 2 < triangles.Length; i += 3)','for (int i = triangles.Length; i + 2 < triangles.Length; i += 3)',
+         'rear mesh reverses native face winding while keeping native UVs'),
+        ('reverse-mesh-retirement-lost','WorldUI/FlatScreen/FlatScreen.9.WorldMenu.cs','        if (_worldMenuRearMesh != null) Object.Destroy(_worldMenuRearMesh);','        /* owned reverse mesh retained */',
+         'closing menu presentation destroys its owned reverse mesh and surface'),
+        ('external-capture-retirement-lost','WorldUI/FlatScreen/FlatScreen.1.Core.cs','            ReleaseWorldMenu();\n            _visible = false;',
+         '            /* original capture loss retained the wrapper */\n            _visible = false;',
+         'external original capture loss retires its wrapper and owned reverse mesh'),
         ('absolute-reopen-size-lost','WorldUI/FlatScreen/FlatScreen.9.WorldMenu.cs','                _worldMenuUnit = _savedMenuUnit;','                _worldMenuUnit = width / 1920f;',
          'same-opening movie round trip retains absolute window size after independent world zoom'),
         ('old-flight-menu-gate','Rig/Flight.cs','mode == VRMode.Menu2D && !MenuWorldContext.IsReady && !RigTarget.IsDevProxy','mode == VRMode.Menu2D && !RigTarget.IsDevProxy',
@@ -131,6 +144,7 @@ def main():
     completion=run/'completion.log';completion.write_text('Evidence: '+str(run)+'\n')
     unity=Path('/home/claw/unity-2021.3.5/Editor/Unity');dotnet=str(Path.home()/'.dotnet/dotnet')
     inputs=[*paths.values(),*HERE.rglob('*.cs'),HERE/'MenuWorld.csproj',Path(__file__),root/'scripts/check-environment-menu-scope.py',unity,
+            root/'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader',
             *sorted((unity.parent/'Data/Managed/UnityEngine').glob('UnityEngine*.dll')),
             Path.home()/'.dotnet/sdk/8.0.423/Roslyn/bincore/csc.dll']
     pins={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs};(run/'source-pins.json').write_text(json.dumps(pins,indent=2)+'\n')
@@ -158,6 +172,7 @@ def main():
         project=run/'unity'
         for path in ('Assets/Editor','Packages','ProjectSettings'):(project/path).mkdir(parents=True)
         shutil.copyfile(HERE/'Editor/MenuWorldRunner.cs',project/'Assets/Editor/MenuWorldRunner.cs')
+        shutil.copyfile(root/'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader',project/'Assets/OriginalOverlay.shader')
         (project/'Packages/manifest.json').write_text(json.dumps({'dependencies':{name:'1.0.0' for name in ('com.unity.modules.physics','com.unity.modules.imageconversion','com.unity.modules.jsonserialize')}}))
         (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
         path=run/'manifest.json';path.write_text(json.dumps(manifest,indent=2)+'\n')

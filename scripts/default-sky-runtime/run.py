@@ -154,7 +154,11 @@ def main():
     begin=lifecycle.index('            Shader? shader = Shader.Find("Hidden/BlitCopy")')
     end=lifecycle.index('            _quadRenderer.sharedMaterial = _screenMaterial;',begin)+len('            _quadRenderer.sharedMaterial = _screenMaterial;')
     coverage=core[core.index('    internal static Renderer? OpaqueBackdrop'):core.index('    // Shader.name marshals')]
-    originals['ScreenBackdrop.cs']='using GloomhavenVR.Core; using GloomhavenVR.Core.Events; using GloomhavenVR.Hands; using UnityEngine; namespace GloomhavenVR.WorldUI; internal sealed partial class FlatScreen {\n'+coverage+'\n'+method(core,'private void RefreshOpaqueBackdropMaterial()')+'\n'+method(core,'private void TickBackdropDepth()')+'\n'+method(menu,'private void TickWorldMenuBackdrop()')+'\n'+method(menu,'private void RestoreWorldMenuBackdrop()')+'\ninternal void BindOpaque(GameObject quad,RenderTexture rt) { _coverageOwner=this; _worldMenuHost=quad; _quadRenderer=quad.GetComponent<Renderer>();_rt=rt;\n'+lifecycle[begin:end]+'\n}\n}'
+    kernels='\n'.join(method(menu,signature) for signature in (
+        'private void TickWorldMenuBackdrop()', 'private void RestoreWorldMenuBackdrop()',
+        'private void SyncWorldMenuBack()', 'private void EnsureWorldMenuRear()',
+        'private Renderer? WorldMenuBackdropForHead(Renderer? front)'))
+    originals['ScreenBackdrop.cs']='using GloomhavenVR.Core; using GloomhavenVR.Core.Events; using GloomhavenVR.Hands; using UnityEngine; namespace GloomhavenVR.WorldUI; internal sealed partial class FlatScreen {\n'+coverage+'\n'+method(core,'private void RefreshOpaqueBackdropMaterial()')+'\n'+method(core,'private void TickBackdropDepth()')+'\n'+kernels+'\ninternal void BindOpaque(GameObject quad,RenderTexture rt) { _coverageOwner=this; _worldMenuHost=quad; _quad=quad; _quadRenderer=quad.GetComponent<Renderer>();_rt=rt;\n'+lifecycle[begin:end]+'\n}\n}'
     bank = ROOT / 'src/GloomhavenVR/Assets/DefaultSky/native-default-sky.bundle'
     exporter = ROOT / 'tools/default-sky-native/export.py'
     overlay = ROOT / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader'
@@ -173,9 +177,9 @@ def main():
         ('world-window-alpha-blend-lost', 'ScreenBackdrop.cs', '_screenMaterial.SetFloat("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);',
          '_screenMaterial.SetFloat("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);',
          'actual world-menu opaque RT survives original Default sky and later room geometry'),
-        ('world-window-rear-cull', 'ScreenBackdrop.cs', '_screenMaterial.SetFloat("_Cull", (int)UnityEngine.Rendering.CullMode.Off);',
-         '_screenMaterial.SetFloat("_Cull", (int)UnityEngine.Rendering.CullMode.Back);',
-         'actual world-menu opaque RT survives original Default sky and later room geometry'),
+        ('world-window-backing-cull-lost', 'ScreenBackdrop.cs', '_screenMaterial.SetFloat("_Cull", (int)UnityEngine.Rendering.CullMode.Back);',
+         '_screenMaterial.SetFloat("_Cull", (int)UnityEngine.Rendering.CullMode.Off);',
+         'transparent native UI ink on the glass remains visible from both fixed menu sides'),
         ('world-window-coverage-lost', 'ScreenBackdrop.cs', '|| (_worldMenuBackdropDepth && shader == _worldMenuBackdropShader)', '|| false',
          'world-menu depth material remains authoritative opaque MR coverage'),
         ('world-window-intro-restore-lost', 'ScreenBackdrop.cs', '            RestoreWorldMenuBackdrop();', '            /* original intro shader restore omitted */',
