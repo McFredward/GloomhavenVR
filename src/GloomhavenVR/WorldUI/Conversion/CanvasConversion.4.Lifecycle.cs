@@ -142,6 +142,17 @@ internal static partial class CanvasConversion
             TryRollbackFailedConversion(FailedConversions[i]);
     }
 
+    private static void RetainNativeMenuHome(ConvertedPanel panel)
+    {
+        if (panel.NativeMenuCanvas == null || NativeConversionHomeRestored(panel)) return;
+        for (int i = 0; i < FailedConversions.Count; i++)
+            if (ReferenceEquals(FailedConversions[i].Panel, panel)) return;
+        // A normal close can defer a refused detach too. Retain this menu's native
+        // receipt in the existing retry owner; never recurse into Release here.
+        // Ordinary conversions with no camera-mode lease retain their old path.
+        FailedConversions.Add(new FailedConversion(panel, null));
+    }
+
     /// <summary>Restore the panel into its original 2D home and destroy the host.</summary>
     internal static void Release(ConvertedPanel? panel)
     {
@@ -441,6 +452,16 @@ internal static partial class CanvasConversion
         // whether or not the target survived: the snapshot is the panel's adoption set and it has to
         // be consumed either way. Writes, reads back, and says both values.
         bool cameraWasWrong = RestoreAdoptedCameras("release");
+        // Restore the native adapter on the far side of BOTH ownership handoffs.
+        // Restoring it while still nested or still bound to the head would project
+        // the original menu through the wrong camera again. A refused detach keeps
+        // this receipt for the existing rollback retry rather than losing its home.
+        if (panel.NativeMenuCanvas != null && NativeConversionHomeRestored(panel))
+        {
+            panel.NativeMenuCanvas.renderMode = panel.OriginalNativeMenuCanvasMode;
+            panel.NativeMenuCanvas = null;
+        }
+        RetainNativeMenuHome(panel);
         if (NativeConversionHomeRestored(panel)) panel.AdoptedCanvases.Clear();
         ReleaseHiddenWindowVeil(panel);
         // Native state is restored before mod-host destruction/camera-mask teardown. If those

@@ -315,6 +315,23 @@ internal static partial class CanvasConversion
 
         // Re-parent and center: anchors collapse to the middle so the captured
         // size becomes absolute.
+        // Build744: the pause/options opening could briefly show a displaced menu.
+        // A disabled native Canvas still reports itself as a root and keeps its
+        // own ScreenSpaceCamera adapter. Adoption assigns the head camera while
+        // the reveal gate holds it disabled: Unity then rewrites its native frame
+        // to the head's square pixel grid/pose (742 log:1920x1920, scale .18 and
+        // z about -1380). A forced reveal can expose that bad frame before the next
+        // fit repairs it. Pin only this explicit menu family and only a native
+        // root camera Canvas. The setter must run BEFORE parenting; on an enabled
+        // nested Canvas it addresses the inherited root instead of this adapter.
+        Canvas? menuCanvas = capHeightToCanvas ? target.GetComponent<Canvas>() : null;
+        if (menuCanvas != null && menuCanvas.isRootCanvas
+            && menuCanvas.renderMode == RenderMode.ScreenSpaceCamera)
+        {
+            panel.NativeMenuCanvas = menuCanvas;
+            panel.OriginalNativeMenuCanvasMode = menuCanvas.renderMode;
+            menuCanvas.renderMode = RenderMode.WorldSpace;
+        }
         target.SetParent(hostRect, worldPositionStays: false);
         target.anchorMin = new Vector2(0.5f, 0.5f);
         target.anchorMax = new Vector2(0.5f, 0.5f);

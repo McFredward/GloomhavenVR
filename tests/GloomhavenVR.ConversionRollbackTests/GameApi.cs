@@ -14,9 +14,9 @@ namespace UnityEngine
         public override int GetHashCode() => base.GetHashCode();
         internal static void Destroy(Object value) { if(value.DestroyFaults>0){value.DestroyFaults--;throw new InvalidOperationException("host destroy fault");}value.Destroyed = true; }
     }
-    internal readonly struct Vector2 { internal readonly float x, y; internal Vector2(float x, float y) { this.x=x;this.y=y; } }
-    internal readonly struct Vector3 { internal readonly float x,y,z; internal Vector3(float x,float y,float z) { this.x=x;this.y=y;this.z=z; } }
-    internal readonly struct Quaternion { }
+    internal readonly struct Vector2 { internal readonly float x, y; internal Vector2(float x, float y) { this.x=x;this.y=y; } internal static Vector2 zero=>new(0,0); }
+    internal readonly struct Vector3 { internal readonly float x,y,z; internal Vector3(float x,float y,float z) { this.x=x;this.y=y;this.z=z; } internal static Vector3 one=>new(1,1,1); }
+    internal readonly struct Quaternion { internal static Quaternion identity=>new(); }
     internal class Component : Object
     {
         internal GameObject gameObject = null!;
@@ -60,7 +60,8 @@ namespace UnityEngine
         internal T Add<T>() where T : Component,new() { var item=new T { gameObject=this };_components.Add(typeof(T),item);return item; }
         internal T? GetComponent<T>() where T : Component => _components.TryGetValue(typeof(T),out var value) ? (T)value : null;
     }
-    internal sealed class Canvas : Component { internal bool enabled=true,overrideSorting;internal int sortingOrder;internal Camera? worldCamera; }
+    internal enum RenderMode { ScreenSpaceOverlay, ScreenSpaceCamera, WorldSpace }
+    internal sealed class Canvas : Component { internal bool enabled=true,overrideSorting;internal int sortingOrder;internal Camera? worldCamera;internal RenderMode renderMode;internal bool isRootCanvas=>transform.parent?.GetComponent<Canvas>()==null; }
     internal sealed class Camera : Component { }
     internal sealed class CanvasGroup : Component { internal float alpha=1;internal bool blocksRaycasts=true,interactable=true; }
     internal sealed class Renderer : Component { internal bool enabled=true; }
@@ -92,6 +93,8 @@ namespace GloomhavenVR.WorldUI
         internal bool TargetWasPersistent;
         internal GameObject? HostGo;
         internal Canvas? HostCanvas;
+        internal Canvas? NativeMenuCanvas;
+        internal RenderMode OriginalNativeMenuCanvasMode;
         internal bool PerFrameGuards,GuardHostMoving,GuardHostHeld,OrderListed,AdoptedOrderRebaseDirty,KeepBackgroundHidden;
         internal object? OrderSwapPeer;
         internal int OrderSwapStreak,RebaseEligible,RebaseDistinctOriginals,RebaseLifted,RebaseClamped,AdoptedOverrideAtAdoption,AdoptedOverrideNow,RebaseMinOriginal,RebaseMaxOriginal;

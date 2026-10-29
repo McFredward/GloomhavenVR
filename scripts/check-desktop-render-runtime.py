@@ -109,7 +109,7 @@ def run_suite(args, run):
 using UnityEngine;
 using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
-internal sealed class ConvertedPanel { internal RectTransform Target = null!, HostRect = null!; }
+internal sealed class ConvertedPanel { internal RectTransform Target = null!, HostRect = null!; internal Transform? OriginalParent; internal GameObject? HostGo; internal Canvas? NativeMenuCanvas; internal RenderMode OriginalNativeMenuCanvasMode; }
 internal static partial class CanvasConversion
 {
 private const float FitMinAlpha = .05f;
@@ -130,6 +130,21 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
     probe += method(adopt, '    private static Camera? FindGameUiCamera(Camera head)')
     probe += 'internal static Camera? OriginalUi(Camera head) => FindGameUiCamera(head);\n'
     sources['Fit.cs'] = probe + '}\n'
+    conversion = args.source_root/'src/GloomhavenVR/WorldUI/Conversion'
+    convert = (conversion/'CanvasConversion.1.Core.cs').read_text()
+    release = (conversion/'CanvasConversion.4.Lifecycle.cs').read_text()
+    start = convert.index('        Canvas? menuCanvas = capHeightToCanvas ?')
+    end = convert.index('\n        AdoptNestedCanvases(panel);', start)
+    handoff = convert[start:end]
+    start = release.index('        if (panel.NativeMenuCanvas != null && NativeConversionHomeRestored(panel))')
+    end = release.index('\n        RetainNativeMenuHome(panel);', start)
+    mode_restore = release[start:end]
+    assert convert.index('using var transaction = new ConversionTransaction(panel);') < convert.index(handoff)
+    assert release.index('bool cameraWasWrong = RestoreAdoptedCameras("release");') < release.index(mode_restore)
+    sources['NativeMenuCanvas.cs'] = 'using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class CanvasConversion {\n' + \
+        'internal static void MenuFrame(ConvertedPanel panel, RectTransform target, RectTransform hostRect, Vector2 size, bool capHeightToCanvas) {\n' + handoff + '\n}\n' + \
+        'internal static void RestoreMenuMode(ConvertedPanel panel) {\n' + mode_restore + '\n}\n' + \
+        method(release, '    private static bool NativeConversionHomeRestored(ConvertedPanel panel)\n') + '\n}\n'
     movie = (args.source_root/'src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs').read_text()
     start = movie.index('    internal static bool OwnsRenderCamera(')
     owner = movie[start:movie.index(';', start)+1]
@@ -143,6 +158,12 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
         + 'private const int SweepIntervalFrames = 16;\n' + resolver + '\n}\n')
     variants = [
         ('production', '', '', '', ''),
+        ('native-menu-camera-mode-unpinned', 'NativeMenuCanvas.cs', '            menuCanvas.renderMode = RenderMode.WorldSpace;', '            /* injected: retain native head-driven camera adapter */', 'first menu head pixels already use the final native window frame'),
+        ('native-menu-family-gate-lost', 'NativeMenuCanvas.cs', 'capHeightToCanvas ? target.GetComponent<Canvas>() : null', 'target.GetComponent<Canvas>()', 'ordinary converted windows retain their original canvas-mode policy'),
+        ('native-menu-root-gate-lost', 'NativeMenuCanvas.cs', 'menuCanvas != null && menuCanvas.isRootCanvas', 'menuCanvas != null', 'nested native menu canvases never rewrite their original ancestor mode'),
+        ('native-menu-mode-receipt-lost', 'NativeMenuCanvas.cs', 'panel.OriginalNativeMenuCanvasMode = menuCanvas.renderMode;', 'panel.OriginalNativeMenuCanvasMode = RenderMode.WorldSpace;', 'menu release restores the original camera adapter after native camera ownership'),
+        ('native-menu-release-mode-lost', 'NativeMenuCanvas.cs', 'panel.NativeMenuCanvas.renderMode = panel.OriginalNativeMenuCanvasMode;', '/* injected: native camera mode never restored */', 'menu release restores the original camera adapter after native camera ownership'),
+        ('native-menu-refused-home-lost', 'NativeMenuCanvas.cs', 'panel.NativeMenuCanvas != null && NativeConversionHomeRestored(panel)', 'panel.NativeMenuCanvas != null', 'refused native home retains the original menu canvas-mode receipt'),
         ('late-menu-discovery-lost', 'CaptureRender.cs', '            CaptureStack();', '            /* injected: first render bypasses native capture */', 'late native camera is captured before its first actual render'),
         ('late-menu-base-clear-lost', 'CaptureStack.cs', '                if (cam.backgroundColor != OpaqueBlack)\n                    cam.backgroundColor = OpaqueBlack;', '                /* injected: new base retains undefined native background */', 'first native render applies current opaque stack base clear'),
         ('late-menu-release-lost', 'CaptureStack.cs', '                cam.targetTexture = null;', '                { /* injected: first-render camera stays captured after release */ }', 'first-render capture releases exact camera and native clear state'),
@@ -189,7 +210,8 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
         'Core/NativeCameraRenderBudget.cs', 'Core/VRCameraPolicy.cs',
         'Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs', 'Rig/VRRigDriver.HeadCamera.cs',
         'WorldUI/Conversion/PanelMaintenanceCadence.cs', 'WorldUI/Conversion/CanvasConversion.3.Fit.cs',
-        'WorldUI/Conversion/CanvasConversion.2.Adopt.cs')]
+        'WorldUI/Conversion/CanvasConversion.2.Adopt.cs', 'WorldUI/Conversion/CanvasConversion.1.Core.cs',
+        'WorldUI/Conversion/CanvasConversion.4.Lifecycle.cs', 'WorldUI/Conversion/ConvertedPanel.cs')]
     input_files = source_files + [Path(__file__).resolve(), ROOT/'scripts/menu-depth-character/project_compilers.py'] + sorted(fixture.rglob('*.cs')) + [fixture/'Desktop.csproj']
     input_hashes = {str(path.resolve()): hashlib.sha256(path.read_bytes()).hexdigest() for path in input_files}
     for path in input_files:
