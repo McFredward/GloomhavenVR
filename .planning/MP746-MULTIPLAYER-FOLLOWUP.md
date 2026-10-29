@@ -38,7 +38,10 @@ is a deliverable.
   without creating another release. Automatic opening-time room making is
   causally based on the released manual claim it observed; it cannot overtake
   a newer manual grip. Later necessary room making remains available after a
-  settled manual placement.
+  settled manual placement. Legacy motion bits and byte stamps also obey the
+  accepted current claim: replayed old grips cannot cancel a later reflow, and
+  admission rechecks current ownership/opening even without an old holder's
+  next heartbeat.
 - Shared release-facing uses the accepted releaser's existing Never/LaserOnly/
   Always setting and one captured upright target. The same animated world pose
   is replicated; observers do not apply their private facing correction.
@@ -62,11 +65,49 @@ frame-pacing improvement. See MP746-PERFORMANCE.md for the detailed evidence.
 
 ## Validation and delivery
 
-Integration and final-union validation are in progress. Worker results establish
-focused coverage only. Record the complete local invocation, actual golden
-executable, strict configurations, source bindings, compiled delta review and
-cleanup here before delivery. Hardware multiplayer and headset acceptance of
-Build746 remain separate from automated results.
+The immutable complete invocation runs on integration commit ed9bd039f with
+six jobs. All16 source suites pass (14.3s). Its actual already-built golden
+executable also passes306739 assertions; it was executed directly because two
+fixture failures in the local runner prevent the guard reaching that command.
+This is the executable from the complete invocation, with its retained hashes,
+not a writer/reader replacement or a compile-only claim.
+
+Two discovered fixture failures are repaired by696465c54: the activity fixture
+now explicitly reports unavailable native map-floor input, and the clearance
+mutation targets the canonical frame instead of a removed local-room branch.
+Primary complete containing reruns pass2/2 in185.8s: activity181432 assertions
+and41 controls; clearance593 assertions and7 controls. Existing controls remain.
+The additional common-frame checks reproduce the prior room-yaw defect. These
+are bounded repairs after a failed complete invocation, not a new successful
+single full-gate run. The remaining local inventory and final guard suffix are
+still in progress; record their final outcomes before delivery.
+
+Final production Debug/Release builds have0 warnings/errors (16.54/19.54s).
+All1762 source/build input hashes remain identical after the fixture and cleanup
+repairs. Config670, Harmony registrations265 and log tokens4836 match745 without
+removals or additions. Patch inventory223 classes/338 methods,12 frame-order
+locks and all5 English/German player guides pass their respective checks.
+
+Focused worker evidence includes actual workspace/station geometry281033/17
+controls, environment material/lighting and native GL proofs; narrative54
+variants with1116 existing plus354 new assertions and24 exact pixel comparisons;
+shared pose36 variants/4141 assertions; actual handle/controller31 variants/184
+assertions; head98 variants, including the Ready geometry witness; and real
+capture451 assertions/41 controls. Read the ignored handoffs for native inputs,
+explicit boundaries and platform limits. The Ready witness uses controlled
+rectangles/colors and a generous test RT; it does not certify original sprite
+art or allocator admission. Hardware multiplayer and headset acceptance of
+Build746 remain separate from automated results. Map-stall cause remains open.
+
+The cleanup audit also exposed an older destructive success-marker policy:
+it removed entire previous marked runs after recording a new success. This
+deleted two older individual automated activity/clearance runs in the primary
+checkout before discovery; supplied hardware logs and screenshots were not
+affected. No recovery is claimed. Commit7d4bfa2ff removes that pruning path;
+success recording preserves old evidence, while the unchanged completion API
+removes regenerable project caches. Its complete affected Python files pass
+50 tests without skips, including real compiler reuse, cancellation and process
+group checks. The old implementation fails the new evidence-retention regression.
 
 Each worker uses an isolated worktree based on current dev. The environment and
 narrative workers' complete evidence was content/hash-verified into archives,
