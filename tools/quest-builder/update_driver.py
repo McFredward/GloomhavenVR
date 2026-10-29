@@ -308,7 +308,7 @@ def inspect(builder, args, repo, output, data=None):
         if data is not None: plan["compilerGameRoot"] = str(data)
     plan["seedRequired"] = not installed_game and not _seed(builder).inspect_seed(base_apk, base).get("available")
     for name in ("movie_banks.py", "movie_render.py", "requirements-movies.txt", "menu_depth_resources.py",
-                 "menu_depth_content.py", "menu_depth_update.py", "installation_manifest.py"):
+                 "menu_depth_content.py", "menu_depth_update.py", "installation_manifest.py", "sky_resources.py"):
         path = Path(repo) / "tools/quest-builder" / name
         if path.is_file(): plan["updateRecipe"][name] = builder.digest(path)
     plan["updateRecipe"]["update_seed.py"] = builder.digest(Path(__file__).with_name("update_seed.py"))
@@ -619,6 +619,36 @@ def _has_menu_depth(files):
     return any(row.get("path") == "src/GloomhavenVR/WorldUI/MenuDepth/MenuDepthDisplay.cs" for row in files)
 
 
+def _has_default_sky(files):
+    return any(row.get("path") == "src/GloomhavenVR/Core/Environment/NativeDefaultSky.cs" for row in files)
+
+
+def _complete_resource_inputs(builder, source, files, output, retained, *, sky_resource=None):
+    """Publish a dependency roster only with every current embedded resource.
+
+    The caller already owns the complete Story/retained archive set. Warm and
+    profile-only paths without the new sky producer's selected native basis
+    omit this optional roster, preserving all independent cache families.
+    """
+    result = set(retained)
+    if _has_menu_depth(files):
+        key = builder.menu_depth_resources.plan(source, files)["producerKey"]
+        relative = Path("cache/menu-depth-resources") / key
+        if not (Path(output) / relative).is_dir(): return None
+        result.add(relative.as_posix())
+    if _has_default_sky(files):
+        if not isinstance(sky_resource, str): return None
+        relative = Path(sky_resource)
+        expected = builder.sky_resources.plan(source, files)["recipeKey"]
+        if (relative.is_absolute() or len(relative.parts) != 4
+                or relative.parts[:2] != ("cache", "default-sky-resources")
+                or relative.parts[2] != expected or re.fullmatch(r"[0-9a-f]{64}", relative.parts[3]) is None
+                or not (Path(output) / relative).is_dir()):
+            return None
+        result.add(relative.as_posix())
+    return sorted(result)
+
+
 def _code_rows(files, *, normalizer=None):
     """Conservatively retain every consumed runtime/compiler source identity.
 
@@ -628,11 +658,12 @@ def _code_rows(files, *, normalizer=None):
     the no-compiler path. Compiler-driver edits remain inputs even when they
     only improve reporting, rather than guessing whether new code is equivalent.
     """
-    prefixes = ("src/", "tools/QuestWeaver/", "tools/quest-menu-depth/", "libs/RefAsm/")
+    prefixes = ("src/", "tools/QuestWeaver/", "tools/quest-menu-depth/", "tools/quest-default-sky/", "libs/RefAsm/")
     # Pixel extraction is a post-compiler data delivery. Its complete source is
     # still bound by updateRecipe and its own cache recipe, never an IL2CPP input.
     producers = {"tools/quest-builder/apk_update.py", "tools/quest-builder/update_driver.py", "tools/quest-builder/quest_card_alpha.py",
                  "tools/quest-builder/menu_depth_resources.py",
+                 "tools/quest-builder/sky_resources.py", "tools/default-sky-native/export.py",
                  "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs"}
     def selected(name):
         # Every release records its commit and complete host-file inventory.
@@ -672,7 +703,7 @@ def _code_rows(files, *, normalizer=None):
     return sorted(rows, key=lambda row: row["path"])
 
 
-def _update_source_rows(files, *, art_changed, native_changed=False, menu_sources=()):
+def _update_source_rows(files, *, art_changed, native_changed=False, menu_sources=(), sky_sources=()):
     """Snapshot only consumed compiler sources on an independently owned path.
 
     Retain the full captured mod identity in the signed update. A code compiler
@@ -696,11 +727,11 @@ def _update_source_rows(files, *, art_changed, native_changed=False, menu_source
     # compiler snapshot must not advertise itself as another complete release.
     native_paths = ({"tools/quest-procedural-runtime/" + name for name in (*_proton_helpers().SOURCE_NAMES, "runtime.py", "upstream.lock.json")}
                     | {"tools/quest-builder/proton_helper_update.py"}) if native_changed else set()
-    menu_paths = {row["path"] for row in menu_sources}
+    resource_paths = {row["path"] for row in (*menu_sources, *sky_sources)}
     return [row for row in files if row["path"] != "quest-builder-release.json"
             and not _separate_movie(row["path"]) and not _separate_menu_story(row["path"]) and
             (row["path"].startswith(prefixes)
-             or row["path"] in native_paths or row["path"] in audio_sources or row["path"] in menu_paths
+             or row["path"] in native_paths or row["path"] in audio_sources or row["path"] in resource_paths
              or "/" not in row["path"] and row["path"].endswith((".props", ".targets", ".config", ".json")))]
 
 
@@ -1205,6 +1236,9 @@ def _build_code_player(builder, args, inputs, output, source, game, project, bas
                             version_code=inputs["mod"]["modBuild"],
                             version_name="0.1.0.B" + str(inputs["mod"]["modBuild"]) + "." + root.name[:12], code_key=root.name,
                             retain_compatible_library=True)
+    # The user selection may be a portable ZIP; resource producers need the
+    # exact APK already qualified by preflight, without a second import.
+    args._quest_resource_base_apk = base
     builder.weave(args, inputs, output, source, game, project)
     ugui = project / "Packages/com.unity.ugui/Runtime/UI/Core/Layout/LayoutRebuilder.cs"
     if ugui.is_file():
@@ -1478,7 +1512,9 @@ def run(builder, args, repo, output):
                 source_rows = _update_source_rows(inputs["mod"]["files"], art_changed=changed_art,
                     native_changed=bool(plan.get("nativeHelperChanged")),
                     menu_sources=(builder.menu_depth_resources.plan(repo, inputs["mod"]["files"])["sources"]
-                        if _has_menu_depth(inputs["mod"]["files"]) else ()))
+                        if _has_menu_depth(inputs["mod"]["files"]) else ()),
+                    sky_sources=(builder.sky_resources.plan(repo, inputs["mod"]["files"])["sources"]
+                        if _has_default_sky(inputs["mod"]["files"]) else ()))
                 source_key = builder.value_hash({"mod": inputs["mod"]["key"], "files": source_rows,
                                                 "scope": "compact-update-source-v1"})
                 source = output / "updates/source-inputs" / source_key
@@ -1504,6 +1540,8 @@ def run(builder, args, repo, output):
                 replacements.update(code["replacements"])
                 resource_path = getattr(args, "_quest_menu_depth_resource", None)
                 if resource_path: fast_inputs.append(resource_path)
+                sky_resource_path = getattr(args, "_quest_sky_resource", None)
+                if sky_resource_path: fast_inputs.append(sky_resource_path)
             else:
                 builder.build_progress.operation("update-code", complete=True,
                     detail="Signed managed runtime retained; no IL2CPP compilation." if plan.get("nativeHelperChanged")
@@ -1592,10 +1630,9 @@ def run(builder, args, repo, output):
         # Only publish an exhaustive dependency list. Older/profile-only
         # results without that proof deliberately keep the cleanup fallback.
         if plan.get("menuStoryChanged") and _has_menu_depth(inputs["mod"]["files"]):
-            menu_key = builder.menu_depth_resources.plan(repo, inputs["mod"]["files"])["producerKey"]
-            menu_cache = Path("cache/menu-depth-resources") / menu_key
-            if (output / menu_cache).is_dir(): fast_inputs.append(menu_cache.as_posix())
-            details["fastUpdateInputs"] = sorted(set(fast_inputs))
+            complete = _complete_resource_inputs(builder, repo, inputs["mod"]["files"], output, fast_inputs,
+                sky_resource=getattr(args, "_quest_sky_resource", None) if plan["codeChanged"] else None)
+            if complete is not None: details["fastUpdateInputs"] = complete
         builder.write_json(report, {"schema": 1, "buildResult": "Succeeded", "scope": "APK update", **details})
         builder.build_progress.operation("update-verify", complete=True, detail="Signed update published; original game content is retained.")
         return [apk, report], details

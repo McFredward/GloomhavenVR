@@ -79,6 +79,20 @@ internal static class MenuDepthCompatibilityTests
             MethodDefinition method = a.MainModule.GetType(menu + "MenuDepthCharacterSource").Methods.Single(m => m.Name == "CreateOriginalReader");
             method.Body.Instructions.Single(i => i.OpCode == OpCodes.Ldstr && (string)i.Operand == "character3D").Operand = "otherCharacter";
         });
+        Negative("original-reader Android platform guard", a => {
+            MethodDefinition method = a.MainModule.GetType(menu + "MenuDepthCharacterSource").Methods.Single(m => m.Name == "CreateOriginalReader");
+            method.Body.Instructions.Single(i => i.Operand is MethodReference c && c.Name == "get_platform").Next.Operand = (sbyte)2;
+        });
+        Negative("original-reader closure manager identity", a => {
+            MethodDefinition method = a.MainModule.GetType(menu + "MenuDepthCharacterSource").NestedTypes.SelectMany(t => t.Methods)
+                .Single(m => m.Name == "<CreateOriginalReader>b__0");
+            method.Body.Instructions.Single(i => i.OpCode == OpCodes.Ldarg_1).OpCode = OpCodes.Ldnull;
+        });
+        Negative("original-reader closure field authority", a => {
+            TypeDefinition closure = a.MainModule.GetType(menu + "MenuDepthCharacterSource").NestedTypes
+                .Single(t => t.Methods.Any(m => m.Name == "<CreateOriginalReader>b__0"));
+            closure.Fields.Single(f => f.Name == "field").IsStatic = true;
+        });
         Negative("readonly closure semantics", a => {
             MethodDefinition method = a.MainModule.GetType(menu + "MenuDepthCharacters").NestedTypes.SelectMany(t => t.Methods)
                 .Single(m => m.Name == "<CreateHiddenReader>b__0");

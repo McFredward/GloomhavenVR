@@ -219,5 +219,98 @@ class WorkObserverTests(unittest.TestCase):
         self.parser.close_coverage(); self.parser = ProgressParser()
         plan, _ = self.bind(); self.assertEqual(plan["done"], 0)
 
+    def sky_logs(self):
+        key = "a" * 12 + "-" + "b" * 12
+        native = self.native.with_name("default-sky-unity-" + key + ".log")
+        launch = self.native.with_name("default-sky-launch-" + key + ".log")
+        argv = list(self.argv); argv[argv.index(str(self.native))] = str(native)
+        return native, launch, argv
+
+    def test_default_sky_logs_share_one_actual_plan_and_belong_to_weave(self):
+        native, launch, argv = self.sky_logs()
+        plan = work.publish_plan(argv, launch, Progress())
+        native.write_text(imported("Assets/Figures/Same.asset") + "\n")
+        launch.write_text("current Unity launch\n")
+        tails = {}
+        with self.store.active(self.state), mock.patch.object(self.store, "progress", wraps=self.store.progress) as progress:
+            self.supervisor._tail_progress(tails, self.parser, plan["createdAt"] - .01, final=True)
+        self.assertIn(native, tails); self.assertIn(launch, tails)
+        self.assertTrue(all(self.parser._unity_child(path.name) for path in (native, launch)))
+        self.assertEqual(len(self.parser.coverage_invocations), 1)
+        self.assertIs(self.parser.import_coverage[native.name], self.parser.import_coverage[launch.name])
+        observed = [call.kwargs for call in progress.call_args_list]
+        self.assertTrue(any(value.get("done") == 1 and value.get("total") == 3 for value in observed))
+        self.assertEqual({value.get("operation") for value in observed}, {"weave"})
+
+    def test_default_sky_update_shader_tail_cannot_finish_busy_code_or_reopen_closed_owner(self):
+        self.state = self.store.create({"mode": "update-mod", "gameRoot": "owned"})
+        self.session = self.state["session"]
+        self.store.begin_stage(self.session, "build", "same-retained-apk")
+        self.supervisor = Supervisor(self.store, self.session, poll=.01); self.supervisor.set_stage("build")
+        shader = self.project / "Assets/DefaultSky.shader"
+        shader.write_text('Shader "AMP_SkyShader" { SubShader { Pass {} } }')
+        native, launch, argv = self.sky_logs()
+        plan = work.publish_plan(argv, launch, Progress())
+        root_log = self.store.session_dir(self.session) / "build.log"
+        root_log.write_text(boundary("update-code") + "\n")
+        start = 'Compiling shader "AMP_SkyShader" pass "FORWARD" (vp)'
+        native.write_text(imported("Assets/DefaultSky.shader") + "\n" + start + "\n"
+            "10 / 10 variants left after stripping, processed in 0.00 seconds\n"
+            "[ 60s] 4 / 10 variants ready\n")
+        launch.write_text("current Unity launch\n")
+        tails = {root_log: LogTail(root_log)}
+        def owner():
+            value = self.store.load(self.session)["stages"][5]["progress"]
+            return next(item for group in value["buildOverview"]["groups"] for item in group["operations"]
+                        if item["id"] == "update-code")
+        with self.store.active(self.state), mock.patch.object(self.store, "progress", wraps=self.store.progress) as progress:
+            self.supervisor._tail_progress(tails, self.parser, plan["createdAt"] - .01, final=True)
+            observed = [call.kwargs for call in progress.call_args_list]
+            measured = next(value for value in observed if value["phase"] == "unity-shader-compile" and value["done"] == 4)
+            self.assertEqual((measured["operation"], measured["total"]), ("update-code", 10))
+            self.assertEqual(len(self.parser.coverage_invocations), 1)
+            calls = progress.call_count
+            self.supervisor._tail_progress(tails, self.parser, plan["createdAt"] - .01, final=True)
+            self.assertEqual(progress.call_count, calls)
+            with native.open("a") as stream:
+                stream.write("[120s] 10 / 10 variants ready\n"
+                    "finished in 120.00 seconds. Local cache hits 0 (0.00s CPU time), "
+                    "remote cache hits 0 (0.00s CPU time), compiled 10 variants (120.00s CPU time), skipped 0 variants\n")
+            self.supervisor._tail_progress(tails, self.parser, plan["createdAt"] - .01, final=True)
+            current = owner()
+            self.assertEqual(current["status"], "running")
+            self.assertFalse(current["compiler"]["closed"])
+            self.assertNotEqual(current["compiler"]["percent"], 100)
+            self.assertEqual(current["compiler"]["currentPass"]["status"], "complete")
+            self.assertTrue(any(call.kwargs["phase"] == "unity-player-shaders"
+                and (call.kwargs["done"], call.kwargs["total"]) == (1, 2) for call in progress.call_args_list))
+            self.assertFalse(any(call.kwargs["phase"] == "default-sky-resources" for call in progress.call_args_list))
+            with root_log.open("a") as stream:
+                stream.write(boundary("update-code", "complete") + "\n" + boundary("update-verify") + "\n")
+            self.supervisor._tail_progress(tails, self.parser, plan["createdAt"] - .01, final=True)
+            self.assertEqual(owner()["status"], "complete")
+            calls = progress.call_count
+            with native.open("a") as stream: stream.write(start + "\n" + imported("Assets/Cards/Same.asset") + "\n")
+            self.supervisor._tail_progress(tails, self.parser, plan["createdAt"] - .01, final=True)
+            self.assertEqual(progress.call_count, calls)
+            self.assertEqual(self.parser._unity_operation(native.name), "update-code")
+
+    def test_unknown_sky_log_cannot_enter_watcher_even_with_an_actual_work_plan(self):
+        native = self.native.with_name("default-sky-future-" + "a" * 12 + "-" + "b" * 12 + ".log")
+        launch = native.with_name("default-sky-unity-unknown.log")
+        argv = list(self.argv); argv[argv.index(str(self.native))] = str(native)
+        plan = work.publish_plan(argv, launch, Progress())
+        native.write_text(imported("Assets/Figures/Same.asset") + "\n"); launch.write_text("current launch\n")
+        tails = {}
+        with self.store.active(self.state), mock.patch.object(self.store, "progress", wraps=self.store.progress) as progress:
+            self.supervisor._tail_progress(tails, self.parser, plan["createdAt"] - .01, final=True)
+        self.assertFalse(tails); self.assertFalse(self.parser.coverage_invocations)
+        progress.assert_not_called()
+        for name in (native.name, launch.name, "default-sky-unity-" + "g" * 12 + "-" + "b" * 12 + ".log",
+                     "default-sky-launch-" + "a" * 12 + "-" + "b" * 12 + ".memory-attempt-1.log"):
+            with self.subTest(name=name):
+                self.assertFalse(self.parser._unity_child(name))
+                self.assertIsNone(self.parser._unity_operation(name))
+
 
 if __name__ == "__main__": unittest.main()

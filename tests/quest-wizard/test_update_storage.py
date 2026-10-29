@@ -222,6 +222,8 @@ class UpdateStorageTests(unittest.TestCase):
         self.assertEqual(result["warnings"][0]["code"], "update_history_retained")
 
     def menu_cache(self, area, generation):
+        if area == 'default-sky-resources':
+            return self.sky_cache(generation)
         raw = ('closed reusable menu payload ' + str(generation)).encode()
         key = hashlib.sha256(raw).hexdigest()
         filename = 'menu-depth-android.bundle' if area == 'menu-depth-resources' else 'quest-mod-content.zip'
@@ -253,6 +255,25 @@ class UpdateStorageTests(unittest.TestCase):
                 {'schema': 1, 'stage': stage, 'key': key, 'outputs': outputs, 'details': details})
         return folder / filename
 
+    def sky_cache(self, generation):
+        raw = ('qualified native Android sky ' + str(generation)).encode()
+        recipe = {'schema': 1, 'scope': 'quest-default-sky-resources-v1', 'target': 'Android',
+            'graphicsApi': 'Vulkan', 'unityVersion': '2021.3.5f1', 'stereoRenderingPath': 'MultiPass',
+            'typeTrees': True, 'sources': [{'path': 'tools/quest-builder/sky_resources.py',
+                'size': 1, 'sha256': 'a' * 64}]}
+        recipe_key = state.value_hash(recipe)
+        basis = {'nativeAssetSha256': hashlib.sha256(raw).hexdigest()}
+        producer_key = state.value_hash({'recipeKey': recipe_key, 'basis': basis})
+        relative = 'cache/default-sky-resources/' + recipe_key + '/' + producer_key
+        folder = self.build / relative
+        filename = 'native-default-sky-android.bundle'
+        row = self.file(relative + '/' + filename, raw)
+        state.atomic_json(folder / 'native-default-sky-android.provenance.json', {
+            'schema': 1, 'scope': recipe['scope'], 'recipeKey': recipe_key, 'producerKey': producer_key,
+            'recipe': recipe, 'basis': basis, 'bundle': {**row, 'path': filename},
+            'nativePlatformAudit': {'platforms': [13]}})
+        return folder / filename
+
     def latest_fast_inputs(self, paths):
         latest = json.loads((self.build / 'latest-build.json').read_text())
         latest['details']['fastUpdateInputs'] = [path.parent.relative_to(self.build).as_posix() for path in paths]
@@ -260,6 +281,106 @@ class UpdateStorageTests(unittest.TestCase):
         receipt['details'] = latest['details']
         state.atomic_json(self.build / latest['receipt'], receipt)
         state.atomic_json(self.build / 'latest-build.json', latest)
+
+    def sky_work(self, generation, *, closed=True):
+        bank = self.sky_cache(generation)
+        producer, recipe = bank.parent.name, bank.parent.parent.name
+        folder = self.build / 'work' / ('sky-' + producer[:12])
+        state.atomic_json(folder / 'owner.json', {'schema': 1, 'scope': 'quest-default-sky-work-v1',
+            'recipeKey': recipe, 'producerKey': producer})
+        caches = [folder / 'native-cache/bound', folder / 'unity-1234abcd/Library', folder / 'unity-1234abcd/bundles']
+        for path in caches:
+            path.mkdir(parents=True); (path / 'regenerable.bin').write_bytes(b'generated native cache')
+        evidence = [folder / 'native-cache/original-shader-inventory.json', folder / 'unity-1234abcd/sky-shaders.json',
+            folder / 'unity-1234abcd/Assets/Native.shader', folder / 'unity-1234abcd/Logs/Editor.log']
+        for path in evidence:
+            path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'retained source or evidence')
+        if not closed: bank.unlink()
+        return folder, bank, caches, evidence
+
+    def test_closed_sky_work_reclaims_caches_and_preserves_current_bank_sources_and_logs(self):
+        apk, _ = self.update(1, latest=True)
+        folder, bank, caches, evidence = self.sky_work(1)
+        self.latest_fast_inputs([bank])
+        latest = json.loads((self.build / 'latest-build.json').read_text())
+        latest['details']['workRelativePath'] = folder.relative_to(self.build).as_posix()
+        receipt = json.loads((self.build / latest['receipt']).read_text()); receipt['details'] = latest['details']
+        state.atomic_json(self.build / latest['receipt'], receipt)
+        state.atomic_json(self.build / 'latest-build.json', latest)
+        original = Path.read_bytes
+        def metadata_only(path):
+            if path.suffix in ('.apk', '.zip', '.bundle'): raise AssertionError('work cleanup reads metadata only')
+            return original(path)
+        with mock.patch.object(Path, 'read_bytes', metadata_only):
+            result = update_storage.maintain(self.root)
+        self.assertEqual(result['prunedFiles'], len(caches))
+        self.assertTrue(all(not path.exists() for path in caches))
+        self.assertTrue(all(path.is_file() for path in evidence))
+        self.assertTrue((folder / 'owner.json').is_file() and bank.is_file() and apk.is_file())
+        self.assertNotIn(folder.relative_to(self.root).as_posix(), result['retainedFastUpdatePaths'])
+        self.assertNotEqual(update_storage.impact(self.root, [folder], mode='session')['fastUpdateImpact']['status'], 'slower')
+
+    def test_incomplete_or_changed_final_sky_pair_keeps_partial_native_work(self):
+        self.update(1, latest=True)
+        folder, bank, caches, _ = self.sky_work(1, closed=False)
+        self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
+        self.assertTrue(all(path.is_dir() for path in caches))
+        bank.write_bytes(b'partial')
+        self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
+        self.assertTrue(all(path.is_dir() for path in caches))
+
+    def test_sky_work_owner_prefix_and_unknown_contents_never_authorize_cleanup(self):
+        self.update(1, latest=True)
+        for generation, mode in enumerate(('owner', 'prefix', 'unknown'), 20):
+            with self.subTest(mode=mode):
+                folder, bank, caches, _ = self.sky_work(generation)
+                self.latest_fast_inputs([bank])
+                if mode == 'owner':
+                    value = json.loads((folder / 'owner.json').read_text()); value['recipeKey'] = 'f' * 64
+                    state.atomic_json(folder / 'owner.json', value)
+                elif mode == 'prefix':
+                    moved = folder.with_name('sky-' + '0' * 12); folder.rename(moved)
+                    caches = [moved / path.relative_to(folder) for path in caches]
+                else:
+                    (folder / 'foreign-source.txt').write_text('unknown collision')
+                update_storage.maintain(self.root)
+                self.assertTrue(all(path.is_dir() for path in caches))
+
+    def test_sky_work_live_editor_pending_project_and_explicit_keep_are_protected(self):
+        self.update(1, latest=True)
+        folder, bank, caches, _ = self.sky_work(1)
+        self.latest_fast_inputs([bank])
+        with mock.patch.object(cleanup, '_editor_busy', return_value=True):
+            self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
+        self.assertTrue(all(path.is_dir() for path in caches))
+        self.assertEqual(update_storage.maintain(self.root, keep_paths=[folder])['prunedFiles'], 0)
+        run = self.store.create({'mode': 'update-mod'}); run['status'] = 'blocked'
+        next(row for row in run['stages'] if row['id'] == 'inspect')['details'] = {
+            'workRelativePath': (folder / 'unity-1234abcd').relative_to(self.build).as_posix()}
+        self.store.save(run)
+        self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
+        run['status'] = 'complete'; self.store.save(run)
+        self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], len(caches))
+        self.assertTrue(bank.is_file())
+
+    def test_sky_work_pins_links_and_later_owner_changes_keep_unknown_data(self):
+        self.update(1, latest=True)
+        folder, bank, caches, _ = self.sky_work(1)
+        self.latest_fast_inputs([bank])
+        (folder / '.keep').write_text('retained capture')
+        self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
+        (folder / '.keep').unlink()
+        external = self.temp / 'external-source'; external.mkdir()
+        (external / 'preserve.txt').write_text('original input')
+        (caches[1] / 'external').symlink_to(external, target_is_directory=True)
+        update_storage.maintain(self.root)
+        self.assertTrue((external / 'preserve.txt').is_file() and caches[1].is_dir())
+        (caches[1] / 'external').unlink()
+        preview = cleanup.plan(self.root, 'update-history')
+        value = json.loads((folder / 'owner.json').read_text()); value['producerKey'] = 'f' * 64
+        state.atomic_json(folder / 'owner.json', value)
+        with self.assertRaises(state.WizardError): cleanup.execute(self.root, preview)
+        self.assertTrue(caches[1].is_dir())
 
     def test_menu_cache_families_are_reusable_inputs_and_run_retirement_keeps_them(self):
         self.update(1, latest=True)
@@ -292,13 +413,14 @@ class UpdateStorageTests(unittest.TestCase):
             return original(path)
         with mock.patch.object(Path, 'read_bytes', metadata_only):
             result = update_storage.maintain(self.root)
-        self.assertEqual(result['prunedFiles'], 3)
+        self.assertEqual(result['prunedFiles'], len(update_storage.MENU_CACHE_AREAS))
         self.assertTrue(all(not path.exists() for path in old))
         self.assertTrue(all(path.is_file() for path in current + pending))
         self.assertTrue(current_apk.is_file() and evidence.is_file())
         self.assertTrue((old[0].parent / 'menu-depth-android.provenance.json').is_file())
         self.assertTrue((old[1].parent / 'quest-mod-content.json').is_file())
         self.assertTrue((old[2].parent / 'owner.json').is_file())
+        self.assertTrue((old[3].parent / 'native-default-sky-android.provenance.json').is_file())
 
     def test_safe_and_history_previews_remove_only_explicitly_superseded_menu_payloads(self):
         for mode in ('safe', 'update-history'):
@@ -333,10 +455,52 @@ class UpdateStorageTests(unittest.TestCase):
         owner = payloads[2].parent / 'owner.json'
         value = json.loads(owner.read_text()); value['archiveSha256'] = 'f' * 64
         state.atomic_json(owner, value)
+        sky_owner = payloads[3].parent / 'native-default-sky-android.provenance.json'
+        sky_value = json.loads(sky_owner.read_text()); sky_value['basis']['nativeAssetSha256'] = 'f' * 64
+        state.atomic_json(sky_owner, sky_value)
         unknown = self.file('cache/retained-mod-content/' + 'd' * 64 + '/quest-mod-content.zip', b'unproven')
         self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
         self.assertTrue(all(path.is_file() for path in payloads))
         self.assertTrue((self.build / unknown['path']).is_file())
+
+    def test_sky_cache_ownership_requires_both_closed_keys_and_android_recipe(self):
+        self.update(1, latest=True)
+        self.latest_fast_inputs([])
+        mutations = {
+            'schema': lambda value: value.update(schema=2),
+            'scope': lambda value: value.update(scope='unknown'),
+            'recipe_key': lambda value: value.update(recipeKey='f' * 64),
+            'producer_key': lambda value: value.update(producerKey='f' * 64),
+            'recipe_source': lambda value: value['recipe']['sources'][0].update(sha256='f' * 64),
+            'basis': lambda value: value['basis'].update(nativeAssetSha256='f' * 64),
+            'platform': lambda value: value['recipe'].update(graphicsApi='Direct3D11'),
+            'bundle_path': lambda value: value['bundle'].update(path='other.bundle'),
+        }
+        for generation, (name, mutate) in enumerate(mutations.items(), 10):
+            with self.subTest(name=name):
+                payload = self.sky_cache(generation)
+                path = payload.parent / 'native-default-sky-android.provenance.json'
+                value = json.loads(path.read_text()); mutate(value); state.atomic_json(path, value)
+                self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
+                self.assertTrue(payload.is_file())
+
+    def test_sky_recipe_pin_and_unknown_native_basis_survive_cleanup(self):
+        self.update(1, latest=True)
+        self.latest_fast_inputs([])
+        payload = self.sky_cache(1)
+        (payload.parent.parent / '.keep').write_text('pinned native shader evidence')
+        unknown = self.file('cache/default-sky-resources/' + 'b' * 64 + '/' + 'c' * 64
+                            + '/native-default-sky-android.bundle', b'unproven native bank')
+        self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
+        self.assertTrue(payload.is_file() and (self.build / unknown['path']).is_file())
+
+    def test_malformed_sky_dependency_keeps_all_four_cache_families(self):
+        self.update(1, latest=True)
+        payloads = [self.menu_cache(area, 1) for area in update_storage.MENU_CACHE_AREAS]
+        malformed = self.build / 'cache/default-sky-resources' / ('b' * 64) / 'unknown'
+        self.latest_fast_inputs([malformed / 'native-default-sky-android.bundle'])
+        self.assertEqual(update_storage.maintain(self.root)['prunedFiles'], 0)
+        self.assertTrue(all(path.is_file() for path in payloads))
 
     def test_current_menu_dependency_change_invalidates_retained_cleanup_preview(self):
         self.update(1, latest=True)

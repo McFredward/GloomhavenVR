@@ -20,7 +20,7 @@ PUBLIC_PACKAGES = {'prebuilt/quest-converters-win64-v1.zip': '61f7d664384b12663f
 ROOT_FILES = {'Quest-Builder.cmd', 'Quest-Builder.sh', 'Quest-Repair-Access.cmd', 'Quest-Repair-Access.sh', 'QUEST-BUILDER-START.txt', 'LICENSE', 'Directory.Build.props', 'GloomhavenVR.sln', 'global.json', 'nuget.config', '.editorconfig'}
 TOOL_ROOTS = {'QuestCampaignInventory', 'QuestProceduralExport', 'QuestWeaver', 'RuntimeDepsBuild',
               'ShaderOcclusionPatcher', 'environment-mesh', 'figure-mesh', 'quest-builder', 'quest-campaign-audit', 'quest-compute',
-              'quest-installer', 'quest-menu-depth', 'quest-movies', 'quest-native', 'quest-network', 'quest-procedural',
+              'default-sky-native', 'quest-default-sky', 'quest-installer', 'quest-menu-depth', 'quest-movies', 'quest-native', 'quest-network', 'quest-procedural',
               'quest-procedural-runtime', 'quest-recovery', 'quest-shaders', 'quest-wizard', 'quest-wizard-ui'}
 UNITY_ROOTS = {'GloomhavenVR.Assets', 'GloomhavenVR.Quest', 'GloomhavenVR.FigureMeshes'}
 SCRIPTS = {'build-quest.py', 'build-quest-native.py', 'recover-quest.py', 'build-runtimedeps.sh', 'repair-quest-access.ps1',
@@ -182,6 +182,12 @@ REQUIRED |= AUTHORED_RESOURCES | AUTHORED_MOVIES | PROMOTIONAL_ASSETS | {
     'tools/quest-builder/apk_input_cache.py',
     'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs'}
 REQUIRED |= MENU_RECIPES
+REQUIRED |= {
+    'src/GloomhavenVR/Assets/DefaultSky/native-default-sky.provenance.json',
+    'tools/default-sky-native/export.py',
+    'tools/quest-default-sky/Editor/DefaultSkyResourceBuilder.cs',
+    'tools/quest-builder/sky_resources.py',
+}
 
 
 def safe_name(name):

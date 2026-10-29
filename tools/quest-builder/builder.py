@@ -75,6 +75,7 @@ portable_packages = _local_helper("portable_package")
 menu_depth_resources = _local_helper("menu_depth_resources")
 menu_depth_content = _local_helper("menu_depth_content")
 menu_depth_update = _local_helper("menu_depth_update")
+sky_resources = _local_helper("sky_resources")
 
 
 def _module_context():
@@ -1262,6 +1263,7 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
     if args.target not in ("game", "startup"):
         return
     dotnet = tool_path(args.dotnet, "dotnet")
+    resource_apk = getattr(args, "_quest_resource_base_apk", getattr(args, "base_apk", None))
     resource = None
     if has_menu_depth(inputs):
         build_progress.event("menu-depth-resources", 0, 1, "banks",
@@ -1270,16 +1272,33 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         owned_game = (game_data(Path(args.game_root))
                       if getattr(args, "game_root", None) and not getattr(args, "installed_game", False) else game)
         resource = menu_depth_resources.produce(_module_context(), source, output, game=owned_game,
-            editor=tool_path(args.unity_editor, "Unity"), base_apk=getattr(args, "base_apk", None),
+            editor=tool_path(args.unity_editor, "Unity"), base_apk=resource_apk,
             source_files=inputs["mod"]["files"])
         args._quest_menu_depth_resource = resource["bundle"].parent.relative_to(output).as_posix()
         build_progress.event("menu-depth-resources", 1, 1, "banks", "Android menu resource bank ready.",
+            status="complete", operation="update-code" if getattr(args, "command", "") == "update-mod" else None)
+    sky_resource = None
+    if any(row.get("path") == "src/GloomhavenVR/Core/Environment/NativeDefaultSky.cs"
+           for row in inputs["mod"]["files"]):
+        build_progress.event("default-sky-resources", 0, 1, "banks",
+            "Preparing the small Android default-sky resource bank; original game content is retained.",
+            operation="update-code" if getattr(args, "command", "") == "update-mod" else None)
+        owned_game = (game_data(Path(args.game_root))
+                      if getattr(args, "game_root", None) and not getattr(args, "installed_game", False) else game)
+        sky_resource = sky_resources.produce(_module_context(), source, output, project=project, game=owned_game,
+            editor=tool_path(args.unity_editor, "Unity"), base_apk=resource_apk,
+            source_files=inputs["mod"]["files"])
+        args._quest_sky_resource = sky_resource["bundle"].parent.relative_to(output).as_posix()
+        build_progress.event("default-sky-resources", 1, 1, "banks", "Android default-sky resource bank ready.",
             status="complete", operation="update-code" if getattr(args, "command", "") == "update-mod" else None)
     key = value_hash({"game": inputs["game"]["key"], "mod": inputs["mod"]["key"],
                       "target": args.target, "profile": inputs["profileKey"], "recipe": RECIPE,
                       **({"menuDepth": {"producerKey": resource["producerKey"],
                            "bundle": digest(resource["bundle"]), "provenance": digest(resource["provenance"])}}
-                         if resource is not None else {})})
+                         if resource is not None else {}),
+                      **({"defaultSky": {"producerKey": sky_resource["producerKey"],
+                           "bundle": digest(sky_resource["bundle"]), "provenance": digest(sky_resource["provenance"])}}
+                         if sky_resource is not None else {})})
     root = output / "cache/weave" / key
     staged = root / "Managed"
     report = root / "weave-report.json"
@@ -1290,6 +1309,9 @@ def weave(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         resource_args = ([] if resource is None else ["-p:GloomhavenVRMenuDepthBundle=" + str(resource["bundle"]),
             "-p:GloomhavenVRMenuDepthProvenance=" + str(resource["provenance"]),
             "-p:GloomhavenVRMenuDepthSkipStoryCopy=true"])
+        if sky_resource is not None:
+            resource_args.extend(["-p:GloomhavenVRDefaultSkyBundle=" + str(sky_resource["bundle"]),
+                "-p:GloomhavenVRDefaultSkyProvenance=" + str(sky_resource["provenance"])])
         command([str(dotnet), "build", str(mod_project), "--configuration", "Release",
                  "--output", str(dll_dir), "-p:GameManaged=" + str(game / "Managed"), *resource_args],
                 output / "logs" / ("mod-" + key[:12] + ".log"), cwd=source)

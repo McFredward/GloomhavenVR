@@ -3,14 +3,16 @@
 Updates are atomic replacements: the selected APK must remain intact until its
 successor is signed and published. Older Wizard-produced final APKs can then be
 removed. Native Players, compiler projects, converted banks and source snapshots
-are deliberately independent of that output history. No payload hashing, Unity
-import, recursive cache sweep or external input deletion is needed here.
+are deliberately independent of that output history. Closed Sky work retires
+only named generated caches, preserving its source and diagnostic evidence.
+No payload hashing, Unity import or external input deletion is needed here.
 """
 from __future__ import annotations
 
 from pathlib import Path
 import hashlib
 import json
+import re
 import stat
 
 from state import Cancelled, WizardError, atomic_json
@@ -19,12 +21,28 @@ FAST_AREAS = ("updates/code-projects", "updates/source-inputs", "updates/game-in
               "cache/quest-figure-meshes", "cache/quest-native-audio", "cache/quest-movies",
               "cache/environment-meshes", "cache/environment-native", "cache/environment-geometry",
               "cache/update-art-delivery", "cache/update-seeds", "cache/device-update-seeds",
-              "cache/menu-depth-resources", "cache/menu-depth-content", "cache/retained-mod-content")
-MENU_CACHE_AREAS = ("menu-depth-resources", "menu-depth-content", "retained-mod-content")
+              "cache/menu-depth-resources", "cache/menu-depth-content", "cache/retained-mod-content",
+              "cache/default-sky-resources")
+MENU_CACHE_AREAS = ("menu-depth-resources", "menu-depth-content", "retained-mod-content", "default-sky-resources")
+SKY_WORK = re.compile(r"sky-[0-9a-f]{12}\Z")
+SKY_UNITY = re.compile(r"unity-[0-9a-f]{8}\Z")
 
 
 def _overlaps(path, other):
     return path == other or path in other.parents or other in path.parents
+
+
+def _work_references(helper, root, build, value, result, *, cancel=None):
+    """Only unfinished runs protect temporary work; published pairs do not."""
+    if isinstance(value, dict):
+        for item in value.values(): _work_references(helper, root, build, item, result, cancel=cancel)
+    elif isinstance(value, list):
+        for item in value: _work_references(helper, root, build, item, result, cancel=cancel)
+    elif isinstance(value, str):
+        for path in helper._references(root, build, [value], cancel=cancel):
+            parent = build / "work"
+            if parent in path.parents and SKY_WORK.fullmatch(path.relative_to(parent).parts[0]):
+                result.add(parent / path.relative_to(parent).parts[0])
 
 
 def _fast_references(helper, root, build, value, result, *, cancel=None):
@@ -55,7 +73,11 @@ def _fast_references(helper, root, build, value, result, *, cancel=None):
                             elif parent in path.parents:
                                 relative = path.relative_to(parent)
                                 if helper._key(relative.parts[0]):
-                                    result.add(parent / relative.parts[0]); matched = True
+                                    retained = parent / relative.parts[0]
+                                    if area == "default-sky-resources" and len(relative.parts) > 1:
+                                        if not helper._key(relative.parts[1]): continue
+                                        retained /= relative.parts[1]
+                                    result.add(retained); matched = True
                         if not matched: malformed = True
                     if len(references) != len(set(values)):
                         malformed = True
@@ -98,6 +120,7 @@ def protected_paths(helper, root, build, proofs, *, cancel=None):
             if count > helper.MAX_IDENTITIES: raise helper._error("cleanup_receipt", "Too many retained runs.")
             value = helper._session(folder, proofs)
             if value.get("status") == "complete": continue
+            _work_references(helper, root, build, value, result, cancel=cancel)
             _fast_references(helper, root, build, value, result, cancel=cancel)
             choices = value["choices"]
             selected = choices.get("baseApk")
@@ -113,6 +136,84 @@ def protected_paths(helper, root, build, proofs, *, cancel=None):
     return result
 
 
+def _sky_resource_row(helper, folder, proofs, *, cancel=None):
+    """Close the same finite cache owner before pruning a bank or its work."""
+    owner = helper._read(folder / "native-default-sky-android.provenance.json", proofs, cancel=cancel)
+    recipe, basis, row = owner.get("recipe"), owner.get("basis"), owner.get("bundle")
+    recipe_key = folder.parent.name
+    if (owner.get("schema") != 1 or owner.get("scope") != "quest-default-sky-resources-v1"
+            or owner.get("recipeKey") != recipe_key or owner.get("producerKey") != folder.name
+            or not isinstance(recipe, dict) or recipe.get("schema") != 1
+            or recipe.get("scope") != owner["scope"] or helper.value_hash(recipe) != recipe_key
+            or recipe.get("target") != "Android" or recipe.get("graphicsApi") != "Vulkan"
+            or recipe.get("unityVersion") != "2021.3.5f1"
+            or recipe.get("stereoRenderingPath") != "MultiPass" or recipe.get("typeTrees") is not True
+            or not isinstance(basis, dict) or not basis
+            or helper.value_hash({"recipeKey": recipe_key, "basis": basis}) != folder.name
+            or not isinstance(row, dict) or row.get("path") != "native-default-sky-android.bundle"):
+        raise ValueError("unproven native default sky resource owner")
+    helper._rows(recipe.get("sources"))
+    helper._rows([row])
+    payload = folder / row["path"]
+    stamp = helper._stamp(payload)
+    if not stat.S_ISREG(stamp[2]) or stamp[3] <= 0 or stamp[3] != row["size"]:
+        raise ValueError("changed owned default sky payload metadata")
+    proofs[str(payload)] = {"stamp": stamp, "sha256": None}
+    return row
+
+
+def _sky_work_candidates(helper, root, build, proofs, protected, *, cancel=None):
+    """Reclaim only generated caches after the final native pair is closed."""
+    targets, skipped = [], []
+    parent = build / "work"
+    if not parent.is_dir(): return targets, skipped
+    helper._stamp(parent)
+    folders = [path for path in parent.iterdir() if SKY_WORK.fullmatch(path.name)]
+    if len(folders) > helper.MAX_IDENTITIES:
+        raise helper._error("cleanup_receipt", "Too many retained default sky work directories.")
+    for folder in folders:
+        helper._check_cancel(cancel)
+        if any(_overlaps(folder, path) for path in protected): continue
+        try:
+            owner = helper._read(folder / "owner.json", proofs, cancel=cancel)
+            if (set(owner) != {"schema", "scope", "recipeKey", "producerKey"}
+                    or type(owner.get("schema")) is not int or owner.get("schema") != 1
+                    or owner.get("scope") != "quest-default-sky-work-v1"
+                    or not helper._key(owner.get("recipeKey")) or not helper._key(owner.get("producerKey"))
+                    or folder.name != "sky-" + owner["producerKey"][:12]):
+                raise ValueError("unproven short default sky work owner")
+            _sky_resource_row(helper, build / "cache/default-sky-resources" / owner["recipeKey"] / owner["producerKey"],
+                              proofs, cancel=cancel)
+            proofs[str(folder)] = {"stamp": helper._stamp(folder), "sha256": None}
+            children = list(folder.iterdir())
+            if any(path.name not in ("owner.json", "native-cache") and not SKY_UNITY.fullmatch(path.name) for path in children):
+                raise ValueError("unknown default sky work contents")
+            projects = [path for path in children if SKY_UNITY.fullmatch(path.name)]
+            for path in projects:
+                stamp = helper._stamp(path)
+                if not stat.S_ISDIR(stamp[2]): raise ValueError("invalid default sky Unity directory")
+                proofs[str(path)] = {"stamp": stamp, "sha256": None}
+            if any(helper._editor_busy(project) for project in projects):
+                raise helper._error("cleanup_editor_busy", folder.name)
+            native = folder / "native-cache"
+            if native.exists() or native.is_symlink():
+                stamp = helper._stamp(native)
+                if not stat.S_ISDIR(stamp[2]): raise ValueError("invalid default sky native cache directory")
+                proofs[str(native)] = {"stamp": stamp, "sha256": None}
+                if any(path.name not in ("bound", "translated", "interfaces", "forms", "tools", "progress.json",
+                        "original-shader-stages.json", "original-shader-inventory.json") for path in native.iterdir()):
+                    raise ValueError("unknown default sky native cache contents")
+                targets.extend(path for name in ("bound", "translated", "interfaces", "forms", "tools")
+                               if (path := native / name).is_dir())
+            for project in projects:
+                targets.extend(path for name in ("Library", "Temp", "obj", "Obj", "bin", ".vs", "bundles")
+                               if (path := project / name).is_dir())
+        except Cancelled: raise
+        except (WizardError, OSError, ValueError, KeyError, TypeError, AttributeError):
+            skipped.append({"path": folder.relative_to(root).as_posix(), "reason": "unproven_sky_work"})
+    return targets, skipped
+
+
 def cache_candidates(helper, root, build, proofs, *, cancel=None):
     """Prune finite superseded payloads while preserving all ownership evidence.
 
@@ -121,7 +222,7 @@ def cache_candidates(helper, root, build, proofs, *, cancel=None):
     payload hash or recursive cache-directory deletion establishes ownership.
     """
     protected = {build / "cache" / area for area in MENU_CACHE_AREAS}
-    if not any(path.is_dir() for path in protected): return [], protected, []
+    if not any(path.is_dir() for path in protected) and not (build / "work").is_dir(): return [], protected, []
     try:
         protected = protected_paths(helper, root, build, proofs, cancel=cancel)
     except Cancelled: raise
@@ -129,11 +230,21 @@ def cache_candidates(helper, root, build, proofs, *, cancel=None):
         return [], protected, [{"path": "build/cache", "reason": "unproven_menu_dependencies"}]
     targets, skipped = [], []
     for area in MENU_CACHE_AREAS:
-        for folder in helper._children(build / "cache" / area, cancel=cancel):
+        folders = helper._children(build / "cache" / area, cancel=cancel)
+        if area == "default-sky-resources":
+            sky_folders = []
+            for recipe in folders:
+                sky_folders.extend(helper._children(recipe, cancel=cancel))
+                if len(sky_folders) > helper.MAX_IDENTITIES:
+                    raise helper._error("cleanup_receipt", "Too many retained default sky identities.")
+            folders = sky_folders
+        for folder in folders:
             if any(_overlaps(folder, path) for path in protected): continue
             try:
                 if not helper._key(folder.name): continue
-                if area == "menu-depth-resources":
+                if area == "default-sky-resources":
+                    row = _sky_resource_row(helper, folder, proofs, cancel=cancel)
+                elif area == "menu-depth-resources":
                     owner = helper._read(folder / "menu-depth-android.provenance.json", proofs, cancel=cancel)
                     recipe = owner.get("recipe")
                     row = owner.get("bundle")
@@ -194,7 +305,8 @@ def cache_candidates(helper, root, build, proofs, *, cancel=None):
             except Cancelled: raise
             except (WizardError, OSError, ValueError, KeyError, TypeError, AttributeError):
                 skipped.append({"path": folder.relative_to(root).as_posix(), "reason": "unproven_menu_cache"})
-    return targets, protected, skipped
+    work, work_skipped = _sky_work_candidates(helper, root, build, proofs, protected, cancel=cancel)
+    return targets + work, protected, skipped + work_skipped
 
 
 def candidates(helper, root, build, proofs, *, keep_paths=(), cancel=None):
@@ -300,7 +412,7 @@ def impact(root, paths, *, mode, protected=()):
 
 
 def maintain(state_root, *, progress=None, cancel=None, keep_paths=(), run_lock_held=False):
-    """Prune superseded generated final APKs only after successful publication.
+    """Prune proven obsolete outputs and caches after successful publication.
 
     The Engine already owns run.lock during stage publication. Its caller may
     pass run_lock_held=True; the build kernel lock is still acquired. Errors are
@@ -333,9 +445,10 @@ def maintain(state_root, *, progress=None, cancel=None, keep_paths=(), run_lock_
                 try:
                     tracker = helper._ScanProgress(progress, "cleanup-update-history", cancel, root=root)
                     scan = helper._scan(target, progress, "cleanup-update-history", cancel=cancel, tracker=tracker)
-                    delete_owned(target, scan["nodes"][0][1], helper._stamp, owned_root=root,
-                                 cancel=cancel, progress=progress)
-                    result["prunedBytes"] += scan["bytes"]; result["prunedFiles"] += 1
+                    for path, stamp in reversed(scan["nodes"]):
+                        delete_owned(path, stamp, helper._stamp, owned_root=root, cancel=cancel, progress=progress)
+                        if stat.S_ISREG(stamp[2]):
+                            result["prunedBytes"] += stamp[3]; result["prunedFiles"] += 1
                 except Cancelled: raise
                 except (WizardError, OSError, ValueError) as error:
                     result["skipped"].append({"path": target.relative_to(root).as_posix(),

@@ -24,10 +24,11 @@ IDENTITY = "tools/quest-builder/preparation_identity.py"
 RECIPE_IDENTITY = "tools/quest-builder/recovery_resume.py"
 METADATA_IDENTITY = "tools/quest-builder/preparation_metadata.py"
 DELIVERY_PREFIXES = ("tools/quest-wizard/", "tools/quest-wizard-ui/", "tools/quest-installer/",
-                     "tools/quest-menu-depth/")
+                     "tools/quest-menu-depth/", "tools/quest-default-sky/", "tools/default-sky-native/")
 # Published only after retained preparation, with its own seed receipt.
 DELIVERY_ONLY = {"tools/quest-builder/update_seed.py", "tools/quest-builder/menu_depth_resources.py",
-                 "tools/quest-builder/menu_depth_content.py", "tools/quest-builder/menu_depth_update.py"}
+                 "tools/quest-builder/menu_depth_content.py", "tools/quest-builder/menu_depth_update.py",
+                 "tools/quest-builder/sky_resources.py"}
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 # The completed preparation journal lists original output contracts, rather than
 # only a small control manifest. Capture134446 reports 25,864,174 journal bytes
@@ -196,6 +197,17 @@ BUILDER_MENU_DEPTH_AST = {
     True: ("2bb27cff4a8918c721396176794e809c27b7142fc5485f831b8d8d39e170b3a3",
            "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
 }
+
+
+# Build741 adds one captured helper and a separately closed native sky resource
+# after prepare(), inside weave(). The complete original preparation, build order
+# and all four authored-art producers are unchanged. Bind the complete normalized
+# full/prefix ASTs; unknown globals or earlier consumers still change identity.
+BUILDER_DEFAULT_SKY_AST = {False: ('8117be0e1c2011cd250676fa83ab4cde5922da030f6cda616dec76cfa5c538f4', '6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1'), True: ('b8957ea0c5d711392dac0172d5ae849d58b4916a84509cafbabbb7acc6d7c1c0', 'cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f')}
+# Selection/receipt hosts do not produce retained original assets. Admit only
+# these complete reviewed bytes; runtime, shader and weaver inputs stay distinct.
+SKY_DELIVERY_ROWS = {'tools/quest-builder/release.py': ({'path': 'tools/quest-builder/release.py', 'size': 30875, 'sha256': 'db320398f3c25f648e7d4895a1a3b7209796dfaff95ec34628ddb133c556afff'}, {'path': 'tools/quest-builder/release.py', 'size': 30586, 'sha256': '4afc220e36071f000b8d51d4e5d68a337dff482fb45c9e8e671ab3b6bac021d2'})}
+SKY_INSTALLED_UPDATE_DELIVERY_ROWS = {'tools/quest-builder/update_driver.py': ({'path': 'tools/quest-builder/update_driver.py', 'size': 112568, 'sha256': '03932d78d74f439d09d45a4e21057fbcbb8e6b37329012113d977653b3eab29e'}, {'path': 'tools/quest-builder/update_driver.py', 'size': 110448, 'sha256': 'a791248f986fad53840d70d5485a439fd33de69d912a2c8f87ae4d92d029444a'})}
 
 # Exact delivery-only readers, not generated original assets. The native JSON
 # reader opens two retained Resources contracts; the installation validator
@@ -692,6 +704,8 @@ def builder_producer_digest(raw, *, original_prefix=False):
     if result == observed: result = preceding
     result = BUILDER_COMMAND_OUTCOME_AST.get(result, result)
     observed, preceding = BUILDER_MENU_DEPTH_AST[bool(original_prefix)]
+    if result == observed: return preceding
+    observed, preceding = BUILDER_DEFAULT_SKY_AST[bool(original_prefix)]
     return preceding if result == observed else result
 
 
@@ -761,6 +775,9 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     rows = [MENU_DEPTH_DELIVERY_ROWS[row["path"]][1]
             if row["path"] in MENU_DEPTH_DELIVERY_ROWS and row == MENU_DEPTH_DELIVERY_ROWS[row["path"]][0]
             else row for row in rows]
+    rows = [SKY_DELIVERY_ROWS[row["path"]][1]
+            if row["path"] in SKY_DELIVERY_ROWS and row == SKY_DELIVERY_ROWS[row["path"]][0]
+            else row for row in rows]
     if inputs.get("proceduralBackend") == "proton-arm64ec-fex":
         rows = [PROTON_DOWNLOAD_PREVIOUS if row == PROTON_DOWNLOAD_FIXED else row for row in rows]
     if completed:
@@ -773,7 +790,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     if original_prefix:
         reviewed = []
         for row in rows:
-            for aliases in (INSTALLED_UPDATE_DELIVERY_ROWS,
+            for aliases in (SKY_INSTALLED_UPDATE_DELIVERY_ROWS, INSTALLED_UPDATE_DELIVERY_ROWS,
                             globals().get("INSTALLED_UPDATE_DELIVERY_PREVIOUS_ROWS", {})):
                 current, preceding = aliases.get(row["path"], (None, row))
                 if row == current: row = preceding

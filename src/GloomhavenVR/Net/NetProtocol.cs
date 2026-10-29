@@ -629,7 +629,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 740;
+    public const ushort ModBuild = 741;
+
+    // ModBuild741 — Quest integration after finalized dev740.
+    // Preserve the accepted menu depth, character quality, hover, confirmation
+    // and environment behavior, together with all existing Quest presentation,
+    // input, profile and installed-APK update adapters. Qualify the renamed
+    // readonly AOT reader closure without changing its field access semantics.
+    // Supply the original render-only Default sky through an independent Android
+    // resource pair: existing Android player assets are preferred; first PC builds
+    // compile only its three original shaders. Retain all Campaign, authored art,
+    // movie, figure and audio producers. Bind portable resources to the already
+    // qualified APK, publish real shader progress and retain fast-update inputs
+    // while cleaning closed generation caches. Source-only delivery; headset
+    // appearance remains a separate hardware acceptance item.
 
     // ModBuild740 — selected surroundings in the main menu, 3D map and scenarios.
     // The maintainer extends the environment choice to every VR context, including
