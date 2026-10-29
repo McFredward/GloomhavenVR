@@ -24,6 +24,11 @@ internal static partial class ModalFallback
     /// </summary>
     internal static bool ReleaseForComposite(UIWindow window)
     {
+        // An owner-bound confirmation also carries a native-home restoration lease.
+        // Retire it before an external composite (including an immersive NPC palm)
+        // snapshots this original, so no delayed owner cleanup can reclaim it later.
+        if (!ConfirmationOnOwner.ReleaseForExternalOwner(window))
+            return false;
         for (int i = Converted.Count - 1; i >= 0; i--)
         {
             WindowPanel wp = Converted[i];

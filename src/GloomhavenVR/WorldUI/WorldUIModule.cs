@@ -86,6 +86,9 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(MapItemConfirmationRequestObserver)); // observe the exact native box before its first request event
         VRSession.Harmony?.PatchAll(typeof(ConfirmationProducerScopePatch));
         VRSession.Harmony?.PatchAll(typeof(ConfirmationRequestOriginPatch));
+        VRSession.Harmony?.PatchAll(typeof(ItemConfirmationRequestOriginPatch));
+        VRSession.Harmony?.PatchAll(typeof(DeferredConfirmationProducerScopePatch));
+        VRSession.Harmony?.PatchAll(typeof(PersistentConfirmationActionScopePatch));
         VRSession.Harmony?.PatchAll(typeof(TownServiceRitualConfirmationCapture)); // preserve offering ownership through native confirmation fade
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementGrantGuard)); // recheck host ownership at native enhancement confirmation
         VRSession.Harmony?.PatchAll(typeof(TownServiceEnhancementVoiceCapture)); // original confirmed enchantment drives resident speech
